@@ -23,7 +23,6 @@ import type {
   BrowserVocabularyDocument,
 } from "../src/facades/inspect-web-catalog.d.ts";
 import type {
-  BrowserGalleryDiscoveryCatalog,
   BrowserPackageQueryFacetCatalog,
 } from "../src/facades/inspect-web-package.d.ts";
 import {
@@ -56,13 +55,6 @@ const facets: BrowserPackageQueryFacetCatalog = {
     displayGroupId: "package", displayGroupLabel: "Package",
   }],
 };
-const gallery: BrowserGalleryDiscoveryCatalog = {
-  packageType: {
-    id: "package-type", label: "Type", summary: "Package type",
-    suggestions: [{ value: "DotnetTool", label: "Tool" }],
-  },
-  orders: [{ id: "downloads", label: "Downloads", summary: "Most downloaded first." }],
-};
 const cases = [
   { operation: engineStartupOperations.buildIdentity, expected: identity, field: "version",
     read: (client: EngineStartupClient) => client.host.buildIdentity() },
@@ -72,8 +64,6 @@ const cases = [
     read: (client: EngineStartupClient) => client.catalog.listHomeDemos() },
   { operation: engineStartupOperations.listPackageQueryFacets, expected: facets, field: "facets",
     read: (client: EngineStartupClient) => client.package.listPackageQueryFacets() },
-  { operation: engineStartupOperations.listGalleryDiscoveryCatalog, expected: gallery, field: "orders",
-    read: (client: EngineStartupClient) => client.package.listGalleryDiscoveryCatalog() },
 ];
 
 function deferred<T>() {
@@ -97,7 +87,6 @@ function fixture(options: {
     async listVocabulary() { calls.push("vocabulary"); return vocabulary; },
     async listHomeDemos() { calls.push("demos"); return demos; },
     async listPackageQueryFacets() { calls.push("facets"); return facets; },
-    async listGalleryDiscoveryCatalog() { calls.push("gallery"); return gallery; },
     ...options.reads,
   });
   const workers = Array.from({ length: 2 }, () => new FakeWorkerRuntime({
@@ -131,18 +120,18 @@ function fixture(options: {
   return { host, client, environment, calls, failures, diagnostics, workers, starts: () => starts };
 }
 
-test("all five cold reads share readiness and preserve full generated-shaped results", async () => {
+test("all four cold reads share readiness and preserve full generated-shaped results", async () => {
   const ready = deferred<void>();
   const state = fixture({ bootstrap: () => ready.promise });
   const results = Promise.all(cases.map(item => item.read(state.client)));
-  assert.equal(state.host.snapshot().heldOperations, 5);
+  assert.equal(state.host.snapshot().heldOperations, 4);
   await state.environment.flushAsync();
   assert.equal(state.starts(), 1);
   assert.deepEqual(state.calls, []);
   ready.resolve();
   await state.environment.flushAsync();
   assert.deepEqual(await results, cases.map(item => item.expected));
-  assert.deepEqual(state.calls, ["identity", "vocabulary", "demos", "facets", "gallery"]);
+  assert.deepEqual(state.calls, ["identity", "vocabulary", "demos", "facets"]);
   assert.deepEqual(await Promise.all(cases.map(item => item.read(state.client))), cases.map(item => item.expected));
   assert.equal(state.starts(), 1);
   assert.equal(state.host.snapshot().activeOperations, 0);
@@ -175,7 +164,7 @@ test("a managed exception rejects its read without failing neighboring reads", a
   assert.deepEqual(await neighbor, demos);
   assert.equal(state.host.snapshot().phase, "ready");
   assert.deepEqual(state.failures, []);
-  assert.deepEqual(await state.client.package.listGalleryDiscoveryCatalog(), gallery);
+  assert.deepEqual(await state.client.package.listPackageQueryFacets(), facets);
   state.host.dispose();
 });
 

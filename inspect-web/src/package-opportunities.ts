@@ -2,6 +2,7 @@ import type {
   BrowserOpportunityItem,
   BrowserPackageOpportunities,
 } from "./facades/inspect-web-analysis.d.ts";
+import { renderIntegrationInspector } from "./integration-inspector.ts";
 
 export type OpportunityItem = BrowserOpportunityItem;
 type PackageOpportunities = Pick<
@@ -145,8 +146,8 @@ function renderOpportunityRow(item: OpportunityItem, escapeHtml: (value: unknown
 
 export function renderPackageOpportunities(options: RenderPackageOpportunitiesOptions): string {
   const {
-    libraryName, assemblyIdentity, assetPath, coordinate,
-    requireLibrary, pickerHtml, fresh, loading, error, data, escapeHtml,
+    libraryName,
+    requireLibrary, fresh, loading, error, data, escapeHtml,
   } = options;
   let status: string;
   let content: string;
@@ -187,17 +188,5 @@ export function renderPackageOpportunities(options: RenderPackageOpportunitiesOp
       content = `${warning}${note}${categories.length ? blocks : empty}`;
     }
   }
-  const identity = assetPath ? `${assetPath} \u00b7 ${assemblyIdentity}` : assemblyIdentity;
-  return `<section class="library-opportunities-surface${pickerHtml ? " library-opportunities-with-controls" : ""}" aria-labelledby="library-opportunities-title">
-    <header class="api-surface-head">
-      <h1 id="library-opportunities-title">Opportunities</h1>
-      <p title="${escapeHtml(status)}">${escapeHtml(status)}</p>
-    </header>
-    ${pickerHtml ? `<section class="library-opportunities-controls" aria-label="Opportunity scan library">${pickerHtml}</section>` : ""}
-    <div class="library-opportunities-scroll">${content}</div>
-    <footer class="metadata-surface-footer">
-      <span title="${escapeHtml(identity)}">${escapeHtml(identity)}</span>
-      <span title="${escapeHtml(coordinate)}">${escapeHtml(coordinate)}</span>
-    </footer>
-  </section>`;
+  return renderIntegrationInspector(options, "opportunities", status, content);
 }

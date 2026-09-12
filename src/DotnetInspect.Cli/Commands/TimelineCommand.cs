@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Sections;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
@@ -20,12 +21,15 @@ namespace DotnetInspect.Cli.Commands;
 public static class TimelineCommand
 {
     public const string Name = "timeline";
-    public const string EvaluationsSection = "Evaluations";
-    public const string TransitionsSection = "Transitions";
+    public const string EvaluationsSection = TimelineSections.Evaluations;
+    public const string TransitionsSection = TimelineSections.Transitions;
 
     public static async Task<int> ExecuteAsync(TimelineOptions options)
     {
-        if (!TryValidate(options, out var range, out var descriptor, out var selectedSections, out var error))
+        if (!TryResolveSections(options, out var selectedSections))
+            return 1;
+
+        if (!TryValidate(options, selectedSections, out var range, out var descriptor, out var error))
         {
             CommandError.Write($"{error}");
             return 1;
@@ -1266,16 +1270,13 @@ public static class TimelineCommand
 
     static bool TryValidate(
         TimelineOptions options,
+        HashSet<string> selectedSections,
         out PackageVersionRange? range,
         out string? descriptor,
-        out HashSet<string> selectedSections,
         out string? error)
     {
         range = null;
         descriptor = NormalizeDescriptor(options.Finding);
-        selectedSections = ResolveSections(options.Select, options.SelectDefault, out error);
-        if (error is not null)
-            return false;
 
         if (!PackageVersionRange.TryParse(options.PackageVersionRange, out range, out error))
         {
@@ -1336,43 +1337,34 @@ public static class TimelineCommand
             || descriptor == AnalysisFindings.CallSiteDescriptor.Id
             || descriptor == AnalysisFindings.UnsafetyDescriptor.Id;
 
-    // Bare -S asks for the fixed/bounded overview: the sections whose row count is structurally
-    // constant across every target. Both timeline sections grow with the version range, so there
-    // is no such subset here and bare -S is refused rather than silently widened to the default
-    // view. It was refused before #3547 too, but by leaking the internal '@Default' marker into
-    // the message; the refusal is what is preserved, not the spelling.
-    static HashSet<string> ResolveSections(string[]? select, bool selectDefault, out string? error)
+    // Timeline has no fixed-size overview: both sections grow with the version range. Preserve
+    // the deliberate bare -S refusal while routing named selection through the shared resolver.
+    internal static bool TryResolveSections(
+        TimelineOptions options,
+        out HashSet<string> sections)
     {
-        HashSet<string> sections = new(StringComparer.OrdinalIgnoreCase);
-        if (selectDefault && (select is null || select.Length == 0))
+        sections = new(StringComparer.OrdinalIgnoreCase);
+        if (options.SelectDefault && (options.Select is null || options.Select.Length == 0))
         {
-            error = "Bare -S has no fixed sections for timeline. Use -S Evaluations or -S Transitions.";
-            return sections;
+            CommandError.Write(
+                "Bare -S has no fixed sections for timeline. Use -S Evaluations or -S Transitions.");
+            return false;
         }
 
-        if (select is null || select.Length == 0)
-        {
-            sections.Add(EvaluationsSection);
-            sections.Add(TransitionsSection);
-            error = null;
-            return sections;
-        }
+        SelectResult selection = SelectResolver.ResolveSelectAsSections(
+            options.Select,
+            TimelineSections.Catalog.SelectableSectionNames,
+            infoSections: [],
+            TimelineSections.Catalog.SelectionCategoryMap,
+            selectDefault: false);
+        if (SelectOutput.WriteUnresolved(selection))
+            return false;
 
-        foreach (string value in select)
-        {
-            if (value.Equals(EvaluationsSection, StringComparison.OrdinalIgnoreCase))
-                sections.Add(EvaluationsSection);
-            else if (value.Equals(TransitionsSection, StringComparison.OrdinalIgnoreCase))
-                sections.Add(TransitionsSection);
-            else
-            {
-                error = $"Unknown timeline section '{value}'. Use Evaluations or Transitions.";
-                return sections;
-            }
-        }
-
-        error = null;
-        return sections;
+        sections = selection.Sections
+            ?? new HashSet<string>(
+                [EvaluationsSection, TransitionsSection],
+                StringComparer.OrdinalIgnoreCase);
+        return true;
     }
 
     internal static int Write(
@@ -1382,9 +1374,7 @@ public static class TimelineCommand
     {
         if (options.Count)
         {
-            var schema = TimelineViewContext.Default
-                .GetSchemaInfo<TimelineDocumentView>()!
-                .ToDocumentSchema();
+            var schema = TimelineSections.CreateSchema();
             if (!ProjectionDiagnostics.ValidateProjection(
                     schema, selectedSections, options.Fields, options.Columns))
             {

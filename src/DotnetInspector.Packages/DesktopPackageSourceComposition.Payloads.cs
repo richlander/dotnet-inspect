@@ -10,7 +10,7 @@ public sealed partial class DesktopPackageSourceComposition
     /// The store factory must return a store scoped to the supplied authority.
     /// An external operation remains caller-owned through payload consumption.
     /// </summary>
-    public async Task<ConfiguredPackagePayloadResult> AcquirePinnedAsync(
+    public Task<ConfiguredPackagePayloadResult> AcquirePinnedAsync(
         string packageId,
         string version,
         Func<ConfiguredPackageAuthority, PackageProducerIdentity, IPackageStore> createStore,
@@ -20,9 +20,26 @@ public sealed partial class DesktopPackageSourceComposition
         NuGetOperationContext? operationContext = null,
         PackagePayloadLimits? limits = null,
         IPackagePayloadTransferPolicy? transferPolicy = null,
-        string? requiredProducerKey = null)
+        string? requiredProducerKey = null) =>
+        PackageSourceSettlementCompatibility.RunAsync(
+            _sourceLease, cancellationToken, operationContext,
+            (generation, operation) => AcquirePinnedCoreAsync(
+                generation, packageId, version, createStore, sourceOptions, log,
+                operation, limits, transferPolicy, requiredProducerKey),
+            _options.RequestTimeout, _options.OperationTimeout);
+
+    private async Task<ConfiguredPackagePayloadResult> AcquirePinnedCoreAsync(
+        PackageSourceSettlementGeneration generation,
+        string packageId,
+        string version,
+        Func<ConfiguredPackageAuthority, PackageProducerIdentity, IPackageStore> createStore,
+        NuGetSourceOptions? sourceOptions,
+        Action<string>? log,
+        NuGetOperationContext operation,
+        PackagePayloadLimits? limits,
+        IPackagePayloadTransferPolicy? transferPolicy,
+        string? requiredProducerKey)
     {
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         ArgumentNullException.ThrowIfNull(createStore);
         var failures = new List<PackageAuthorityFailure>();
         if (!PackageExtractor.IsValidPackageId(packageId)
@@ -34,14 +51,11 @@ public sealed partial class DesktopPackageSourceComposition
             return new(null, null, null, failures);
         }
 
-        using NuGetOperationContext? ownedOperation = operationContext is null
-            ? CreateOperationContext(cancellationToken)
-            : null;
-        NuGetOperationContext operation = operationContext ?? ownedOperation!;
-        _ = operation.ResolveInvocationToken(cancellationToken);
+        CancellationToken cancellationToken = operation.CancellationToken;
         PackageSourceCoordinate coordinate = PackageSourceCoordinate.Create(packageId, normalizedVersion);
         PackageAcquisitionCandidateResult resolution =
-            ResolvePinnedCandidate(
+            ResolvePinnedCandidateCore(
+                generation,
                 coordinate,
                 sourceOptions,
                 cancellationToken,
@@ -77,12 +91,13 @@ public sealed partial class DesktopPackageSourceComposition
                 return new(null, null, null, failures);
             }
 
-            candidate = _sourceLease.CreatePinnedCandidate(
+            candidate = generation.CreatePinnedCandidate(
                 coordinate,
                 matchingAuthorities);
         }
 
         return await AcquireCandidateAsync(
+            generation,
             candidate,
             createStore,
             log,
@@ -92,7 +107,8 @@ public sealed partial class DesktopPackageSourceComposition
             failures).ConfigureAwait(false);
     }
 
-    private Task<ConfiguredPackagePayloadResult> AcquireCandidateAsync(
+    private static Task<ConfiguredPackagePayloadResult> AcquireCandidateAsync(
+        PackageSourceSettlementGeneration generation,
         PackageAcquisitionCandidate candidate,
         Func<ConfiguredPackageAuthority, PackageProducerIdentity, IPackageStore> createStore,
         Action<string>? log,
@@ -101,7 +117,7 @@ public sealed partial class DesktopPackageSourceComposition
         IPackagePayloadTransferPolicy? transferPolicy,
         List<PackageAuthorityFailure> failures,
         bool selectionUsesOriginalSources = false)
-        => _sourceLease.AcquireCandidatePayloadAsync(
+        => generation.AcquireCandidatePayloadAsync(
             candidate,
             createStore,
             log,

@@ -70,7 +70,6 @@ public enum PackageQueryRequestFailureReason
     DuplicateFacet,
     IncompatibleFacets,
     PackageContentCandidateLimitExceeded,
-    InvalidSearchText,
     InvalidPackageInput,
 }
 
@@ -98,8 +97,6 @@ public sealed record PackageQueryRequestFailure
     {
         PackageQueryRequestFailureReason.InvalidPrefix =>
             "The package-query prefix is invalid.",
-        PackageQueryRequestFailureReason.InvalidSearchText =>
-            "The Gallery search text is invalid.",
         PackageQueryRequestFailureReason.InvalidPackageInput =>
             "Enter a package ID or a literal package-ID prefix followed by one '*'.",
         PackageQueryRequestFailureReason.InvalidCandidateLimit =>
@@ -146,7 +143,6 @@ public sealed class PackageQueryPlan
         int maximumCandidates,
         int maximumMatches,
         bool includePrerelease,
-        NuGetGalleryDiscoveryRequest? galleryRequest = null,
         SourceSelector? packageInput = null)
     {
         Prefix = prefix;
@@ -156,7 +152,6 @@ public sealed class PackageQueryPlan
         MaximumCandidates = maximumCandidates;
         MaximumMatches = maximumMatches;
         IncludePrerelease = includePrerelease;
-        GalleryRequest = galleryRequest;
         PackageInput = packageInput;
     }
 
@@ -165,7 +160,6 @@ public sealed class PackageQueryPlan
     public int MaximumCandidates { get; }
     public int MaximumMatches { get; }
     public bool IncludePrerelease { get; }
-    public NuGetGalleryDiscoveryRequest? GalleryRequest { get; }
     public SourceSelector? PackageInput { get; }
 
     internal InertString PrefixEvidence { get; }
@@ -239,7 +233,6 @@ public enum PackageQueryCompletionKind
     SourcePageLimitReached,
     ClientPageLimitReached,
     Failed,
-    GalleryResponseComplete,
     ExactPackageComplete,
 }
 
@@ -255,7 +248,6 @@ public sealed record PackageQuerySummary(
     PackageQueryCompletionKind Completion)
 {
     public int? SourceCandidates { get; init; }
-    public long? EstimatedTotalHits { get; init; }
 }
 
 /// <summary>A bounded checkpoint in package-query work.</summary>
@@ -370,15 +362,19 @@ public static partial class PackageQuery
             new PackageQueryFacetDescriptor(
                 ToolFacetId,
                 ".NET Tool",
-                "The package manifest declares the .NET tool package type.",
+                "Downloads the package and inspects its .NET tool CLI format.",
                 200,
-                PackageQueryFacetTier.Nuspec,
+                PackageQueryFacetTier.PackageContent,
                 ToolSelectionGroupId,
                 ToolDisplayGroupId,
                 ".NET tool format"),
             static match => match.RequiredManifest.IsToolPackage,
-            static (_, _) => Describe(
-                "The package manifest declares a .NET tool package.")),
+            static (_, content) => DescribeToolFormat(
+                (content
+                    ?? throw new InvalidOperationException(
+                        ".NET tool evidence requires package-content facts."))
+                    .ToolSettingsVersion),
+            static _ => true),
         new(
             new PackageQueryFacetDescriptor(
                 ToolV1FacetId,
@@ -393,8 +389,7 @@ public static partial class PackageQuery
                 CombinesWithinSelectionGroup = true,
             },
             static match => match.RequiredManifest.IsToolPackage,
-            static (_, _) => Describe(
-                "DotnetToolSettings.xml declares the portable .NET tool v1 format."),
+            static (_, _) => DescribeToolFormat("1"),
             static content => content.ToolSettingsVersion == "1"),
         new(
             new PackageQueryFacetDescriptor(
@@ -410,8 +405,7 @@ public static partial class PackageQuery
                 CombinesWithinSelectionGroup = true,
             },
             static match => match.RequiredManifest.IsToolPackage,
-            static (_, _) => Describe(
-                "DotnetToolSettings.xml declares the RID-specific .NET tool v2 format."),
+            static (_, _) => DescribeToolFormat("2"),
             static content => content.ToolSettingsVersion == "2"),
         new(
             new PackageQueryFacetDescriptor(
@@ -528,7 +522,6 @@ public static partial class PackageQuery
         int maximumCandidates,
         int maximumMatches,
         bool includePrerelease,
-        NuGetGalleryDiscoveryRequest? galleryRequest = null,
         SourceSelector? packageInput = null)
     {
         if (maximumMatches
@@ -619,7 +612,6 @@ public static partial class PackageQuery
                 maximumCandidates,
                 maximumMatches,
                 includePrerelease,
-                galleryRequest,
                 packageInput));
     }
 
@@ -700,7 +692,6 @@ public static partial class PackageQuery
         int failures = 0;
         int packageContentCompleted = 0;
         int? sourceCandidates = null;
-        long? estimatedTotalHits = null;
         bool searchOutcomeObserved = false;
         bool sourceSearchFailed = false;
         cancellationToken.ThrowIfCancellationRequested();
@@ -716,7 +707,6 @@ public static partial class PackageQuery
             if (inputEvent is PackageQueryInputEvent.Acquired acquired)
             {
                 sourceCandidates = acquired.Count;
-                estimatedTotalHits = acquired.EstimatedTotalHits;
                 searchOutcomeObserved = true;
                 yield return Progress(
                     PackageQueryProgressPhase.Search, completed: 1, limit: 1);
@@ -866,11 +856,8 @@ public static partial class PackageQuery
                             failures,
                             plan.PackageInput is SourceSelector.Package
                                 ? PackageQueryCompletionKind.ExactPackageComplete
-                                : sourceCandidates == candidates
-                                ? PackageQueryCompletionKind.GalleryResponseComplete
                                 : PackageQueryCompletionKind.MatchLimitReached,
-                            sourceCandidates,
-                            estimatedTotalHits);
+                            sourceCandidates);
                         yield break;
                     }
                     break;
@@ -899,8 +886,7 @@ public static partial class PackageQuery
                         sourceSearchFailed
                             ? PackageQueryCompletionKind.Failed
                             : completed.Completion,
-                        sourceCandidates,
-                        estimatedTotalHits);
+                        sourceCandidates);
                     yield break;
             }
         }
@@ -958,7 +944,7 @@ public static partial class PackageQuery
                 {
                     continue;
                 }
-                evidence.Add(CreateFacetEvidence(candidate, match, null));
+                AddFacetEvidence(candidate, match, null, evidence);
             }
         }
 
@@ -1006,7 +992,7 @@ public static partial class PackageQuery
 
             foreach (PackageQueryFacetDefinition candidate in matched)
             {
-                evidence.Add(CreateFacetEvidence(candidate, match, content));
+                AddFacetEvidence(candidate, match, content, evidence);
             }
         }
 
@@ -1023,7 +1009,8 @@ public static partial class PackageQuery
         bool needsSkills = definitions.Any(definition =>
             definition.Descriptor.Id == EmbeddedSkillFacetId);
         bool needsToolSettings = definitions.Any(definition =>
-            definition.Descriptor.Id is ToolV1FacetId or ToolV2FacetId);
+            definition.Descriptor.Id
+                is ToolFacetId or ToolV1FacetId or ToolV2FacetId);
         PackageQueryEvidenceSummary? skills = needsSkills
             ? SummarizeItems(entries.Where(IsSkillDocument), StringComparer.Ordinal)
             : null;
@@ -1153,6 +1140,18 @@ public static partial class PackageQuery
             "dependency",
             "dependencies");
 
+    static PackageQueryFacetEvidence DescribeToolFormat(
+        string? settingsVersion) =>
+        settingsVersion switch
+        {
+            "1" => Describe(
+                "DotnetToolSettings.xml declares the portable .NET tool CLI v1 format."),
+            "2" => Describe(
+                "DotnetToolSettings.xml declares the RID-specific .NET tool CLI v2 format."),
+            _ => Describe(
+                "The package manifest declares a .NET tool, but its settings do not identify CLI v1 or CLI v2."),
+        };
+
     static PackageQueryEvidenceSummary SummarizeItems(
         IEnumerable<string> items,
         StringComparer comparer)
@@ -1200,6 +1199,27 @@ public static partial class PackageQuery
         };
     }
 
+    static void AddFacetEvidence(
+        PackageQueryFacetDefinition definition,
+        PackageQueryPackage package,
+        PackageContentFacts? content,
+        ImmutableArray<PackageQueryEvidence>.Builder evidence)
+    {
+        int insertionIndex = 1;
+        while (insertionIndex < evidence.Count
+            && DefinitionsById.TryGetValue(
+                evidence[insertionIndex].Id,
+                out PackageQueryFacetDefinition? existing)
+            && existing.Descriptor.Weight < definition.Descriptor.Weight)
+        {
+            insertionIndex++;
+        }
+
+        evidence.Insert(
+            insertionIndex,
+            CreateFacetEvidence(definition, package, content));
+    }
+
     static string Pluralize(int count, string singular, string plural) =>
         count == 1 ? singular : plural;
 
@@ -1219,8 +1239,7 @@ public static partial class PackageQuery
         int matches,
         int failures,
         PackageQueryCompletionKind completion,
-        int? sourceCandidates = null,
-        long? estimatedTotalHits = null) =>
+        int? sourceCandidates = null) =>
         new(
             new PackageQuerySummary(
                 plan.Prefix,
@@ -1233,7 +1252,6 @@ public static partial class PackageQuery
                 completion)
             {
                 SourceCandidates = sourceCandidates,
-                EstimatedTotalHits = estimatedTotalHits,
             });
 
     static PackageQueryCompletionKind MapCompletion(

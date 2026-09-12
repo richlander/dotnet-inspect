@@ -12,7 +12,6 @@
       ],
       "targets": [
         "CSharpText",
-        "Inspector.Artifacts",
         "Inspector.Resources",
         "DotnetInspector.RowSelection",
         "Inspector.Findings",
@@ -22,6 +21,21 @@
       ],
       "allowOnly": [
         "$platform"
+      ]
+    },
+    {
+      "id": "artifact-contract-floor-dependencies",
+      "source": "docs/design/artifact-ownership-and-borrowing.md#authority-and-exact-claim",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "Inspector.Artifacts"
+      ],
+      "allowOnly": [
+        "$platform",
+        "Inspector.Resources"
       ]
     },
     {
@@ -77,6 +91,22 @@
         "$platform",
         "InertText",
         "NetworkAccess"
+      ]
+    },
+    {
+      "id": "cache-stays-within-owner-boundary",
+      "source": "docs/design/library-family-boundaries.md#dotnetinspector-the-broader-net-ecosystem",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "DotnetInspector.Cache"
+      ],
+      "allowOnly": [
+        "$platform",
+        "InertText",
+        "DotnetInspector.Networking"
       ]
     },
     {

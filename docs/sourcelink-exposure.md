@@ -334,9 +334,10 @@ network requests.
   availability reuse. Origin-validated positives are permanent only for
   recognized immutable commit-pinned URLs and otherwise retain a one-day TTL.
   Non-success results lack final-origin evidence and remain operation-local.
-- Integrity positives are cached permanently only when the provenance grammar
-  establishes an immutable commit-pinned GitHub or Azure DevOps URL. Integrity
-  results for unknown hosts and moving or ambiguous selectors are not cached.
+- [Source integrity audit](design/source-integrity-audit.md) owns checksum
+  classification and reuse. Exact and line-ending-normalized positives are
+  permanent only when the provenance grammar establishes an immutable
+  commit-pinned URL. Mutable positives and failed operations are not cached.
 - The target bare-library effective catalog may persist successful
   package/platform section summaries under its versioned semantic key. The
   slice-5 successor keys on retained assembly content plus complete typed

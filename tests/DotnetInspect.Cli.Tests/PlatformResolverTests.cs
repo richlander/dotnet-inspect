@@ -1,6 +1,6 @@
+using DotnetInspector.Cache;
 using System.Reflection;
 using System.Runtime.InteropServices;
-using DotnetInspector.Core;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using ILInspector.Metadata;
@@ -1021,14 +1021,14 @@ public class PlatformResolverTests
     }
 
     [Fact]
-    public void GetInstalledFrameworks_DefaultDiscoveryRefreshesAfterCoreCacheRootChanges()
+    public void GetInstalledFrameworks_DefaultDiscoveryRefreshesAfterPersistentCacheRootChanges()
     {
         const string SyntheticVersion = "999.0.0";
         string temporaryCache = Directory.CreateTempSubdirectory(
             "dotnet-inspect-platform-cache-").FullName;
         try
         {
-            CoreCache.Initialize("dotnet-inspect-test", temporaryCache);
+            PersistentCache.Initialize("dotnet-inspect-test", temporaryCache);
             var (baselineRefPath, _, baselineError) =
                 PlatformResolver.ResolveFramework("runtime");
             if (baselineRefPath is null)
@@ -1063,7 +1063,7 @@ public class PlatformResolverTests
         }
         finally
         {
-            CoreCache.Initialize("dotnet-inspect-test");
+            PersistentCache.Initialize("dotnet-inspect-test");
             Directory.Delete(temporaryCache, recursive: true);
         }
 
@@ -1086,7 +1086,7 @@ public class PlatformResolverTests
             "dotnet-inspect-platform-snapshot-").FullName;
         try
         {
-            CoreCache.Initialize(
+            PersistentCache.Initialize(
                 "dotnet-inspect-test",
                 Path.Combine(temporaryRoot, "cache"));
             var (baselineRefPath, _, baselineError) =
@@ -1209,7 +1209,7 @@ public class PlatformResolverTests
             Environment.SetEnvironmentVariable(
                 "DOTNET_ROOT",
                 originalDotnetRoot);
-            CoreCache.Initialize("dotnet-inspect-test");
+            PersistentCache.Initialize("dotnet-inspect-test");
             Directory.Delete(temporaryRoot, recursive: true);
         }
 

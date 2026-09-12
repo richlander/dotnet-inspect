@@ -51,6 +51,7 @@ declare -a assemblies=(
 )
 
 declare -a self_assemblies=(
+  "$root/artifacts/bin/DotnetInspector.Cache/release/DotnetInspector.Cache.dll"
   "$root/artifacts/bin/DotnetInspector.Core/release/DotnetInspector.Core.dll"
   "$root/artifacts/bin/DotnetInspector.Networking/release/DotnetInspector.Networking.dll"
   "$root/artifacts/bin/NetworkAccess/release/NetworkAccess.dll"

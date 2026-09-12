@@ -50,7 +50,8 @@ public sealed record CSharpFormatOptions
     /// <summary>
     /// Opts into model-aware method/field spelling. Null retains the compatibility
     /// view. Unavailable evidence or unsupported forms throw NotSupportedException;
-    /// use CSharpTypePrinter for an atomic, diagnostic-bearing print outcome.
+    /// use FormatMemberOutcome for one declaration or CSharpTypePrinter for an
+    /// atomic type-level, diagnostic-bearing print outcome.
     /// </summary>
     public CSharpMemorySafetyLanguage? MemorySafetyLanguage { get; init; }
     /// <summary>An affirmative choice to emit an extern declaration, not a body-RVA inference.</summary>
@@ -71,6 +72,47 @@ public sealed record CSharpFormattedDeclaration(
     string Text,
     ImmutableSortedSet<string> Usings,
     IReadOnlyList<string> Diagnostics);
+
+public sealed record CSharpMemberDeclarationDiagnostic(
+    string TypeName,
+    string MemberName,
+    string Message);
+
+/// <summary>
+/// The typed result of rendering one selected member declaration.
+/// </summary>
+public abstract record CSharpMemberDeclarationOutcome
+{
+    private CSharpMemberDeclarationOutcome()
+    {
+    }
+
+    public sealed record Rendered : CSharpMemberDeclarationOutcome
+    {
+        internal Rendered(
+            CSharpFormattedDeclaration declaration,
+            bool usesCompatibilitySpelling)
+        {
+            Declaration = declaration;
+            UsesCompatibilitySpelling = usesCompatibilitySpelling;
+        }
+
+        public CSharpFormattedDeclaration Declaration { get; }
+
+        /// <summary>
+        /// True only for an older surface with no typed module memory-safety facts.
+        /// </summary>
+        public bool UsesCompatibilitySpelling { get; }
+    }
+
+    public sealed record NotRendered : CSharpMemberDeclarationOutcome
+    {
+        internal NotRendered(CSharpMemberDeclarationDiagnostic diagnostic)
+            => Diagnostic = diagnostic;
+
+        public CSharpMemberDeclarationDiagnostic Diagnostic { get; }
+    }
+}
 
 /// <summary>
 /// Formats Metadata declaration shapes as C# without selecting or grouping APIs.
@@ -258,6 +300,44 @@ public sealed class CSharpFormatter
             member,
             _declarationOptions,
             methodParameters));
+    }
+
+    /// <summary>
+    /// Renders one selected declaration without requiring hosts to translate
+    /// model-aware refusal exceptions into presentation state.
+    /// </summary>
+    public CSharpMemberDeclarationOutcome FormatMemberOutcome(
+        ApiType type,
+        ApiMember member,
+        IReadOnlyList<string>? methodParameters = null)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(member);
+
+        bool usesCompatibilitySpelling =
+            _declarationOptions.MemorySafetyLanguage is not null
+            && type.MemorySafety is null;
+        CSharpDeclarationOptions declarationOptions = usesCompatibilitySpelling
+            ? _declarationOptions with { MemorySafetyLanguage = null }
+            : _declarationOptions;
+        try
+        {
+            return new CSharpMemberDeclarationOutcome.Rendered(
+                ToFormattedDeclaration(CSharpDeclarationWriter.RenderMemberUnit(
+                    type,
+                    member,
+                    declarationOptions,
+                    methodParameters)),
+                usesCompatibilitySpelling);
+        }
+        catch (NotSupportedException exception)
+        {
+            return new CSharpMemberDeclarationOutcome.NotRendered(
+                new CSharpMemberDeclarationDiagnostic(
+                    type.FullName,
+                    member.Name,
+                    exception.Message));
+        }
     }
 
     public string FormatTypeDeclaration(

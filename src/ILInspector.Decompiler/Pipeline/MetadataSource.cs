@@ -97,6 +97,11 @@ public sealed class MetadataSource : IDisposable
     /// </summary>
     public bool SimulateNewRules { get; set; }
 
+    internal MemorySafetyModeDecision MemorySafetyMode
+        => MemorySafetyModeDecision.Resolve(
+            MemorySafety.Rules,
+            SimulateNewRules);
+
     internal PEReader Pe { get; }
 
     internal MetadataReader Reader { get; }

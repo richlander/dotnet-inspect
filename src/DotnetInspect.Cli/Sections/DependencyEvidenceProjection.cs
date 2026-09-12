@@ -30,6 +30,8 @@ public enum DependencyEvidenceFailurePhase
     PackageProfile,
     Declaration,
     Graph,
+    Traversal,
+    Library,
 }
 
 /// <summary>The closed parent family of one restored graph edge.</summary>
@@ -143,7 +145,8 @@ public sealed record DependencyEvidenceRestoredEdgeRow(
     string PackageVersion,
     string VersionConstraint,
     InertString SourceVersionConstraintSpelling,
-    RestoredProjectDependencyRole Role);
+    RestoredProjectDependencyRole Role,
+    PackageDependencyEvidenceDeclarationIdentity? DeclarationAssociation);
 
 /// <summary>One owner-issued resolved package node and its aggregate role.</summary>
 public sealed record DependencyEvidenceRestoredPackageRow(
@@ -212,8 +215,28 @@ public sealed record DependencyEvidenceProjection(
     /// </summary>
     public static DependencyEvidenceProjection Create(
         PackageDependencyEvidenceOutcome outcome)
+        => Create(outcome, admittedRootIndexes: null, failedRootIndexes: null);
+
+    internal static DependencyEvidenceProjection Create(
+        PackageDependencyEvidenceOutcome outcome,
+        IReadOnlyList<int>? admittedRootIndexes,
+        IReadOnlyList<int?>? failedRootIndexes)
     {
         ArgumentNullException.ThrowIfNull(outcome);
+        if (admittedRootIndexes is not null
+            && admittedRootIndexes.Count != outcome.Roots.Length)
+        {
+            throw new ArgumentException(
+                "Each admitted evidence root requires one document root index.",
+                nameof(admittedRootIndexes));
+        }
+        if (failedRootIndexes is not null
+            && failedRootIndexes.Count != outcome.FailedRoots.Length)
+        {
+            throw new ArgumentException(
+                "Each failed evidence root requires one document root index.",
+                nameof(failedRootIndexes));
+        }
 
         var dependencies =
             ImmutableArray.CreateBuilder<DependencyEvidenceDependencyRow>();
@@ -226,15 +249,20 @@ public sealed record DependencyEvidenceProjection(
         var packages =
             ImmutableArray.CreateBuilder<DependencyEvidenceRestoredPackageRow>();
 
-        foreach (PackageDependencyEvidenceRootFailure failure in outcome.FailedRoots)
-            failures.Add(ProjectRootFailure(failure));
+        for (int index = 0; index < outcome.FailedRoots.Length; index++)
+        {
+            failures.Add(
+                ProjectRootFailure(
+                    outcome.FailedRoots[index],
+                    failedRootIndexes?[index]));
+        }
 
         int nextGroupIndex = 0;
         for (int index = 0; index < outcome.Roots.Length; index++)
         {
             PackageDependencyEvidenceRoot root = outcome.Roots[index];
             ProjectRoot(
-                index,
+                admittedRootIndexes?[index] ?? index,
                 root,
                 ref nextGroupIndex,
                 dependencies,
@@ -417,7 +445,8 @@ public sealed record DependencyEvidenceProjection(
                         relationship.SourceRequestedConstraintSpelling
                             ?? throw new InvalidOperationException(
                                 "A restored-project relationship requires source constraint evidence."),
-                        ReadRestoredRole(relationship.Role)));
+                        ReadRestoredRole(relationship.Role),
+                        relationship.DeclarationAssociation));
             }
 
             foreach (PackageDependencyEvidenceRelationshipFailure failure in
@@ -509,7 +538,8 @@ public sealed record DependencyEvidenceProjection(
                 : group.OrderKey;
 
     private static DependencyEvidenceFailureRow ProjectRootFailure(
-        PackageDependencyEvidenceRootFailure failure) =>
+        PackageDependencyEvidenceRootFailure failure,
+        int? rootIndex) =>
         failure switch
         {
             PackageDependencyEvidenceRootFailure.Package package =>
@@ -517,7 +547,7 @@ public sealed record DependencyEvidenceProjection(
                     DependencyEvidenceFailurePhase.Root,
                     package.Failure.Reason.ToString(),
                     package.AcquisitionForm,
-                    null,
+                    rootIndex,
                     null,
                     null,
                     null,
@@ -533,7 +563,7 @@ public sealed record DependencyEvidenceProjection(
                     DependencyEvidenceFailurePhase.Root,
                     restored.Failure.Reason.ToString(),
                     restored.AcquisitionForm,
-                    null,
+                    rootIndex,
                     null,
                     null,
                     null,
@@ -549,7 +579,7 @@ public sealed record DependencyEvidenceProjection(
                     DependencyEvidenceFailurePhase.Root,
                     authored.Failure.Reason.ToString(),
                     authored.AcquisitionForm,
-                    null,
+                    rootIndex,
                     null,
                     null,
                     null,
@@ -583,7 +613,7 @@ public sealed record DependencyEvidenceProjection(
                     DependencyEvidenceFailurePhase.Root,
                     acquisition.Reason.ToString(),
                     acquisition.AcquisitionForm,
-                    null,
+                    rootIndex,
                     null,
                     null,
                     null,

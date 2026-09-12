@@ -10,6 +10,7 @@ public class PrecisionRecallTests
         System.IO.Path.Combine(System.AppContext.BaseDirectory, "ILInspector.Analysis.dll");
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Candidates_RankLoopHighFirstByReach()
     {
         var candidates = PrecisionRecall.Candidates(SelfAssembly);
@@ -22,6 +23,7 @@ public class PrecisionRecallTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void CheckRecall_PresentReference_Passes()
     {
         // Build a reference from the assembly's own top loop+high site, so it must be present.
@@ -32,6 +34,7 @@ public class PrecisionRecallTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void CheckRecall_AbsentReference_IsRegression()
     {
         var reference = new[] { new PaydirtReference("X", "NoSuchType", "NoSuchMethod", "", "box-value-type") };
@@ -41,6 +44,7 @@ public class PrecisionRecallTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Sample_RespectsTopCount()
         => Assert.True(PrecisionRecall.Sample(SelfAssembly, 3).Candidates.Count <= 3);
 }

@@ -5,9 +5,6 @@ namespace NuGetFetch;
 /// </summary>
 public sealed record NuGetFetchOptions
 {
-    private static readonly TimeSpan MaximumCancellationTimeout =
-        TimeSpan.FromMilliseconds(uint.MaxValue - 1d);
-
     /// <summary>
     /// Default maximum size of a service-index, version-index, or search-response body.
     /// </summary>
@@ -136,7 +133,7 @@ public sealed record NuGetFetchOptions
         TimeSpan requestTimeout)
     {
         ValidateTimeout(requestTimeout, nameof(requestTimeout));
-        if (requestTimeout > MaximumCancellationTimeout / 4)
+        if (requestTimeout > NuGetOperationContext.MaximumTimeout / 4)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(requestTimeout),
@@ -243,12 +240,12 @@ public sealed record NuGetFetchOptions
                 "The timeout must be positive.");
         }
 
-        if (timeout > MaximumCancellationTimeout)
+        if (timeout > NuGetOperationContext.MaximumTimeout)
         {
             throw new ArgumentOutOfRangeException(
                 parameterName,
                 timeout,
-                $"The timeout cannot exceed {MaximumCancellationTimeout}.");
+                $"The timeout cannot exceed {NuGetOperationContext.MaximumTimeout}.");
         }
     }
 }

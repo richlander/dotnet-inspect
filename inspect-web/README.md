@@ -557,7 +557,7 @@ archive responses. Run the gate after building the frontend and publishing
 | Operation | Workspace | Query that owns the session |
 | --- | --- | --- |
 | `QueryPackage` | one package/version/framework | `AssemblyContextApiSurfaceQuery.ExecuteBounded(group, scope, limits, participants)` |
-| `QueryTypeProjection` | one package/version/framework | `AssemblyContextTypeProjectionQuery.ExecuteParticipant(...)` |
+| `QueryTypeProjection` | complete active package Workspace; one selected compile participant | `AssemblyContextTypeProjectionQuery.ExecuteParticipant(...)` and the L2 `TypeDependencySectionPlan` over `AssemblyContextTypeDependencyQuery.ExecuteParticipant(...)` |
 | `QueryMemberAnnotatedSource` | one package/version/framework | `AssemblyContextMemberProjectionQuery.ExecuteParticipant(...)` |
 | `QueryMemberFindingCensus` | one package/version/framework | one `AssemblyContextMemberProjectionQuery.ExecuteParticipant(...)` carrying Facts and Annotated Source identity |
 | `QueryMemberSource`, `QueryTypeSource`, `QueryTypeMemberSource` | one package/version/framework | `AssemblyContextSourceQuery.ExecuteMemberAsync(...)` / `ExecuteTypeAsync(...)` |
@@ -608,13 +608,39 @@ partial API surface are summarized there too, so healthy rows remain usable
 without presenting an incomplete surface as complete. The site folds that field
 into its query notice.
 
-`QueryTypeProjection` and `QueryMemberAnnotatedSource` run over one group
-participant. The Research queries own the `MetadataSource` and the whole-assembly
-`LibraryBodyIndex` themselves, take no filesystem path, and resolve references
-through the participant's own binding policy rather than by matching simple
-names. Type projection stays on the compile participant. Annotated source moves
-to its matching implementation participant and asks `CallGraphMemberResolver`
-to validate the surface's `MethodDef` token or remap it by the opaque structural
+`QueryTypeProjection` opens the complete exact package-coordinate set retained
+by the active Browser Workspace. Under one protected scope lease, it projects
+type shape and known derived types from the selected compile participant, then
+runs the shared participant-qualified type-dependency query over the complete
+surface group. Base and interface graph edges come only from the selected L2
+dependency rows; Research contributes the separately owned participant-local
+derived-type edges. The exact selected participant remains the dependency root
+even when another package defines the same full type name; if that participant
+does not contribute the exact normalized dependency-scanner root, the query
+reports the type as uncertified rather than borrowing another definition or a
+fuzzy same-participant match. For example, a non-public type remains available
+in the type-shape projection, but the public dependency scanner cannot certify
+its root: base and interface graph edges are absent and the incompleteness
+notice remains visible. The Type Relationships graph therefore retains
+participant-local derived types while expanding base-class and interface chains
+through other loaded package participants. The managed operation constructs
+the same L2 type-dependency plan as the CLI. The current browser gesture
+supplies no traversal-depth bound and an empty relationship-row intent, while
+the managed boundary retains typed Head, Tail, and Window capability for
+future view policy or controls.
+Rejected participants remain visible as relationship incompleteness, and the
+frontend request identity includes the complete package coordinate set so
+another retained Workspace cannot reuse those facts. A graph node or
+related-type chip navigates only when exactly one loaded Workspace surface owns
+that type identity; ambiguous and external nodes remain static. Platform-only
+type projection keeps its existing isolated runtime-pack scope.
+
+`QueryMemberAnnotatedSource` runs over one group participant. The Research query
+owns the `MetadataSource` and the whole-assembly `LibraryBodyIndex`, takes no
+filesystem path, and resolves references through the participant's own binding
+policy rather than by matching simple names. Annotated source moves to its
+matching implementation participant and asks `CallGraphMemberResolver` to
+validate the surface's `MethodDef` token or remap it by the opaque structural
 selector when `ref/` and `lib/` row numbers differ. It then returns the product's portable
 `AnnotatedSourceDocument` serialized by its owning
 `AnnotatedSourceDocumentJsonContext` — the same artifact the CLI writes and the
@@ -1038,8 +1064,8 @@ the main thread.
 
 That entry also exposes `createEngineWorkerStartupClient(origin, options)` for
 the Worker-only adoption host. Its facade-grouped `client` provides Promise
-results for build identity, vocabulary, home demos, Package Query facets, and
-Gallery discovery. Concurrent reads share one bootstrap without replacing one
+results for build identity, vocabulary, home demos, and Package Query facets.
+Concurrent reads share one bootstrap without replacing one
 another, and disposal rejects outstanding reads. Generated JSON-shaped results
 use a bounded transport string (1,048,576 UTF-16 code units per result) and
 generated-typed decoding; failures remain visible. The production application
@@ -1965,9 +1991,9 @@ routing, stale publication, and explicit Platform library scope;
 `test/spotlight-identity.test.js` gates the composition-root wiring.
 
 `src/source-inspection.ts` owns the mutually exclusive member, type, and
-call-graph source request lifecycle: shared cancellation, generation and
-per-surface identity checks, loading/error/result transitions, the graph
-modal's request-shaped state union, and focus-preserving completion.
+call-graph source request lifecycle: shared cancellation, request-owned Type
+and Member Source result states, per-surface identity checks, the graph modal's
+request-shaped state union, and focus-preserving completion.
 `dotnet-inspect.ts`
 validates the active selection, builds typed engine requests, supplies mutable
 state and rendering ports, and retains source presentation.
@@ -1975,6 +2001,8 @@ state and rendering ports, and retains source presentation.
 selection, visible failure, hidden type completion, graph close/cancellation,
 settled empty graph failure, and graph auto-load eligibility;
 `test/spotlight-identity.test.js` gates engine and composition-root wiring.
+The focused Type and Member Source state contract is
+[Inspect Web Type and Member Source State](../docs/design/inspect-web-type-member-source-state.md).
 
 `src/member-detail-inspection.ts` owns member XML-documentation, annotated
 source, and Facts request lifecycles: cache and request identity, current-member
@@ -2044,9 +2072,30 @@ The line presents app version, linked short commit, concise UTC build date,
 applicable acquisition producer, and the same CLI-tool and agent-skill links
 used on Home. Package acquisition supplies a compact producer label; the data
 bar renders that display text without parsing an endpoint. Runtime/Wasm state,
-timings, cache inventory, assembly/framework duplication, and management
-actions belong to the separate full-bleed Diagnostics surface rather than the
+timings, cache evidence, assembly/framework duplication, and management actions
+belong to the separate full-bleed Diagnostics surface rather than the
 persistent row.
+
+The routed `/diagnostics` surface is available from Settings and the Spotlight
+Commands scope. `src/diagnostics-view.ts` owns its typed pure rendering and
+Back/product bindings; `src/diagnostics-route.ts` owns route recognition and
+the in-app history marker. The first snapshot presents current Browser/Wasm
+loading, ready, or failed state; startup phase measurements and framework-byte
+totals; exact build provenance; and the aggregate package-cache statistics
+issued by the engine. Missing build data and runtime or cache failures remain
+visible rather than becoming zeroes or retained successful counts. The route
+does not appear in the Application menu and does not repeat the data bar.
+
+`test/diagnostics-view.test.ts`, `test/diagnostics-route.test.ts`,
+`test/settings-panel.test.ts`, `test/command-bar.test.ts`, and
+`test/entry-routes.test.ts` gate the typed snapshot, escaping, entry controls,
+history marker, and static hosting inventory. The Diagnostics cases in
+`browser/library-hierarchy.spec.ts` exercise Settings and Spotlight routing,
+destination focus, Back restoration, loading and failure states, package-cache
+failure disclosure, and the 390-pixel vertical layout against the built app.
+Network history, package-source health, cache-entry inventory and limits,
+support-report generation, eviction state, and cache-management actions remain
+future owner-adoption work.
 
 The workbench subject hierarchy is **Package → Library → Type → Member**.
 Package owns coordinate-wide inventory, documents, and NuGet dependencies.
@@ -2319,29 +2368,28 @@ provenance before publication.
 That cohort's browser workload still targets `net11.0`; the runtime is .NET 12
 CoreCLR even though the application graph retains its current target framework.
 The workflow enables `runtime-async=on` across this application graph and
-applies the `UseMonoRuntime=false`, `PublishReadyToRun=true`,
-`PublishReadyToRunComposite=false`, `WasmBuildNative=false`,
-`WasmNestedPublishAppDependsOn=`, and `WasmEnableExceptionHandling=true`
+applies the `UseMonoRuntime=false`, `PublishReadyToRun=false`,
+`WasmBuildNative=false`, `WasmNestedPublishAppDependsOn=`, and
+`WasmEnableExceptionHandling=true`
 overrides. This exercises runtime async only in the CoreCLR comparison
 deployment; Mono staging and ordinary non-AOT builds retain classic async
-lowering. Crossgen2 emits non-composite per-assembly Wasm images into `R2R/`.
-`verify-coreclr-r2r-publication.ts` requires each emitted image to be a
-WebAssembly module and byte-identical to the corresponding fingerprinted
-published asset. It requires all eight `DotnetInspect.Web*` assets and
-`System.Private.CoreLib` to be ReadyToRun, rejects orphaned outputs, and records
-the three framework facades without Crossgen2 output as IL-only. The artifact
-carries that complete per-assembly manifest, its digest, exact `dotnet --info`,
-the installed workload list, uncompressed and compressed `/_framework/` sizes,
-and a machine-readable SDK/runtime/workload receipt. That receipt also
-identifies the exact CoreCLR browser runtime asset bytes, which must match the
-published native JavaScript and Wasm. The workflow regenerates and verifies the
-ReadyToRun evidence, receipt, and CoreCLR-specific `GetDotNetRuntimeHeap` hook
-before artifact upload and again before deployment. Before the CoreCLR artifact
-crosses the upload boundary, the workflow compares its schema-5 runtime receipt
-with the triggering Mono run's schema-5 compiler receipt. This comparison is
-intentionally cross-toolchain: generated facade contracts and async-lowering
-evidence must remain equivalent between the .NET 11 Mono build and .NET 12
-CoreCLR build.
+lowering. The non-composite ReadyToRun trial is rejected because the first real
+package operation fatally entered a mismatched CoreCLR-Wasm R2R thunk even
+though build identity and the async-lowering canary succeeded. The deployment
+therefore runs a focused package-adoption test through the published production
+Worker before upload; it opens a deterministic local package through
+`QueryPackage`, so a runtime that initializes but cannot execute product work
+never reaches Azure deployment.
+
+The artifact carries exact `dotnet --info`, the installed workload list, and a
+machine-readable SDK/runtime/workload receipt. That receipt identifies the
+CoreCLR browser runtime asset bytes, which must match the published native
+JavaScript and Wasm, and records `PublishReadyToRun=false`. Before the CoreCLR
+artifact crosses the upload boundary, the workflow compares its schema-5
+runtime receipt with the triggering Mono run's schema-5 compiler receipt. This
+comparison is intentionally cross-toolchain: generated facade contracts and
+async-lowering evidence must remain equivalent between the .NET 11 Mono build
+and .NET 12 CoreCLR build.
 
 Both deployment builds import `InspectWebAsyncLoweringReceipt.targets`. Every
 project that reaches `CoreCompile` fails unless its exact `Features` property

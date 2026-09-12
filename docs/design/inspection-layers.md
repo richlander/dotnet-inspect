@@ -1583,10 +1583,48 @@ canaries:
   Browser-Wasm composes those two typed results without parsing XML or opening
   an assembly session.
 - `AssemblyContextTypeDependencyQuery` retains the admitted descriptors for one
-  binding-consistent group and invokes the Metadata-owned population scan once
-  over the committed participant order. It returns resource-free subjects,
-  graph facts, and typed per-participant failures; the CLI `depends` host
-  projects package diagnostics without inventing filesystem paths.
+  binding-consistent group and invokes the Metadata-owned population scan once.
+  Ordinary population lookup scans the committed participant order. Its
+  participant-qualified entry point stages the selected participant first so a
+  same-named type in another participant cannot become the root, and verifies
+  the exact normalized root name and Metadata-issued registration that
+  contributed the match rather than borrowing another definition or a fuzzy
+  same-participant match when the selected participant contributed no public
+  dependency root. Published outcomes retain committed participant order. The
+  query returns resource-free subjects, graph facts, and typed per-participant
+  failures. The L2 `TypeDependencySectionPlan` binds the exact target and
+  semantic relationship-row intent, then applies the shared row contract after
+  complete query execution. The CLI `depends` host and Inspect Web Type
+  Relationships both consume that plan. The CLI projects package diagnostics
+  without inventing filesystem paths; Inspect Web executes over its retained
+  active package Workspace while keeping selected-participant shape and derived
+  types separate. [Inspection operation composition](inspection-operation-composition.md)
+  owns the cross-host sequencing and explicit host divergences.
+
+The motivating real asset is
+`Npgsql.EntityFrameworkCore.PostgreSQL@8.0.4`. Its
+`Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure.Internal.NpgsqlOptionsExtension`
+type exposes
+`Microsoft.EntityFrameworkCore.Infrastructure.RelationalOptionsExtension` as
+its root-package base type. Adding
+`Microsoft.EntityFrameworkCore.Relational@8.0.4` to the same population reveals
+the next
+`Microsoft.EntityFrameworkCore.Infrastructure.IDbContextOptionsExtension`
+interface relationship. Reproduce the observation with:
+
+```bash
+dnx dotnet-inspect -y -- depends \
+  Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure.Internal.NpgsqlOptionsExtension \
+  --package Npgsql.EntityFrameworkCore.PostgreSQL@8.0.4 \
+  --package Microsoft.EntityFrameworkCore.Relational@8.0.4 \
+  --tfm net8.0
+```
+
+The Browser consumer gates the same cross-package expansion with generated
+managed assemblies so ordinary CI remains deterministic and offline; vendoring
+the two third-party package archives solely for this facade seam would add
+disproportionate repository weight. The exact nuget.org coordinates and command
+above preserve the real-asset observation.
 - `ExtensionMethodsQuery` returns one immutable result shared by `Library Info`
   and `Extension Methods`. The CLI adds path-based Finding provenance and
   compatibility projections after query execution.

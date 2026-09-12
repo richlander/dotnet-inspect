@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../Inspector.Artifacts/Inspector.Artifacts.csproj" />
+    <ProjectReference Include="../Inspector.Resources/Inspector.Resources.csproj" />
   </ItemGroup>
 
 </Project>

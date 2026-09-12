@@ -185,5 +185,5 @@ export function homeDemosEntryHtml(
       : catalog.length === 0
         ? "No demos available"
         : `${catalog.length} available`;
-  return `<button id="home-demos" class="home-demo" type="button" ${disabled ? "disabled" : ""}><strong>Demos</strong><small>${escapeHtml(count)}</small></button>`;
+  return `<button id="home-demos" class="home-demo" type="button" ${disabled ? "disabled" : ""}><strong>Browse demos →</strong><small>${escapeHtml(count)}</small></button>`;
 }

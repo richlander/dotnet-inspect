@@ -1,9 +1,67 @@
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
+
+using DotnetInspector.Fixtures;
 using ILInspector.DecompilerHarness;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
 
 public class LibraryReportTests
 {
+    [Fact]
+    public void Evaluate_ReportsUnavailableModesWithoutRunningCompilerLanes()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"library-report-unavailable-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string path = Path.Combine(directory, "UnsupportedRules.dll");
+            File.WriteAllBytes(
+                path,
+                WithMemorySafetyRulesVersion(
+                    File.ReadAllBytes(
+                        FixtureCatalog.DecompilerUnsafeNew.AssemblyPath()),
+                    version: 99));
+
+            LibraryPortfolioReport portfolio = LibraryReport.Evaluate(
+                [path],
+                compileCap: 5,
+                maxExamples: 5,
+                topPatterns: 10,
+                topLibraries: null,
+                methodCap: 5);
+
+            AssemblyReport report = Assert.Single(portfolio.Libraries);
+            Assert.Equal(5, report.TotalMethods);
+            Assert.Equal(5, report.CompileBackUnavailableMethods);
+            Assert.Equal(5, portfolio.TotalCompileBackUnavailableMethods);
+            Assert.Equal(0, report.FullMethods);
+            Assert.Equal(0, report.PartialMethods);
+            Assert.Equal(0, report.FullyRaisedMethods);
+            Assert.Equal(0, report.RenderedMethods);
+            Assert.Equal(0, report.SemanticChecked);
+            Assert.Equal(0, report.PassBugs);
+            PatternReport unavailable = Assert.Single(
+                report.Patterns,
+                pattern => pattern.Name == "compile-back-unavailable");
+            Assert.Equal(5, unavailable.Count);
+            Assert.All(
+                unavailable.Examples,
+                example => Assert.Contains(
+                    "module memory-safety rules are Unsupported",
+                    example,
+                    StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Fact]
     public void BuildPortfolio_SeparatesCorrectnessDefectsAndPromotionCandidates()
     {
@@ -85,4 +143,29 @@ public class LibraryReportTests
             SemanticDefectMethods: 0,
             PassBugs: 0,
             patterns);
+
+    static byte[] WithMemorySafetyRulesVersion(byte[] image, int version)
+    {
+        using var stream = new MemoryStream(image, writable: false);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        MemorySafetyRulesObservation observation = Assert.Single(
+            MemorySafetyMetadataIndex.Create(reader)
+                .Rules
+                .Observations);
+        CustomAttribute attribute = reader.GetCustomAttribute(
+            (CustomAttributeHandle)MetadataTokens.EntityHandle(
+                observation.AttributeToken));
+        byte[] original = reader.GetBlobBytes(attribute.Value);
+        int valueOffset = Assert.Single(
+            Enumerable.Range(0, image.Length - original.Length + 1),
+            offset => image
+                .AsSpan(offset, original.Length)
+                .SequenceEqual(original));
+        byte[] rewritten = [.. image];
+        BitConverter.TryWriteBytes(
+            rewritten.AsSpan(valueOffset + 2, sizeof(int)),
+            version);
+        return rewritten;
+    }
 }

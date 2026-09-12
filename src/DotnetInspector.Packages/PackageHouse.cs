@@ -77,307 +77,263 @@ public sealed class PackageHouse
     }
 
     /// <summary>
-    /// Settles one exact or selecting request through a source-owner lease.
-    /// The caller owns the lease, any supplied operation context, all stores,
-    /// and any returned payload.
+    /// Consumes one source operation lease to settle an exact or selecting
+    /// request. Stores and any returned payload remain caller-owned.
     /// </summary>
-    /// <remarks>
-    /// This preserves the current Package Source Model lifetime contract.
-    /// Declared ownership effects for async lease use remain a focused
-    /// adoption under the resource-ownership tracker.
-    /// </remarks>
-    public async Task<PackageHouseSettlement> ExecuteAsync(
+    public Task<PackageHouseSettlement> ExecuteAsync(
         PackageHouseRequest request,
-        PackageSourceSettlementLease sourceLease,
-        CancellationToken cancellationToken = default,
-        NuGetOperationContext? operationContext = null)
+        PackageSourceOperationLease sourceOperation)
     {
-        ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(sourceLease);
-        if (request.Operation.Profile
-            == PackageHouseOperationProfile.Realize)
-        {
-            throw new NotSupportedException(
-                "This PackageHouse execution slice supports Settle and Acquire operations.");
-        }
-        if (request.Operation.Profile
-                == PackageHouseOperationProfile.Acquire
-            && _payloadAcquisition is null)
-        {
-            throw new InvalidOperationException(
-                "An Acquire operation requires an authority-scoped package store capability.");
-        }
-        if (operationContext is not null
-            && (operationContext.RequestTimeout
-                    != request.Operation.RequestTimeout
-                || operationContext.OperationTimeout
-                    != request.Operation.OperationTimeout))
-        {
-            throw new ArgumentException(
-                "The supplied operation context deadlines must match the PackageHouse request.",
-                nameof(operationContext));
-        }
+        ArgumentNullException.ThrowIfNull(sourceOperation);
+        return ExecuteCoreAsync(request, sourceOperation);
+    }
 
-        using NuGetOperationContext? ownedOperation =
-            operationContext is null
-                ? new(
-                    request.Operation.RequestTimeout,
-                    request.Operation.OperationTimeout,
-                    cancellationToken)
-                : null;
-        NuGetOperationContext operation =
-            operationContext ?? ownedOperation!;
-        cancellationToken = operation.ResolveInvocationToken(
-            cancellationToken);
-        try
+    private async Task<PackageHouseSettlement> ExecuteCoreAsync(
+        PackageHouseRequest request,
+        PackageSourceOperationLease sourceOperation)
+    {
+        using (sourceOperation)
         {
-            operation.ThrowIfExpired();
-            return request.Demand switch
+            ArgumentNullException.ThrowIfNull(request);
+            if (request.Operation.Profile
+                == PackageHouseOperationProfile.Realize)
             {
-                PackageHouseDemand.Exact exact =>
-                    await ExecuteExactAsync(
+                throw new NotSupportedException(
+                    "This PackageHouse execution slice supports Settle and Acquire operations.");
+            }
+            if (request.Operation.Profile
+                    == PackageHouseOperationProfile.Acquire
+                && _payloadAcquisition is null)
+            {
+                throw new InvalidOperationException(
+                    "An Acquire operation requires an authority-scoped package store capability.");
+            }
+            if (sourceOperation.RequestTimeout
+                    != request.Operation.RequestTimeout
+                || sourceOperation.OperationTimeout
+                    != request.Operation.OperationTimeout)
+            {
+                throw new ArgumentException(
+                    "The Package Source operation deadlines must match the PackageHouse request.",
+                    nameof(sourceOperation));
+            }
+
+            try
+            {
+                sourceOperation.ThrowIfExpired();
+                PackageSourceAuthorization authorization;
+                PackageHouseDecisionReceipt decision;
+                PackageAcquisitionCandidate candidate;
+                List<PackageHouseFailure> failures;
+
+                switch (request.Demand)
+                {
+                    case PackageHouseDemand.Exact exact:
+                        authorization =
+                            _sourceAuthorization.AuthorizeSourcesFor(
+                                exact.Coordinate.PackageId);
+                        sourceOperation.ThrowIfExpired();
+                        PackageAcquisitionCandidateResult candidateResult =
+                            sourceOperation.ResolvePinnedCandidate(
+                                authorization,
+                                exact.Coordinate);
+                        sourceOperation.ThrowIfExpired();
+                        failures = AdaptFailures(
+                            request,
+                            candidateResult.Failures);
+                        if (candidateResult.Candidate
+                            is not { } exactCandidate)
+                        {
+                            decision =
+                                PackageHouseDecisionReceipt.Stop(
+                                    request,
+                                    exact.Coordinate);
+                            PackageHouseEvidence evidence = new(
+                                request,
+                                decision,
+                                failures: failures);
+                            return ResourceFree(
+                                CreateCandidateTerminalResult(
+                                    candidateResult,
+                                    authorization,
+                                    evidence));
+                        }
+
+                        candidate = exactCandidate;
+                        decision =
+                            PackageHouseDecisionReceipt.RetainPackage(
+                                request,
+                                candidate.Coordinate,
+                                candidate);
+                        break;
+
+                    case PackageHouseDemand.Selecting selecting:
+                        PackageVersionSelectionRequest selection =
+                            selecting.Request;
+                        authorization =
+                            _sourceAuthorization.AuthorizeSourcesFor(
+                                selection.PackageId);
+                        sourceOperation.ThrowIfExpired();
+                        PackageVersionDiscoveryContract
+                            discoveryContract =
+                                PackageVersionDiscoveryContract.Create(
+                                    selection.Discovery
+                                        .IncludePrerelease,
+                                    includeUnlisted: false,
+                                    limit: null);
+                        PackageVersionDiscoveryResult discovery =
+                            await sourceOperation
+                                .DiscoverVersionsAsync(
+                                    selection.PackageId,
+                                    authorization,
+                                    discoveryContract)
+                                .ConfigureAwait(false);
+                        failures = AdaptFailures(
+                            request,
+                            discovery.Failures);
+                        if (discovery.Failures.Any(
+                                failure => failure.Timeout?.Kind
+                                    == PackageSourceTimeoutKind
+                                        .Operation))
+                        {
+                            return OperationTimedOut(
+                                request,
+                                failures);
+                        }
+                        try
+                        {
+                            sourceOperation.ThrowIfExpired();
+                        }
+                        catch (NuGetOperationTimeoutException)
+                        {
+                            return OperationTimedOut(
+                                request,
+                                failures);
+                        }
+                        PackageVersionResolutionReceipt resolution =
+                            PackageVersionSelectionResolver.Resolve(
+                                selection,
+                                discovery,
+                                PackageVersionDiscoveryFreshness
+                                    .RefreshedForRequest);
+                        try
+                        {
+                            sourceOperation.ThrowIfExpired();
+                        }
+                        catch (NuGetOperationTimeoutException)
+                        {
+                            return OperationTimedOut(
+                                request,
+                                failures);
+                        }
+                        if (resolution
+                            is not PackageVersionResolutionReceipt
+                                .Resolved resolved)
+                        {
+                            decision =
+                                PackageHouseDecisionReceipt.Stop(
+                                    request,
+                                    versionResolution: resolution);
+                            PackageHouseEvidence evidence = new(
+                                request,
+                                decision,
+                                failures: failures);
+                            return ResourceFree(
+                                CreateResolutionTerminalResult(
+                                    resolution,
+                                    evidence));
+                        }
+
+                        candidate = resolved.Candidate;
+                        decision =
+                            PackageHouseDecisionReceipt
+                                .RetainSelectedPackage(
+                                    request,
+                                    resolved);
+                        break;
+
+                    default:
+                        throw new ArgumentOutOfRangeException(
+                            nameof(request),
+                            request.Demand,
+                            "Unknown PackageHouse demand.");
+                }
+
+                if (request.Operation.Profile
+                    == PackageHouseOperationProfile.Settle)
+                {
+                    return ResourceFree(
+                        new PackageHouseResult.Settled(
+                            new PackageHouseEvidence(
+                                request,
+                                decision,
+                                failures: failures)));
+                }
+
+                PackagePayloadAcquisitionPlan payloadAcquisition =
+                    _payloadAcquisition
+                    ?? throw new InvalidOperationException(
+                        "An Acquire operation requires a payload acquisition plan.");
+                ConfiguredPackagePayloadResult payloadResult =
+                    await sourceOperation
+                        .AcquireCandidatePayloadAsync(
+                            candidate,
+                            payloadAcquisition.GetStore,
+                            log: payloadAcquisition.Log,
+                            limits: payloadAcquisition.Limits,
+                            transferPolicy:
+                                payloadAcquisition.TransferPolicy)
+                        .ConfigureAwait(false);
+                failures.AddRange(
+                    AdaptFailures(request, payloadResult.Failures));
+                if (payloadResult.Payload is not { } payload)
+                {
+                    PackageHouseEvidence evidence = new(
                         request,
-                        exact,
-                        sourceLease,
-                        cancellationToken,
-                        operation).ConfigureAwait(false),
-                PackageHouseDemand.Selecting selecting =>
-                    await ExecuteSelectingAsync(
-                        request,
-                        selecting,
-                        sourceLease,
-                        cancellationToken,
-                        operation).ConfigureAwait(false),
-                _ => throw new ArgumentOutOfRangeException(
-                    nameof(request),
-                    request.Demand,
-                    "Unknown PackageHouse demand."),
-            };
-        }
-        catch (NuGetOperationTimeoutException)
-        {
-            return OperationTimedOut(request);
-        }
-        catch (OperationCanceledException)
-            when (operation.CancellationToken.IsCancellationRequested)
-        {
-            throw new OperationCanceledException(
-                operation.CancellationToken);
-        }
-        catch (OperationCanceledException)
-            when (operation.OperationToken.IsCancellationRequested)
-        {
-            return OperationTimedOut(request);
-        }
-    }
+                        decision,
+                        failures: failures);
+                    return ResourceFree(
+                        CreatePayloadTerminalResult(
+                            candidate,
+                            payloadResult,
+                            evidence));
+                }
 
-    private async Task<PackageHouseSettlement> ExecuteExactAsync(
-        PackageHouseRequest request,
-        PackageHouseDemand.Exact exact,
-        PackageSourceSettlementLease sourceLease,
-        CancellationToken cancellationToken,
-        NuGetOperationContext operation)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        operation.ThrowIfExpired();
-        PackageSourceAuthorization authorization =
-            _sourceAuthorization.AuthorizeSourcesFor(
-                exact.Coordinate.PackageId);
-        cancellationToken.ThrowIfCancellationRequested();
-        operation.ThrowIfExpired();
-        PackageAcquisitionCandidateResult candidateResult =
-            sourceLease.ResolvePinnedCandidate(
-                authorization,
-                exact.Coordinate);
-        operation.ThrowIfExpired();
-        List<PackageHouseFailure> failures =
-            AdaptFailures(request, candidateResult.Failures);
-        if (candidateResult.Candidate is not { } candidate)
-        {
-            PackageHouseDecisionReceipt decision =
-                PackageHouseDecisionReceipt.Stop(
-                    request,
-                    exact.Coordinate);
-            PackageHouseEvidence evidence = new(
-                request,
-                decision,
-                failures: failures);
-            return ResourceFree(
-                CreateCandidateTerminalResult(
-                    candidateResult,
-                    authorization,
-                    evidence));
-        }
-
-        PackageHouseDecisionReceipt retained =
-            PackageHouseDecisionReceipt.RetainPackage(
-                request,
-                candidate.Coordinate,
-                candidate);
-        if (request.Operation.Profile
-            == PackageHouseOperationProfile.Settle)
-        {
-            return ResourceFree(
-                new PackageHouseResult.Settled(
-                    new PackageHouseEvidence(
-                        request,
-                        retained,
-                        failures: failures)));
-        }
-
-        return await AcquireAsync(
-            request,
-            retained,
-            candidate,
-            sourceLease,
-            cancellationToken,
-            operation,
-            failures).ConfigureAwait(false);
-    }
-
-    private async Task<PackageHouseSettlement>
-        ExecuteSelectingAsync(
-        PackageHouseRequest request,
-        PackageHouseDemand.Selecting selecting,
-        PackageSourceSettlementLease sourceLease,
-        CancellationToken cancellationToken,
-        NuGetOperationContext operation)
-    {
-        PackageVersionSelectionRequest selection =
-            selecting.Request;
-        cancellationToken.ThrowIfCancellationRequested();
-        operation.ThrowIfExpired();
-        PackageSourceAuthorization authorization =
-            _sourceAuthorization.AuthorizeSourcesFor(
-                selection.PackageId);
-        cancellationToken.ThrowIfCancellationRequested();
-        operation.ThrowIfExpired();
-        PackageVersionDiscoveryContract discoveryContract =
-            PackageVersionDiscoveryContract.Create(
-                selection.Discovery.IncludePrerelease,
-                includeUnlisted: false,
-                limit: null);
-        PackageVersionDiscoveryResult discovery =
-            await sourceLease.DiscoverVersionsAsync(
-                selection.PackageId,
-                authorization,
-                discoveryContract,
-                cancellationToken,
-                operation).ConfigureAwait(false);
-        PackageVersionResolutionReceipt resolution =
-            PackageVersionSelectionResolver.Resolve(
-                selection,
-                discovery,
-                PackageVersionDiscoveryFreshness
-                    .RefreshedForRequest);
-        List<PackageHouseFailure> failures =
-            AdaptFailures(request, discovery.Failures);
-        cancellationToken.ThrowIfCancellationRequested();
-        try
-        {
-            operation.ThrowIfExpired();
-        }
-        catch (NuGetOperationTimeoutException)
-        {
-            return SelectingOperationTimedOut(
-                request,
-                resolution,
-                failures);
-        }
-        if (resolution
-            is not PackageVersionResolutionReceipt.Resolved resolved)
-        {
-            PackageHouseDecisionReceipt decision =
-                PackageHouseDecisionReceipt.Stop(
-                    request,
-                    versionResolution: resolution);
-            PackageHouseEvidence evidence = new(
-                request,
-                decision,
-                failures: failures);
-            return ResourceFree(
-                CreateResolutionTerminalResult(
-                    resolution,
-                    evidence));
-        }
-
-        PackageHouseDecisionReceipt retained =
-            PackageHouseDecisionReceipt.RetainSelectedPackage(
-                request,
-                resolved);
-        if (request.Operation.Profile
-            == PackageHouseOperationProfile.Settle)
-        {
-            return ResourceFree(
-                new PackageHouseResult.Settled(
-                    new PackageHouseEvidence(
-                        request,
-                        retained,
-                        failures: failures)));
-        }
-
-        return await AcquireAsync(
-            request,
-            retained,
-            resolved.Candidate,
-            sourceLease,
-            cancellationToken,
-            operation,
-            failures).ConfigureAwait(false);
-    }
-
-    private async Task<PackageHouseSettlement> AcquireAsync(
-        PackageHouseRequest request,
-        PackageHouseDecisionReceipt decision,
-        PackageAcquisitionCandidate candidate,
-        PackageSourceSettlementLease sourceLease,
-        CancellationToken cancellationToken,
-        NuGetOperationContext operation,
-        List<PackageHouseFailure> failures)
-    {
-        PackagePayloadAcquisitionPlan payloadAcquisition =
-            _payloadAcquisition
-            ?? throw new InvalidOperationException(
-                "An Acquire operation requires a payload acquisition plan.");
-        ConfiguredPackagePayloadResult payloadResult =
-            await sourceLease.AcquireCandidatePayloadAsync(
-                candidate,
-                payloadAcquisition.GetStore,
-                log: payloadAcquisition.Log,
-                limits: payloadAcquisition.Limits,
-                cancellationToken: cancellationToken,
-                transferPolicy: payloadAcquisition.TransferPolicy,
-                operationContext: operation).ConfigureAwait(false);
-        failures.AddRange(
-            AdaptFailures(request, payloadResult.Failures));
-        if (payloadResult.Payload is not { } payload)
-        {
-            PackageHouseEvidence evidence = new(
-                request,
-                decision,
-                failures: failures);
-            return ResourceFree(
-                CreatePayloadTerminalResult(
+                PackageHouseAcquisitionReceipt acquisition = new(
+                    decision,
                     candidate,
-                    payloadResult,
-                    evidence));
-        }
+                    payloadResult.Authority!,
+                    payloadResult.Source!,
+                    payload.Origin,
+                    payload.Content.GenerationIdentity);
+                PackageHouseEvidence settledEvidence = new(
+                    request,
+                    decision,
+                    acquisition,
+                    failures: failures);
+                return new PackageHouseSettlement.Acquired(
+                    new PackageHouseResult.Settled(
+                        settledEvidence),
+                    payload);
+            }
+            catch (NuGetOperationTimeoutException)
+            {
+                return OperationTimedOut(request);
+            }
+            catch (OperationCanceledException)
+            {
+                try
+                {
+                    sourceOperation.ThrowIfExpired();
+                }
+                catch (NuGetOperationTimeoutException)
+                {
+                    return OperationTimedOut(request);
+                }
 
-        PackageHouseAcquisitionReceipt acquisition = new(
-            decision,
-            candidate,
-            payloadResult.Authority!,
-            payloadResult.Source!,
-            payload.Origin,
-            payload.Content.GenerationIdentity);
-        PackageHouseEvidence settledEvidence = new(
-            request,
-            decision,
-            acquisition,
-            failures: failures);
-        return new PackageHouseSettlement.Acquired(
-            new PackageHouseResult.Settled(settledEvidence),
-            payload);
+                throw;
+            }
+        }
     }
 
     private static PackageHouseResult CreateCandidateTerminalResult(
@@ -511,43 +467,19 @@ public sealed class PackageHouse
         new(TextPolicy.Field, text);
 
     private static PackageHouseSettlement OperationTimedOut(
-        PackageHouseRequest request)
+        PackageHouseRequest request,
+        IEnumerable<PackageHouseFailure>? existingFailures = null)
     {
+        var failures = existingFailures is null
+            ? new List<PackageHouseFailure>()
+            : [.. existingFailures];
         PackageHouseFailure.Timeout timeout = new(
             request.Operation.Identity,
             PackageHouseTimeoutKind.Operation,
             request.Operation.OperationTimeout);
+        failures.Add(timeout);
         PackageHouseEvidence evidence = new(
             request,
-            failures: [timeout]);
-        return ResourceFree(
-            new PackageHouseResult.Failed(
-                evidence,
-                Reason("The PackageHouse operation deadline expired.")));
-    }
-
-    private static PackageHouseSettlement SelectingOperationTimedOut(
-        PackageHouseRequest request,
-        PackageVersionResolutionReceipt resolution,
-        List<PackageHouseFailure> failures)
-    {
-        PackageHouseDecisionReceipt decision = resolution switch
-        {
-            PackageVersionResolutionReceipt.Resolved resolved =>
-                PackageHouseDecisionReceipt.RetainSelectedPackage(
-                    request,
-                    resolved),
-            _ => PackageHouseDecisionReceipt.Stop(
-                request,
-                versionResolution: resolution),
-        };
-        failures.Add(new PackageHouseFailure.Timeout(
-            request.Operation.Identity,
-            PackageHouseTimeoutKind.Operation,
-            request.Operation.OperationTimeout));
-        PackageHouseEvidence evidence = new(
-            request,
-            decision,
             failures: failures);
         return ResourceFree(
             new PackageHouseResult.Failed(

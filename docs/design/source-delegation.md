@@ -52,15 +52,13 @@ The shared protocol is implemented in
 Its first exercising consumer is the
 [public contract harness](../../tests/DotnetInspector.SourceDelegation.Tests/),
 whose Release suite runs in PR CI. Production source and caller adoption remain
-separate work; this slice does not change Gallery, L2, browser, or CLI execution.
+separate work; this slice does not change source, L2, browser, or CLI execution.
 
 [#6042](https://github.com/richlander/dotnet-inspect/issues/6042) owns the shared
-protocol implementation and public contract harness. It is milestone 6 of the
-eight-step [Gallery adoption path #5919](https://github.com/richlander/dotnet-inspect/issues/5919).
-Milestone 7 adopts the protocol through Gallery acquisition, L2 finite-input
-binding, and the existing website query path; milestone 8 adds CLI execution.
-The website's current ordinary-acquisition path remains supported until that
-focused adoption replaces it.
+protocol implementation and public contract harness. The Gallery discovery
+consumer once proposed for this protocol is retired; the protocol remains a
+generic source-execution capability with no implied Gallery, L2, or host
+adoption.
 
 This design uses two established evidence sources:
 
@@ -120,7 +118,7 @@ The design applies the repository's
 
 | Principle | How this design applies it |
 | --- | --- |
-| Build useful shared capabilities | One protocol lets source optimizations serve multiple consumers while preserving the caller's reference result. Gallery discovery's CLI and browser adoption path is tracked in [#5919](https://github.com/richlander/dotnet-inspect/issues/5919). |
+| Build useful shared capabilities | One protocol lets source optimizations serve multiple consumers while preserving the caller's reference result. |
 | Prefer the simplest sufficient design | Four effect rules and a closed result algebra express the commitment and completion decisions. Structural candidate/result binding supplies the association; the protocol remains linear. |
 | Keep hosts thin and preserve structured information | Candidates, member outcomes, rows, counts, dispositions, and evidence retain their typed meaning through shared execution. Hosts consume those outcomes through their existing composition and rendering paths. |
 | Preserve owner boundaries | The caller owns plan partitioning and residual execution; operation owners define source-closed behavior; sources own acquisition and proof construction. The protocol composes those responsibilities. |

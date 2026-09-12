@@ -99,18 +99,31 @@ public sealed class BrowserProductHomeDemosTests
     }
 
     [Fact]
-    public void ResolveHomeDemo_ExtensionsCallGraph_ProjectsPackagesAndMemberAnchor()
+    public void ResolveHomeDemo_ExtensionsCallGraph_ProjectsPlatformLibrariesAndMemberAnchor()
     {
         using var document = JsonDocument.Parse(
             DotnetInspect.Web.Interop.Catalog.CatalogExports.ResolveHomeDemo(ProductDemoIds.ExtensionsCallGraph));
         var root = document.RootElement.GetProperty("demo");
         var members = root.GetProperty("workspaceMembers");
         Assert.Equal(3, members.GetArrayLength());
+        Assert.All(
+            members.EnumerateArray(),
+            member =>
+            {
+                Assert.Equal("platform", member.GetProperty("kind").GetString());
+                Assert.Equal("aspnetcore", member.GetProperty("id").GetString());
+                Assert.Equal("10.0.12", member.GetProperty("version").GetString());
+                Assert.Equal("net10.0", member.GetProperty("framework").GetString());
+            });
         Assert.Equal(
-            "Microsoft.Extensions.DependencyInjection.Abstractions",
-            members[0].GetProperty("id").GetString());
-        Assert.Equal("Microsoft.Extensions.Logging", members[1].GetProperty("id").GetString());
-        Assert.Equal("Microsoft.Extensions.Http", members[2].GetProperty("id").GetString());
+            [
+                "Microsoft.Extensions.DependencyInjection.Abstractions",
+                "Microsoft.Extensions.Logging",
+                "Microsoft.Extensions.Http",
+            ],
+            members.EnumerateArray()
+                .Select(member =>
+                    member.GetProperty("assembly").GetString()));
 
         Assert.Equal(0, root.GetProperty("focusTabIndex").GetInt32());
         Assert.Equal("di", root.GetProperty("tabs")[0].GetProperty("id").GetString());
@@ -256,6 +269,135 @@ public sealed class BrowserProductHomeDemosTests
     }
 
     [Fact]
+    public void ExtensionsPlatformDemos_JoinExactSupplyAndCatalogEvidence()
+    {
+        const string packageVersion = "10.0.0";
+        const string platformFamily = "aspnetcore";
+        const string platformFrameworkFamily = "Microsoft.AspNetCore.App";
+        const string platformPack = "aspnetcore.app";
+        const string platformVersion = "10.0.12";
+        const string framework = "net10.0";
+        var expectedAssemblies = new Dictionary<string, string[]>
+        {
+            [ProductDemoIds.ExtensionsCallGraph] =
+            [
+                "Microsoft.Extensions.DependencyInjection.Abstractions",
+                "Microsoft.Extensions.Logging",
+                "Microsoft.Extensions.Http",
+            ],
+            [ProductDemoIds.ConfigBindCallGraph] =
+                ["Microsoft.Extensions.Configuration.Binder"],
+            [ProductDemoIds.OptionsAddCallGraph] =
+                ["Microsoft.Extensions.Options"],
+            [ProductDemoIds.DiTryAddCallGraph] =
+                ["Microsoft.Extensions.DependencyInjection.Abstractions"],
+            [ProductDemoIds.HttpAddHttpClientCallGraph] =
+                ["Microsoft.Extensions.Http"],
+        };
+        (string PackageId, string Assembly)[] mappings =
+        [
+            ("Microsoft.Extensions.Configuration.Binder",
+                "Microsoft.Extensions.Configuration.Binder"),
+            ("Microsoft.Extensions.DependencyInjection.Abstractions",
+                "Microsoft.Extensions.DependencyInjection.Abstractions"),
+            ("Microsoft.Extensions.Http",
+                "Microsoft.Extensions.Http"),
+            ("Microsoft.Extensions.Logging",
+                "Microsoft.Extensions.Logging"),
+            ("Microsoft.Extensions.Options",
+                "Microsoft.Extensions.Options"),
+        ];
+
+        using JsonDocument document = JsonDocument.Parse(
+            File.ReadAllText(
+                Path.Combine(
+                    RepositoryRoot(),
+                    "inspect-web",
+                    "assets",
+                    "platform-index.json")));
+        JsonElement target = Assert.Single(
+            document.RootElement
+                .GetProperty("targets")
+                .EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("tfm").GetString() == framework
+                && candidate.GetProperty("version").GetString()
+                    == platformVersion);
+        JsonElement[] supplies =
+        [
+            .. target.GetProperty("supplies").EnumerateArray()
+                .Where(candidate =>
+                    candidate.GetProperty("family").GetString()
+                        == platformFrameworkFamily),
+        ];
+        var inventory = PlatformPruneInventory.FromExactFamily(
+            new PlatformPruneTarget(
+                platformFrameworkFamily,
+                framework,
+                NuGetVersion.Parse(platformVersion)),
+            supplies.Select(supply =>
+                $"{supply.GetProperty("package").GetString()}"
+                + $"|{supply.GetProperty("version").GetString()}"));
+
+        foreach (var mapping in mappings)
+        {
+            PlatformSupplyReceipt receipt = PlatformPrunePolicy.Evaluate(
+                inventory,
+                new PackageCoordinate(
+                    mapping.PackageId,
+                    packageVersion,
+                    framework));
+            Assert.True(receipt.Supply.DelegatesToPlatform);
+            Assert.Equal(platformFrameworkFamily, receipt.Supply.Family);
+            Assert.Equal(
+                NuGetVersion.Parse(packageVersion),
+                receipt.Supply.SuppliedVersion);
+
+            JsonElement supply = Assert.Single(
+                supplies,
+                candidate =>
+                    candidate.GetProperty("package").GetString()
+                        == mapping.PackageId);
+            Assert.Equal(
+                platformPack,
+                supply.GetProperty("pack").GetString());
+            JsonElement library = Assert.Single(
+                target.GetProperty("rows").EnumerateArray(),
+                candidate =>
+                    candidate.GetProperty("pack").GetString()
+                        == platformPack
+                    && candidate.GetProperty("assembly").GetString()
+                        == mapping.Assembly);
+            Assert.True(
+                library.GetProperty("hasImplementation").GetBoolean());
+        }
+
+        foreach (var expected in expectedAssemblies)
+        {
+            BrowserHomeDemoRunPlan plan =
+                BrowserProductHomeDemos.ToRunPlan(
+                    Select(expected.Key).Scenario);
+            BrowserHomeDemoRunRequest.Platform[] requests =
+            [
+                .. plan.Requests.Select(request =>
+                    Assert.IsType<BrowserHomeDemoRunRequest.Platform>(
+                        request)),
+            ];
+            Assert.Equal(
+                expected.Value,
+                requests.Select(request => request.Assembly));
+            Assert.All(
+                requests,
+                request =>
+                {
+                    Assert.Equal(platformFamily, request.Family);
+                    Assert.Equal(platformVersion, request.Version);
+                    Assert.Equal(framework, request.TargetFramework);
+                });
+        }
+    }
+
+    [Fact]
     public void ExtensionsCallGraph_RunPlanOwnsWorkspaceFocusAndMemberSelection()
     {
         BrowserHomeDemoRunPlan plan =
@@ -263,16 +405,22 @@ public sealed class BrowserProductHomeDemosTests
                 Select(ProductDemoIds.ExtensionsCallGraph).Scenario);
 
         Assert.Equal(3, plan.Requests.Length);
-        BrowserPackageRequest[] requests =
+        BrowserHomeDemoRunRequest.Platform[] requests =
         [
             .. plan.Requests.Select(request =>
-                Assert.IsType<BrowserHomeDemoRunRequest.Package>(request).Request),
+                Assert.IsType<BrowserHomeDemoRunRequest.Platform>(request)),
         ];
         Assert.Equal(
             "Microsoft.Extensions.DependencyInjection.Abstractions",
-            requests[0].PackageId);
-        Assert.Equal("10.0.0", requests[0].Version);
-        Assert.Equal("net10.0", requests[0].TargetFramework);
+            requests[0].Assembly);
+        Assert.All(
+            requests,
+            request =>
+            {
+                Assert.Equal("aspnetcore", request.Family);
+                Assert.Equal("10.0.12", request.Version);
+                Assert.Equal("net10.0", request.TargetFramework);
+            });
         Assert.Equal(0, plan.FocusRequestIndex);
         Assert.Equal(
             "Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions",

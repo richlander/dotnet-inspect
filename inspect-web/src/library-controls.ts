@@ -3,7 +3,6 @@
 
 export type PlatformLibraryLens =
   | "integrations"
-  | "opportunities"
   | "analysis"
   | "metadata";
 
@@ -22,7 +21,6 @@ export interface LibraryControlBindingActions {
 const platformLensSelectors:
   readonly [selector: string, lens: PlatformLibraryLens][] = [
     ["[data-platform-integrations-library]", "integrations"],
-    ["[data-platform-opportunities-library]", "opportunities"],
     ["[data-platform-analysis-library]", "analysis"],
     ["[data-platform-metadata-library]", "metadata"],
   ];

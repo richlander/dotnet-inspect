@@ -10537,6 +10537,7 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void BuildCallTrees_MarkOnlyOpenVirtualDispatchAsUnresolved()
     {
         var index =
@@ -10625,6 +10626,7 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void CallTrees_PreserveDispatchAcrossCalleeCollapse()
     {
         var index =
@@ -10778,6 +10780,7 @@ public class LibraryBodyIndexTests
     /// </para>
     /// </summary>
     [Fact]
+    [Trait("Speed", "Slow")]
     public void ReleaseMethods_DropExactlyTheCachesTheyDocument()
     {
         // Dropped by ReleaseCallGraphCaches().
@@ -10877,6 +10880,7 @@ public class LibraryBodyIndexTests
     // BuildCallerTree_ResolvesCallers_WhenSelectedRootIsBodilessInterfaceMethod owns that, and
     // was confirmed to fail when the guard is removed.
     [Fact]
+    [Trait("Speed", "Slow")]
     public void SameAssemblyCallTreeBuilders_AreUnaffectedByEarlierRequestsOnTheSameIndex()
     {
         string analysisPath = typeof(LibraryBodyIndex).Assembly.Location;
@@ -10960,6 +10964,7 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void BuildCallerTree_WithScope_IncorporatesAndTagsExternalCallers()
     {
         var analysisIndex = LibraryBodyIndex.Open(typeof(LibraryBodyIndex).Assembly.Location);
@@ -10990,6 +10995,7 @@ public class LibraryBodyIndexTests
     // same-assembly tree. The catalog graph remains selected for a scoped request, but its local
     // node identity, ordering, revisit, and budget behavior must agree with the cheap token graph.
     [Fact]
+    [Trait("Speed", "Slow")]
     public void BuildCallerTree_NonContributingCatalogScopeMatchesSameAssemblyTree()
     {
         var index = LibraryBodyIndex.Open(typeof(LibraryBodyIndex).Assembly.Location);
@@ -11588,6 +11594,7 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void TopLeverage_TreatsSelfRecursiveEntryAsRoot()
     {
         var index = LibraryBodyIndex.Open(typeof(LeverageSelfRootFixtures).Assembly.Location);
@@ -11604,6 +11611,7 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void TopLeverage_TreatsMutuallyRecursiveEntryComponentAsRoot()
     {
         var index = LibraryBodyIndex.Open(typeof(LeverageDepthFixtures).Assembly.Location);
@@ -11920,6 +11928,7 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void UnsafeEvidence_ClassifiesMembersDeclaredOnUnsafeApi()
     {
         var index = LibraryBodyIndex.Open(typeof(Unsafe).Assembly.Location);
@@ -12589,6 +12598,7 @@ public class LibraryBodyIndexTests
     }
 
     [Theory]
+    [Trait("Speed", "Slow")]
     [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsIntArray5))]
     [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsIntArray5AfterUnrelatedBranch))]
     [InlineData(nameof(OptimizationOpportunityFixtures.ReturnsSmallArray))]
@@ -12962,6 +12972,7 @@ public class LibraryBodyIndexTests
     }
 
     [Theory]
+    [Trait("Speed", "Slow")]
     [InlineData(nameof(OptimizationOpportunityFixtures.LocalArrayStaysLocal), "stackalloc-candidate", "System.Int32[]", "straight-line", "dominates-return", "return-post-dominates")]
     [InlineData(nameof(OptimizationOpportunityFixtures.BoxesGuidValue), "box-value-type", "boxed System.Guid", "straight-line", "dominates-return", "return-post-dominates")]
     [InlineData(nameof(OptimizationOpportunityFixtures.BoxesInLoop), "box-value-type", "boxed System.Int32", "loop body", "behind-branch", null)]
@@ -13039,6 +13050,7 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void OptimizationOpportunities_CandidateIdsAreStableAndUnique()
     {
         string path = typeof(OptimizationOpportunityFixtures).Assembly.Location;
@@ -15081,6 +15093,7 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void
         OptimizationOpportunities_GeneratedUltimateSuppressesNestedBoxAcrossScopes()
     {
@@ -16343,6 +16356,7 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void
         AllocationFanout_TypeScopeAdmittingEveryTypeMatchesFullBuild()
     {
@@ -20789,6 +20803,7 @@ public class OpaqueUnsafeTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void OpaqueUnsafeMethods_PointerSignatureFixtureIsNotOpaque()
     {
         // The in-test fixture assembly is not opted into the updated memory-safety
@@ -20886,6 +20901,7 @@ public class HollowUnsafeTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void HollowUnsafeMethods_PointerDereferenceFixtureIsNotHollow()
     {
         // UnsafePointerRead dereferences its pointer parameter, so it carries a
@@ -21045,6 +21061,7 @@ public class CallTreeTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void ConstructedExceptionTypes_IncludesNestedInAssemblyException()
     {
         var signals = SignalsForMethod(nameof(ExceptionHost.MakesNestedReal));

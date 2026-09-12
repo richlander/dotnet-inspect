@@ -1,9 +1,20 @@
+using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 using DotnetInspector.Packages;
 using DotnetInspector.SourceSelection;
+using InertText;
 using NuGetFetch;
 
 namespace DotnetInspector.Queries;
+
+internal abstract record PackageQueryInputEvent
+{
+    internal sealed record Acquired(int Count) : PackageQueryInputEvent;
+    internal sealed record Match(PackageQueryPackage Value) : PackageQueryInputEvent;
+    internal sealed record Failure(PackageQueryFailure Value) : PackageQueryInputEvent;
+    internal sealed record Completed(int Candidates, PackageQueryCompletionKind Completion)
+        : PackageQueryInputEvent;
+}
 
 public static partial class PackageQuery
 {
@@ -56,6 +67,63 @@ public static partial class PackageQuery
             packageInput: input);
     }
 
+    static void AddScopeEvidence(
+        PackageQueryPlan plan,
+        ImmutableArray<PackageQueryEvidence>.Builder evidence) =>
+        evidence.Add(ScopeEvidence(
+            plan.PackageInput is SourceSelector.Package
+                ? ExactPackageEvidenceId
+                : PrefixEvidenceId,
+            plan.PrefixEvidence));
+
+    static PackageQueryEvidence ScopeEvidence(string id, InertString text) =>
+        new(id, text) { Scope = PackageQueryEvidenceScope.Query };
+
+    static async IAsyncEnumerable<PackageQueryInputEvent> AcquireInputAsync(
+        IPackageSourceClient source,
+        PackageQueryPlan plan,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        if (plan.PackageInput is SourceSelector.Package exact)
+        {
+            await foreach (PackageQueryInputEvent item in AcquireExactInputAsync(
+                source, plan, exact, cancellationToken).ConfigureAwait(false))
+                yield return item;
+            yield break;
+        }
+
+        if (plan.PackageInput is SourceSelector.PackagePrefix prefix
+            && plan.Definitions.IsEmpty)
+        {
+            await foreach (PackageQueryInputEvent item in AcquirePrefixMetadataAsync(
+                source, prefix.Request, cancellationToken).ConfigureAwait(false))
+                yield return item;
+            yield break;
+        }
+
+        await foreach (PackageProfileEvent item in PackageProfileQuery.ExecuteAsync(
+            source,
+            new PackagePrefixProfileRequest(
+                plan.Prefix.ToString(), plan.MaximumCandidates, plan.IncludePrerelease),
+            cancellationToken).ConfigureAwait(false))
+        {
+            yield return item switch
+            {
+                PackageProfileEvent.Match match =>
+                    new PackageQueryInputEvent.Match(new PackageQueryPackage(match.Value)),
+                PackageProfileEvent.Failure failure =>
+                    new PackageQueryInputEvent.Failure(FromProfileFailure(failure.Value)),
+                PackageProfileEvent.Completed completed =>
+                    new PackageQueryInputEvent.Completed(
+                        completed.Value.Candidates,
+                        completed.Value.Candidates == 0 && completed.Value.Failures > 0
+                            ? PackageQueryCompletionKind.Failed
+                            : MapCompletion(completed.Value.TruncationReason)),
+                _ => throw new InvalidOperationException("Unknown package-profile event."),
+            };
+        }
+    }
+
     static async IAsyncEnumerable<PackageQueryInputEvent> AcquireExactInputAsync(
         IPackageSourceClient source,
         PackageQueryPlan plan,
@@ -68,7 +136,7 @@ public static partial class PackageQuery
                 cancellationToken).ConfigureAwait(false);
         if (resolution is PackageSourceCoordinateResolution.NoEligibleVersion)
         {
-            yield return new PackageQueryInputEvent.Acquired(0, null);
+            yield return new PackageQueryInputEvent.Acquired(0);
             yield return new PackageQueryInputEvent.Completed(
                 0, PackageQueryCompletionKind.ExactPackageComplete);
             yield break;
@@ -91,7 +159,7 @@ public static partial class PackageQuery
         PackageCandidateObservation candidate = resolved.Candidate
             ?? throw new InvalidOperationException(
                 "Listed package resolution returned no source observation.");
-        yield return new PackageQueryInputEvent.Acquired(1, null);
+        yield return new PackageQueryInputEvent.Acquired(1);
         PackageManifestFacts? manifest = null;
         if (!plan.Definitions.IsEmpty)
         {

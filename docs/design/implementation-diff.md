@@ -1166,6 +1166,17 @@ The tracker and the
 own those paths and final legacy Queries/Research retirement at steps 16/17.
 The tracker owns subsequent status/count changes.
 
+The focused Queries adoption tracked by
+[#6429](https://github.com/richlander/dotnet-inspect/issues/6429) consumes the
+merged workspace-target composition for correspondence-driven selected-member
+comparison. `WorkspaceImplementationComparisonQuery` resolves each designated
+facade to its exact terminal Research attempt, requires one existing paired
+correspondence, and invokes this existing producer session over the complete
+resolution. It retains Metadata's native `metadata.type-forwarder` Finding for
+every followed hop plus Queries-owned ordered use provenance; it does not add a
+Research comparison kind or a diff-specific forwarding descriptor. CLI,
+Omni, and Annotated Source presentation remain later host-owned adoption.
+
 Adding this substrate did not itself retire `ImplementationDiff.CompareMembers`
 or its then-current callers. After CLI, browser, comparison-tool, and Source
 adoption, #6283 retires that superseded wrapper and its result shape. Queries

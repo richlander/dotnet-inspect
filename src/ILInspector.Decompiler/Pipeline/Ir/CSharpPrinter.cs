@@ -112,6 +112,9 @@ public sealed partial class CSharpPrinter
         PrinterOptions? options = null,
         Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint = null)
     {
+        if (MemorySafetyModeUnavailableResult(function) is { } unavailable)
+            return unavailable;
+
         List<DecompilerDecision> appliedLenses;
         try
         {
@@ -226,6 +229,9 @@ public sealed partial class CSharpPrinter
         PrinterOptions? options = null)
     {
         printedRanges = PrintedRangeMap.Empty;
+        if (MemorySafetyModeUnavailableResult(function) is { } unavailable)
+            return unavailable;
+
         List<DecompilerDecision> appliedLenses;
         try
         {
@@ -268,6 +274,9 @@ public sealed partial class CSharpPrinter
     /// <summary>As <see cref="PrintLowered(IrFunction)"/>, with <paramref name="importMethodBody"/> wiring the cross-method import seam for non-cosmetic lowered passes such as lambda, local-function, and iterator reconstruction.</summary>
     public static DecompilerResult PrintLowered(IrFunction function, Func<MethodRef, IrFunction?>? importMethodBody)
     {
+        if (MemorySafetyModeUnavailableResult(function) is { } unavailable)
+            return unavailable;
+
         try
         {
             IrPasses.Run(function, IrPasses.Lowered, RaiseContext(importMethodBody));
@@ -301,6 +310,9 @@ public sealed partial class CSharpPrinter
         PrinterOptions? options = null)
     {
         printedRanges = PrintedRangeMap.Empty;
+        if (MemorySafetyModeUnavailableResult(function) is { } unavailable)
+            return unavailable;
+
         try
         {
             IrPasses.Run(function, IrPasses.Lowered, RaiseContext(importMethodBody));
@@ -346,6 +358,9 @@ public sealed partial class CSharpPrinter
 
     public static DecompilerResult Print(IrFunction function, PrinterOptions? options = null)
     {
+        if (MemorySafetyModeUnavailableResult(function) is { } unavailable)
+            return unavailable;
+
         try
         {
             var printer = new CSharpPrinter(function, options);
@@ -362,6 +377,9 @@ public sealed partial class CSharpPrinter
         IrFunction function, out PrintedRangeMap printedRanges, PrinterOptions? options = null)
     {
         printedRanges = PrintedRangeMap.Empty;
+        if (MemorySafetyModeUnavailableResult(function) is { } unavailable)
+            return unavailable;
+
         try
         {
             var sink = new PrintedRangeMap();
@@ -380,6 +398,37 @@ public sealed partial class CSharpPrinter
             return DecompilerResult.Failure(DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
         }
     }
+
+    internal static DecompilerResult? MemorySafetyModeUnavailableResult(
+        IrFunction function)
+    {
+        if (MemorySafetyModeUnavailableResult(function.MemorySafetyMode)
+            is not { } unavailable)
+        {
+            return null;
+        }
+
+        return function.Diagnostics.Count == 0
+            ? unavailable
+            : unavailable with
+            {
+                Diagnostics =
+                [
+                    .. function.Diagnostics,
+                    .. unavailable.Diagnostics,
+                ],
+            };
+    }
+
+    internal static DecompilerResult? MemorySafetyModeUnavailableResult(
+        MemorySafetyModeDecision decision)
+        => decision
+            is MemorySafetyModeDecision.Unavailable unavailable
+                ? DecompilerResult.Failure(
+                    DiagnosticIds.MemorySafetyModeUnavailable,
+                    MemorySafetyModeDecision.DescribeUnavailable(
+                        unavailable.Rules))
+                : null;
 
     DecompilerResult Result(string output, IrFunction function)
         => new(output, function.Fidelity, [.. function.Diagnostics])
@@ -1232,37 +1281,8 @@ public sealed partial class CSharpPrinter
         if (CanAssignType(source, load.Type))
             return !StrictlyNarrowsReference(source, load.Type);
         return TypeFamilies.IsBoolean(source)
-            && TypeFamilies.IsIntegerLike(load.Type)
-            && StackSlotLoadTargetType(load) is { } target
-            && TypeFamilies.IsBoolean(target);
+            && CoercionSinks.BooleanSlotLoadType(load, CurrentReturnType, _function.TypeShapes) is not null;
     }
-
-    TypeRef? StackSlotLoadTargetType(LoadStackSlot load)
-        => load.Parent switch
-        {
-            StoreLocal store when ReferenceEquals(store.Value, load) => store.Type,
-            StoreArgument store when ReferenceEquals(store.Value, load) => store.Type,
-            StoreField store when ReferenceEquals(store.Value, load) => store.Field.Type,
-            StoreProperty store when ReferenceEquals(store.Value, load) => StorePropertyTargetType(store),
-            StoreElement store when ReferenceEquals(store.Value, load) => store.ElementType,
-            StoreIndirect store when ReferenceEquals(store.Value, load) => store.Type,
-            Return ret when ReferenceEquals(ret.Value, load) => CurrentReturnType,
-            // A bool-in-int-slot load whose value flows into a boolean operator
-            // or condition position (`!S`, `S && x`, `S ? a : b`, `if (S)`,
-            // `while (S)`) has a boolean target — C# requires bool there. Without
-            // this the slot's bool store and this load get different names (S_1
-            // bool vs S_1_1 int) and the consumer reads an unassigned int split
-            // (CS0165, #2377).
-            LogicalNot not when ReferenceEquals(not.Operand, load) => TypeRef.CoreLib("System", "Boolean"),
-            LogicalBinary logical when ReferenceEquals(logical.Left, load) || ReferenceEquals(logical.Right, load) => TypeRef.CoreLib("System", "Boolean"),
-            Conditional conditional when ReferenceEquals(conditional.Condition, load) => TypeRef.CoreLib("System", "Boolean"),
-            ConditionalBranch branch when ReferenceEquals(branch.Condition, load) => TypeRef.CoreLib("System", "Boolean"),
-            IfStatement ifStatement when ReferenceEquals(ifStatement.Condition, load) => TypeRef.CoreLib("System", "Boolean"),
-            WhileLoop whileLoop when ReferenceEquals(whileLoop.Condition, load) => TypeRef.CoreLib("System", "Boolean"),
-            DoWhileLoop doWhile when ReferenceEquals(doWhile.Condition, load) => TypeRef.CoreLib("System", "Boolean"),
-            ForLoop forLoop when ReferenceEquals(forLoop.Condition, load) => TypeRef.CoreLib("System", "Boolean"),
-            _ => null,
-        };
 
     bool CanAssignTo(IrExpression value, TypeRef target)
     {

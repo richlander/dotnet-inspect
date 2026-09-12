@@ -4,7 +4,6 @@ import type {
   BrowserVocabularyDocument,
 } from "./facades/inspect-web-catalog.d.ts";
 import type {
-  BrowserGalleryDiscoveryCatalog,
   BrowserPackageQueryFacetCatalog,
   BrowserPackageQueryFacetTier,
 } from "./facades/inspect-web-package.d.ts";
@@ -159,28 +158,6 @@ export const engineStartupOperations = {
             displayGroupId: nullableText(facet.displayGroupId),
             displayGroupLabel: nullableText(facet.displayGroupLabel),
           };
-        }),
-      };
-    }),
-  },
-  listGalleryDiscoveryCatalog: {
-    kind: "package-list-gallery-discovery-catalog",
-    value: json<BrowserGalleryDiscoveryCatalog>(value => {
-      const data = record(value);
-      const packageType = record(data.packageType);
-      return {
-        ...data,
-        packageType: {
-          ...packageType,
-          id: text(packageType.id), label: text(packageType.label), summary: text(packageType.summary),
-          suggestions: array(packageType.suggestions, rawSuggestion => {
-            const suggestion = record(rawSuggestion);
-            return { ...suggestion, value: text(suggestion.value), label: text(suggestion.label) };
-          }),
-        },
-        orders: array(data.orders, rawOrder => {
-          const order = record(rawOrder);
-          return { ...order, id: text(order.id), label: text(order.label), summary: text(order.summary) };
         }),
       };
     }),

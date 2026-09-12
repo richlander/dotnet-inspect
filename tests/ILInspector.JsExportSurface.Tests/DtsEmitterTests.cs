@@ -2818,7 +2818,6 @@ public sealed class DtsEmitterTests
     [InlineData(nameof(InheritedWireDerivedFixture))]
     [InlineData(nameof(NumberHandlingWireFixture))]
     [InlineData(nameof(TypeNumberHandlingWireFixture))]
-    [InlineData(nameof(PolymorphicWireFixture))]
     [InlineData(nameof(ExtensionDataWireFixture))]
     public void Emit_BlocksUnsupportedWireShapingContracts(
         string typeName)
@@ -2847,6 +2846,35 @@ public sealed class DtsEmitterTests
             dts,
             StringComparison.Ordinal);
         Assert.Single(diagnostics.UnmappedTypes);
+    }
+
+    [Fact]
+    public void Emit_PreservesPolymorphicWireContractAsStructuralRecords()
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(PolymorphicWireFixture).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType record = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == nameof(PolymorphicWireFixture));
+        var diagnostics = new TypeScriptGenerationDiagnostics();
+
+        string dts = DtsEmitter.Emit(
+            new ILInspector.JsExportSurface.JsExportSurface
+            {
+                AssemblyIdentity = apiSurface.AssemblyIdentity,
+                Records = [record],
+            },
+            diagnostics);
+
+        Assert.Contains(
+            $"export interface {nameof(PolymorphicWireFixture)}",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Empty(diagnostics.UnmappedTypes);
     }
 
     [Fact]

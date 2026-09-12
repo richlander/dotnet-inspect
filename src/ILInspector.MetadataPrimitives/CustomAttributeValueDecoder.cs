@@ -88,10 +88,38 @@ internal static class CustomAttributeValueDecoder
         out ImmutableArray<bool> namedArgumentWidthDefaulted,
         GenericContextWork? genericContextWork = null,
         EnumResolutionWork? enumResolutionWork = null)
+        => TryDecodeClassified(
+            reader,
+            attribute,
+            preserveSerializedTypeNames,
+            captureDefaultedWidths,
+            beforeMaterialize,
+            enumUnderlyingType,
+            out value,
+            out fixedArgumentWidthDefaulted,
+            out namedArgumentWidthDefaulted,
+            out _,
+            genericContextWork,
+            enumResolutionWork);
+
+    internal static bool TryDecodeClassified(
+        MetadataReader reader,
+        CustomAttribute attribute,
+        bool preserveSerializedTypeNames,
+        bool captureDefaultedWidths,
+        Action<int>? beforeMaterialize,
+        AttributeDecoder.EnumWidthResolver? enumUnderlyingType,
+        out CustomAttributeValue<string> value,
+        out ImmutableArray<bool> fixedArgumentWidthDefaulted,
+        out ImmutableArray<bool> namedArgumentWidthDefaulted,
+        out DecodeRefusalKind refusal,
+        GenericContextWork? genericContextWork = null,
+        EnumResolutionWork? enumResolutionWork = null)
     {
         value = default;
         fixedArgumentWidthDefaulted = default;
         namedArgumentWidthDefaulted = default;
+        refusal = DecodeRefusalKind.None;
 
         try
         {
@@ -105,16 +133,21 @@ internal static class CustomAttributeValueDecoder
                 enumUnderlyingType,
                 genericContextWork,
                 enumResolutionWork);
-            return decoder.Run(
+            bool succeeded = decoder.Run(
                 attribute,
                 out value,
                 out fixedArgumentWidthDefaulted,
                 out namedArgumentWidthDefaulted);
+            if (!succeeded)
+                refusal = DecodeRefusalKind.Intrinsic;
+            return succeeded;
+        }
+        catch (EnumResolutionBudgetExceededException)
+        {
+            refusal = DecodeRefusalKind.DecodeLocalBudget;
         }
         catch (Exception ex) when (
-            ex is BadImageFormatException
-                or ArgumentOutOfRangeException
-                or EnumResolutionBudgetExceededException)
+            ex is BadImageFormatException or ArgumentOutOfRangeException)
         {
             // Malformed structure — including truncation, a bad signature, and
             // a definition-index failure — is a decode outcome, not a laundered
@@ -125,11 +158,24 @@ internal static class CustomAttributeValueDecoder
             // failure also propagate. Enum-resolution budget exhaustion is a
             // separate decode-local refusal so it is never cached as an
             // intrinsic type-definition-index failure.
-            value = default;
-            fixedArgumentWidthDefaulted = default;
-            namedArgumentWidthDefaulted = default;
-            return false;
+            refusal = DecodeRefusalKind.Intrinsic;
         }
+
+        value = default;
+        fixedArgumentWidthDefaulted = default;
+        namedArgumentWidthDefaulted = default;
+        return false;
+    }
+
+    /// <summary>
+    /// Distinguishes stable metadata refusals from per-decode budget outcomes
+    /// whose result can change after the shared context materializes an index.
+    /// </summary>
+    internal enum DecodeRefusalKind
+    {
+        None,
+        Intrinsic,
+        DecodeLocalBudget,
     }
 
     internal sealed class GenericContextWork

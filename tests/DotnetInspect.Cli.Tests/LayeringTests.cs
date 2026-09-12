@@ -124,7 +124,14 @@ public sealed class LayeringTests
         HashSet<string> closure =
             CommandErrorOwnershipTests.EvaluatedProjectClosure(project);
         Assert.Equal(
-            [Path.GetFullPath(project)],
+            [
+                Path.GetFullPath(project),
+                Path.Combine(
+                    root,
+                    "src",
+                    "Inspector.Resources",
+                    "Inspector.Resources.csproj"),
+            ],
             closure.Order(StringComparer.Ordinal));
         Assert.Equal(
             [
@@ -155,6 +162,11 @@ public sealed class LayeringTests
                     "src",
                     "Inspector.Artifacts",
                     "Inspector.Artifacts.csproj"),
+                Path.Combine(
+                    root,
+                    "src",
+                    "Inspector.Resources",
+                    "Inspector.Resources.csproj"),
             ],
             closure.Order(StringComparer.Ordinal));
         AssertNoForbiddenImplementations(
@@ -190,6 +202,11 @@ public sealed class LayeringTests
                     "src",
                     "Inspector.Artifacts",
                     "Inspector.Artifacts.csproj"),
+                Path.Combine(
+                    root,
+                    "src",
+                    "Inspector.Resources",
+                    "Inspector.Resources.csproj"),
             ],
             closure.Order(StringComparer.Ordinal));
         AssertNoForbiddenImplementations(
@@ -1045,6 +1062,7 @@ public sealed class LayeringTests
     private static readonly HashSet<string> PackageOrStorageImplementationProjects =
         new(PackageImplementationProjects, StringComparer.Ordinal)
         {
+            "DotnetInspector.Cache",
             "DotnetInspector.Core",
         };
 }

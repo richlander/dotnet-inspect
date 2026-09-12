@@ -1,10 +1,10 @@
+using DotnetInspector.Cache;
 using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json;
 using DotnetInspect.Cli.Commands;
-using DotnetInspector.Core;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Output;
@@ -20,7 +20,7 @@ using InertText;
 
 namespace DotnetInspect.Cli.Tests;
 
-// Mutates the process-global CoreCache root; serialize with in-process CLI/cache tests (#3471).
+// Mutates the process-global PersistentCache root; serialize with in-process CLI/cache tests (#3471).
 [Collection("Console")]
 public class LibraryFindingConsumerTests
 {
@@ -1237,7 +1237,7 @@ public class LibraryFindingConsumerTests
             File.Copy(replacementPath, targetPath, overwrite: true);
             File.SetLastWriteTimeUtc(targetPath, replacementTimestamp);
 
-            CoreCache.Initialize("dotnet-inspect-test");
+            PersistentCache.Initialize("dotnet-inspect-test");
             using var httpClient = new HttpClient();
             LibraryInspection inspection = Assert.IsType<LibraryInspection>(
                 await LibraryMetadataService.InspectAsync(

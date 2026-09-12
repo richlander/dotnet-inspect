@@ -492,6 +492,12 @@ internal sealed class ChangeRoutingPolicy
         {
             state.Decompiler = true;
         }
+        else if (BytePattern.Matches(
+            path,
+            "tests/DecompilerHarness.Tests/*"))
+        {
+            state.Decompiler = true;
+        }
         else if (BytePattern.MatchesAny(
                 path,
                 "fixtures/*",
@@ -513,6 +519,7 @@ internal sealed class ChangeRoutingPolicy
             "tests/DotnetInspector.ILRoundtrip.Tests/*",
             "eng/restore-ilassembler.sh",
             "src/ILInspector.Metadata*",
+            "src/DotnetInspector.Cache/*",
             "src/DotnetInspector.Core/*",
             "*.props",
             "*.targets",

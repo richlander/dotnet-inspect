@@ -498,6 +498,7 @@ internal sealed class WorkspaceProjectionContractAudit
 internal sealed class WorkspaceCapabilitySurfaceWalker
 {
     readonly HashSet<Type> _visited = [];
+    readonly HashSet<Type> _additionalValueTypes;
     internal IReadOnlySet<Type> Visited => _visited;
 
     static readonly HashSet<Type> ImmutableContainers =
@@ -506,6 +507,10 @@ internal sealed class WorkspaceCapabilitySurfaceWalker
         typeof(ImmutableSortedSet<>), typeof(ImmutableQueue<>), typeof(ImmutableStack<>),
         typeof(ImmutableDictionary<,>), typeof(ImmutableSortedDictionary<,>),
     ];
+
+    internal WorkspaceCapabilitySurfaceWalker(
+        IEnumerable<Type>? additionalValueTypes = null)
+        => _additionalValueTypes = additionalValueTypes?.ToHashSet() ?? [];
 
     internal void Visit(Type type, string path)
     {
@@ -523,7 +528,8 @@ internal sealed class WorkspaceCapabilitySurfaceWalker
         Assert.False(type == typeof(AssemblyContextTypeResolutionResult)
             || typeof(AssemblyContextTypeResolutionResult).IsAssignableFrom(type), $"Query result {type} at {path}.");
         Assert.False(type.Namespace == "ILInspector.Metadata" && !type.IsValueType
-            && type != typeof(AssemblyReferenceIdentity), $"Metadata reference {type} at {path}.");
+            && type != typeof(AssemblyReferenceIdentity)
+            && !_additionalValueTypes.Contains(type), $"Metadata reference {type} at {path}.");
         Assert.False((type.HasElementType || type.IsGenericType)
             && WorkspaceProjectionContractAudit.Decompose(type).Contains(typeof(byte)),
             $"Byte-bearing carrier {type} at {path}.");
@@ -545,7 +551,9 @@ internal sealed class WorkspaceCapabilitySurfaceWalker
             && (type.Assembly == typeof(WorkspaceTypeResolutionEvidence).Assembly
                 || type.Assembly == typeof(QueryComparisonInputId).Assembly);
         bool ownerCurrency = M.RetainedOwnerCurrency.Contains(type);
-        Assert.True(queries || ownerCurrency, $"Unlisted value {type} at {path}.");
+        Assert.True(
+            queries || ownerCurrency || _additionalValueTypes.Contains(type),
+            $"Unlisted value {type} at {path}.");
         if (!type.IsValueType && !type.IsSealed)
         {
             Assert.True(type.IsAbstract, $"Non-sealed value {type} at {path}.");

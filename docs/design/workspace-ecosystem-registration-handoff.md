@@ -17,6 +17,13 @@ catalog and reusable Workspace registration. It is not a new ecosystem
 catalog, source resolver, Workspace state model, call-graph request, or
 host-specific adapter.
 
+The lower identity, declaration envelope, three-arm population union, and
+public consumer canary are implemented by
+`DotnetInspector.Queries.WorkspaceEcosystemRegistrationDeclaration` under
+[#6640](https://github.com/richlander/dotnet-inspect/issues/6640). Application
+pack correspondence, curated construction, Workspace retention, persistence,
+and host adoption remain in their separately owned slices.
+
 ## Authority and exact claim
 
 **Workspace Ecosystem Registration Handoff** owns:
@@ -44,7 +51,8 @@ It consumes without redefining:
 - Ecosystem Packs' application identity, manifest, display metadata, retrieval
   knowledge, prefix entries, and Integration scanner selection;
 - Source Selection's `PackagePrefixDeclaration`;
-- the platform source owner's future typed library-population declaration;
+- Source Selection's `ExactLibrarySourceCoordinate` and
+  `PlatformLibraryPopulationDeclaration`;
 - Packages' `PackageCoordinate`;
 - Integration's `EcosystemIntegrationScannerBinding`; and
 - Workspace Scope's future registration revision, mutation, snapshot, and
@@ -78,6 +86,44 @@ complete explicit initial set. This reverses the former relationship: the
 product-specific Ecosystems layer depends on and invokes neutral Workspace
 construction; Workspace never depends on, invokes, or offers an option for
 Ecosystems curation.
+
+## Product scenario served
+
+This handoff is the declaration boundary inside the end-to-end scenario owned
+by [Workspace registration and call-graph focal
+length](workspace-registration-and-call-graph-scope.md#end-to-end-product-scenario):
+
+```text
+discovery-oriented command or Spotlight selection
+  -> Ecosystems creates the current curated Workspace
+     -> project Platform, ASP.NET Core, and Microsoft.Extensions
+        into complete lower ecosystem declarations
+        -> initialize one fresh neutral Workspace explicitly
+           -> add the selected package as membership
+              -> focus a Library, type, or member
+                 -> run a bounded graph over the requested focal length
+                    -> persist expanded registrations, not curated intent
+```
+
+The declaration added by this slice carries the inert information needed at the
+second step. For example, the ASP.NET Core declaration can retain both its
+Platform population and `Microsoft.AspNetCore.` package-prefix population,
+while the Platform declaration retains the .NET runtime population. Later
+consumers can select those exact contributions without importing the
+application catalog or reconstructing them from display text.
+
+The handoff does not decide that the discovery operation should be curated,
+admit the selected package, establish focus, choose `Everything`, resolve a
+reference, apply Platform pruning, or serialize a Workspace. Those decisions
+remain with the host, Workspace, graph, resolution, pruning, and persistence
+owners named by the experience specification. The handoff makes their
+composition possible while preserving each decision as an explicit typed
+boundary.
+
+The contrasting high-fidelity scenario deliberately bypasses this curated
+factory. Package-mode `depends` constructs raw and keeps package-authored
+dependency routes as evidence. Both scenarios use the same neutral Workspace
+API; only the caller's construction choice differs.
 
 ## Boundary shape
 
@@ -204,9 +250,15 @@ The version-1 population union is closed:
 
 ```text
 WorkspaceEcosystemPopulationDeclaration
-  = Platform(PlatformLibraryPopulationDeclaration)
+  = ExactLibrary(ExactLibrarySourceCoordinate)
+  | Platform(PlatformLibraryPopulationDeclaration)
   | PackagePrefix(PackagePrefixDeclaration)
 ```
+
+The exact-library arm retains the
+[Exact Library Source Coordinate](exact-library-source-coordinate.md) issued by
+Source Selection. It preserves that owner's exact package/Platform source arm
+and Metadata assembly identity without inspecting, reparsing, or realizing it.
 
 The platform arm retains the
 [Platform Library Population Declaration](platform-library-population-declaration.md)
@@ -228,11 +280,12 @@ permission, or permission to stop after one contribution. A consumer claiming
 a complete ecosystem population must apply every request-relevant
 contribution or return its own typed incomplete or unavailable result.
 
-Duplicate platform population identities and duplicate package-prefix
-declarations within one ecosystem are rejected. Cross-arm textual similarity
-does not establish duplication: a platform population and a
-`Microsoft.AspNetCore.` package prefix describe different source domains and
-may coexist.
+Duplicate exact-library coordinates, platform population identities, and
+package-prefix declarations within one ecosystem are rejected through their
+owners' equality. Cross-arm overlap does not establish duplication: an exact
+Platform Library may coexist with its broad Platform population, and an exact
+package Library may coexist with a matching package prefix. Those values
+describe different population intent and remain in authored order.
 
 ### Integration contribution
 
@@ -363,13 +416,27 @@ package-prefix owners retain their own `Unavailable`, `Rejected`,
 not turn one of those results into an empty population or retry through another
 contribution.
 
+Lower declaration construction snapshots each supplied sequence exactly once
+into an immutable array and then validates that snapshot. It retains the
+original immutable element values and the scanner binding by reference without
+invocation or introspection.
+
 Lower declaration construction validates:
 
 - canonical lower identity;
-- non-null immutable contribution sequences;
-- existing owner validation for every carried value;
+- non-null contribution sequences and elements;
+- namespace-root shapes and ordinal case-sensitive duplicates;
+- Packages-owned coordinate validity, unversioned and target-neutral
+  core-package roles, and ordinal-ignore-case duplicate package IDs;
+- non-null population payloads and owner-defined equality for exact-library,
+  Platform, and package-prefix duplicates;
 - duplicate identities within each contribution domain; and
 - at least one knowledge, population, or scanner contribution.
+
+The handoff owns admissibility for its raw namespace and role-specific
+core-package slots. It does not reparse package-prefix declarations, inspect
+exact-library fields, reinterpret Platform families, or invoke scanner
+bindings.
 
 It does not establish that:
 
@@ -413,6 +480,12 @@ neither deduplicates by namespace nor treats one as fallback for the other.
 The population owner distinguishes ASP.NET Core focus members from .NET
 runtime binding support; consumer and assembly-reference resolution owners
 decide request-relevant population and binding from their typed evidence.
+
+An exact ASP.NET Core Library may also appear beside
+`Platform(AspNetCore)`, and an exact package Library may appear beside a
+matching package prefix. These are deliberate cross-arm overlaps, not
+duplicates. Exact coordinates name one Library; broad declarations name
+populations.
 
 ### Prefix bound leakage
 
@@ -478,8 +551,8 @@ There are nine counted adoption steps:
 1. Lock this focused handoff design under #6307.
 2. Implement the Source-Selection-owned .NET runtime and ASP.NET Core library
    population declarations defined by #6328.
-3. Implement the lower identity, declaration, validation, and public consumer
-   canary in Queries.
+3. Implement the lower identity, declaration, three owner-issued population
+   arms, validation, and public consumer canary in Queries.
 4. Add package-prefix slots, explicit lower projections, exact selection
    outcomes, and the authored three-row curated manifest to Static Ecosystem
    Packs.
@@ -495,10 +568,11 @@ There are nine counted adoption steps:
 9. Have the Inspect Web application boundary make the same explicit choice,
    then adopt Workspace editing without another curated table.
 
-Exact-library registration remains a separate source-owner slice within #6012
-stage 3. Call-graph focal lengths, resolution execution, persistence UX, and
-host presentation remain their later counted #6012 stages. This document does
-not authorize one PR spanning the nine steps.
+Exact-library identity remains owned by its completed Source Selection slice,
+PR #6613; this handoff only retains that value as one population arm.
+Call-graph focal lengths, resolution execution, persistence UX, and host
+presentation remain their later counted #6012 stages. This document does not
+authorize one PR spanning the nine steps.
 
 ## Demo
 
@@ -549,7 +623,7 @@ pack discovery does not make it curated.
 
 | Gate | Required observation |
 | --- | --- |
-| Lower declaration construction | Canonical identity, immutable owner values, duplicate rejection, empty-declaration rejection, and authored order are preserved. |
+| Lower declaration construction | Canonical identity, immutable snapshots, exact owner values across all three population arms, duplicate rejection, empty-declaration rejection, and authored order are preserved. |
 | Explicit correspondence | Equal text without a retained pair cannot project; mismatched paired spellings and duplicate lower IDs reject complete catalog construction. |
 | Projection fidelity | Known selection returns the exact retained declaration; known unavailable and unknown identities remain distinct. |
 | Resource-free projection | Discovery and selection invoke no prefix query, platform source, package-set lookup, scanner, acquisition, or Workspace mutation. |
@@ -578,11 +652,20 @@ Platform and package-prefix operations keep their own Release gates; this
 handoff's tests do not manufacture their population, acquisition, or completion
 evidence.
 
+## TLA+ assessment
+
+No TLA+ model is required for the implemented lower declaration. It is one
+immutable value with no publication, revision, replacement, scheduling,
+concurrency, or failure-state transition. Workspace revisions and curated
+construction retain their own state-model assessments when they consume this
+value.
+
 ## Non-claims
 
 This design does not define:
 
-- exact-library registration identity or source-owner-issued coordinates;
+- exact-library registration identity or source-owner-issued coordinates
+  beyond retaining the owner-issued value;
 - platform family grammar, target selection, library inventory, or
   acquisition;
 - package-prefix query results, package limits, paging, source authorization,

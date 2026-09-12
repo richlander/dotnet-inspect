@@ -4,9 +4,9 @@
 
 Implemented by #6268 as the policy slice of #6228 effort 1. Inspect Web now
 projects exact reference-pack inventory into its Platform catalog and uses this
-policy to gate the three System.Text.Json demo migrations. Runtime activation
-still consumes an explicit Platform assembly coordinate; this policy does not
-infer one from package identity.
+policy to gate the three System.Text.Json and five Microsoft.Extensions demo
+migrations. Runtime activation still consumes explicit Platform assembly
+coordinates; this policy does not infer them from package identity.
 
 ## Authority and exact claim
 
@@ -123,9 +123,10 @@ adoption to:
 
 Inspect Web's checked-in Platform catalog is the first production projection:
 each exact target carries its pack-owned package supply rows beside, but
-separate from, its library rows. The System.Text.Json demos consume the
-result only as an authoring migration gate and separately require an exact
-`System.Text.Json` implementation-library row.
+separate from, its library rows. The Runtime System.Text.Json and ASP.NET Core
+Microsoft.Extensions demos consume the result only as an authoring migration
+gate and separately require exact implementation-library rows for every
+selected assembly.
 
 [#6266](https://github.com/richlander/dotnet-inspect/issues/6266) separately
 tracks the eight-step package-input evolution. Its step 6 adopts normalized

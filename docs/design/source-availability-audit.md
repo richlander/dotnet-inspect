@@ -30,7 +30,8 @@ The service consumes, but does not redefine, these owner-issued facts:
   admitting a final response origin.
 - `HttpRetryHelper` owns the bounded, retried HTTP HEAD operation and its
   transport result.
-- `CoreCache` owns generic persistence, age checks, and storage mechanics.
+- `DotnetInspector.Cache.PersistentCache` owns generic persistence, age checks,
+  and storage mechanics.
 - `ISourceLinkQueryCache` is the optional host adapter for those mechanics.
 - `SourceAvailabilityQuery` owns query composition and the typed result.
 - CLI library and package sections own presentation.

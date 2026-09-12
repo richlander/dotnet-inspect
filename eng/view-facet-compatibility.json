@@ -40,6 +40,11 @@
     "purpose": "Physical ECMA-335 metadata and PE structure for the active Library."
   },
   {
+    "id": "library.compare",
+    "kind": "Library",
+    "purpose": "Diff and clone results organized by Type for the active Library."
+  },
+  {
     "id": "type.api",
     "kind": "Type",
     "purpose": "API shape and member inventory for the active Type."
@@ -53,6 +58,11 @@
     "id": "type.source",
     "kind": "Type",
     "purpose": "Source or decompiled code for the active Type."
+  },
+  {
+    "id": "type.compare",
+    "kind": "Type",
+    "purpose": "Diff and clone results organized by Member for the active Type."
   },
   {
     "id": "member.overview",
@@ -78,5 +88,10 @@
     "id": "member.annotated-source",
     "kind": "Member",
     "purpose": "Source for the active Member with product analysis annotations."
+  },
+  {
+    "id": "member.compare",
+    "kind": "Member",
+    "purpose": "Detailed diff and clone results for the active Member."
   }
 ]

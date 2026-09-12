@@ -65,7 +65,7 @@ internal static class PackageQueryCommand
                 $"Package Query completion: {view.Summary.Completion}; "
                 + $"{view.Summary.Candidates}/{view.Summary.CandidateLimit} candidates, "
                 + $"{view.Summary.Matches}/{view.Summary.MatchLimit} matches. "
-                + "These results are not an exhaustive Gallery total.");
+                + "These results do not exhaust the requested package-ID scope.");
         }
         return ExitCode(view.Summary);
     }

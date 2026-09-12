@@ -89,6 +89,5 @@ evidence, not authority for a new dependency resolver or skill parser.
    gates.
 2. Adopt them in the Browser facade and cards, retiring repeated query context
    from cards in the same change.
-3. Adopt the shared evidence when CLI Package Query execution lands under
-   [#5919](https://github.com/richlander/dotnet-inspect/issues/5919) and the
+3. Adopt the shared evidence when CLI Package Query execution lands under the
    [CLI owner](package-query-cli.md); keep this step visibly pending in #6071.

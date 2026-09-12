@@ -268,12 +268,37 @@ public static class StageDump
     public static DecompilerResult DumpMethod(
         MetadataSource source, string typeFullName, string methodName,
         StageDumpView view = StageDumpView.IrTree, int overloadIndex = 0, bool publicOnly = false)
-        => DecompilerResult.Run(() =>
+    {
+        IrFunction? function;
+        try
         {
-            var function = IrImporter.Import(source, typeFullName, methodName, overloadIndex, publicOnly)
-                ?? throw new InvalidOperationException(
-                    $"{typeFullName}::{methodName} not found or has no IL body");
+            function = IrImporter.Import(
+                source,
+                typeFullName,
+                methodName,
+                overloadIndex,
+                publicOnly);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return DecompilerResult.Failure(
+                DiagnosticIds.InternalError,
+                $"{ex.GetType().Name}: {ex.Message}");
+        }
+        if (function is null)
+        {
+            return DecompilerResult.Failure(
+                DiagnosticIds.ContextUnavailable,
+                $"{typeFullName}::{methodName} not found or has no IL body");
+        }
+        if (CSharpPrinter.MemorySafetyModeUnavailableResult(function)
+            is { } unavailable)
+        {
+            return unavailable;
+        }
 
+        return DecompilerResult.Run(() =>
+        {
             var sb = new StringBuilder();
 
             if (view == StageDumpView.Full)
@@ -306,4 +331,5 @@ public static class StageDump
 
             return sb.ToString();
         });
+    }
 }

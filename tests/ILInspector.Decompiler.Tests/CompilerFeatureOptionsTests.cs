@@ -3,6 +3,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
+using DotnetInspector.Fixtures;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
 using ILInspector.Metadata;
@@ -76,21 +77,28 @@ public class CompilerFeatureOptionsTests
     }
 
     [Theory]
-    [InlineData(2, true)]
-    [InlineData(3, false)]
-    [InlineData(99, false)]
-    public void ModuleMarker_ReplaysOnlyRecognizedUpdatedRules(
+    [InlineData(2, MemorySafetyMode.Updated)]
+    [InlineData(3, null)]
+    [InlineData(99, null)]
+    public void ModuleMarker_SelectsOnlyRecognizedLanguageModes(
         int version,
-        bool expectedUpdatedRules)
+        MemorySafetyMode? expectedMode)
     {
         using var pe = new PEReader(new MemoryStream(BuildMarkedModule(version)));
-        var options = CompilerFeatureOptions.ParseOptions(pe);
+        CompilerFeatureOptions.Resolution resolution =
+            CompilerFeatureOptions.Resolve(pe);
 
-        Assert.Equal(
-            expectedUpdatedRules,
-            options.Features.Any(feature =>
-                feature.Key == "updated-memory-safety-rules"
-                && feature.Value == "true"));
+        if (expectedMode is { } mode)
+        {
+            var available = Assert.IsType<
+                CompilerFeatureOptions.Resolution.Available>(resolution);
+            Assert.Equal(mode, available.Mode);
+        }
+        else
+        {
+            Assert.IsType<CompilerFeatureOptions.Resolution.Unavailable>(
+                resolution);
+        }
     }
 
     [Fact]
@@ -132,14 +140,15 @@ public class CompilerFeatureOptionsTests
             diagnostic => diagnostic.Id == "CS0214");
     }
 
-    public static TheoryData<string, byte[], bool> ReplayModeImages() => new()
+    public static TheoryData<string, byte[], MemorySafetyMode?> ReplayModeImages() => new()
     {
-        { "unmarked", BuildMarkedModule(null), false },
-        { "v2 MethodDef ctor", BuildMarkedModule(2), true },
-        { "v3 MethodDef ctor", BuildMarkedModule(3), false },
-        { "v99 MethodDef ctor", BuildMarkedModule(99), false },
-        { "v2 MemberRef->TypeDef ctor", BuildMarkedModule(2, memberRefConstructor: true), true },
-        { "malformed marker blob", BuildMarkedModule(2, malformedValue: true), false },
+        { "unmarked", BuildMarkedModule(null), MemorySafetyMode.Legacy },
+        { "v2 MethodDef ctor", BuildMarkedModule(2), MemorySafetyMode.Updated },
+        { "v3 MethodDef ctor", BuildMarkedModule(3), null },
+        { "v99 MethodDef ctor", BuildMarkedModule(99), null },
+        { "v2 MemberRef->TypeDef ctor", BuildMarkedModule(2, memberRefConstructor: true), MemorySafetyMode.Updated },
+        { "malformed marker blob", BuildMarkedModule(2, malformedValue: true), null },
+        { "conflicting markers", BuildMarkedModule(2, secondVersion: 3), null },
     };
 
     /// <summary>
@@ -151,17 +160,25 @@ public class CompilerFeatureOptionsTests
     public void HarnessReplayUsesNormalizedModuleRules(
         string label,
         byte[] image,
-        bool expectedUpdatedRules)
+        MemorySafetyMode? expectedMode)
     {
         using var pe = new PEReader(new MemoryStream(image));
-        bool harnessReplaysUpdatedRules = CompilerFeatureOptions.ParseOptions(pe).Features
-            .Any(feature => feature.Key == "updated-memory-safety-rules"
-                && feature.Value == "true");
+        CompilerFeatureOptions.Resolution resolution =
+            CompilerFeatureOptions.Resolve(pe);
 
-        Assert.True(
-            expectedUpdatedRules == harnessReplaysUpdatedRules,
-            $"{label}: expected updated rules = {expectedUpdatedRules}, "
-                + $"harness replayed updated rules = {harnessReplaysUpdatedRules}");
+        if (expectedMode is { } mode)
+        {
+            var available = Assert.IsType<
+                CompilerFeatureOptions.Resolution.Available>(resolution);
+            Assert.True(
+                mode == available.Mode,
+                $"{label}: expected {mode}, resolved {available.Mode}");
+        }
+        else
+        {
+            Assert.IsType<CompilerFeatureOptions.Resolution.Unavailable>(
+                resolution);
+        }
     }
 
     [Fact]
@@ -207,18 +224,384 @@ public class CompilerFeatureOptionsTests
             Assert.NotNull(function);
             using var pe = new PEReader(
                 new MemoryStream(image, writable: false));
-            bool harnessReplaysUpdatedRules =
-                CompilerFeatureOptions.ParseOptions(pe).Features.Any(feature =>
-                    feature.Key == "updated-memory-safety-rules"
-                    && feature.Value == "true");
+            CompilerFeatureOptions.Resolution harnessMode =
+                CompilerFeatureOptions.Resolve(pe);
 
-            Assert.True(
-                function.UsesUpdatedMemorySafetyRules
-                    == harnessReplaysUpdatedRules,
-                $"{label}: printer used updated rules = "
-                    + $"{function.UsesUpdatedMemorySafetyRules}, "
-                    + "harness replayed updated rules = "
-                    + $"{harnessReplaysUpdatedRules}");
+            if (function.MemorySafetyMode
+                is MemorySafetyModeDecision.Available printerAvailable)
+            {
+                var harnessAvailable = Assert.IsType<
+                    CompilerFeatureOptions.Resolution.Available>(harnessMode);
+                Assert.Equal(printerAvailable.Mode, harnessAvailable.Mode);
+                Assert.True(CSharpPrinter.Print(function).Succeeded);
+            }
+            else
+            {
+                Assert.IsType<MemorySafetyModeDecision.Unavailable>(
+                    function.MemorySafetyMode);
+                Assert.IsType<
+                    CompilerFeatureOptions.Resolution.Unavailable>(harnessMode);
+                DecompilerResult result = CSharpPrinter.PrintRaised(function);
+                Assert.False(result.Succeeded);
+                Assert.Contains(
+                    result.Diagnostics,
+                    diagnostic => diagnostic.Id
+                        == DiagnosticIds.MemorySafetyModeUnavailable);
+            }
+        }
+    }
+
+    [Fact]
+    public void SimulateModeExplicitlyOverridesUnsupportedModuleRules()
+    {
+        const string sourceText =
+            """
+            public static class C
+            {
+                public static int M() => 1;
+            }
+            """;
+        var updatedOptions = new CSharpParseOptions(LanguageVersion.Preview)
+            .WithFeatures([
+                new KeyValuePair<string, string>(
+                    "updated-memory-safety-rules",
+                    "true"),
+            ]);
+        using var updated = Compile(
+            sourceText,
+            updatedOptions,
+            assemblyName: "UnsupportedSimulation");
+        byte[] unsupported = WithMemorySafetyRulesVersion(
+            updated.Image,
+            version: 99);
+
+        using var source = MetadataSource.OpenFromPrefetchedImage(
+            "unsupported-simulation.dll",
+            ImmutableArray.Create(unsupported));
+        source.SimulateNewRules = true;
+        IrFunction function = Assert.IsType<IrFunction>(
+            IrImporter.Import(source, "C", "M"));
+
+        var mode = Assert.IsType<MemorySafetyModeDecision.Available>(
+            function.MemorySafetyMode);
+        Assert.Equal(MemorySafetyMode.Updated, mode.Mode);
+        Assert.True(CSharpPrinter.PrintRaised(function).Succeeded);
+    }
+
+    [Fact]
+    public void UnavailableMetadataRules_DoNotSelectALanguageMode()
+    {
+        var rules = new MemorySafetyRulesResult.Unavailable(
+            new MemorySafetyMetadataFailure(
+                MemorySafetyMetadataFailureKind.BudgetExceeded,
+                "synthetic budget"),
+            []);
+
+        Assert.IsType<MemorySafetyModeDecision.Unavailable>(
+            MemorySafetyModeDecision.Resolve(rules));
+    }
+
+    [Fact]
+    public void CompileBackReportsUnsupportedModuleModeAsUnavailable()
+    {
+        var updatedOptions = new CSharpParseOptions(LanguageVersion.Preview)
+            .WithFeatures([
+                new KeyValuePair<string, string>(
+                    "updated-memory-safety-rules",
+                    "true"),
+            ]);
+        using var updated = Compile(
+            """
+            public enum E
+            {
+                Value,
+            }
+
+            public delegate void D();
+
+            public interface I
+            {
+            }
+
+            public abstract class A
+            {
+                public abstract int Missing();
+            }
+
+            public sealed class C
+            {
+                public int P => 1;
+                public int M() => 1;
+            }
+            """,
+            updatedOptions,
+            assemblyName: "UnsupportedCompileBack");
+        byte[] unsupported = WithMemorySafetyRulesVersion(
+            updated.Image,
+            version: 99);
+        string path = Path.Combine(
+            Path.GetDirectoryName(
+                FixtureCatalog.DecompilerUnsafeNew.AssemblyPath())!,
+            $"unsupported-compile-back-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, unsupported);
+        try
+        {
+            using (var pe = new PEReader(
+                new MemoryStream(unsupported, writable: false)))
+            {
+                ApiSurface surface = ApiSurfaceExtractor.Extract(pe);
+                ApiType type = Assert.Single(
+                    surface.Types,
+                    candidate => candidate.FullName == "C");
+                DecompilerResult typeProjection =
+                    MemberBodyProducer.Project(type, path, pdbPath: null);
+                Assert.False(typeProjection.Succeeded);
+                Assert.Contains(
+                    typeProjection.Diagnostics,
+                    diagnostic => diagnostic.Id
+                        == DiagnosticIds.MemorySafetyModeUnavailable);
+
+                ApiMember member = Assert.Single(
+                    type.Members,
+                    candidate => candidate.Name == "M");
+                MemberRenderResult memberProjection =
+                    MemberBodyProducer.ProduceMember(
+                        type,
+                        member,
+                        path,
+                        pdbPath: null);
+                Assert.Equal(
+                    MemberBodyProductionStatus.Failed,
+                    memberProjection.Status);
+                Assert.Contains(
+                    DiagnosticIds.MemorySafetyModeUnavailable,
+                    memberProjection.Text);
+
+                foreach (string bodylessTypeName in new[] { "E", "D", "I", "A" })
+                {
+                    ApiType bodylessType = Assert.Single(
+                        surface.Types,
+                        candidate => candidate.FullName == bodylessTypeName);
+                    DecompilerResult bodylessProjection =
+                        MemberBodyProducer.Project(
+                            bodylessType,
+                            path,
+                            pdbPath: null);
+                    Assert.False(bodylessProjection.Succeeded);
+                    Assert.Contains(
+                        bodylessProjection.Diagnostics,
+                        diagnostic => diagnostic.Id
+                            == DiagnosticIds.MemorySafetyModeUnavailable);
+                }
+
+                ApiType abstractType = Assert.Single(
+                    surface.Types,
+                    candidate => candidate.FullName == "A");
+                ApiMember abstractMember = Assert.Single(
+                    abstractType.Members,
+                    candidate => candidate.Name == "Missing");
+                MemberRenderResult abstractProjection =
+                    MemberBodyProducer.ProduceMember(
+                        abstractType,
+                        abstractMember,
+                        path,
+                        pdbPath: null);
+                Assert.Equal(
+                    MemberBodyProductionStatus.Failed,
+                    abstractProjection.Status);
+                Assert.Contains(
+                    DiagnosticIds.MemorySafetyModeUnavailable,
+                    abstractProjection.Text);
+                Assert.Contains(
+                    abstractProjection.Failure!.Diagnostics,
+                    diagnostic => diagnostic.Id
+                        == DiagnosticIds.MemorySafetyModeUnavailable);
+
+                IReadOnlyDictionary<ApiMember, MemberRenderResult>
+                    abstractBatch =
+                        MemberBodyProducer.ProduceMembers(
+                            abstractType,
+                            path,
+                            pdbPath: null);
+                Assert.Equal(
+                    MemberBodyProductionStatus.Failed,
+                    abstractBatch[abstractMember].Status);
+                Assert.Contains(
+                    DiagnosticIds.MemorySafetyModeUnavailable,
+                    abstractBatch[abstractMember].Text);
+                Assert.Contains(
+                    abstractBatch[abstractMember].Failure!.Diagnostics,
+                    diagnostic => diagnostic.Id
+                        == DiagnosticIds.MemorySafetyModeUnavailable);
+            }
+
+            ValidityCheck.MethodResult validity = Assert.Single(
+                ValidityCheck.Evaluate(
+                    path,
+                    sequential: true),
+                result => result.TypeName == "C"
+                    && result.MethodName == "M");
+            Assert.True(validity.CompileBackUnavailable);
+            Assert.Contains(
+                "Unsupported",
+                validity.CompileBackUnavailableReason);
+
+            IReadOnlyList<FidelityCheck.CompileBackResult> fidelity =
+                FidelityCheck.Evaluate(
+                    path,
+                    lowered: false,
+                    typeFilter: typeName => typeName == "C");
+            FidelityCheck.CompileBackResult row = Assert.Single(
+                fidelity,
+                result => result.Type == "C"
+                    && result.Method == "M");
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.FidelityUnavailable,
+                row.Status);
+            Assert.Contains(
+                "memory-safety-mode-unavailable",
+                row.Detail);
+
+            var target = new ReturnToSender.RequestedTarget(
+                "C",
+                "M",
+                Overload: 0);
+            ReturnToSender.Result returnToSender = Assert.Single(
+                ReturnToSender.CompileBackTargets(path, [target]));
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.FidelityUnavailable,
+                returnToSender.Status);
+            Assert.Contains(
+                DiagnosticIds.MemorySafetyModeUnavailable,
+                returnToSender.Detail);
+
+            ReturnToSender.Result propertyGetter =
+                ReturnToSender.CompileBackFirstPropertyGetter(path);
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.FidelityUnavailable,
+                propertyGetter.Status);
+            Assert.Contains(
+                DiagnosticIds.MemorySafetyModeUnavailable,
+                propertyGetter.Detail);
+
+            ReturnToSenderSourceProbeResult sourceProbe = Assert.Single(
+                ReturnToSenderSourceProbe.EvaluateTargets(path, [target]));
+            Assert.Equal(
+                ReturnToSenderSourceOutcome.SourceUnavailable,
+                sourceProbe.Outcome);
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.FidelityUnavailable,
+                sourceProbe.CompileBackStatus);
+            Assert.Equal("fidelity-unavailable", sourceProbe.Reason);
+            Assert.Contains(
+                DiagnosticIds.MemorySafetyModeUnavailable,
+                sourceProbe.Detail);
+
+            using (var source = MetadataSource.OpenWithoutSymbols(path))
+            {
+                DecompilerResult stageDump = StageDump.DumpMethod(
+                    source,
+                    "C",
+                    "M");
+                Assert.False(stageDump.Succeeded);
+                Assert.Contains(
+                    stageDump.Diagnostics,
+                    diagnostic => diagnostic.Id
+                        == DiagnosticIds.MemorySafetyModeUnavailable);
+
+                IrFunction crash = Assert.IsType<IrFunction>(
+                    IrImporter.Import(
+                        source,
+                        MetadataTokens.MethodDefinitionHandle(
+                            0x00FFFFFE)));
+                Assert.Contains(
+                    crash.Diagnostics,
+                    diagnostic => diagnostic.Id
+                        == DiagnosticIds.InternalError);
+                Assert.IsType<MemorySafetyModeDecision.Unavailable>(
+                    crash.MemorySafetyMode);
+                DecompilerResult crashProjection =
+                    CSharpPrinter.Print(crash);
+                Assert.Contains(
+                    crashProjection.Diagnostics,
+                    diagnostic => diagnostic.Id
+                        == DiagnosticIds.InternalError);
+                Assert.Contains(
+                    crashProjection.Diagnostics,
+                    diagnostic => diagnostic.Id
+                        == DiagnosticIds.MemorySafetyModeUnavailable);
+            }
+
+            Dictionary<string, RenderAbSensor.RenderedMethod> renders =
+                RenderAbSensor.CollectRenders(
+                    [path],
+                    methodCap: 10,
+                    workers: null,
+                    sequential: true);
+            RenderAbSensor.RenderedMethod render = Assert.Single(
+                renders.Values,
+                result => result.TypeName == "C"
+                    && result.MethodName == "M");
+            Assert.Contains(
+                "Unsupported",
+                render.CompileBackUnavailableReason);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void WholeTypeProjectionRejectsUnavailableModeFromPrivateInitializerConstructor()
+    {
+        var updatedOptions = new CSharpParseOptions(LanguageVersion.Preview)
+            .WithFeatures([
+                new KeyValuePair<string, string>(
+                    "updated-memory-safety-rules",
+                    "true"),
+            ]);
+        using var updated = Compile(
+            """
+            public sealed class C
+            {
+                public readonly int Seed = 5;
+
+                private C() { }
+            }
+            """,
+            updatedOptions,
+            assemblyName: "UnsupportedPrivateInitializer");
+        byte[] unsupported = WithMemorySafetyRulesVersion(
+            updated.Image,
+            version: 99);
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"unsupported-private-initializer-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, unsupported);
+        try
+        {
+            using var pe = new PEReader(
+                new MemoryStream(unsupported, writable: false));
+            ApiType type = Assert.Single(
+                ApiSurfaceExtractor.Extract(pe).Types,
+                candidate => candidate.FullName == "C");
+            Assert.DoesNotContain(
+                type.Members,
+                candidate => candidate.Kind == "constructor");
+
+            DecompilerResult projection =
+                MemberBodyProducer.Project(type, path, pdbPath: null);
+
+            Assert.False(projection.Succeeded);
+            Assert.Contains(
+                projection.Diagnostics,
+                diagnostic => diagnostic.Id
+                    == DiagnosticIds.MemorySafetyModeUnavailable);
+        }
+        finally
+        {
+            File.Delete(path);
         }
     }
 
@@ -811,7 +1194,8 @@ public class CompilerFeatureOptionsTests
     static byte[] BuildMarkedModule(
         int? version,
         bool memberRefConstructor = false,
-        bool malformedValue = false)
+        bool malformedValue = false,
+        int? secondVersion = null)
     {
         var metadata = new MetadataBuilder();
         ModuleDefinitionHandle module = metadata.AddModule(
@@ -872,9 +1256,25 @@ public class CompilerFeatureOptionsTests
 
         if (version is { } marker)
         {
+            AddMarker(marker, malformedValue);
+        }
+        if (secondVersion is { } secondMarker)
+            AddMarker(secondMarker, malformed: false);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+
+        void AddMarker(int marker, bool malformed)
+        {
             var value = new BlobBuilder();
             value.WriteUInt16(1);
-            if (!malformedValue)
+            if (!malformed)
             {
                 value.WriteInt32(marker);
                 value.WriteUInt16(0);
@@ -885,15 +1285,6 @@ public class CompilerFeatureOptionsTests
                 constructorToken,
                 metadata.GetOrAddBlob(value));
         }
-
-        var pe = new ManagedPEBuilder(
-            PEHeaderBuilder.CreateLibraryHeader(),
-            new MetadataRootBuilder(metadata, suppressValidation: true),
-            new BlobBuilder(),
-            flags: CorFlags.ILOnly);
-        var image = new BlobBuilder();
-        pe.Serialize(image);
-        return image.ToArray();
     }
 
     [Fact]
@@ -1598,16 +1989,18 @@ public class CompilerFeatureOptionsTests
             "Library",
             "Call");
         Assert.NotNull(function);
-        IrPasses.Run(function);
         var call = Assert.Single(function.Descendants.OfType<Call>());
 
         Assert.Equal(MetadataFactState.Unknown, call.Callee.RequiresUnsafeFact);
         Assert.Equal(
             MemorySafetyRulesState.Unsupported,
             call.Callee.MemorySafetyRulesState);
-        var sameAssemblyResult = CSharpPrinter.Print(function);
-        Assert.Equal(DecompilationFidelity.Partial, sameAssemblyResult.Fidelity);
-        Assert.DoesNotContain("unsafe", sameAssemblyResult.Output);
+        var sameAssemblyResult = CSharpPrinter.PrintRaised(function);
+        Assert.False(sameAssemblyResult.Succeeded);
+        Assert.Contains(
+            sameAssemblyResult.Diagnostics,
+            diagnostic => diagnostic.Id
+                == DiagnosticIds.MemorySafetyModeUnavailable);
     }
 
     [Fact]
@@ -1671,7 +2064,6 @@ public class CompilerFeatureOptionsTests
             "Library",
             "Read");
         Assert.NotNull(function);
-        IrPasses.Run(function);
         var field = Assert.Single(
             function.Descendants.OfType<LoadField>()).Field;
 
@@ -1680,11 +2072,12 @@ public class CompilerFeatureOptionsTests
         Assert.Equal(
             MemorySafetyRulesState.Unsupported,
             field.MemorySafetyRulesState);
-        var sameAssemblyResult = CSharpPrinter.Print(function);
-        Assert.Equal(
-            DecompilationFidelity.Partial,
-            sameAssemblyResult.Fidelity);
-        Assert.DoesNotContain("unsafe", sameAssemblyResult.Output);
+        var sameAssemblyResult = CSharpPrinter.PrintRaised(function);
+        Assert.False(sameAssemblyResult.Succeeded);
+        Assert.Contains(
+            sameAssemblyResult.Diagnostics,
+            diagnostic => diagnostic.Id
+                == DiagnosticIds.MemorySafetyModeUnavailable);
     }
 
     [Fact]

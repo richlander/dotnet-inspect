@@ -1,6 +1,8 @@
+using System.Collections.Immutable;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.Research;
+using ILInspector.Decompiler;
 using Inspector.Findings;
 using DotnetInspector.Queries;
 using DotnetInspector.Services;
@@ -117,6 +119,32 @@ public static class DiffOutputFormatter
             Rows = rows.Count > 0 ? rows : null
         };
     }
+
+    internal static DiffDetailedChangesView
+        BuildDetailedChangesFailureView(
+            string name,
+            string fromVersion,
+            string toVersion,
+            string detail)
+        => new(
+            DiffViewText.Field($"API Diff: {name}"),
+            DiffViewText.Field($"{fromVersion} -> {toVersion}"),
+            DiffViewText.Field(
+                $"Changes selection is incomplete: {detail}"));
+
+    internal static AnalysisDiffView
+        BuildAnalysisDiffFailureView(
+            string name,
+            string fromVersion,
+            string toVersion,
+            string detail)
+        => BuildAnalysisDiffView(
+            name,
+            [],
+            $"Analysis selection is incomplete: {detail}",
+            fromVersion,
+            toVersion,
+            decorateMember: false);
 
     public static DiffDocumentView BuildDocumentView(
         string name,
@@ -540,6 +568,443 @@ public static class DiffOutputFormatter
             Rows = rows.Count > 0 ? rows : null
         };
     }
+
+    internal static ImplementationDiffView
+        BuildWorkspaceImplementationDiffView(
+            string name,
+            string target,
+            WorkspaceImplementationComparisonResult result,
+            string fromVersion,
+            string toVersion)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        List<ImplementationDiffRow> rows = [];
+        foreach (WorkspaceTypeForwarderUse use in Forwarders(result))
+        {
+            rows.Add(
+                new(
+                    use.Finding.Payload.TypeName,
+                    "Type Forwarder",
+                    $"{use.Side} hop {use.HopIndex + 1}",
+                    "used",
+                    $"{use.Finding.Descriptor.Id}: "
+                        + $"{use.Finding.Payload.TypeName} -> "
+                        + use.Finding.Payload.TargetAssembly));
+        }
+
+        if (result is WorkspaceImplementationComparisonResult.Published
+            published)
+        {
+            AddWorkspaceEndpointRow(
+                rows,
+                target,
+                QueryComparisonSide.Before,
+                published.Publication.Before);
+            AddWorkspaceEndpointRow(
+                rows,
+                target,
+                QueryComparisonSide.After,
+                published.Publication.After);
+            AddWorkspaceProducerRows(
+                rows,
+                target,
+                published.Publication);
+        }
+        else
+        {
+            var (kind, side, detail) = WorkspaceFailure(result);
+            rows.Add(
+                new(
+                    target,
+                    "Query",
+                    side ?? "",
+                    kind,
+                    detail));
+        }
+
+        int csharpCount = rows.Count(row =>
+            row.Mechanism == "C#");
+        int ilCount = rows.Count(row =>
+            row.Mechanism == "IL");
+        int forwarderCount = rows.Count(row =>
+            row.Mechanism == "Type Forwarder");
+        bool incomplete = IsIncomplete(result);
+        string summary = incomplete
+            ? "Targeted implementation comparison is incomplete; typed diagnostics are reported below."
+            : rows.Count == 0
+                ? "No implementation differences detected."
+                : $"1 selected member; {csharpCount} C#, {ilCount} IL, and "
+                    + $"{forwarderCount} type-forwarder provenance "
+                    + $"row{(forwarderCount == 1 ? "" : "s")}.";
+
+        return new(
+            DiffViewText.Field($"Implementation Diff: {name}"),
+            DiffViewText.Field($"{fromVersion} -> {toVersion}"),
+            DiffViewText.Field(summary))
+        {
+            Status = new(
+                CalloutSeverity.Note,
+                incomplete
+                    ? summary
+                    : "C# and IL implementation evidence is body-level evidence, not public API compatibility. Type Forwarder rows retain the package-root route used to select the effective implementation."),
+            Rows = rows.Count > 0 ? rows : null,
+        };
+    }
+
+    static void AddWorkspaceEndpointRow(
+        List<ImplementationDiffRow> rows,
+        string target,
+        QueryComparisonSide side,
+        WorkspaceResearchTargetCompositionReceipt receipt)
+    {
+        var address =
+            receipt.EffectiveAttempt.Address
+            ?? throw new InvalidOperationException(
+                "A published implementation target has no durable method address.");
+        var resolved =
+            (WorkspaceMetadataEvidence.Outcome.Resolved)
+                receipt.Evidence.Outcome;
+        rows.Add(
+            new(
+                target,
+                "Effective Target",
+                side.ToString(),
+                "selected",
+                AssemblyIdentityFormatter.Format(
+                    resolved.Definition.Assembly.Assembly.Identity)
+                    + "; "
+                    + $"{address.ModuleVersionId:D}/0x{address.Token:X8}"));
+    }
+
+    internal static bool IsIncomplete(
+        WorkspaceImplementationComparisonResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        if (result is not WorkspaceImplementationComparisonResult.Published
+            published)
+        {
+            return true;
+        }
+
+        if (published.Publication.Outcome is not
+            ResearchProducerSessionOutcome.Completed completed)
+        {
+            return true;
+        }
+
+        ResearchProducerWorkResult[] results =
+        [
+            .. completed.Completion.Results
+            .Where(work =>
+                work.Item.Basis is
+                    ResearchProducerWorkBasis.Correspondence basis
+                && ReferenceEquals(
+                    basis.Outcome,
+                    published.Publication.WorkItem.Correspondence)),
+        ];
+        return results.Length == 0
+            || results.Any(work => work.Outcome switch
+            {
+                ResearchProducerWorkOutcome.Unavailable
+                    or ResearchProducerWorkOutcome.Failed => true,
+                ResearchProducerWorkOutcome.ProducedCSharp csharp =>
+                    csharp.Result.Findings.Value is
+                        FindingComparison<CSharpCanonicalLine>.Failed
+                    || csharp.Result.BodyDiff is not { } body
+                    || !body.FailureRows.IsDefaultOrEmpty
+                    || !body.IdentityFailures.IsDefaultOrEmpty,
+                ResearchProducerWorkOutcome.ProducedIlBody il =>
+                    il.Result.Findings.Value is
+                        FindingComparison<CanonicalIlOperation>.Failed
+                    || il.Result.MemberDiff is not { } member
+                    || !member.Diff.IsAvailable
+                    || member.Diff.Failure is not null
+                    || !member.Diff.FailureRows.IsDefaultOrEmpty
+                    || !member.IdentityFailures.IsDefaultOrEmpty,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(result)),
+            });
+    }
+
+    static ImmutableArray<WorkspaceTypeForwarderUse> Forwarders(
+        WorkspaceImplementationComparisonResult result)
+        => result switch
+        {
+            WorkspaceImplementationComparisonResult.Published published =>
+                published.Publication.Forwarders,
+            WorkspaceImplementationComparisonResult.CompositionUnavailable
+                unavailable => unavailable.Forwarders,
+            WorkspaceImplementationComparisonResult.CompositionRejected
+                rejected => rejected.Forwarders,
+            WorkspaceImplementationComparisonResult.HandoffFailed failed =>
+                failed.Forwarders,
+            _ => [],
+        };
+
+    static void AddWorkspaceProducerRows(
+        List<ImplementationDiffRow> rows,
+        string target,
+        WorkspaceImplementationComparisonPublication publication)
+    {
+        if (publication.Outcome is not
+            ResearchProducerSessionOutcome.Completed completed)
+        {
+            var (kind, detail) = publication.Outcome switch
+            {
+                ResearchProducerSessionOutcome.Rejected rejected =>
+                    ("rejected", rejected.Rejection.Summary),
+                ResearchProducerSessionOutcome.Failed failed =>
+                    ("failed", failed.Diagnostic.Summary),
+                ResearchProducerSessionOutcome.Cancelled =>
+                    ("cancelled", "The Research producer session was cancelled."),
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(publication)),
+            };
+            rows.Add(
+                new(
+                    target,
+                    "Research",
+                    "",
+                    kind,
+                    detail));
+            return;
+        }
+
+        foreach (ResearchProducerWorkResult work in
+            completed.Completion.Results.Where(result =>
+                result.Item.Basis is
+                    ResearchProducerWorkBasis.Correspondence basis
+                && ReferenceEquals(
+                    basis.Outcome,
+                    publication.WorkItem.Correspondence)))
+        {
+            switch (work.Outcome)
+            {
+                case ResearchProducerWorkOutcome.ProducedCSharp produced:
+                    if (produced.Result.Findings.Value is
+                        FindingComparison<CSharpCanonicalLine>.Failed
+                            csharpFailure)
+                    {
+                        rows.Add(
+                            new(
+                                target,
+                                "C#",
+                                "Failed",
+                                "failed",
+                                csharpFailure.Failure));
+                    }
+                    if (produced.Result.BodyDiff is { } csharp)
+                    {
+                        if (!csharp.IsExact)
+                        {
+                            foreach (string line in
+                                CSharpDiffPrinter.ToUnifiedLines(csharp))
+                            {
+                                rows.Add(
+                                    new(
+                                        target,
+                                        "C#",
+                                        "",
+                                        "changed",
+                                        line));
+                            }
+                        }
+                        foreach (CSharpDiffFailureRow failure in
+                            csharp.FailureRows.IsDefault
+                                ? []
+                                : csharp.FailureRows)
+                        {
+                            rows.Add(
+                                new(
+                                    target,
+                                    "C#",
+                                    failure.Kind.ToString(),
+                                    "failed",
+                                    failure.Detail
+                                        ?? failure.Message));
+                        }
+                        foreach (CSharpIdentityResolutionFailure failure in
+                            csharp.IdentityFailures.IsDefault
+                                ? []
+                                : csharp.IdentityFailures)
+                        {
+                            rows.Add(
+                                new(
+                                    target,
+                                    "C#",
+                                    failure.Kind,
+                                    "failed",
+                                    failure.Detail));
+                        }
+                    }
+                    else
+                    {
+                        rows.Add(
+                            new(
+                                target,
+                                "C#",
+                                "Unavailable",
+                                "unavailable",
+                                "The C# producer did not publish a body diff."));
+                    }
+                    break;
+                case ResearchProducerWorkOutcome.ProducedIlBody produced:
+                    if (produced.Result.Findings.Value is
+                        FindingComparison<CanonicalIlOperation>.Failed
+                            ilFailure)
+                    {
+                        rows.Add(
+                            new(
+                                target,
+                                "IL",
+                                "Failed",
+                                "failed",
+                                ilFailure.Failure));
+                    }
+                    if (produced.Result.MemberDiff is not { } il)
+                    {
+                        rows.Add(
+                            new(
+                                target,
+                                "IL",
+                                "Unavailable",
+                                "unavailable",
+                                "The IL producer did not publish a body diff."));
+                    }
+                    else if (!il.Diff.IsAvailable)
+                    {
+                        rows.Add(
+                            new(
+                                target,
+                                "IL",
+                                il.Diff.Outcome.ToString(),
+                                "unavailable",
+                                il.Diff.Failure
+                                    ?? "The IL body diff is unavailable."));
+                    }
+                    else
+                    {
+                        if (!il.Diff.IsExact)
+                        {
+                            foreach (string line in
+                                IlDiffPrinter.ToUnifiedLines(il.Diff))
+                            {
+                                rows.Add(
+                                    new(
+                                        target,
+                                        "IL",
+                                        il.Diff.Outcome.ToString(),
+                                        "changed",
+                                        line));
+                            }
+                        }
+                        foreach (IlDiffFailureRow failure in
+                            il.Diff.FailureRows.IsDefault
+                                ? []
+                                : il.Diff.FailureRows)
+                        {
+                            rows.Add(
+                                new(
+                                    target,
+                                    "IL",
+                                    failure.Kind.ToString(),
+                                    "failed",
+                                    failure.Detail
+                                        ?? failure.Message));
+                        }
+                        foreach (IlIdentityResolutionFailure failure in
+                            il.IdentityFailures.IsDefault
+                                ? []
+                                : il.IdentityFailures)
+                        {
+                            rows.Add(
+                                new(
+                                    target,
+                                    "IL",
+                                    failure.Kind,
+                                    "failed",
+                                    failure.Detail));
+                        }
+                    }
+                    break;
+                case ResearchProducerWorkOutcome.Unavailable unavailable:
+                    rows.Add(
+                        new(
+                            target,
+                            work.Item.Producer == ResearchProducerKind.CSharp
+                                ? "C#"
+                                : "IL",
+                            "Unavailable",
+                            "unavailable",
+                            unavailable.Reason.Summary));
+                    break;
+                case ResearchProducerWorkOutcome.Failed failed:
+                    rows.Add(
+                        new(
+                            target,
+                            work.Item.Producer == ResearchProducerKind.CSharp
+                                ? "C#"
+                                : "IL",
+                            "Failed",
+                            "failed",
+                            failed.Diagnostic.Summary));
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(
+                        nameof(publication));
+            }
+        }
+    }
+
+    static (string Kind, string? Side, string Detail) WorkspaceFailure(
+        WorkspaceImplementationComparisonResult result)
+        => result switch
+        {
+            WorkspaceImplementationComparisonResult.PopulationRejected
+                rejected => (
+                    rejected.Rejection.Kind.ToString(),
+                    rejected.Rejection.Side?.ToString(),
+                    "The workspace comparison population was rejected."),
+            WorkspaceImplementationComparisonResult
+                .ParticipantImageUnavailable unavailable => (
+                    unavailable.Failure.Kind.ToString(),
+                    unavailable.Side.ToString(),
+                    unavailable.Failure.Detail),
+            WorkspaceImplementationComparisonResult.ProjectionRejected
+                rejected => (
+                    rejected.Rejection.ToString(),
+                    null,
+                    "The workspace comparison could not be projected to Research."),
+            WorkspaceImplementationComparisonResult.AdmissionRejected
+                rejected => (
+                    rejected.Rejection.Kind.ToString(),
+                    null,
+                    rejected.Rejection.Summary),
+            WorkspaceImplementationComparisonResult.PlanningRejected
+                rejected => (
+                    rejected.Rejection.Kind.ToString(),
+                    null,
+                    rejected.Rejection.Summary),
+            WorkspaceImplementationComparisonResult.CompositionUnavailable
+                unavailable => (
+                    unavailable.Result.Reason.ToString(),
+                    unavailable.Side.ToString(),
+                    "The selected package root did not compose to an effective member target."),
+            WorkspaceImplementationComparisonResult.CompositionRejected
+                rejected => (
+                    rejected.Result.Reason.ToString(),
+                    rejected.Side.ToString(),
+                    "The selected package root composition was rejected."),
+            WorkspaceImplementationComparisonResult.HandoffFailed failed => (
+                failed.Kind.ToString(),
+                null,
+                "The effective before and after targets could not be paired."),
+            WorkspaceImplementationComparisonResult.Cancelled => (
+                "Cancelled",
+                null,
+                "The workspace implementation comparison was cancelled."),
+            _ => throw new ArgumentOutOfRangeException(nameof(result)),
+        };
 
     static void AddImplementationChangeRows(
         List<ImplementationDiffRow> rows,

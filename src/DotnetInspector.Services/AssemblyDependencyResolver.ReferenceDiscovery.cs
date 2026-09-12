@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Xml.Linq;
 using DotnetInspector.Core;
+using DotnetInspector.DependencyManifests;
 using DotnetInspector.Packages;
 using NuGet.Versioning;
 
@@ -534,8 +535,22 @@ public sealed partial class AssemblyDependencyResolver
     static string VersionCore(string version) => version.Split('-', 2)[0];
 
     static void AddDepsJsonReferences(
-        string targetDirectory, string targetName, Action<string> addReference, bool strict)
+        string targetDirectory,
+        string targetName,
+        ApplicationDependencyManifest? suppliedManifest,
+        Action<string> addReference,
+        bool strict)
     {
+        if (suppliedManifest is not null)
+        {
+            AddDependencyManifestReferences(
+                targetDirectory,
+                suppliedManifest,
+                addReference,
+                strict);
+            return;
+        }
+
         var depsPath = Path.Combine(targetDirectory, $"{targetName}.deps.json");
         if (!DiscoveryFileExists(depsPath, strict))
             return;
@@ -593,6 +608,83 @@ public sealed partial class AssemblyDependencyResolver
         catch (IOException) when (!strict) { }
         catch (UnauthorizedAccessException) when (!strict) { }
         catch (JsonException) when (!strict) { }
+    }
+
+    static void AddDependencyManifestReferences(
+        string targetDirectory,
+        ApplicationDependencyManifest manifest,
+        Action<string> addReference,
+        bool strict)
+    {
+        foreach (ApplicationDependencyManifestLibrary library
+            in manifest.Libraries)
+        {
+            foreach (ApplicationDependencyManifestAsset asset
+                in library.Assets)
+            {
+                var candidates = new List<string>(3);
+                if (asset.LocalPath is { } localPath)
+                {
+                    if (StorePath.TryResolveUnderRoot(
+                            targetDirectory,
+                            localPath.Value,
+                            out string? resolvedLocalPath))
+                    {
+                        candidates.Add(resolvedLocalPath);
+                    }
+                    else if (strict)
+                    {
+                        throw new JsonException(
+                            "A supplied dependency local asset path was rejected.");
+                    }
+                }
+
+                if (library.DeclaredPath is { } declaredPath)
+                {
+                    if (StorePath.TryResolveUnderRoot(
+                            GlobalPackagesRoot(),
+                            declaredPath.Value,
+                            out string? libraryDirectory)
+                        && StorePath.TryResolveUnderRoot(
+                            libraryDirectory,
+                            asset.Coordinate.Value,
+                            out string? resolvedAssetPath))
+                    {
+                        candidates.Add(resolvedAssetPath);
+                    }
+                    else if (strict)
+                    {
+                        throw new JsonException(
+                            "A supplied dependency package asset path was rejected.");
+                    }
+                }
+
+                if (library.Kind
+                        == ApplicationDependencyLibraryKind.Project
+                    && asset.LocalPath is null
+                    && library.DeclaredPath is null)
+                {
+                    if (StorePath.TryResolveUnderRoot(
+                            targetDirectory,
+                            asset.Coordinate.FileName,
+                            out string? resolvedProjectPath))
+                    {
+                        candidates.Add(resolvedProjectPath);
+                    }
+                    else if (strict)
+                    {
+                        throw new JsonException(
+                            "A supplied dependency project asset path was rejected.");
+                    }
+                }
+
+                string? selected = candidates.FirstOrDefault(
+                    candidate => DiscoveryFileExists(candidate, strict))
+                    ?? candidates.FirstOrDefault();
+                if (selected is not null)
+                    addReference(selected);
+            }
+        }
     }
 
     static void AddAssetGroup(

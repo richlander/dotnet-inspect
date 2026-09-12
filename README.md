@@ -52,7 +52,7 @@ and repository-specific guidance.
 | Source | Examples | Notes |
 | ------ | -------- | ----- |
 | NuGet packages | `package System.Text.Json`, `type --package Markout` | Supports versions, custom sources, `nuget.config`, TFMs, package layout, dependencies, and vulnerabilities. |
-| Restored projects | `type Command --project ./src/DotnetInspect.Cli`, `project ./src/DotnetInspect.Cli -S Skills --print` | Uses an existing `project.assets.json` as restored-assets context for API lookup, relationship search, and dependency package skills; restore/build first if dependencies changed. dotnet-inspect does not restore or build. |
+| Restored projects | `type Command --project ./src/DotnetInspect.Cli`, `project ./src/DotnetInspect.Cli -S Skills --print`, `project ./src/DotnetInspect.Cli -S "Package README file"` | Uses an existing `project.assets.json` as restored-assets context for API lookup, relationship search, dependency package skills, and root package README files; restore/build first if dependencies changed. dotnet-inspect does not restore, build, or acquire missing packages. |
 | Platform libraries | `library System.Private.CoreLib`, `library System.Text.Json --version 10.0.0`, `diff --platform System.Runtime@9.0.0..10.0.0` | Resolves installed SDK/runtime assemblies, including runtime-only implementation assemblies with no NuGet package. |
 | Local assets | `library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll`, `package ./artifacts/MyLib.nupkg` | Useful for auditing local builds before publishing. |
 
@@ -145,7 +145,7 @@ stderr rather than mixed into structured output.
 | Capability | Commands | Highlights |
 | ---------- | -------- | ---------- |
 | Package inventory | `package` | Metadata, versions, TFMs, file layout, dependency tree, vulnerability data, custom feeds, and NuGet config support. |
-| Project package skills and docs | `project` | Direct dependency `Skills` rows from valid package `skills/**/SKILL.md` files plus version-resolved package docs in a restored project context. Skill inventory values and complete documents that require containment become `[Text omitted: required containment]`. |
+| Project package skills and docs | `project` | Section-driven direct-dependency rows from valid `skills/**/SKILL.md` files and root `README.md` files in the restored package cache. Use `--print --row N` to emit one selected document. Skill inventory values and complete documents that require containment become `[Text omitted: required containment]`. |
 | Query vocabulary | `vocabulary` | Product-owned stable values, operators, defaults, and applicability for rich queries. |
 | Ecosystem catalog | `ecosystem` | Product-configured ecosystem packs, namespace hints, core/tool packages, demos, and known Integration bindings without package acquisition. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, SourceLink, PDBs, references, resources, async methods, and body-shape search. |
@@ -154,13 +154,13 @@ stderr rather than mixed into structured output.
 | Timeline correlation | `timeline` | Correlate API or member-body Findings across a package version range, with evaluation and transition views. |
 | Implementation matching | `match` | Identity-agnostic structural equivalence for two unambiguously named methods, plus `--similar` seeded discovery that ranks structural candidates for one seed. |
 | Structural clone discovery | `library`/`type`/`member -S "Clone Candidates"` | Workspace-scoped structural candidate ranking for an exact Library, Type, or logical Member seed, with independent Breadth and Discovery facets. |
-| Relationships | `graph`, `depends`, `extensions`, `implements` | Integration graphs, type hierarchies, package dependencies, reference graphs, extension methods/properties, implementors, and subclasses. |
-| Direct dependency evidence | `dependency-evidence` | One normalized snapshot of the direct dependencies declared by named package, nuspec, restored-project, or package-prefix roots, with framework scopes, version constraints, restored resolution evidence, and root-set completion. Unlike `depends`, it does not walk the transitive tree. |
+| Relationships | `graph`, `depends`, `extensions`, `implements` | Integration graphs, type hierarchies, explicit package/nuspec/library/restored-project dependency graphs, reference graphs, extension methods/properties, implementors, and subclasses. |
+| Direct dependency evidence | `depends -S Dependencies`, `dependency-evidence` | `depends` combines explicit roots, traversal, and normalized declaration/restored evidence in one sectioned document. `dependency-evidence` remains supported for its direct-evidence-only contract. |
 | Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"PDB Source"` | SourceLink URLs, member file/line locations, and token+IL-offset to source-line resolution. `PDB Source` is checksum-verified source acquired from the PDB-recorded local path, a caller-supplied Git clone (`--repo`), or remote SourceLink, in that order. |
 | Performance analysis *(experimental)* | `library -S @Performance`, `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly leverage ranking, actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Source`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
 | Raw metadata | `library -S @Metadata`, `--heap "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
-| Workspace scope | `workspace --package X --tfm TFM` | Publish and render one complete product-owned Scope snapshot. Repeat `--package` to compose the Workspace; exact duplicate Packages coalesce in first-request order. |
+| Workspace scope and navigation | `workspace --package X --tfm TFM` | Publish and render one complete product-owned Navigation snapshot over the Workspace Scope. Repeat `--package` to compose the Workspace; exact duplicate Packages coalesce in first-request order. Add `--active-package N` for structural Library, Type, Member, and lens descriptors. |
 | Package Queries | `find --literal TEXT --package ID@VERSION --tfm TFM`, `workspace --root-request TOKEN` | Evaluate an ordinal decoded-`ldstr` substring over 1-5 explicitly named packages using disposable candidates, reporting per-candidate matched/no-match/not-applicable/failed outcomes with method-token and IL-offset evidence, plus exact Root reopening tokens. |
 | Workspace sharing | `workspace-state encode` / `decode` | Convert the canonical browser/CLI base64url workspace packet to or from its bounded JSON shape without acquisition or execution. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--json`, Mermaid diagrams, section/field projection, `--count`, and row limiting. |
@@ -178,16 +178,16 @@ stderr rather than mixed into structured output.
 | `diff X` | Compare API surfaces by default; opt into analysis or implementation evidence. |
 | `timeline X` | Correlate API or member-body Findings across a package version range. |
 | `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set. |
-| `graph libraries` | Show exact resolved `call`, `callvirt`, and `newobj` occurrences crossing between two explicit local libraries. |
-| `depends X` | Walk type, package, or library dependency graphs with lossless shared edges; emit tree, Mermaid, table, TSV, JSONL, JSON, or edge-count output. |
-| `dependency-evidence` | Report the normalized direct dependencies declared by explicitly named `--package`, `--nuspec`, `--project`, or `--package-prefix` roots. Reports declarations and restored resolution evidence for those roots only; use `depends` to traverse. |
+| `graph libraries` | Show exact resolved cross-library call sites or summarize the consumer methods and provider API types they connect. |
+| `depends [Type]` | With a positional type, walk its hierarchy inside `--package`, `--library`, `--project`, or platform search scopes. Without a positional type, combine repeatable explicit `--package`, `--nuspec`, `--library`, and `--project` roots, or exclusive `--package-prefix`, into one dependency graph and evidence document. |
+| `dependency-evidence` | Report declarations and restored resolution evidence for explicitly named `--package`, `--nuspec`, `--project`, or `--package-prefix` roots only; use `depends` to traverse. It remains supported until the planned retirement slice. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
 | `implements X` | Find concrete implementors or subclasses. |
 | `match A B` | Compare two unambiguous `Type.Member` names by identity-agnostic structural equivalence; add `--body` for decompiled C# and IL body differences. |
 | `match A --similar` | Rank structural candidates for one seed method, within a single assembly. Ranks candidates only; it establishes no relation. |
 | `vocabulary` | Discover product-owned query vocabularies such as `Accessibility`, `C# Style Choices`, and `C# Body Kinds`. |
 | `ecosystem [name]` | Inspect the ecosystem knowledge configured into this product build. Omit the name to list packs; use `-S Integrations` for configured Integration concepts, distinct from observations in a library. |
-| `workspace` | Render the committed ordered package Roots of one Workspace, including packages with no compile assemblies. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; omit packages for a typed empty Workspace. Pass `--root-request TOKEN` instead to reopen the exact package Root a `find --literal` result names. |
+| `workspace` | Render the committed ordered Package occurrences of one Workspace, including packages with no compile assemblies. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; omit packages for a typed empty Workspace. Pass `--root-request TOKEN` instead to reopen the exact Package Root a `find --literal` result names. Add `--active-package N` to evaluate the exact one-based occurrence and expose its Navigation hierarchy, Library asset IDs, Type and Member inventories, lenses, and diagnostics. |
 | `workspace-state encode` / `decode` | Convert validated workspace-state JSON and canonical base64url packets; pass `-` for stdin or use `--file`. |
 | `skill` | Print the base LLM skill and route to focused built-in guidance (`skill list`, `skill query`, `skill decompiler`, `skill relationships`, and more). |
 | `demo [id]` | List or run product-home inspection demos backed by real section output. |
@@ -358,14 +358,16 @@ executable IDs before constructing a query:
 
 ```bash
 dotnet-inspect find -Q Packages
-dotnet-inspect find --package-prefix dotnet-inspect -S Packages \
+dotnet-inspect find --package-prefix dotnet-inspect --package-content -S Packages \
   --where "facet=package.query.dotnet-tool" --candidates 5 --matches 5
 dotnet-inspect find --package-prefix dotnet-inspect --package-content \
   --where "facet=package.query.dotnet-tool-v2" --candidates 5 --matches 5 --jsonl
 ```
 
 Repeat `--where` to combine facets; the engine rejects incompatible selections.
-Tool v1 and v2 are compatible alternatives. `--candidates` bounds candidate
+The broad tool facet reports CLI v1, CLI v2, or unrecognized settings from
+`DotnetToolSettings.xml`; tool v1 and v2 are compatible filtering alternatives.
+`--candidates` bounds candidate
 work (default 200), while `--matches` stops after matching packages (default
 100); each has a CLI maximum of 1,000. Content facets require
 `--package-content`, which defaults to and permits at most 20 candidates.
@@ -404,11 +406,75 @@ rejects a token this tool did not issue, and reports an unauthorized producer
 or unavailable content instead of opening a different Root that happens to
 share the package id and version.
 
+### Workspace structural navigation
+
+The default `workspace` output remains the ordered Package inventory. It never
+selects an occurrence implicitly, even when the Workspace contains exactly one
+Package:
+
+```bash
+dotnet-inspect workspace \
+  --package System.Text.Json@10.0.0 \
+  --tfm net10.0
+```
+
+Add `--active-package N` to evaluate one exact occurrence by its one-based
+Workspace order. The detailed result includes the active subject, complete
+Workspace-to-Member hierarchy slots, Library asset IDs, bounded Type and Member
+inventories, target-aware lens availability, and retained diagnostics.
+For this CLI consumer, the current active catalog entries are available once
+Navigation admits the exact subject because those entries execute on demand;
+query and result non-success remains inside the selected entry. This does not
+prevent another producer from supplying explicit unavailable or failed
+availability evidence to the Navigation evaluator:
+
+```bash
+dotnet-inspect workspace \
+  --package System.Text.Json@10.0.0 \
+  --tfm net10.0 \
+  --active-package 1
+```
+
+Library asset IDs, Type full names, and Member stable selectors in that output
+can drive an exact stateless descendant plus lens request. Copy those selector
+fields verbatim: line separators, tabs, rendering hazards, and literal
+backslashes, plus characters reserved by Markdown tables, use a reversible
+backslash transport spelling that `workspace` decodes before exact selection:
+
+```bash
+dotnet-inspect workspace \
+  --package System.Text.Json@10.0.0 \
+  --tfm net10.0 \
+  --active-package 1 \
+  --library compile:lib/net10.0/System.Text.Json.dll \
+  --type System.Text.Json.JsonSerializer \
+  --lens type.compare
+```
+
+Add `--member <stable-selector>` and use a `member.*` lens for a Type-to-Member
+destination. `--all-libraries` uses the aggregate Library as the source while
+`--library` still names the destination Type's exact defining Library. A
+source-only `--all-libraries` request omits `--library`; supplying both without
+a Type destination is rejected. Root-only and explicit-empty Packages have no
+All-libraries subject and return a typed non-success snapshot instead of
+throwing.
+
+Selector misses retain the evaluated snapshot and diagnostics. The command
+claims that a Type or Member is not present only when its scoped inventory is
+complete; otherwise it reports incomplete evidence. Unavailable, failed,
+inapplicable, and unknown destination lenses leave both requested halves
+uninstalled and return nonzero with typed diagnostic data. JSON and JSONL Type
+and Member rows carry the defining Library asset ID, and Member rows carry both
+containing and declaring Type names. Process-local Workspace, occurrence,
+generation, action, and authority identities are omitted.
+
 ### Projects and local assets
 
 ```bash
 dotnet-inspect project ./src/DotnetInspect.Cli -S Skills
 dotnet-inspect project ./src/DotnetInspect.Cli -S Skills --print --row 1
+dotnet-inspect project ./src/DotnetInspect.Cli -S "Package README file"
+dotnet-inspect project ./src/DotnetInspect.Cli -S "Package README file" --print --row 1
 dotnet-inspect type Command --project ./src/DotnetInspect.Cli
 dotnet-inspect member Command --project ./src/DotnetInspect.Cli -S "Member Index"
 dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -S Signals
@@ -417,6 +483,9 @@ dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.
 For API and relationship commands, `--project` means an existing
 `project.assets.json` restored-assets context. Passing a `.csproj` or project
 directory only locates that file; dotnet-inspect does not restore or build.
+The `project` command reads only valid package Skills and root `README.md`
+documents listed by the existing restore output. It does not interpret package
+`AGENTS.md` or `PROJECT.md` files.
 
 ### Types, members, and source
 
@@ -538,6 +607,19 @@ inspect each side on its own.
 ```bash
 dotnet-inspect depends Stream --markdown --mermaid
 dotnet-inspect depends Int128 --table --rows 1..10
+dotnet-inspect depends \
+  --project ./src/App/App.csproj \
+  --depth 2 \
+  -S "Dependency Graph,Dependencies"
+dotnet-inspect depends \
+  --package Microsoft.Extensions.Hosting@10.0.0 \
+  --nuspec ./artifacts/local.nuspec \
+  -v:n
+dotnet-inspect depends \
+  --package-prefix Microsoft.Extensions \
+  --max-packages 100 \
+  -S @Dependencies
+dotnet-inspect depends --nuspec ./artifacts/local.nuspec -D --effective
 dotnet-inspect dependency-evidence --package Newtonsoft.Json --tfm net8.0
 dotnet-inspect dependency-evidence \
   --project ./src/DotnetInspect.Cli \
@@ -555,7 +637,23 @@ dotnet-inspect graph integrations \
 dotnet-inspect graph libraries \
   --library ./Consumer.dll \
   --library ./Provider.dll
+dotnet-inspect graph libraries \
+  --library ./Consumer.dll \
+  --library ./Provider.dll \
+  -S
+dotnet-inspect graph libraries \
+  --library ./Consumer.dll \
+  --library ./Provider.dll \
+  -S "Provider API Types" \
+  --table
 ```
+
+`graph libraries` evaluates both directions in the pair; every row still names
+its directed source and target. Omitting `-S` preserves the exact physical call
+sites. Bare `-S` shows `Consumer Use Sites` and `Provider API Types`: the local
+methods containing direct calls, and the provider declaring types selected by
+those calls. These are direct-use surfaces, not semantic feature clusters,
+public-entrypoint reachability, or a list of configured ecosystem Integrations.
 
 ### Workspace sharing and built-in guidance
 
@@ -603,6 +701,13 @@ not authorize exactly one NuGet.org source, wildcard, range, or build-metadata
 versions, omitted frameworks, the Browser-reserved `Microsoft.NETCore.App`
 Platform id, row windows, counts, and other rendering formats fail visibly
 rather than producing a non-reproducible link.
+
+`depends <type> --package <id>@<version> --tfm <tfm> --share[=url|packet]`
+keeps the type dependency result on stdout and appends its canonical
+Dependencies URL or packet to stderr. Type sharing is limited to one exact
+NuGet.org package coordinate, a valid target framework, and the requested type;
+local, floating, ranged, private-feed, multi-source, platform, and
+non-projectable requests fail visibly.
 
 ## Requirements
 

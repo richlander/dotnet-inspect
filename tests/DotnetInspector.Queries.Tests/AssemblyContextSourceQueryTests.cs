@@ -245,6 +245,73 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.NotEmpty(host.SourceRequests);
     }
 
+    [Theory]
+    [InlineData("MemorySafetyExtensionEnum")]
+    [InlineData("MemorySafetyExtensionDelegate")]
+    [InlineData("IMemorySafetyExtensionInterface")]
+    [InlineData("MemorySafetyAbstractFixture")]
+    public async Task BodylessType_UnsupportedMemorySafetyModeRemainsUnavailable(
+        string typeName)
+    {
+        TestAssembly assembly =
+            TestAssembly.Create(UnsupportedMemorySafetyImage());
+        using var host = QueryHost.WithoutPdb();
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        AssemblyTypeSourceEntry result =
+            await AssemblyContextSourceQuery.ExecuteTypeAsync(
+                group,
+                assembly.Participant,
+                assembly.TypeRequest(typeName),
+                host.Context,
+                TestContext.Current.CancellationToken);
+
+        var unavailable =
+            Assert.IsType<AssemblyTypeSourceEntry.Unavailable>(result);
+        Assert.NotNull(unavailable.DecompiledAttempt);
+        Assert.Contains(
+            unavailable.DecompiledAttempt.Diagnostics,
+            diagnostic => diagnostic.Id
+                == DiagnosticIds.MemorySafetyModeUnavailable);
+    }
+
+    [Fact]
+    public async Task AbstractMember_UnsupportedMemorySafetyModeRemainsUnavailable()
+    {
+        const string TypeName = "MemorySafetyAbstractFixture";
+        TestAssembly assembly =
+            TestAssembly.Create(UnsupportedMemorySafetyImage());
+        using var host = QueryHost.WithoutPdb();
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        AssemblyMemberSourceEntry result =
+            await AssemblyContextSourceQuery.ExecuteMemberAsync(
+                group,
+                assembly.Participant,
+                assembly.MemberRequest("Read", TypeName),
+                host.Context,
+                TestContext.Current.CancellationToken);
+
+        var unavailable =
+            Assert.IsType<AssemblyMemberSourceEntry.Unavailable>(result);
+        Assert.Equal(
+            MemberBodyProductionStatus.Failed,
+            unavailable.DecompiledAttempt?.Status);
+        Assert.Contains(
+            DiagnosticIds.MemorySafetyModeUnavailable,
+            unavailable.DecompiledAttempt?.Text);
+        Assert.Contains(
+            unavailable.DecompiledAttempt!.Failure!.Diagnostics,
+            diagnostic => diagnostic.Id
+                == DiagnosticIds.MemorySafetyModeUnavailable);
+    }
+
     [Fact]
     public async Task AmbiguousBodylessTypeSourceInferenceFallsBackToDecompiler()
     {
@@ -3681,6 +3748,32 @@ public sealed partial class AssemblyContextSourceQueryTests
             _ => throw new BadImageFormatException(
                 "Invalid compressed integer."),
         };
+
+    static byte[] UnsupportedMemorySafetyImage()
+    {
+        byte[] image = File.ReadAllBytes(
+            FixtureCatalog.DecompilerUnsafeNew.AssemblyPath());
+        using var pe = new PEReader(
+            new MemoryStream(image, writable: false));
+        MetadataReader reader = pe.GetMetadataReader();
+        MemorySafetyRulesObservation observation = Assert.Single(
+            MemorySafetyMetadataIndex.Create(reader)
+                .Rules
+                .Observations);
+        CustomAttribute attribute = reader.GetCustomAttribute(
+            (CustomAttributeHandle)MetadataTokens.EntityHandle(
+                observation.AttributeToken));
+        byte[] original = reader.GetBlobBytes(attribute.Value);
+        int valueOffset = Assert.Single(
+            Enumerable.Range(0, image.Length - original.Length + 1),
+            offset => image
+                    .AsSpan(offset, original.Length)
+                    .SequenceEqual(original));
+        BitConverter.TryWriteBytes(
+            image.AsSpan(valueOffset + 2, sizeof(int)),
+            99);
+        return image;
+    }
 
     sealed class TestAssembly
     {
