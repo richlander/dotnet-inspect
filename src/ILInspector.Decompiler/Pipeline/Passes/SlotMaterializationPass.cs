@@ -129,7 +129,9 @@ public sealed class SlotMaterializationPass : IIrPass
             function.Body,
             function.Signature.ReturnType,
             function.TypeShapes,
-            recoverBooleanIdentity: true);
+            recoverBooleanIdentity: true,
+            recoverElementIdentity: true,
+            enumUnderlyingTypes: function.EnumUnderlyingTypes);
         // Materializable slots retain the prior first-testimony order so
         // AddLocal preserves existing local indices and declaration order.
         var candidates = testimony.Keys
