@@ -1916,7 +1916,9 @@ public static class ResourceEffectAdmissionBuilder
         => location switch
         {
             ResourceEffectLocation.Receiver => !member.IsStatic,
-            ResourceEffectLocation.Return => member.Kind != ResourceEffectMemberKind.Field,
+            ResourceEffectLocation.Return =>
+                member.Kind is not ResourceEffectMemberKind.Field
+                    and not ResourceEffectMemberKind.Constructor,
             ResourceEffectLocation.Constructed =>
                 member.Kind == ResourceEffectMemberKind.Constructor,
             ResourceEffectLocation.Parameter parameter =>

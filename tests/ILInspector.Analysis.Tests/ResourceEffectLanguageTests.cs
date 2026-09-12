@@ -214,6 +214,48 @@ public class ResourceEffectLanguageTests
     }
 
     [Fact]
+    public void Admission_UsesConstructedRatherThanReturnForConstructors()
+    {
+        ResourceEffectTargetSelector constructor = new ResourceEffectTargetSelector.Member(
+            MemberSelector(
+                ResourceEffectMemberKind.Constructor,
+                isStatic: false,
+                hasThis: true,
+                explicitThis: false,
+                ResourceEffectCallingConvention.Default));
+        ResourceEffectModelIdentity parsedModel = new("example.constructor-parsed");
+        ResourceEffectAdmissionOutcome parsed = ResourceEffectAdmissionBuilder.Admit(
+            [
+                Model(
+                    parsedModel,
+                    constructor,
+                    ["pass(source=receiver,target=return)"]),
+            ]);
+
+        Assert.Equal(
+            ResourceEffectDiagnosticKind.InvalidLocation,
+            Assert.IsType<ResourceEffectAdmissionOutcome.Rejected>(parsed)
+                .Diagnostics.Single().Diagnostic.Kind);
+        AssertTypedRejected(
+            "example.constructor-typed",
+            new ResourceEffect.Pass(
+                new ResourceEffectLocation.Receiver(),
+                new ResourceEffectLocation.Return(),
+                null),
+            constructor,
+            ResourceEffectDiagnosticKind.InvalidLocation);
+
+        AdmittedResourceEffectModel admitted = SingleModel(
+            Build(
+                Model(
+                    new ResourceEffectModelIdentity("example.constructor-constructed"),
+                    constructor,
+                    ["pass(source=receiver,target=constructed)"])));
+        Assert.IsType<ResourceEffectLocation.Constructed>(
+            Assert.IsType<ResourceEffect.Pass>(admitted.Declarations.Single().Effect).Target);
+    }
+
+    [Fact]
     public void Admission_RejectsUnknownLanguageAtomically()
     {
         ResourceEffectModelIdentity model = new("example.unknown-language");
