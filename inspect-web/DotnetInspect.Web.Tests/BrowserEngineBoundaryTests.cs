@@ -96,9 +96,13 @@ public sealed partial class BrowserEngineBoundaryTests
                     [
                         PackageQuery.ToolFacetId,
                         PackageQuery.NoDependenciesFacetId,
-                    ]))).Plan;
+                    ],
+                    MaximumCandidates:
+                        PackageQuery.MaximumPackageContentCandidates))).Plan;
 
-        Assert.Equal(PackageQueryFacetTier.Nuspec, plan.Facets[0].Tier);
+        Assert.Equal(
+            PackageQueryFacetTier.PackageContent,
+            plan.Facets[0].Tier);
         Assert.Equal(
             [
                 PackageQuery.ToolFacetId,

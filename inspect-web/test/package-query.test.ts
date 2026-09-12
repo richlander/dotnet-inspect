@@ -56,7 +56,7 @@ const SKILL_FACET: QueryFacetTerm = {
 const ANY_TOOL_FACET: QueryFacetTerm = {
   key: "package.query.dotnet-tool",
   label: ".NET Tool",
-  tier: "nuspec",
+  tier: "package-content",
   selectionGroupId: "package.query.dotnet-tool-format",
 };
 
@@ -202,6 +202,14 @@ test("package-content facets lower the candidate bound until the last one is rem
   assert.equal(withSkill.requestedMatchLimit, 100);
   assert.equal(withSkillAndManifest.requestedMatchLimit, 100);
   assert.equal(manifestOnly.requestedMatchLimit, 100);
+});
+
+test("the broad tool facet grants the same bounded package-content work as version facets", () => {
+  const base = createQueryRequest("Azure.");
+
+  for (const facet of [ANY_TOOL_FACET, TOOL_V1_FACET, TOOL_V2_FACET]) {
+    assert.equal(withFacet(base, facet).requestedLimit, 20);
+  }
 });
 
 test("withScopeQuery preserves facets and bounds while changing search text", () => {

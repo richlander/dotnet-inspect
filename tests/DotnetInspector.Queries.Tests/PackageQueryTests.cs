@@ -28,7 +28,7 @@ public sealed class PackageQueryTests
         Assert.Equal(
             [
                 PackageQueryFacetTier.Nuspec,
-                PackageQueryFacetTier.Nuspec,
+                PackageQueryFacetTier.PackageContent,
                 PackageQueryFacetTier.PackageContent,
                 PackageQueryFacetTier.PackageContent,
                 PackageQueryFacetTier.Nuspec,
@@ -394,6 +394,13 @@ public sealed class PackageQueryTests
                     """,
                     readme: "<readme>README.md</readme>"),
             });
+        var content = new FakePackageQueryContentProvider(
+            new Dictionary<string, IPackageContent>
+            {
+                ["Contoso.Tool"] = new FakePackageContent(
+                    ("tools/net8.0/any/DotnetToolSettings.xml",
+                        "<DotNetCliTool Version=\"2\"><Commands /></DotNetCliTool>")),
+            });
         PackageQueryPlan plan = Accepted(
             PackageQuery.Plan(
                 new PackageQueryRequest(
@@ -412,11 +419,12 @@ public sealed class PackageQueryTests
             PackageQuery.ExecuteAsync(
                 source,
                 plan,
+                content,
                 TestContext.Current.CancellationToken));
 
         PackageQueryMatch match =
             Assert.Single(events.OfType<PackageQueryEvent.Match>()).Value;
-        Assert.Equal(PackageQueryFacetTier.Nuspec, match.Tier);
+        Assert.Equal(PackageQueryFacetTier.PackageContent, match.Tier);
         Assert.Equal(
             [
                 PackageQuery.PrefixEvidenceId,
@@ -440,6 +448,11 @@ public sealed class PackageQueryTests
             "1,500,000 total downloads",
             match.Evidence[4].Value,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "CLI v2",
+            match.Evidence[2].Value,
+            StringComparison.Ordinal);
+        Assert.Equal(["Contoso.Tool"], content.Requests);
         Assert.All(
             match.Evidence,
             evidence =>
@@ -571,6 +584,13 @@ public sealed class PackageQueryTests
                     </packageTypes>
                     """),
             });
+        var content = new FakePackageQueryContentProvider(
+            new Dictionary<string, IPackageContent>
+            {
+                ["Contoso.Tool"] = new FakePackageContent(
+                    ("tools/net8.0/any/DotnetToolSettings.xml",
+                        "<DotNetCliTool><Commands /></DotNetCliTool>")),
+            });
         PackageQueryPlan plan = Accepted(
             PackageQuery.Plan(
                 new PackageQueryRequest(
@@ -586,6 +606,7 @@ public sealed class PackageQueryTests
             PackageQuery.ExecuteAsync(
                 source,
                 plan,
+                content,
                 TestContext.Current.CancellationToken));
 
         PackageQueryMatch match = Assert.Single(
@@ -598,6 +619,11 @@ public sealed class PackageQueryTests
                 PackageQuery.ToolFacetId,
             ],
             match.Evidence.Select(evidence => evidence.Id));
+        Assert.Contains(
+            "CLI v1",
+            match.Evidence[^1].Value,
+            StringComparison.Ordinal);
+        Assert.Equal(["Contoso.Tool"], content.Requests);
     }
 
     [Fact]
@@ -638,6 +664,44 @@ public sealed class PackageQueryTests
                     ("skills/SKILL.md", "# Library")),
             });
 
+        PackageQueryPlan anyToolPlan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.",
+                    [PackageQuery.ToolFacetId],
+                    MaximumCandidates: 3,
+                    MaximumMatches: 3)));
+        List<PackageQueryEvent> anyToolEvents = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                anyToolPlan,
+                content,
+                TestContext.Current.CancellationToken));
+        List<PackageQueryMatch> anyTools =
+        [
+            .. anyToolEvents
+                .OfType<PackageQueryEvent.Match>()
+                .Select(item => item.Value),
+        ];
+        Assert.Equal(
+            ["Contoso.V1", "Contoso.V2"],
+            anyTools.Select(item => item.Package.PackageId));
+        Assert.Equal(
+            [
+                "DotnetToolSettings.xml declares the portable .NET tool CLI v1 format.",
+                "DotnetToolSettings.xml declares the RID-specific .NET tool CLI v2 format.",
+            ],
+            anyTools.Select(item => item.Evidence[^1].Value));
+        Assert.All(
+            anyTools,
+            item => Assert.Equal(
+                PackageQueryFacetTier.PackageContent,
+                item.Tier));
+        Assert.Equal(
+            ["Contoso.V1", "Contoso.V2"],
+            content.Requests);
+
+        content.Requests.Clear();
         PackageQueryPlan v1Plan = Accepted(
             PackageQuery.Plan(
                 new PackageQueryRequest(
@@ -718,11 +782,11 @@ public sealed class PackageQueryTests
             bothVersions.Select(item =>
                 item.Evidence.Select(evidence => evidence.Id)));
         Assert.Contains(
-            "v1 format",
+            "CLI v1 format",
             bothVersions[0].Evidence[^1].Value,
             StringComparison.Ordinal);
         Assert.Contains(
-            "v2 format",
+            "CLI v2 format",
             bothVersions[1].Evidence[^1].Value,
             StringComparison.Ordinal);
         Assert.Equal(
@@ -796,6 +860,54 @@ public sealed class PackageQueryTests
         Assert.Equal(
             ["Contoso.V1", "Contoso.V2", "Contoso.Library"],
             content.Requests);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("<DotNetCliTool Version=\"3\"><Commands /></DotNetCliTool>")]
+    public async Task ExecuteAsync_BroadToolReportsUnrecognizedSettingsWithoutGuessing(
+        string? settings)
+    {
+        var source = SourceFor(
+            Manifest(
+                "Contoso.Tool",
+                packageTypes:
+                """
+                <packageTypes>
+                  <packageType name="DotnetTool" />
+                </packageTypes>
+                """),
+            "Contoso.Tool");
+        var content = new FakePackageQueryContentProvider(
+            new Dictionary<string, IPackageContent>
+            {
+                ["Contoso.Tool"] = settings is null
+                    ? new FakePackageContent()
+                    : new FakePackageContent(
+                        ("tools/net8.0/any/DotnetToolSettings.xml",
+                            settings)),
+            });
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.",
+                    [PackageQuery.ToolFacetId],
+                    MaximumCandidates: 1,
+                    MaximumMatches: 1)));
+
+        PackageQueryMatch match = Assert.Single(
+            (await CollectAsync(
+                PackageQuery.ExecuteAsync(
+                    source,
+                    plan,
+                    content,
+                    TestContext.Current.CancellationToken)))
+                .OfType<PackageQueryEvent.Match>()).Value;
+
+        Assert.Equal(
+            "The package manifest declares a .NET tool, but its settings do not identify CLI v1 or CLI v2.",
+            match.Evidence[^1].Value);
+        Assert.Equal(["Contoso.Tool"], content.Requests);
     }
 
     [Fact]
@@ -1221,6 +1333,8 @@ public sealed class PackageQueryTests
             PackageQuery.ExecuteAsync(
                 source,
                 plan,
+                new FakePackageQueryContentProvider(
+                    new Dictionary<string, IPackageContent>()),
                 TestContext.Current.CancellationToken));
         PackageQueryProgress[] progress =
         [
@@ -1264,6 +1378,8 @@ public sealed class PackageQueryTests
             PackageQuery.ExecuteAsync(
                 source,
                 plan,
+                new FakePackageQueryContentProvider(
+                    new Dictionary<string, IPackageContent>()),
                 TestContext.Current.CancellationToken));
 
         Assert.Empty(events.OfType<PackageQueryEvent.Match>());
@@ -1529,6 +1645,8 @@ public sealed class PackageQueryTests
             PackageQuery.ExecuteAsync(
                 source,
                 plan,
+                new FakePackageQueryContentProvider(
+                    new Dictionary<string, IPackageContent>()),
                 TestContext.Current.CancellationToken));
 
         Assert.Empty(events.OfType<PackageQueryEvent.Match>());
