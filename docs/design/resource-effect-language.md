@@ -261,7 +261,9 @@ Compatible structural selector policies compare operation slots on their
 shared occurrence domain rather than by serialized selector spelling. Thus an
 unconstrained and an exact-version declaration of the same consume relationship
 compose on the exact version, while genuinely different sources, kinds, or
-destinations remain distinct.
+destinations remain distinct. Outcome and guard subjects use the same
+structural relation: compatible selector policies identify one subject on
+their shared domain, so disjoint predicate values remain disjoint there.
 
 ## Cross-resource composition
 
@@ -319,6 +321,10 @@ assemblies across target frameworks.
 The first language version supports declaring-type variables as `type[N]` and
 method variables as `method[N]`. A use must bind each variable consistently
 across declaring type, parameters, return type, resource kind, and authority.
+Variables from independently matched selectors occupy independent binding
+namespaces even when they use the same local index. Cross-selector overlap
+preserves every within-selector binding relationship while solving whether the
+two complete selector patterns share a closed CLR witness.
 
 ### Member selectors
 
@@ -384,7 +390,10 @@ exceptional path unless another declared effect transfers it out.
 The source and every operation slot reached through a consume chain are
 successive locations for one obligation, not independent obligations.
 Overlapping terminal effects through two points in that lineage are therefore
-checked as effects on the same obligation.
+checked as effects on the same obligation. This lineage is directional:
+borrowing the caller source while it is consumed is contradictory, but after
+the transfer a scoped borrow may derive from the live callee-owned operation
+slot.
 
 ### `release`
 

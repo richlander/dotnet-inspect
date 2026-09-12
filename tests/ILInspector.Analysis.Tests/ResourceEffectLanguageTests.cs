@@ -1224,6 +1224,27 @@ public class ResourceEffectLanguageTests
     }
 
     [Fact]
+    public void Catalog_AllowsBorrowFromConsumedOperationSlot()
+    {
+        ResourceEffectModelIdentity model = new("example.consume-callback-borrow");
+
+        Assert.IsType<ResourceEffectCatalogOutcome.Constructed>(
+            ResourceEffectCatalogBuilder.Build(
+                [
+                    Model(
+                        model,
+                        TwoParameterOperationTarget(),
+                        [
+                            "consume(source=parameter[0],target=operation[0])",
+                            "callback(delegate=parameter[1],scope=callback[1],execution=synchronous,cardinality=exactly-once)",
+                            "borrow(source=operation[0],target=callback[1].parameter[0],access=read,scope=callback[1])",
+                            "release(source=operation[0],when=normal-return)",
+                            "release(source=operation[0],when=exceptional-exit)",
+                        ]),
+                ]));
+    }
+
+    [Fact]
     public void Catalog_RejectsMultipleConsumesToDifferentOperationSlots()
     {
         ResourceEffectModelIdentity model = new("example.multiple-consume");
@@ -1276,6 +1297,91 @@ public class ResourceEffectLanguageTests
                     FieldPolicyConsumeModel(
                         exactModel,
                         ResourceAssemblyVersionPolicy.Exact(new Version(1, 0, 0, 0))),
+                ]));
+    }
+
+    [Fact]
+    public void Catalog_ComposesDisjointPredicatesAcrossCompatibleFieldPolicies()
+    {
+        ResourceEffectModelIdentity trueModel =
+            new("example.field-predicate-overlap.true");
+        ResourceEffectModelIdentity falseModel =
+            new("example.field-predicate-overlap.false");
+
+        Assert.IsType<ResourceEffectCatalogOutcome.Constructed>(
+            ResourceEffectCatalogBuilder.Build(
+                [
+                    FieldPolicyOutcomeModel(
+                        trueModel,
+                        ResourceAssemblyVersionPolicy.Any,
+                        "bool[true]",
+                        "release(source=parameter[0],when=outcome[result])"),
+                    FieldPolicyOutcomeModel(
+                        falseModel,
+                        ResourceAssemblyVersionPolicy.Exact(new Version(1, 0, 0, 0)),
+                        "bool[false]",
+                        "move(source=parameter[0],target=return,when=outcome[result])"),
+                ]));
+
+        ResourceEffectModelIdentity firstGuard =
+            new("example.field-guard-overlap.first");
+        ResourceEffectModelIdentity secondGuard =
+            new("example.field-guard-overlap.second");
+        Assert.IsType<ResourceEffectCatalogOutcome.Constructed>(
+            ResourceEffectCatalogBuilder.Build(
+                [
+                    FieldPolicyGuardModel(
+                        firstGuard,
+                        ResourceAssemblyVersionPolicy.Any,
+                        "operation(boundary=transparent,throws=never,guard=exact-type[receiver.field[child];signature-parameter[0]])"),
+                    FieldPolicyGuardModel(
+                        secondGuard,
+                        ResourceAssemblyVersionPolicy.Exact(new Version(1, 0, 0, 0)),
+                        "operation(boundary=ordinary,throws=possible,guard=exact-type[receiver.field[child];signature-parameter[1]])"),
+                ]));
+    }
+
+    [Fact]
+    public void Catalog_ScopesGenericVariablesToEachComparedSelector()
+    {
+        ResourceEffectGenericVariable variable =
+            new(ResourceEffectGenericVariableKind.Type, 0);
+        ResourceEffectModelIdentity direct = new("example.generic-target.direct");
+        ResourceEffectModelIdentity array = new("example.generic-target.array");
+
+        AssertConflict(
+            ResourceEffectCatalogBuilder.Build(
+                [
+                    Model(
+                        direct,
+                        GenericDeclaringTypeOperationTarget(
+                            new ResourceTypeExpression.Variable(variable)),
+                        ["release(source=parameter[0],when=normal-return)"]),
+                    Model(
+                        array,
+                        GenericDeclaringTypeOperationTarget(
+                            new ResourceTypeExpression.SzArray(
+                                new ResourceTypeExpression.Variable(variable))),
+                        ["move(source=parameter[0],target=return,when=normal-return)"]),
+                ]));
+    }
+
+    [Fact]
+    public void Catalog_PreservesGenericBindingsWithinEachComparedSelector()
+    {
+        ResourceEffectModelIdentity model =
+            new("example.generic-guard-within-selector");
+
+        Assert.IsType<ResourceEffectCatalogOutcome.Constructed>(
+            ResourceEffectCatalogBuilder.Build(
+                [
+                    Model(
+                        model,
+                        GenericGuardTarget(),
+                        [
+                            "operation(boundary=transparent,throws=never,guard=exact-type[return;signature-parameter[0]])",
+                            "operation(boundary=ordinary,throws=possible,guard=exact-type[return;signature-parameter[1]])",
+                        ]),
                 ]));
     }
 
@@ -2026,6 +2132,60 @@ public class ResourceEffectLanguageTests
                     ]),
             ]);
 
+    static ResourceEffectModelDefinition FieldPolicyOutcomeModel(
+        ResourceEffectModelIdentity model,
+        ResourceAssemblyVersionPolicy fieldVersion,
+        string test,
+        string terminal)
+        => new(
+            ResourceEffectLanguageIdentity.Version1,
+            model,
+            [],
+            [
+                new ResourceEffectTargetDeclaration(
+                    BooleanFieldTarget("Child", fieldVersion),
+                    [
+                        Source(
+                            model,
+                            model.Value,
+                            0,
+                            "resource(kind=example.flag,value=declared-field,selector=child)"),
+                    ]),
+                new ResourceEffectTargetDeclaration(
+                    SimpleOperationTarget(),
+                    [
+                        Source(
+                            model,
+                            model.Value,
+                            1,
+                            $"outcome(id=result,source=receiver.field[child],test={test})"),
+                        Source(model, model.Value, 2, terminal),
+                    ]),
+            ]);
+
+    static ResourceEffectModelDefinition FieldPolicyGuardModel(
+        ResourceEffectModelIdentity model,
+        ResourceAssemblyVersionPolicy fieldVersion,
+        string operation)
+        => new(
+            ResourceEffectLanguageIdentity.Version1,
+            model,
+            [],
+            [
+                new ResourceEffectTargetDeclaration(
+                    BooleanFieldTarget("Child", fieldVersion),
+                    [
+                        Source(
+                            model,
+                            model.Value,
+                            0,
+                            "resource(kind=example.flag,value=declared-field,selector=child)"),
+                    ]),
+                new ResourceEffectTargetDeclaration(
+                    GuardTarget(Named("String"), Named("Int32")),
+                    [Source(model, model.Value, 1, operation)]),
+            ]);
+
     static ResourceEffectModelDefinition FieldPolicyTerminalModel(
         ResourceEffectModelIdentity model,
         ResourceAssemblyVersionPolicy fieldVersion,
@@ -2398,6 +2558,51 @@ public class ResourceEffectLanguageTests
                 ],
                 Named("Object")));
 
+    static ResourceEffectTargetSelector GenericDeclaringTypeOperationTarget(
+        ResourceTypeExpression typeArgument)
+        => OperationTargetWithDeclaring(
+            new ResourceTypeExpression.Named(
+                Assembly(
+                    publicKeyToken: null,
+                    ResourceAssemblyVersionPolicy.Any),
+                "Example",
+                [new ResourceTypeNameSegment("Owner", 1)],
+                [typeArgument]),
+            "Transform");
+
+    static ResourceEffectTargetSelector GenericGuardTarget()
+    {
+        var variable = new ResourceTypeExpression.Variable(
+            new ResourceEffectGenericVariable(
+                ResourceEffectGenericVariableKind.Type,
+                0));
+        return new ResourceEffectTargetSelector.Member(
+            new ResourceEffectMemberSelector(
+                new ResourceTypeExpression.Named(
+                    Assembly(
+                        publicKeyToken: null,
+                        ResourceAssemblyVersionPolicy.Any),
+                    "Example",
+                    [new ResourceTypeNameSegment("Owner", 1)],
+                    [variable]),
+                "Guard",
+                ResourceEffectMemberKind.Method,
+                isStatic: false,
+                genericArity: 0,
+                ResourceEffectCallingConvention.Default,
+                hasThis: true,
+                explicitThis: false,
+                [
+                    new ResourceEffectParameterSelector(
+                        variable,
+                        ResourceEffectRefKind.Value),
+                    new ResourceEffectParameterSelector(
+                        new ResourceTypeExpression.SzArray(variable),
+                        ResourceEffectRefKind.Value),
+                ],
+                Named("Object")));
+    }
+
     static ResourceEffectTargetSelector OpenGenericOperationTarget()
         => OperationTargetWithDeclaring(
             OpenGenericOwner(),
@@ -2533,6 +2738,28 @@ public class ResourceEffectLanguageTests
                     Assembly(publicKeyToken: null, version),
                     "Example",
                     "Object")));
+
+    static ResourceEffectTargetSelector BooleanFieldTarget(
+        string name,
+        ResourceAssemblyVersionPolicy version)
+        => new ResourceEffectTargetSelector.Member(
+            new ResourceEffectMemberSelector(
+                Named(
+                    Assembly(publicKeyToken: null, version),
+                    "Example",
+                    "Owner"),
+                name,
+                ResourceEffectMemberKind.Field,
+                isStatic: false,
+                genericArity: 0,
+                ResourceEffectCallingConvention.Default,
+                hasThis: false,
+                explicitThis: false,
+                [],
+                Named(
+                    Assembly(publicKeyToken: null, version),
+                    "Example",
+                    "Boolean")));
 
     static ResourceTypeExpression.Named Named(string name)
         => Named("Example", name);
