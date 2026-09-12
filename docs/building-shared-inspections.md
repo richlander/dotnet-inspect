@@ -140,7 +140,7 @@ completion, or typed success and failure variants. The complete baseline is:
 ```text
 InspectionEnvelope<TContent>
   Content: TContent
-  Share: Available(FullUrl) | NonProjectable(Path, Reason)
+  Share: Available(FullUrl, Packet) | NonProjectable(Path, Reason)
   Diagnostics
 ```
 
@@ -149,7 +149,10 @@ command's ordinary result type and continues to own success, partial,
 unavailable, failure, completion, and empty-result semantics.
 
 Every envelope carries Share for the same semantic plan. The available arm
-contains the complete canonical production URL. The non-projectable arm names
+contains both the complete canonical production URL and its encoded Workspace
+packet, so a consumer can use either without splitting the URL. The
+producer supplies both values when constructing `Available`; the contract does
+not derive one by parsing the other. The non-projectable arm names
 the semantic path and reason that cannot be represented faithfully; it never
 contains a partial or approximated URL. Share projection executes no ordinary
 content or effectiveness probe.

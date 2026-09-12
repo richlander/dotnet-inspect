@@ -1,4 +1,9 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
+using DotnetInspector.Core;
+using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Web.Interop.Metadata;
 
@@ -53,6 +58,7 @@ public sealed record BrowserTypeMetadata(
     BrowserTypeComposition? Composition,
     BrowserTypeGraphNode[] GraphNodes,
     BrowserTypeGraphEdge[] GraphEdges,
+    InspectionEnvelope<TypeDependencySectionResult> TypeDependencyInspection,
     string[] InspectionFailures);
 
 public sealed record BrowserTypeParameter(string Name, string? Variance, string[] Constraints);
@@ -294,6 +300,16 @@ public sealed record BrowserExceptionSurface(
 [JsonSerializable(typeof(BrowserMetadataWindow))]
 [JsonSerializable(typeof(BrowserHeapListing))]
 [JsonSerializable(typeof(BrowserTypeMetadata))]
+[JsonSerializable(typeof(InspectionEnvelope<TypeDependencySectionResult>))]
 [JsonSerializable(typeof(BrowserGraphMemberSurface))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]
 internal sealed partial class BrowserMetadataJsonContext : JsonSerializerContext;
+
+internal static class BrowserMetadataJsonSerialization
+{
+    internal static JsonSerializerOptions Options =>
+        BrowserMetadataJsonContext.Default.Options;
+
+    internal static JsonTypeInfo<BrowserTypeMetadata> BrowserTypeMetadata
+        => BrowserMetadataJsonContext.Default.BrowserTypeMetadata;
+}

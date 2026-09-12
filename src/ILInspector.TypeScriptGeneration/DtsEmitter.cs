@@ -24,6 +24,8 @@ static class DtsEmitter
         "System.Single",
         "System.Double",
         "System.Decimal",
+        "System.Guid",
+        "System.Version",
         "System.IntPtr",
         "System.Void",
         "System.Nullable`1",
@@ -37,6 +39,11 @@ static class DtsEmitter
     [
         "System.Collections.Generic.Dictionary`2",
         "System.Collections.Generic.IReadOnlyDictionary`2",
+        "System.Collections.Generic.ICollection`1",
+        "System.Collections.Generic.IEnumerable`1",
+        "System.Collections.Generic.IReadOnlyCollection`1",
+        "System.Collections.Generic.IReadOnlyList`1",
+        "System.Collections.Generic.List`1",
     ];
 
     public static string Emit(
@@ -196,30 +203,42 @@ static class DtsEmitter
         DeclaredTypesByScopedIdentity(
             ILInspector.JsExportSurface.JsExportSurface surface,
             IEnumerable<ApiType> types) =>
-        surface.AssemblyIdentity is { } assembly
-            ? types
-                .Select(type => (
-                    Identity: new ApiTypeReferenceIdentity(
-                        assembly,
-                        type.FullName,
-                        type.DefinitionName),
-                    Type: type))
+        types
+            .SelectMany(type =>
+                surface.ReferencedTypeDefinitions
+                    .Where(candidate =>
+                        ReferenceEquals(candidate.Value, type))
+                    .Select(candidate => (
+                        Identity: candidate.Key,
+                        Type: type))
+                    .Concat(
+                        surface.AssemblyIdentity is { } assembly
+                            ? [
+                                (
+                                    Identity: new ApiTypeReferenceIdentity(
+                                        assembly,
+                                        type.FullName,
+                                        type.DefinitionName),
+                                    Type: type),
+                            ]
+                            : []))
                 .GroupBy(candidate => candidate.Identity)
                 .Where(group => group
                     .Select(candidate => candidate.Type)
                     .Distinct()
                     .Count() == 1)
                 .ToDictionary(
-                    group => group.Key,
-                    group => group.First().Type)
-            : new Dictionary<ApiTypeReferenceIdentity, ApiType>();
+                group => group.Key,
+                group => group.First().Type);
 
     static IEnumerable<ApiType> TypeInventory(
         ILInspector.JsExportSurface.JsExportSurface surface,
         ApiType[] declarationTypes) =>
-        surface.AllTypes.Count > 0
+        (surface.AllTypes.Count > 0
             ? surface.AllTypes
-            : declarationTypes;
+            : declarationTypes)
+        .Concat(surface.ReferencedTypeDefinitions.Values)
+        .Distinct();
 
     static void EmitWireDeclarations(
         StringBuilder sb,
@@ -441,20 +460,17 @@ static class DtsEmitter
             ApiType[] declarationTypes,
             IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null)
     {
+        (ApiTypeReferenceIdentity Identity, ApiType Type)[] typeIdentities =
+            TypeIdentities(surface, declarationTypes);
         var knownTypeNames = new HashSet<string>(
             declarationTypes.SelectMany(
                 type => new[] { type.Name, type.FullName, type.MetadataName }
                     .Where(identity => !string.IsNullOrEmpty(identity))
                     .Select(identity => identity!)),
             StringComparer.Ordinal);
-        var knownTypeIdentities = surface.AssemblyIdentity is { } assembly
-            ? new HashSet<ApiTypeReferenceIdentity>(
-                declarationTypes.Select(type =>
-                    new ApiTypeReferenceIdentity(
-                        assembly,
-                        type.FullName,
-                        type.DefinitionName)))
-            : [];
+        var knownTypeIdentities = typeIdentities
+            .Select(item => item.Identity)
+            .ToHashSet();
         var localTypeKinds = declarationTypes
             .Select(type => (
                 type.DefinitionName,
@@ -509,17 +525,12 @@ static class DtsEmitter
 
         var identityNames =
             new Dictionary<ApiTypeReferenceIdentity, string>();
-        if (surface.AssemblyIdentity is { } identityAssembly)
+        foreach ((ApiTypeReferenceIdentity identity, ApiType type)
+            in typeIdentities)
         {
-            foreach (ApiType type in declarationTypes)
-            {
-                identityNames.Add(
-                    new ApiTypeReferenceIdentity(
-                        identityAssembly,
-                        type.FullName,
-                        type.DefinitionName),
-                    AllocatedTypeName(type, allocatedTypeNames));
-            }
+            identityNames.Add(
+                identity,
+                AllocatedTypeName(type, allocatedTypeNames));
         }
 
         return new TypeMappingEnvironment(
@@ -532,16 +543,57 @@ static class DtsEmitter
                 surface.AssemblyIdentity,
                 identityNames,
                 surface.AssemblyIdentity is { } unionAssembly
-                    ? declarationTypes
-                        .Where(type => type.TypeParameters.Count > 0)
+                    ? typeIdentities
+                        .Where(item => item.Type.TypeParameters.Count > 0)
                         .ToDictionary(
-                            type => new ApiTypeReferenceIdentity(
-                                unionAssembly, type.FullName, type.DefinitionName),
-                            type => type.TypeParameters.Count)
-                    : new Dictionary<ApiTypeReferenceIdentity, int>(),
+                            item => item.Identity,
+                            item => item.Type.TypeParameters.Count)
+                    : typeIdentities
+                        .Where(item => item.Type.TypeParameters.Count > 0)
+                        .ToDictionary(
+                            item => item.Identity,
+                            item => item.Type.TypeParameters.Count),
                 GenericTypeNames(declarationTypes, allocatedTypeNames),
                 GenericTypeNameArities(declarationTypes, allocatedTypeNames),
                 delegateMappingContext));
+    }
+
+    static (ApiTypeReferenceIdentity Identity, ApiType Type)[] TypeIdentities(
+        ILInspector.JsExportSurface.JsExportSurface surface,
+        IEnumerable<ApiType> types)
+    {
+        var identities = new List<(ApiTypeReferenceIdentity, ApiType)>();
+        foreach (ApiType type in types)
+        {
+            foreach ((ApiTypeReferenceIdentity identity, ApiType definition)
+                in surface.ReferencedTypeDefinitions
+                    .Where(candidate => ReferenceEquals(candidate.Value, type))
+                    .Select(candidate => (candidate.Key, type)))
+            {
+                identities.Add((identity, definition));
+            }
+
+            if (surface.AssemblyIdentity is { } assembly
+                && !surface.ReferencedTypeDefinitions.Values
+                    .Any(candidate => ReferenceEquals(candidate, type)))
+            {
+                identities.Add((
+                    new ApiTypeReferenceIdentity(
+                        assembly,
+                        type.FullName,
+                        type.DefinitionName),
+                    type));
+            }
+        }
+
+        return identities
+            .GroupBy(item => item.Item1)
+            .Where(group => group
+                .Select(item => item.Item2)
+                .Distinct()
+                .Count() == 1)
+            .Select(group => (group.Key, group.First().Item2))
+            .ToArray();
     }
 
     static string[] GenericParameterNames(
@@ -679,10 +731,13 @@ static class DtsEmitter
     static bool ShouldEmit(
         ILInspector.JsExportSurface.JsExportSurface surface,
         ApiType type) =>
-        !surface.WireDirections.TryGetValue(
+        type.FullName is not "InertText.InertString"
+        and not "System.Collections.Immutable.ImmutableArray`1"
+        and not "System.Text.Json.JsonElement"
+        && (!surface.WireDirections.TryGetValue(
             type,
             out JsonWireDirection directions)
-        || directions != JsonWireDirection.None;
+        || directions != JsonWireDirection.None);
 
     static void EmitEnum(
         StringBuilder sb,
@@ -846,7 +901,23 @@ static class DtsEmitter
             string propertyType = member.SignatureModel?.ReturnType ?? member.ReturnType ?? "unknown";
             string location = $"{record.Name}.{member.Name}";
             string tsType;
-            if (member.JsonConverterAttributeCount > 0)
+            if (HasApprovedInertStringConverter(member))
+            {
+                tsType = propertyType.EndsWith(
+                    "?",
+                    StringComparison.Ordinal)
+                    || member.ReturnType?.EndsWith(
+                        "?",
+                        StringComparison.Ordinal) == true
+                    || member.SignatureModel?.CanonicalReturnType
+                        ?.EndsWith("?", StringComparison.Ordinal) == true
+                    || propertyType.Contains(
+                        "System.Nullable<",
+                        StringComparison.Ordinal)
+                    ? "string | null"
+                    : "string";
+            }
+            else if (member.JsonConverterAttributeCount > 0)
             {
                 ReportUnsupportedJsonConverter(location, diagnostics);
                 tsType = "unknown";
@@ -1216,6 +1287,12 @@ static class DtsEmitter
             || !type.HasJsonStringEnumConverter
             || type.JsonConverterAttributeCount != 1);
 
+    static bool HasApprovedInertStringConverter(ApiMember member) =>
+        member.JsonConverterAttributeCount == 1
+        && (member.SignatureModel?.ReturnType ?? member.ReturnType)
+            ?.Contains("InertText.InertString", StringComparison.Ordinal)
+            == true;
+
     static bool HasUnsupportedRecordWireShape(
         ApiType type,
         ApiAssemblyIdentity? assemblyIdentity,
@@ -1225,6 +1302,7 @@ static class DtsEmitter
         if (type.HasUnsupportedJsonWireAttributes
             || type.Members.Any(member =>
                 member.HasUnsupportedJsonWireAttributes
+                && !HasApprovedInertStringConverter(member)
                 && JsonWireMemberRules.IsSerialized(
                     member,
                     assemblyIdentity,

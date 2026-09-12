@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 
 using ILInspector.Metadata;
 
@@ -8,6 +9,13 @@ namespace DotnetInspector.Queries;
 /// One resource-free participant outcome from a population type-dependency
 /// query.
 /// </summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(
+    typeof(AssemblyContextTypeDependencyEntry.Completed),
+    "completed")]
+[JsonDerivedType(
+    typeof(AssemblyContextTypeDependencyEntry.Rejected),
+    "rejected")]
 public abstract record AssemblyContextTypeDependencyEntry(
     AssemblyContextSubject Subject)
 {

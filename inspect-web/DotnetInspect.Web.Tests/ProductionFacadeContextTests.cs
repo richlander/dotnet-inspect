@@ -1,6 +1,8 @@
 using System.Reflection;
 using System.Text.Json.Serialization;
 using System.Xml.Linq;
+using DotnetInspector.Core;
+using DotnetInspector.Sections;
 using TsJsExport;
 
 namespace DotnetInspect.Web.Tests;
@@ -251,6 +253,13 @@ public sealed class ProductionFacadeContextTests
     {
         var contexts = 0;
         var assemblyLocalWireTypes = 0;
+        var sharedContractTypes = new HashSet<Type>();
+        Collect(typeof(InspectionEnvelope<TypeDependencySectionResult>), sharedContractTypes);
+        foreach (Type derived in typeof(InspectionShare).Assembly.GetTypes()
+                     .Where(type => type.BaseType == typeof(InspectionShare)))
+        {
+            Collect(derived, sharedContractTypes);
+        }
         foreach (Type root in RootTypes())
         {
             Assembly assembly = root.Assembly;
@@ -277,6 +286,12 @@ public sealed class ProductionFacadeContextTests
             foreach (Type type in closure)
             {
                 string declaring = AssemblyNameOf(type.Assembly);
+                if (owner == MetadataAssembly
+                    && sharedContractTypes.Contains(type))
+                {
+                    continue;
+                }
+
                 if (declaring.StartsWith("DotnetInspect.Web", StringComparison.Ordinal))
                 {
                     Assert.Equal(owner, declaring);
