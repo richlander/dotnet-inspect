@@ -182,7 +182,7 @@ public static partial class MetadataExports
                 ? "workspace.participant"
                 : $"{participant.Coordinate.PackageId}@"
                     + $"{participant.Coordinate.Version}/"
-                    + participant.Coordinate.Framework;
+                    + participant.Asset.Path;
             diagnostics.Add(
                 TypeDependencyInspectionDiagnostics.ParticipantRejected(
                     correspondence));

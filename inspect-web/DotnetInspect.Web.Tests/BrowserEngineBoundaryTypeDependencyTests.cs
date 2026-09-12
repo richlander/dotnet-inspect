@@ -263,6 +263,9 @@ public sealed partial class BrowserEngineBoundaryTests
                     == "type-dependency.participant-rejected");
         Assert.Equal("Warning", rejection.Severity.ToString());
         Assert.Contains(rejectedPackageId, rejection.Summary.ToString());
+        Assert.Equal(
+            $"{rejectedPackageId}@1.0.0/lib/net11.0/Rejected.dll",
+            rejection.Correspondence?.ToString());
     }
 
     [Fact]
