@@ -31,19 +31,13 @@ Run `dnx dotnet-inspect -y -- <command>`. `-y` skips interactive confirmation, a
 
 ## Member lookup
 
-Run `find Name` when scope is unknown, inspect the type, then `-S "Member Index"` to list overloads. Select with `Name:N` (1-based) or `Name~digest` (stable). A selected overload
-defaults to `Signature`. A fully-qualified `Namespace.Type.Member` needs no scope.
+Run `find Name` when scope is unknown, inspect the type, then `-S "Member Index"` to list overloads. Select with `Name:N` (1-based) or `Name~digest` (stable). A selected overload defaults to `Signature`. A fully-qualified `Namespace.Type.Member` needs no scope.
 
 ## Tips
 
 - `package` and `library` produce terse, token-efficient, high-value domain content by default. Output supports Markdown, tables, TSV, JSONL, and JSON; load `dotnet-inspect skill query` for discovery, selection, projection, and limits.
 - Add `--project <csproj|dir|project.assets.json>` when project-referenced packages should be in scope; it reads existing restored assets, so restore/build first if dependencies changed.
-- `workspace` never selects an occurrence implicitly. Copy a Library asset ID,
-  Type full name, and optional Member stable selector from
-  `workspace --active-package N`, then add `--lens type.*` or
-  `--lens member.*` for one exact stateless descendant request. Selector
-  failures remain structured; JSON/JSONL retain Library asset ancestry and
-  Member containing-versus-declaring Type joins.
+- `workspace` never selects an occurrence implicitly. Copy a Library asset ID, Type full name, and optional Member stable selector from `workspace --active-package N`, then add `--lens type.*` or `--lens member.*` for one exact stateless descendant request. Selector failures remain structured; JSON/JSONL retain Library asset ancestry and Member containing-versus-declaring Type joins.
 - Common BCL types resolve without scope: `type string`, `type 'List<T>'`. Quote generics and patterns: `member 'Dictionary<TKey,TValue>'`, `-S "Async*"`.
 - Unpinned packages use latest stable; add `--preview` for prerelease APIs.
 
