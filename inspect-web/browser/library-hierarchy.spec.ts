@@ -2503,7 +2503,30 @@ async function openOpportunities(page: Page, location = root) {
     .toHaveAttribute("aria-selected", "true");
 }
 
-for (const width of [1440, 390]) {
+async function expectCompactIntegrationHeader(page: Page) {
+  const frame = page.locator(".integration-inspector");
+  const header = frame.locator("header");
+  const tabs = header.getByRole("tablist", { name: "Integration views" });
+  await expect(tabs).toBeVisible();
+  for (const name of ["Integrations", "Opportunities"]) {
+    const tab = tabs.getByRole("tab", { name, exact: true });
+    await expect(tab).toBeInViewport({ ratio: 1 });
+    expect(await tab.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+  }
+  const headerBox = await header.boundingBox();
+  const tabsBox = await tabs.boundingBox();
+  const resultsBox = await frame.getByRole("tabpanel").boundingBox();
+  expect(headerBox!.height).toBe(40);
+  expect(Math.abs(tabsBox!.y - headerBox!.y)).toBeLessThanOrEqual(1);
+  expect(tabsBox!.y + tabsBox!.height).toBeLessThanOrEqual(headerBox!.y + headerBox!.height);
+  expect(headerBox!.x + headerBox!.width - tabsBox!.x - tabsBox!.width).toBeLessThanOrEqual(16);
+  expect(Math.abs(resultsBox!.y - headerBox!.y - headerBox!.height)).toBeLessThanOrEqual(1);
+  expect(await header.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+  expect(await page.evaluate(() =>
+    document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+}
+
+for (const width of [1440, 390, 320]) {
   test(`Integration tabs preserve the Library and use manual keyboard activation at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
     await installFacades(page);
@@ -2515,6 +2538,7 @@ for (const width of [1440, 390]) {
     await expect(integrations).toHaveAttribute("aria-selected", "true");
     await expect(opportunities).toBeInViewport({ ratio: 1 });
     await expect(frame.locator(".signal-row")).toHaveCount(3);
+    await expectCompactIntegrationHeader(page);
     expect(await page.locator("html").getAttribute("data-opportunity-request")).toBeNull();
     await integrations.focus();
     await integrations.press("ArrowRight");
@@ -2529,6 +2553,7 @@ for (const width of [1440, 390]) {
     await expect(frame.locator("footer")).toContainText(core.asset);
     await expect(page.locator('[data-library-lens="integrations"]'))
       .toHaveAttribute("aria-selected", "true");
+    await expectCompactIntegrationHeader(page);
     await page.screenshot({ path: testInfo.outputPath("integration-tabs-opportunities.png") });
 
     await opportunities.press("Home");

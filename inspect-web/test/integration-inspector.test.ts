@@ -19,6 +19,9 @@ for (const mode of ["integrations", "opportunities"] as const) {
     }, mode, "Loading", "<p>Pending scan</p>");
     assert.equal(html.match(/<h1\b/g)?.length, 1);
     assert.match(html, /<h1 id="library-integrations-title">Integrations<\/h1>/);
+    const header = html.match(/<header\b[^>]*>[\s\S]*?<\/header>/)?.[0] ?? "";
+    assert.equal(header.match(/role="tab"/g)?.length, 2);
+    assert.match(header, /<p title="Loading">Loading<\/p>[\s\S]*role="tablist"/);
     assert.equal(html.match(/role="tab"/g)?.length, 2);
     assert.equal(html.match(/aria-selected="true"/g)?.length, 1);
     assert.match(html, new RegExp(`data-integration-mode="${mode}" aria-selected="true"`));
