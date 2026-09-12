@@ -3,25 +3,28 @@
 Status: **proposed**.
 
 This design owns one cross-cutting result pattern:
-`InspectionEnvelope<TContent>` is the host-neutral terminal boundary around one
-owner-issued inspection result. The CLI consumes that baseline envelope.
-Broader hosts consume the same baseline and may compose additional
-owner-issued content or host-owned experience state around it without changing
-the baseline content.
+`InspectionEnvelope<TContent>` is the host-neutral boundary around one explicit
+content presence, one required Share outcome, and cross-host diagnostics. The
+CLI consumes that baseline envelope. Broader hosts consume the same baseline
+and may compose additional owner-issued content or host-owned experience state
+around it without changing the baseline.
 
 The implementation tracker is
 [#6710](https://github.com/richlander/dotnet-inspect/issues/6710).
-The first adoption follows the authentic type-dependency evidence in
-[#6709](https://github.com/richlander/dotnet-inspect/pull/6709).
+The prerequisite content/share plan is
+[#6717](https://github.com/richlander/dotnet-inspect/pull/6717), and the first
+implementation adoption is
+[#6712](https://github.com/richlander/dotnet-inspect/issues/6712).
 
 ## Claim
 
-For one resolved content generation and semantic plan, every host receives the
-same primary content and diagnostics:
+For one resolved semantic plan, every host receives the same content presence,
+Share outcome, and diagnostics:
 
 ```text
 InspectionEnvelope<TContent>
-  Content
+  Content: Present(TContent) | NotRequested
+  Share: Available(FullUrl) | NonProjectable(Path, Reason)
   Diagnostics
 ```
 
@@ -29,9 +32,10 @@ InspectionEnvelope<TContent>
 does not replace that type, reinterpret its facts, or become a universal
 inspection-content model.
 
-The envelope initially owns only:
+The envelope owns:
 
-- the non-null primary content value; and
+- explicit presence of the owner-issued content value;
+- one required Share outcome for the same semantic plan; and
 - an immutable ordered sequence of cross-host diagnostics.
 
 Other information may join the envelope only when a separately demonstrated
@@ -40,8 +44,8 @@ action dictionary is not an extension mechanism.
 
 ## Motivation
 
-The CLI and Inspect Web already need the same semantic results but currently
-adapt supplemental evidence independently.
+The CLI and Inspect Web already need the same semantic results and Share
+scenario but currently adapt supplemental evidence independently.
 
 The type-dependency path demonstrates the split:
 
@@ -51,8 +55,8 @@ The type-dependency path demonstrates the split:
   diagnostics, availability, and row-selection failure;
 - `BrowserTypeMetadata` combines projected type facts and graph content with
   stringified `InspectionFailures`; and
-- Inspect Web adds Research-owned derived relationships, sharing, navigation,
-  and interactive rendering that the CLI does not request.
+- Inspect Web adds Research-owned derived relationships, navigation, and
+  interactive rendering that the CLI does not request.
 
 The duplicated wrappers make it easy for one host to drop a diagnostic,
 translate a failure into empty content, or attach supplemental evidence to a
@@ -64,27 +68,17 @@ This is not a claim that both hosts request the same amount of information.
 Equal semantic plans produce equal baseline envelopes. A broader host requests
 additional owner-issued results and composes them explicitly.
 
-## Authentic basis
+## Adoption evidence
 
-The first adoption uses:
+This generic pattern does not prescribe a package, subject, or fixture.
+Authentic assets and expected facts belong to each adopting inspection owner.
+The first adoption uses the already-merged real-package evidence in #6709 and
+the focused host integration in #6712.
 
-- `Npgsql.EntityFrameworkCore.PostgreSQL@8.0.4`;
-- `Microsoft.EntityFrameworkCore.Relational@8.0.4`;
-- target
-  `Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure.Internal.NpgsqlOptionsExtension`;
-- target framework `net8.0`; and
-- the relationship chain
-  `NpgsqlOptionsExtension -> RelationalOptionsExtension ->
-  IDbContextOptionsExtension`.
-
-PR #6709 preserves the exact published packages and gates the composed and
-neighboring single-package results through normal Workspace, query, section,
-row, and CLI paths.
-
-Existing participant-rejection, unavailable-root, fuzzy-root, strict-row, and
-Browser transport cases supply the pathological evidence for diagnostics.
-Synthetic boundary fixtures complement the authentic content evidence; they do
-not replace it.
+The envelope-specific evidence is cross-host equality and boundary behavior:
+the adopting tests must prove the same content presence, Share outcome, and
+diagnostics for equivalent plans, plus the `NotRequested` and
+`NonProjectable` cases defined here.
 
 ## Boundary
 
@@ -93,8 +87,9 @@ result to a host:
 
 ```text
 resolved basis
-  -> one terminal plan
-  -> owner-issued result
+  -> one content disposition plus required Share projection
+  -> Present(owner-issued result) or NotRequested
+  -> Share outcome
   -> InspectionEnvelope<TContent>
   -> CLI or Browser composition and presentation
 ```
@@ -104,13 +99,23 @@ internal intermediate. An operation with no L2 owner may envelope its final L1
 result. An operation with an L2 section or inspection owner envelopes the L2
 result rather than nesting envelopes around each prerequisite.
 
-Execute, Discover, and Share may each return an envelope around their own
-primary result type. One envelope does not grant or combine multiple terminal
-purposes.
+Execute and Discover return envelopes around their own content result types.
+A share-only gesture returns the same generic envelope type for its command but
+with content `NotRequested`. One envelope never authorizes both Execute and
+Discover.
 
-## Primary content
+## Content presence
 
-`Content` is required and non-null. Its owner continues to define:
+`Content` is a closed presence type:
+
+```text
+InspectionContent<TContent>
+  = Present(TContent)
+  | NotRequested
+```
+
+`Present` contains one non-null owner-issued value. Its owner continues to
+define:
 
 - semantic facts and identities;
 - success, partial, unavailable, and failure variants;
@@ -120,20 +125,57 @@ purposes.
 - domain-specific structured diagnostics that are themselves semantic
   evidence.
 
-The envelope does not impose one universal success/failure union. If an owner
-cannot produce valid content, its existing typed non-success remains the
-operation outcome; an empty `TContent` plus a diagnostic is not an equivalent
-substitute.
+`NotRequested` means the content producer was deliberately suppressed before
+execution. `--share` uses this arm. It is not null, failed, unavailable,
+partial, cancelled, or a successful empty result, and a producer cannot return
+it after attempted execution.
 
-Wrapping content does not change its equality, row count, ordering,
+`TContent` still names the command's owner-issued ordinary content result type.
+For example, a share-only type-dependency operation has
+`InspectionEnvelope<TypeDependencySectionResult>` with `Content.NotRequested`;
+it does not substitute a unit, object, or Share-specific content type.
+
+The envelope does not impose one universal success/failure union. If an owner
+cannot produce valid content, its existing typed non-success is a
+`Present(TContent)` operation outcome; an empty value, `NotRequested`, or a
+diagnostic is not an equivalent substitute.
+
+Wrapping present content does not change its equality, row count, ordering,
 serialization meaning, or resource ownership. A host may lower or render
-`Content`, but it may not add facts to it after the envelope crosses the shared
-boundary.
+the present value, but it may not add facts to it after the envelope crosses
+the shared boundary.
+
+## Share outcome
+
+Every envelope has one `Share` value derived from the same resolved basis:
+
+```text
+InspectionShare
+  = Available(FullUrl)
+  | NonProjectable(Path, Reason)
+```
+
+`Available` contains the complete canonical production URL, including the
+canonical Workspace packet. Hosts do not rebuild it from argv, rendered
+content, display names, Browser navigation, or the current origin.
+
+`NonProjectable` identifies the semantic path and owner-issued reason that
+cannot be represented faithfully. It contains no partial URL and never drops,
+defaults, or approximates semantic state to manufacture one.
+
+Share projection performs no ordinary content execution or effectiveness
+probe. A non-projectable Share outcome does not invalidate independently valid
+present content. It is the visible operation failure when content is
+`NotRequested`, because a share-only request then has no successful output.
+
+Packet schema, canonical encoding, capacity, and restoration remain owned by
+Workspace Definitions. Public CLI packet-versus-URL selection and exit
+behavior remain owned by CLI Workspace Sharing.
 
 ## Diagnostics
 
-Diagnostics are the first common supplemental currency because both hosts need
-to disclose useful evidence that is not itself a content row:
+Diagnostics are common supplemental currency because both hosts need to
+disclose useful evidence that is not itself content or the Share outcome:
 
 - one Workspace participant was rejected while neighboring participants
   produced useful content;
@@ -155,19 +197,22 @@ The code is semantic identity; the summary is presentation input. Hosts do not
 parse the summary to recover kind, severity, subject, participant, or failure
 meaning. Artifact-authored text is contained before entering the diagnostic.
 
-Diagnostics are immutable and deterministic under deterministic inputs. The
-terminal operation preserves owner order when it already exists and otherwise
+Diagnostics are immutable and deterministic under deterministic inputs.
+Envelope assembly preserves owner order when it already exists and otherwise
 uses a documented stable composition order. A code may occur more than once
 when distinct owner-issued identities distinguish the occurrences.
 
 Severity alone does not determine operation success, CLI exit status, retry,
-or Browser navigation. Those decisions remain with the content owner and
-host policy. In particular:
+or Browser navigation. Those decisions remain with the content and Share
+owners plus host policy. In particular:
 
 - an `Error` diagnostic may accompany a valid partial result;
 - a `Warning` cannot hide owner-issued incomplete evidence;
 - an empty diagnostic sequence does not certify completeness; and
 - adding a diagnostic cannot change content rows or selection.
+
+A diagnostic cannot replace `Content.NotRequested`, a typed content
+non-success, `Share.NonProjectable`, or a missing required Share value.
 
 Verbose logs, traces, tips, performance telemetry, exception stack traces, and
 host-authored convenience messages are not inspection diagnostics.
@@ -177,7 +222,9 @@ host-authored convenience messages are not inspection diagnostics.
 The CLI consumes `InspectionEnvelope<TContent>` as its complete shared input.
 It may:
 
-- lower `Content` through Markout or another approved typed presentation;
+- lower present content through Markout or another approved typed
+  presentation;
+- render `Share` for `--share` while leaving content `NotRequested`;
 - render diagnostics to stderr or a structured diagnostic projection;
 - map the owner-issued outcome to exit status; and
 - omit envelope structure from a published output format whose existing
@@ -190,7 +237,6 @@ Browser-owned experience around it:
 Browser inspection experience
   InspectionEnvelope<TContent>
   additional owner-issued inspection envelopes
-  Share projection
   navigation and interaction state
   Browser presentation
 ```
@@ -202,8 +248,8 @@ one identifiable value; inheritance is valid only when serialization,
 NativeAOT, and facade ownership preserve the same contract.
 
 A Browser-specific DTO may project an envelope for transport, but it must
-preserve the primary content and diagnostic identity without converting the
-DTO into an alternate domain model.
+preserve content presence, Share, and diagnostic identity without converting
+the DTO into an alternate domain model.
 
 ## Content extent and equality
 
@@ -217,7 +263,8 @@ For the same:
 - semantic query, section, traversal, and row plan; and
 - owner-issued capabilities that affect result semantics,
 
-the primary content and diagnostic sequence are semantically equal. Host
+the content presence, Share outcome, and diagnostic sequence are semantically
+equal. `Available` Share outcomes use the same complete canonical URL. Host
 request IDs, operation epochs, cache keys, rendering formats, verbosity,
 navigation, and interaction do not participate.
 
@@ -234,7 +281,7 @@ CLI depends experience
 Browser Type Relationships experience
   InspectionEnvelope<TypeDependencySectionResult>
   Research-owned derived-relationship result
-  Share and navigation state
+  navigation and interaction state
 ```
 
 The first component agrees exactly when the plans agree. The Browser experience
@@ -255,11 +302,11 @@ A new envelope field requires:
 5. a resource-free, contained transport shape; and
 6. adoption gates in both hosts.
 
-Completion, coverage, provenance, semantic-plan receipts, and portable
-projection are plausible future candidates. They remain in their current
-owner-issued content until a focused proposal demonstrates one cross-domain
-meaning. Browser Share URLs, navigation, interaction, loading, and presentation
-are host companions rather than envelope candidates.
+Completion, coverage, provenance, and semantic-plan receipts are plausible
+future candidates. They remain in their current owner-issued content until a
+focused proposal demonstrates one cross-domain meaning. Browser navigation,
+interaction, loading, and presentation are host companions rather than
+envelope candidates.
 
 Envelope evolution is additive and typed. A versioned serializer may omit a
 new optional field for an older transport contract, but a host cannot silently
@@ -267,8 +314,9 @@ discard required evidence and still claim the same envelope.
 
 ## Safety and lifetime
 
-The envelope crosses the existing resource-free result boundary. `Content`,
-diagnostics, and any future supplement must therefore be detached from:
+The envelope crosses the existing resource-free result boundary. Present
+content, Share, diagnostics, and any future supplement must therefore be
+detached from:
 
 - Workspace participants and leases;
 - metadata readers, streams, pooled buffers, or callbacks;
@@ -287,27 +335,43 @@ dependencies:
 
 1. define the baseline envelope and diagnostic contracts in the lowest
    host-neutral product layer that both Queries/Sections and hosts can consume;
-2. return the selected `TypeDependencySectionResult` as primary content;
-3. move participant rejection and other cross-host notices into typed
+2. represent content as `Present(TypeDependencySectionResult)` or
+   `NotRequested`;
+3. include the required full Share URL or typed non-projectable outcome;
+4. move participant rejection and other cross-host notices into typed
    diagnostics without removing richer owner-issued evidence from the content;
-4. make CLI `depends <type>` consume the envelope while preserving current
+5. make CLI `depends <type>` consume the envelope while preserving current
    output and exit behavior;
-5. make Inspect Web Type Relationships consume the same baseline and compose
+6. make Inspect Web Type Relationships consume the same baseline and compose
    its Research-owned derived relationships and Browser experience separately;
    and
-6. compare baseline content and diagnostics across hosts for equivalent plans.
+7. compare content presence, Share, and diagnostics across hosts for equivalent
+   plans.
 
-The adoption does not retire the remaining direct CLI scanner path or add
-Discover and Share behavior. Those remain in
+The adoption does not add Discover behavior or retire the remaining direct CLI
+scanner path. Those remain in
 [#6704](https://github.com/richlander/dotnet-inspect/issues/6704).
 
 Planned Release gates:
 
 - generic construction and deterministic diagnostic-order tests;
 - the #6709 authentic composed and neighboring package cases;
+- present-content, share-only `NotRequested`, and non-projectable Share cases;
 - CLI participant-rejection and strict-row-failure behavior; and
 - Browser managed-boundary tests that compare the same baseline content and
-  diagnostics before Browser-only composition.
+  Share outcome and diagnostics before Browser-only composition.
+
+## CLI envelope passthrough
+
+A direct serialized-envelope projection would be useful for debugging and
+typed automation. Its output spelling and compatibility classification belong
+to the CLI output owners, not this generic envelope. It is tracked by
+[#6719](https://github.com/richlander/dotnet-inspect/issues/6719).
+
+It cannot reuse `--raw` without an explicit compatibility change:
+`--raw` already selects raw/fetchable GitHub URL shape. Any future passthrough
+must preserve the envelope exactly, bypass ordinary content presentation
+deliberately, and use separately approved non-colliding syntax.
 
 ## Non-claims
 
@@ -323,6 +387,7 @@ This design does not:
   envelope;
 - move domain-specific evidence out of `TContent`;
 - make diagnostic severity determine success or exit status;
-- permit diagnostics to replace typed failure or completion;
+- permit diagnostics to replace content presence, Share, typed failure, or
+  completion;
 - add an untyped metadata, extension, or action bag; or
 - authorize adopting every command or website inspector in one PR.
