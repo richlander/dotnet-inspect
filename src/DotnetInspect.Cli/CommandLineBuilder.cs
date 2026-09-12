@@ -793,21 +793,8 @@ public static class CommandLineBuilder
         if (parseResult.Errors.Count == 0)
             return false;
 
-        IEnumerable<string> messages =
-            parseResult.Errors.Select(error => error.Message);
-        if (parseResult.CommandResult.Command.Name == ProjectCommand.Name)
-        {
-            string? removedOptionError = parseResult.Errors
-                .Select(error =>
-                    ProjectCommandDefinitions
-                        .GetRemovedOptionErrorFromParseMessage(error.Message))
-                .FirstOrDefault(error => error is not null);
-            if (removedOptionError is not null)
-                messages = [removedOptionError];
-        }
-
-        foreach (string message in messages)
-            CommandError.Write(FormatParseError(message));
+        foreach (var error in parseResult.Errors)
+            CommandError.Write(FormatParseError(error.Message));
         return true;
     }
 

@@ -34976,58 +34976,6 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Theory]
-    [InlineData("--agents-index", null, "-S Skills")]
-    [InlineData("--agents-index=true", null, "-S Skills")]
-    [InlineData(
-        "--readme",
-        "Test.Package",
-        "-S \"Package README file\"")]
-    [InlineData(
-        "--readme=Test.Package",
-        null,
-        "-S \"Package README file\"")]
-    public async Task Project_RemovedDocumentModes_ReportMigrationGuidance(
-        string option,
-        string? value,
-        string replacement)
-    {
-        string[] removedArguments =
-            value is null ? [option] : [option, value];
-        var withoutPath = await RunAppAsync(
-            ["project", .. removedArguments]);
-        var afterPath = await RunAppAsync(
-            ["project", ".", .. removedArguments]);
-
-        foreach (var result in new[] { withoutPath, afterPath })
-        {
-            Assert.NotEqual(0, result.Exit);
-            Assert.Empty(result.Output);
-            Assert.Contains(option.Split('=', 2)[0], result.Error);
-            Assert.Contains(replacement, result.Error);
-            Assert.DoesNotContain(
-                "Unrecognized command or argument",
-                result.Error);
-        }
-    }
-
-    [Fact]
-    public async Task Project_RemovedReadmeMode_DoesNotRebindPackageIdAsPath()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "project",
-            "--readme",
-            "Test.Package");
-
-        Assert.NotEqual(0, exit);
-        Assert.Empty(output);
-        Assert.Contains("--readme", error);
-        Assert.Contains("-S \"Package README file\"", error);
-        Assert.DoesNotContain(
-            "Select at least one project section",
-            error);
-    }
-
     [Fact]
     public async Task Project_Help_ListsOnlySectionDrivenDocumentControls()
     {
