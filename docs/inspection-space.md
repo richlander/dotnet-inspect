@@ -24,6 +24,13 @@ acquisition and output. The `diff` Changes section consumes one API-comparison r
 host-resolved surfaces, retaining Metadata-owned Finding correspondence and
 compatibility classification without coupling the query to endpoint acquisition
 or output.
+
+[Stateless core services](design/stateless-core-services.md) now owns the
+target composition between hosts, Workspace state, reusable services,
+the optional persistent-cache port, and detached terminal results. The detailed
+Workspace sections below remain authoritative for current behavior until their
+focused adoptions land; their retained-runtime and in-place mutation contracts
+are scheduled migration conflicts rather than implementations of the target.
 The library CLI and package
 `--all-libraries` now use an ephemeral workspace for focused Integrations
 demand. One binding-consistent assembly context group per binding universe
