@@ -7,7 +7,9 @@ sealed record TsJsonUnionMappingContext(
     ApiAssemblyIdentity? Assembly,
     IReadOnlyDictionary<ApiTypeReferenceIdentity, string> Names,
     IReadOnlyDictionary<ApiTypeReferenceIdentity, int> LocalGenericArities,
-    TsDelegateMappingContext LocalTypes);
+    TsDelegateMappingContext LocalTypes,
+    IReadOnlySet<ApiTypeReferenceIdentity>? GenericRecords = null,
+    bool ConservativeReferenceArguments = false);
 
 static class TsJsonUnionMapper
 {
@@ -167,12 +169,22 @@ static class TsJsonUnionMapper
                                 display,
                                 shape.TypeArguments.Length,
                                 location);
+                        bool conservativeArguments =
+                            context.ConservativeReferenceArguments
+                            && context.GenericRecords?.Contains(identity)
+                                == true;
                         return $"{name}<{string.Join(", ", shape.TypeArguments.Select(
-                            (argument, index) => MapClosedShape(
-                                argument,
-                                context,
-                                location,
-                                displayArguments?[index])))}>";
+                            (argument, index) => conservativeArguments
+                                ? MapCollectionShape(
+                                    argument,
+                                    context,
+                                    location,
+                                    displayArguments?[index])
+                                : MapClosedShape(
+                                    argument,
+                                    context,
+                                    location,
+                                    displayArguments?[index])))}>";
                     }
                 }
             }

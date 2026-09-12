@@ -273,6 +273,12 @@ public static partial class TypeScriptFixtureExports
             GenericRecordFixtureJsonContext.Default.BlobEnvelope);
 
     [JSExport]
+    public static string GetDirectNullableTextEnvelope() =>
+        JsonSerializer.Serialize(
+            new GenericEnvelope<string?>(null, "direct-nullable"),
+            GenericRecordFixtureJsonContext.Default.DirectNullableTextEnvelope);
+
+    [JSExport]
     public static string GetCollisionEnvelope() =>
         JsonSerializer.Serialize(
             new GenericCollision<int>(

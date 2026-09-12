@@ -33,6 +33,9 @@ if (args is not [string outputPath])
     ("wrappedBlob", TypeScriptFixtureExports.GetWrappedBlob()),
     ("widgetEnvelope", TypeScriptFixtureExports.GetWidgetEnvelope("generic")),
     ("blobEnvelope", TypeScriptFixtureExports.GetBlobEnvelope()),
+    (
+        "directNullableTextEnvelope",
+        TypeScriptFixtureExports.GetDirectNullableTextEnvelope()),
     ("collisionEnvelope", TypeScriptFixtureExports.GetCollisionEnvelope()),
     (
         "nullableIntEnvelope",

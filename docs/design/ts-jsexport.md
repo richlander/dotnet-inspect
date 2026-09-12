@@ -306,10 +306,9 @@ export interface InspectionEnvelope<T0> {
 
 Every facade use remains closed. Its arguments come from the structured,
 authenticated wire shape and pass through the existing JSON mapping before
-instantiation, so `GenericEnvelope<byte[]>` is exposed as
-`GenericEnvelope<string>`, not as a CLR array. No CLR type argument crosses the
-JavaScript ABI, and generic `[JSExport]` methods and generic `JsExportRoot`
-types remain unsupported.
+instantiation, so a `byte[]` argument becomes its Base64 string wire type, not
+a CLR array. No CLR type argument crosses the JavaScript ABI, and generic
+`[JSExport]` methods and generic `JsExportRoot` types remain unsupported.
 
 Structured shape owns each argument's identity and CLR construction; the
 corresponding reachable member signature supplies nullable-reference
@@ -317,6 +316,16 @@ annotations that the structural metadata view does not retain. The mapper
 combines those two views by argument position, so `GenericEnvelope<string?>`
 becomes `GenericEnvelope<string | null>` without accepting a display-text
 lookalike as identity evidence.
+
+A directly registered serializer root has no member signature carrying nullable
+reference annotations: CLR generic construction and `typeof` metadata erase
+that distinction. Reference-shaped arguments at that boundary remain
+conservatively nullable. A direct `GenericEnvelope<byte[]>` root is therefore
+`GenericEnvelope<string | null>`, and a direct
+`GenericEnvelope<WidgetDto>` root is
+`GenericEnvelope<WidgetDto | null>`. Value-shaped arguments remain exact.
+This is disclosure of unavailable evidence, not a claim that every producer
+writes null.
 
 The initial contract intentionally admits only direct type-parameter members,
 including their direct nullable form. A parameter embedded in a CLR shape is
@@ -342,7 +351,9 @@ reachable wire graph is authenticated.
 `eng/test-ts-jsexport-typescript.sh` compiles consumers of two distinct closed
 constructions, rejects a mismatched argument, and executes the facade against
 real source-generated System.Text.Json payloads, including the wire-sensitive
-`byte[]` argument and a null value carried by a nullable-reference argument.
+`byte[]` argument, a direct root whose erased reference argument carries null,
+a nullable-reference member argument, and a concrete included-field identity
+that collides with a generic parameter name.
 
 ### Public facade view
 

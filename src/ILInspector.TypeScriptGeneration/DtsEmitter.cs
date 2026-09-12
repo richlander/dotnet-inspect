@@ -536,7 +536,16 @@ static class DtsEmitter
                                 type.DefinitionName),
                             type => type.TypeParameters.Count)
                     : new Dictionary<ApiTypeReferenceIdentity, int>(),
-                delegateMappingContext));
+                delegateMappingContext,
+                surface.AssemblyIdentity is { } recordAssembly
+                    ? surface.Records
+                        .Where(type => type.TypeParameters.Count > 0)
+                        .Select(type => new ApiTypeReferenceIdentity(
+                            recordAssembly,
+                            type.FullName,
+                            type.DefinitionName))
+                        .ToHashSet()
+                    : new HashSet<ApiTypeReferenceIdentity>()));
     }
 
     static IReadOnlyDictionary<string, string> MappedTypeNames(
@@ -545,6 +554,8 @@ static class DtsEmitter
         IReadOnlyList<TypeParameter>? genericParameters = null,
         IReadOnlyList<string>? allocatedParameters = null)
     {
+        ApiTypeReferenceIdentity[] retainedReferences =
+            [.. references];
         var aliases = new Dictionary<string, string>(
             StringComparer.Ordinal);
         foreach ((string alias, string allocatedName) in environment.Aliases)
@@ -552,7 +563,7 @@ static class DtsEmitter
             if (!TsTypeMapper.IsIntrinsicTypeSpelling(alias))
                 aliases.Add(alias, allocatedName);
         }
-        foreach (ApiTypeReferenceIdentity reference in references)
+        foreach (ApiTypeReferenceIdentity reference in retainedReferences)
         {
             if (!environment.IdentityNames.TryGetValue(
                     reference,
@@ -571,8 +582,15 @@ static class DtsEmitter
                 throw new ArgumentException(
                     "Generic parameter definitions and allocated names must have equal counts.");
             for (int index = 0; index < genericParameters.Count; index++)
-                aliases[genericParameters[index].Name] =
-                    allocatedParameters[index];
+            {
+                if (!HasConcreteTypeReference(
+                        genericParameters[index].Name,
+                        retainedReferences))
+                {
+                    aliases[genericParameters[index].Name] =
+                        allocatedParameters[index];
+                }
+            }
         }
         return aliases;
     }
@@ -751,6 +769,7 @@ static class DtsEmitter
                     propertyType,
                     record.TypeParameters,
                     member.SignatureModel?.ReturnTypeShape,
+                    member.SignatureModel?.ReturnTypeReferences,
                     out string? parameter))
             {
                 throw new UnsupportedWireContractException(
@@ -796,7 +815,8 @@ static class DtsEmitter
                     IsDirectGenericRecordParameter(
                         propertyType,
                         record.TypeParameters,
-                        member.SignatureModel?.ReturnTypeShape)
+                        member.SignatureModel?.ReturnTypeShape,
+                        member.SignatureModel?.ReturnTypeReferences)
                             ? null
                             : member.SignatureModel?.ReturnTypeShape,
                     typeEnvironment.IdentityNames,
@@ -1234,54 +1254,58 @@ static class DtsEmitter
     static bool IsDirectGenericRecordParameter(
         string propertyType,
         IReadOnlyList<TypeParameter> parameters,
-        ApiTypeShape? typeShape)
+        ApiTypeShape? typeShape,
+        IReadOnlyList<ApiTypeReferenceIdentity>? references)
     {
-        if (typeShape is not null)
-            return false;
-
-        string candidate = propertyType.Trim();
-        if (candidate.EndsWith("?", StringComparison.Ordinal))
-            candidate = candidate[..^1].TrimEnd();
-        else if (candidate.EndsWith('>'))
+        if (typeShape is not null
+            || !TryGetDirectGenericRecordParameterCandidate(
+                propertyType,
+                out string candidate))
         {
-            const string qualifiedNullable = "System.Nullable<";
-            const string nullable = "Nullable<";
-            if (candidate.StartsWith(
-                    qualifiedNullable,
-                    StringComparison.Ordinal))
-            {
-                candidate = candidate[
-                    qualifiedNullable.Length..^1].Trim();
-            }
-            else if (candidate.StartsWith(
-                    nullable,
-                    StringComparison.Ordinal))
-            {
-                candidate = candidate[nullable.Length..^1].Trim();
-            }
+            return false;
         }
+
         return parameters.Any(
-            parameter => string.Equals(
-                candidate,
-                parameter.Name,
-                StringComparison.Ordinal)
-                || string.Equals(
-                    candidate,
-                    $"@{parameter.Name}",
-                    StringComparison.Ordinal));
+            parameter =>
+                !HasConcreteTypeReference(
+                    parameter.Name,
+                    references)
+                && (string.Equals(
+                        candidate,
+                        parameter.Name,
+                        StringComparison.Ordinal)
+                    || string.Equals(
+                        candidate,
+                        $"@{parameter.Name}",
+                        StringComparison.Ordinal)));
     }
 
     static bool HasEmbeddedGenericRecordParameter(
         string propertyType,
         IReadOnlyList<TypeParameter> parameters,
         ApiTypeShape? typeShape,
+        IReadOnlyList<ApiTypeReferenceIdentity>? references,
         out string? parameterName)
     {
         if (typeShape is not null
             || IsDirectGenericRecordParameter(
                 propertyType,
                 parameters,
-                typeShape))
+                typeShape,
+                references))
+        {
+            parameterName = null;
+            return false;
+        }
+
+        if (TryGetDirectGenericRecordParameterCandidate(
+                propertyType,
+                out string directCandidate)
+            && parameters.Any(parameter =>
+                IsDirectConcreteTypeReference(
+                    directCandidate,
+                    parameter.Name,
+                    references)))
         {
             parameterName = null;
             return false;
@@ -1312,6 +1336,74 @@ static class DtsEmitter
         parameterName = null;
         return false;
     }
+
+    static bool IsDirectConcreteTypeReference(
+        string candidate,
+        string parameterName,
+        IReadOnlyList<ApiTypeReferenceIdentity>? references)
+    {
+        if (!HasConcreteTypeReference(parameterName, references))
+            return false;
+
+        const string globalPrefix = "global::";
+        if (candidate.StartsWith(
+                globalPrefix,
+                StringComparison.Ordinal))
+        {
+            candidate = candidate[globalPrefix.Length..];
+        }
+
+        return string.Equals(
+            LastSegment(candidate),
+            parameterName,
+            StringComparison.Ordinal);
+    }
+
+    static bool TryGetDirectGenericRecordParameterCandidate(
+        string propertyType,
+        out string candidate)
+    {
+        candidate = propertyType.Trim();
+        if (candidate.EndsWith("?", StringComparison.Ordinal))
+        {
+            candidate = candidate[..^1].TrimEnd();
+            return true;
+        }
+        if (!candidate.EndsWith('>'))
+            return true;
+
+        const string qualifiedNullable = "System.Nullable<";
+        const string nullable = "Nullable<";
+        if (candidate.StartsWith(
+                qualifiedNullable,
+                StringComparison.Ordinal))
+        {
+            candidate = candidate[
+                qualifiedNullable.Length..^1].Trim();
+            return true;
+        }
+        if (candidate.StartsWith(
+                nullable,
+                StringComparison.Ordinal))
+        {
+            candidate = candidate[nullable.Length..^1].Trim();
+            return true;
+        }
+        return false;
+    }
+
+    static bool HasConcreteTypeReference(
+        string parameterName,
+        IReadOnlyList<ApiTypeReferenceIdentity>? references) =>
+        references?.Any(reference =>
+            string.Equals(
+                LastSegment(reference.FullName),
+                parameterName,
+                StringComparison.Ordinal)
+            || string.Equals(
+                reference.DefinitionName?.Segments[^1],
+                parameterName,
+                StringComparison.Ordinal)) == true;
 
     static bool IsIdentifierCharacter(char value) =>
         value == '_' || char.IsLetterOrDigit(value);

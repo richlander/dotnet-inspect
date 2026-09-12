@@ -35,6 +35,7 @@ for (
     "wrappedBlob",
     "widgetEnvelope",
     "blobEnvelope",
+    "directNullableTextEnvelope",
     "collisionEnvelope",
     "nullableIntEnvelope",
     "nullableIntEnvelopeNull",
@@ -93,6 +94,8 @@ const getBlobEnvelopeKey =
   facadeSource.match(/"(GetBlobEnvelope\.-?\d+)"/)?.[1];
 const getCollisionEnvelopeKey =
   facadeSource.match(/"(GetCollisionEnvelope\.-?\d+)"/)?.[1];
+const getDirectNullableTextEnvelopeKey =
+  facadeSource.match(/"(GetDirectNullableTextEnvelope\.-?\d+)"/)?.[1];
 const getNullableIntEnvelopeKey =
   facadeSource.match(/"(GetNullableIntEnvelope\.-?\d+)"/)?.[1];
 const getNullableTextRootKey =
@@ -202,6 +205,11 @@ assert.ok(
 assert.ok(
   getCollisionEnvelopeKey,
   "The generated GetCollisionEnvelope runtime dispatch key was not found.",
+);
+assert.ok(
+  getDirectNullableTextEnvelopeKey,
+  "The generated GetDirectNullableTextEnvelope runtime dispatch key "
+    + "was not found.",
 );
 assert.ok(
   getNullableIntEnvelopeKey,
@@ -336,6 +344,9 @@ function managedExports(methods = {}) {
             [getCollisionEnvelopeKey]:
               methods.getCollisionEnvelope
               ?? (() => unionPayloads.collisionEnvelope),
+            [getDirectNullableTextEnvelopeKey]:
+              methods.getDirectNullableTextEnvelope
+              ?? (() => unionPayloads.directNullableTextEnvelope),
             [getNullableIntEnvelopeKey]:
               methods.getNullableIntEnvelope
               ?? ((hasValue) => (hasValue
@@ -537,6 +548,14 @@ async function freshFacade() {
     {
       content: 7,
       other: { value: "concrete" },
+      included: { value: "included" },
+    },
+  );
+  assert.deepEqual(
+    facade.getDirectNullableTextEnvelope(),
+    {
+      content: null,
+      label: "direct-nullable",
     },
   );
   assert.deepEqual(
@@ -592,7 +611,8 @@ async function freshFacade() {
   );
   assert.equal(
     unionUsage.describeGenericEnvelopes(),
-    "generic:widget/AQID:blob/7:concrete/42:null/null:nullable",
+    "generic:widget/AQID:blob/null:direct-nullable"
+      + "/7:concrete:included/42:null/null:nullable",
   );
   assert.equal(unionUsage.missingSelectionEntry, null);
   assert.equal(unionUsage.missingMapEntry, null);

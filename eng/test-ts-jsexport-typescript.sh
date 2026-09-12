@@ -64,6 +64,7 @@ import {
   getBoxedCount,
   getBoxedWidget,
   getCollisionEnvelope,
+  getDirectNullableTextEnvelope,
   getCollectionSelection,
   getDefaultSelection,
   getFlagSelection,
@@ -202,9 +203,11 @@ export function describeBoxed(
 }
 
 export function describeGenericEnvelopes(): string {
-  const widget: GenericEnvelope<WidgetDto> =
+  const widget: GenericEnvelope<WidgetDto | null> =
     getWidgetEnvelope("generic");
-  const blob: GenericEnvelope<string> = getBlobEnvelope();
+  const blob: GenericEnvelope<string | null> = getBlobEnvelope();
+  const directNullable: GenericEnvelope<string | null> =
+    getDirectNullableTextEnvelope();
   const collision: GenericCollision<number> = getCollisionEnvelope();
   const concrete: T = collision.other;
   const nullable: NullableEnvelope<number> =
@@ -212,9 +215,10 @@ export function describeGenericEnvelopes(): string {
   const missing: NullableEnvelope<number> =
     getNullableIntEnvelope(false);
   const nullableText: NullableTextRoot = getNullableTextRoot();
-  return `${widget.content.name}:${widget.label}`
+  return `${widget.content?.name ?? "none"}:${widget.label}`
     + `/${blob.content}:${blob.label}`
-    + `/${collision.content}:${concrete.value}`
+    + `/${directNullable.content}:${directNullable.label}`
+    + `/${collision.content}:${concrete.value}:${collision.included.value}`
     + `/${nullable.content}:${missing.content}`
     + `/${nullableText.result.content}:${nullableText.result.label}`;
 }
@@ -466,7 +470,7 @@ expect_union_facade_compile_failure \
   '^export function getWrappedBlob'
 expect_union_facade_compile_failure \
   generic-record-closed-argument \
-  'GenericEnvelope<string>' \
+  'GenericEnvelope<string \| null>' \
   'GenericEnvelope<number>' \
   '^export function getBlobEnvelope'
 expect_union_facade_compile_failure \

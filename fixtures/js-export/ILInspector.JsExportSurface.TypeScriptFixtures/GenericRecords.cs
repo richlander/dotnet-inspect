@@ -10,7 +10,12 @@ public sealed record T(string Value);
 
 public sealed record GenericCollision<T>(
     T Content,
-    global::ILInspector.JsExportSurface.TypeScriptFixtures.T Other);
+    global::ILInspector.JsExportSurface.TypeScriptFixtures.T Other)
+{
+    [JsonInclude]
+    public global::ILInspector.JsExportSurface.TypeScriptFixtures.T Included =
+        new("included");
+}
 
 public sealed record NullableEnvelope<T>(T? Content)
     where T : struct;
@@ -24,6 +29,9 @@ public sealed record NullableTextRoot(
 [JsonSerializable(
     typeof(GenericEnvelope<byte[]>),
     TypeInfoPropertyName = "BlobEnvelope")]
+[JsonSerializable(
+    typeof(GenericEnvelope<string>),
+    TypeInfoPropertyName = "DirectNullableTextEnvelope")]
 [JsonSerializable(
     typeof(GenericCollision<int>),
     TypeInfoPropertyName = "CollisionEnvelope")]

@@ -820,11 +820,17 @@ public sealed class DtsEmitterTests
             StringComparison.Ordinal);
         Assert.Contains(
             "export function getWidgetEnvelope(name: string): "
-                + "GenericEnvelope<WidgetDto>",
+                + "GenericEnvelope<WidgetDto | null>",
             facade,
             StringComparison.Ordinal);
         Assert.Contains(
-            "export function getBlobEnvelope(): GenericEnvelope<string>",
+            "export function getBlobEnvelope(): "
+                + "GenericEnvelope<string | null>",
+            facade,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function getDirectNullableTextEnvelope(): "
+                + "GenericEnvelope<string | null>",
             facade,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -832,6 +838,7 @@ public sealed class DtsEmitterTests
             export interface GenericCollision<T0> {
               readonly content: T0;
               readonly other: T;
+              readonly included: T;
             }
             """,
             facade,
