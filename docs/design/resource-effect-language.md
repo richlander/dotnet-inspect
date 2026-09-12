@@ -923,7 +923,9 @@ Successful admission produces an **admission receipt** naming the exact model
 identities, language versions, content hashes, and provenances made available
 to a later resolver. The receipt proves source intake and local validity only.
 It does not assert that any selector matches, that two declarations are
-compatible, or that an analysis result is complete.
+compatible, or that an analysis result is complete. Its exact hash preserves
+which provenance set asserted each admitted declaration and resource-kind
+definition; the per-model semantic content hash remains provenance-free.
 
 Admission also assigns each source a declaration-authority class:
 `product-shipped`, `caller-supplied`, `producer-asserted`, or
@@ -947,7 +949,8 @@ Admission validates only properties owned by one model:
 - resource-kind identity and consistent arity within that model;
 - selector-local generic-variable scope;
 - model-local field, callback, outcome, and operation references;
-- finite terms and explicit parser or model work budgets; and
+- finite terms and explicit parser, source-provenance, typed and
+  canonical-structure depth and node, or model work budgets; and
 - source authority, provenance, and deterministic content identity.
 
 Equal declarations within one model may normalize to one semantic declaration.
@@ -1368,15 +1371,29 @@ the concrete resolved occurrence, not declaration admission.
 
 ## Evidence plan
 
-This design is specification-only. Runtime and Analysis properties remain
-**unverified** until their named implementation slices add Release gates.
+The source-neutral parser and declaration-admission boundary are implemented in
+`ILInspector.Analysis`. Their Release gate is:
+
+```bash
+dotnet run --project tests/ILInspector.Analysis.Tests -c Release -- \
+  --filter-class '*ResourceEffectLanguageTests'
+```
+
+Carrier-specific attribute extraction, JSON decoding, concrete metadata
+resolution, and lifecycle Analysis properties remain **unverified** until their
+named implementation slices add Release gates.
 
 The language admission gates must establish:
 
-- bounded parsing and all-or-nothing validation for attribute and JSON inputs;
-- exact version, carrier placement, selector structure, generic scope,
+- bounded parsing and all-or-nothing validation for statement and typed C#
+  model inputs;
+- stack-safe typed target, effect, and model-local alias expansion with exact
+  structural depth and node budget outcomes;
+- bounded provenance cardinality before typed declarations or resource-kind
+  provenance are expanded, merged, sorted, or retained;
+- exact version, target placement, selector structure, generic scope,
   signature terms, and ref-kind representation;
-- equal admitted declarations from equivalent attribute and JSON models;
+- equal admitted declarations from equivalent statement and typed C# models;
 - explicit malformed, unknown-version, unresolved-local-reference, and
   work-budget outcomes;
 - no inspected-assembly loading or executable model extension;
