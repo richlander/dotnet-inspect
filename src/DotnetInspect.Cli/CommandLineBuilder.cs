@@ -535,6 +535,47 @@ public static class CommandLineBuilder
                 ? []
                 : error.SymbolResult?.Tokens
                 ?? [];
+        int optionValueIndex =
+            optionValueFailure is null
+                ? -1
+                : FindArgumentIndex(
+                    optionValueFailure.Position,
+                    arguments.Count,
+                    argumentPositions);
+        bool hasOwnedOptionValueFailure =
+            optionValueIndex >= 0
+            && mapped[optionValueIndex].Tokens.Any(
+                token => errorTokens.Any(
+                    errorToken => ReferenceEquals(
+                        token,
+                        errorToken)));
+        // Keep an earlier invalid value's token identity; otherwise the
+        // aggregate arity failure completes at the first excess value.
+        bool hasUnmatchedOptionValue =
+            error.SymbolResult is OptionResult repeatedOption
+            && repeatedOption.Tokens.Any(token =>
+                parseResult.UnmatchedTokens.Contains(
+                    token.Value,
+                    StringComparer.Ordinal));
+        if (error.SymbolResult is OptionResult optionResult
+            && optionResult.Option.Arity.MaximumNumberOfValues
+                < optionResult.Tokens.Count
+            && !hasOwnedOptionValueFailure
+            && !hasUnmatchedOptionValue)
+        {
+            Token excessValue =
+                optionResult.Tokens[
+                    optionResult.Option.Arity.MaximumNumberOfValues];
+            int excessIndex = Enumerable.Range(0, mapped.Count)
+                .FirstOrDefault(
+                    index => mapped[index].Tokens.Any(
+                        token => ReferenceEquals(
+                            token,
+                            excessValue)),
+                    -1);
+            if (excessIndex >= 0)
+                return argumentPositions?[excessIndex] ?? excessIndex;
+        }
         int[] tokenMatches =
         [
             .. Enumerable.Range(0, mapped.Count)
@@ -582,13 +623,9 @@ public static class CommandLineBuilder
 
         if (optionValueFailure is not null)
         {
-            int optionIndex = FindArgumentIndex(
-                optionValueFailure.Position,
-                arguments.Count,
-                argumentPositions);
-            if (optionIndex >= 0
+            if (optionValueIndex >= 0
                 && TryGetAttachedOptionValue(
-                    arguments[optionIndex],
+                    arguments[optionValueIndex],
                     out string? optionValue)
                 && error.Message.Contains(
                     $"'{optionValue}'",

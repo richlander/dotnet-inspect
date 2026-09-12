@@ -1792,6 +1792,54 @@ public class FindCommandIntegrationTests
     }
 
     [Fact]
+    public void MissingTakeValue_PrecedesLaterRepeatedScalarOption()
+    {
+        var (exit, output, error) = RunCli(
+            [
+                "find",
+                "Json",
+                "-v:n",
+                "--take",
+                "--take",
+                "1",
+                "-v:q",
+                "--offline",
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--take requires a value.", error);
+        Assert.DoesNotContain(
+            "expects a single argument",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UnknownOption_PrecedesLaterRepeatedScalarOption()
+    {
+        var (exit, output, error) = RunCli(
+            [
+                "find",
+                "Json",
+                "-v:n",
+                "--unknown",
+                "-v:q",
+                "--offline",
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--unknown",
+            error);
+        Assert.DoesNotContain(
+            "expects a single argument",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void MissingTakeValue_PrecedesLaterPositionalDuplicatingAttachedValue()
     {
         var (exit, output, error) = RunCli(
