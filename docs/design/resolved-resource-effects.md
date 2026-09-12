@@ -4,7 +4,7 @@
 
 This document is the normative owner for Analysis resolution of admitted
 resource-effect declarations against concrete .NET metadata. It is tracked by
-[#6728](https://github.com/richlander/dotnet-inspect/issues/6728) as step 3 of
+[#6728](https://github.com/richlander/dotnet-inspect/issues/6728) as step 5 of
 the 23-step production-adoption plan in
 [#6544](https://github.com/richlander/dotnet-inspect/issues/6544).
 
