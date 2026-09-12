@@ -219,9 +219,10 @@ transfers to a replacement Workspace.
 
 Platform Type and Member results are emitted only from an already-resident
 Platform surface. Their descriptor carries the exact Browser Platform action;
-Spotlight does not reinterpret it as shared Navigation. This owner classifies
-the current-Workspace effect and settles the action without redefining
-Platform's target, catalog, or deep-focus mechanics.
+that action binds the exact Platform target, Library ancestry, Type identity,
+and Member identity as applicable. Spotlight does not reinterpret it as shared
+Navigation. This owner classifies the current-Workspace effect and settles the
+action without redefining Platform's target, catalog, or deep-focus mechanics.
 
 Shared Scope and Navigation currently have no Platform structural subject.
 Unifying Platform Library, Type, or Member activation with the shared

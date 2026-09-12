@@ -1172,15 +1172,16 @@ PlatformDescendantSelectionsUsePlatformAction ==
         attempts[token].destination \in PlatformDeepDestinations
         => attempts[token].plan = ActivateCurrentPlatform
 
-PlatformRealizationStaysWorkspaceLocal ==
-    /\ attempts[1].destination = PlatformJsonLibrary
-    /\ attempts[1].workspace = CurrentWorkspace
-    /\ results[1] = PlatformActivated
-    /\ attempts[2].state # Unused
-    /\ attempts[2].destination = PlatformJsonLibrary
-    /\ attempts[2].workspace = ReplacementWorkspace
-    /\ attempts[2].coverage = <<>>
-    => attempts[2].plan = UnavailableLibrary
+PlatformRealizationHasLocalPublication ==
+    \A workspace \in Workspaces :
+        PlatformJsonLibrary \in realizedLibraries[workspace]
+        =>
+            \E token \in Tokens :
+                /\ token \in focusPublications
+                /\ attempts[token].workspace = workspace
+                /\ attempts[token].destination = PlatformJsonLibrary
+                /\ attempts[token].plan = ActivateCurrentPlatform
+                /\ results[token] = PlatformActivated
 
 CapturedCoverageIsCompleteAndOrdered ==
     \A token \in Tokens :
