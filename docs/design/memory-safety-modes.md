@@ -220,6 +220,58 @@ carriers; await-boundary agreement; invalid target evidence; and the retained
 ordinary-constructor store. Compiler validation consumes the product-rendered
 body without repairing it.
 
+## Callable caller-contract replay
+
+**Owner and claim:** Decompiler preserves Metadata's normalized MethodDef
+caller contract on every exact same-assembly or cross-assembly callable
+reference. Ordinary methods, constructors, property accessors, and event
+accessors use one interpretation for unsafe-context placement, await admission,
+and fidelity. This focused #5255 slice is tracked by
+[#6764](https://github.com/richlander/dotnet-inspect/issues/6764).
+
+The target callable's model and contract remain separate from the caller's
+rendering mode:
+
+- An updated-target explicit contract requires a context only when the caller
+  renders under updated rules, including optimistic simulation.
+- A legacy-target implicit pointer-signature contract requires a context under
+  either caller model.
+- A positive no-contract result requires no context, including for a
+  pointer-bearing callable in an updated target.
+- An unresolved MemberRef may use the existing pointer-signature compatibility
+  fallback because no normalized target contract was available.
+- Unsupported, malformed, conflicting, or unavailable target evidence
+  authorizes no inferred context. The body remains visible with Partial
+  fidelity and the invalid-member-rules diagnostic rather than silently
+  converting invalid evidence into a negative fact or a compatibility guess.
+
+The contract follows the exact callable definition. Same-assembly MethodDefs
+consume the current module's `MemorySafetyMetadataIndex`; same-module and
+cross-assembly MemberRefs resolve one exact name-and-signature MethodDef before
+consuming the defining module's normalized index. Property and event operations
+consume their accessor MethodDef. Metadata may obtain that accessor contract
+from the associated PropertyDef or EventDef when the accessor lacks a direct
+carrier; ambiguous or unavailable associations do not permit name- or
+attribute-presence fallback.
+
+Every lowered and raised node retaining a callable through
+`ConsumedMemberEvidence` uses the same decision. Pointer receivers and
+pointer-rendering arguments can require a context independently; neither fact
+substitutes for the callee contract.
+
+Constructor creation follows the ordinary callable rule. A call to the current
+type or base type constructor remains a `this(...)` or `base(...)` initializer,
+not a body statement. Under updated rules, an unsafe instance-constructor
+contract establishes that initializer segment's context, so replay preserves
+the constructor declaration contract and does not widen the reconstructed body.
+
+The Release `DecompilerMethodMemorySafetyTests` and `UnsafeEmitterTests` gates
+use compiler-produced updated-rules fixtures to cover same- and cross-assembly
+ordinary calls, accessor-specific property contracts, whole-property and event
+contracts, object construction, and constructor initializers. They also cover
+await/printer agreement and invalid or unavailable target evidence. Compiler
+validation consumes product-rendered C# without repairing it.
+
 ## Rendering altitude and the runtime oracle
 
 The target is the smallest valid context, not a reconstruction of the original

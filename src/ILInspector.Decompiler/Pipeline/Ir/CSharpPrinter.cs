@@ -775,11 +775,9 @@ public sealed partial class CSharpPrinter
             }
 
             var chainCall = (Call)((ExpressionStatement)entry.Children[chainIndex]).Expression;
+            _chainStatement = entry.Children[chainIndex];
             if (ConstructorChainText(chainCall.Callee, chainCall) is { } chain)
-            {
                 _constructorChain = chain.TrimEnd(';');
-                _chainStatement = entry.Children[chainIndex];
-            }
         }
 
         // Remaining locals and slots declare up front, current-style.
@@ -3196,31 +3194,41 @@ public sealed partial class CSharpPrinter
     /// separate statement sequence the recursion wraps independently, keeping the
     /// block minimal. A simple statement is tested whole.
     /// </summary>
-    bool NeedsUnsafeContext(IrNode node) => node switch
+    bool NeedsUnsafeContext(IrNode node)
     {
-        ForLoop f => HasRequiredUnsafeOperation(f.Initializer)
-            || HasRequiredUnsafeOperation(f.Condition)
-            || HasRequiredUnsafeOperation(f.Increment),
-        WhileLoop w => HasRequiredUnsafeOperation(w.Condition),
-        DoWhileLoop d => HasRequiredUnsafeOperation(d.Condition),
-        IfStatement s => HasRequiredUnsafeOperation(s.Condition),
-        Switch s => HasRequiredUnsafeOperation(s.Value),
-        Lock l => HasRequiredUnsafeOperation(l.LockObject),
-        Fixed { RequiresUnsafeContext: true } => true,
-        Fixed fx => HasRequiredUnsafeOperation(fx.PinSource)
-            || !_newMemorySafetyRules,
-        UsingStatement u => HasRequiredUnsafeOperation(u.Resource)
-            || MethodsRequireUnsafe(u.ConsumedMemberRefs),
-        ForeachStatement f => HasRequiredUnsafeOperation(f.Collection)
-            || MethodsRequireUnsafe(f.ConsumedMemberRefs)
-            || !_newMemorySafetyRules && ContainsPointer(f.LocalType),
-        LocalFunctionStatement => false,
-        TryCatch t => t.Clauses.Any(c => HasRequiredUnsafeOperation(c.Filter)),
-        TryFinally => false,
-        StoreElement s when _inlineReceiverTempStores.TryGetValue(s, out var store)
-            => HasRequiredUnsafeOperation(s) || HasRequiredUnsafeOperation(store.Value),
-        _ => HasRequiredUnsafeOperation(node),
-    };
+        if (ReferenceEquals(node, _chainStatement)
+            && _newMemorySafetyRules
+            && _function.RequiresUnsafeContract)
+        {
+            return false;
+        }
+
+        return node switch
+        {
+            ForLoop f => HasRequiredUnsafeOperation(f.Initializer)
+                || HasRequiredUnsafeOperation(f.Condition)
+                || HasRequiredUnsafeOperation(f.Increment),
+            WhileLoop w => HasRequiredUnsafeOperation(w.Condition),
+            DoWhileLoop d => HasRequiredUnsafeOperation(d.Condition),
+            IfStatement s => HasRequiredUnsafeOperation(s.Condition),
+            Switch s => HasRequiredUnsafeOperation(s.Value),
+            Lock l => HasRequiredUnsafeOperation(l.LockObject),
+            Fixed { RequiresUnsafeContext: true } => true,
+            Fixed fx => HasRequiredUnsafeOperation(fx.PinSource)
+                || !_newMemorySafetyRules,
+            UsingStatement u => HasRequiredUnsafeOperation(u.Resource)
+                || MethodsRequireUnsafe(u.ConsumedMemberRefs),
+            ForeachStatement f => HasRequiredUnsafeOperation(f.Collection)
+                || MethodsRequireUnsafe(f.ConsumedMemberRefs)
+                || !_newMemorySafetyRules && ContainsPointer(f.LocalType),
+            LocalFunctionStatement => false,
+            TryCatch t => t.Clauses.Any(c => HasRequiredUnsafeOperation(c.Filter)),
+            TryFinally => false,
+            StoreElement s when _inlineReceiverTempStores.TryGetValue(s, out var store)
+                => HasRequiredUnsafeOperation(s) || HasRequiredUnsafeOperation(store.Value),
+            _ => HasRequiredUnsafeOperation(node),
+        };
+    }
 
     bool HasUnsafeOperation(IrNode? node)
         => node is not null
@@ -3475,7 +3483,8 @@ public sealed partial class CSharpPrinter
     /// </summary>
     bool IsUnsafeOperation(IrNode node)
     {
-        if (ConsumedFieldsRequireUnsafe(node))
+        if (ConsumedMethodsRequireUnsafe(node)
+            || ConsumedFieldsRequireUnsafe(node))
             return true;
 
         return node switch
@@ -3558,15 +3567,21 @@ public sealed partial class CSharpPrinter
 
     bool MethodRequiresUnsafe(MethodRef? method)
         => method is not null
-            && (method.RequiresUnsafe
-                ? _newMemorySafetyRules
-                : method.RequiresUnsafeFact == MetadataFactState.Yes
-                    || method.RequiresUnsafeFact == MetadataFactState.Unknown
-                        && !method.MemorySafetyContractUnavailable
-                        && SignatureRequiresUnsafe(method));
+            && MethodMemorySafetyContract.RequiresUnsafe(
+                method,
+                _newMemorySafetyRules,
+                SignatureRequiresUnsafe(method));
 
     bool MethodsRequireUnsafe(IEnumerable<MethodRef?> methods)
         => methods.Any(MethodRequiresUnsafe);
+
+    bool ConsumedMethodsRequireUnsafe(IrNode node)
+    {
+        _consumedMembers.Clear();
+        ConsumedMemberEvidence.AddFrom(node, _consumedMembers);
+        return _consumedMembers.Any(item => item.Method is { } method
+            && MethodRequiresUnsafe(method));
+    }
 
     bool ConsumedFieldsRequireUnsafe(IrNode node)
     {

@@ -40,6 +40,17 @@ public static class LibraryA
     public static unsafe int ContractField;
     public static int SafeField;
 
+    public static unsafe int ContractProperty
+    {
+        get => 42;
+    }
+
+    public static unsafe event Action ContractEvent
+    {
+        add { }
+        remove { }
+    }
+
     public static Task<int> SafePointerTask(int* value)
         => Task.FromResult(1);
 
@@ -181,4 +192,14 @@ public static class LibraryA
     /// not requires-unsafe at all. The negative control for every specimen above.
     /// </summary>
     public static int Safe(int x) => x + 1;
+}
+
+public class ContractBase
+{
+    public unsafe ContractBase(int value) => _ = value;
+}
+
+public sealed class ContractObject
+{
+    public unsafe ContractObject() { }
 }

@@ -41,6 +41,30 @@ public static class LibraryB
     public static int ReadSafeField()
         => LibraryA.SafeField;
 
+    public static int ReadContractProperty()
+    {
+        unsafe
+        {
+            return LibraryA.ContractProperty;
+        }
+    }
+
+    public static void SubscribeContractEvent(Action handler)
+    {
+        unsafe
+        {
+            LibraryA.ContractEvent += handler;
+        }
+    }
+
+    public static ContractObject CreateContractObject()
+    {
+        unsafe
+        {
+            return new ContractObject();
+        }
+    }
+
     public static async Task<int> AwaitSafePointer(nint value)
         => await LibraryA.SafePointerTask((int*)value);
 
@@ -52,5 +76,32 @@ public static class LibraryB
         {
             return LibraryA.M1();
         }
+    }
+}
+
+public sealed class ContractDerived : ContractBase
+{
+    public int Value;
+
+    public unsafe ContractDerived()
+        : base(42)
+    {
+        Value = 42;
+    }
+}
+
+public sealed class ThisContract
+{
+    public int Value;
+
+    public unsafe ThisContract(int value)
+    {
+        Value = value;
+    }
+
+    public unsafe ThisContract()
+        : this(42)
+    {
+        Value++;
     }
 }
