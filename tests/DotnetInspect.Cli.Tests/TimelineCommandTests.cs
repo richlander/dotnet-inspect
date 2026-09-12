@@ -39,6 +39,27 @@ public sealed class TimelineCommandTests
     }
 
     [Fact]
+    public async Task PartialSectionSelection_WarnsAndKeepsMatchedSection()
+    {
+        HashSet<string>? sections = null;
+        var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            TimelineCommand.TryResolveSections(
+                new TimelineOptions
+                {
+                    Select =
+                    [
+                        TimelineSections.Evaluations,
+                        "NoSuchSection"
+                    ]
+                },
+                out sections)));
+
+        Assert.Contains(TimelineSections.Evaluations, sections!);
+        Assert.DoesNotContain(TimelineSections.Transitions, sections!);
+        Assert.Contains("NoSuchSection", result.Error);
+    }
+
+    [Fact]
     public async Task Count_AppliesRowsAndValidatesProjectedColumns()
     {
         var view = new TimelineDocumentView

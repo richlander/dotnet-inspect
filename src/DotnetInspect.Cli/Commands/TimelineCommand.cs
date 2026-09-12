@@ -1339,7 +1339,7 @@ public static class TimelineCommand
 
     // Timeline has no fixed-size overview: both sections grow with the version range. Preserve
     // the deliberate bare -S refusal while routing named selection through the shared resolver.
-    static bool TryResolveSections(
+    internal static bool TryResolveSections(
         TimelineOptions options,
         out HashSet<string> sections)
     {
@@ -1357,11 +1357,8 @@ public static class TimelineCommand
             infoSections: [],
             TimelineSections.Catalog.SelectionCategoryMap,
             selectDefault: false);
-        if (selection.Unresolved.Count > 0)
-        {
-            SelectOutput.WriteUnresolved(selection);
+        if (SelectOutput.WriteUnresolved(selection))
             return false;
-        }
 
         sections = selection.Sections
             ?? new HashSet<string>(
