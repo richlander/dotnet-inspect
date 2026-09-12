@@ -190,7 +190,10 @@ EmptyOccurrences ==
 
 FullCoverage(profile, destination) ==
     IF destination = PlatformJsonLibrary
-    THEN <<PlatformExactWitness, PlatformEcosystemWitness>>
+    THEN
+        IF profile \in {1, 3}
+        THEN <<PlatformExactWitness, PlatformEcosystemWitness>>
+        ELSE <<>>
     ELSE IF destination = ExtensionsPackage
     THEN <<ExtensionsEcosystemPrefixWitness>>
     ELSE IF profile = 3 /\ destination = PackageJson
@@ -228,9 +231,11 @@ PlanFor(occurrences, realizedLibraries, coverage, destination) ==
     THEN NavigateCurrent
     ELSE IF destination = PlatformJsonLibrary
     THEN
-        IF /\ Mutation = RepeatPlatformNavigation
-           /\ destination \in realizedLibraries
-        THEN NavigateCurrent
+        IF destination \in realizedLibraries
+        THEN
+            IF Mutation = RepeatPlatformNavigation
+            THEN NavigateCurrent
+            ELSE ActivateCurrentPlatform
         ELSE IF Len(coverage) > 0
         THEN ActivateCurrentPlatform
         ELSE UnavailableLibrary
@@ -1123,11 +1128,12 @@ ExactSourceIdentityControlsClassification ==
                   => attempts[token].plan = UnavailableLibrary)
         ELSE TRUE
 
-PlatformSelectionsUsePlatformAction ==
-    \A token \in Tokens :
-        /\ attempts[token].state # Unused
-        /\ attempts[token].destination = PlatformJsonLibrary
-        => attempts[token].plan = ActivateCurrentPlatform
+RepeatedPlatformSelectionUsesPlatformAction ==
+    /\ results[1] = PlatformActivated
+    /\ attempts[2].state # Unused
+    /\ attempts[2].destination = PlatformJsonLibrary
+    /\ attempts[2].workspace = attempts[1].workspace
+    => attempts[2].plan = ActivateCurrentPlatform
 
 CapturedCoverageIsCompleteAndOrdered ==
     \A token \in Tokens :
@@ -1231,11 +1237,24 @@ NoPlatformActivation ==
         ~(/\ attempts[token].plan = ActivateCurrentPlatform
           /\ results[token] = PlatformActivated)
 
-NoRepeatedPlatformActivation ==
+NoRepeatedPlatformActivationAfterCoverageRemoval ==
     ~(/\ attempts[1].destination = PlatformJsonLibrary
+      /\ attempts[1].registrationProfile = 1
       /\ results[1] = PlatformActivated
       /\ attempts[2].destination = PlatformJsonLibrary
+      /\ attempts[2].workspace = attempts[1].workspace
+      /\ attempts[2].registrationProfile = 2
+      /\ attempts[2].coverage = <<>>
       /\ results[2] = PlatformActivated)
+
+NoUnavailablePlatformSettlement ==
+    \A token \in Tokens :
+        ~(/\ attempts[token].destination = PlatformJsonLibrary
+          /\ attempts[token].registrationProfile = 2
+          /\ attempts[token].coverage = <<>>
+          /\ attempts[token].destination
+                \notin realizedLibraries[attempts[token].workspace]
+          /\ results[token] = Unavailable)
 
 NoFreshWorkspacePublication ==
     \A token \in Tokens :

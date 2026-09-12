@@ -336,7 +336,10 @@ The model checks:
 
 - same-name Platform and package candidates retain different coverage;
 - a realized Platform Library selected again retains its exact Browser-local
-  Platform action;
+  Platform action even after its covering registration is removed from the
+  same Workspace;
+- a never-realized Platform Library without current coverage remains
+  unavailable;
 - every overlapping registration contribution remains in the exact ordered
   coverage projection;
 - package-origin Library focus consumes the exact retained or newly issued
@@ -398,6 +401,8 @@ owners.
 | Select a package-origin Library covered only by an exact-Library registration | Its exact enclosing package is admitted in the current Workspace; no other package asset is inferred as the destination |
 | Select the Platform and package forms of `System.Text.Json` with only Platform registered | The Platform row preserves the Workspace; the package row creates a new Workspace |
 | Select the Platform `System.Text.Json` Library again after it is realized | The exact Browser Platform action runs again; shared Navigation is not substituted |
+| Remove the covering Platform registration after the Platform `System.Text.Json` Library is realized, then select it again in the same Workspace | The exact Browser Platform action still runs because realization remains current; missing registration coverage does not make it unavailable |
+| Select a never-realized Platform Library after its covering registration is removed | The result is unavailable; registration removal does not manufacture realization |
 | Add a package-prefix contribution covering `System.Text.Json` and obtain fresh results | The exact package row now preserves the current Workspace; the Platform row remains distinct |
 | Remove or replace the covering registration before selection or completion | The stale action does not mutate or publish and reports its exact stale outcome |
 | Scope commits a selected Package and Navigation then fails | Membership remains committed; focus failure is visible; no fallback Workspace is created |

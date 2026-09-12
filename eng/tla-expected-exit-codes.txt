@@ -86,6 +86,7 @@ docs/design/models/inspect-web-spotlight-destination-activation/ReachabilityPlat
 docs/design/models/inspect-web-spotlight-destination-activation/ReachabilityRepeatPlatform.cfg=12
 docs/design/models/inspect-web-spotlight-destination-activation/ReachabilityStaleOrSuperseded.cfg=12
 docs/design/models/inspect-web-spotlight-destination-activation/ReachabilityUnavailableLibrary.cfg=12
+docs/design/models/inspect-web-spotlight-destination-activation/ReachabilityUnavailablePlatform.cfg=12
 docs/design/models/inspect-web-spotlight-destination-activation/ReachabilityVisibleFailure.cfg=12
 docs/design/models/inspect-web-spotlight-destination-activation/Safety.cfg=0
 docs/design/models/inspect-web-spotlight-destination-activation/SafetyCoveredPackage.cfg=0
