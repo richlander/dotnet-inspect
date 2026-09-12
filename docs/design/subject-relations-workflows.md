@@ -125,17 +125,34 @@ definition of enumeration support.
 
 ## Command placement
 
-For this exploration, assume the standalone `ecosystem`, `extensions`,
-`implements`, and `depends` commands are removed after replacement coverage is
-demonstrated. Preserve their useful workflows, not their command tokens.
+Retain `ecosystem` as the ecosystem vocabulary, analogous to `vocabulary` for
+the tool's own query vocabulary. It exposes the identities and configured
+knowledge that many queries join against; it is not another relation-specific
+artifact-inspection verb.
+
+For this exploration, assume the standalone `extensions`, `implements`, and
+`depends` commands are removed after replacement coverage is demonstrated.
+Preserve their useful workflows, not their command tokens.
 
 | Surface | Target role |
 | --- | --- |
-| `find` | Discover ecosystem catalog records and locate packages, libraries, types and members, with exact reopening context. Ecosystem selection narrows its candidate population. |
+| `vocabulary` | Discover the tool's query terms and their meanings. |
+| `ecosystem` | Discover ecosystem identities, concepts/bindings and configured contributions: the ecosystem vocabulary used across queries. |
+| `find` | Locate packages, libraries, types and members, with exact reopening context. Ecosystem selection narrows its candidate population. |
 | Subject commands plus `@Relations` | Primary single-subject relation experience, with the subject's existing resolution and sharing path. |
 | Subject shortcut flags | High-value entry points such as `--depends` select the subject's section preset, rather than starting another resolver or inspection pipeline. |
 | `graph` | Retain independently useful peer-seed, induced-set and path questions. A section-backed dependency mode can host the existing heterogeneous root-set workflow. |
-| Removed verbs | Ecosystem catalog discovery moves to `find`; extension and implementer discovery move to subject sections; dependencies move to subject sections or the explicit root-set graph mode. |
+| Removed verbs | Extension and implementer discovery move to subject sections; dependencies move to subject sections or the explicit root-set graph mode. Ecosystem catalog discovery stays on `ecosystem`. |
+
+The ecosystem identity is a product-level join key between catalog knowledge,
+registered candidate contributions and Integration associations. `aspire`
+selects the catalog entry whose canonical identity is `ecosystem.aspire`.
+Queries consume that owner-issued identity and its established correspondence
+to lower-owner declarations, not a new key reconstructed from display names.
+This connects the workflows without equating their meanings: selecting an
+ecosystem's candidate population is not evidence that every candidate
+integrates with it. Ecosystems retains catalog ownership, while the existing
+population and Integration owners retain membership and evidence ownership.
 
 A top-level verb per relation is initially easy to discover but repeats
 coordinate binding, defaults, filters, scope and sharing. That is not a ban on
@@ -161,7 +178,7 @@ these replacements.
 
 ### Discover Aspire, then inspect its APIs
 
-Before, ecosystem knowledge and artifact discovery use separate verbs:
+Before, discover ecosystem knowledge, then name a package to search:
 
 ```console
 dotnet-inspect ecosystem
@@ -170,24 +187,24 @@ dotnet-inspect ecosystem aspire -S Integrations
 dotnet-inspect find AddRedis --members --package Aspire.Hosting.Redis@13.5.3
 ```
 
-After, start with the locator's catalog sections, then select a search
-population:
+After, keep the same ecosystem vocabulary entry point, then use its identity
+to select the locator's candidate population:
 
 ```console
-dotnet-inspect find -S Ecosystems
-dotnet-inspect find --ecosystem aspire -S "Ecosystem Info"
-dotnet-inspect find --ecosystem aspire -S "Integration Concepts"
+dotnet-inspect ecosystem
+dotnet-inspect ecosystem aspire
+dotnet-inspect ecosystem aspire -S Integrations
 dotnet-inspect find --ecosystem aspire
 dotnet-inspect find AddRedis --members --ecosystem aspire
 ```
 
-The first three requests read configured knowledge without package
-acquisition. `Integration Concepts` replaces the catalog meaning of today's
-`ecosystem ... -S Integrations`; it is not an API inventory. Core/tool packages,
-namespace hints, demos and availability remain discoverable catalog sections
-on `find`, rather than disappearing with the verb. The fourth request
-discovers package/library roots; the fifth finds members in that population.
-Those last two requests may need bounded, source-authorized acquisition.
+The first three requests remain catalog inspection without package
+acquisition. `ecosystem ... -S Integrations` describes configured concepts and
+bindings, not an API inventory. Core/tool packages, namespace hints, demos and
+availability stay discoverable on `ecosystem`. The fourth request discovers
+package/library roots; the fifth finds members in that population. Those last
+two requests may need bounded, source-authorized acquisition. `find` consumes
+the ecosystem vocabulary rather than becoming a second catalog command.
 
 Select the exact AddRedis overload from the locator. Its copyable subject
 command retains the provider package, TFM, selected library and member anchor.
@@ -206,6 +223,9 @@ member, an outgoing extension-receiver row identifies
 `IDistributedApplicationBuilder`; a caller search may separately find an
 AppHost invocation when that local consumer is in the candidate population.
 Selecting the provider package does not make it the complete caller corpus.
+The catalog's `ecosystem.aspire` identity connects this semantic filter to the
+earlier population selection, but the queries follow different relationships:
+declared candidates for `find`, producer-classified evidence for `Integration`.
 
 ### Replace extensions and implements with focused subject views
 
@@ -353,7 +373,7 @@ dotnet-inspect package -Q @Dependencies
 dotnet-inspect type -D @Relations
 dotnet-inspect type -Q Extensions
 dotnet-inspect library -Q Integration
-dotnet-inspect find -D "Integration Concepts"
+dotnet-inspect ecosystem aspire -D
 dotnet-inspect graph dependencies -D
 dotnet-inspect graph dependencies -Q "Dependency Graph"
 ```
@@ -641,7 +661,7 @@ The 2026-09-11 CLI probes used released `0.25.0+473d56a` and current-main
 | --- | --- |
 | `library Aspire.Hosting.Redis@13.5.3 --tfm net8.0 -S "Integration: Aspire"` returns resource types and `AddRedis`; a bare copy gives the same inventory. | Preserve useful provider discovery, but do not call it consumer-use evidence. |
 | A compiled Aspire AppHost calling `AddRedis` has no rows in that Integration section. Main's `graph libraries` reports `Program.<Main>$` calling the exact overload at `IL_0016`. | Composition must join distinct provider and invocation evidence. |
-| Main's `ecosystem aspire -S Integrations` reports the configured Aspire binding, not concrete APIs. | Preserve that catalog evidence in Find sections, distinct from artifact inventory. |
+| Main's `ecosystem aspire -S Integrations` reports the configured Aspire binding, not concrete APIs. | Retain the ecosystem vocabulary command and its identity handoff to queries, distinct from artifact inventory. |
 | Prefix discovery works, while direct prefix/curated-set Integration scope is not wired. The shipped four-package Integration graph example returns 91 relationships. | Reuse working producers and explicit-set composition; make population handoff first-class. |
 
 Real motivating assets for implementation are
@@ -683,9 +703,9 @@ unreviewable changes inside a nominal slice.
 | 10 | Shared Subject Relations query composition over adopted producers. |
 | 11 | Shared typed section projection and Markout format lowerings. |
 | 12 | Workspace Definitions adoption for portable relation views and locator context. |
-| 13 | CLI locator/catalog sections, subject categories, Integration view, section-backed shortcuts and dependency root-set mode, queries, sharing and focused ecosystem skill adoption. |
+| 13 | CLI ecosystem-to-locator handoff, subject categories, Integration view, section-backed shortcuts and dependency root-set mode, queries, sharing and focused ecosystem skill adoption. |
 | 14 | Inspect Web/Browser-Wasm adoption of the same locator and relation request/results. |
-| 15 | Retire `ecosystem`, `extensions`, `implements`, `depends` and per-ecosystem Integration sections after catalog, single-subject and root-set parity and disclosure. Coordinate existing `dependency-evidence` retirement with its owner. |
+| 15 | Retire `extensions`, `implements`, `depends` and per-ecosystem Integration sections after single-subject and root-set parity and disclosure; retain `ecosystem` as the vocabulary command. Coordinate existing `dependency-evidence` retirement with its owner. |
 
 CLI adoption is step 13 and website adoption step 14; neither is optional
 for this shared substrate. Step 15 is part of completion. Producers may ship
@@ -707,6 +727,7 @@ the named adoption gates run in Release:
 | Claim | Required outcome gate |
 | --- | --- |
 | Exact locator continuity | Find two same-named types or overloads; reopening each preserves its package/source, target, subject and context without substitution. |
+| Ecosystem identity continuity | The catalog's canonical ecosystem identity selects its declared Find population and filters its Integration associations without conflating membership with evidence. Catalog inspection remains acquisition-free. |
 | Direction and evidence fidelity | One AddRedis declaration and a real caller remain separate rows; incoming/outgoing views retain the same canonical endpoints and physical call receipt. |
 | Construction and broad scope | Empty, platform-curated and all-known factories retain distinct registration sets without acquisition; find/Relations use the all-known set. Unavailable/offline/budget-limited populations remain visible; an empty partial scan never reports complete absence. Exercise more than 64 candidate packages. |
 | Explicit selection | A local-only or empty explicit corpus does not acquire an implicit ecosystem population; a subject's source coordinate alone does not erase broad caller scope. |
@@ -714,7 +735,7 @@ the named adoption gates run in Release:
 | Format and host correspondence | CLI formats and browser consume identical logical edges, occurrence associations and coverage; windowing does not change query completeness or row meaning. |
 | Sharing fidelity | A portable narrowed Relations view restores the same registrations, focus and filters; an unprojectable local/private case reports the actual limitation. |
 | Shortcut equivalence | Each `--depends` request and its `-S @Dependencies` expansion preserve the same focus, population, selected producers, evidence, bounds, errors and output. `-D` exposes those sections; `-Q` describes only executable query bindings without running producers. |
-| Retirement parity | Find retains ecosystem catalog evidence without acquisition. Migrated extension/reachable-extension, implementer/subclass and type-hierarchy workflows retain their results and bounds. Single- and mixed-root dependency replacements preserve declarations, traversal, unresolved targets, partial failures, exit status and formats before their old routes disappear. |
+| Retirement parity | Migrated extension/reachable-extension, implementer/subclass and type-hierarchy workflows retain their results and bounds. Single- and mixed-root dependency replacements preserve declarations, traversal, unresolved targets, partial failures, exit status and formats before their old routes disappear. |
 
 Use the smallest real-asset and boundary fixtures proving these outcomes.
 Do not harden trusted internal callers as though they were adversaries.
