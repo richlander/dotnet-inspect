@@ -45,7 +45,7 @@ const TOOL_FACETS: readonly QueryFacetTerm[] = [
   {
     key: "package.query.dotnet-tool",
     label: ".NET Tool",
-    tier: "nuspec",
+    tier: "package-content",
     selectionGroupId: "package.query.dotnet-tool-format",
     displayGroupId: "package.query.display.dotnet-tool",
     displayGroupLabel: ".NET tool format",

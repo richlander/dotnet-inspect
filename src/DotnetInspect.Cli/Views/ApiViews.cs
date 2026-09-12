@@ -240,6 +240,7 @@ public class TypeView
     // Index mode sections (--index path)
     [MarkoutSection(Name = "Signature")]
     [MarkoutIgnoreColumnWhen(nameof(SignatureDecodeIsEmpty), nameof(MemberSignatureRow.Decode))]
+    [MarkoutIgnoreColumnWhen(nameof(SignatureUnavailableIsEmpty), nameof(MemberSignatureRow.Unavailable))]
     [JsonIgnore]
     public List<MemberSignatureRow>? SignatureRows { get; set; }
 
@@ -303,6 +304,9 @@ public class TypeView
     // The Decode column carries a signature-decode degradation marker that is null for
     // well-formed metadata (the common case). Drop the column when no member is degraded.
     public static bool SignatureDecodeIsEmpty(List<MemberSignatureRow>? rows) => rows is null || rows.All(row => string.IsNullOrEmpty(row.Decode));
+
+    public static bool SignatureUnavailableIsEmpty(List<MemberSignatureRow>? rows)
+        => rows is null || rows.All(row => string.IsNullOrEmpty(row.Unavailable));
 
     // Same treatment for the compact member-summary tables: the Decode degradation
     // marker is null for well-formed metadata, so drop the column when nothing is degraded.
@@ -939,7 +943,15 @@ public record MemberSignatureRow(
     string Digest,
     [property: MarkoutPropertyName("Canonical Signature")] string CanonicalSignature,
     [property: MarkoutSkipNull] string? Decode,
-    [property: MarkoutSkipNull] string? Description);
+    [property: MarkoutSkipNull] string? Description,
+    string? Unavailable = null)
+{
+    [MarkoutSkipNull]
+    public string? Unavailable { get; init; } =
+        Unavailable is null
+            ? null
+            : CSharpIdentifier.ContainRenderedText(Unavailable);
+}
 
 /// <summary>
 /// Compact summary row for Minimal verbosity: one row per unique member name with overload count.

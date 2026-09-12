@@ -38,7 +38,7 @@ public class PositionalRecordPropertyOrderTests
         "ILInspector.CSharp",
         "ILInspector.Analysis",
         "DotnetInspector.Services",
-        "DotnetInspector.Core",
+        "DotnetInspector.Cache",
     };
 
     /// <summary>

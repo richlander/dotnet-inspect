@@ -20,10 +20,12 @@
     <Using Include="Xunit" />
     <ProjectReference Include="..\DotnetInspect.Web.Core\DotnetInspect.Web.Core.csproj" />
     <ProjectReference Include="..\DotnetInspect.Web\DotnetInspect.Web.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspector.Cache\DotnetInspector.Cache.csproj" />
     <ProjectReference Include="..\..\fixtures\inspect-web\InspectWeb.CloneTransportFixtures\InspectWeb.CloneTransportFixtures.csproj" ReferenceOutputAssembly="false" Private="false" />
     <ProjectReference Include="..\..\fixtures\queries\DotnetInspector.CloneSearchFixtures\DotnetInspector.CloneSearchFixtures.csproj" ReferenceOutputAssembly="false" Private="false" />
     <ProjectReference Include="..\..\fixtures\inspect-web\InspectWeb.MethodBodyFixtures\InspectWeb.MethodBodyFixtures.csproj" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.Fixtures\ILInspector.Analysis.Fixtures.csproj" ReferenceOutputAssembly="false" Private="false" />
+    <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.NewUnsafe\ILInspector.Decompiler.Fixtures.NewUnsafe.csproj" ReferenceOutputAssembly="false" Private="false" />
     <!--
       Both Source comparison fixtures publish the same InspectWebSourceComparisonFixture.dll file
       name, so they are build-ordering references only; the tests read them through FixtureCatalog.

@@ -41,20 +41,13 @@ without adding those libraries as explicit editor Roots. Explicit membership
 records what the user composed; realized traversal records what an operation
 needed to inspect.
 
-Spotlight is currently a one-shot Workspace editor. Selecting an external
-package result explicitly requests the Ecosystems-owned curated Workspace,
-adds one explicit package Root before publication, publishes and activates the
-ready unnamed Workspace, and establishes focus there. Selecting a subject
-already loaded in the active Workspace changes focus without rebuilding
-membership. Repeated unrelated package searches therefore create, retain, and
-activate independent one-package Workspaces rather than accumulating packages.
-Earlier Workspaces remain available through the Workspace subject until
-manually deleted.
-
-Spotlight does not currently expose **Add to current Workspace**. The full
-Workspace editor remains the multi-package composition surface. A future
-explicit shortcut may lower to the same Scope Add operation, but ordinary
-Spotlight activation must not silently change from switching to accumulation.
+Spotlight destination effects are separately owned by
+[Spotlight destination
+activation](inspect-web-spotlight-destination-activation.md). That owner
+replaces this document's former one-shot-Workspace rule with exact
+current-Workspace coverage classification. This does not change editor draft,
+Save, Cancel, or leave-decision semantics. The full Workspace editor remains
+the unrestricted surface for deliberate Package and registration composition.
 
 ## Verbs and surfaces
 

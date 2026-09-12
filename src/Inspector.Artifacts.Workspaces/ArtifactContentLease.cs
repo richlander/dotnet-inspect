@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Security.Cryptography;
 using Inspector.Resources;
 
 namespace Inspector.Artifacts.Workspaces;
@@ -12,19 +13,23 @@ public sealed class ArtifactContentLease : IDisposable
 {
     private ArtifactSetSession? _owner;
     private ImmutableArray<byte> _snapshot;
+    private ArtifactContentDigestCache? _digestCache;
 
     internal ArtifactContentLease(
         ArtifactSetSession owner,
-        ArtifactIdentity artifact,
-        ImmutableArray<byte> snapshot)
+        ArtifactContentReference reference,
+        ImmutableArray<byte> snapshot,
+        ArtifactContentDigestCache digestCache)
     {
         _owner = owner;
-        Artifact = artifact;
+        Reference = reference;
         _snapshot = snapshot;
+        _digestCache = digestCache;
     }
 
-    public ArtifactIdentity Artifact { get; }
-    public ArtifactGenerationIdentity Generation => Artifact.Generation;
+    public ArtifactContentReference Reference { get; }
+    public ArtifactIdentity Artifact => Reference.Artifact;
+    public ArtifactGenerationIdentity Generation => Reference.Generation;
 
     /// <summary>
     /// Borrows the exact retained bytes synchronously.
@@ -44,6 +49,24 @@ public sealed class ArtifactContentLease : IDisposable
             cancellationToken);
     }
 
+    /// <summary>
+    /// Gets the Artifact-owned SHA-256 digest under this content authority.
+    /// </summary>
+    public ArtifactContentAccessOutcome<ArtifactContentDigest> GetContentDigest(
+        Action<long> chargeWork,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(chargeWork);
+        ArtifactSetSession owner =
+            Volatile.Read(ref _owner)
+            ?? throw new ObjectDisposedException(
+                nameof(ArtifactContentLease));
+        return owner.GetContentDigest(
+            this,
+            chargeWork,
+            cancellationToken);
+    }
+
     public void Dispose()
     {
         ArtifactSetSession? owner = Volatile.Read(ref _owner);
@@ -56,9 +79,19 @@ public sealed class ArtifactContentLease : IDisposable
     internal ImmutableArray<byte> Snapshot => _snapshot;
     internal int ActiveBorrows { get; set; }
 
+    internal ArtifactContentDigest GetContentDigest(
+        scoped ArtifactContentView view,
+        Action<long> chargeWork,
+        CancellationToken cancellationToken) =>
+        _digestCache!.GetDigest(
+            view.Content,
+            chargeWork,
+            cancellationToken);
+
     internal void MarkReleased()
     {
         _snapshot = default;
+        _digestCache = null;
         Volatile.Write(ref _owner, null);
     }
 }
@@ -69,18 +102,47 @@ public sealed class ArtifactContentLease : IDisposable
 public readonly ref struct ArtifactContentView
 {
     internal ArtifactContentView(
-        ArtifactIdentity artifact,
+        ArtifactContentReference reference,
         ReadOnlySpan<byte> content)
     {
-        Artifact = artifact;
+        Reference = reference;
         Content = content;
     }
 
-    public ArtifactGenerationIdentity Generation => Artifact.Generation;
-    public ArtifactIdentity Artifact { get; }
+    public ArtifactContentReference Reference { get; }
+    public ArtifactGenerationIdentity Generation => Reference.Generation;
+    public ArtifactIdentity Artifact => Reference.Artifact;
     public ReadOnlySpan<byte> Content { get; }
 }
 
 public delegate TResult ArtifactContentCallback<TResult>(
     scoped ArtifactContentView view,
     CancellationToken cancellationToken);
+
+internal sealed class ArtifactContentDigestCache(
+    ArtifactIdentity artifact)
+{
+    private readonly object _gate = new();
+    private ArtifactContentDigest? _digest;
+
+    internal ArtifactContentDigest GetDigest(
+        scoped ReadOnlySpan<byte> content,
+        Action<long> chargeWork,
+        CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_digest is not null)
+                return _digest;
+
+            chargeWork(content.Length);
+            string hexValue = Convert.ToHexStringLower(
+                SHA256.HashData(content));
+            _digest = new ArtifactContentDigest(
+                artifact,
+                hexValue);
+            return _digest;
+        }
+    }
+}

@@ -2,6 +2,8 @@ import { dotnet } from "./runtime-loader.js";
 
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 
+export type JsonValueKind = number;
+
 export interface BrowserAccessibilityDescriptor {
   readonly id: string;
   readonly label: string;
@@ -177,6 +179,7 @@ export interface BrowserMemberSurface {
   readonly isObsolete: boolean;
   readonly genericArity: number;
   readonly metadataToken: number | null;
+  readonly declarationMetadataToken: number | null;
   readonly returnType: string | null;
   readonly parameters: ReadonlyArray<BrowserParameterSurface>;
   readonly documentationId: string | null;

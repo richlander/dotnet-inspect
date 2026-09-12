@@ -65,7 +65,7 @@ public sealed class TypeDependencySectionPlan
 
 public sealed class TypeDependencyRowSelectionResult
 {
-    internal TypeDependencyRowSelectionResult(
+    public TypeDependencyRowSelectionResult(
         IReadOnlyList<TypeDependencyRelationship> relationships,
         RowsCohortSemanticFailure<TypeDependencyRowSet>? failure)
     {
@@ -88,7 +88,15 @@ public sealed class TypeDependencyRowSelectionResult
 
 public sealed record TypeDependencySectionResult(
     AssemblyContextTypeDependencyResult QueryResult,
-    TypeDependencyRowSelectionResult RowSelection);
+    TypeDependencyRowSelectionResult RowSelection)
+{
+    public static TypeDependencySectionResult NotFound() =>
+        new(
+            new AssemblyContextTypeDependencyResult(
+                new TypeDependencyResult(null, []),
+                []),
+            new TypeDependencyRowSelectionResult([], failure: null));
+}
 
 public static class TypeDependencySectionExecutor
 {

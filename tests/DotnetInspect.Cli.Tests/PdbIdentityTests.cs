@@ -1,6 +1,6 @@
+using DotnetInspector.Cache;
 using System.Buffers.Binary;
 using System.Collections.Immutable;
-using DotnetInspector.Core;
 using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.Tests;
@@ -33,7 +33,7 @@ public class PdbIdentityTests
     public void LoadPdbFromFile_RejectsMismatchedPortablePdb()
     {
         var (assemblyCopy, tempDir) = CopyAssemblyWithoutPdb(typeof(PdbIdentityTests).Assembly.Location);
-        var mismatchedPdb = Path.ChangeExtension(typeof(CoreCache).Assembly.Location, ".pdb");
+        var mismatchedPdb = Path.ChangeExtension(typeof(PersistentCache).Assembly.Location, ".pdb");
         try
         {
             Assert.True(File.Exists(mismatchedPdb), $"Expected mismatched PDB at {mismatchedPdb}");
@@ -92,7 +92,7 @@ public class PdbIdentityTests
                 typeof(PdbIdentityTests).Assembly.Location);
         string mismatchedPdb =
             Path.ChangeExtension(
-                typeof(CoreCache).Assembly.Location,
+                typeof(PersistentCache).Assembly.Location,
                 ".pdb");
         var stream =
             new TrackingMemoryStream(

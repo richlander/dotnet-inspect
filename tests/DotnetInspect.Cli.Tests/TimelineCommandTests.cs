@@ -8,6 +8,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Sections;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
@@ -22,6 +23,42 @@ namespace DotnetInspect.Cli.Tests;
 [Collection("Console")]
 public sealed class TimelineCommandTests
 {
+    [Fact]
+    public void SectionCatalog_DeclaresTimelineSections()
+    {
+        Assert.Equal(
+            [TimelineSections.Evaluations, TimelineSections.Transitions],
+            TimelineSections.Catalog.SelectableSectionNames);
+        Assert.Empty(TimelineSections.Catalog.SelectionCategoryMap);
+        Assert.Contains(
+            TimelineSections.Evaluations,
+            TimelineSections.CreateSchema().SectionNames);
+        Assert.Contains(
+            TimelineSections.Transitions,
+            TimelineSections.CreateSchema().SectionNames);
+    }
+
+    [Fact]
+    public async Task PartialSectionSelection_WarnsAndKeepsMatchedSection()
+    {
+        HashSet<string>? sections = null;
+        var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            TimelineCommand.TryResolveSections(
+                new TimelineOptions
+                {
+                    Select =
+                    [
+                        TimelineSections.Evaluations,
+                        "NoSuchSection"
+                    ]
+                },
+                out sections)));
+
+        Assert.Contains(TimelineSections.Evaluations, sections!);
+        Assert.DoesNotContain(TimelineSections.Transitions, sections!);
+        Assert.Contains("NoSuchSection", result.Error);
+    }
+
     [Fact]
     public async Task Count_AppliesRowsAndValidatesProjectedColumns()
     {

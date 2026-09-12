@@ -1,7 +1,7 @@
+using DotnetInspector.Cache;
 using System.Collections.Concurrent;
-using DotnetInspector.Core;
 
-namespace DotnetInspector.Services.Tests;
+namespace DotnetInspector.Cache.Tests;
 
 /// <summary>
 /// Proves <see cref="CacheMaintenanceProgress"/> never reports a torn byte/directory

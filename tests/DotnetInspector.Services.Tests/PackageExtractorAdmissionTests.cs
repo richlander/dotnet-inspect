@@ -4,7 +4,7 @@ using DotnetInspector.Packages;
 
 namespace DotnetInspector.Services.Tests;
 
-[Collection(CoreCacheCollection.Name)]
+[Collection(PersistentCacheCollection.Name)]
 public sealed class PackageExtractorAdmissionTests
 {
     const string PackageId = "sample.package";

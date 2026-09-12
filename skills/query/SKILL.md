@@ -154,15 +154,16 @@ Package Query IDs. Use it with patternless `find --package-prefix`:
 
 ```bash
 dnx dotnet-inspect -y -- find -Q Packages --json
-dnx dotnet-inspect -y -- find --package-prefix dotnet-inspect -S Packages \
+dnx dotnet-inspect -y -- find --package-prefix dotnet-inspect --package-content -S Packages \
   --where "facet=package.query.dotnet-tool" --take 5 -n 5
 dnx dotnet-inspect -y -- find --package-prefix dotnet-inspect --package-content \
   --where "facet=package.query.dotnet-tool-v2" --take 5 -n 5 --jsonl
 ```
 
 `--where` repeats select product facets, not arbitrary package-field
-expressions. Independent facets are ANDed; compatible tool v1/v2 alternatives
-are ORed. Query rows represent individual packages, with exact versions and
+expressions. Independent facets are ANDed; the broad tool facet reports CLI v1,
+CLI v2, or unrecognized settings, while compatible tool v1/v2 alternatives are
+ORed. Query rows represent individual packages, with exact versions and
 product-authored evidence. `--take` bounds candidate work (default 200,
 maximum 1,000). Package-content facets need `--package-content` and at most 20
 candidates; the flag sets that conservative default. `-n` and `--rows` select

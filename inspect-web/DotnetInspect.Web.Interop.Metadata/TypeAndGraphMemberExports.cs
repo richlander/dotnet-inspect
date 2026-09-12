@@ -1,8 +1,11 @@
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
+using DotnetInspector.Core;
 using DotnetInspector.Queries;
+using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
+using ILInspector.CSharp;
 using ILInspector.Metadata;
 using ILInspector.Research;
 using Analysis = ILInspector.Analysis;
@@ -43,6 +46,7 @@ public static partial class MetadataExports
             typeId,
             workspaceJson,
             RowSelectionIntent<TypeDependencyRowOrder>.Empty);
+        _ = BrowserMetadataJsonSerialization.BrowserTypeMetadata;
         return JsonSerializer.Serialize(
             type,
             BrowserMetadataJsonContext.Default.BrowserTypeMetadata);
@@ -103,6 +107,12 @@ public static partial class MetadataExports
         (BrowserTypeGraphNode[] graphNodes,
             BrowserTypeGraphEdge[] graphEdges) =
             TypeRelationshipGraph(projection, result.Dependencies);
+        InspectionEnvelope<TypeDependencySectionResult> dependencyEnvelope =
+            TypeDependencyEnvelope(
+                scope,
+                root,
+                result.Dependencies,
+                projection.Identity.FullName);
 
         return new BrowserTypeMetadata(
                 projection.Identity.FullName,
@@ -145,11 +155,120 @@ public static partial class MetadataExports
                     : null,
                 graphNodes,
                 graphEdges,
+                dependencyEnvelope,
                 [
                     .. projection.InspectionFailures.Select(
                         failure => $"{failure.Operation}: {failure.Detail}"),
                     .. TypeDependencyFailures(scope, result.Dependencies),
                 ]);
+    }
+
+    static InspectionEnvelope<TypeDependencySectionResult> TypeDependencyEnvelope(
+        BrowserInspectionScope scope,
+        BrowserPackageCoordinate root,
+        TypeDependencySectionResult dependencies,
+        string typeName)
+    {
+        var diagnostics = new List<InspectionDiagnostic>();
+        foreach (AssemblyContextTypeDependencyEntry.Rejected rejected
+                 in dependencies.QueryResult.Participants.OfType<
+                     AssemblyContextTypeDependencyEntry.Rejected>())
+        {
+            BrowserWorkspaceParticipant? participant =
+                scope.SurfaceParticipants.FirstOrDefault(candidate =>
+                    ReferenceEquals(
+                        candidate.Assembly.Registration,
+                        rejected.Subject.Registration));
+            string correspondence = participant is null
+                ? "workspace.participant"
+                : $"{participant.Coordinate.PackageId}@"
+                    + $"{participant.Coordinate.Version}/"
+                    + participant.Asset.Path;
+            diagnostics.Add(
+                TypeDependencyInspectionDiagnostics.ParticipantRejected(
+                    correspondence));
+        }
+
+        if (!dependencies.QueryResult.HasSurvivingParticipant)
+        {
+            diagnostics.Add(TypeDependencyInspectionDiagnostics.Unavailable());
+        }
+        if (dependencies.RowSelection.Failure is { } rowFailure)
+        {
+            diagnostics.Add(
+                TypeDependencyInspectionDiagnostics.RowSelectionFailed(
+                    rowFailure));
+        }
+
+        InspectionShare share =
+            ProjectTypeShare(
+                root,
+                typeName);
+        return new InspectionEnvelope<TypeDependencySectionResult>(
+            dependencies,
+            share,
+            diagnostics);
+    }
+
+    static InspectionShare ProjectTypeShare(
+        BrowserPackageCoordinate root,
+        string typeName)
+    {
+        var coordinate =
+            new DefinitionMemberCoordinate.PackageCoordinate(
+                root.PackageId,
+                root.Version,
+                root.Framework);
+        var workspace = new WorkspaceDefinition(
+            InspectionDefinitionJson.CurrentSchemaVersion,
+            WorkspaceSharePacketTransposer.WorkspaceId,
+            [
+                new WorkspaceContextDefinition(
+                    "g0",
+                    framework: root.Framework,
+                    members: [coordinate]),
+            ]);
+        var navigation = new NavigationDefinition(
+            InspectionDefinitionJson.CurrentSchemaVersion,
+            WorkspaceSharePacketTransposer.NavigationId,
+            [
+                new NavigationTabDefinition(
+                    "t0",
+                    coordinate: coordinate),
+            ],
+            "t0");
+        var view = new ViewDefinition(
+            InspectionDefinitionJson.CurrentSchemaVersion,
+            WorkspaceSharePacketTransposer.ViewId,
+            lens: "dependencies",
+            type: typeName);
+        var scenario = new ScenarioDefinition(
+            InspectionDefinitionJson.CurrentSchemaVersion,
+            WorkspaceSharePacketTransposer.ScenarioId,
+            workspace: workspace.Id,
+            context: "g0",
+            view: view.Id,
+            navigation: navigation.Id);
+        WorkspaceSharePacketProjectionResult packet =
+            WorkspaceSharePacketTransposer.ToPacket(
+                new WorkspaceSharePacketDefinitionSet(
+                    workspace,
+                    navigation,
+                    view,
+                    scenario));
+        if (!packet.Succeeded)
+        {
+            WorkspaceSharePacketProjectionFailure failure =
+                packet.Failure!;
+            return new InspectionShare.NonProjectable(
+                $"type-dependency-share/{failure.Path}",
+                failure.Message);
+        }
+
+        string encoded = WorkspaceSharePacketCodec.Encode(packet.Packet!);
+        return new InspectionShare.Available(
+            "https://dotnet-inspect.net/?w=" + encoded,
+            encoded);
     }
 
     internal static (BrowserPackageRequest[] Requests, int RootIndex)
@@ -394,6 +513,141 @@ public static partial class MetadataExports
         return JsonSerializer.Serialize(
             surface,
             BrowserMetadataJsonContext.Default.BrowserGraphMemberSurface);
+    }
+
+    /// <summary>
+    /// Renders one explicitly selected declaration under the product's C# display policy.
+    /// Inventory signatures remain compatibility projections and do not use this result.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryMemberDeclaration(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string memberName,
+        string selectorKey,
+        int metadataToken,
+        bool implementationMember)
+    {
+        BrowserMemberDeclaration declaration = await MemberDeclarationAsync(
+            packageId,
+            version,
+            targetFramework,
+            assemblyName,
+            typeIdentity,
+            memberName,
+            selectorKey,
+            metadataToken,
+            implementationMember);
+        return JsonSerializer.Serialize(
+            declaration,
+            BrowserMetadataJsonContext.Default.BrowserMemberDeclaration);
+    }
+
+    /// <summary>
+    /// Renders one explicitly selected Platform declaration under the product's C# display policy.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryPlatformMemberDeclaration(
+        string targetFramework,
+        string platformVersion,
+        string assemblyName,
+        string pack,
+        string typeIdentity,
+        string memberName,
+        string selectorKey,
+        int metadataToken)
+    {
+        BrowserMemberDeclaration declaration =
+            await PlatformMemberDeclarationAsync(
+                targetFramework,
+                platformVersion,
+                assemblyName,
+                pack,
+                typeIdentity,
+                memberName,
+                selectorKey,
+                metadataToken);
+        return JsonSerializer.Serialize(
+            declaration,
+            BrowserMetadataJsonContext.Default.BrowserMemberDeclaration);
+    }
+
+    static async Task<BrowserMemberDeclaration> MemberDeclarationAsync(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string memberName,
+        string selectorKey,
+        int metadataToken,
+        bool implementationMember)
+    {
+        await using BrowserMemberResolution.ScopedDeclarationResolution resolved =
+            await BrowserMemberResolution.DeclarationMemberAsync(
+                packageId,
+                version,
+                targetFramework,
+                assemblyName,
+                typeIdentity,
+                memberName,
+                selectorKey,
+                metadataToken,
+                implementationMember);
+        return RenderMemberDeclaration(resolved.Member);
+    }
+
+    static async Task<BrowserMemberDeclaration> PlatformMemberDeclarationAsync(
+        string targetFramework,
+        string platformVersion,
+        string assemblyName,
+        string pack,
+        string typeIdentity,
+        string memberName,
+        string selectorKey,
+        int metadataToken)
+    {
+        await using BrowserMemberResolution.ScopedPlatformDeclarationResolution
+            resolved =
+                await BrowserMemberResolution.PlatformDeclarationMemberAsync(
+                    targetFramework,
+                    platformVersion,
+                    assemblyName,
+                    pack,
+                    typeIdentity,
+                    memberName,
+                    selectorKey,
+                    metadataToken);
+        return RenderMemberDeclaration(resolved.Member);
+    }
+
+    static BrowserMemberDeclaration RenderMemberDeclaration(
+        BrowserMemberResolution.DeclarationResolved resolved)
+    {
+        CSharpMemberDeclarationOutcome outcome =
+            new CSharpFormatter(new CSharpFormatOptions
+            {
+                MemorySafetyLanguage =
+                    CSharpMemorySafetyLanguage.UpdatedCallerContracts,
+            }).FormatMemberOutcome(
+                resolved.Type,
+                resolved.Member);
+        return outcome switch
+        {
+            CSharpMemberDeclarationOutcome.Rendered rendered => new(
+                rendered.Declaration.Text,
+                null,
+                rendered.UsesCompatibilitySpelling),
+            CSharpMemberDeclarationOutcome.NotRendered notRendered => new(
+                null,
+                notRendered.Diagnostic.Message,
+                false),
+            _ => throw new InvalidOperationException(
+                "CSharp returned an unknown member declaration outcome."),
+        };
     }
 
     static async Task<BrowserGraphMemberSurface> GraphMemberSurfaceAsync(

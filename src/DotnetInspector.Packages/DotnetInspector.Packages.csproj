@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <Using Include="DotnetInspector.Networking" />
+    <ProjectReference Include="..\DotnetInspector.Cache\DotnetInspector.Cache.csproj" />
     <ProjectReference Include="..\DotnetInspector.Core\DotnetInspector.Core.csproj" />
     <ProjectReference Include="..\DotnetInspector.Networking\DotnetInspector.Networking.csproj" />
     <ProjectReference Include="..\DotnetInspector.Platforms\DotnetInspector.Platforms.csproj" />
@@ -22,6 +23,7 @@
     <ProjectReference Include="..\Inspector.Resources\Inspector.Resources.csproj" />
     <PackageReference Include="NuGet.Versioning" />
     <InternalsVisibleTo Include="DotnetInspector.Queries.Tests" />
+    <InternalsVisibleTo Include="DotnetInspector.Packages.Tests" />
     <InternalsVisibleTo Include="DotnetInspector.Services.Tests" />
     <InternalsVisibleTo Include="DotnetInspect.Web.Core" />
     <InternalsVisibleTo Include="DotnetInspect.Web.Tests" />

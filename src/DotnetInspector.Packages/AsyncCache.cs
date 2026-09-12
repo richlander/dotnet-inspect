@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 
-namespace DotnetInspector.Core;
+namespace DotnetInspector.Packages;
 
 /// <summary>
 /// Shares one asynchronous resolution per key and retains successful results.
@@ -8,7 +8,7 @@ namespace DotnetInspector.Core;
 /// Cancellation captured by a value factory affects every waiter sharing that
 /// resolution; caller-only cancellation should cancel the wait, not the factory.
 /// </summary>
-public sealed class AsyncCache<TKey, TValue> where TKey : notnull
+internal sealed class AsyncCache<TKey, TValue> where TKey : notnull
 {
     private readonly ConcurrentDictionary<TKey, Lazy<Task<TValue>>> _entries;
 

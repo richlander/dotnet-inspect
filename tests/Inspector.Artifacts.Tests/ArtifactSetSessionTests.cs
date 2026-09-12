@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 
 using Inspector.Artifacts.Workspaces;
@@ -1724,7 +1726,7 @@ public sealed partial class ArtifactSetSessionTests
     }
 
     [Fact]
-    public async Task ArtifactContentReference_BindsIdentityRegistrationRoleAndContent()
+    public async Task ArtifactContentReference_IsResourceFreeExactEvidence()
     {
         CancellationToken cancellationToken =
             TestContext.Current.CancellationToken;
@@ -1763,14 +1765,26 @@ public sealed partial class ArtifactSetSessionTests
                 catalog[1].Identity,
                 lease);
 
+        Assert.Same(
+            first,
+            firstSession.GetContentReference(
+                catalog[0].Identity,
+                lease));
         Assert.Same(catalog[0], first.Descriptor);
+        Assert.Same(catalog[0].Identity, first.Artifact);
+        Assert.Same(firstSession.Generation, first.Generation);
         Assert.Same(
             first.Descriptor.Identity,
             first.Registration.Artifact);
         Assert.Same(firstProvenance, first.Registration.Provenance);
+        Assert.Same(firstProvenance, first.Provenance);
+        Assert.Equal(
+            [ArtifactWorkspaceRole.CallerDesignated],
+            first.Roles);
         Assert.True(first.HasRole(
             ArtifactWorkspaceRole.CallerDesignated));
-        using Stream firstContent = first.OpenRead();
+        using Stream firstContent =
+            firstSession.OpenRead(first, lease);
         Assert.Equal([1], ReadAll(firstContent));
 
         Assert.Same(catalog[1], second.Descriptor);
@@ -1778,9 +1792,11 @@ public sealed partial class ArtifactSetSessionTests
             second.Descriptor.Identity,
             second.Registration.Artifact);
         Assert.Same(secondProvenance, second.Registration.Provenance);
+        Assert.Empty(second.Roles);
         Assert.False(second.HasRole(
             ArtifactWorkspaceRole.CallerDesignated));
-        using Stream secondContent = second.OpenRead();
+        using Stream secondContent =
+            firstSession.OpenRead(second, lease);
         Assert.Equal([2], ReadAll(secondContent));
 
         await using var secondSession = new ArtifactSetSession();
@@ -1799,28 +1815,76 @@ public sealed partial class ArtifactSetSessionTests
             secondSession.IssueLease(secondAuthorization);
         ArtifactDescriptor foreign =
             Assert.Single(secondSession.GetCatalog(secondLease));
+        ArtifactContentReference foreignReference =
+            secondSession.GetContentReference(
+                foreign.Identity,
+                secondLease);
         Assert.Throws<KeyNotFoundException>(
             () => firstSession.GetContentReference(
                 foreign.Identity,
                 lease));
+        Assert.Throws<ArgumentException>(
+            () => firstSession.OpenRead(
+                foreignReference,
+                lease));
+        Assert.Throws<ArgumentException>(
+            () => firstSession.GetContentDigest(
+                foreignReference,
+                lease,
+                _ => Assert.Fail("Foreign reference charge."),
+                cancellationToken));
 
         firstSession.Revoke(authorization);
+        Assert.Same(firstProvenance, first.Provenance);
+        Assert.True(first.HasRole(
+            ArtifactWorkspaceRole.CallerDesignated));
         Assert.Throws<UnauthorizedAccessException>(
-            () => _ = first.Registration);
-        Assert.Throws<UnauthorizedAccessException>(
-            () => first.HasRole(
-                ArtifactWorkspaceRole.CallerDesignated));
-        Assert.Throws<UnauthorizedAccessException>(
-            () => first.OpenRead());
+            () => firstSession.OpenRead(first, lease));
 
         lease.Dispose();
+        Assert.Same(
+            firstProvenance,
+            first.Registration.Provenance);
+        Assert.True(first.HasRole(
+            ArtifactWorkspaceRole.CallerDesignated));
         Assert.Throws<ObjectDisposedException>(
-            () => _ = first.Registration);
-        Assert.Throws<ObjectDisposedException>(
-            () => first.HasRole(
-                ArtifactWorkspaceRole.CallerDesignated));
-        Assert.Throws<ObjectDisposedException>(
-            () => first.OpenRead());
+            () => firstSession.OpenRead(first, lease));
+        firstContent.Dispose();
+        secondContent.Dispose();
+        await firstSession.DisposeAsync();
+        Assert.Same(catalog[0], first.Descriptor);
+        Assert.Same(firstProvenance, first.Provenance);
+        Assert.True(first.HasRole(
+            ArtifactWorkspaceRole.CallerDesignated));
+
+        Type[] fieldTypes =
+        [
+            .. typeof(ArtifactContentReference)
+                .GetFields(
+                    BindingFlags.Instance
+                    | BindingFlags.Public
+                    | BindingFlags.NonPublic)
+                .Select(field => field.FieldType)
+                .OrderBy(type => type.FullName, StringComparer.Ordinal)
+        ];
+        Type[] expectedFieldTypes =
+        [
+            typeof(ArtifactAcquisitionRegistration),
+            typeof(ArtifactDescriptor),
+            typeof(ImmutableArray<ArtifactWorkspaceRole>)
+        ];
+        Assert.Equal(
+            expectedFieldTypes.OrderBy(
+                type => type.FullName,
+                StringComparer.Ordinal),
+            fieldTypes);
+        Assert.DoesNotContain(
+            typeof(ArtifactContentReference).GetMethods(),
+            method =>
+                method.Name is "OpenRead" or "GetContentDigest"
+                ||
+                typeof(Stream).IsAssignableFrom(method.ReturnType)
+                || typeof(Delegate).IsAssignableFrom(method.ReturnType));
         Assert.Empty(
             typeof(ArtifactContentReference).GetConstructors());
     }
