@@ -14,6 +14,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
     <PackageReference Include="xunit.v3" />
+    <ProjectReference Include="../../src/DotnetInspector.DependencyManifests/DotnetInspector.DependencyManifests.csproj" />
     <ProjectReference Include="../../tools/DecompilerHarness/DecompilerHarness.csproj" />
   </ItemGroup>
 

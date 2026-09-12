@@ -16,7 +16,9 @@ public class ResourceOwnershipContractTests
                 .Single();
 
         Assert.Equal(
-            AttributeTargets.Class | AttributeTargets.Struct,
+            AttributeTargets.Class
+                | AttributeTargets.Struct
+                | AttributeTargets.Interface,
             usage.ValidOn);
         Assert.False(usage.AllowMultiple);
         Assert.False(usage.Inherited);

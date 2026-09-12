@@ -147,6 +147,7 @@ interface PlatformFixture {
 interface HomeDemoFixture {
   catalog: readonly BrowserHomeDemoCatalogEntry[];
   results: Readonly<Record<string, BrowserHomeDemoRunResult>>;
+  catalogPending?: boolean;
 }
 
 interface DiagnosticsFixture {
@@ -666,8 +667,16 @@ async function installFacades(
     catalog: `
       const homeDemos = ${JSON.stringify(homeDemos?.catalog ?? [])};
       const homeDemoResults = ${JSON.stringify(homeDemos?.results ?? {})};
+      const homeDemoCatalogPending = ${Boolean(homeDemos?.catalogPending)};
       export function listVocabulary() { return { schema_version: 1, sections: [] }; }
-      export function listHomeDemos() { return { demos: homeDemos }; }
+      export async function listHomeDemos() {
+        if (homeDemoCatalogPending) {
+          document.documentElement.dataset.homeDemoCatalogPending = "true";
+          await new Promise(resolve => document.addEventListener(
+            "finish-home-demo-catalog", resolve, { once: true }));
+        }
+        return { demos: homeDemos };
+      }
       export async function runHomeDemo(id) {
         document.documentElement.dataset.homeDemoRun = id;
         return homeDemoResults[id] ?? {
@@ -775,6 +784,306 @@ async function installDiagnosticsFacades(
     undefined,
     diagnostics);
 }
+
+test("Home keeps Search and curated demos ahead of artwork", async ({
+  page,
+}, testInfo) => {
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    {
+      catalog: [{
+        id: "system-text-json-api",
+        title: "System.Text.Json API",
+        summary: "Browse a real package API",
+      }],
+      results: {},
+    });
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await expect(page.locator(".home-search"))
+    .toHaveAttribute("aria-busy", "false");
+  await expect(page.locator(".home-title"))
+    .toHaveText("Inspect .NET packages in your browser.");
+  await expect(page.locator(".home-lede-wide")).toBeVisible();
+  await expect(page.locator(".home-lede-narrow")).toBeHidden();
+  await expect(page.locator(".home-demos-copy"))
+    .toContainText("Start from a curated package query.");
+  await expect(page.locator(".data-bar"))
+    .toContainText("CLI tool · Agent skill · Credits");
+
+  const wideSearch = await page.locator(".home-search").boundingBox();
+  const wideDemos = await page.locator(".home-demos").boundingBox();
+  const wideDataBar = await page.locator(".data-bar").boundingBox();
+  if (!wideSearch || !wideDemos || !wideDataBar) {
+    throw new Error("The wide Home composition did not render.");
+  }
+  expect(wideSearch.y + wideSearch.height).toBeLessThan(wideDemos.y);
+  expect(wideDemos.y + wideDemos.height).toBeLessThan(wideDataBar.y);
+  await page.screenshot({
+    path: testInfo.outputPath("home-wide.png"),
+    fullPage: false,
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator(".home-lede-wide")).toBeHidden();
+  await expect(page.locator(".home-lede-narrow")).toBeVisible();
+  await expect(page.locator(".home-demos-copy span")).toBeHidden();
+
+  const narrowSearch = await page.locator(".home-search").boundingBox();
+  const narrowDemos = await page.locator(".home-demos").boundingBox();
+  const narrowArt = await page.locator(".home-art").boundingBox();
+  const narrowDataBar = await page.locator(".data-bar").boundingBox();
+  if (!narrowSearch || !narrowDemos || !narrowArt || !narrowDataBar) {
+    throw new Error("The narrow Home composition did not render.");
+  }
+  expect(narrowSearch.y + narrowSearch.height).toBeLessThan(narrowDemos.y);
+  expect(narrowDemos.y + narrowDemos.height)
+    .toBeLessThanOrEqual(narrowDataBar.y);
+  expect(narrowArt.y).toBeGreaterThan(narrowDemos.y + narrowDemos.height);
+  expect(narrowDataBar.y + narrowDataBar.height).toBeCloseTo(844, 0);
+  expect(await page.evaluate(() =>
+    document.documentElement.scrollWidth <= document.documentElement.clientWidth
+    && document.body.scrollWidth <= document.body.clientWidth))
+    .toBe(true);
+  await page.screenshot({
+    path: testInfo.outputPath("home-narrow.png"),
+    fullPage: false,
+  });
+
+  await page.getByRole("link", { name: "Credits" }).click();
+  await expect(page).toHaveURL("/credits");
+  await expect(page.getByRole("heading", { name: "Credits", level: 1 }))
+    .toBeVisible();
+
+  await page.goto(root);
+  await expect(page.locator("#inspector-panel h1"))
+    .toHaveText("Example.Package");
+  await page.getByRole("link", { name: "Credits" }).click();
+  await expect(page).toHaveURL("/credits");
+});
+
+test("Home preserves focused controls through delayed Build identity", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { buildIdentity: "pending" });
+  await page.goto("/");
+  await expect(page.locator(".home-search"))
+    .toHaveAttribute("aria-busy", "false");
+
+  const credits = page.getByRole("link", { name: "Credits" });
+  await credits.focus();
+  await expect(credits).toBeFocused();
+
+  await releaseFacade(page, "finish-build-identity");
+  await expect(page.locator(".data-bar-product"))
+    .toContainText("dotnet-inspect vfixture");
+  await expect(credits).toBeFocused();
+  await expect(page.locator("#spotlight-input")).not.toBeFocused();
+});
+
+test("Home preserves focus across adjacent startup rerenders", async ({
+  page,
+}) => {
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    {
+      catalog: [{
+        id: "system-text-json-api",
+        title: "System.Text.Json API",
+        summary: "Browse a real package API",
+      }],
+      results: {},
+      catalogPending: true,
+    },
+    { buildIdentity: "pending" });
+  await page.goto("/");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-home-demo-catalog-pending", "true");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-build-identity-pending", "true");
+
+  const credits = page.getByRole("link", { name: "Credits" });
+  await credits.focus();
+  await expect(credits).toBeFocused();
+
+  await page.evaluate(() => {
+    const fixtureWindow = window as Window & {
+      homeFocusFrames?: FrameRequestCallback[];
+      homeFocusRequestAnimationFrame?: typeof requestAnimationFrame;
+    };
+    fixtureWindow.homeFocusFrames = [];
+    fixtureWindow.homeFocusRequestAnimationFrame = window.requestAnimationFrame;
+    window.requestAnimationFrame = callback => {
+      fixtureWindow.homeFocusFrames!.push(callback);
+      return fixtureWindow.homeFocusFrames!.length;
+    };
+  });
+
+  await Promise.all([
+    releaseFacade(page, "finish-home-demo-catalog"),
+    releaseFacade(page, "finish-build-identity"),
+  ]);
+  await expect(page.locator("#home-demos")).toContainText("1 available");
+  await expect(page.locator(".data-bar-product"))
+    .toContainText("dotnet-inspect vfixture");
+
+  await page.evaluate(() => {
+    const fixtureWindow = window as Window & {
+      homeFocusFrames?: FrameRequestCallback[];
+      homeFocusRequestAnimationFrame?: typeof requestAnimationFrame;
+    };
+    const frames = fixtureWindow.homeFocusFrames ?? [];
+    if (fixtureWindow.homeFocusRequestAnimationFrame) {
+      window.requestAnimationFrame =
+        fixtureWindow.homeFocusRequestAnimationFrame;
+    }
+    delete fixtureWindow.homeFocusFrames;
+    delete fixtureWindow.homeFocusRequestAnimationFrame;
+    const timestamp = performance.now();
+    for (const frame of frames) frame(timestamp);
+  });
+
+  await expect(credits).toBeFocused();
+  await expect(page.locator("#spotlight-input")).not.toBeFocused();
+});
+
+test("Home default focus yields to a post-render user selection", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { buildIdentity: "pending" });
+  await page.goto("/");
+  await expect(page.locator(".home-search"))
+    .toHaveAttribute("aria-busy", "false");
+  await page.locator(".home-title").click();
+
+  await page.evaluate(() => {
+    const fixtureWindow = window as Window & {
+      homeFocusFrames?: FrameRequestCallback[];
+      homeFocusRequestAnimationFrame?: typeof requestAnimationFrame;
+    };
+    fixtureWindow.homeFocusFrames = [];
+    fixtureWindow.homeFocusRequestAnimationFrame = window.requestAnimationFrame;
+    window.requestAnimationFrame = callback => {
+      fixtureWindow.homeFocusFrames!.push(callback);
+      return fixtureWindow.homeFocusFrames!.length;
+    };
+  });
+
+  await releaseFacade(page, "finish-build-identity");
+  await expect(page.locator(".data-bar-product"))
+    .toContainText("dotnet-inspect vfixture");
+
+  const credits = page.getByRole("link", { name: "Credits" });
+  await credits.focus();
+  await expect(credits).toBeFocused();
+
+  await page.evaluate(() => {
+    const fixtureWindow = window as Window & {
+      homeFocusFrames?: FrameRequestCallback[];
+      homeFocusRequestAnimationFrame?: typeof requestAnimationFrame;
+    };
+    const frames = fixtureWindow.homeFocusFrames ?? [];
+    if (fixtureWindow.homeFocusRequestAnimationFrame) {
+      window.requestAnimationFrame =
+        fixtureWindow.homeFocusRequestAnimationFrame;
+    }
+    delete fixtureWindow.homeFocusFrames;
+    delete fixtureWindow.homeFocusRequestAnimationFrame;
+    const timestamp = performance.now();
+    for (const frame of frames) frame(timestamp);
+  });
+
+  await expect(credits).toBeFocused();
+  await expect(page.locator("#spotlight-input")).not.toBeFocused();
+});
+
+test("Home preserves focused Settings controls through delayed Build identity", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { buildIdentity: "pending" });
+  await page.goto("/");
+  await expect(page.locator(".home-search"))
+    .toHaveAttribute("aria-busy", "false");
+
+  await page.getByRole("button", { name: "Open settings" }).click();
+  const darkTheme = page.getByRole("button", { name: "Dark" });
+  await darkTheme.focus();
+  await expect(darkTheme).toBeFocused();
+
+  await releaseFacade(page, "finish-build-identity");
+  await expect(page.locator(".data-bar-product"))
+    .toContainText("dotnet-inspect vfixture");
+  await expect(darkTheme).toBeFocused();
+  await expect(page.locator("#settings-title")).not.toBeFocused();
+  await expect(page.locator("#spotlight-input")).not.toBeFocused();
+});
+
+test("Home preserves Settings dismissal through an adjacent Build rerender", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { buildIdentity: "pending" });
+  await page.goto("/");
+  await expect(page.locator(".home-search"))
+    .toHaveAttribute("aria-busy", "false");
+
+  await page.getByRole("button", { name: "Open settings" }).click();
+  await expect(page.locator("#settings-title")).toBeFocused();
+
+  await page.evaluate(() => {
+    const fixtureWindow = window as Window & {
+      homeFocusFrames?: FrameRequestCallback[];
+      homeFocusRequestAnimationFrame?: typeof requestAnimationFrame;
+    };
+    fixtureWindow.homeFocusFrames = [];
+    fixtureWindow.homeFocusRequestAnimationFrame = window.requestAnimationFrame;
+    window.requestAnimationFrame = callback => {
+      fixtureWindow.homeFocusFrames!.push(callback);
+      return fixtureWindow.homeFocusFrames!.length;
+    };
+  });
+
+  await page.getByRole("button", { name: "Close" }).click();
+  const settingsButton = page.getByRole("button", { name: "Open settings" });
+  await expect(settingsButton).toBeFocused();
+
+  await releaseFacade(page, "finish-build-identity");
+  await expect(page.locator(".data-bar-product"))
+    .toContainText("dotnet-inspect vfixture");
+
+  await page.evaluate(() => {
+    const fixtureWindow = window as Window & {
+      homeFocusFrames?: FrameRequestCallback[];
+      homeFocusRequestAnimationFrame?: typeof requestAnimationFrame;
+    };
+    const frames = fixtureWindow.homeFocusFrames ?? [];
+    if (fixtureWindow.homeFocusRequestAnimationFrame) {
+      window.requestAnimationFrame =
+        fixtureWindow.homeFocusRequestAnimationFrame;
+    }
+    delete fixtureWindow.homeFocusFrames;
+    delete fixtureWindow.homeFocusRequestAnimationFrame;
+    const timestamp = performance.now();
+    for (const frame of frames) frame(timestamp);
+  });
+
+  await expect(settingsButton).toBeFocused();
+  await expect(page.locator("#spotlight-input")).not.toBeFocused();
+});
 
 test("Diagnostics opens from Settings and Spotlight without entering the Application menu", async ({
   page,
@@ -893,6 +1202,30 @@ test("Diagnostics Back keeps Home heading focus through a later Build rerender",
   await expect(page.locator(".data-bar-product"))
     .toContainText("dotnet-inspect vfixture");
   await expect(page.locator("main h1")).toBeFocused();
+});
+
+test("Diagnostics Back honors a later Home focus selection", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { buildIdentity: "pending" });
+  await page.goto("/diagnostics");
+
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-build-identity-pending", "true");
+  await page.locator("#diagnostics-back").click();
+  await expect(page).toHaveURL("/");
+  await expect(page.locator("main h1")).toBeFocused();
+
+  const credits = page.getByRole("link", { name: "Credits" });
+  await credits.focus();
+  await expect(credits).toBeFocused();
+
+  await releaseFacade(page, "finish-build-identity");
+  await expect(page.locator(".data-bar-product"))
+    .toContainText("dotnet-inspect vfixture");
+  await expect(credits).toBeFocused();
+  await expect(page.locator("main h1")).not.toBeFocused();
+  await expect(page.locator("#spotlight-input")).not.toBeFocused();
 });
 
 test("Diagnostics starts runtime and cache evidence while Build identity is pending", async ({

@@ -151,6 +151,9 @@ look for a coherent shared concept that would also benefit a future host rather
 than preserving parallel implementations or extracting an abstraction solely
 to remove repeated lines.
 
+[Building shared inspections](building-shared-inspections.md) gives the
+prescriptive implementation path for new CLI commands and website inspectors.
+
 ## Choose rendering strategy deliberately
 
 `dotnet-inspect` uses Markout as its default host-neutral rendering substrate

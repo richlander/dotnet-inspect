@@ -428,35 +428,24 @@ test("home shell opens the product demo catalog", () => {
   const root = new FakeRoot();
   const theme = root.element();
   const dismiss = root.element();
-  const credits = root.element();
   const demos = root.element();
   root.add("#home-theme", theme);
   root.add("#dismiss-notice", dismiss);
-  root.add("#home-credits", credits);
   root.add("#home-demos", demos);
   const calls: string[] = [];
 
   bindHomeShell(fakeDom.parentNode(root), {
     onDismissNotice: () => calls.push("dismiss"),
     onOpenDemos: () => calls.push("demos"),
-    onOpenCredits: () => calls.push("credits"),
     onToggleTheme: () => calls.push("theme"),
   });
 
   assert.deepEqual(calls, []);
   theme.dispatch("click");
   dismiss.dispatch("click");
-  assert.equal(credits.dispatch("click", { button: 0, metaKey: true }), false);
-  assert.equal(credits.dispatch("click", { button: 1 }), false);
   assert.deepEqual(calls, ["theme", "dismiss"]);
-  assert.equal(credits.dispatch("click"), true);
   demos.dispatch("click");
-  assert.deepEqual(calls, [
-    "theme",
-    "dismiss",
-    "credits",
-    "demos",
-  ]);
+  assert.deepEqual(calls, ["theme", "dismiss", "demos"]);
 });
 
 test("load error shell parses replacement packages and owns local detail state", () => {
@@ -515,7 +504,6 @@ test("shell bindings tolerate inactive surfaces", () => {
   assert.doesNotThrow(() => bindHomeShell(root, {
     onDismissNotice() {},
     onOpenDemos() {},
-    onOpenCredits() {},
     onToggleTheme() {},
   }));
   assert.doesNotThrow(() => bindLoadErrorShell(root, {
