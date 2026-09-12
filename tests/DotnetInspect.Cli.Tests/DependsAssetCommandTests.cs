@@ -7,7 +7,7 @@ using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Sections;
-using DotnetInspector.Core;
+using DotnetInspector.Cache;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
@@ -69,7 +69,7 @@ public sealed class DependsAssetCommandTests
     [Fact]
     public async Task TypeDepthBoundMatchesUnboundedShortestPathEdges()
     {
-        CoreCache.Initialize("dotnet-inspect-test");
+        PersistentCache.Initialize("dotnet-inspect-test");
         string[] common =
         [
             "depends",
@@ -108,7 +108,7 @@ public sealed class DependsAssetCommandTests
     [Fact]
     public async Task TypeDepthBoundariesAreTypedEndpointContext()
     {
-        CoreCache.Initialize("dotnet-inspect-test");
+        PersistentCache.Initialize("dotnet-inspect-test");
         string[] graph =
         [
             "depends",
@@ -180,7 +180,7 @@ public sealed class DependsAssetCommandTests
     [Fact]
     public async Task TypeMode_RejectsUnusedColumnProjection()
     {
-        CoreCache.Initialize("dotnet-inspect-test");
+        PersistentCache.Initialize("dotnet-inspect-test");
         (int exitCode, string output, string error) = await RunCapturedAsync(
         [
             "depends",
@@ -1927,7 +1927,7 @@ public sealed class DependsAssetCommandTests
     [Fact]
     public async Task PositionalLibraryFallbackHonorsDepth()
     {
-        CoreCache.Initialize("dotnet-inspect-test");
+        PersistentCache.Initialize("dotnet-inspect-test");
         string library = typeof(DependsAssetCommandTests).Assembly.Location;
         (int fallbackExit, string fallbackCount, string fallbackError) =
             await RunCapturedAsync(
@@ -2061,7 +2061,7 @@ public sealed class DependsAssetCommandTests
     [Fact]
     public async Task QuietPositionalTypeMode_SucceedsWithoutOutput()
     {
-        CoreCache.Initialize("dotnet-inspect-test");
+        PersistentCache.Initialize("dotnet-inspect-test");
         (int exitCode, string output, string error) = await RunCapturedAsync(
         [
             "depends",

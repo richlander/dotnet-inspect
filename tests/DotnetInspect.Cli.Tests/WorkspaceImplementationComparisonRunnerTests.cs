@@ -9,7 +9,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Views;
-using DotnetInspector.Core;
+using DotnetInspector.Cache;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Services;
@@ -38,7 +38,7 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
 
     public WorkspaceImplementationComparisonRunnerTests()
     {
-        CoreCache.Initialize(
+        PersistentCache.Initialize(
             "dotnet-inspect-test");
         CoreHttpClientFactory.Initialize(
             new HttpClientFactoryOptions());

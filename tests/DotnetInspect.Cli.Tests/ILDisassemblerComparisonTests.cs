@@ -16,6 +16,7 @@ namespace DotnetInspect.Cli.Tests;
 public class ILDisassemblerComparisonTests
 {
     static readonly string CoreDll = FindAssembly("DotnetInspector.Core.dll");
+    static readonly string CacheDll = FindAssembly("DotnetInspector.Cache.dll");
     static readonly string MetadataDll = FindAssembly("ILInspector.Metadata.dll");
     static readonly string TestDll = typeof(ILDisassemblerComparisonTests).Assembly.Location;
 
@@ -84,14 +85,15 @@ public class ILDisassemblerComparisonTests
     public static IEnumerable<object[]> ILAsmAssemblyCases()
     {
         yield return ["Core"];
+        yield return ["Cache"];
         yield return ["Test"];
     }
 
     /// <summary>Methods for ILAsm roundtrip opcode comparison.</summary>
     public static IEnumerable<object[]> ILAsmMethodCases()
     {
-        yield return ["Core", "DotnetInspector.Core.CoreCache", "Initialize"];
-        yield return ["Core", "DotnetInspector.Core.CoreCache", "GetBasePath"];
+        yield return ["Cache", "DotnetInspector.Cache.PersistentCache", "Initialize"];
+        yield return ["Cache", "DotnetInspector.Cache.PersistentCache", "GetBasePath"];
         yield return ["Test", "DotnetInspect.Cli.Tests.ILSampleClass", "SwitchCase"];
         yield return ["Test", "DotnetInspect.Cli.Tests.ILSampleClass", "TryCatch"];
         yield return ["Test", "DotnetInspect.Cli.Tests.ILSampleClass", "CompareEquals"];
@@ -307,6 +309,7 @@ public class ILDisassemblerComparisonTests
     static string ResolveAssembly(string key) => key switch
     {
         "Core" => CoreDll,
+        "Cache" => CacheDll,
         "Metadata" => MetadataDll,
         "Test" => TestDll,
         _ => throw new ArgumentException($"Unknown assembly key: {key}")

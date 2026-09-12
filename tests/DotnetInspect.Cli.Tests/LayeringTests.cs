@@ -1062,6 +1062,7 @@ public sealed class LayeringTests
     private static readonly HashSet<string> PackageOrStorageImplementationProjects =
         new(PackageImplementationProjects, StringComparer.Ordinal)
         {
+            "DotnetInspector.Cache",
             "DotnetInspector.Core",
         };
 }

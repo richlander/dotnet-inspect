@@ -20,6 +20,7 @@
     <Using Include="Xunit" />
     <ProjectReference Include="..\DotnetInspect.Web.Core\DotnetInspect.Web.Core.csproj" />
     <ProjectReference Include="..\DotnetInspect.Web\DotnetInspect.Web.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspector.Cache\DotnetInspector.Cache.csproj" />
     <ProjectReference Include="..\..\fixtures\inspect-web\InspectWeb.CloneTransportFixtures\InspectWeb.CloneTransportFixtures.csproj" ReferenceOutputAssembly="false" Private="false" />
     <ProjectReference Include="..\..\fixtures\queries\DotnetInspector.CloneSearchFixtures\DotnetInspector.CloneSearchFixtures.csproj" ReferenceOutputAssembly="false" Private="false" />
     <ProjectReference Include="..\..\fixtures\inspect-web\InspectWeb.MethodBodyFixtures\InspectWeb.MethodBodyFixtures.csproj" />

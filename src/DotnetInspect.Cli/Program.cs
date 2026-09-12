@@ -1,3 +1,4 @@
+using DotnetInspector.Cache;
 using DotnetInspect.Cli;
 using DotnetInspect.Cli.Commands;
 using DotnetInspector.Core;
@@ -235,7 +236,7 @@ try
         #pragma warning restore RS0030
     }
 
-    _ = CoreCache.CancelAndWaitForMaintenance(TimeSpan.FromMilliseconds(100));
+    _ = PersistentCache.CancelAndWaitForMaintenance(TimeSpan.FromMilliseconds(100));
 
     return exitCode;
 }

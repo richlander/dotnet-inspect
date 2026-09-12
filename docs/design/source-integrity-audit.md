@@ -46,8 +46,8 @@ The service consumes, but does not redefine, these owner-issued facts:
   final-origin admission.
 - `HttpRetryHelper` owns retried, timeout-bound, size-bounded GET acquisition
   and its typed outcomes.
-- `CoreCache` owns generic persistence, and `ISourceLinkQueryCache` is the
-  optional host adapter.
+- `DotnetInspector.Cache.PersistentCache` owns generic persistence, and
+  `ISourceLinkQueryCache` is the optional host adapter.
 - `SourceIntegrityQuery` owns typed query composition.
 - CLI library and package sections own presentation and package aggregation.
 

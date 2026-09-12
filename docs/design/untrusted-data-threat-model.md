@@ -685,7 +685,7 @@ vector where `Path.Combine(root, "C:..", ...)` would discard the root, while
 still permitting the interior dots of a real PDB or assembly file name. A PDB
 file name recovered from untrusted PE debug metadata that is not a usable single
 segment yields a graceful "no symbols" miss rather than an output path. General
-cache entries use SHA-256-derived keys through `CoreCache`.
+cache entries use SHA-256-derived keys through `PersistentCache`.
 
 The Browser-Wasm package path is filesystem-free but uses the shared
 `PackageCoordinateResolver`, `PackagePayloadAcquisition`,
@@ -1685,7 +1685,7 @@ land in temporary files and become visible atomically after validation.
 
 A cache entry created before a content-validation gate existed is not evidence
 that the gate passed. Persistent cache cutovers follow the
-[`CoreCache` contract](../inspection-space.md#corecache): either revalidate on
+[`PersistentCache` contract](../inspection-space.md#persistentcache): either revalidate on
 every hit or select a successor contract version before lookup, and pair the
 newly rejected case with a still-valid recomputation case. Dynamic network,
 capability, and liveness policy is always rechecked and cannot be replaced by a

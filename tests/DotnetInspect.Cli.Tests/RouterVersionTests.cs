@@ -1,4 +1,4 @@
-using DotnetInspector.Core;
+using DotnetInspector.Cache;
 using DotnetInspector.Packages;
 
 namespace DotnetInspect.Cli.Tests;
@@ -73,15 +73,15 @@ public class RouterVersionTests
         var key = $"test-roundtrip-{Guid.NewGuid():N}";
         try
         {
-            CoreCache.Set(VersionCacheCategory, key, "4.5.6", extension: "txt");
+            PersistentCache.Set(VersionCacheCategory, key, "4.5.6", extension: "txt");
 
-            var result = CoreCache.TryGet(VersionCacheCategory, key, TimeSpan.FromHours(1), extension: "txt");
+            var result = PersistentCache.TryGet(VersionCacheCategory, key, TimeSpan.FromHours(1), extension: "txt");
 
             Assert.Equal("4.5.6", result);
         }
         finally
         {
-            var path = CoreCache.GetFilePath(VersionCacheCategory, key, extension: "txt");
+            var path = PersistentCache.GetFilePath(VersionCacheCategory, key, extension: "txt");
             if (File.Exists(path)) File.Delete(path);
         }
     }
@@ -92,18 +92,18 @@ public class RouterVersionTests
         var key = $"test-expired-{Guid.NewGuid():N}";
         try
         {
-            CoreCache.Set(VersionCacheCategory, key, "1.0.0", extension: "txt");
+            PersistentCache.Set(VersionCacheCategory, key, "1.0.0", extension: "txt");
 
-            var path = CoreCache.GetFilePath(VersionCacheCategory, key, extension: "txt");
+            var path = PersistentCache.GetFilePath(VersionCacheCategory, key, extension: "txt");
             File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddHours(-2));
 
-            var result = CoreCache.TryGet(VersionCacheCategory, key, TimeSpan.FromHours(1), extension: "txt");
+            var result = PersistentCache.TryGet(VersionCacheCategory, key, TimeSpan.FromHours(1), extension: "txt");
 
             Assert.Null(result);
         }
         finally
         {
-            var path = CoreCache.GetFilePath(VersionCacheCategory, key, extension: "txt");
+            var path = PersistentCache.GetFilePath(VersionCacheCategory, key, extension: "txt");
             if (File.Exists(path)) File.Delete(path);
         }
     }
@@ -114,15 +114,15 @@ public class RouterVersionTests
         var key = $"test-case-{Guid.NewGuid():N}";
         try
         {
-            CoreCache.Set(VersionCacheCategory, key.ToLowerInvariant(), "2.0.0", extension: "txt");
+            PersistentCache.Set(VersionCacheCategory, key.ToLowerInvariant(), "2.0.0", extension: "txt");
 
-            var result = CoreCache.TryGet(VersionCacheCategory, key.ToLowerInvariant(), TimeSpan.FromHours(1), extension: "txt");
+            var result = PersistentCache.TryGet(VersionCacheCategory, key.ToLowerInvariant(), TimeSpan.FromHours(1), extension: "txt");
 
             Assert.Equal("2.0.0", result);
         }
         finally
         {
-            var path = CoreCache.GetFilePath(VersionCacheCategory, key.ToLowerInvariant(), extension: "txt");
+            var path = PersistentCache.GetFilePath(VersionCacheCategory, key.ToLowerInvariant(), extension: "txt");
             if (File.Exists(path)) File.Delete(path);
         }
     }

@@ -80,7 +80,7 @@ same retained participant images. That group retains the workspace's bounded
 image budget; participants rejected by acquisition or the budget remain visible
 as extension and reachability warnings rather than silently shortening the
 search. Other foundations include shared image and inspection session ownership,
-catalog generations, `CoreCache`, typed provenance and resolution currencies,
+catalog generations, `PersistentCache`, typed provenance and resolution currencies,
 and `InertString`; the remaining workspace model describes how those pieces
 will be composed.
 
@@ -1610,10 +1610,17 @@ A plan-expansion request is a typed orchestration outcome, not absence or an
 empty result. The coordinator advances the owning domain's generation and
 restarts affected work before presentation.
 
-### `CoreCache`
+### `PersistentCache`
 
-`CoreCache` is shared infrastructure for category roots, path-safe hashed keys,
-maintenance, and cache telemetry. It is a mechanism, not a semantic authority.
+`DotnetInspector.Cache.PersistentCache`
+(`src/DotnetInspector.Cache/PersistentCache.cs`) is shared infrastructure for
+category roots, path-safe hashed keys, maintenance, and atomic file
+publication. `DotnetInspector.Cache.CacheTelemetry`
+(`src/DotnetInspector.Cache/CacheTelemetry.cs`) records cache access with
+inert, redacted keys and current request/network context. The project
+dependencies are limited to the platform, `InertText`, and
+`DotnetInspector.Networking`. The cache library supplies mechanisms, not
+semantic authority.
 
 The cache owner for each result must still define:
 
