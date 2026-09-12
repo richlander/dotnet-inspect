@@ -131,6 +131,8 @@ public sealed class NavigationSubjectInventoryTests
         Assert.Equal(
             declaration.Subject.Identity.Member,
             projected.Subject.Identity.Member);
+        Assert.Same(receiver.Subject, projected.ContainingType);
+        Assert.Same(declaring.Subject, projected.Subject.DeclaringType);
         Assert.DoesNotContain(
             types.Evidence,
             evidence => evidence
