@@ -105,3 +105,13 @@ public sealed class ThisContract
         Value++;
     }
 }
+
+public sealed class ImplicitContractDerived : ImplicitContractBase
+{
+    public int Value;
+
+    public unsafe ImplicitContractDerived()
+    {
+        Value = 42;
+    }
+}

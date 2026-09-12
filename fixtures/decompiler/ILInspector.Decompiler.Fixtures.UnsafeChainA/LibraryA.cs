@@ -199,6 +199,11 @@ public class ContractBase
     public unsafe ContractBase(int value) => _ = value;
 }
 
+public class ImplicitContractBase
+{
+    public unsafe ImplicitContractBase() { }
+}
+
 public sealed class ContractObject
 {
     public unsafe ContractObject() { }

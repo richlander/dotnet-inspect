@@ -264,6 +264,10 @@ type or base type constructor remains a `this(...)` or `base(...)` initializer,
 not a body statement. Under updated rules, an unsafe instance-constructor
 contract establishes that initializer segment's context, so replay preserves
 the constructor declaration contract and does not widen the reconstructed body.
+The behavior is grounded in Roslyn's
+[property/accessor contract tests](https://github.com/dotnet/roslyn/blob/e79586494f629704a0fd18b7afb840144fd5e673/src/Compilers/CSharp/Test/CSharp15/UnsafeEvolutionTests.cs#L7787-L7832)
+and its
+[constructor-initializer binder exception](https://github.com/dotnet/roslyn/blob/e79586494f629704a0fd18b7afb840144fd5e673/src/Compilers/CSharp/Portable/Binder/LocalBinderFactory.cs#L493-L504).
 
 The Release `DecompilerMethodMemorySafetyTests` and `UnsafeEmitterTests` gates
 use compiler-produced updated-rules fixtures to cover same- and cross-assembly

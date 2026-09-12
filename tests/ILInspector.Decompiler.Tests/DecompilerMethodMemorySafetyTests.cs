@@ -11,6 +11,8 @@ using Microsoft.CodeAnalysis.CSharp;
 using ChainB = ILInspector.Decompiler.Fixtures.UnsafeChainB.LibraryB;
 using ChainDerived =
     ILInspector.Decompiler.Fixtures.UnsafeChainB.ContractDerived;
+using ChainImplicitDerived =
+    ILInspector.Decompiler.Fixtures.UnsafeChainB.ImplicitContractDerived;
 using ChainThis =
     ILInspector.Decompiler.Fixtures.UnsafeChainB.ThisContract;
 using NewFixtures =
@@ -207,6 +209,39 @@ public class DecompilerMethodMemorySafetyTests
         Assert.Contains("Value++;", result.Output);
         Assert.DoesNotContain("\n    unsafe\n", result.Output);
         AssertCompilesType(result.Output!, declarations: "");
+    }
+
+    [Fact]
+    public void CrossAssemblyImplicitConstructorInitializer_KeepsPreambleMapping()
+    {
+        string path = typeof(ChainImplicitDerived).Assembly.Location;
+        ApiType type;
+        using (var pe = new PEReader(File.OpenRead(path)))
+        {
+            type = Assert.Single(
+                ApiSurfaceExtractor.Extract(pe).Types,
+                candidate =>
+                    candidate.FullName == typeof(ChainImplicitDerived).FullName);
+        }
+
+        DecompilerResult result =
+            MemberBodyProducer.Project(type, path, pdbPath: null);
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Contains(
+            "public unsafe ImplicitContractDerived()",
+            result.Output);
+        Assert.DoesNotContain(": base()", result.Output);
+        Assert.Contains("Value = 42;", result.Output);
+        Assert.DoesNotContain("\n    unsafe\n", result.Output);
+        AssertCompilesType(
+            result.Output!,
+            """
+            public class ImplicitContractBase
+            {
+                public unsafe ImplicitContractBase() { }
+            }
+            """);
     }
 
     [Theory]

@@ -599,6 +599,7 @@ public sealed partial class CSharpPrinter
     /// <summary>An explicit base/this chain call lifted out of a constructor body to its signature initializer (base/this calls are invalid as body statements).</summary>
     string? _constructorChain;
     IrNode? _chainStatement;
+    IrNode? _constructorInitializerStatement;
 
     /// <summary>Field initializers (<c>this.f = value</c> stores preceding the base call) lifted out of a constructor body to the field declarations, keyed in source order.</summary>
     readonly List<(string Field, string Value)> _fieldInitializers = [];
@@ -775,9 +776,12 @@ public sealed partial class CSharpPrinter
             }
 
             var chainCall = (Call)((ExpressionStatement)entry.Children[chainIndex]).Expression;
-            _chainStatement = entry.Children[chainIndex];
+            _constructorInitializerStatement = entry.Children[chainIndex];
             if (ConstructorChainText(chainCall.Callee, chainCall) is { } chain)
+            {
                 _constructorChain = chain.TrimEnd(';');
+                _chainStatement = entry.Children[chainIndex];
+            }
         }
 
         // Remaining locals and slots declare up front, current-style.
@@ -3196,7 +3200,7 @@ public sealed partial class CSharpPrinter
     /// </summary>
     bool NeedsUnsafeContext(IrNode node)
     {
-        if (ReferenceEquals(node, _chainStatement)
+        if (ReferenceEquals(node, _constructorInitializerStatement)
             && _newMemorySafetyRules
             && _function.RequiresUnsafeContract)
         {
