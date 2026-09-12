@@ -31,11 +31,7 @@ internal static class WorkspaceShareOutput
                 CommandError.WriteLine(
                     format == WorkspaceShareFormat.Url
                         ? available.FullUrl
-                        : available.FullUrl.StartsWith(
-                            UrlPrefix,
-                            StringComparison.Ordinal)
-                            ? available.FullUrl[UrlPrefix.Length..]
-                            : available.FullUrl);
+                        : available.Packet);
                 return 0;
             case InspectionShare.NonProjectable nonProjectable:
                 CommandError.Write(

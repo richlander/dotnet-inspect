@@ -362,6 +362,8 @@ export interface InspectionEnvelope<T0> {
 }
 
 export interface InspectionShare {
+  readonly fullUrl: string | null;
+  readonly packet: string | null;
 }
 
 export interface RowWindowFailure {

@@ -264,9 +264,10 @@ public static partial class MetadataExports
                 failure.Message);
         }
 
+        string encoded = WorkspaceSharePacketCodec.Encode(packet.Packet!);
         return new InspectionShare.Available(
-            "https://dotnet-inspect.net/?w="
-            + WorkspaceSharePacketCodec.Encode(packet.Packet!));
+            "https://dotnet-inspect.net/?w=" + encoded,
+            encoded);
     }
 
     internal static (BrowserPackageRequest[] Requests, int RootIndex)

@@ -90,7 +90,8 @@ public sealed record InspectionEnvelope<TContent>
         (left, right) switch
         {
             (InspectionShare.Available a, InspectionShare.Available b) =>
-                a.FullUrl == b.FullUrl,
+                a.FullUrl == b.FullUrl
+                && a.Packet == b.Packet,
             (
                 InspectionShare.NonProjectable a,
                 InspectionShare.NonProjectable b) =>
@@ -103,7 +104,7 @@ public sealed record InspectionEnvelope<TContent>
         share switch
         {
             InspectionShare.Available available =>
-                HashCode.Combine(0, available.FullUrl),
+                HashCode.Combine(0, available.FullUrl, available.Packet),
             InspectionShare.NonProjectable nonProjectable =>
                 HashCode.Combine(
                     1,
@@ -127,13 +128,25 @@ public abstract record InspectionShare
     }
 
     /// <summary>
-    /// A complete canonical production URL for the same inspection plan.
+    /// The complete canonical production URL when this Share outcome is available.
+    /// </summary>
+    public abstract string? FullUrl { get; }
+
+    /// <summary>
+    /// The canonical encoded Workspace packet when this Share outcome is available.
+    /// </summary>
+    public abstract string? Packet { get; }
+
+    /// <summary>
+    /// The complete canonical production URL and encoded Workspace packet for
+    /// the same inspection plan.
     /// </summary>
     public sealed record Available : InspectionShare
     {
-        public Available(string fullUrl)
+        public Available(string fullUrl, string packet)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(fullUrl);
+            ArgumentException.ThrowIfNullOrWhiteSpace(packet);
             if (!Uri.TryCreate(fullUrl, UriKind.Absolute, out Uri? uri)
                 || !string.Equals(
                     uri.Scheme,
@@ -146,9 +159,12 @@ public abstract record InspectionShare
             }
 
             FullUrl = fullUrl;
+            Packet = packet;
         }
 
-        public string FullUrl { get; }
+        public override string FullUrl { get; }
+
+        public override string Packet { get; }
     }
 
     /// <summary>
@@ -176,6 +192,10 @@ public abstract record InspectionShare
 
         [JsonConverter(typeof(InertStringJsonConverter))]
         public InertString Reason { get; }
+
+        public override string? FullUrl => null;
+
+        public override string? Packet => null;
     }
 }
 

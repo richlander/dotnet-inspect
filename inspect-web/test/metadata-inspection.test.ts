@@ -57,9 +57,8 @@ function metadataResult(fullName = "Example.Widget"): BrowserTypeMetadata {
         },
       },
       share: {
-        kind: "nonProjectable",
-        path: "type",
-        reason: "not available",
+        fullUrl: null,
+        packet: null,
       },
       diagnostics: [],
     },

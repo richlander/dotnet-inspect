@@ -315,6 +315,8 @@ export interface InspectionEnvelope<T0> {
     readonly diagnostics: ReadonlyArray<InspectionDiagnostic>;
 }
 export interface InspectionShare {
+    readonly fullUrl: string | null;
+    readonly packet: string | null;
 }
 export interface RowWindowFailure {
     readonly stageNumber: number;

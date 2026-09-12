@@ -24,7 +24,7 @@ outcome, and diagnostics:
 ```text
 InspectionEnvelope<TContent>
   Content: TContent
-  Share: Available(FullUrl) | NonProjectable(Path, Reason)
+  Share: Available(FullUrl, Packet) | NonProjectable(Path, Reason)
   Diagnostics
 ```
 
@@ -132,13 +132,17 @@ Every envelope has one `Share` value derived from the same resolved basis:
 
 ```text
 InspectionShare
-  = Available(FullUrl)
+  = Available(FullUrl, Packet)
   | NonProjectable(Path, Reason)
 ```
 
-`Available` contains the complete canonical production URL, including the
-canonical Workspace packet. Hosts do not rebuild it from argv, rendered
-content, display names, Browser navigation, or the current origin.
+`Available` contains both the complete canonical production URL and the
+canonical encoded Workspace packet carried by that URL. Consumers may use
+either representation or both; they do not split the URL to recover the
+packet. Hosts do not rebuild either value from argv, rendered content, display
+names, Browser navigation, or the current origin.
+The producer supplies both values when constructing `Available`; the Share
+contract does not derive one by parsing the other.
 
 `NonProjectable` identifies the semantic path and owner-issued reason that
 cannot be represented faithfully. It contains no partial URL and never drops,

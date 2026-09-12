@@ -1,3 +1,4 @@
+using System.Text.Json;
 using DotnetInspector.Core;
 using InertText;
 
@@ -19,13 +20,17 @@ public sealed class InspectionEnvelopeTests
         var envelope = new InspectionEnvelope<string>(
             "content",
             new InspectionShare.Available(
-                "https://dotnet-inspect.net/?w=encoded"),
+                "https://dotnet-inspect.net/?w=encoded",
+                "encoded"),
             [first, second]);
 
         Assert.Equal("content", envelope.Content);
         Assert.Equal(
             "https://dotnet-inspect.net/?w=encoded",
             Assert.IsType<InspectionShare.Available>(envelope.Share).FullUrl);
+        Assert.Equal(
+            "encoded",
+            Assert.IsType<InspectionShare.Available>(envelope.Share).Packet);
         Assert.Collection(
             envelope.Diagnostics,
             diagnostic =>
@@ -65,9 +70,35 @@ public sealed class InspectionEnvelopeTests
     public void AvailableShareRequiresHttpsUrl()
     {
         ArgumentException failure = Assert.Throws<ArgumentException>(
-            () => new InspectionShare.Available("http://example.test/share"));
+            () => new InspectionShare.Available(
+                "http://example.test/share",
+                "encoded"));
 
         Assert.Contains("HTTPS", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AvailableShareRequiresPacket()
+    {
+        Assert.Throws<ArgumentException>(
+            () => new InspectionShare.Available(
+                "https://dotnet-inspect.net/?w=encoded",
+                ""));
+    }
+
+    [Fact]
+    public void AvailableShareSerializesBothConsumerValues()
+    {
+        var share = new InspectionShare.Available(
+            "https://dotnet-inspect.net/?w=encoded",
+            "encoded");
+
+        string json = JsonSerializer.Serialize(
+            share,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+
+        Assert.Contains("\"fullUrl\":\"https://dotnet-inspect.net/?w=encoded\"", json);
+        Assert.Contains("\"packet\":\"encoded\"", json);
     }
 
     [Fact]

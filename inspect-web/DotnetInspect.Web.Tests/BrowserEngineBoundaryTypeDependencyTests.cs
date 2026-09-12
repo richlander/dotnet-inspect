@@ -101,8 +101,14 @@ public sealed partial class BrowserEngineBoundaryTests
             typeName,
             workspace.TypeDependencyInspection.Content
                 .QueryResult.Dependency.MatchedType);
-        Assert.IsType<InspectionShare.Available>(
-            workspace.TypeDependencyInspection.Share);
+        InspectionShare.Available share =
+            Assert.IsType<InspectionShare.Available>(
+                workspace.TypeDependencyInspection.Share);
+        Assert.Contains(
+            "?w=" + share.Packet,
+            share.FullUrl,
+            StringComparison.Ordinal);
+        Assert.NotEmpty(share.Packet);
         Assert.Empty(workspace.TypeDependencyInspection.Diagnostics);
     }
 

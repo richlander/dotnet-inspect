@@ -306,7 +306,8 @@ internal static class DependsShareProjection
 
         string encoded = WorkspaceSharePacketCodec.Encode(projection.Packet!);
         return new InspectionShare.Available(
-            WorkspaceShareOutput.UrlPrefix + encoded);
+            WorkspaceShareOutput.UrlPrefix + encoded,
+            encoded);
     }
 
     private static InspectionShare NonProjectableShare(string reason) =>
