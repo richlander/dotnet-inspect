@@ -49,7 +49,6 @@ import {
   scopedRequestState,
   searchableMemberGroups,
   sourceReloadKind,
-  sourceRequestNeedsLoad,
   spotlightCandidateKey,
   spotlightCandidateSignature,
   typeLensesFor,
@@ -187,8 +186,12 @@ import {
   graphSourceAutoLoadRequest,
   graphSourceIsOpen,
   graphSourceRequest,
+  normalizeSourceResultSnapshot,
+  sourceResultForSignature,
+  sourceResultNeedsLoad,
   type GraphSourceRequest,
   type GraphSourceState,
+  type SourceResultState,
 } from "./source-inspection.ts";
 import { renderMemberContractSections } from "./member-overview.ts";
 import {
@@ -526,7 +529,6 @@ import type {
   BrowserPackageIntegrations,
   BrowserPackageOpportunities,
 } from "./facades/inspect-web-analysis.d.ts";
-import type { BrowserSource } from "./facades/inspect-web-source.d.ts";
 import type {
   BrowserHomeDemoRunActivation,
   BrowserHomeDemoRunResult,
@@ -915,11 +917,7 @@ const initialState = {
   memberAccessibilityFilter: "all",
   memberTraitFilter: "",
   memberTextFilter: "",
-  memberSource: null,
-  memberSourceLoading: false,
-  memberSourceError: "",
-  memberSourceKey: "",
-  sourceRequestGeneration: 0,
+  memberSource: { status: "idle" as const },
   memberAnnotated: null,
   memberAnnotatedLoading: false,
   memberAnnotatedError: "",
@@ -929,10 +927,7 @@ const initialState = {
   memberAnnotatedModal: null,
   memberFindingInteraction: null,
   memberFindingSelectionError: "",
-  typeSource: null,
-  typeSourceLoading: false,
-  typeSourceError: "",
-  typeSourceKey: "",
+  typeSource: { status: "idle" as const },
   typeMetadata: null,
   typeMetadataLoading: false,
   typeMetadataError: "",
@@ -1054,12 +1049,12 @@ interface StateOverrides {
   platformSelection: PlatformNavigationState | null;
   queryNoticeRetryAction: RetryAction;
   selectedOverloadIndex: number | null;
-  memberSource: BrowserSource | null;
+  memberSource: SourceResultState;
   memberAnnotated: AnnotatedSourceResult | null;
   memberAnnotatedEmbedded: AnnotatedSourceSession | null;
   memberAnnotatedModal: AnnotatedSourceSession | null;
   memberFindingInteraction: MemberFindingInteraction | null;
-  typeSource: BrowserSource | null;
+  typeSource: SourceResultState;
   typeMetadata: BrowserTypeMetadata | null;
   packageDependencies: BrowserPackageDependencies | null;
   dependenciesGroupIndex: number | null;
@@ -1238,9 +1233,7 @@ CanonicalWorkspaceRestoreSnapshot {
 function normalizeWorkspaceAsyncSnapshotState(
   snapshotState: AppState,
 ): void {
-  const memberSourceLoading = snapshotState.memberSourceLoading;
   const memberAnnotatedLoading = snapshotState.memberAnnotatedLoading;
-  const typeSourceLoading = snapshotState.typeSourceLoading;
   const typeMetadataLoading = snapshotState.typeMetadataLoading;
   const packageDependenciesLoading = snapshotState.packageDependenciesLoading;
   const packageIntegrationsLoading = snapshotState.packageIntegrationsLoading;
@@ -1253,9 +1246,7 @@ function normalizeWorkspaceAsyncSnapshotState(
   const memberDocumentationLoading = snapshotState.memberDocumentationLoading;
 
   snapshotState.loading = false;
-  snapshotState.memberSourceLoading = false;
   snapshotState.memberAnnotatedLoading = false;
-  snapshotState.typeSourceLoading = false;
   snapshotState.typeMetadataLoading = false;
   snapshotState.packageDependenciesLoading = false;
   snapshotState.packageIntegrationsLoading = false;
@@ -1282,16 +1273,17 @@ function normalizeWorkspaceAsyncSnapshotState(
     normalizeSpotlightPackageSearchSnapshot(
       snapshotState.spotlightPackageSearch,
     );
+  snapshotState.memberSource =
+    normalizeSourceResultSnapshot(snapshotState.memberSource);
+  snapshotState.typeSource =
+    normalizeSourceResultSnapshot(snapshotState.typeSource);
   snapshotState.workspaceOccurrenceLoading = false;
   snapshotState.workspaceDependencyLoads = new Set();
-  snapshotState.sourceRequestGeneration++;
   snapshotState.typeMetadataGeneration++;
   snapshotState.memberCallGraphSeq++;
   snapshotState.graphMemberNavigationSeq++;
 
-  if (memberSourceLoading) snapshotState.memberSourceKey = "";
   if (memberAnnotatedLoading) snapshotState.memberAnnotatedKey = "";
-  if (typeSourceLoading) snapshotState.typeSourceKey = "";
   if (typeMetadataLoading) snapshotState.typeMetadataKey = "";
   if (packageDependenciesLoading) snapshotState.packageDependenciesKey = "";
   if (packageIntegrationsLoading) snapshotState.packageIntegrationsKey = "";
@@ -1323,7 +1315,6 @@ function settleInterruptedPlatformStatus(targetState: AppState): void {
 function restoreCanonicalWorkspaceRestoreSnapshot(
   snapshot: CanonicalWorkspaceRestoreSnapshot,
 ) {
-  const sourceRequestGeneration = state.sourceRequestGeneration;
   const typeMetadataGeneration = state.typeMetadataGeneration;
   const memberCallGraphSeq = state.memberCallGraphSeq;
   const graphMemberNavigationSeq = state.graphMemberNavigationSeq;
@@ -1331,8 +1322,6 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
   clearWorkspaceOccurrenceView();
   clearWorkspacePackages();
   Object.assign(state, snapshot.state);
-  state.sourceRequestGeneration =
-    Math.max(sourceRequestGeneration, snapshot.state.sourceRequestGeneration) + 1;
   state.typeMetadataGeneration =
     Math.max(typeMetadataGeneration, snapshot.state.typeMetadataGeneration) + 1;
   state.memberCallGraphSeq =
@@ -2219,8 +2208,7 @@ function applyView(view: WorkspaceView) {
     view.workspaceSubjectOpen && state.atPackageRoot;
   state.packageLens = view.packageLens ?? "overview";
   state.libraryLens = view.libraryLens ?? "overview";
-  state.memberSource = null;
-  state.memberSourceError = "";
+  state.memberSource = { status: "idle" };
   state.memberCallGraph = null;
   state.memberCallGraphError = "";
   state.memberCallGraphKey = "";
@@ -3965,8 +3953,7 @@ function currentSourceReloadKind() {
 
 function clearMemberContentCache() {
   invalidateMemberDestinationWork(state);
-  state.memberSource = null;
-  state.memberSourceError = "";
+  state.memberSource = { status: "idle" };
   state.memberCallGraph = null;
   state.memberCallGraphError = "";
   state.memberCallGraphKey = "";
@@ -4517,10 +4504,13 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     : "";
   const sourcePageSource =
     sourcePageKind === "member"
-      ? state.memberSource
+      ? state.memberSource.status === "ready"
+        ? state.memberSource.source
+        : null
       : sourcePageKind === "type"
-        && state.typeSourceKey === currentTypeSourceSignature
-        ? state.typeSource
+        ? sourceResultForSignature(
+            state.typeSource,
+            currentTypeSourceSignature)
         : null;
   const sourceWorkingSurface =
     sourcePageKind !== null && sourcePageSource !== null;
@@ -4822,11 +4812,7 @@ function maybeAutoLoadVisibleSource() {
   const pkg = currentPackage();
   if (kind === "type") {
     const signature = typeSourceSignature(type, pkg, state.taste, memberRequestKey);
-    if (sourceRequestNeedsLoad(
-        state.typeSourceKey === signature,
-        state.typeSourceLoading,
-        state.typeSource,
-        state.typeSourceError)) {
+    if (sourceResultNeedsLoad(state.typeSource, signature)) {
       observeAsync(loadSelectedTypeSource(), "Loading type source");
     }
     return;
@@ -4838,11 +4824,7 @@ function maybeAutoLoadVisibleSource() {
       : undefined;
     if (!member || !overload) return;
     const signature = memberRequestSignature(type, overload, false, true);
-    if (sourceRequestNeedsLoad(
-        state.memberSourceKey === signature,
-        state.memberSourceLoading,
-        state.memberSource,
-        state.memberSourceError)) {
+    if (sourceResultNeedsLoad(state.memberSource, signature)) {
       observeAsync(loadSelectedMemberSource(), "Loading member source");
     }
   }
@@ -6384,10 +6366,29 @@ function renderTypeSourceHtml(item: AppTypeSurface) {
   return renderTypeSource({
     item,
     currentSignature,
-    sourceState: state,
+    sourceState: state.typeSource,
     escapeHtml,
     highlightCSharp,
   });
+}
+
+function renderMemberSourceHtml() {
+  switch (state.memberSource.status) {
+    case "idle":
+      return `<section class="document-section empty-member-section"><h2>Source query failed</h2><p>No source result was returned.</p></section>`;
+    case "loading":
+      return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p></section>`;
+    case "ready":
+      return renderSourceResult({
+        source: state.memberSource.source,
+        escapeHtml,
+        highlightCSharp,
+      });
+    case "failed":
+      return `<section class="document-section empty-member-section"><h2>Source query failed</h2><p>${escapeHtml(state.memberSource.error || "No source result was returned.")}</p></section>`;
+    default:
+      return assertNever(state.memberSource, "member source result state");
+  }
 }
 
 function currentPendingGraphMember() {
@@ -6663,15 +6664,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
         ? renderAnnotatedSource(state.memberAnnotated)
         : `<section class="document-section empty-member-section"><h2>Annotated source query failed</h2><p>${escapeHtml(state.memberAnnotatedError || "No annotated source result was returned.")}</p></section>`);
   } else if (state.memberSection === "source") {
-    content = state.memberSourceLoading
-      ? `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p></section>`
-      : state.memberSource
-        ? renderSourceResult({
-            source: state.memberSource,
-            escapeHtml,
-            highlightCSharp,
-          })
-        : `<section class="document-section empty-member-section"><h2>Source query failed</h2><p>${escapeHtml(state.memberSourceError || "No source result was returned.")}</p></section>`;
+    content = renderMemberSourceHtml();
   } else {
     assertNever(state.memberSection, "member section");
   }
@@ -7044,8 +7037,8 @@ function bindTypePanelEvents() {
       if (value) void copyText(value, `${anchor} copied`);
     },
     onCopyMemberSource: () => {
-      if (state.memberSource)
-        void copyText(state.memberSource.text, "source copied");
+      if (state.memberSource.status === "ready")
+        void copyText(state.memberSource.source.text, "source copied");
     },
     onCopySignature: () => {
       const type = selectedType();
@@ -7055,8 +7048,8 @@ function bindTypePanelEvents() {
         void copyText(overload.signature, "signature copied");
     },
     onCopyTypeSource: () => {
-      if (state.typeSource)
-        void copyText(state.typeSource.text, "source copied");
+      if (state.typeSource.status === "ready")
+        void copyText(state.typeSource.source.text, "source copied");
     },
     onKindSelect: kind => {
       state.kindFilter = kind;
@@ -9117,8 +9110,7 @@ async function pickSpotlight(
   state.selectedOverloadIndex = null;
   state.memberSection = "overview";
   state.selectedBodyTarget = null;
-  state.memberSource = null;
-  state.memberSourceError = "";
+  state.memberSource = { status: "idle" };
   state.memberCallGraph = null;
   state.memberCallGraphKey = "";
   state.memberCallGraphError = "";
@@ -9827,9 +9819,7 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
-  state.memberSource = null;
-  state.memberSourceError = "";
-  state.memberSourceKey = "";
+  state.memberSource = { status: "idle" };
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
   state.memberFindingInteraction = null;
@@ -11601,7 +11591,6 @@ async function loadSelectedMemberSource() {
   const type = selectedType();
   const member = selectedMember(type);
   if (!type || !member) {
-    state.memberSourceError = "Select a concrete overload before opening Source.";
     render();
     return;
   }
@@ -13500,8 +13489,7 @@ function navigateToRuntimeMember(
   state.platformStack = [];
   state.platformDrillLoading = false;
   state.platformDrillError = "";
-  state.memberSource = null;
-  state.memberSourceError = "";
+  state.memberSource = { status: "idle" };
   state.memberCallGraph = null;
   state.memberCallGraphError = "";
   state.memberCallGraphKey = "";
@@ -13625,12 +13613,8 @@ function renderDocViewer() {
 
 function invalidateSourceCaches() {
   invalidateSourceDestinationWork(state);
-  state.memberSource = null;
-  state.memberSourceKey = "";
-  state.memberSourceError = "";
-  state.typeSource = null;
-  state.typeSourceKey = "";
-  state.typeSourceError = "";
+  state.memberSource = { status: "idle" };
+  state.typeSource = { status: "idle" };
   state.memberAnnotated = null;
   state.memberAnnotatedKey = "";
   state.memberAnnotatedError = "";
@@ -13813,8 +13797,7 @@ function navigateToMember(
   state.selectedMemberKey = group.key;
   state.selectedOverloadIndex = overloadIndex;
   state.memberSection = section;
-  state.memberSource = null;
-  state.memberSourceError = "";
+  state.memberSource = { status: "idle" };
   state.memberCallGraph = null;
   state.memberCallGraphError = "";
   state.memberCallGraphKey = "";

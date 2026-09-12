@@ -27,10 +27,8 @@ function fixture() {
   const state: SourceInspectionState = {
     settings: false, explorer: null, loading: false, error: "", home: false,
     package: {}, atPackageRoot: false, lens: "source", selectedMemberKey: "",
-    memberSection: "overview", sourceRequestGeneration: 0,
-    memberSource: null, memberSourceLoading: false, memberSourceError: "",
-    memberSourceKey: "", typeSource: null, typeSourceLoading: false,
-    typeSourceError: "", typeSourceKey: "",
+    memberSection: "overview",
+    memberSource: { status: "idle" }, typeSource: { status: "idle" },
     graphSource: { status: "closed" }, taste: [],
   };
   const queries = new Map<OperationId, ReturnType<typeof deferred<BrowserTypeSourceResult>>>();
@@ -92,10 +90,13 @@ function succeeded(text: string): BrowserTypeSourceResult {
   };
 }
 
-function failed(kind: "Expected" | "Unexpected"): BrowserTypeSourceResult {
+function failed(
+  kind: "Expected" | "Unexpected",
+  error = "source unavailable",
+): BrowserTypeSourceResult {
   return {
     version: 1, kind: "Failed", value: null, failureKind: kind,
-    error: "source unavailable", diagnostic: "producer detail", reason: null,
+    error, diagnostic: "producer detail", reason: null,
   };
 }
 
@@ -107,8 +108,9 @@ test("type requests forward page identity and exact reason without legacy cancel
   assert.deepEqual(f.cancellations, [[a.id, "superseded"]]);
   a.query.resolve(succeeded("stale"));
   await a.load;
-  assert.equal(f.state.typeSource, null);
-  assert.equal(f.state.typeSourceLoading, true);
+  assert.deepEqual(
+    f.state.typeSource,
+    { status: "loading", signature: "B" });
   assert.equal(f.coordinator.cancelCurrentRequest(), true);
   assert.equal(f.coordinator.cancelCurrentRequest(), false);
   assert.deepEqual(f.cancellations, [[a.id, "superseded"], [b.id, "user"]]);
@@ -124,8 +126,7 @@ test("type requests forward page identity and exact reason without legacy cancel
     value: null, failureKind: null, error: null, diagnostic: null });
   await b.load;
   assert.equal(quiesced, true);
-  assert.equal(f.state.typeSource, null);
-  assert.equal(f.state.typeSourceError, "");
+  assert.deepEqual(f.state.typeSource, { status: "idle" });
 });
 
 for (const kind of ["Expected", "Unexpected"] as const) {
@@ -134,8 +135,11 @@ for (const kind of ["Expected", "Unexpected"] as const) {
     const operation = f.start("A");
     operation.query.resolve(failed(kind));
     await operation.load;
-    assert.equal(f.state.typeSourceError, "source unavailable");
-    assert.equal(f.state.typeSourceLoading, false);
+    assert.deepEqual(f.state.typeSource, {
+      status: "failed",
+      signature: "A",
+      error: "source unavailable",
+    });
     assert.equal(f.diagnostics.length, kind === "Unexpected" ? 1 : 0);
     if (kind === "Unexpected")
       assert.equal(f.diagnostics[0]?.error, "producer detail");
@@ -147,14 +151,32 @@ for (const kind of ["Expected", "Unexpected"] as const) {
     const b = f.start("B");
     a.query.resolve(failed(kind));
     await a.load;
-    assert.equal(f.state.typeSourceError, "");
-    assert.equal(f.state.typeSourceKey, "B");
+    assert.deepEqual(
+      f.state.typeSource,
+      { status: "loading", signature: "B" });
     assert.equal(f.diagnostics.length, kind === "Unexpected" ? 1 : 0);
     b.query.resolve(succeeded("current"));
     await b.load;
-    assert.equal(f.state.typeSource?.text, "current");
+    assert.equal(
+      f.state.typeSource.status === "ready"
+        ? f.state.typeSource.source.text
+        : undefined,
+      "current");
   });
 }
+
+test("empty managed failure remains a settled Type Source result", async () => {
+  const f = fixture();
+  const operation = f.start("A");
+  operation.query.resolve(failed("Expected", ""));
+  await operation.load;
+
+  assert.deepEqual(f.state.typeSource, {
+    status: "failed",
+    signature: "A",
+    error: "",
+  });
+});
 
 for (const canceled of [false, true]) {
   test(`Promise rejection is a visible boundary diagnostic even after cancellation=${canceled}`, async () => {
@@ -167,8 +189,11 @@ for (const canceled of [false, true]) {
     assert.equal(f.diagnostics.length, 1);
     assert.equal(f.diagnostics[0]?.operationId, operation.id);
     assert.equal(f.diagnostics[0]?.error, error);
-    assert.equal(f.state.typeSourceError, canceled ? "" : error.message);
-    assert.equal(f.state.typeSourceLoading, false);
+    assert.deepEqual(
+      f.state.typeSource,
+      canceled
+        ? { status: "idle" }
+        : { status: "failed", signature: "A", error: error.message });
   });
 }
 
@@ -180,8 +205,11 @@ test("late Promise rejection cannot affect a successful replacement", async () =
   await b.load;
   a.query.reject(new Error("interop failed"));
   await a.load;
-  assert.equal(f.state.typeSource?.text, "B");
-  assert.equal(f.state.typeSourceError, "");
+  assert.equal(
+    f.state.typeSource.status === "ready"
+      ? f.state.typeSource.source.text
+      : undefined,
+    "B");
   assert.equal(f.diagnostics.length, 1);
   assert.equal(f.diagnostics[0]?.operationId, a.id);
 });
@@ -192,9 +220,7 @@ test("managed cancellation reaches the logical authority without an error", asyn
   operation.query.resolve({ version: 1, kind: "Canceled", reason: "superseded",
     value: null, failureKind: null, error: null, diagnostic: null });
   await operation.load;
-  assert.equal(f.state.typeSourceError, "");
-  assert.equal(f.state.typeSourceKey, "");
-  assert.equal(f.state.typeSourceLoading, false);
+  assert.deepEqual(f.state.typeSource, { status: "idle" });
   assert.equal(f.diagnostics.length, 0);
 });
 
@@ -219,7 +245,7 @@ test("legacy graph takeover preserves graph output and keyed type cancellation",
       ? f.state.graphSource.source.text
       : undefined,
     "graph");
-  assert.equal(f.state.typeSource, null);
+  assert.deepEqual(f.state.typeSource, { status: "idle" });
   assert.equal(f.diagnostics.length, 1);
   assert.equal(f.legacyCancellations(), 0);
 });
@@ -229,7 +255,11 @@ test("malformed terminal payload is a boundary failure, not an empty success", a
   const operation = f.start("A");
   operation.query.resolve({ ...succeeded("A"), value: null });
   await operation.load;
-  assert.equal(f.state.typeSource, null);
-  assert.match(f.state.typeSourceError, /has no source/);
+  assert.equal(f.state.typeSource.status, "failed");
+  assert.match(
+    f.state.typeSource.status === "failed"
+      ? f.state.typeSource.error
+      : "",
+    /has no source/);
   assert.equal(f.diagnostics.length, 1);
 });
