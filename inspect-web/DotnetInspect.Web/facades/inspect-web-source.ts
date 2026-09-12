@@ -17,7 +17,7 @@ export type BrowserTypeSourceResultKind = "Succeeded" | "Failed" | "Canceled" | 
 export type JsonValueKind = number;
 
 export interface BrowserAnnotatedSource {
-  readonly document: JsonElement;
+  readonly document: unknown;
   readonly viewerCatalog: BrowserAnnotatedSourceViewerCatalog;
   readonly provenance: string;
   readonly contextLimitation: string | null;
@@ -306,10 +306,6 @@ export interface BrowserTypeSourceResult {
   readonly error: string | null;
   readonly diagnostic: string | null;
   readonly reason: string | null;
-}
-
-export interface JsonElement {
-  readonly valueKind: JsonValueKind;
 }
 
 type $ManagedExports = {

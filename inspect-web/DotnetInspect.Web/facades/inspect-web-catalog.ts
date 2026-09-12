@@ -270,7 +270,7 @@ export interface BrowserVocabularySection {
   readonly summary: string;
   readonly accepted_by: ReadonlyArray<string>;
   readonly fields: ReadonlyArray<BrowserVocabularyField>;
-  readonly values: ReadonlyArray<JsonElement>;
+  readonly values: ReadonlyArray<unknown>;
 }
 
 export interface BrowserWorkspaceShareContext {
@@ -320,10 +320,6 @@ export interface BrowserWorkspaceShareView {
   readonly memberSignature: string | null;
   readonly section: string | null;
   readonly libraries: ReadonlyArray<string>;
-}
-
-export interface JsonElement {
-  readonly valueKind: JsonValueKind;
 }
 
 type $ManagedExports = {

@@ -37,14 +37,27 @@ function metadataResult(fullName = "Example.Widget"): BrowserTypeMetadata {
     graphEdges: [],
     typeDependencyInspection: {
       content: {
-        found: false,
-        matchedType: null,
-        relationships: [],
-        isComplete: true,
+        queryResult: {
+          dependency: {
+            found: false,
+            matchedType: null,
+            tree: [],
+            relationships: [],
+            depthBoundaries: [],
+            rejections: [],
+          },
+          participants: [],
+          hasSurvivingParticipant: false,
+          isComplete: true,
+        },
+        rowSelection: {
+          isSuccess: true,
+          relationships: [],
+          failure: null,
+        },
       },
       share: {
-        kind: "NonProjectable",
-        fullUrl: null,
+        kind: "nonProjectable",
         path: "type",
         reason: "not available",
       },

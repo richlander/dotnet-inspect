@@ -733,6 +733,7 @@ static class DtsEmitter
         ApiType type) =>
         type.FullName is not "InertText.InertString"
         and not "System.Collections.Immutable.ImmutableArray`1"
+        and not "System.Text.Json.JsonElement"
         && (!surface.WireDirections.TryGetValue(
             type,
             out JsonWireDirection directions)

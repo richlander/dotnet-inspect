@@ -239,7 +239,7 @@ export interface BrowserVocabularySection {
     readonly summary: string;
     readonly accepted_by: ReadonlyArray<string>;
     readonly fields: ReadonlyArray<BrowserVocabularyField>;
-    readonly values: ReadonlyArray<JsonElement>;
+    readonly values: ReadonlyArray<unknown>;
 }
 export interface BrowserWorkspaceShareContext {
     readonly id: string;
@@ -282,9 +282,6 @@ export interface BrowserWorkspaceShareView {
     readonly memberSignature: string | null;
     readonly section: string | null;
     readonly libraries: ReadonlyArray<string>;
-}
-export interface JsonElement {
-    readonly valueKind: JsonValueKind;
 }
 export interface JsExportRuntime {
     readonly getAssemblyExports: (assemblyName: string) => Promise<unknown>;
