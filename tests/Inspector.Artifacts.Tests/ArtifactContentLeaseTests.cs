@@ -31,6 +31,7 @@ public sealed partial class ArtifactSetSessionTests
                 query);
         using ArtifactContentLease content =
             session.IssueContentLease(reference, query);
+        Assert.Same(reference, content.Reference);
 
         ArtifactQueryAuthorization replacement =
             session.ReplaceQueryAuthorization(authorization);
@@ -49,6 +50,9 @@ public sealed partial class ArtifactSetSessionTests
                     content.WithContent(
                         (view, _) =>
                         {
+                            Assert.Same(
+                                reference,
+                                view.Reference);
                             Assert.Same(
                                 reference.Descriptor.Identity,
                                 view.Artifact);

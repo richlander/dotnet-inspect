@@ -176,7 +176,11 @@ public sealed class CompileReferenceInventory
                 ArtifactContentReference content = owner.GetContentReference(input.Artifact, lease);
                 ResolvedAssemblyReference? assembly =
                     ResolvedAssemblyReference.CreateFromArtifactIfManaged(
-                        content.Registration, content.OpenRead, input.Provenance);
+                        content.Registration,
+                        () => owner.OpenRead(
+                            content.Descriptor.Identity,
+                            lease),
+                        input.Provenance);
                 if (assembly is null)
                     return Reject(CompileReferenceFailureKind.ReferenceImageInvalid, input.Artifact);
 

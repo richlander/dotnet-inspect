@@ -1804,7 +1804,9 @@ public sealed class InspectionWorkspaceTests
         ResolvedAssemblyReference assembly =
             ResolvedAssemblyReference.CreateFromArtifactIfManaged(
                 content.Registration,
-                content.OpenRead,
+                () => session.OpenRead(
+                    content.Descriptor.Identity,
+                    queryLease),
                 AssemblyResolutionProvenance.Local(
                     "artifact workspace test"))
             ?? throw new InvalidOperationException(

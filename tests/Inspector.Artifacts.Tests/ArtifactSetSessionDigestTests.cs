@@ -25,8 +25,11 @@ public sealed partial class ArtifactSetSessionTests
         using ArtifactQueryLease anotherLease =
             session.IssueLease(session.CreateQueryAuthorization());
         ArtifactContentDigest second = AccessedDigest(
-            session.GetContentReference(identity, anotherLease)
-                .GetContentDigest(charges.Add, TestContext.Current.CancellationToken));
+            session.GetContentDigest(
+                identity,
+                anotherLease,
+                charges.Add,
+                TestContext.Current.CancellationToken));
 
         Assert.Equal("SHA-256", first.Algorithm);
         Assert.Equal(expectedHash, first.HexValue);
@@ -145,14 +148,17 @@ public sealed partial class ArtifactSetSessionTests
     }
 
     [Fact]
-    public async Task Digest_ReferenceRevalidatesAndAuthorizesBeforeLookup()
+    public async Task Digest_QueryAuthorityRevalidatesBeforeLookup()
     {
         await using var session = new ArtifactSetSession();
         ArtifactIdentity identity = await PublishDigestFixture(session, [1]);
         ArtifactQueryAuthorization authorization = session.CreateQueryAuthorization();
         using ArtifactQueryLease lease = session.IssueLease(authorization);
-        ArtifactContentReference reference = session.GetContentReference(identity, lease);
-        AccessedDigest(reference.GetContentDigest(_ => { }, TestContext.Current.CancellationToken));
+        AccessedDigest(session.GetContentDigest(
+            identity,
+            lease,
+            _ => { },
+            TestContext.Current.CancellationToken));
         await using var other = new ArtifactSetSession();
         ArtifactIdentity unknown = await PublishDigestFixture(other, [2]);
 
@@ -160,9 +166,67 @@ public sealed partial class ArtifactSetSessionTests
             () => session.GetContentDigest(unknown, lease, _ => { }, TestContext.Current.CancellationToken));
         session.Revoke(authorization);
         Assert.IsType<ArtifactContentAccessOutcome<ArtifactContentDigest>.Unauthorized>(
-            reference.GetContentDigest(_ => Assert.Fail("Unauthorized charge."), TestContext.Current.CancellationToken));
-        Assert.IsType<ArtifactContentAccessOutcome<ArtifactContentDigest>.Unauthorized>(
             session.GetContentDigest(unknown, lease, _ => Assert.Fail("Unauthorized charge."), TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task Digest_ContentLeaseRemainsAuthorityAfterQueryReplacementAndRetirement()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        var acquisitionLease = new TrackingLease();
+        await using var session = new ArtifactSetSession();
+        await session.AddRequiredAcquisitionAsync(
+            (scope, _) => Acquired(
+                scope,
+                new Provenance("digest"),
+                [1, 2],
+                acquisitionLease),
+            cancellationToken: cancellationToken);
+        Assert.IsType<ArtifactSetPublicationOutcome.Published>(
+            await session.SealAsync(cancellationToken));
+        ArtifactQueryAuthorization authorization =
+            session.CreateQueryAuthorization();
+        using ArtifactQueryLease query =
+            session.IssueLease(authorization);
+        ArtifactIdentity identity =
+            Assert.Single(session.GetCatalog(query)).Identity;
+        ArtifactContentReference reference =
+            session.GetContentReference(identity, query);
+        using ArtifactContentLease content =
+            session.IssueContentLease(reference, query);
+        session.ReplaceQueryAuthorization(authorization);
+        var charges = new List<long>();
+
+        Assert.IsType<
+            ArtifactContentAccessOutcome<ArtifactContentDigest>.Unauthorized>(
+                session.GetContentDigest(
+                    identity,
+                    query,
+                    _ => Assert.Fail("Stale query authority was charged."),
+                    cancellationToken));
+        ArtifactContentDigest digest =
+            AccessedDigest(content.GetContentDigest(
+                charges.Add,
+                cancellationToken));
+
+        Task disposal = session.DisposeAsync().AsTask();
+        Assert.False(disposal.IsCompleted);
+        Assert.Same(
+            digest,
+            AccessedDigest(content.GetContentDigest(
+                _ => Assert.Fail("Cached content authority was charged."),
+                cancellationToken)));
+        Assert.Equal([2L], charges);
+        Assert.Equal(0, acquisitionLease.DisposeCount);
+
+        content.Dispose();
+        await disposal.WaitAsync(cancellationToken);
+        Assert.Equal(1, acquisitionLease.DisposeCount);
+        Assert.Throws<ObjectDisposedException>(
+            () => content.GetContentDigest(
+                _ => Assert.Fail("Released content authority was charged."),
+                cancellationToken));
     }
 
     [Fact]

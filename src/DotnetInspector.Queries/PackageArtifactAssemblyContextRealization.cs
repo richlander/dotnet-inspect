@@ -136,6 +136,8 @@ public sealed partial class InspectionWorkspace
                 CreateArtifactRole(
                     preparation.SurfaceAssets,
                     contentByAsset,
+                    session,
+                    queryLease,
                     cancellationToken);
             ImmutableArray<RoleAssembly> implementationRole =
                 preparation.Shared
@@ -143,6 +145,8 @@ public sealed partial class InspectionWorkspace
                     : CreateArtifactRole(
                         preparation.ImplementationAssets,
                         contentByAsset,
+                        session,
+                        queryLease,
                         cancellationToken);
             realization = CreatePackageAssemblyContextRealization(
                 preparation,
@@ -310,6 +314,8 @@ public sealed partial class InspectionWorkspace
         ImmutableArray<RoleAsset> assets,
         IReadOnlyDictionary<RoleAsset, ProjectedPackageArtifact>
             contentByAsset,
+        ArtifactSetSession session,
+        ArtifactQueryLease queryLease,
         CancellationToken cancellationToken)
     {
         var result =
@@ -320,6 +326,8 @@ public sealed partial class InspectionWorkspace
             RoleAsset asset = assets[index];
             ResolvedAssemblyReference assembly = CreatePackageArtifactAssembly(
                 contentByAsset[asset],
+                session,
+                queryLease,
                 PackageProvenance(asset),
                 index,
                 out bool identityDecoded);
@@ -336,6 +344,8 @@ public sealed partial class InspectionWorkspace
 
     static ResolvedAssemblyReference CreatePackageArtifactAssembly(
         ProjectedPackageArtifact artifact,
+        ArtifactSetSession session,
+        ArtifactQueryLease queryLease,
         AssemblyResolutionProvenance provenance,
         int index,
         out bool identityDecoded)
@@ -346,14 +356,24 @@ public sealed partial class InspectionWorkspace
         {
             identityDecoded = true;
             return ResolvedAssemblyReference.CreateFromArtifactProjection(
-                content.Registration, projected.Value, content.OpenRead, provenance);
+                content.Registration,
+                projected.Value,
+                () => session.OpenRead(
+                    content.Descriptor.Identity,
+                    queryLease),
+                provenance);
         }
 
         // Preserve partially decoded identity as well as Metadata's rejection carrier.
         ResolvedAssemblyReference assembly =
             ResolvedAssemblyReference.CreateFromArtifactWithFallbackIdentity(
-                content.Registration, content.OpenRead, RejectionCarrierIdentity(index),
-                provenance, out bool usedFallbackIdentity);
+                content.Registration,
+                () => session.OpenRead(
+                    content.Descriptor.Identity,
+                    queryLease),
+                RejectionCarrierIdentity(index),
+                provenance,
+                out bool usedFallbackIdentity);
         identityDecoded = !usedFallbackIdentity;
         return assembly;
     }
@@ -494,8 +514,10 @@ public sealed partial class InspectionWorkspace
             {
                 foreach (ArtifactDescriptor artifact in Session.GetCatalog(QueryLease!))
                 {
-                    using Stream content = Session.GetContentReference(
-                        artifact.Identity, QueryLease!).OpenRead();
+                    using Stream content =
+                        Session.OpenRead(
+                            artifact.Identity,
+                            QueryLease!);
                     bytes = checked(bytes + content.Length);
                 }
             }

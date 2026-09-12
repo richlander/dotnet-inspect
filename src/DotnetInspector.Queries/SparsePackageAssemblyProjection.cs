@@ -508,6 +508,8 @@ public sealed partial class InspectionWorkspace
                     queryLease);
             ResolvedAssemblyReference assembly = SparseAssembly(
                 reference,
+                session,
+                queryLease,
                 package,
                 selectedAsset,
                 admission!,
@@ -630,6 +632,8 @@ public sealed partial class InspectionWorkspace
 
     ResolvedAssemblyReference SparseAssembly(
         ArtifactContentReference reference,
+        ArtifactSetSession session,
+        ArtifactQueryLease queryLease,
         PackageRootBinding package,
         PackageCompileAsset selectedAsset,
         ArtifactAssemblyProjectionOutcome admission,
@@ -648,7 +652,9 @@ public sealed partial class InspectionWorkspace
             return ResolvedAssemblyReference.CreateFromArtifactProjection(
                 reference.Registration,
                 projected.Value,
-                reference.OpenRead,
+                () => session.OpenRead(
+                    reference.Descriptor.Identity,
+                    queryLease),
                 provenance);
         }
 
@@ -658,7 +664,9 @@ public sealed partial class InspectionWorkspace
         ResolvedAssemblyReference carrier = ResolvedAssemblyReference
             .CreateFromArtifactWithFallbackIdentity(
                 reference.Registration,
-                reference.OpenRead,
+                () => session.OpenRead(
+                    reference.Descriptor.Identity,
+                    queryLease),
                 new AssemblyReferenceIdentity(
                     SparseRejectionCarrierName,
                     Version: null,

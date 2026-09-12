@@ -140,7 +140,8 @@ public sealed class ArtifactSetSession : IAsyncDisposable
     private readonly List<ArtifactSetAdmissionFailure> _failures = [];
     private readonly HashSet<IArtifactAcquisitionLease> _leases =
         new(ReferenceEqualityComparer.Instance);
-    private readonly HashSet<ArtifactContentLease> _contentLeases =
+    private readonly Dictionary<ArtifactContentLease, PublishedArtifact>
+        _contentLeases =
         new(ReferenceEqualityComparer.Instance);
     private IReadOnlyList<ArtifactDescriptor>? _catalog;
     private Dictionary<ArtifactIdentity, PublishedArtifact>? _artifacts;
@@ -1043,7 +1044,7 @@ public sealed class ArtifactSetSession : IAsyncDisposable
     }
 
     /// <summary>
-    /// Projects one published artifact into an owner-bound content reference.
+    /// Projects one published artifact into a resource-free content reference.
     /// </summary>
     public ArtifactContentReference GetContentReference(
         ArtifactIdentity identity,
@@ -1055,11 +1056,7 @@ public sealed class ArtifactSetSession : IAsyncDisposable
         {
             EnsurePublished();
             _authority.ValidateQueryLease(lease);
-            PublishedArtifact artifact = FindArtifact(identity);
-            return new ArtifactContentReference(
-                this,
-                artifact.Descriptor,
-                lease);
+            return FindArtifact(identity).Reference;
         }
     }
 
@@ -1076,18 +1073,10 @@ public sealed class ArtifactSetSession : IAsyncDisposable
         {
             EnsurePublished();
             _authority.ValidateQueryLease(lease);
-            if (!ReferenceEquals(reference.Owner, this))
-            {
-                throw new ArgumentException(
-                    "The artifact content reference belongs to another session.",
-                    nameof(reference));
-            }
-
-            PublishedArtifact artifact =
-                FindArtifact(reference.Descriptor.Identity);
-            if (!ReferenceEquals(
-                    artifact.Descriptor,
-                    reference.Descriptor))
+            if (!_artifacts!.TryGetValue(
+                    reference.Descriptor.Identity,
+                    out PublishedArtifact? artifact)
+                || !ReferenceEquals(artifact.Reference, reference))
             {
                 throw new ArgumentException(
                     "The artifact content reference does not match the published content.",
@@ -1104,9 +1093,9 @@ public sealed class ArtifactSetSession : IAsyncDisposable
 
             var contentLease = new ArtifactContentLease(
                 this,
-                artifact.Descriptor.Identity,
+                artifact.Reference,
                 artifact.Content.Snapshot);
-            _contentLeases.Add(contentLease);
+            _contentLeases.Add(contentLease, artifact);
             return contentLease;
         }
     }
@@ -1121,7 +1110,7 @@ public sealed class ArtifactSetSession : IAsyncDisposable
         lock (_gate)
         {
             if (!lease.IsOwnedBy(this)
-                || !_contentLeases.Contains(lease))
+                || !_contentLeases.ContainsKey(lease))
             {
                 throw new ObjectDisposedException(
                     nameof(ArtifactContentLease));
@@ -1136,7 +1125,7 @@ public sealed class ArtifactSetSession : IAsyncDisposable
         {
             TResult result = callback(
                 new ArtifactContentView(
-                    lease.Artifact,
+                    lease.Reference,
                     snapshot.AsSpan()),
                 cancellationToken);
             return new ArtifactContentAccessOutcome<TResult>.Accessed(
@@ -1165,7 +1154,7 @@ public sealed class ArtifactSetSession : IAsyncDisposable
         {
             if (!lease.IsOwnedBy(this))
                 return;
-            if (!_contentLeases.Contains(lease))
+            if (!_contentLeases.ContainsKey(lease))
             {
                 throw new InvalidOperationException(
                     "The artifact content lease is not registered with its owner.");
@@ -1217,7 +1206,7 @@ public sealed class ArtifactSetSession : IAsyncDisposable
         {
             EnsurePublished();
             _authority.ValidateQueryLease(lease);
-            return FindArtifact(identity).Roles.Contains(role);
+            return FindArtifact(identity).Reference.HasRole(role);
         }
     }
 
@@ -1276,7 +1265,42 @@ public sealed class ArtifactSetSession : IAsyncDisposable
 
         return artifact.Content.WithQueryContent(
             lease,
-            (view, token) => artifact.GetDigest(view, chargeWork, token),
+            (view, token) => artifact.GetDigest(
+                view.Artifact,
+                view.Content,
+                chargeWork,
+                token),
+            cancellationToken);
+    }
+
+    internal ArtifactContentAccessOutcome<ArtifactContentDigest>
+        GetContentDigest(
+        ArtifactContentLease lease,
+        Action<long> chargeWork,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(lease);
+        ArgumentNullException.ThrowIfNull(chargeWork);
+        cancellationToken.ThrowIfCancellationRequested();
+        PublishedArtifact artifact;
+        lock (_gate)
+        {
+            if (!lease.IsOwnedBy(this)
+                || !_contentLeases.TryGetValue(
+                    lease,
+                    out artifact!))
+            {
+                throw new ObjectDisposedException(
+                    nameof(ArtifactContentLease));
+            }
+        }
+
+        return lease.WithContent(
+            (view, token) => artifact.GetDigest(
+                view.Artifact,
+                view.Content,
+                chargeWork,
+                token),
             cancellationToken);
     }
 
@@ -1538,13 +1562,13 @@ public sealed class ArtifactSetSession : IAsyncDisposable
             _authority.CreateRetainedContent(
                 contribution.Registration,
                 ImmutableCollectionsMarshal.AsImmutableArray(snapshot));
-        return new PublishedArtifact(
+        var reference = new ArtifactContentReference(
             contribution.Descriptor,
             contribution.Registration,
+            [.. roles]);
+        return new PublishedArtifact(
+            reference,
             retained,
-            new HashSet<ArtifactWorkspaceRole>(
-                roles,
-                ReferenceEqualityComparer.Instance),
             snapshot.LongLength);
     }
 
@@ -2058,17 +2082,20 @@ public sealed class ArtifactSetSession : IAsyncDisposable
     }
 
     private sealed record PublishedArtifact(
-        ArtifactDescriptor Descriptor,
-        ArtifactAcquisitionRegistration Registration,
+        ArtifactContentReference Reference,
         RetainedArtifactContent Content,
-        HashSet<ArtifactWorkspaceRole> Roles,
         long RetainedBytes)
     {
         private readonly object _digestGate = new();
         private ArtifactContentDigest? _digest;
 
+        public ArtifactDescriptor Descriptor => Reference.Descriptor;
+        public ArtifactAcquisitionRegistration Registration =>
+            Reference.Registration;
+
         public ArtifactContentDigest GetDigest(
-            scoped ArtifactQueryContentView view,
+            ArtifactIdentity artifact,
+            ReadOnlySpan<byte> content,
             Action<long> chargeWork,
             CancellationToken cancellationToken)
         {
@@ -2078,10 +2105,10 @@ public sealed class ArtifactSetSession : IAsyncDisposable
                 if (_digest is not null)
                     return _digest;
 
-                chargeWork(view.Content.Length);
+                chargeWork(content.Length);
                 string hexValue = Convert.ToHexStringLower(
-                    SHA256.HashData(view.Content));
-                _digest = new ArtifactContentDigest(view.Artifact, hexValue);
+                    SHA256.HashData(content));
+                _digest = new ArtifactContentDigest(artifact, hexValue);
                 return _digest;
             }
         }

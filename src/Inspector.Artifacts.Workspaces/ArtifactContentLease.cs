@@ -15,15 +15,16 @@ public sealed class ArtifactContentLease : IDisposable
 
     internal ArtifactContentLease(
         ArtifactSetSession owner,
-        ArtifactIdentity artifact,
+        ArtifactContentReference reference,
         ImmutableArray<byte> snapshot)
     {
         _owner = owner;
-        Artifact = artifact;
+        Reference = reference;
         _snapshot = snapshot;
     }
 
-    public ArtifactIdentity Artifact { get; }
+    public ArtifactContentReference Reference { get; }
+    public ArtifactIdentity Artifact => Reference.Descriptor.Identity;
     public ArtifactGenerationIdentity Generation => Artifact.Generation;
 
     /// <summary>
@@ -41,6 +42,24 @@ public sealed class ArtifactContentLease : IDisposable
         return owner.WithContent(
             this,
             callback,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Computes or reuses the digest for this lease's exact retained content.
+    /// </summary>
+    public ArtifactContentAccessOutcome<ArtifactContentDigest> GetContentDigest(
+        Action<long> chargeWork,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(chargeWork);
+        ArtifactSetSession owner =
+            Volatile.Read(ref _owner)
+            ?? throw new ObjectDisposedException(
+                nameof(ArtifactContentLease));
+        return owner.GetContentDigest(
+            this,
+            chargeWork,
             cancellationToken);
     }
 
@@ -69,15 +88,16 @@ public sealed class ArtifactContentLease : IDisposable
 public readonly ref struct ArtifactContentView
 {
     internal ArtifactContentView(
-        ArtifactIdentity artifact,
+        ArtifactContentReference reference,
         ReadOnlySpan<byte> content)
     {
-        Artifact = artifact;
+        Reference = reference;
         Content = content;
     }
 
+    public ArtifactContentReference Reference { get; }
     public ArtifactGenerationIdentity Generation => Artifact.Generation;
-    public ArtifactIdentity Artifact { get; }
+    public ArtifactIdentity Artifact => Reference.Descriptor.Identity;
     public ReadOnlySpan<byte> Content { get; }
 }
 
