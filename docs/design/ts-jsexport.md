@@ -259,7 +259,12 @@ arguments are JSON wire types. Closed uses retain their structured argument
 identities. A parameter embedded inside a case signature remains unsupported:
 substituting a wire type into a CLR container is not generally faithful
 (`T[]` writes an array for `T = int`, but a Base64 string for `T = byte`).
-This boundary does not add general generic DTO support.
+Generic JSON records with direct, recursively parametric members use generic
+TypeScript interfaces. Closed constructions are discovered only from
+authenticated source-generated JSON roots, and their arguments are substituted
+through supported records, arrays, dictionaries, nullable values, and unions.
+Open, embedded non-parametric, or unauthenticated constructions fail visibly
+before publication; the boundary does not infer arbitrary CLR generic shapes.
 
 Deserialize-reached unions, unavailable case/null evidence, unsupported
 converters, unmapped alternatives, and recursive union-case alias components
