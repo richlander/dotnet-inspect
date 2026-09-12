@@ -24,9 +24,14 @@ public sealed partial class ArtifactSetSessionTests
             session.GetContentDigest(identity, lease, charges.Add, TestContext.Current.CancellationToken));
         using ArtifactQueryLease anotherLease =
             session.IssueLease(session.CreateQueryAuthorization());
+        ArtifactContentReference reference =
+            session.GetContentReference(identity, anotherLease);
+        using ArtifactContentLease contentLease =
+            session.IssueContentLease(reference, anotherLease);
         ArtifactContentDigest second = AccessedDigest(
-            session.GetContentReference(identity, anotherLease)
-                .GetContentDigest(charges.Add, TestContext.Current.CancellationToken));
+            contentLease.GetContentDigest(
+                charges.Add,
+                TestContext.Current.CancellationToken));
 
         Assert.Equal("SHA-256", first.Algorithm);
         Assert.Equal(expectedHash, first.HexValue);
@@ -145,14 +150,15 @@ public sealed partial class ArtifactSetSessionTests
     }
 
     [Fact]
-    public async Task Digest_ReferenceRevalidatesAndAuthorizesBeforeLookup()
+    public async Task Digest_RequiresExplicitQueryOrContentAuthority()
     {
         await using var session = new ArtifactSetSession();
         ArtifactIdentity identity = await PublishDigestFixture(session, [1]);
         ArtifactQueryAuthorization authorization = session.CreateQueryAuthorization();
         using ArtifactQueryLease lease = session.IssueLease(authorization);
         ArtifactContentReference reference = session.GetContentReference(identity, lease);
-        AccessedDigest(reference.GetContentDigest(_ => { }, TestContext.Current.CancellationToken));
+        using ArtifactContentLease content =
+            session.IssueContentLease(reference, lease);
         await using var other = new ArtifactSetSession();
         ArtifactIdentity unknown = await PublishDigestFixture(other, [2]);
 
@@ -160,9 +166,18 @@ public sealed partial class ArtifactSetSessionTests
             () => session.GetContentDigest(unknown, lease, _ => { }, TestContext.Current.CancellationToken));
         session.Revoke(authorization);
         Assert.IsType<ArtifactContentAccessOutcome<ArtifactContentDigest>.Unauthorized>(
-            reference.GetContentDigest(_ => Assert.Fail("Unauthorized charge."), TestContext.Current.CancellationToken));
+            session.GetContentDigest(
+                reference,
+                lease,
+                _ => Assert.Fail("Unauthorized charge."),
+                TestContext.Current.CancellationToken));
         Assert.IsType<ArtifactContentAccessOutcome<ArtifactContentDigest>.Unauthorized>(
             session.GetContentDigest(unknown, lease, _ => Assert.Fail("Unauthorized charge."), TestContext.Current.CancellationToken));
+        ArtifactContentDigest digest = AccessedDigest(
+            content.GetContentDigest(
+                _ => { },
+                TestContext.Current.CancellationToken));
+        Assert.Same(reference.Artifact, digest.Artifact);
     }
 
     [Fact]
