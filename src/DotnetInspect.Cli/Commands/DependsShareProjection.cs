@@ -190,7 +190,9 @@ internal static class DependsShareProjection
             options.ShareFormat!.Value);
     }
 
-    internal static InspectionShare ProjectType(DependsOptions options)
+    internal static InspectionShare ProjectType(
+        DependsOptions options,
+        string typeName)
     {
         if (options.Packages.Length != 1)
         {
@@ -278,7 +280,7 @@ internal static class DependsShareProjection
             InspectionDefinitionJson.CurrentSchemaVersion,
             WorkspaceSharePacketTransposer.ViewId,
             lens: "dependencies",
-            type: options.TargetType);
+            type: typeName);
         var scenario = new ScenarioDefinition(
             InspectionDefinitionJson.CurrentSchemaVersion,
             WorkspaceSharePacketTransposer.ScenarioId,

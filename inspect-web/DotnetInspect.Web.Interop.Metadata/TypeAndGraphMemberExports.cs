@@ -183,34 +183,19 @@ public static partial class MetadataExports
                     + $"{participant.Coordinate.Version}/"
                     + participant.Coordinate.Framework;
             diagnostics.Add(
-                new InspectionDiagnostic(
-                    "type-dependency.participant-rejected",
-                    InspectionDiagnosticSeverity.Warning,
-                    $"Type dependency participant '{correspondence}' was rejected "
-                        + $"({rejected.Failure.Kind}).",
+                TypeDependencyInspectionDiagnostics.ParticipantRejected(
                     correspondence));
         }
 
         if (!dependencies.QueryResult.HasSurvivingParticipant)
         {
-            diagnostics.Add(
-                new InspectionDiagnostic(
-                    "type-dependency.unavailable",
-                    InspectionDiagnosticSeverity.Error,
-                    "Workspace type dependencies are unavailable because every participant was rejected."));
+            diagnostics.Add(TypeDependencyInspectionDiagnostics.Unavailable());
         }
         if (dependencies.RowSelection.Failure is { } rowFailure)
         {
             diagnostics.Add(
-                new InspectionDiagnostic(
-                    "type-dependency.row-selection-failed",
-                    InspectionDiagnosticSeverity.Error,
-                    $"Type dependency row selection stage "
-                        + $"{rowFailure.Failure.StageNumber} requires row "
-                        + $"{rowFailure.Failure.RequiredPosition}, but "
-                        + $"{rowFailure.Identity} has "
-                        + $"{rowFailure.Failure.AvailableCount} rows.",
-                    rowFailure.Identity.ToString()));
+                TypeDependencyInspectionDiagnostics.RowSelectionFailed(
+                    rowFailure));
         }
 
         BrowserTypeDependencyContent content =

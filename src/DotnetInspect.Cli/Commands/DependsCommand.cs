@@ -133,7 +133,9 @@ public partial class DependsCommand
                 logger,
                 cancellationToken,
                 options.ShareFormat is not null
-                    ? DependsShareProjection.ProjectType(options)
+                    ? typeName => DependsShareProjection.ProjectType(
+                        options,
+                        typeName)
                     : null);
 
             // A rejected participant scopes to itself and leaves the rest of

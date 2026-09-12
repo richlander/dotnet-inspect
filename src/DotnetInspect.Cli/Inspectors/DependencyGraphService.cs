@@ -101,30 +101,18 @@ internal sealed record TypeDependencyExecutionResult(
         [
             .. scanDiagnostics.Select(
                 static diagnostic =>
-                    new InspectionDiagnostic(
-                        "type-dependency.participant-rejected",
-                        InspectionDiagnosticSeverity.Warning,
-                        $"Excluded participant '{diagnostic.Subject}' because "
-                            + $"{diagnostic.Failure.Kind}.",
+                    TypeDependencyInspectionDiagnostics.ParticipantRejected(
                         diagnostic.Subject)),
         ];
         if (content.RowSelection.Failure is { } rowFailure)
         {
             diagnostics.Add(
-                new InspectionDiagnostic(
-                    "type-dependency.row-selection-failed",
-                    InspectionDiagnosticSeverity.Error,
-                    $"Row selection failed for '{rowFailure.Identity}' at "
-                        + $"position {rowFailure.Failure.RequiredPosition}.",
-                    rowFailure.Identity.ToString()));
+                TypeDependencyInspectionDiagnostics.RowSelectionFailed(
+                    rowFailure));
         }
         if (!isAvailable)
         {
-            diagnostics.Add(
-                new InspectionDiagnostic(
-                    "type-dependency.unavailable",
-                    InspectionDiagnosticSeverity.Error,
-                    "Dependency scan did not produce an available participant."));
+            diagnostics.Add(TypeDependencyInspectionDiagnostics.Unavailable());
         }
 
         return new(
@@ -153,14 +141,15 @@ internal static class DependencyGraphService
         DependsOptions options,
         VerboseLogger logger,
         CancellationToken cancellationToken = default,
-        InspectionShare? share = null)
+        Func<string, InspectionShare>? shareProjection = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        InspectionShare effectiveShare =
-            share
-            ?? new InspectionShare.NonProjectable(
-                "share",
-                "Share projection was not requested.");
+        InspectionShare ShareFor(string typeName) =>
+            shareProjection is null
+                ? new InspectionShare.NonProjectable(
+                    "share",
+                    "Share projection was not requested.")
+                : shareProjection(typeName);
         TypeDependencySectionPlan plan =
             new(
                 options.TargetType,
@@ -183,7 +172,8 @@ internal static class DependencyGraphService
                     logger.Log,
                     cancellationToken).ConfigureAwait(false);
             if (workspace is null)
-                return TypeDependencyExecutionResult.Unavailable(effectiveShare);
+                return TypeDependencyExecutionResult.Unavailable(
+                    ShareFor(options.TargetType));
 
             ConfiguredPackageSearchQueryResult<
                 TypeDependencySectionResult>? execution =
@@ -194,14 +184,15 @@ internal static class DependencyGraphService
                                 plan),
                         cancellationToken).ConfigureAwait(false);
             if (execution is null)
-                return TypeDependencyExecutionResult.Unavailable(effectiveShare);
+                return TypeDependencyExecutionResult.Unavailable(
+                    ShareFor(options.TargetType));
             if (execution.Result is null)
             {
                 return TypeDependencyExecutionResult.FromContent(
                     TypeDependencySectionResult.NotFound(),
                     [],
                     isAvailable: true,
-                    effectiveShare);
+                    ShareFor(options.TargetType));
             }
 
             PackageSearchQuerySources sources =
@@ -224,7 +215,9 @@ internal static class DependencyGraphService
                 execution.Result,
                 diagnostics,
                 execution.Result.QueryResult.HasSurvivingParticipant,
-                effectiveShare);
+                ShareFor(
+                    execution.Result.QueryResult.Dependency.MatchedType
+                        ?? options.TargetType));
         }
 
         return await WithAssemblySetAsync(
@@ -245,7 +238,7 @@ internal static class DependencyGraphService
                 return TypeDependencyExecutionResult.FromLegacy(
                     dependency,
                     plan,
-                    effectiveShare);
+                    ShareFor(dependency.MatchedType ?? options.TargetType));
             }).ConfigureAwait(false);
     }
 
