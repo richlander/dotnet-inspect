@@ -562,6 +562,30 @@ cancellation, and terminal/quiescence contracts. Package Query durable events
 return through its generated event sink, and match credit counts only after the
 exact asynchronous Worker and managed acknowledgment.
 
+The Package Query facet startup read also starts one deferred preparation of
+the source-generated `Progress` and `Match` event writers. The preparation
+yields before serializing representative internal values, so the facet result
+can return while the Worker uses otherwise idle startup time. The serialized
+values are discarded and never cross the Browser boundary; every published
+event still uses its actual typed projection, JSON serialization, JavaScript
+parse, closed-shape validation, and Worker envelope. Query execution joins the
+same preparation task under its keyed cancellation before starting the
+package-operation deadline. This moves type-specific serializer initialization
+out of the first submitted query without adding a public preparation operation
+or changing event order, content, credit, cancellation, failure behavior, or
+active-work accounting.
+
+Issue [#5816](https://github.com/richlander/dotnet-inspect/issues/5816)
+retains the dual-host performance evidence. In five alternating
+`AWSSDK.*` exact clean-artifact baseline/candidate pairs, the first request
+started earlier in all ten pairs, by a median 279 ms on fernie and 61 ms on
+merritt. Row 20 also improved in all ten pairs, by median 475 ms and 80 ms
+respectively. Including page startup, the deferred artifact improved four of
+five fernie pairs and all five merritt pairs; median end-to-end improvement was
+401 ms and 64 ms respectively. Separate instrumented samples attributed the
+cold delay to managed source-generated writer initialization; JavaScript parse
+and closed-shape validation remained at or below 1 ms.
+
 All other managed calls use the closed ordinary-operation catalog in
 [`engine-worker-ordinary.ts`](../../inspect-web/src/engine-worker-ordinary.ts).
 Its 49 entries are named at build time across Package (19), Metadata (8),

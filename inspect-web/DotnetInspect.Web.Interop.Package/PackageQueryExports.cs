@@ -450,6 +450,49 @@ namespace DotnetInspect.Web.Interop.Package
             JsonSerializer.Serialize(
                 queryEvent,
                 BrowserPackageJsonContext.Default.BrowserPackageQueryEvent);
+
+        static readonly Lazy<Task> SerializationPreparation =
+            new(PrepareSerializationAsync);
+
+        internal static void StartSerializationPreparation() =>
+            _ = SerializationPreparation.Value;
+
+        internal static Task WaitForSerializationPreparationAsync() =>
+            SerializationPreparation.Value;
+
+        static async Task PrepareSerializationAsync()
+        {
+            await Task.Yield();
+            // These payloads compile the event writers but never cross the Browser boundary.
+            _ = Serialize(new BrowserPackageQueryEvent(
+                BrowserPackageQueryEventKind.Progress,
+                Row: null,
+                Failure: null,
+                Completion: null,
+                Progress: new BrowserPackageQueryProgress(
+                    BrowserPackageQueryProgressPhase.Search,
+                    Completed: 0,
+                    Limit: 1)));
+            _ = Serialize(new BrowserPackageQueryEvent(
+                BrowserPackageQueryEventKind.Match,
+                Row: new BrowserPackageQueryRow(
+                    "",
+                    "",
+                    BrowserPackageQueryFacetTier.SearchMetadata,
+                    [
+                        new BrowserPackageQueryEvidence(
+                            "",
+                            "",
+                            BrowserPackageQueryEvidenceScope.Query,
+                            new BrowserPackageQueryEvidenceSummary(0, [""])),
+                    ],
+                    TotalDownloads: 0,
+                    Verified: false,
+                    Producer: "",
+                    Description: ""),
+                Failure: null,
+                Completion: null));
+        }
     }
 }
 
@@ -471,10 +514,14 @@ public static partial class PackageExports
             BrowserPackageJsonContext.Default.BrowserPackageAssemblyQueryPatternArray);
 
     [JSExport]
-    public static string ListPackageQueryFacets() =>
-        JsonSerializer.Serialize(
+    public static string ListPackageQueryFacets()
+    {
+        string result = JsonSerializer.Serialize(
             BrowserPackageQueryOperations.Facets(),
             BrowserPackageJsonContext.Default.BrowserPackageQueryFacetCatalog);
+        BrowserPackageQueryOperations.StartSerializationPreparation();
+        return result;
+    }
 
     [JSExport]
     public static string CancelPackageQuery(
@@ -535,8 +582,13 @@ public static partial class PackageExports
                 queryEvent => eventSink.SetProperty(
                     "event",
                     BrowserPackageQueryOperations.Serialize(queryEvent)),
-                (matchCredit, events, token) =>
-                    BrowserPackageWorkspace.RunPackageOperationAsync(
+                async (matchCredit, events, token) =>
+                {
+                    await BrowserPackageQueryOperations
+                        .WaitForSerializationPreparationAsync()
+                        .WaitAsync(token)
+                        .ConfigureAwait(false);
+                    return await BrowserPackageWorkspace.RunPackageOperationAsync(
                         deadline =>
                             BrowserPackageQueryOperations.ExecuteAssemblyAsync(
                                 plan,
@@ -545,7 +597,8 @@ public static partial class PackageExports
                                 deadline.Token,
                                 deadline),
                         BrowserPackageWorkspace.PackageOperationTimeout,
-                        token));
+                        token).ConfigureAwait(false);
+                });
         return JsonSerializer.Serialize(
             BrowserPackageQueryResult.From(result),
             BrowserPackageJsonContext.Default.BrowserPackageQueryResult);
@@ -600,7 +653,12 @@ public static partial class PackageExports
                     "event",
                     BrowserPackageQueryOperations.Serialize(queryEvent)),
                 async (matchCredit, events, token) =>
-                    await BrowserPackageWorkspace.RunPackageOperationAsync(
+                {
+                    await BrowserPackageQueryOperations
+                        .WaitForSerializationPreparationAsync()
+                        .WaitAsync(token)
+                        .ConfigureAwait(false);
+                    return await BrowserPackageWorkspace.RunPackageOperationAsync(
                         async deadline =>
                         {
                             var contentProvider =
@@ -618,7 +676,8 @@ public static partial class PackageExports
                                 deadline);
                         },
                         BrowserPackageWorkspace.PackageOperationTimeout,
-                        token));
+                        token).ConfigureAwait(false);
+                });
         return JsonSerializer.Serialize(
             BrowserPackageQueryResult.From(result),
             BrowserPackageJsonContext.Default.BrowserPackageQueryResult);

@@ -14,10 +14,14 @@ The user approved the paired goal:
 The protocol defines the shared lifecycle vocabulary and the semantic
 requirements declarations must express. The
 [Resource Effect Language](resource-effect-language.md) separately owns the
-portable attribute and JSON language, structural API matching, declaration
-validation, and normalization boundary. Analysis is the first adopter through
-separate focused efforts, using the existing ArrayPool ownership flow and
-Resource Triage product path as its implementation and corpus baseline.
+portable attribute and JSON language, structural selectors, bounded source
+admission, local declaration validation, and immutable admitted declarations.
+The Analysis-owned
+[Resolved Resource Effects](https://github.com/richlander/dotnet-inspect/issues/6728)
+successor will bind those declarations to concrete metadata occurrences once
+its contract is locked. Analysis is the first adopter through separate focused
+efforts, using the existing ArrayPool ownership flow and Resource Triage
+product path as its implementation and corpus baseline.
 Artifact, Library, PackageHouse, PlatformHouse, SourceHouse,
 DocumentationHouse, Workspace, CLI, and Browser/Wasm adoption remain
 independently reviewed steps in the tracker.
@@ -187,7 +191,7 @@ accounting:
   views provide synchronous byte access; and
 - snapshot callbacks let a synchronous read borrow produce a detached result
   without first copying the complete managed resource; and
-- one normalized Analysis contract replaces API-specific inference for
+- one resolved Analysis contract replaces API-specific inference for
   participating resources.
 
 This simplification is primarily semantic and source-level. Current C# may
@@ -684,11 +688,14 @@ remain Artifact-owned.
 
 ## Declarative ownership contract
 
-Analysis consumes one normalized ownership contract independent of how the
-contract was encoded. The
-[Resource Effect Language](resource-effect-language.md) owns the encoding,
-source composition, structural matching, validation, versioning, and
-normalization mechanics.
+Analysis consumes one occurrence-bound ownership contract independent of how
+the declaration was encoded. The
+[Resource Effect Language](resource-effect-language.md) owns encoding, bounded
+source admission, local validation, provenance, versioning, and immutable
+admitted declarations. The Analysis-owned
+[Resolved Resource Effects](https://github.com/richlander/dotnet-inspect/issues/6728)
+successor will own concrete structural matching and occurrence-local
+compatibility once locked.
 
 This protocol requires that the language can express:
 
@@ -837,64 +844,67 @@ owner-adoption steps.
 ## Production adoption
 
 [#6544](https://github.com/richlander/dotnet-inspect/issues/6544) is the
-end-to-end tracker. Its current total is 21 steps:
+end-to-end tracker. Its current total is 23 steps:
 
 1. lock this focused ownership, borrowing, snapshot-callback, and declaration
    protocol;
 2. lock the portable Resource Effect Language, its attribute and JSON
-   encodings, and its normalized declaration boundary under #6631;
-3. implement the bounded parser, validator, provenance, and resource-neutral
-   normalized model;
-4. express ArrayPool and its supported wrapper relationships as a shipped
-   typed C# mapping through that language;
-5. adapt one generic flow engine to reproduce the ArrayPool fixture and corpus
-   oracle plus the declared-owner/ArrayPool composition witness;
-6. adopt generic evidence in `LibraryBodyIndex`, `LeakTriageAnalyzer`, the
+   encodings, and declaration boundary under #6631;
+3. narrow the language to bounded declaration admission under #6726;
+4. implement the bounded parser, local validator, provenance, immutable
+   admitted model, and admission receipt under #6727;
+5. design concrete metadata resolution and occurrence-local effect composition
+   under #6728;
+6. implement that resolver and the shipped typed C# ArrayPool mapping under
+   #6729;
+7. generalize the existing ArrayPool method-ownership flow and prove the
+   declared-owner/ArrayPool composition witness under #6730;
+8. adopt generic evidence in `LibraryBodyIndex`, `LeakTriageAnalyzer`, the
    corpus sensor, and Resource Lifecycle Analysis, then retire the
-   ArrayPool-specific lifecycle semantic path;
-7. adopt generic ownership-flow evidence in Research and retire
-   ArrayPool-specific flow records;
-8. express `Inspector.Resources` and `AssemblyInspectionSession` through
-   compiled effect attributes and prove equivalent normalization from JSON
+   ArrayPool-specific lifecycle semantic path under #6731;
+9. adopt generic ownership-flow evidence in Research and retire
+   ArrayPool-specific flow records under #6732;
+10. express `Inspector.Resources` and `AssemblyInspectionSession` through
+   compiled effect attributes and prove equivalent admission from JSON
    test inputs;
-9. implement the host-neutral snapshot callback interface and ref-like view,
+11. implement the host-neutral snapshot callback interface and ref-like view,
    including the generic detached-result channel and its Analysis effects;
-10. expose generalized Resource Triage through the CLI;
-11. expose the same typed Resource Triage contract through Inspect Web
+12. expose generalized Resource Triage through the CLI;
+13. expose the same typed Resource Triage contract through Inspect Web
    Browser/Wasm;
-12. adopt the protocol in artifact acquisition, access, and scoped content
+14. adopt the protocol in artifact acquisition, access, and scoped content
    borrowing;
-13. define the shared
+15. define the shared
    [Library ownership and borrowing](library-ownership-and-borrowing.md)
    contract used by PackageHouse, PlatformHouse, direct-library adapters,
    Workspace, and Library consumers, tracked by #6621;
-14. adopt the protocol in the package-source owner: step 14a issues the
-   resource-named root lease, completed by #6548; step 14b, tracked by #6619,
+16. adopt the protocol in the package-source owner: step 16a issues the
+   resource-named root lease, completed by #6548; step 16b, tracked by #6619,
    declares awaited root settlement, directly issued operation-scoped leases,
    and async state-machine ownership effects;
-15. adopt Package Source ownership in PackageHouse: step 15a retires the
-   House-issued root predecessor, completed by #6548; step 15b consumes and
+17. adopt Package Source ownership in PackageHouse: step 17a retires the
+   House-issued root predecessor, completed by #6548; step 17b consumes and
    settles one Package Source operation lease per House execution, tracked by
    #6622;
-16. adopt the Library ownership contract in PackageHouse;
-17. adopt the Library ownership contract in PlatformHouse;
-18. adopt the Library ownership contract in Workspace and its Workspace-owned
+18. adopt the Library ownership contract in PackageHouse;
+19. adopt the Library ownership contract in PlatformHouse;
+20. adopt the Library ownership contract in Workspace and its Workspace-owned
    direct-library adapter;
-19. extend the `JsExportSurface` wire-evidence owner to authenticate
+21. extend the `JsExportSurface` wire-evidence owner to authenticate
     witness-bearing host snapshot serializers, preserving the existing
     `ts-jsexport` typed facade through its compiler and Browser/Wasm canaries;
-20. adopt Library and companion-content ownership and borrowing in
+22. adopt Library and companion-content ownership and borrowing in
     SourceHouse; and
-21. adopt Library and companion-content ownership and borrowing in
+23. adopt Library and companion-content ownership and borrowing in
     DocumentationHouse.
 
-Each implementation step changes one owner. Step 13 replaces the
+Each implementation step changes one owner. Step 15 replaces the
 consumer-specific "source-ready library representation" direction in
 SourceHouse step 2; the SourceHouse tracker and owner document are corrected
 in that focused adoption effort rather than normatively changed here.
 
-The 14a/14b and 15a/15b sub-slices remain within the 21-step count. Step 14b
-is Package Source-owned. Step 15b is a separately reviewed PackageHouse
+The 16a/16b and 17a/17b sub-slices remain within the 23-step count. Step 16b
+is Package Source-owned. Step 17b is a separately reviewed PackageHouse
 adoption; neither is folded into package-backed Platform implementation.
 
 The dogfood step may discover another independently owned public lease
@@ -919,9 +929,11 @@ This specification is design-only. Its behavioral properties remain
 
 The declaration and Analysis steps must gate:
 
-- exact configured effect-carrier, structural member, generic, signature, and
-  ref-kind matching without inspected-assembly loading;
-- equivalent normalization from compiled attributes and JSON mappings;
+- exact configured effect-carrier admission and structural selector, generic,
+  signature, and ref-kind representation without inspected-assembly loading;
+- equivalent admitted declarations from compiled attributes and JSON mappings;
+- exact concrete metadata occurrence resolution through the Analysis-owned
+  resolver;
 - every supported acquisition, transfer, mutable and read-only borrow, child
   resource, consuming receiver, release, and asynchronous settlement effect;
 - validation-before-transfer and consume-with-return aggregate failure
@@ -934,7 +946,7 @@ The declaration and Analysis steps must gate:
   lifetime fixtures;
 - required async settlement not being accepted as synchronous release;
 - unobserved, faulted, and canceled asynchronous settlement;
-- malformed and contradictory declarations;
+- malformed declarations and contradictory resolved effects;
 - incomplete decode, resolution, dispatch, alias, body, and control-flow
   evidence remaining visible;
 - compatibility with the existing ArrayPool corpus and Finding identities;
@@ -945,8 +957,9 @@ The declaration and Analysis steps must gate:
 - equivalent typed outcomes in CLI and Browser/Wasm consumers.
 
 The claim that no hidden ArrayPool-specific semantic path remains has no
-dedicated absence gate by operator choice in #6631. Positive normalization and
-oracle gates do not claim to prove that repository-composition absence.
+dedicated absence gate by operator choice in #6631. Positive admission,
+resolution, and oracle gates do not claim to prove that
+repository-composition absence.
 
 Each resource-issuer adoption must gate:
 

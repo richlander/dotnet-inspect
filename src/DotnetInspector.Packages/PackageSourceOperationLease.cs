@@ -59,7 +59,26 @@ public sealed class PackageSourceOperationLease : IDisposable
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         ArgumentNullException.ThrowIfNull(sourceAuthorization);
-        return DiscoverAuthorizedCoreAsync(StartWork(), packageId, sourceAuthorization);
+        return DiscoverAuthorizedCoreAsync(
+            StartWork(),
+            packageId,
+            sourceAuthorization,
+            PackageVersionDiscoveryContract.DependencyRangeResolution);
+    }
+
+    public Task<PackageVersionDiscoveryResult> DiscoverVersionsAsync(
+        string packageId,
+        IPackageSourceAuthorization sourceAuthorization,
+        PackageVersionDiscoveryContract contract)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentNullException.ThrowIfNull(sourceAuthorization);
+        ArgumentNullException.ThrowIfNull(contract);
+        return DiscoverAuthorizedCoreAsync(
+            StartWork(),
+            packageId,
+            sourceAuthorization,
+            contract);
     }
 
     public Task<PackageVersionDiscoveryResult> DiscoverDependencyVersionsAsync(
@@ -179,11 +198,17 @@ public sealed class PackageSourceOperationLease : IDisposable
     }
 
     private static async Task<PackageVersionDiscoveryResult> DiscoverAuthorizedCoreAsync(
-        ActiveWorkRegistration work, string packageId, IPackageSourceAuthorization authorization)
+        ActiveWorkRegistration work,
+        string packageId,
+        IPackageSourceAuthorization authorization,
+        PackageVersionDiscoveryContract contract)
     {
         using (work)
-            return await work.Generation.DiscoverDependencyVersionsAsync(
-                packageId, authorization, operationContext: work.Context).ConfigureAwait(false);
+            return await work.Generation.DiscoverVersionsAsync(
+                packageId,
+                authorization,
+                contract,
+                operationContext: work.Context).ConfigureAwait(false);
     }
 
     private static async Task<PackageVersionDiscoveryResult> DiscoverCoreAsync(

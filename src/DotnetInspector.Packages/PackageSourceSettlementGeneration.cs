@@ -161,10 +161,23 @@ internal sealed class PackageSourceSettlementGeneration
         DiscoverDependencyVersionsAsync(
         string packageId,
         IPackageSourceAuthorization sourceAuthorization,
+        NuGetOperationContext operationContext) =>
+        DiscoverVersionsAsync(
+            packageId,
+            sourceAuthorization,
+            PackageVersionDiscoveryContract.DependencyRangeResolution,
+            operationContext);
+
+    internal Task<PackageVersionDiscoveryResult>
+        DiscoverVersionsAsync(
+        string packageId,
+        IPackageSourceAuthorization sourceAuthorization,
+        PackageVersionDiscoveryContract contract,
         NuGetOperationContext operationContext)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         ArgumentNullException.ThrowIfNull(sourceAuthorization);
+        ArgumentNullException.ThrowIfNull(contract);
         CancellationToken cancellationToken = operationContext.CancellationToken;
         cancellationToken.ThrowIfCancellationRequested();
         PackageSourceAuthorization authorization =
@@ -172,7 +185,7 @@ internal sealed class PackageSourceSettlementGeneration
         return DiscoverVersionsCoreAsync(
             packageId,
             authorization,
-            PackageVersionDiscoveryContract.DependencyRangeResolution,
+            contract,
             cancellationToken,
             operationContext);
     }
