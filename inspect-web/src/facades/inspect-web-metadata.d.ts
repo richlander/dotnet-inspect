@@ -1,4 +1,6 @@
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
+export type BrowserInspectionDiagnosticSeverity = "Info" | "Warning" | "Error" | number;
+export type BrowserInspectionShareKind = "Available" | "NonProjectable" | number;
 export interface BrowserAssemblyMetadata {
     readonly assembly: string;
     readonly metadataRoots: ReadonlyArray<BrowserMetadataImage>;
@@ -34,6 +36,18 @@ export interface BrowserHeapListing {
     readonly rowsTruncated: boolean;
     readonly entriesTruncated: boolean;
     readonly error: string | null;
+}
+export interface BrowserInspectionDiagnostic {
+    readonly code: string;
+    readonly severity: BrowserInspectionDiagnosticSeverity;
+    readonly summary: string;
+    readonly correspondence: string | null;
+}
+export interface BrowserInspectionShare {
+    readonly kind: BrowserInspectionShareKind;
+    readonly fullUrl: string | null;
+    readonly path: string | null;
+    readonly reason: string | null;
 }
 export interface BrowserMemberBodySelector {
     readonly token: number;
@@ -205,6 +219,23 @@ export interface BrowserTypeComposition {
     readonly obsolete: number;
     readonly total: number;
 }
+export interface BrowserTypeDependencyContent {
+    readonly found: boolean;
+    readonly matchedType: string | null;
+    readonly relationships: ReadonlyArray<BrowserTypeDependencyRelationship>;
+    readonly isComplete: boolean;
+}
+export interface BrowserTypeDependencyEnvelope {
+    readonly content: BrowserTypeDependencyContent;
+    readonly share: BrowserInspectionShare;
+    readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
+}
+export interface BrowserTypeDependencyRelationship {
+    readonly ordinal: number;
+    readonly sourceTypeName: string;
+    readonly targetTypeName: string;
+    readonly kind: string;
+}
 export interface BrowserTypeGraphEdge {
     readonly fromId: string;
     readonly toId: string;
@@ -232,39 +263,8 @@ export interface BrowserTypeMetadata {
     readonly composition: BrowserTypeComposition | null;
     readonly graphNodes: ReadonlyArray<BrowserTypeGraphNode>;
     readonly graphEdges: ReadonlyArray<BrowserTypeGraphEdge>;
-   readonly typeDependencyInspection: BrowserTypeDependencyEnvelope;
-   readonly inspectionFailures: ReadonlyArray<string>;
-}
-export interface BrowserTypeDependencyEnvelope {
-   readonly content: BrowserTypeDependencyContent;
-   readonly share: BrowserInspectionShare;
-   readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
-}
-export interface BrowserTypeDependencyContent {
-   readonly found: boolean;
-   readonly matchedType: string | null;
-   readonly relationships: ReadonlyArray<BrowserTypeDependencyRelationship>;
-   readonly isComplete: boolean;
-}
-export interface BrowserTypeDependencyRelationship {
-   readonly ordinal: number;
-   readonly sourceTypeName: string;
-   readonly targetTypeName: string;
-   readonly kind: string;
-}
-export type BrowserInspectionShareKind = "Available" | "NonProjectable" | number;
-export interface BrowserInspectionShare {
-   readonly kind: BrowserInspectionShareKind;
-   readonly fullUrl: string | null;
-   readonly path: string | null;
-   readonly reason: string | null;
-}
-export type BrowserInspectionDiagnosticSeverity = "Info" | "Warning" | "Error" | number;
-export interface BrowserInspectionDiagnostic {
-   readonly code: string;
-   readonly severity: BrowserInspectionDiagnosticSeverity;
-   readonly summary: string;
-   readonly correspondence: string | null;
+    readonly typeDependencyInspection: BrowserTypeDependencyEnvelope;
+    readonly inspectionFailures: ReadonlyArray<string>;
 }
 export interface BrowserTypeParameter {
     readonly name: string;
