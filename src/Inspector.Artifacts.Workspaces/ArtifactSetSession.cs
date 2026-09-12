@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -139,10 +140,13 @@ public sealed class ArtifactSetSession : IAsyncDisposable
     private readonly List<ArtifactSetAdmissionFailure> _failures = [];
     private readonly HashSet<IArtifactAcquisitionLease> _leases =
         new(ReferenceEqualityComparer.Instance);
+    private readonly HashSet<ArtifactContentLease> _contentLeases =
+        new(ReferenceEqualityComparer.Instance);
     private IReadOnlyList<ArtifactDescriptor>? _catalog;
     private Dictionary<ArtifactIdentity, PublishedArtifact>? _artifacts;
     private IReadOnlyList<Exception> _cleanupFailures = [];
     private Task<IReadOnlyList<Exception>>? _terminationTask;
+    private TaskCompletionSource? _contentLeaseQuiescence;
     private SupplementalOperationOrder? _supplementalOperation;
     private SessionState _state;
     private RequiredCheckpointState _requiredCheckpoint;
@@ -1059,6 +1063,128 @@ public sealed class ArtifactSetSession : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Issues ownership of continued access to one exact selected content item.
+    /// </summary>
+    public ArtifactContentLease IssueContentLease(
+        ArtifactContentReference reference,
+        ArtifactQueryLease lease)
+    {
+        ArgumentNullException.ThrowIfNull(reference);
+        ArgumentNullException.ThrowIfNull(lease);
+        lock (_gate)
+        {
+            EnsurePublished();
+            _authority.ValidateQueryLease(lease);
+            if (!ReferenceEquals(reference.Owner, this))
+            {
+                throw new ArgumentException(
+                    "The artifact content reference belongs to another session.",
+                    nameof(reference));
+            }
+
+            PublishedArtifact artifact =
+                FindArtifact(reference.Descriptor.Identity);
+            if (!ReferenceEquals(
+                    artifact.Descriptor,
+                    reference.Descriptor))
+            {
+                throw new ArgumentException(
+                    "The artifact content reference does not match the published content.",
+                    nameof(reference));
+            }
+
+            if (_contentLeases.Count == 0)
+            {
+                _contentLeaseQuiescence =
+                    new(
+                        TaskCreationOptions
+                            .RunContinuationsAsynchronously);
+            }
+
+            var contentLease = new ArtifactContentLease(
+                this,
+                artifact.Descriptor.Identity,
+                artifact.Content.Snapshot);
+            _contentLeases.Add(contentLease);
+            return contentLease;
+        }
+    }
+
+    internal ArtifactContentAccessOutcome<TResult> WithContent<TResult>(
+        ArtifactContentLease lease,
+        ArtifactContentCallback<TResult> callback,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ImmutableArray<byte> snapshot;
+        lock (_gate)
+        {
+            if (!lease.IsOwnedBy(this)
+                || !_contentLeases.Contains(lease))
+            {
+                throw new ObjectDisposedException(
+                    nameof(ArtifactContentLease));
+            }
+
+            lease.ActiveBorrows =
+                checked(lease.ActiveBorrows + 1);
+            snapshot = lease.Snapshot;
+        }
+
+        try
+        {
+            TResult result = callback(
+                new ArtifactContentView(
+                    lease.Artifact,
+                    snapshot.AsSpan()),
+                cancellationToken);
+            return new ArtifactContentAccessOutcome<TResult>.Accessed(
+                result);
+        }
+        finally
+        {
+            lock (_gate)
+            {
+                if (lease.ActiveBorrows <= 0)
+                {
+                    throw new InvalidOperationException(
+                        "Artifact content borrow completion was unbalanced.");
+                }
+
+                lease.ActiveBorrows--;
+            }
+        }
+    }
+
+    internal void ReleaseContentLease(
+        ArtifactContentLease lease)
+    {
+        TaskCompletionSource? completion = null;
+        lock (_gate)
+        {
+            if (!lease.IsOwnedBy(this))
+                return;
+            if (!_contentLeases.Contains(lease))
+            {
+                throw new InvalidOperationException(
+                    "The artifact content lease is not registered with its owner.");
+            }
+            if (lease.ActiveBorrows != 0)
+            {
+                throw new InvalidOperationException(
+                    "An artifact content lease cannot be released while a borrow is active.");
+            }
+
+            _contentLeases.Remove(lease);
+            lease.MarkReleased();
+            if (_contentLeases.Count == 0)
+                completion = _contentLeaseQuiescence;
+        }
+
+        completion?.TrySetResult();
+    }
+
     internal ArtifactAcquisitionRegistration GetRegistration(
         ArtifactIdentity identity,
         ArtifactQueryLease lease)
@@ -1673,6 +1799,7 @@ public sealed class ArtifactSetSession : IAsyncDisposable
     {
         TaskCompletionSource<IReadOnlyList<Exception>>? starter = null;
         Task<IReadOnlyList<Exception>> termination;
+        Task contentLeaseQuiescence = Task.CompletedTask;
         lock (_gate)
         {
             if (_terminationTask is null)
@@ -1702,6 +1829,10 @@ public sealed class ArtifactSetSession : IAsyncDisposable
                 _preparedArtifactCount = 0;
                 _preparedRetainedBytes = 0;
                 _failures.Clear();
+                contentLeaseQuiescence =
+                    _contentLeases.Count == 0
+                        ? Task.CompletedTask
+                        : _contentLeaseQuiescence!.Task;
             }
 
             termination = _terminationTask;
@@ -1721,6 +1852,7 @@ public sealed class ArtifactSetSession : IAsyncDisposable
                 {
                     failures.Add(ex);
                 }
+                await contentLeaseQuiescence.ConfigureAwait(false);
                 _admissionLease.Dispose();
                 IReadOnlyList<Exception> leaseFailures =
                     await DisposeLeasesAsync().ConfigureAwait(false);

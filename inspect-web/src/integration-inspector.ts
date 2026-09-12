@@ -27,8 +27,8 @@ export function renderIntegrationInspector(
     <header class="api-surface-head">
       <h1 id="library-integrations-title">Integrations</h1>
       <p title="${escapeHtml(status)}">${escapeHtml(status)}</p>
+      <div class="integration-mode-tabs" role="tablist" aria-label="Integration views">${tabs}</div>
     </header>
-    <div class="integration-mode-tabs" role="tablist" aria-label="Integration views">${tabs}</div>
     ${pickerHtml ? `<section class="library-${mode}-controls" aria-label="Integration scan library">${pickerHtml}</section>` : ""}
     <div id="integration-results" role="tabpanel" aria-labelledby="integration-mode-${mode}" tabindex="0" class="library-${mode}-scroll">${content}</div>
     <footer class="metadata-surface-footer">

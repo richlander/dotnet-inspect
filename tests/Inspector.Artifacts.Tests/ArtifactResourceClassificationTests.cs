@@ -17,6 +17,7 @@ public sealed class ArtifactResourceClassificationTests
             typeof(IArtifactAccessLease),
             typeof(IArtifactAcquisitionLease),
             typeof(ArtifactContributionScope),
+            typeof(ArtifactContentLease),
             typeof(ArtifactQueryLease),
             typeof(ArtifactSetSession),
             typeof(ArtifactGenerationAuthority).GetNestedType(

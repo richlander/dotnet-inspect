@@ -6,26 +6,31 @@ This document owns the portable machine-readable language that describes
 resource lifecycle effects at .NET metadata boundaries. It owns:
 
 - the semantic vocabulary;
-- structural member and value-location matching;
+- structural member and value-location selectors;
 - compiled-attribute and JSON encodings;
-- declaration provenance, composition, validation, and versioning; and
-- normalization into resource-neutral effects consumed by Analysis.
+- bounded source admission, local declaration validation, provenance, and
+  versioning; and
+- normalization into immutable, selector-bearing declarations.
 
 Its exact claim is:
 
 > Resource API declarations from compiled attributes, shipped mappings,
 > external JSON, and future compiler metadata can describe their lifecycle
 > semantics and bounded direct-access and exact-forwarding invariants using
-> one effect language, and equivalent declarations normalize to the same
-> Analysis input. Independently declared resource domains compose in one
-> catalog and one flow without selecting resource-specific engine behavior.
+> one effect language. Equivalent source forms normalize to equal admitted
+> declarations, while source admission makes no claim that unresolved
+> declarations are mutually compatible or applicable to any inspected
+> program.
 
 [Resource ownership and borrowing](resource-ownership-and-borrowing.md) owns
-the lifecycle semantics described by the language. `ILInspector.Analysis` owns
-IL interpretation, value flow, control flow, supported proof boundaries,
-incompleteness, and Finding production. Resource Triage owns actionability,
-impact, confidence, and remediation. This language does not redefine those
-owners.
+the lifecycle semantics described by the language. The planned Analysis-owned
+[Resolved Resource Effects](https://github.com/richlander/dotnet-inspect/issues/6728)
+successor will own binding admitted selectors to concrete metadata occurrences
+and deciding whether effects meeting at one occurrence are compatible.
+`ILInspector.Analysis` owns IL interpretation, value flow, control flow,
+supported proof boundaries, incompleteness, and Finding production. Resource
+Triage owns actionability, impact, confidence, and remediation. This language
+does not redefine those owners.
 
 Issue [#6631](https://github.com/richlander/dotnet-inspect/issues/6631)
 records the operator-approved cross-cutting scope: one language must describe
@@ -33,6 +38,10 @@ both the repository ownership model and `ArrayPool<T>`, the existing
 ArrayPool-specific lifecycle path must migrate to one generic engine, and the
 language must permit a later caller-supplied JSON mapping without making that
 product surface part of the first implementation.
+[Issue #6726](https://github.com/richlander/dotnet-inspect/issues/6726)
+records the approved resolve-first recovery after #6669 showed that unresolved
+catalog composition was not a proportionate declaration-admission
+responsibility.
 
 ## Purpose
 
@@ -56,10 +65,13 @@ compiled attributes     shipped mappings     future external JSON
           +-------------------+--------------------+
                               |
                               v
-                 parsed and validated effects
+                 locally admitted declarations
                               |
                               v
-                 resource-neutral declarations
+             concrete metadata occurrence resolution
+                              |
+                              v
+                occurrence-bound effect composition
                               |
                               v
                   one lifecycle flow engine
@@ -69,7 +81,8 @@ compiled attributes     shipped mappings     future external JSON
 ```
 
 The language describes what an API operation means. It does not encode an IL
-algorithm, a control-flow graph, a Finding, or a remediation policy.
+algorithm, a control-flow graph, metadata resolution, a Finding, or a
+remediation policy.
 
 ## Complexity basis
 
@@ -92,7 +105,15 @@ obligation remains associated with the issuing pool while aliases such as
 represent that difference.
 
 The language is deliberately bounded. It is not a scripting language, a
-general contract language, or an attempt to encode control flow in metadata.
+general contract language, an unresolved selector theorem prover, or an
+attempt to encode control flow in metadata.
+
+The existing ArrayPool path establishes the default architecture: resolve
+actual `MemberRef` and `DirectCall` occurrences, then apply method-local and
+interprocedural analysis. A more general symbolic mechanism requires a
+minimal fixture or pinned corpus counterexample showing that this resolve-first
+architecture cannot express a required supported behavior with acceptable
+soundness and complexity.
 
 ## Real assets and existing oracle
 
@@ -124,6 +145,23 @@ The existing ArrayPool fixtures and corpus outcomes are an implementation
 oracle, not the target architecture. The migration preserves intended findings,
 candidate suppressions, exception-boundary evidence, and visible
 incompleteness, or records an intentional contract correction.
+
+## Resolve-first recovery evidence
+
+PR #6669 attempted to implement local admission and context-free cross-model
+composition together. Seven reviewed candidates produced twenty accepted,
+independently reproduced defects concentrated in selector unification,
+resource-kind binding, operation lineage, predicate overlap, and assembly
+policy. Its catalog solver reached approximately 3,397 lines before resolving
+one declaration against inspected metadata or analyzing one lifecycle.
+
+That evidence does not invalidate the language, immutable declarations,
+bounded parsing, provenance, or typed failure. It establishes that proving
+every possible intersection among unresolved selector patterns is not a
+proportionate admission requirement. The replacement therefore admits models
+independently, resolves their effects at concrete metadata occurrences, and
+generalizes the existing ArrayPool analysis substrate. Broader symbolic
+composition requires a reproduced fixture or pinned corpus counterexample.
 
 ## Analogous implementations
 
@@ -238,19 +276,23 @@ An **effect** relates resource kinds, authority, and locations at a declared
 completion point. It is an API fact. Whether a concrete body satisfies the
 fact belongs to Analysis.
 
-### Normalized declaration
+### Admitted declaration
 
-A **normalized declaration** is the typed, source-independent result of
-parsing and validating a model. Attribute, JSON, shipped, and future compiler
-sources that state the same contract produce equal normalized declarations.
+An **admitted declaration** is the immutable, selector-bearing,
+source-independent result of parsing and locally validating one model.
+Attribute, JSON, shipped, and future compiler sources that state the same
+contract produce equal admitted declarations. Admission does not resolve the
+selector, bind it to an inspected metadata generation, or prove compatibility
+with another admitted declaration.
 
 ## Cross-resource composition
 
 The ArrayPool and repository ownership models are initial witnesses, not
-separate operating modes. Analysis admits both into one catalog, and one
-method body may carry obligations from both resource domains at the same time.
-Resource-kind identity is catalog-global; model identity records declaration
-provenance and does not partition flow state.
+separate operating modes. Their models admit independently. When concrete
+operations from both resolve in one method body, Analysis may carry obligations
+from both resource domains at the same time. Resource-kind identity is
+qualified and stable; model identity records declaration provenance and does
+not partition later flow state.
 
 For example, an attribute-declared resource owner may rent an ArrayPool buffer
 while constructing or servicing the owner:
@@ -266,17 +308,18 @@ while constructing or servicing the owner:
 - a leak, use after return, or incomplete ArrayPool flow remains reportable
   beside the outer owner's own release, borrow, and settlement evidence.
 
-A model may refer to a resource kind declared by another admitted model through
-its exact qualified kind identity and generic arity. Catalog validation rejects
-an unresolved or incompatible cross-model reference. It does not merge kinds
-because they use the same CLR type or give one model precedence over another.
+A resource-kind reference carries one exact qualified identity and generic
+arity. Admission validates that form and its consistency within one model; it
+does not require another admitted source to be present. Independent models may
+use the same qualified kind. Admission neither merges those references nor
+gives one model precedence; the resolved occurrence boundary decides whether
+their concrete effects coincide.
 
 This composition is a principal benefit of the generic effect system. The
 engine tracks an open set of obligation identities and relationships rather
 than selecting an ArrayPool analysis or an ownership-model analysis for a
-body. Adding another resource protocol therefore adds declarations and,
-when necessary, generic proof capability—not another top-level lifecycle
-engine.
+body. Adding another resource protocol therefore adds declarations and
+concrete resolved effects—not another top-level lifecycle engine.
 
 ## Structural identity
 
@@ -315,14 +358,15 @@ A member selector carries:
 
 An attribute placed directly on a member obtains this selector from that
 member's defining metadata. A JSON model states the same selector explicitly.
-Resolution must reach the defining assembly. A missing definition, unresolved
-forwarder, unsupported signature, or ambiguous interface implementation is
-incomplete rather than a name-based match.
+The selector carries enough identity for the adjacent resolver to reach the
+defining assembly. A missing definition, unresolved forwarder, unsupported
+signature, or ambiguous interface implementation cannot become a name-based
+match.
 
 An effect declared on an interface member applies to a concrete implementation
-only when normal metadata interface and `MethodImpl` resolution proves the
-relationship. Attribute inheritance is not inferred from source-language
-conventions.
+only when the adjacent resolver proves the relationship through normal metadata
+interface and `MethodImpl` resolution. Attribute inheritance is not inferred
+from source-language conventions.
 
 ## Effect vocabulary
 
@@ -639,7 +683,7 @@ An `outcome.test` is one of the bounded forms `bool[value]`, `enum[value]`,
 forms are parsed into typed terms; Analysis does not compare their display
 spelling.
 
-Illustrative normalized statements are:
+Illustrative admitted statements are:
 
 ```text
 resource(kind=dotnet-inspect.assembly-session,value=declared-type)
@@ -693,7 +737,7 @@ carrier occurrence in one atomic model. The placement supplies the structural
 target; the statement supplies the effect. Attribute-model provenance is the
 model identity plus the defining module identity, carrier identity, and exact
 language version. Semantic declaration equality excludes provenance; a
-normalized catalog retains the complete provenance set separately.
+successfully admitted model retains the complete provenance set separately.
 
 The carrier's CLR type is not the semantic contract. A repository may use
 `Inspector.Resources.ResourceEffectAttribute`, while another package may
@@ -768,9 +812,9 @@ invoke a plugin, or embed code.
 
 The first implementation does not deserialize resource-effect JSON in
 production. It realizes the shipped ArrayPool model as typed C# declarations
-and admits them through the same catalog validation and normalized declaration
+and admits them through the same local validation and admitted-declaration
 boundary used after attribute parsing. Tests deserialize equivalent JSON and
-prove that it reaches the same normalized declarations. A caller-supplied CLI
+prove that it reaches the same admitted declarations. A caller-supplied CLI
 or browser mapping is a separately approved production capability.
 
 ### Implementation placement
@@ -780,17 +824,18 @@ attribute and current-C# runtime helpers. Resource owners only emit carrier
 attribute blobs; they do not parse statements or JSON. `Inspector.Resources`
 therefore does not depend on System.Text.Json or contain Analysis policy.
 
-`ILInspector.Analysis` owns the bounded statement parser, structural selector
-resolution, normalized declarations, catalog validation, and shipped typed
-mappings because it is the first consumer. These remain SRM-only,
-NativeAOT-friendly, Roslyn-free, and free of inspected-assembly loading.
+`ILInspector.Analysis` owns the bounded statement parser, admitted
+declarations, and shipped typed mappings because it is the first consumer.
+Concrete structural selector resolution is assigned to the planned #6728
+owner. Both paths remain SRM-only, NativeAOT-friendly, Roslyn-free, and free of
+inspected-assembly loading.
 
 The ArrayPool model is realized once in `ILInspector.Analysis` as immutable C#
-data. It uses the public normalized declaration types and catalog validator,
-not an ArrayPool-specific engine input. This avoids runtime JSON
-deserialization on the baseline Analysis path while retaining one lifecycle
-engine. The equivalence harness independently decodes the documented JSON form
-and compares the resulting normalized model with this shipped realization.
+data. It uses the public admitted-declaration types and local validator, not an
+ArrayPool-specific engine input. This avoids runtime JSON deserialization on
+the baseline Analysis path while retaining one lifecycle engine. The
+equivalence harness independently decodes the documented JSON form and compares
+the resulting admitted model with this shipped realization.
 
 Another repository does not need an `Inspector.Resources` reference. It may
 define a carrier with the required metadata constructor shape and supply that
@@ -832,7 +877,7 @@ public MetadataTableProjection MetadataTables(
 }
 ```
 
-The C# spelling is illustrative. The normalized selector comes from metadata,
+The C# spelling is illustrative. The admitted selector comes from metadata,
 not from the source text shown here.
 
 ### Complete snapshot witness
@@ -869,14 +914,16 @@ effect. A tracked resource in `TState` therefore remains incomplete until the
 same operation declaration adds its explicit consume, move, or borrow
 relationship.
 
-## Declaration composition and provenance
+## Declaration admission and provenance
 
 The caller admits an ordered set of model sources. Order makes receipts and
 diagnostics deterministic; it grants no precedence. Admission policy belongs
 to the caller; the language does not silently discover every attribute or file.
-Successful admission produces a **catalog receipt** naming the exact semantic
-model identities, language versions, content hashes, and provenances used for
-one analysis. Every complete or incomplete flow result retains that receipt.
+Successful admission produces an **admission receipt** naming the exact model
+identities, language versions, content hashes, and provenances made available
+to a later resolver. The receipt proves source intake and local validity only.
+It does not assert that any selector matches, that two declarations are
+compatible, or that an analysis result is complete.
 
 Admission also assigns each source a declaration-authority class:
 `product-shipped`, `caller-supplied`, `producer-asserted`, or
@@ -888,62 +935,47 @@ product-owned fact. The intake boundary assigns authority; an attribute or JSON
 payload cannot self-assert it.
 
 Authority does not change language semantics or declaration equality. It is
-retained in provenance so Resource Triage can state the basis and confidence
-of a finding. A `CompleteClean` result means complete relative to the exact
-admitted catalog and its assertions; it does not prove that an external
+retained in provenance and the admission receipt so downstream Analysis and
+Resource Triage can state the basis and confidence of a result. Analysis owns
+the meaning of `CompleteClean`; admission alone does not prove that an external
 producer described its implementation truthfully.
 
-The finite guard and outcome domains also define effect overlap. Every
-predicate retains its canonical resolved subject location and tested literal
-or type. The validator computes whether two effects can apply to the same
-operation occurrence. Normal and exceptional completion are disjoint.
-Opposite boolean or null tests, distinct enum literals, distinct exact
-constructed types, and distinct exact-runtime-type expectations are disjoint
-only when they constrain the same canonical subject value. Predicates over
-different subject values overlap unless their conjunction is otherwise proven
-unsatisfiable. Unconditional normal completion, `non-null`, and matching exact
-cases overlap where their conjunction is satisfiable. Unknown disjointness is
-treated as overlap.
+Admission validates only properties owned by one model:
 
-After structural resolution:
+- the exact language version and closed statement grammar;
+- configured carrier placement or typed model structure;
+- resource-kind identity and consistent arity within that model;
+- selector-local generic-variable scope;
+- model-local field, callback, outcome, and operation references;
+- finite terms and explicit parser or model work budgets; and
+- source authority, provenance, and deterministic content identity.
 
-- semantically equal declarations coalesce while retaining every provenance
-  source;
-- disjoint effects compose;
-- contradictory terminal effects whose finite applicability predicates
-  overlap reject the catalog, including two transfers of one obligation to
-  different targets or release combined with transfer on the same path;
-- an `entry` consume followed by one terminal release or transfer is an
-  ordered lifecycle, not a conflict;
-- no source silently overrides another source; and
-- unknown language versions invalidate their model rather than partially
-  applying known-looking statements.
+Equal declarations within one model may normalize to one semantic declaration.
+Admission does not compare independent models for selector overlap, generic
+unification, resource-kind equivalence, predicate satisfiability, operation
+lineage, or terminal-effect compatibility. Two declarations that would
+contradict one another if they resolve to the same operation may therefore both
+admit successfully.
 
-Parsing and validation are atomic per model. One malformed carrier rejects
-every declaration sharing its model identity in that defining module. One
-invalid JSON declaration rejects its complete JSON model. A rejected admitted
-model or a cross-model contradiction prevents construction of the catalog, so
-dependent declarations cannot survive as a plausible partial contract.
+Parsing and local validation are atomic per model. One malformed carrier
+rejects every declaration sharing its model identity in that defining module.
+One invalid JSON declaration rejects its complete JSON model. Rejection of one
+model does not publish its valid-looking subset.
 
-Selector activation is separate from model validity. A valid model may name an
-API absent from the inspected assembly and remain inert. When analyzed code
-uses a potentially matching API but the defining metadata cannot be resolved,
-the affected flow is incomplete.
+The planned #6728 owner will bind admitted declarations to one exact inspected
+metadata generation. It will decide whether selectors match the same
+occurrence, whether their finite applicability domains overlap, and whether
+their occurrence-bound effects coalesce or conflict. A valid model naming an
+absent API remains inert. A potentially matching operation whose defining
+metadata cannot be resolved remains visible to Analysis as incomplete rather
+than becoming a name-based match or an assumed absence.
 
-Completeness is relative to:
-
-- one inspected module and exact body population;
-- one catalog receipt;
-- one Analysis support version; and
-- the explicitly supported IL, alias, dispatch, callback, state-machine, and
-  control-flow set.
-
-An unrelated value or API outside every admitted resource kind and acquisition
-is outside the modeled universe. Once an obligation is tracked, a call,
-conversion, field transition, or callback boundary touching it must have a
-resolved applicable effect or a generic Analysis rule. Otherwise that flow is
-incomplete. Absence of a declaration is never interpreted as release,
-transfer, or safe detachment.
+An unrelated value or API outside every resolved acquisition is outside the
+modeled universe. Once Analysis tracks an obligation, a call, conversion, field
+transition, or callback boundary touching it must have a resolved applicable
+effect or a generic Analysis rule. Otherwise that flow is incomplete. Absence
+of a declaration is never interpreted as release, transfer, or safe
+detachment.
 
 Compiler metadata may later be another source. It receives no implicit
 precedence. A future precedence policy, if needed, belongs to the caller's
@@ -1211,54 +1243,34 @@ returned `snapshot.Value` itself, the `independent` requirement would fail and
 Analysis would derive **borrow escape** rather than accepting the
 owner-derived result as detached.
 
-## One Analysis engine
+## Consumer handoff
 
-The engine consumes only resolved normalized declarations plus existing
-metadata, IL, and control-flow evidence. Declaration source is retained for
-diagnostics but cannot select a flow algorithm.
+The language publishes admitted declarations and their admission receipt.
+The planned #6728 boundary will resolve them against concrete metadata
+occurrences and publish occurrence-bound effects. Analysis consumes only those
+resolved effects plus existing metadata, IL, and control-flow evidence.
+Declaration source remains attached for diagnostics but cannot select a flow
+algorithm.
 
-One generic method evidence shape replaces ArrayPool-specific rent and
-parameter records. It retains:
+The implementation sequence deliberately generalizes the current ArrayPool
+path:
 
-- resource kind and obligation identity;
-- acquisition coordinate;
-- release, move, store, return, forwarding, derive, and borrow evidence;
-- authority correspondence;
-- lender liveness and settlement-observation evidence;
-- callback region and result evidence; and
-- typed completeness.
+- #6729 replaces hard-coded operation recognition with resolved effects;
+- #6730 generalizes method-local ownership evidence while retaining existing
+  decoding, control-flow, reaching-definition, and call evidence;
+- #6731 migrates lifecycle and leak analysis while preserving the fixture and
+  pinned corpus oracle; and
+- #6732 migrates the separate Research ownership-path consumer.
 
-`ResourceLifecycleAnalysis` projects generic lifecycle occurrences such as
-missing release, use after release, double release, use after move, borrow
-escape, incompatible borrowed access, and unobserved asynchronous settlement.
-Resource-specific consumers may then add actionability without changing the
-underlying occurrence.
-
-The same normalized declarations drive provider-conformance analysis for
-operation bodies that are available to Analysis. A non-materializing borrow
-that creates a replacement resource produces unexpected-materialization
-evidence. An identity-preserving pass that returns a replacement produces
-identity-substitution evidence. When the implementation body or required value
-flow is unavailable or unsupported, conformance is incomplete rather than
-assumed.
-
-`LibraryBodyIndex.LeakTriage`, `LeakTriageAnalyzer`, and the corpus sensor are
-also direct consumers of the current engine. Their adoption either consumes
-generic evidence directly or retains a projection-only compatibility adapter.
-No compatibility adapter retains or re-runs the old ArrayPool flow engine.
-
-The existing Research ownership path is a separate consumer:
-`LibraryBodyIndex.ArrayPoolOwnership`, `MemberCallGraphSession`,
-`ArrayPoolOwnershipPathFindings`, and `AnnotatedMemberDocumentQuery` expose the
-current ArrayPool-named evidence. Their focused adoption replaces
-`ArrayPoolOwnershipPathWitness` with resource-neutral flow evidence while
-preserving an ArrayPool filter as a query choice rather than an Analysis type.
+Those issues own their evidence shapes, supported flow boundaries, Findings,
+and compatibility adapters. This language requires only that no declaration
+source or resource kind choose a separate top-level lifecycle algorithm.
 
 By operator choice on #6631, the repository-composition claim that no hidden
 ArrayPool-specific semantic branch remains has **no dedicated absence gate**.
-It is reviewed during migration. Positive gates establish normalized-model
-equivalence and observable outcomes; they do not claim to prove that every
-future implementation file lacks an API-specific branch.
+It is reviewed during migration. Positive gates establish admitted-model,
+resolved-occurrence, and observable outcome equivalence; they do not claim to
+prove that every future implementation file lacks an API-specific branch.
 
 ## Failure and incompleteness
 
@@ -1266,14 +1278,14 @@ The declaration phase distinguishes:
 
 - malformed language or JSON;
 - unsupported language version or effect;
-- unresolved or ambiguous metadata identity;
 - unbound or inconsistently bound generic variable;
-- conflicting declarations;
-- unsupported interface or virtual dispatch;
-- unsupported authority or callback relationship; and
+- unresolved model-local references;
+- invalid carrier placement or typed model structure; and
 - parser or model work-budget exhaustion.
 
-The flow phase separately distinguishes unsupported IL decode, aliasing,
+The adjacent resolved-effect phase separately distinguishes unmatched,
+ambiguous, unsupported, incomplete, and conflicting concrete metadata
+occurrences. The flow phase distinguishes unsupported IL decode, aliasing,
 address-taking, field flow, callback target, state machine, unsafe, interop,
 exception path, or interprocedural composition.
 
@@ -1343,63 +1355,45 @@ ignored. Invocation alone does not release the obligation.
 ### Conflicting model sources
 
 An attribute declares a parameter borrowed while an admitted JSON mapping
-declares it consumed under an overlapping condition. Neither silently wins.
-Catalog construction fails with the typed conflict and both provenances, so no
-analysis can report a plausible partial contract.
+declares it consumed. Both models are locally valid and admission retains both
+provenances. If both selectors resolve to the same concrete operation and
+their applicability overlaps, the resolved-effect boundary fails atomically
+with the typed conflict. If either selector is absent, the latent conflict does
+not prevent analysis of unrelated code.
 
 Two outcomes testing different fields are not treated as opposites merely
 because one tests `true` and the other `false`. Both fields may satisfy their
-tests in one result. If one outcome releases a consumed obligation and the
-other transfers it, catalog construction rejects the overlapping terminal
-effects.
+tests in one result. Whether release and transfer effects overlap belongs to
+the concrete resolved occurrence, not declaration admission.
 
 ## Evidence plan
 
 This design is specification-only. Runtime and Analysis properties remain
 **unverified** until their named implementation slices add Release gates.
 
-The language and normalization gates must establish:
+The language admission gates must establish:
 
 - bounded parsing and all-or-nothing validation for attribute and JSON inputs;
-- exact version, carrier, selector, assembly, generic, signature, ref-kind, and
-  interface-implementation matching;
-- equal normalized declarations from equivalent attribute and JSON models;
-- explicit conflict, unknown-version, unresolved-definition, and work-budget
-  outcomes;
-- conflict detection that distinguishes incompatible tests on one canonical
-  subject from simultaneously satisfiable tests on different subjects;
+- exact version, carrier placement, selector structure, generic scope,
+  signature terms, and ref-kind representation;
+- equal admitted declarations from equivalent attribute and JSON models;
+- explicit malformed, unknown-version, unresolved-local-reference, and
+  work-budget outcomes;
 - no inspected-assembly loading or executable model extension;
-- distinction between an ordinary array and a matching acquired pooled buffer;
-- authority association for supported `ArrayPool<T>.Shared` flows;
-- generic derive propagation through the currently supported Span and Memory
-  wrappers;
 - validation and normalization of `materialization=none` and
-  `identity=preserve`; and
-- non-vacuity by removing one required effect from each witness model.
+  `identity=preserve`;
+- independent admission of the ArrayPool and ownership/resources models,
+  including a latent cross-model conflict that is not rejected without a
+  concrete occurrence; and
+- non-vacuity by removing one required local declaration from each witness
+  model.
 
-The generic engine gates must preserve:
-
-- the clean, leak, use-after-return, double-return, storage, caller-return,
-  forwarding, alias, and incomplete fixture outcomes;
-- a separately compiled declared owner that uses ArrayPool internally,
-  including temporary return, exceptional leak, retained-child cleanup, and
-  independent outer-owner and pooled-buffer outcomes in one flow;
-- derived missing-release, ownership-duplication, double-release,
-  use-after-release, use-after-move, wrong-authority, borrow, and
-  unobserved-settlement outcomes without declaring those failures as API
-  effects;
-- current normal and exceptional path evidence;
-- intended current Resource Lifecycle Finding identity and coordinates;
-- the pinned community-corpus lifecycle and actionability census, with every
-  intentional difference reviewed as a contract correction;
-- separately compiled `AssemblyInspectionSession` acquisition, release,
-  read-only receiver, snapshot result, escape, and incompatible-access cases;
-- a conforming snapshot that borrows the exact live resource and returns the
-  exact callback result, plus source-materialization and result-substitution
-  violations;
-- release on supported normal and exceptional exits;
-- required asynchronous settlement being successfully observed; and
-- typed incompleteness for every declared unsupported flow category.
+The resolved-effect and generic-engine gates belong to #6728-#6732. They must
+use the existing ArrayPool fixtures and pinned Resource Triage corpus as the
+compatibility oracle, including the owner-uses-ArrayPool composition witness,
+visible incompleteness, normal and exceptional paths, and intended Finding
+coordinates. This document does not restate those owners' algorithms or
+evidence inventories.
 
 The absence of a hidden ArrayPool-specific semantic path is unverified by
 operator choice. No source-text or hostile-repository gate is added for it.
@@ -1407,32 +1401,31 @@ operator choice. No source-text or hostile-repository gate is added for it.
 ## Production adoption
 
 [#6544](https://github.com/richlander/dotnet-inspect/issues/6544) remains the
-overall ownership-adoption tracker. This language reaches production through
-nine focused slices:
+overall ownership-adoption tracker. The resolve-first replacement expands its
+enumerated plan from 21 to 23 steps. This language reaches production through
+these focused slices:
 
-1. lock this language, its encodings, normalized boundary, and oracle;
-2. implement the bounded parser, validator, model provenance, and normalized
-   declarations;
-3. express the supported ArrayPool and wrapper contracts as a shipped typed C#
-   mapping;
-4. adapt one generic flow engine to reproduce the ArrayPool fixture and corpus
-   oracle plus the declared-owner/ArrayPool composition witness;
-5. adopt generic evidence in `LibraryBodyIndex`, `LeakTriageAnalyzer`, the
-   corpus sensor, and Resource Lifecycle Analysis, then retire the
-   ArrayPool-specific lifecycle semantic path;
-6. adopt generic ownership-flow evidence in Research and retire
-   `ArrayPoolOwnershipFlow` and `ArrayPoolOwnershipPathWitness`;
-7. express `Inspector.Resources` and `AssemblyInspectionSession` through
-   compiled effect attributes and prove equivalent normalization from JSON
-   test inputs;
-8. expose generalized Resource Triage through the CLI;
-9. expose the same typed contract through Inspect Web Browser/Wasm.
+1. #6726 narrows this owner to declaration admission;
+2. #6727 implements the bounded parser, admitted model, provenance, and
+   admission receipt;
+3. #6728 designs concrete metadata resolution and occurrence-local effect
+   composition;
+4. #6729 implements that resolver and the shipped typed C# ArrayPool mapping;
+5. #6730 generalizes the existing ArrayPool method-ownership flow and proves
+   the declared-owner/ArrayPool composition witness;
+6. #6731 migrates lifecycle and leak analysis and preserves the pinned corpus
+   oracle;
+7. #6732 migrates Research ownership paths;
+8. a focused `Inspector.Resources` adoption expresses the first repository
+   owner through compiled effect attributes;
+9. a focused runtime slice implements the host-neutral snapshot callback and
+   its conformance evidence;
+10. a CLI slice exposes generalized Resource Triage; and
+11. an Inspect Web Browser/Wasm slice exposes the same typed contract.
 
-Slices 2-7 are owner-scoped implementation efforts even when their sequencing
-is shown together. A future, separately approved product issue may accept
-caller-supplied JSON models for unannotated third-party packages or binaries;
-that capability is enabled by the language but is not part of the current
-adoption plan.
+A future, separately approved product issue may accept caller-supplied JSON
+models for unannotated third-party packages or binaries; that capability is
+enabled by the language but is not part of the current adoption plan.
 
 Artifact, Package Source, Library, Workspace, SourceHouse, and
 DocumentationHouse adopt the effect language only in their separately owned
@@ -1446,6 +1439,10 @@ This design does not claim:
 - complete CLR alias, dispatch, reflection, unsafe, interop, field, aggregate,
   or async-state-machine analysis;
 - that an attribute or JSON declaration is truthful merely because it parses;
+- that admitted declarations are mutually compatible before concrete
+  resolution;
+- context-free satisfiability or contradiction proof across unresolved
+  selector patterns;
 - that every `*Lease`, `*Session`, or `IDisposable` is a resource;
 - that an API name implies an effect;
 - that the runtime snapshot helpers are required by another repository;
