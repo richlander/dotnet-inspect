@@ -2,7 +2,11 @@ using System.IO.Compression;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Fixtures;
+using DotnetInspector.Packages;
 using DotnetInspect.Web.Interop.Metadata;
+using ILInspector.Metadata;
+using NuGetFetch;
+using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspect.Web.Tests;
 
@@ -92,6 +96,88 @@ public sealed class BrowserMemberDeclarationTests
         Assert.False(propertyDeclaration.Compatibility);
     }
 
+    [Fact]
+    public async Task SelectedPlatformDeclarationUsesPlatformWorkspace()
+    {
+        const string framework = "net11.0";
+        const string version = "11.0.973";
+        byte[] image = File.ReadAllBytes(
+            FixtureCatalog.DecompilerUnsafeNew.AssemblyPath());
+        using var archiveBytes = new MemoryStream();
+        using (var archive = new ZipArchive(
+            archiveBytes,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            using Stream entry = archive.CreateEntry(
+                $"runtimes/linux-x64/lib/net11.0/{AssemblyFileName}").Open();
+            entry.Write(image);
+        }
+
+        using var handler = new PlatformHandler(
+            version,
+            archiveBytes.ToArray());
+        using var client = new HttpClient(handler);
+        BrowserPlatformScopeResolution resolution =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                framework,
+                version,
+                AssemblyFileName,
+                "netcore.app",
+                client,
+                new UniformPackageSourceAuthorization(
+                    [PackageSource.NuGetOrg]),
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        try
+        {
+            ApiSurface surface = resolution.Scope.UseParticipant(
+                resolution.Participant,
+                BrowserMemberResolution.ImplementationSurface);
+            ApiType type = Assert.Single(
+                surface.Types,
+                candidate => candidate.FullName == SpellingType);
+            ApiMember member = Assert.Single(
+                type.Members,
+                candidate => candidate.Name == "PointerFreeUnsafeMethod");
+            int requests = handler.Requests;
+
+            string json =
+                await MetadataExports.QueryPlatformMemberDeclaration(
+                    framework,
+                    version,
+                    AssemblyFileName,
+                    "netcore.app",
+                    type.DefinitionName!.ToEscapedFullName(),
+                    member.Name,
+                    Analysis.CallGraphMemberResolver
+                        .CreateSelector(type, member).Key,
+                    member.DeclarationMetadataToken
+                        ?? member.MetadataToken
+                        ?? 0);
+            BrowserMemberDeclaration declaration =
+                JsonSerializer.Deserialize(
+                    json,
+                    BrowserMetadataJsonContext.Default
+                        .BrowserMemberDeclaration)
+                ?? throw new InvalidOperationException(
+                    "The platform declaration export returned null.");
+
+            Assert.Contains(
+                "unsafe",
+                Assert.IsType<string>(declaration.Text),
+                StringComparison.Ordinal);
+            Assert.Null(declaration.Unavailable);
+            Assert.False(declaration.Compatibility);
+            Assert.Equal(requests, handler.Requests);
+        }
+        finally
+        {
+            await resolution.DisposeAsync();
+            await BrowserPackageWorkspace.RemoveScopeAsync(resolution.Scope);
+        }
+    }
+
     static JsonElement Type(JsonElement root, string definitionId) =>
         Assert.Single(
             root.GetProperty("types").EnumerateArray(),
@@ -156,5 +242,43 @@ public sealed class BrowserMemberDeclarationTests
         }
 
         return content.ToArray();
+    }
+
+    sealed class PlatformHandler(
+        string version,
+        byte[] archive) : HttpMessageHandler
+    {
+        internal int Requests { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Requests++;
+            string url = request.RequestUri!.AbsoluteUri;
+            const string package =
+                "microsoft.netcore.app.runtime.linux-x64";
+            HttpContent? content = url switch
+            {
+                $"https://api.nuget.org/v3-flatcontainer/{package}/index.json" =>
+                    new StringContent(
+                        $$"""{"versions":["{{version}}"]}"""),
+                $"https://api.nuget.org/v3/registration5-gz-semver2/{package}/index.json" =>
+                    new StringContent(
+                        $$$"""{"items":[{"items":[{"catalogEntry":{"version":"{{{version}}}","listed":true}}]}]}"""),
+                _ when url ==
+                    $"https://api.nuget.org/v3-flatcontainer/{package}/{version}/{package}.{version}.nupkg" =>
+                    new ByteArrayContent(archive),
+                _ => null,
+            };
+            return Task.FromResult(new HttpResponseMessage(
+                content is null
+                    ? System.Net.HttpStatusCode.NotFound
+                    : System.Net.HttpStatusCode.OK)
+            {
+                Content = content,
+            });
+        }
     }
 }

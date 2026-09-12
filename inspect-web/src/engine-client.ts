@@ -42,6 +42,7 @@ type PackageOperations =
 
 type MetadataOperations =
   | "queryMemberDeclaration"
+  | "queryPlatformMemberDeclaration"
   | "queryGraphMemberSurface"
   | "queryPackageHeapEntries"
   | "queryPackageMetadata"

@@ -110,6 +110,18 @@ function $validateManagedExports(exports) {
         value = $ownDataProperty(value, "Interop");
         value = $ownDataProperty(value, "Metadata");
         value = $ownDataProperty(value, "MetadataExports");
+        value = $ownDataProperty(value, "QueryPlatformMemberDeclaration.1542089313");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryPlatformMemberDeclaration.1542089313\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "DotnetInspect");
+        value = $ownDataProperty(value, "Web");
+        value = $ownDataProperty(value, "Interop");
+        value = $ownDataProperty(value, "Metadata");
+        value = $ownDataProperty(value, "MetadataExports");
         value = $ownDataProperty(value, "QueryPlatformMetadata.1579276339");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryPlatformMetadata.1579276339\u0027 is not callable.");
@@ -191,6 +203,11 @@ export async function queryPackageMetadataTable(packageId, version, targetFramew
 }
 export async function queryPlatformHeapEntries(targetFramework, platformVersion, assemblyFileName, pack, metadataRoot, heap) {
     const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryPlatformHeapEntries.649160465"](targetFramework, platformVersion, assemblyFileName, pack, metadataRoot, heap);
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
+export async function queryPlatformMemberDeclaration(targetFramework, platformVersion, assemblyName, pack, typeIdentity, memberName, selectorKey, metadataToken) {
+    const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryPlatformMemberDeclaration.1542089313"](targetFramework, platformVersion, assemblyName, pack, typeIdentity, memberName, selectorKey, metadataToken);
     const $parsed = JSON.parse($result);
     return $parsed;
 }

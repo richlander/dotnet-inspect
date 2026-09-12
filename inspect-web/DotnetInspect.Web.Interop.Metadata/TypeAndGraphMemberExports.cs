@@ -428,6 +428,35 @@ public static partial class MetadataExports
             BrowserMetadataJsonContext.Default.BrowserMemberDeclaration);
     }
 
+    /// <summary>
+    /// Renders one explicitly selected Platform declaration under the product's C# display policy.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryPlatformMemberDeclaration(
+        string targetFramework,
+        string platformVersion,
+        string assemblyName,
+        string pack,
+        string typeIdentity,
+        string memberName,
+        string selectorKey,
+        int metadataToken)
+    {
+        BrowserMemberDeclaration declaration =
+            await PlatformMemberDeclarationAsync(
+                targetFramework,
+                platformVersion,
+                assemblyName,
+                pack,
+                typeIdentity,
+                memberName,
+                selectorKey,
+                metadataToken);
+        return JsonSerializer.Serialize(
+            declaration,
+            BrowserMetadataJsonContext.Default.BrowserMemberDeclaration);
+    }
+
     static async Task<BrowserMemberDeclaration> MemberDeclarationAsync(
         string packageId,
         string version,
@@ -450,14 +479,44 @@ public static partial class MetadataExports
                 selectorKey,
                 metadataToken,
                 implementationMember);
+        return RenderMemberDeclaration(resolved.Member);
+    }
+
+    static async Task<BrowserMemberDeclaration> PlatformMemberDeclarationAsync(
+        string targetFramework,
+        string platformVersion,
+        string assemblyName,
+        string pack,
+        string typeIdentity,
+        string memberName,
+        string selectorKey,
+        int metadataToken)
+    {
+        await using BrowserMemberResolution.ScopedPlatformDeclarationResolution
+            resolved =
+                await BrowserMemberResolution.PlatformDeclarationMemberAsync(
+                    targetFramework,
+                    platformVersion,
+                    assemblyName,
+                    pack,
+                    typeIdentity,
+                    memberName,
+                    selectorKey,
+                    metadataToken);
+        return RenderMemberDeclaration(resolved.Member);
+    }
+
+    static BrowserMemberDeclaration RenderMemberDeclaration(
+        BrowserMemberResolution.DeclarationResolved resolved)
+    {
         CSharpMemberDeclarationOutcome outcome =
             new CSharpFormatter(new CSharpFormatOptions
             {
                 MemorySafetyLanguage =
                     CSharpMemorySafetyLanguage.UpdatedCallerContracts,
             }).FormatMemberOutcome(
-                resolved.Member.Type,
-                resolved.Member.Member);
+                resolved.Type,
+                resolved.Member);
         return outcome switch
         {
             CSharpMemberDeclarationOutcome.Rendered rendered => new(

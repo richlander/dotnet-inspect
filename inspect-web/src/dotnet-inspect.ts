@@ -574,6 +574,8 @@ let inspectGraphMemberSurface:
   EngineClient["metadata"]["queryGraphMemberSurface"];
 let inspectMemberDeclaration:
   EngineClient["metadata"]["queryMemberDeclaration"];
+let inspectPlatformMemberDeclaration:
+  EngineClient["metadata"]["queryPlatformMemberDeclaration"];
 let inspectPackageHeapEntries:
   EngineClient["metadata"]["queryPackageHeapEntries"];
 let inspectPackageMetadata:
@@ -691,6 +693,7 @@ async function loadEngineModule() {
     ({
       queryGraphMemberSurface: inspectGraphMemberSurface,
       queryMemberDeclaration: inspectMemberDeclaration,
+      queryPlatformMemberDeclaration: inspectPlatformMemberDeclaration,
       queryPackageHeapEntries: inspectPackageHeapEntries,
       queryPackageMetadata: inspectPackageMetadata,
       queryPackageMetadataTable: inspectPackageMetadataTable,
@@ -1958,16 +1961,26 @@ const metadataInspection = createMetadataInspectionCoordinator({
 const memberDetailInspection = createMemberDetailInspectionCoordinator({
   state,
   queryDeclaration: request =>
-    inspectMemberDeclaration(
-      request.packageId,
-      request.version,
-      request.framework,
-      request.assembly,
-      request.typeIdentity,
-      request.member,
-      request.selectorKey,
-      request.metadataToken,
-      request.implementationMember),
+    request.isRuntimePack
+      ? inspectPlatformMemberDeclaration(
+          request.framework,
+          request.version,
+          request.assembly,
+          request.platformPack,
+          request.typeIdentity,
+          request.member,
+          request.selectorKey,
+          request.metadataToken)
+      : inspectMemberDeclaration(
+          request.packageId,
+          request.version,
+          request.framework,
+          request.assembly,
+          request.typeIdentity,
+          request.member,
+          request.selectorKey,
+          request.metadataToken,
+          request.implementationMember),
   queryDocumentation: (request, documentationId) =>
     inspectMemberDocumentation(
       request.packageId,
@@ -11751,6 +11764,10 @@ async function loadSelectedMemberDocumentation() {
       version: pkg.version,
       framework: pkg.activeFramework,
       assembly: type.assembly,
+      isRuntimePack: pkg.isRuntimePack,
+      platformPack: pkg.isRuntimePack
+        ? platformPackForAssembly(type.assembly, type.platformPack) ?? ""
+        : "",
       typeIdentity: type.definitionId ?? type.id,
       member: overload.name,
       selectorKey: overload.graphSelectorKey,

@@ -51,6 +51,13 @@ internal static class BrowserMemberResolution
         public ValueTask DisposeAsync() => Lease.DisposeAsync();
     }
 
+    internal sealed record ScopedPlatformDeclarationResolution(
+        BrowserPlatformScopeResolution Resolution,
+        DeclarationResolved Member) : IAsyncDisposable
+    {
+        public ValueTask DisposeAsync() => Resolution.DisposeAsync();
+    }
+
     /// <summary>
     /// Resolves one exact package/version/framework coordinate, reuses its workspace, and returns
     /// the reference-preferred participant for one product-selected compile asset.
@@ -171,6 +178,47 @@ internal static class BrowserMemberResolution
         catch
         {
             await lease.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    internal static async Task<ScopedPlatformDeclarationResolution>
+        PlatformDeclarationMemberAsync(
+            string targetFramework,
+            string platformVersion,
+            string assemblyName,
+            string pack,
+            string typeId,
+            string memberName,
+            string selectorKey,
+            int metadataToken,
+            CancellationToken cancellationToken = default)
+    {
+        BrowserPlatformScopeResolution resolution =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                targetFramework,
+                platformVersion,
+                assemblyName,
+                pack,
+                cancellationToken);
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            DeclarationResolved member = resolution.Scope.UseParticipant(
+                resolution.Participant,
+                (group, selected) => ResolveDeclaration(
+                    ParticipantSurface(group, selected, "platform"),
+                    typeId,
+                    memberName,
+                    selectorKey,
+                    metadataToken));
+            return new ScopedPlatformDeclarationResolution(
+                resolution,
+                member);
+        }
+        catch
+        {
+            await resolution.DisposeAsync().ConfigureAwait(false);
             throw;
         }
     }

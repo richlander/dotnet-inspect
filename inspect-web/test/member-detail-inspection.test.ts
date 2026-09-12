@@ -210,6 +210,8 @@ function declarationRequest(
     version: "1.2.3",
     framework: "net10.0",
     assembly: "Example.Package.dll",
+    isRuntimePack: false,
+    platformPack: "",
     typeIdentity: "Example.Widget",
     member: "Run",
     selectorKey: "Run|System.String",

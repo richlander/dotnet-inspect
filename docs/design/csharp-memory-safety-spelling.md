@@ -271,7 +271,10 @@ browser acquires that outcome separately from its inventory projection:
 `BrowserMemberSurface.Signature` remains compatibility spelling for member
 lists, filtering, overload navigation, and identity transport. Both ordinary
 surface members and graph-only implementation members resolve their exact
-typed Metadata declaration before CSharp rendering.
+typed Metadata declaration before CSharp rendering. Package selections resolve
+through `BrowserPackageWorkspace`; Platform selections resolve through
+`BrowserPlatformWorkspace` and never reinterpret the resident runtime
+pseudo-package as a NuGet package.
 
 An older surface with no module memory-safety facts takes the distinguishable
 compatibility arm. A current surface whose selected declaration is unsupported

@@ -71,6 +71,8 @@ export interface MemberDeclarationRequest {
   version: string;
   framework: string;
   assembly: string;
+  isRuntimePack: boolean;
+  platformPack: string;
   typeIdentity: string;
   member: string;
   selectorKey: string;
