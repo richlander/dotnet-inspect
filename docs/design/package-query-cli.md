@@ -109,7 +109,7 @@ is:
 
 ```sh
 find -Q Packages
-find --package-prefix dotnet-inspect -S Packages \
+find --package-prefix dotnet-inspect --package-content -S Packages \
   --where "facet=package.query.dotnet-tool" --take 20 -n 5
 find --package-prefix dotnet-inspect --package-content \
   --where "facet=package.query.dotnet-tool-v2" --take 20 -n 5
@@ -486,9 +486,11 @@ predicates:
   `PackageQuery` still applies manifest predicates first, so a tool-format
   facet does not acquire non-tool packages. The current archive-derived
   facets inspect `DotnetToolSettings.xml` for tool v1/v2 and package paths for
-  `skills/SKILL.md` or `skills/**/SKILL.md`. Tool v1 and v2 are combining
-  members, so selecting both returns either format with evidence identifying
-  the matched version; the manifest-only any-tool facet remains exclusive.
+  `skills/SKILL.md` or `skills/**/SKILL.md`. The exclusive any-tool facet
+  preserves the nuspec package-type prefilter, then reports CLI v1, CLI v2, or
+  explicitly unrecognized settings from the admitted archive. Tool v1 and v2
+  are combining members, so selecting both returns either recognized format
+  with evidence identifying the matched version.
 - **Promoted assembly tier.** The one-candidate asset, pattern, semantic
   confirmation, evidence, and resource-lifetime contract is owned by
   [Package Query assembly-pattern

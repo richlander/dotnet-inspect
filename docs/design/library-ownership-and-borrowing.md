@@ -347,7 +347,8 @@ product scenarios do not mutate a realized Library:
 - nuget.org package contents and realized Platform contents are immutable;
 - the CLI process is short-lived;
 - Inspect Web has one active Workspace and no bare-Library loader;
-- Spotlight is a one-shot Workspace editor; and
+- Spotlight may compose another exact Package occurrence into that Workspace,
+  but does not mutate any already realized Library; and
 - local or private-source content may change between acquisitions, but one
   Artifact registration remains the immutable input to one Workspace.
 

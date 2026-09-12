@@ -40,6 +40,7 @@ public class PackageQueryCliTests
     [InlineData("facet!=package.query.dotnet-tool", "supports --where")]
     [InlineData("downloads>=1000000", "supports --where")]
     [InlineData("facet=package.query.unknown", "Unknown")]
+    [InlineData("facet=package.query.dotnet-tool", "--package-content")]
     [InlineData("facet=package.query.dotnet-tool-v2", "--package-content")]
     [InlineData("", "Empty")]
     public void InvalidSelections_FailBeforeExecution(string expression, string message)

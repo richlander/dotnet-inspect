@@ -41,6 +41,8 @@ type PackageOperations =
   | "searchTypes";
 
 type MetadataOperations =
+  | "queryMemberDeclaration"
+  | "queryPlatformMemberDeclaration"
   | "queryGraphMemberSurface"
   | "queryPackageHeapEntries"
   | "queryPackageMetadata"

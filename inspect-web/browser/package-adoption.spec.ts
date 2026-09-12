@@ -116,6 +116,7 @@ interface FixtureCoordinate {
   readonly packageId: string;
   readonly version: string;
   readonly archive: Buffer;
+  readonly manifest?: Buffer;
 }
 
 interface Deferred<T> {
@@ -132,6 +133,32 @@ function deferred<T>(): Deferred<T> {
 }
 
 const version = "1.0.0";
+
+function packageQueryManifest(
+  packageId: string,
+  packageVersion: string,
+  isTool: boolean,
+): Buffer {
+  return Buffer.from(
+    `<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+  <metadata>
+    <id>${packageId}</id>
+    <version>${packageVersion}</version>
+    <authors>Fixture</authors>
+    <description>Package Query fixture.</description>
+    ${isTool
+      ? `<packageTypes>
+      <packageType name="DotnetTool" />
+    </packageTypes>`
+      : ""}
+  </metadata>
+</package>
+`,
+    "utf8",
+  );
+}
+
 const healthy: FixtureCoordinate = {
   packageId: "InspectWeb.Adoption.Healthy",
   version,
@@ -242,6 +269,7 @@ const literalFixtures: readonly FixtureCoordinate[] = [
 class GalleryFixtureRegistry {
   readonly downloads = new Map<string, number>();
   private readonly archives = new Map<string, Buffer>();
+  private readonly manifests = new Map<string, Buffer>();
   private readonly versions = new Map<string, string>();
   private readonly downloadKeys = new Map<string, string>();
 
@@ -259,6 +287,13 @@ class GalleryFixtureRegistry {
         `/v3-flatcontainer/${fixture.packageId.toLowerCase()}/index.json`,
         fixture.version,
       );
+      if (fixture.manifest) {
+        this.manifests.set(
+          `/v3-flatcontainer/${fixture.packageId.toLowerCase()}/${fixture.version}`
+            + `/${fixture.packageId.toLowerCase()}.nuspec`,
+          fixture.manifest,
+        );
+      }
     }
   }
 
@@ -268,6 +303,10 @@ class GalleryFixtureRegistry {
 
   versionIndexFor(pathname: string): string | undefined {
     return this.versions.get(pathname);
+  }
+
+  manifestFor(pathname: string): Buffer | undefined {
+    return this.manifests.get(pathname);
   }
 
   recordDownload(pathname: string): void {
@@ -308,6 +347,15 @@ async function installGalleryRoutes(
         status: 200,
         headers: { ...corsHeaders, "content-type": "application/octet-stream" },
         body: archive,
+      });
+      return;
+    }
+    const manifestBytes = registry.manifestFor(pathname);
+    if (manifestBytes) {
+      await route.fulfill({
+        status: 200,
+        headers: { ...corsHeaders, "content-type": "application/xml" },
+        body: manifestBytes,
       });
       return;
     }
@@ -608,6 +656,100 @@ test.describe("Package Query website over real Wasm", () => {
     expect(searchRequests).toHaveLength(searchCount);
     expect(exactRequests.at(-1)?.pathname).toBe("/v3-flatcontainer/newtonsoft.missing/index.json");
     expect(enrichment).toEqual([]);
+  });
+
+  test("classifies Azure.Mcp as a CLI v2 tool through bounded package content", async ({
+    page,
+    context,
+  }) => {
+    const toolManifest = packageQueryManifest("Azure.Mcp", "2.0.5", true);
+    const tool: FixtureCoordinate = {
+      packageId: "Azure.Mcp",
+      version: "2.0.5",
+      manifest: toolManifest,
+      archive: storedZip([
+        { name: "Azure.Mcp.nuspec", bytes: toolManifest },
+        {
+          name: "tools/net10.0/any/DotnetToolSettings.xml",
+          bytes: Buffer.from(
+            `<DotNetCliTool Version="2">
+  <Commands>
+    <Command Name="azmcp" EntryPoint="Azure.Mcp.dll" Runner="dotnet" />
+  </Commands>
+</DotNetCliTool>
+`,
+            "utf8",
+          ),
+        },
+      ]),
+    };
+    const libraryManifest =
+      packageQueryManifest("Azure.Library", "1.0.0", false);
+    const library: FixtureCoordinate = {
+      packageId: "Azure.Library",
+      version: "1.0.0",
+      manifest: libraryManifest,
+      archive: storedZip([
+        { name: "Azure.Library.nuspec", bytes: libraryManifest },
+      ]),
+    };
+    const registry = new GalleryFixtureRegistry([tool, library]);
+    await installGalleryRoutes(context, registry);
+
+    await context.route("https://azuresearch-usnc.nuget.org/**", async route => {
+      const url = new URL(route.request().url());
+      expect(url.pathname).toBe("/query");
+      const data = url.searchParams.get("skip") === "0"
+        ? [
+            {
+              id: tool.packageId,
+              version: tool.version,
+              description: "Azure MCP Server.",
+              owners: ["Microsoft"],
+              totalDownloads: 2_208_344,
+              verified: true,
+            },
+            {
+              id: library.packageId,
+              version: library.version,
+              description: "Ordinary library fixture.",
+              owners: ["Fixture"],
+              totalDownloads: 1,
+              verified: false,
+            },
+          ]
+        : [];
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: corsHeaders,
+        body: JSON.stringify({ totalHits: 2, data }),
+      });
+    });
+
+    await page.goto("/query");
+    const input = page.locator("#package-query-prefix");
+    await expect(input).toBeVisible({ timeout: 120_000 });
+    const toolFacet = page.locator(
+      '[data-query-facet="package.query.dotnet-tool"]',
+    );
+    await toolFacet.click();
+    await expect(toolFacet).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator(".query-facet-disclosure").nth(1))
+      .toContainText("Candidate bound K: 20");
+
+    await input.fill("Azure.*");
+    await page.locator("#package-query-run").click();
+
+    const row = page.locator(".query-row");
+    await expect(row).toHaveCount(1, { timeout: 30_000 });
+    await expect(row.locator("h2")).toHaveText(tool.packageId);
+    await expect(row.locator(".query-tier")).toHaveText("package-content");
+    await expect(row.locator(".query-evidence")).toContainText(
+      "RID-specific .NET tool CLI v2 format",
+    );
+    expect(registry.downloadCount(tool)).toBe(1);
+    expect(registry.downloadCount(library)).toBe(0);
   });
 
   test("retains 100 prefix results while mounting a bounded row window", async ({
