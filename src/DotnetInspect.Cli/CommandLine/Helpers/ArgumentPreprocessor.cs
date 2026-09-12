@@ -135,21 +135,10 @@ public static class ArgumentPreprocessor
         string[] args,
         out string? error)
     {
-        int command = FindFirstPositionalArgument(args);
-        bool removedCommand =
-            command >= 0 && IsDependencyEvidenceToken(args[command]);
-        int prefixLength = command >= 0 ? command : args.Length;
-        for (int i = 0; !removedCommand && i < prefixLength - 1; i++)
-        {
-            if (args[i] is "--tips" or "-T"
-                && !args[i].Contains('=', StringComparison.Ordinal)
-                && IsDependencyEvidenceToken(args[i + 1]))
-            {
-                removedCommand = true;
-            }
-        }
-
-        if (removedCommand)
+        int command = FindFirstPositionalArgument(
+            args,
+            optionalValueIsCommand: IsCommandTokenAfterBareTips);
+        if (command >= 0 && IsDependencyEvidenceToken(args[command]))
         {
             error = "'dependency-evidence' is no longer valid. Use 'depends' "
                 + "with the same root options; add '-S Dependencies' for "
@@ -161,10 +150,24 @@ public static class ArgumentPreprocessor
         return false;
     }
 
+    private static bool IsCommandTokenAfterBareTips(
+        string optionName,
+        string candidate) =>
+        optionName is "--tips" or "-T"
+        && (IsDependencyEvidenceToken(candidate)
+            || IsRegisteredCommandToken(candidate));
+
     private static bool IsDependencyEvidenceToken(string token) =>
         token.Equals(
             "dependency-evidence",
             StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsRegisteredCommandToken(string token) =>
+        !token.StartsWith("-", StringComparison.Ordinal)
+        && KnownCommands.Contains(token)
+        && !IsDependencyEvidenceToken(token)
+        && !token.Equals("api", StringComparison.OrdinalIgnoreCase)
+        && !token.Equals("audit", StringComparison.OrdinalIgnoreCase);
 
     internal static bool IsImplicitPackageCandidate(
         string[] args,
@@ -257,7 +260,8 @@ public static class ArgumentPreprocessor
 
     internal static int FindFirstPositionalArgument(
         string[] args,
-        bool directionPresence = false)
+        bool directionPresence = false,
+        Func<string, string, bool>? optionalValueIsCommand = null)
     {
         for (int i = 0; i < args.Length; i++)
         {
@@ -277,7 +281,9 @@ public static class ArgumentPreprocessor
             if (OptionsWithFollowingValue.Contains(optionName)
                 && !token.Contains('=', StringComparison.Ordinal)
                 && i + 1 < args.Length
-                && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
+                && !args[i + 1].StartsWith("-", StringComparison.Ordinal)
+                && optionalValueIsCommand?.Invoke(optionName, args[i + 1])
+                    is not true)
             {
                 i++;
                 continue;

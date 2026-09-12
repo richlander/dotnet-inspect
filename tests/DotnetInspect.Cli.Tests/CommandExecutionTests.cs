@@ -3524,6 +3524,24 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Network traffic", error);
     }
 
+    [Theory]
+    [InlineData("--tips")]
+    [InlineData("-T")]
+    public async Task BareTips_PreservesExplicitDependencyEvidencePackageSubject(
+        string tipsOption)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            tipsOption,
+            "package",
+            "dependency-evidence",
+            "-D",
+            "--schema");
+
+        Assert.Equal(0, exit);
+        Assert.NotEmpty(output);
+        Assert.Empty(error);
+    }
+
     // ── type command ─────────────────────────────────────────────────
 
     [Fact]
