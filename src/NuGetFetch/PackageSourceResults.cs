@@ -670,6 +670,7 @@ public sealed class PackageSourceOperationResult<T>
         PackageSourceClientFactory.RequireOwnerCapability(ownerCapability);
         if (typeof(T) != typeof(PackageSearchResult)
             && typeof(T) != typeof(NuGetCatalogPage)
+            && typeof(T) != typeof(NuGetCatalogPackageReceipt)
             && typeof(T) != typeof(PackageVersionResult)
             && typeof(T) != typeof(PackageSourceManifest)
             && typeof(T) != typeof(PackageSourcePayload))
@@ -1477,6 +1478,25 @@ internal static class PackageSourceOperation
             value => factory.SucceededSymbols(coordinate, value),
             kind => factory.FailedSymbols(coordinate, kind),
             allowNotFound: true,
+            cancellationToken,
+            operationContext);
+
+    public static Task<
+        PackageSourceOperationResult<NuGetCatalogPackageReceipt>>
+        CaptureCatalogPackageReceiptAsync(
+            PackageSourceResultFactory factory,
+            PackageSourceCoordinate coordinate,
+            Func<Task<NuGetCatalogPackageReceipt>> operation,
+            NuGetOperationDeadline operationDeadline,
+            CancellationToken cancellationToken,
+            NuGetOperationContext? operationContext = null) =>
+        CaptureAsync(
+            operation,
+            value => factory.SucceededCatalogPackageReceipt(
+                value,
+                operationDeadline),
+            kind => factory.FailedCatalogPackageReceipt(coordinate, kind),
+            allowNotFound: false,
             cancellationToken,
             operationContext);
 
