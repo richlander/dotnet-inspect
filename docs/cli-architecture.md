@@ -81,9 +81,11 @@ process-local Workspace, occurrence, generation, action, and authority
 identity while retaining portable Library asset, containing-Type, and
 declaring-Type joins. Portable Library, Type, and Member selector fields use a
 reversible backslash transport spelling before display containment and
-tabular lowering. It escapes line separators, tabs, rendering hazards, and
-literal backslashes; copied values are decoded before exact ordinal selector
-resolution.
+tabular lowering. It escapes line separators, tabs, rendering hazards, literal
+backslashes, and the `&`, `<`, `>`, backtick, and `|` characters rewritten by
+Markdown table lowering; copied values are decoded before exact ordinal
+selector resolution. A nonempty selector remains an identity even when its
+decoded metadata spelling consists only of whitespace or line separators.
 
 ## Runtime identity
 

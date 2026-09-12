@@ -436,8 +436,8 @@ dotnet-inspect workspace \
 Library asset IDs, Type full names, and Member stable selectors in that output
 can drive an exact stateless descendant plus lens request. Copy those selector
 fields verbatim: line separators, tabs, rendering hazards, and literal
-backslashes use a reversible backslash transport spelling that `workspace`
-decodes before exact selection:
+backslashes, plus characters reserved by Markdown tables, use a reversible
+backslash transport spelling that `workspace` decodes before exact selection:
 
 ```bash
 dotnet-inspect workspace \

@@ -11,7 +11,7 @@ public abstract record NavigationSnapshotSelectorResolution
         string selector)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
-        ArgumentException.ThrowIfNullOrWhiteSpace(selector);
+        ArgumentException.ThrowIfNullOrEmpty(selector);
         Snapshot = snapshot;
         Selector = selector;
     }
@@ -167,7 +167,7 @@ public static class NavigationSnapshotSelector
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(library);
-        ArgumentException.ThrowIfNullOrWhiteSpace(fullName);
+        ArgumentException.ThrowIfNullOrEmpty(fullName);
         NavigationLibraryInventory inventory = LibraryInventory(
             snapshot,
             library);

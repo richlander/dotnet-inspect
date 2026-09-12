@@ -1,4 +1,8 @@
 using System.Net;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Text.Json;
 
 using DotnetInspect.Cli.Commands;
@@ -55,6 +59,11 @@ public sealed class WorkspaceCommandTests
     [InlineData("A\u0085B")]
     [InlineData("A\u2028B")]
     [InlineData("A\u2029B")]
+    [InlineData("A`B")]
+    [InlineData("A|B")]
+    [InlineData("A<B")]
+    [InlineData("A>B")]
+    [InlineData("A&B")]
     public void PortableSelectors_RoundTripThroughSupportedOutputFormats(
         string selector)
     {
@@ -134,6 +143,177 @@ public sealed class WorkspaceCommandTests
         Assert.Equal(
             selector,
             WorkspaceNavigationPortableSelector.Decode(encoded));
+    }
+
+    [Fact]
+    public void PortableSelectors_PreservePrintableAsciiThroughMarkdown()
+    {
+        var rewritten = new List<char>();
+        for (char character = '\u0020'; character <= '\u007E'; character++)
+        {
+            string encoded =
+                WorkspaceNavigationPortableSelector.Encode(
+                    $"A{character}B");
+            var view = new WorkspaceNavigationView
+            {
+                Types =
+                [
+                    new WorkspaceNavigationTypeRow(
+                        encoded,
+                        "Library",
+                        "compile:lib/Fixture.dll",
+                        "public",
+                        "Available",
+                        active: false,
+                        retained: false),
+                ],
+            };
+            string markdown = MarkoutSerializer.Serialize(
+                view,
+                WorkspaceNavigationViewContext.Default);
+            if (!markdown.Contains(encoded, StringComparison.Ordinal))
+                rewritten.Add(character);
+        }
+
+        Assert.True(
+            rewritten.Count == 0,
+            string.Join(
+                ", ",
+                rewritten.Select(character =>
+                    $"U+{(int)character:X4} '{character}'")));
+    }
+
+    [Fact]
+    public async Task GenericTypeSelector_CopiesFromMarkdownAndRebinds()
+    {
+        var store = new InMemoryPackageStore();
+        await AddPackageAsync(
+            store,
+            PackageId,
+            ($"lib/{Framework}/DotnetInspect.Cli.Tests.dll",
+                await File.ReadAllBytesAsync(
+                    typeof(WorkspaceCommandTests).Assembly.Location,
+                    TestContext.Current.CancellationToken)));
+        using var client = new HttpClient(new FailingHandler());
+        WorkspaceContextLoadOptions load = LoadOptions(client, store);
+        string typeName =
+            typeof(WorkspaceNavigationGenericFixture<>).FullName!;
+        string portable =
+            WorkspaceNavigationPortableSelector.Encode(typeName);
+
+        var inventory = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    Packages = [$"{PackageId}@{Version}"],
+                    Tfm = Framework,
+                    ActivePackage = 1,
+                },
+                load,
+                TestContext.Current.CancellationToken));
+        Assert.Equal(0, inventory.ExitCode);
+        Assert.Contains(portable, inventory.Output, StringComparison.Ordinal);
+
+        var selected = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    Packages = [$"{PackageId}@{Version}"],
+                    Tfm = Framework,
+                    ActivePackage = 1,
+                    Library =
+                        $"compile:lib/{Framework}/"
+                            + "DotnetInspect.Cli.Tests.dll",
+                    Type = portable,
+                    Lens = "type.compare",
+                    Format = OutputFormat.Json,
+                },
+                load,
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, selected.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(selected.Output);
+        Assert.True(
+            document.RootElement.GetProperty("types")
+                .EnumerateArray()
+                .Single(row =>
+                    row.GetProperty("type").GetString() == portable)
+                .GetProperty("active").GetBoolean());
+        Assert.Equal(
+            "type.compare",
+            document.RootElement.GetProperty("navigation")[0]
+                .GetProperty("lens").GetString());
+    }
+
+    [Theory]
+    [InlineData("\t")]
+    [InlineData("\u2028")]
+    public async Task WhitespaceOnlyTypeSelector_CopiesAndRebinds(
+        string typeName)
+    {
+        const string assemblyName = "WhitespaceType";
+        var store = new InMemoryPackageStore();
+        await AddPackageAsync(
+            store,
+            PackageId,
+            ($"lib/{Framework}/{assemblyName}.dll",
+                BuildTypeAssembly(assemblyName, typeName)));
+        using var client = new HttpClient(new FailingHandler());
+        WorkspaceContextLoadOptions load = LoadOptions(client, store);
+
+        var inventory = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    Packages = [$"{PackageId}@{Version}"],
+                    Tfm = Framework,
+                    ActivePackage = 1,
+                    Format = OutputFormat.Json,
+                },
+                load,
+                TestContext.Current.CancellationToken));
+        Assert.Equal(0, inventory.ExitCode);
+        using JsonDocument inventoryDocument =
+            JsonDocument.Parse(inventory.Output);
+        string portable = Assert.Single(
+            inventoryDocument.RootElement.GetProperty("types")
+                .EnumerateArray()).GetProperty("type").GetString()!;
+        Assert.Equal(
+            WorkspaceNavigationPortableSelector.Encode(typeName),
+            portable);
+
+        var selected = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    Packages = [$"{PackageId}@{Version}"],
+                    Tfm = Framework,
+                    ActivePackage = 1,
+                    Library =
+                        $"compile:lib/{Framework}/{assemblyName}.dll",
+                    Type = portable,
+                    Lens = "type.compare",
+                    Format = OutputFormat.Json,
+                },
+                load,
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, selected.ExitCode);
+        using JsonDocument selectedDocument =
+            JsonDocument.Parse(selected.Output);
+        Assert.Equal(
+            portable,
+            Assert.Single(
+                selectedDocument.RootElement.GetProperty("types")
+                    .EnumerateArray()).GetProperty("type").GetString());
+        Assert.True(
+            Assert.Single(
+                selectedDocument.RootElement.GetProperty("types")
+                    .EnumerateArray()).GetProperty("active").GetBoolean());
+        Assert.Equal(
+            "type.compare",
+            selectedDocument.RootElement.GetProperty("navigation")[0]
+                .GetProperty("lens").GetString());
     }
 
     [Fact]
@@ -1084,6 +1264,48 @@ public sealed class WorkspaceCommandTests
             stream, TestContext.Current.CancellationToken);
     }
 
+    static byte[] BuildTypeAssembly(
+        string assemblyName,
+        string typeName)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString(assemblyName + ".dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(assemblyName),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            default,
+            metadata.GetOrAddString(typeName),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var builder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        builder.Serialize(image);
+        return image.ToArray();
+    }
+
     sealed class FailingHandler : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(
@@ -1096,3 +1318,5 @@ public sealed class WorkspaceCommandTests
                 });
     }
 }
+
+public sealed class WorkspaceNavigationGenericFixture<T>;

@@ -516,7 +516,7 @@ internal static class WorkspaceNavigationPortableSelector
                 '\\' => "\\\\",
                 '\r' => "\\r",
                 '\n' => "\\n",
-                _ when character == '\t'
+                _ when character is '\t' or '&' or '<' or '>' or '`' or '|'
                     || CSharpText.CSharpIdentifier.RequiresLiteralEscape(
                         character) =>
                     "\\u" + ((int)character).ToString(

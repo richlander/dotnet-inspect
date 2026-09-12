@@ -74,6 +74,10 @@ are
 `ActivePackage_ActiveEntriesExecuteAndTombstoneRemainsRetired`,
 `PortableSelectors_RoundTripThroughDisplayContainment`,
 `PortableSelectors_RoundTripThroughSupportedOutputFormats`,
+`PortableSelectors_PreservePrintableAsciiThroughMarkdown`,
+`GenericTypeSelector_CopiesFromMarkdownAndRebinds`,
+`WhitespaceOnlyTypeSelector_CopiesAndRebinds`,
+`WhitespaceOnlyTypeSelector_RebindsAdvertisedIdentity`,
 `MissingType_RendersNonSuccessSnapshotAndDiagnostic`,
 `RootOnlyAllLibraries_RendersTypedUnavailableSnapshot`, and
 `AllLibrariesRejectsIgnoredLibraryWithoutTypeDestination`. Default package
@@ -82,8 +86,10 @@ rows retain defining Library asset IDs; Member rows distinguish containing
 from declaring Type. Portable Library, Type, and Member selectors use a
 reversible backslash transport spelling before display containment and
 tabular lowering, and the CLI decodes that spelling before exact ordinal
-resolution. Runtime Workspace, occurrence, generation, action, and authority
-identities are not serialized.
+resolution. Exact selector identity is nonempty rather than non-whitespace;
+metadata names made only of whitespace or line separators remain selectable.
+Runtime Workspace, occurrence, generation, action, and authority identities
+are not serialized.
 
 Snapshot installation, reconciliation, revision behavior, retained sessions,
 synchronization, and restoration remain unverified until their implementation

@@ -595,6 +595,62 @@ public sealed class NavigationWorkspaceSnapshotTests
                 Assert.Single(result.Inventory.Evidence)).Failure);
     }
 
+    [Theory]
+    [InlineData("\t")]
+    [InlineData("\u2028")]
+    public async Task WhitespaceOnlyTypeSelector_RebindsAdvertisedIdentity(
+        string fullName)
+    {
+        await using InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
+        PackageRootBinding binding =
+            NavigationSnapshotTestData.Binding("Navigation.Whitespace");
+        WorkspaceScopeSnapshot scope =
+            await NavigationSnapshotTestData.ReplaceAsync(
+                workspace,
+                binding);
+        var type = new ApiType
+        {
+            Namespace = "",
+            Name = fullName,
+            DefinitionName =
+                Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create("", [fullName])).Name,
+            Accessibility = "public",
+            Members = [],
+        };
+        NavigationPackageEvaluation package =
+            NavigationSnapshotTestData.PackageEvaluation(
+                scope.Packages[0],
+                binding,
+                NavigationSnapshotTestData.Surface(
+                    "Navigation.Library",
+                    type));
+        ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
+        NavigationWorkspaceSnapshot snapshot =
+            NavigationWorkspaceSnapshotEvaluation.Evaluate(
+                new NavigationWorkspaceSnapshotRequest
+                {
+                    Scope = scope,
+                    Package = package,
+                },
+                registry,
+                NavigationSnapshotTestData.AllAvailable(registry));
+        var library =
+            Assert.IsType<StructuralSubjectIdentity.LibrarySubject>(
+                snapshot.ActiveSubject);
+
+        NavigationSnapshotSelectorResolution.Selected selected =
+            Assert.IsType<NavigationSnapshotSelectorResolution.Selected>(
+                NavigationSnapshotSelector.ResolveType(
+                    snapshot,
+                    library,
+                    fullName));
+
+        Assert.Same(Assert.Single(snapshot.Types).Row.Subject, selected.Subject);
+        Assert.Equal(fullName, selected.Selector);
+    }
+
     [Fact]
     public async Task MemberSelector_UsesTheSelectedContainingTypeInventory()
     {
