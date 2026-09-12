@@ -2,11 +2,13 @@
 (***************************************************************************)
 (* Focused model for Inspect Web Spotlight destination activation.         *)
 (*                                                                         *)
-(* One exact result is classified against one captured active Workspace,   *)
+(* One exact result is rendered against one captured active Workspace,     *)
 (* Scope revision, publication base, complete registration projection, and *)
-(* exact Package occurrence inventory. Current Package admission may       *)
-(* commit before focus settles. External-package construction is an opaque  *)
-(* Workspace Definitions result that only a current attempt may publish.    *)
+(* exact Package occurrence inventory. Selection transfers that descriptor *)
+(* into an activation intent without rebinding it to live state. Current    *)
+(* Package admission may commit before focus settles. External-package      *)
+(* construction is an opaque Workspace Definitions result that only a       *)
+(* current attempt may publish.                                             *)
 (***************************************************************************)
 EXTENDS Naturals, Sequences, TLC
 
@@ -26,6 +28,7 @@ DualCurrentAndFreshPublication == "DualCurrentAndFreshPublication"
 RepeatPlatformNavigation == "RepeatPlatformNavigation"
 PlatformDescendantNavigation == "PlatformDescendantNavigation"
 LeakRealizationAcrossWorkspace == "LeakRealizationAcrossWorkspace"
+RebindRenderedDescriptor == "RebindRenderedDescriptor"
 
 Mutations ==
     {NoMutation,
@@ -41,7 +44,8 @@ Mutations ==
      DualCurrentAndFreshPublication,
      RepeatPlatformNavigation,
      PlatformDescendantNavigation,
-     LeakRealizationAcrossWorkspace}
+     LeakRealizationAcrossWorkspace,
+     RebindRenderedDescriptor}
 
 ASSUME Mutation \in Mutations
 
@@ -52,6 +56,8 @@ ExactLibraryScenario == "ExactLibrary"
 OverlapScenario == "Overlap"
 RepeatPlatformScenario == "RepeatPlatform"
 PlatformDescendantsScenario == "PlatformDescendants"
+StaleDescriptorScenario == "StaleDescriptor"
+StalePlatformDescriptorScenario == "StalePlatformDescriptor"
 Scenarios ==
     {SourcePairScenario,
      CoveredPackageScenario,
@@ -59,7 +65,9 @@ Scenarios ==
      ExactLibraryScenario,
      OverlapScenario,
      RepeatPlatformScenario,
-     PlatformDescendantsScenario}
+     PlatformDescendantsScenario,
+     StaleDescriptorScenario,
+     StalePlatformDescriptorScenario}
 
 ASSUME Scenario \in Scenarios
 
@@ -184,6 +192,7 @@ Results ==
      MembershipCommittedFocusSuperseded}
 
 MaxIntent == 2
+MaxResultGeneration == MaxIntent + 1
 Tokens == 1..MaxIntent
 RevisionValues == 1..3
 BaseValues == 1..4
@@ -304,6 +313,14 @@ AllowedDestination(token, destination) ==
         IF token = 1
         THEN destination = PlatformJsonType
         ELSE destination = PlatformJsonMember
+      [] Scenario = StaleDescriptorScenario ->
+        IF token = 1
+        THEN destination = PackageJson
+        ELSE destination = ExistingPackage
+      [] Scenario = StalePlatformDescriptorScenario ->
+        IF token = 1
+        THEN destination = PlatformJsonLibrary
+        ELSE destination = ExistingPackage
       [] OTHER -> FALSE
 
 AllowedReplacementProfile(profile) ==
@@ -313,10 +330,12 @@ AllowedReplacementProfile(profile) ==
       [] Scenario = OverlapScenario -> profile = 3
       [] Scenario = RepeatPlatformScenario -> profile = 2
       [] Scenario = PlatformDescendantsScenario -> profile = 2
+      [] Scenario = StaleDescriptorScenario -> profile = 3
       [] OTHER -> profile \in {2, 3}
 
 NoAttempt ==
     [ state                  |-> Unused,
+      resultGeneration       |-> 0,
       plan                   |-> NoPlan,
       workspace              |-> NoWorkspace,
       scopeRevision          |-> 0,
@@ -330,6 +349,17 @@ NoAttempt ==
       committedScopeBase     |-> 0,
       returnedOccurrence     |-> NoOccurrence ]
 
+NoRenderedDescriptor ==
+    [ generation          |-> 0,
+      plan                |-> NoPlan,
+      workspace           |-> NoWorkspace,
+      scopeRevision       |-> 0,
+      scopeBase           |-> 0,
+      registrationProfile |-> 0,
+      destination         |-> NoDestination,
+      coverage            |-> <<>>,
+      occurrence          |-> NoOccurrence ]
+
 VARIABLES
     activeWorkspace,
     scopeRevision,
@@ -339,6 +369,8 @@ VARIABLES
     realizedLibraries,
     focus,
     intent,
+    resultGeneration,
+    renderedDescriptor,
     attempts,
     results,
     membershipCommits,
@@ -352,7 +384,8 @@ VARIABLES
     badDirectFocus,
     badPostMembershipFocus,
     badFreshPublication,
-    badLibraryOccurrence
+    badLibraryOccurrence,
+    badDescriptorRebind
 
 vars ==
     <<activeWorkspace,
@@ -363,6 +396,8 @@ vars ==
       realizedLibraries,
       focus,
       intent,
+      resultGeneration,
+      renderedDescriptor,
       attempts,
       results,
       membershipCommits,
@@ -376,12 +411,28 @@ vars ==
       badDirectFocus,
       badPostMembershipFocus,
       badFreshPublication,
-      badLibraryOccurrence>>
+      badLibraryOccurrence,
+      badDescriptorRebind>>
+
+descriptorState ==
+    <<resultGeneration, renderedDescriptor, badDescriptorRebind>>
 
 TypeOK ==
     /\ activeWorkspace \in Workspaces
     /\ focus \in Destinations \cup {NoFocus}
     /\ intent \in 0..MaxIntent
+    /\ resultGeneration \in 0..MaxResultGeneration
+    /\ renderedDescriptor.generation \in 0..MaxResultGeneration
+    /\ renderedDescriptor.plan \in Plans \cup {NoPlan}
+    /\ renderedDescriptor.workspace \in Workspaces \cup {NoWorkspace}
+    /\ renderedDescriptor.scopeRevision \in 0..3
+    /\ renderedDescriptor.scopeBase \in 0..4
+    /\ renderedDescriptor.registrationProfile \in 0..3
+    /\ renderedDescriptor.destination
+        \in Destinations \cup {NoDestination}
+    /\ renderedDescriptor.coverage \in Seq(CoverageWitnesses)
+    /\ renderedDescriptor.occurrence
+        \in Occurrences \cup {NoOccurrence}
     /\ membershipCommits \subseteq Tokens
     /\ focusPublications \subseteq Tokens
     /\ freshPublications \subseteq Tokens
@@ -394,6 +445,7 @@ TypeOK ==
     /\ badPostMembershipFocus \in BOOLEAN
     /\ badFreshPublication \in BOOLEAN
     /\ badLibraryOccurrence \in BOOLEAN
+    /\ badDescriptorRebind \in BOOLEAN
     /\ \A workspace \in Workspaces :
         /\ scopeRevision[workspace] \in RevisionValues
         /\ scopeBase[workspace] \in BaseValues
@@ -404,6 +456,7 @@ TypeOK ==
                 \in Occurrences \cup {NoOccurrence}
     /\ \A token \in Tokens :
         /\ attempts[token].state \in AttemptStates
+        /\ attempts[token].resultGeneration \in 0..MaxResultGeneration
         /\ attempts[token].plan \in Plans \cup {NoPlan}
         /\ attempts[token].workspace \in Workspaces \cup {NoWorkspace}
         /\ attempts[token].scopeRevision \in 0..3
@@ -437,6 +490,8 @@ Init ==
         [workspace \in Workspaces |-> {}]
     /\ focus = NoFocus
     /\ intent = 0
+    /\ resultGeneration = 0
+    /\ renderedDescriptor = NoRenderedDescriptor
     /\ attempts = [token \in Tokens |-> NoAttempt]
     /\ results = [token \in Tokens |-> NoResult]
     /\ membershipCommits = {}
@@ -451,6 +506,18 @@ Init ==
     /\ badPostMembershipFocus = FALSE
     /\ badFreshPublication = FALSE
     /\ badLibraryOccurrence = FALSE
+    /\ badDescriptorRebind = FALSE
+
+RenderedDescriptorBasisIsCurrent ==
+    /\ renderedDescriptor.generation # 0
+    /\ renderedDescriptor.workspace = activeWorkspace
+    /\ renderedDescriptor.scopeRevision =
+        scopeRevision[activeWorkspace]
+    /\ renderedDescriptor.scopeBase = scopeBase[activeWorkspace]
+    /\ renderedDescriptor.registrationProfile =
+        registrationProfile[activeWorkspace]
+
+DescriptorSlotIsEmpty == renderedDescriptor.generation = 0
 
 CapturedBasisIsCurrent(token) ==
     /\ attempts[token].state = Pending
@@ -474,7 +541,7 @@ CommittedBasisIsCurrent(token) ==
     /\ attempts[token].registrationProfile =
         registrationProfile[activeWorkspace]
 
-StartSelection(destination) ==
+RenderDescriptor(destination) ==
     LET workspace == activeWorkspace
         profile == registrationProfile[workspace]
         coverage == ProjectedCoverage(profile, destination)
@@ -482,30 +549,27 @@ StartSelection(destination) ==
             OccurrenceFor(packageOccurrences[workspace], destination)
     IN
     /\ intent < MaxIntent
+    /\ resultGeneration < MaxResultGeneration
+    /\ resultGeneration <= intent + 1
     /\ destination \in Destinations
     /\ AllowedDestination(intent + 1, destination)
-    /\ intent' = intent + 1
-    /\ attempts' =
-        [attempts EXCEPT
-            ![intent + 1] =
-                [ state                  |-> Pending,
-                  plan                   |->
-                    PlanFor(packageOccurrences[workspace],
-                            realizedLibraries[workspace],
-                            coverage,
-                            destination),
-                  workspace              |-> workspace,
-                  scopeRevision          |->
-                    scopeRevision[workspace],
-                  scopeBase              |-> scopeBase[workspace],
-                  registrationProfile    |-> profile,
-                  destination            |-> destination,
-                  coverage               |-> coverage,
-                  occurrence             |-> occurrence,
-                  phase                  |-> Ready,
-                  committedScopeRevision |-> 0,
-                  committedScopeBase     |-> 0,
-                  returnedOccurrence     |-> NoOccurrence ]]
+    /\ (renderedDescriptor.generation = 0
+        \/ ~RenderedDescriptorBasisIsCurrent)
+    /\ resultGeneration' = resultGeneration + 1
+    /\ renderedDescriptor' =
+        [ generation          |-> resultGeneration + 1,
+          plan                |->
+            PlanFor(packageOccurrences[workspace],
+                    realizedLibraries[workspace],
+                    coverage,
+                    destination),
+          workspace           |-> workspace,
+          scopeRevision       |-> scopeRevision[workspace],
+          scopeBase           |-> scopeBase[workspace],
+          registrationProfile |-> profile,
+          destination         |-> destination,
+          coverage            |-> coverage,
+          occurrence          |-> occurrence ]
     /\ UNCHANGED
         <<activeWorkspace,
           scopeRevision,
@@ -514,6 +578,91 @@ StartSelection(destination) ==
           packageOccurrences,
           realizedLibraries,
           focus,
+          intent,
+          attempts,
+          results,
+          membershipCommits,
+          focusPublications,
+          freshPublications,
+          visibleFailures,
+          definitionsRequests,
+          definitionsReady,
+          sourceMutations,
+          badCurrentCommit,
+          badDirectFocus,
+          badPostMembershipFocus,
+          badFreshPublication,
+          badLibraryOccurrence,
+          badDescriptorRebind>>
+
+StartSelection ==
+    LET descriptor == renderedDescriptor
+        token == intent + 1
+        destination == descriptor.destination
+        rebind ==
+            /\ Mutation = RebindRenderedDescriptor
+            /\ ~RenderedDescriptorBasisIsCurrent
+        workspace == IF rebind THEN activeWorkspace ELSE descriptor.workspace
+        profile == registrationProfile[workspace]
+        coverage ==
+            IF rebind
+            THEN ProjectedCoverage(profile, destination)
+            ELSE descriptor.coverage
+        occurrence ==
+            IF rebind
+            THEN OccurrenceFor(packageOccurrences[workspace], destination)
+            ELSE descriptor.occurrence
+        plan ==
+            IF rebind
+            THEN
+                PlanFor(packageOccurrences[workspace],
+                        realizedLibraries[workspace],
+                        coverage,
+                        destination)
+            ELSE descriptor.plan
+    IN
+    /\ intent < MaxIntent
+    /\ descriptor.generation # 0
+    /\ attempts[token].state = Unused
+    /\ AllowedDestination(token, destination)
+    /\ intent' = token
+    /\ attempts' =
+        [attempts EXCEPT
+            ![token] =
+                [ state                  |-> Pending,
+                  resultGeneration       |-> descriptor.generation,
+                  plan                   |-> plan,
+                  workspace              |-> workspace,
+                  scopeRevision          |->
+                    IF rebind
+                    THEN scopeRevision[workspace]
+                    ELSE descriptor.scopeRevision,
+                  scopeBase              |->
+                    IF rebind
+                    THEN scopeBase[workspace]
+                    ELSE descriptor.scopeBase,
+                  registrationProfile    |->
+                    IF rebind
+                    THEN profile
+                    ELSE descriptor.registrationProfile,
+                  destination            |-> destination,
+                  coverage               |-> coverage,
+                  occurrence             |-> occurrence,
+                  phase                  |-> Ready,
+                  committedScopeRevision |-> 0,
+                  committedScopeBase     |-> 0,
+                  returnedOccurrence     |-> NoOccurrence ]]
+    /\ renderedDescriptor' = NoRenderedDescriptor
+    /\ badDescriptorRebind' = (badDescriptorRebind \/ rebind)
+    /\ UNCHANGED
+        <<activeWorkspace,
+          scopeRevision,
+          scopeBase,
+          registrationProfile,
+          packageOccurrences,
+          realizedLibraries,
+          focus,
+          resultGeneration,
           results,
           membershipCommits,
           focusPublications,
@@ -530,6 +679,7 @@ StartSelection(destination) ==
 
 ReplaceRegistrations(profile) ==
     /\ registrationProfile[activeWorkspace] = 1
+    /\ (DescriptorSlotIsEmpty \/ Scenario = StaleDescriptorScenario)
     /\ profile \in {2, 3}
     /\ AllowedReplacementProfile(profile)
     /\ scopeRevision[activeWorkspace] < 3
@@ -559,9 +709,11 @@ ReplaceRegistrations(profile) ==
           badDirectFocus,
           badPostMembershipFocus,
           badFreshPublication,
-          badLibraryOccurrence>>
+          badLibraryOccurrence,
+          descriptorState>>
 
 AdvanceMembershipRevision ==
+    /\ DescriptorSlotIsEmpty
     /\ scopeRevision[activeWorkspace] < 3
     /\ scopeBase[activeWorkspace] < 4
     /\ scopeRevision' =
@@ -588,9 +740,11 @@ AdvanceMembershipRevision ==
           badDirectFocus,
           badPostMembershipFocus,
           badFreshPublication,
-          badLibraryOccurrence>>
+          badLibraryOccurrence,
+          descriptorState>>
 
 AdvancePublicationBase ==
+    /\ DescriptorSlotIsEmpty
     /\ scopeBase[activeWorkspace] < 4
     /\ scopeBase' =
         [scopeBase EXCEPT ![activeWorkspace] = @ + 1]
@@ -615,10 +769,13 @@ AdvancePublicationBase ==
           badDirectFocus,
           badPostMembershipFocus,
           badFreshPublication,
-          badLibraryOccurrence>>
+          badLibraryOccurrence,
+          descriptorState>>
 
 ReplaceActiveWorkspace ==
     /\ activeWorkspace = CurrentWorkspace
+    /\ (DescriptorSlotIsEmpty
+        \/ Scenario = StalePlatformDescriptorScenario)
     /\ activeWorkspace' = ReplacementWorkspace
     /\ focus' = NoFocus
     /\ realizedLibraries' =
@@ -647,7 +804,8 @@ ReplaceActiveWorkspace ==
           badDirectFocus,
           badPostMembershipFocus,
           badFreshPublication,
-          badLibraryOccurrence>>
+          badLibraryOccurrence,
+          descriptorState>>
 
 CompleteDirectFocus(token) ==
     LET workspace == attempts[token].workspace
@@ -706,7 +864,8 @@ CompleteDirectFocus(token) ==
           sourceMutations,
           badCurrentCommit,
           badPostMembershipFocus,
-          badFreshPublication>>
+          badFreshPublication,
+          descriptorState>>
 
 CommitCurrentMembership(token) ==
     LET workspace == attempts[token].workspace
@@ -756,7 +915,8 @@ CommitCurrentMembership(token) ==
           badDirectFocus,
           badPostMembershipFocus,
           badFreshPublication,
-          badLibraryOccurrence>>
+          badLibraryOccurrence,
+          descriptorState>>
 
 CompletePostMembershipFocus(token) ==
     LET workspace == attempts[token].workspace
@@ -808,7 +968,8 @@ CompletePostMembershipFocus(token) ==
           sourceMutations,
           badCurrentCommit,
           badDirectFocus,
-          badFreshPublication>>
+          badFreshPublication,
+          descriptorState>>
 
 FailCurrentBeforeCommit(token) ==
     LET fallback == Mutation = FallbackAfterCoveredFailure
@@ -856,7 +1017,8 @@ FailCurrentBeforeCommit(token) ==
           badDirectFocus,
           badPostMembershipFocus,
           badFreshPublication,
-          badLibraryOccurrence>>
+          badLibraryOccurrence,
+          descriptorState>>
 
 FailPostMembershipFocus(token) ==
     LET fallback == Mutation = FallbackAfterCoveredFailure
@@ -899,7 +1061,8 @@ FailPostMembershipFocus(token) ==
           badDirectFocus,
           badPostMembershipFocus,
           badFreshPublication,
-          badLibraryOccurrence>>
+          badLibraryOccurrence,
+          descriptorState>>
 
 RequestDefinitionsActivation(token) ==
     /\ attempts[token].state = Pending
@@ -929,7 +1092,8 @@ RequestDefinitionsActivation(token) ==
           badDirectFocus,
           badPostMembershipFocus,
           badFreshPublication,
-          badLibraryOccurrence>>
+          badLibraryOccurrence,
+          descriptorState>>
 
 DefinitionsPrepareCompleteActivation(token) ==
     /\ attempts[token].state = Pending
@@ -957,7 +1121,8 @@ DefinitionsPrepareCompleteActivation(token) ==
           badDirectFocus,
           badPostMembershipFocus,
           badFreshPublication,
-          badLibraryOccurrence>>
+          badLibraryOccurrence,
+          descriptorState>>
 
 DefinitionsFailActivation(token) ==
     LET publishFailed == Mutation = PublishFailedFreshActivation
@@ -999,7 +1164,8 @@ DefinitionsFailActivation(token) ==
           badDirectFocus,
           badPostMembershipFocus,
           badFreshPublication,
-          badLibraryOccurrence>>
+          badLibraryOccurrence,
+          descriptorState>>
 
 PublishFreshActivation(token) ==
     LET freshWorkspace == FreshWorkspaceFor(token)
@@ -1042,7 +1208,8 @@ PublishFreshActivation(token) ==
           badCurrentCommit,
           badDirectFocus,
           badPostMembershipFocus,
-          badLibraryOccurrence>>
+          badLibraryOccurrence,
+          descriptorState>>
 
 SettleUnavailable(token) ==
     /\ attempts[token].state = Pending
@@ -1071,7 +1238,8 @@ SettleUnavailable(token) ==
           badDirectFocus,
           badPostMembershipFocus,
           badFreshPublication,
-          badLibraryOccurrence>>
+          badLibraryOccurrence,
+          descriptorState>>
 
 AttemptBasisIsStale(token) ==
     IF attempts[token].phase = CurrentMembershipCommitted
@@ -1111,7 +1279,8 @@ SettleStaleOrSuperseded(token) ==
           badDirectFocus,
           badPostMembershipFocus,
           badFreshPublication,
-          badLibraryOccurrence>>
+          badLibraryOccurrence,
+          descriptorState>>
 
 SettleAttempt(token) ==
     \/ CompleteDirectFocus(token)
@@ -1127,7 +1296,8 @@ SettleAttempt(token) ==
     \/ SettleStaleOrSuperseded(token)
 
 Next ==
-    \/ \E destination \in Destinations : StartSelection(destination)
+    \/ \E destination \in Destinations : RenderDescriptor(destination)
+    \/ StartSelection
     \/ \E profile \in {2, 3} : ReplaceRegistrations(profile)
     \/ AdvanceMembershipRevision
     \/ AdvancePublicationBase
@@ -1159,6 +1329,9 @@ ExactSourceIdentityControlsClassification ==
             /\ (attempts[token].destination = PackageJsonLibrary
                   => attempts[token].plan = UnavailableLibrary)
         ELSE TRUE
+
+RenderedDescriptorSelectionPreservesBasis ==
+    ~badDescriptorRebind
 
 RepeatedPlatformSelectionUsesPlatformAction ==
     /\ results[1] = PlatformActivated
@@ -1342,6 +1515,28 @@ NoStaleOrSupersededSettlement ==
     \A token \in Tokens :
         results[token] \notin
             {Stale, Superseded, MembershipCommittedFocusSuperseded}
+
+NoStalePresentedDescriptorSettlement ==
+    ~(/\ attempts[1].resultGeneration > 0
+      /\ attempts[1].destination = PackageJson
+      /\ attempts[1].registrationProfile = 1
+      /\ attempts[1].plan = RestoreExternalPackageWorkspace
+      /\ registrationProfile[CurrentWorkspace] = 3
+      /\ results[1] = Stale
+      /\ membershipCommits = {}
+      /\ focusPublications = {}
+      /\ freshPublications = {})
+
+NoStalePlatformDescriptorSettlement ==
+    ~(/\ attempts[1].resultGeneration > 0
+      /\ attempts[1].destination = PlatformJsonLibrary
+      /\ attempts[1].workspace = CurrentWorkspace
+      /\ attempts[1].registrationProfile = 1
+      /\ attempts[1].plan = ActivateCurrentPlatform
+      /\ activeWorkspace = ReplacementWorkspace
+      /\ results[1] = Stale
+      /\ focus = NoFocus
+      /\ focusPublications = {})
 
 NoMembershipCoveredLibraryActivation ==
     \A token \in Tokens :

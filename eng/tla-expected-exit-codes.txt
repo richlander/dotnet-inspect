@@ -65,6 +65,7 @@ docs/design/models/inspect-web-spotlight-destination-activation/BrokenDualCurren
 docs/design/models/inspect-web-spotlight-destination-activation/BrokenFallbackAfterCoveredFailure.cfg=12
 docs/design/models/inspect-web-spotlight-destination-activation/BrokenPublishFailedFreshActivation.cfg=12
 docs/design/models/inspect-web-spotlight-destination-activation/BrokenPlatformDescendantNavigation.cfg=12
+docs/design/models/inspect-web-spotlight-destination-activation/BrokenRebindRenderedDescriptor.cfg=12
 docs/design/models/inspect-web-spotlight-destination-activation/BrokenRepeatPlatformNavigation.cfg=12
 docs/design/models/inspect-web-spotlight-destination-activation/BrokenStaleCurrentCommit.cfg=12
 docs/design/models/inspect-web-spotlight-destination-activation/BrokenStaleDirectFocus.cfg=12
@@ -78,6 +79,7 @@ docs/design/models/inspect-web-spotlight-destination-activation/LivenessLibrary.
 docs/design/models/inspect-web-spotlight-destination-activation/LivenessOverlap.cfg=0
 docs/design/models/inspect-web-spotlight-destination-activation/LivenessPlatformDescendants.cfg=0
 docs/design/models/inspect-web-spotlight-destination-activation/LivenessRepeatPlatform.cfg=0
+docs/design/models/inspect-web-spotlight-destination-activation/LivenessStaleDescriptor.cfg=0
 docs/design/models/inspect-web-spotlight-destination-activation/ReachabilityAddCurrentPackageLibrary.cfg=12
 docs/design/models/inspect-web-spotlight-destination-activation/ReachabilityCurrentMembership.cfg=12
 docs/design/models/inspect-web-spotlight-destination-activation/ReachabilityFreshWorkspace.cfg=12
@@ -87,6 +89,8 @@ docs/design/models/inspect-web-spotlight-destination-activation/ReachabilityOver
 docs/design/models/inspect-web-spotlight-destination-activation/ReachabilityPartialMembershipFailure.cfg=12
 docs/design/models/inspect-web-spotlight-destination-activation/ReachabilityPlatform.cfg=12
 docs/design/models/inspect-web-spotlight-destination-activation/ReachabilityPlatformDescendants.cfg=12
+docs/design/models/inspect-web-spotlight-destination-activation/ReachabilityPreselectionRegistrationStale.cfg=12
+docs/design/models/inspect-web-spotlight-destination-activation/ReachabilityPreselectionWorkspaceStale.cfg=12
 docs/design/models/inspect-web-spotlight-destination-activation/ReachabilityReplacementPlatformIsolation.cfg=12
 docs/design/models/inspect-web-spotlight-destination-activation/ReachabilityRepeatPlatform.cfg=12
 docs/design/models/inspect-web-spotlight-destination-activation/ReachabilityStaleOrSuperseded.cfg=12
@@ -100,6 +104,7 @@ docs/design/models/inspect-web-spotlight-destination-activation/SafetyLibrary.cf
 docs/design/models/inspect-web-spotlight-destination-activation/SafetyOverlap.cfg=0
 docs/design/models/inspect-web-spotlight-destination-activation/SafetyPlatformDescendants.cfg=0
 docs/design/models/inspect-web-spotlight-destination-activation/SafetyRepeatPlatform.cfg=0
+docs/design/models/inspect-web-spotlight-destination-activation/SafetyStaleDescriptor.cfg=0
 docs/design/models/resolver-lineage/BrokenAlwaysInherit.cfg=12
 docs/design/models/resolver-lineage/BrokenCandidateCache.cfg=12
 docs/design/models/resolver-lineage/BrokenRegistrationMap.cfg=12

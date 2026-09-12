@@ -6,11 +6,13 @@
 activation](../../inspect-web-spotlight-destination-activation.md) is the
 normative owner. This model checks its interaction boundary:
 
-> One exact Spotlight candidate is classified against one captured active
-> Workspace, Scope revision, publication base, complete registration
-> projection, and Package occurrence inventory. A current Package may commit
-> before focus settles, while only a current Definitions-issued complete
-> activation may publish a fresh Workspace.
+> One exact Spotlight candidate is classified into a rendered descriptor
+> against one captured active Workspace, Scope revision, publication base,
+> complete registration projection, and Package occurrence inventory.
+> Selection transfers that retained basis into a new activation intent rather
+> than reclassifying from live state. A current Package may commit before focus
+> settles, while only a current Definitions-issued complete activation may
+> publish a fresh Workspace.
 
 This is bounded design evidence, not implementation conformance.
 
@@ -19,6 +21,8 @@ This is bounded design evidence, not implementation conformance.
 `SpotlightDestinationActivation.tla` uses:
 
 - two activation intents;
+- three result generations, with at most one stale descriptor refresh before
+  each next activation intent;
 - one initial active Workspace, one external replacement, and one
   Definitions-issued fresh Workspace identity per intent;
 - three Scope revisions, four publication bases, and three complete
@@ -45,6 +49,7 @@ reproducing package, metadata, or Platform coordinate representation.
 
 The model retains the product join currencies used by Spotlight:
 
+- rendered result generation;
 - activation intent;
 - active Workspace identity;
 - Scope revision;
@@ -75,6 +80,7 @@ Workspace replacement, or settlement at the consumed boundary.
 | Platform Type and Member selections retain exact Browser-local Platform actions | `SafetyPlatformDescendants`, `ReachabilityPlatformDescendants` | `BrokenPlatformDescendantNavigation` |
 | Platform realization remains scoped to its exact Workspace | `SafetyRepeatPlatform`, `ReachabilityReplacementPlatformIsolation` | `BrokenCrossWorkspaceRealization` |
 | Every overlapping registration contribution remains in exact order | `Safety`, `ReachabilityOverlappingWitnesses` | `BrokenDropOverlappingWitnesses` |
+| Selection retains the rendered descriptor's captured plan and basis rather than reclassifying from live state | `SafetyStaleDescriptor`, `ReachabilityPreselectionRegistrationStale`, `ReachabilityPreselectionWorkspaceStale` | `BrokenRebindRenderedDescriptor` |
 | Every plan arm has an exact reachable settlement, including exact-Library-only package admission, Platform Type/Member activation, and never-realized uncovered Platform unavailability | `ReachabilityNavigateCurrent`, `ReachabilityCurrentMembership`, `ReachabilityAddCurrentPackageLibrary`, `ReachabilityMembershipCoveredLibrary`, `ReachabilityPlatform`, `ReachabilityPlatformDescendants`, `ReachabilityFreshWorkspace`, `ReachabilityUnavailableLibrary`, `ReachabilityUnavailablePlatform` | positive census, not a mutation pair |
 | Current Package membership classifies its not-yet-realized Library without duplicate Add | `Safety`, `ReachabilityMembershipCoveredLibrary` | occurrence checks below |
 | Package-origin Library focus uses the exact retained or Scope-returned occurrence | `Safety` | `BrokenWrongLibraryOccurrence` |
@@ -85,21 +91,29 @@ Workspace replacement, or settlement at the consumed boundary.
 | A failed Definitions result is never published by the host | `Safety` | `BrokenPublishFailedFreshActivation` |
 | Every bounded attempt settles under weakly fair adjacent completion | `Liveness` | safety mutations are not treated as liveness evidence |
 
-The seven safety profiles and seven liveness profiles expect TLC exit 0. Their
+The eight safety profiles and eight liveness profiles expect TLC exit 0. Their
 fixed destination schedules partition the package/Platform source pair,
 covered-Package, exact-Library-only, Package-to-Library, and
 overlapping-Library, repeated-Platform, and Platform Type/Member scenarios while
 retaining every permitted revision, publication-base, failure, replacement,
-and supersession placement within each profile. Each `Broken*.cfg` expects
-exit 12 at its named invariant. The fifteen `Reachability*.cfg` files
+and supersession placement within each profile. The stale-descriptor profile
+also explores render, preselection registration movement, descriptor
+replacement, selection, and settlement; the other profiles admit environment
+movement before rendering or after selection so this dedicated profile owns
+the preselection registration-change interleavings. A separate bounded
+Platform scenario owns active-Workspace replacement before selection. Each of
+the fourteen `Broken*.cfg` files expects exit 12 at its named invariant. The
+seventeen
+`Reachability*.cfg` files
 intentionally check a false absence invariant and expect exit 12 when TLC
 reaches every plan arm, exact-Library-only package admission, Platform
 Type/Member activation, repeated Platform activation after in-place coverage
 removal, replacement-Workspace isolation, never-realized uncovered Platform
 unavailability, complete overlapping coverage, visible failure, post-commit
-focus failure, or stale/superseded settlement.
+focus failure, stale/superseded settlement, or stale-before-selection
+settlement after registration or active-Workspace change.
 
-The checked profiles explore 120,831 to 682,847 distinct states each. All 42
+The checked profiles explore 126,863 to 842,480 distinct states each. All 47
 registered configurations produced their exact expected semantic verdict.
 
 All configurations are registered with their exact expected semantic verdict
@@ -121,4 +135,4 @@ the configured instance; it is not an inductive proof for unbounded
 activations. It does not prove implementation identity construction, source
 authorization, package-prefix matching, Scope admission, Navigation
 reconciliation, Platform activation, Workspace Definitions construction or
-cleanup, or Browser rendering.
+cleanup, or Browser result rendering.

@@ -83,7 +83,7 @@ or membership.
 
 Every selectable descriptor retains these owner-issued values:
 
-- the exact Spotlight result generation and activation intent;
+- the exact Spotlight result generation;
 - the exact active `InspectionWorkspaceIdentity`;
 - the exact Scope snapshot, logical revision, and publication base used for
   membership and registration classification;
@@ -98,6 +98,18 @@ registration text do not substitute for any part of that basis.
 Spotlight does not invent a parallel Workspace or registration identity.
 Registration content is read only from the exact Scope snapshot that owns it;
 later Scope or publication-base movement invalidates that captured basis.
+
+Classification occurs when Spotlight renders the selectable result descriptor,
+not when the user later selects it. Selection issues a new activation intent
+and copies the descriptor's captured basis and plan into that attempt. It must
+not reclassify the old row from live Workspace or Scope state. If the captured
+basis is no longer current, the attempt settles stale before any current- or
+fresh-Workspace effect.
+
+A later result generation may replace an unselected stale descriptor with a
+freshly classified descriptor. Rendering that newer result does not supersede
+an activation that already started from an earlier descriptor; activation
+intent remains the post-selection supersession currency.
 
 ## Destination classification
 
@@ -342,10 +354,11 @@ The required walkthrough is:
 The focused model is
 [`SpotlightDestinationActivation.tla`](models/inspect-web-spotlight-destination-activation/SpotlightDestinationActivation.tla).
 It represents exact source-specific candidates, complete ordered coverage
-witnesses, captured Workspace/Scope/publication-base association, exact Package
-occurrences, current Package commit followed by independent focus, a
-Definitions-issued complete fresh activation, active-Workspace replacement,
-supersession, and visible failure.
+witnesses, rendered result generations with captured
+Workspace/Scope/publication-base association, exact Package occurrences,
+selection-time transfer into activation intent, current Package commit followed
+by independent focus, a Definitions-issued complete fresh activation,
+active-Workspace replacement, supersession, and visible failure.
 
 The model checks:
 
@@ -361,6 +374,11 @@ The model checks:
   realized in a replacement Workspace;
 - every overlapping registration contribution remains in the exact ordered
   coverage projection;
+- selection copies the rendered descriptor's captured plan and basis rather
+  than reclassifying it from live Workspace state;
+- registration change or active-Workspace replacement before selection makes
+  the old descriptor settle stale without membership, focus, or fresh
+  publication;
 - package-origin Library focus consumes the exact retained or newly issued
   Package occurrence;
 - one attempt cannot publish both a current-Workspace effect and a new
@@ -425,7 +443,9 @@ owners.
 | Select a never-realized Platform Library after its covering registration is removed | The result is unavailable; registration removal does not manufacture realization |
 | Realize a Platform Library, replace the active Workspace, remove the replacement's covering registration, then select the same Library | The replacement settles it unavailable; realization from the prior Workspace does not transfer |
 | Add a package-prefix contribution covering `System.Text.Json` and obtain fresh results | The exact package row now preserves the current Workspace; the Platform row remains distinct |
-| Remove or replace the covering registration before selection or completion | The stale action does not mutate or publish and reports its exact stale outcome |
+| Render an uncovered package row, add a covering registration, then select the old row | The captured external-Package plan settles stale; selection does not reclassify it into current membership |
+| Render a Platform Library row, replace the active Workspace, then select the old row | The captured source-Workspace plan settles stale and publishes no Platform focus |
+| Remove or replace the covering registration during activation | The stale action does not mutate or publish and reports its exact stale outcome |
 | Scope commits a selected Package and Navigation then fails | Membership remains committed; focus failure is visible; no fallback Workspace is created |
 | Covered package acquisition fails before Scope commit | The current Workspace is unchanged and the failure is visible there |
 | Definitions fails or supersedes uncovered-package restoration | Its exact non-install cleanup runs and no complete activation reaches host publication |
