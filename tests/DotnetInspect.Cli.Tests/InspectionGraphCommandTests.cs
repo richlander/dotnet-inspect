@@ -4,11 +4,13 @@ using System.Text.Json;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Views;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
+using Markout;
 using NuGetFetch;
 
 namespace DotnetInspect.Cli.Tests;
@@ -168,6 +170,45 @@ public sealed class InspectionGraphCommandTests
         Assert.Contains("Provider API Types", captured.Output);
         Assert.Contains("Call Sites", captured.Output);
         Assert.Empty(captured.Error);
+    }
+
+    [Fact]
+    public void LibrariesCommand_ProjectionSchemaComesFromGeneratedViewContext()
+    {
+        DocumentSchema schema = LibraryCallUseViewContext.Default
+            .GetSchemaInfo<LibraryCallUseSelectedView>()!
+            .ToDocumentSchema();
+
+        Assert.Equal(
+            [
+                LibraryCallUseCommand.ConsumerUseSitesSection,
+                LibraryCallUseCommand.ProviderApiTypesSection,
+                LibraryCallUseCommand.CallSitesSection,
+            ],
+            schema.SectionNames);
+        Assert.Equal(
+            [
+                "source_library",
+                "source_mvid",
+                "source_member",
+                "source_token",
+                "target_library",
+                "target_mvid",
+                "provider_types",
+                "target_members",
+                "call_sites",
+                "call_site_rows",
+            ],
+            schema.GetSection(
+                    LibraryCallUseCommand.ConsumerUseSitesSection)!
+                .Items
+                .Select(item => item.Key));
+        Assert.Equal(
+            "IL Offset",
+            schema.GetSection(LibraryCallUseCommand.CallSitesSection)!
+                .Items
+                .Single(item => item.Key == "il_offset")
+                .Name);
     }
 
     [Fact]
@@ -625,6 +666,69 @@ public sealed class InspectionGraphCommandTests
             StringComparison.Ordinal);
         Assert.Empty(partial.Error);
         Assert.Empty(empty.Error);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_ContainsAssemblyNamesBeforeComposingDescriptions()
+    {
+        const string injectedHeading = "# INJECTED HEADING";
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-graph-libraries-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string hostilePath = Path.Combine(directory, "Hostile.dll");
+            string safePath = Path.Combine(directory, "Safe.dll");
+            WriteNamedAssembly(
+                hostilePath,
+                $"Hostile\n{injectedHeading}");
+            WriteNamedAssembly(safePath, "Safe");
+
+            async Task<(int ExitCode, string Output, string Error)> Execute(
+                params string[] selection) =>
+                await ConsoleCapture.RunAsync(
+                    () => CommandLineBuilder.CreateRootCommand()
+                        .Parse(
+                            [
+                                "graph",
+                                "libraries",
+                                "--library",
+                                hostilePath,
+                                "--library",
+                                safePath,
+                                .. selection,
+                            ])
+                        .InvokeAsync());
+
+            var defaultView = await Execute();
+            var selectedView = await Execute("-S");
+
+            Assert.Equal(0, defaultView.ExitCode);
+            Assert.Equal(0, selectedView.ExitCode);
+            Assert.DoesNotContain(
+                $"\n{injectedHeading}",
+                defaultView.Output.ReplaceLineEndings("\n"),
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                $"\n{injectedHeading}",
+                selectedView.Output.ReplaceLineEndings("\n"),
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "Hostile # INJECTED HEADING@",
+                defaultView.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "Hostile # INJECTED HEADING@",
+                selectedView.Output,
+                StringComparison.Ordinal);
+            Assert.Empty(defaultView.Error);
+            Assert.Empty(selectedView.Error);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Fact]
@@ -1715,6 +1819,26 @@ public sealed class InspectionGraphCommandTests
                 producer,
                 Framework,
                 runtimeIdentifier: null));
+
+    static void WriteNamedAssembly(
+        string path,
+        string name)
+    {
+        var assemblyName = new System.Reflection.AssemblyName(name)
+        {
+            Version = new Version(1, 0, 0, 0),
+        };
+        var assembly = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            assemblyName,
+            typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule("GraphLibraries");
+        module.DefineType(
+                "GraphLibraries.Sample",
+                System.Reflection.TypeAttributes.Public
+                    | System.Reflection.TypeAttributes.Class)
+            .CreateType();
+        assembly.Save(path);
+    }
 
     sealed class FailingHandler : HttpMessageHandler
     {

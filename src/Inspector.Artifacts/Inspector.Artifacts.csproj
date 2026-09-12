@@ -13,6 +13,8 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 
-  <!-- Leaf floor: references no project by design. -->
+  <ItemGroup>
+    <ProjectReference Include="../Inspector.Resources/Inspector.Resources.csproj" />
+  </ItemGroup>
 
 </Project>

@@ -219,6 +219,48 @@ The gates are:
 - `TypeProjection_RetainsTypedRelationshipRowSelection` plus the existing
   cross-package Browser tests for retained Web capability and Workspace use.
 
+### Authentic package evidence
+
+The CLI test project restores the exact Npgsql and EF Relational `8.0.4`
+packages named in the motivation using `PackageDownload`. These are inspected
+inputs, not test-host assembly references. The original `.nupkg` archives are
+copied into test output without rewriting them or checking third-party content
+into the repository.
+
+`ConfiguredPayloadAcquisitionTests.AuthenticTypeDependencies.cs` owns the
+package coordinates, archive SHA-256 values, and expected relationships.
+The hashes were verified against the exact
+`https://api.nuget.org/v3-flatcontainer/` publications. Tests verify the archive
+bytes before supplying them through the existing offline HTTP test boundary;
+package acquisition, asset selection, metadata decoding, Workspace admission,
+query execution, row selection, and CLI rendering remain product-owned.
+
+The normal Release CLI suite runs five authentic cases:
+
+- `Depends_AuthenticPackages_ExpandOnlySelectedPopulation` checks both the
+  two-package relationship chain and the single-package neighbor. The neighbor
+  retains the direct `declared` base-type edge without claiming the unavailable
+  ancestor's interface edge.
+- `Depends_AuthenticPackages_SelectSecondLogicalRelationship` checks that
+  `--rows 2..2` selects the cross-package interface edge.
+- `TypeDependency_AuthenticPackages_RequireTheOwningParticipant` checks the
+  same populations through Workspace loading and the participant-qualified L2
+  executor. It preserves the exact Npgsql package/version provenance and refuses
+  to borrow the Npgsql root when the EF Relational participant is selected.
+
+Run these cases without live test-time network access:
+
+```bash
+dotnet run --project tests/DotnetInspect.Cli.Tests -c Release -- \
+  --filter-method '*AuthenticPackages*'
+```
+
+The malformed-input, same-name, fuzzy-root, strict-row-failure, and Browser
+transport fixtures remain complementary gates. This evidence slice does not
+retire the remaining direct CLI scanner adapter or adopt Discover and Share;
+those are separate follow-ups in
+[#6704](https://github.com/richlander/dotnet-inspect/issues/6704).
+
 ## Adoption sequence
 
 1. Lock this composition map and the Type Relationships execution pilot.

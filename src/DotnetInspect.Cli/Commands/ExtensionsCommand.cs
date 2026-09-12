@@ -7,6 +7,7 @@ using ILInspector.Metadata;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using DotnetInspect.Cli.Views;
@@ -46,7 +47,23 @@ public class ExtensionsCommand
                 targetType,
                 cancellationToken);
 
-            // Apply limit
+            bool hasSemanticRowSelection =
+                options.RowSelection?.Operations.Count > 0;
+            if (hasSemanticRowSelection)
+            {
+                results = results
+                    .OrderBy(r => r.ReachablePath ?? "", StringComparer.Ordinal)
+                    .ThenBy(r => r.ExtensionClass, StringComparer.Ordinal)
+                    .ThenBy(r => r.MethodName, StringComparer.Ordinal)
+                    .ThenBy(r => r.Kind, StringComparer.Ordinal)
+                    .ThenBy(r => r.Assembly, StringComparer.Ordinal)
+                    .ThenBy(r => r.Source, StringComparer.Ordinal)
+                    .ThenBy(r => r.SourceVersion, StringComparer.Ordinal)
+                    .ThenBy(r => r.Signature, StringComparer.Ordinal)
+                    .ToList();
+            }
+
+            // Apply the existing work limit before overload collapse.
             if (options.Limit.HasValue && results.Count > options.Limit.Value)
             {
                 results = results.Take(options.Limit.Value).ToList();
@@ -54,6 +71,35 @@ public class ExtensionsCommand
 
             // Collapse overloads into single entries
             results = CollapseOverloads(results);
+
+            RowWindow? outputRows =
+                hasSemanticRowSelection ? null : options.Rows;
+            if (hasSemanticRowSelection
+                && options.RowSelection is { } rowSelection)
+            {
+                RowsCohortResult<string, ExtensionMethodResult> selected =
+                    RowsCohortExecutor.ApplyUnordered(
+                        [
+                            RowsCohortSequence<string, ExtensionMethodResult>.Create(
+                                "Extensions",
+                                results)
+                        ],
+                        rowSelection);
+                if (!selected.IsSuccess)
+                {
+                    RowsCohortSemanticFailure<string> failure =
+                        selected.Failure!;
+                    CommandError.Write(
+                        $"Extensions row selection stage "
+                        + $"{failure.Failure.StageNumber} requires row "
+                        + $"{failure.Failure.RequiredPosition}, but only "
+                        + $"{failure.Failure.AvailableCount} extension rows "
+                        + "are available.");
+                    return 1;
+                }
+
+                results = selected.RowSets[0].Values.ToList();
+            }
 
             if (results.Count == 0)
                 NamespacePrefixHints.WriteIfLikelyNamespacePrefix(targetType);
@@ -64,7 +110,7 @@ public class ExtensionsCommand
             // with the full unprojected result set.
             if (options.Count)
             {
-                if (!WriteCount(targetType, results, options))
+                if (!WriteCount(targetType, results, options, outputRows))
                     return 1;
             }
             else if (options.JsonOutput)
@@ -76,11 +122,11 @@ public class ExtensionsCommand
             }
             else if (options.Tabular || options.Tsv || options.Jsonl || options.NoHeader)
             {
-                WriteTableOutput(targetType, results, options);
+                WriteTableOutput(targetType, results, options, outputRows);
             }
             else
             {
-                WriteMarkoutOutput(targetType, results, options.Verbosity, options.Rows);
+                WriteMarkoutOutput(targetType, results, options.Verbosity, outputRows);
             }
 
             return 0;
@@ -480,6 +526,10 @@ public class ExtensionsCommand
 
     private static void WriteJsonOutput(List<ExtensionMethodResult> results, bool compact)
     {
+        // The established public JSON contract is a typed array with numeric overload
+        // counts and signatures. The output-shapes design records this compatibility
+        // exception because the lowered Markout formatter intentionally emits section
+        // objects with string cells.
         var jsonResults = results.Select(ExtensionMethodJsonResult.From).ToList();
         JsonOutputHelper.Write(jsonResults, ExtensionsJsonContext.Default.ListExtensionMethodJsonResult,
             ExtensionsCompactJsonContext.Default.ListExtensionMethodJsonResult, compact);
@@ -488,7 +538,8 @@ public class ExtensionsCommand
     private static bool WriteCount(
         string targetType,
         List<ExtensionMethodResult> results,
-        ExtensionsOptions options)
+        ExtensionsOptions options,
+        RowWindow? rows)
     {
         var view = ExtensionsOutputFormatter.BuildView(
             targetType,
@@ -499,7 +550,7 @@ public class ExtensionsCommand
             "Extensions",
             options.Columns,
             options.Fields,
-            options.Rows);
+            rows);
     }
 
     private static void WriteMarkoutOutput(string targetType, List<ExtensionMethodResult> results, Verbosity verbosity, RowWindow? rows)
@@ -509,14 +560,18 @@ public class ExtensionsCommand
             opts => MarkoutSerializer.Serialize(view, SearchViewContext.Default, opts));
     }
 
-    private static void WriteTableOutput(string targetType, List<ExtensionMethodResult> results, ExtensionsOptions options)
+    private static void WriteTableOutput(
+        string targetType,
+        List<ExtensionMethodResult> results,
+        ExtensionsOptions options,
+        RowWindow? rows)
     {
         var view = ExtensionsOutputFormatter.BuildView(targetType, results, options.Verbosity);
         OutputFormatter.WriteProjectedTable(Console.Out, !options.NoHeader, options.Tsv, options.Jsonl,
             options.Columns, options.Fields,
             (writer, formatter, writerOptions) =>
                 MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOptions),
-            options.Rows);
+            rows);
     }
 
     /// <summary>

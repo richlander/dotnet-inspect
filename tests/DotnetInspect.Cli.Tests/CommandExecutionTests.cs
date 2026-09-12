@@ -33653,81 +33653,6 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Project_AgentsIndex_EmitsDirectDependencyAgentsFrontmatter()
-    {
-        var agents = """
-            ---
-            name: Markout guidance
-            description: Prefer Markout tables for structured markdown.
-            ---
-            # Body
-            """;
-        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
-            new ProjectDocPackage("Test.Project.Agents", "1.2.3", "README.md", "readme", agents),
-            new ProjectDocPackage("Test.Project.NoAgents", "4.5.6", "README.md", "readme"));
-
-        try
-        {
-            var (exit, output, error) = await RunProjectFixtureAsync(
-                projectPath, "--agents-index", "--jsonl");
-
-            Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
-            Assert.Empty(error);
-            var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-            Assert.Equal(2, lines.Length);
-            using var agentsDocument = JsonDocument.Parse(lines.Single(line => line.Contains("Test.Project.Agents")));
-            Assert.Equal("Test.Project.Agents", agentsDocument.RootElement.GetProperty("package").GetString());
-            Assert.Equal("1.2.3", agentsDocument.RootElement.GetProperty("version").GetString());
-            Assert.Equal("Markout guidance", agentsDocument.RootElement.GetProperty("name").GetString());
-            Assert.Equal("Prefer Markout tables for structured markdown.", agentsDocument.RootElement.GetProperty("description").GetString());
-            Assert.Equal("AGENTS.md", agentsDocument.RootElement.GetProperty("path").GetString());
-
-            using var emptyDocument = JsonDocument.Parse(lines.Single(line => line.Contains("Test.Project.NoAgents")));
-            Assert.Equal("", emptyDocument.RootElement.GetProperty("name").GetString());
-            Assert.Equal("", emptyDocument.RootElement.GetProperty("description").GetString());
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task Project_AgentsIndex_FoldsBlockScalarDescription()
-    {
-        var agents = """
-            ---
-            name: markout
-            description: >-
-              Source-generated .NET serializer that renders objects as Markdown.
-              Reach for it when a CLI needs structured, agent-readable output
-              instead of hand-built strings.
-            ---
-            # Body
-            """;
-        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
-            new ProjectDocPackage("Test.Project.Folded", "1.0.0", "README.md", "readme", agents));
-
-        try
-        {
-            var (exit, output, error) = await RunProjectFixtureAsync(
-                projectPath, "--agents-index", "--jsonl");
-
-            Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
-            Assert.Empty(error);
-            using var document = JsonDocument.Parse(output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Single());
-            Assert.Equal("markout", document.RootElement.GetProperty("name").GetString());
-            Assert.Equal(
-                "Source-generated .NET serializer that renders objects as Markdown. Reach for it when a CLI needs structured, agent-readable output instead of hand-built strings.",
-                document.RootElement.GetProperty("description").GetString());
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
     public async Task Project_SkillsSection_EmitsSkillRows()
     {
         var querySkill = """
@@ -34569,7 +34494,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Project_SkillsBare_PrintsFirstSkillDocument()
+    public async Task Project_SkillsBare_PrintsSingleSkillDocument()
     {
         var skill = CompliantProjectSkill("skills/bare/SKILL.md", "selected");
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
@@ -34592,7 +34517,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Project_SkillsBare_MultipleDocuments_PrintsFirstPrintableDocument()
+    public async Task Project_SkillsBare_MultipleDocuments_RequiresRow()
     {
         var firstSkill = CompliantProjectSkill("skills/first/SKILL.md", "first");
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
@@ -34607,9 +34532,12 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunProjectFixtureAsync(
                 projectPath, "-S", "Skills", "--bare");
 
-            Assert.Equal(0, exit);
-            Assert.Empty(error);
-            Assert.Equal(firstSkill.Text, output.Trim());
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "selected section has 2 printable rows; use --row "
+                + "N|first|last to choose one row",
+                error);
         }
         finally
         {
@@ -34646,7 +34574,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task ProjectedJsonRoutingAudit_ProjectRejectsProjection()
+    public async Task ProjectedJsonRoutingAudit_ProjectHonorsProjection()
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.Columns", "1.0.0", "README.md", "readme", Skills:
@@ -34657,9 +34585,15 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunProjectFixtureAsync(
                 projectPath, "-S", "Skills", "--columns", "Package", "--json");
 
-            Assert.Equal(1, exit);
-            Assert.Empty(output);
-            Assert.Contains("project does not currently support --columns or --fields", error);
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(output);
+            JsonElement row = Assert.Single(
+                document.RootElement.GetProperty("skills").EnumerateArray());
+            Assert.Equal(
+                "Test.Project.Columns",
+                row.GetProperty("package").GetString());
+            Assert.False(row.TryGetProperty("version", out _));
         }
         finally
         {
@@ -34720,18 +34654,53 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Project_Discover_ListsSkillsSection()
+    public async Task Project_Discover_ListsSupportedDocumentSections()
     {
-        var (exit, output, error) = await RunAppAsync("project", "-D", "Skills");
+        var (exit, output, error) = await RunAppAsync("project", "-D");
+        var all = await RunAppAsync("project", "-S", "@All");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("Package", output);
-        Assert.Contains("Description", output);
+        Assert.Contains("Skills", output);
+        Assert.Contains("Package README file", output);
+        Assert.DoesNotContain("@All", output);
+        Assert.Equal(1, all.Exit);
+        Assert.Empty(all.Output);
+        Assert.Contains("Select value '@All' not found", all.Error);
     }
 
     [Fact]
-    public async Task Project_Readme_PrefersReadmeOverAgentsAndProjectMd()
+    public async Task Project_BareSelect_UsesSkillsOverview()
+    {
+        var skill = CompliantProjectSkill("skills/default/SKILL.md", "default");
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.DefaultSelect",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills: [skill]));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath,
+                "-S");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("## Skills", output);
+            Assert.Contains("Test.Project.DefaultSelect", output);
+            Assert.DoesNotContain("## Package README file", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_ReadmeSection_PrintsReadmeWithoutUsingAgentsOrProjectMd()
     {
         var agents = """
             ---
@@ -34745,7 +34714,9 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunProjectFixtureAsync(
-                projectPath, "--readme", "Test.Project.Readme");
+                projectPath,
+                "-S", "Package README file",
+                "--print");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
@@ -34760,7 +34731,321 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Project_Readme_JsonlUsesLfFraming()
+    public async Task Project_ReadmeSection_ListsOnlyRootReadmes()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "A.Project.RootReadme",
+                "1.0.0",
+                "README.md",
+                "root"),
+            new ProjectDocPackage(
+                "B.Project.NestedReadme",
+                "1.0.0",
+                "docs/README.md",
+                "nested"));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Package README file",
+                "--jsonl");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(
+                Assert.Single(
+                    output.Split(
+                        '\n',
+                        StringSplitOptions.RemoveEmptyEntries)));
+            Assert.Equal(
+                "A.Project.RootReadme",
+                document.RootElement.GetProperty("package").GetString());
+            Assert.Equal(
+                "README.md",
+                document.RootElement.GetProperty("path").GetString());
+            Assert.DoesNotContain("B.Project.NestedReadme", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_ReadmeSection_FailsWhenListedFileIsMissing()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Readme.Missing",
+                "1.0.0",
+                "README.md",
+                "readme"));
+        File.Delete(Path.Combine(
+            tempDir,
+            "packages",
+            "test.project.readme.missing",
+            "1.0.0",
+            "README.md"));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Package README file");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "README listed in project.assets.json is missing from the "
+                + "package cache",
+                error);
+            Assert.DoesNotContain("Test.Project.Readme.Missing", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_ReadmeSection_PrintUsesWindowedRowSelection()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "A.Project.FirstReadme",
+                "1.0.0",
+                "README.md",
+                "first"),
+            new ProjectDocPackage(
+                "B.Project.SecondReadme",
+                "1.0.0",
+                "README.md",
+                "second"));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Package README file",
+                "--print",
+                "--rows", "2..2",
+                "--row", "2");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal("second", output.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_ReadmePaths_AppliesRowsBeforeRowSelection()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "A.Project.FirstReadme",
+                "1.0.0",
+                "README.md",
+                "first"),
+            new ProjectDocPackage(
+                "B.Project.SecondReadme",
+                "1.0.0",
+                "README.md",
+                "second"));
+
+        try
+        {
+            var selected = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Package README file",
+                "--paths",
+                "--rows", "2..2",
+                "--row", "2",
+                "--json");
+            var excluded = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Package README file",
+                "--paths",
+                "--rows", "2..2",
+                "--row", "1",
+                "--json");
+
+            Assert.Equal(0, selected.Exit);
+            Assert.Empty(selected.Error);
+            using (JsonDocument json = JsonDocument.Parse(selected.Output))
+            {
+                Assert.Equal(
+                    2,
+                    json.RootElement.GetProperty("row").GetInt32());
+                Assert.Equal(
+                    "B.Project.SecondReadme",
+                    json.RootElement.GetProperty("label").GetString());
+            }
+
+            Assert.Equal(1, excluded.Exit);
+            Assert.Empty(excluded.Output);
+            Assert.Contains("row 1 is not in this section", excluded.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_ReadmeSection_UsesCountPathAndValueControls()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Readme.Controls",
+                "2.3.4",
+                "README.md",
+                "readme"));
+
+        try
+        {
+            var count = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Package README file",
+                "--count");
+            var paths = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Package README file",
+                "--paths");
+            var value = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Package README file",
+                "--fields", "Version",
+                "--value");
+
+            Assert.Equal(0, count.Exit);
+            Assert.Equal("1", count.Output.Trim());
+            Assert.Empty(count.Error);
+            Assert.Equal(0, paths.Exit);
+            Assert.Equal("README.md", paths.Output.Trim());
+            Assert.Empty(paths.Error);
+            Assert.Equal(0, value.Exit);
+            Assert.Equal("2.3.4", value.Output.Trim());
+            Assert.Empty(value.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_MultiSectionJson_UsesOneSectionDocument()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.MultiSection",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills:
+                [CompliantProjectSkill(
+                    "skills/multi-section/SKILL.md",
+                    "skill")]));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Skills,Package README file",
+                "--json");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(output);
+            Assert.Single(
+                document.RootElement.GetProperty("skills").EnumerateArray());
+            Assert.Single(
+                document.RootElement
+                    .GetProperty("package_readme_file")
+                    .EnumerateArray());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("--agents-index", null, "-S Skills")]
+    [InlineData("--agents-index=true", null, "-S Skills")]
+    [InlineData(
+        "--readme",
+        "Test.Package",
+        "-S \"Package README file\"")]
+    [InlineData(
+        "--readme=Test.Package",
+        null,
+        "-S \"Package README file\"")]
+    public async Task Project_RemovedDocumentModes_ReportMigrationGuidance(
+        string option,
+        string? value,
+        string replacement)
+    {
+        string[] removedArguments =
+            value is null ? [option] : [option, value];
+        var withoutPath = await RunAppAsync(
+            ["project", .. removedArguments]);
+        var afterPath = await RunAppAsync(
+            ["project", ".", .. removedArguments]);
+
+        foreach (var result in new[] { withoutPath, afterPath })
+        {
+            Assert.NotEqual(0, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(option.Split('=', 2)[0], result.Error);
+            Assert.Contains(replacement, result.Error);
+            Assert.DoesNotContain(
+                "Unrecognized command or argument",
+                result.Error);
+        }
+    }
+
+    [Fact]
+    public async Task Project_RemovedReadmeMode_DoesNotRebindPackageIdAsPath()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "project",
+            "--readme",
+            "Test.Package");
+
+        Assert.NotEqual(0, exit);
+        Assert.Empty(output);
+        Assert.Contains("--readme", error);
+        Assert.Contains("-S \"Package README file\"", error);
+        Assert.DoesNotContain(
+            "Select at least one project section",
+            error);
+    }
+
+    [Fact]
+    public async Task Project_Help_ListsOnlySectionDrivenDocumentControls()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "project",
+            "--help");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("--agents-index", output);
+        Assert.DoesNotContain("--readme", output);
+        Assert.DoesNotContain("--source", output);
+        Assert.Contains("--select", output);
+        Assert.Contains("--print", output);
+    }
+
+    [Fact]
+    public async Task Project_ReadmeSection_JsonlPrintUsesLfFraming()
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.Readme.Jsonl", "2.0.0", "README.md", "# README body"));
@@ -34768,7 +35053,10 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunProjectFixtureAsync(
-                projectPath, "--readme", "Test.Project.Readme.Jsonl", "--jsonl");
+                projectPath,
+                "-S", "Package README file",
+                "--print",
+                "--jsonl");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
@@ -34791,19 +35079,13 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task ArtifactNewlineGate_CommandJsonlFilesUseLf()
     {
-        const string agents = """
-            ---
-            name: newline gate
-            ---
-            agents body
-            """;
         var (projectPath, projectTempDir) = CreateProjectWithPackageDocs(
             new ProjectDocPackage(
                 "Test.Project.NewlineGate",
                 "1.0.0",
                 "README.md",
                 "readme",
-                agents,
+                Skills:
                 [CompliantProjectSkill("skills/newline/SKILL.md", "skill body")]));
         var (packagePath, packageTempDir) = CreateLocalReadmePackage(
             "Test.Package.NewlineGate",
@@ -34813,28 +35095,32 @@ public partial class CommandExecutionTests
 
         try
         {
-            var agentsOutput = Path.Combine(projectTempDir, "agents.jsonl");
+            var readmeOutput = Path.Combine(projectTempDir, "readme.jsonl");
             var skillsOutput = Path.Combine(projectTempDir, "skills.jsonl");
             var contentOutput = Path.Combine(packageTempDir, "content.jsonl");
 
-            var (agentsExit, agentsStdout, agentsError) = await RunProjectFixtureAsync(
-                projectPath, "--agents-index", "--jsonl", "--out", agentsOutput);
+            var (readmeExit, readmeStdout, readmeError) = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Package README file",
+                "--print",
+                "--jsonl",
+                "--out", readmeOutput);
             var (skillsExit, skillsStdout, skillsError) = await RunProjectFixtureAsync(
                 projectPath, "-S", "Skills", "--jsonl", "--out", skillsOutput);
             var (contentExit, contentStdout, contentError) = await RunAppAsync(
                 "package", packagePath, "--path", "@agents", "--content", "--jsonl", "--out", contentOutput);
 
-            Assert.Equal(0, agentsExit);
+            Assert.Equal(0, readmeExit);
             Assert.Equal(0, skillsExit);
             Assert.Equal(0, contentExit);
-            Assert.Empty(agentsStdout);
+            Assert.Empty(readmeStdout);
             Assert.Empty(skillsStdout);
             Assert.Empty(contentStdout);
-            Assert.Empty(agentsError);
+            Assert.Empty(readmeError);
             Assert.Empty(skillsError);
             Assert.Empty(contentError);
 
-            foreach (var path in new[] { agentsOutput, skillsOutput, contentOutput })
+            foreach (var path in new[] { readmeOutput, skillsOutput, contentOutput })
             {
                 var artifact = File.ReadAllText(path);
                 Assert.DoesNotContain('\r', artifact);
@@ -34851,7 +35137,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Project_Readme_FallsBackToProjectMd()
+    public async Task Project_ReadmeSection_DoesNotFallBackToProjectMd()
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.ProjectMd", "2.0.0", "README.md", "", ProjectText: "# PROJECT body", OmitReadme: true));
@@ -34859,11 +35145,13 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunProjectFixtureAsync(
-                projectPath, "--readme", "Test.Project.ProjectMd");
+                projectPath,
+                "-S", "Package README file");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
-            Assert.Contains("# PROJECT body", output);
+            Assert.Contains("No root README.md files found", output);
+            Assert.DoesNotContain("# PROJECT body", output);
         }
         finally
         {
@@ -34872,7 +35160,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Project_Readme_NormalizesGithubBlobLinksToRaw()
+    public async Task Project_ReadmeSection_NormalizesGithubBlobLinksToRaw()
     {
         const string readme = "See https://github.com/owner/repo/blob/main/docs/guide.md";
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
@@ -34881,12 +35169,60 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunProjectFixtureAsync(
-                projectPath, "--readme", "Test.Project.RawLinks");
+                projectPath,
+                "-S", "Package README file",
+                "--print");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
             Assert.Contains("https://raw.githubusercontent.com/owner/repo/main/docs/guide.md", output);
             Assert.DoesNotContain("github.com/owner/repo/blob", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_ReadmeSection_FullOutputPreservesExactBytes()
+    {
+        const string packageId = "Test.Project.ExactReadme";
+        const string version = "1.0.0";
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                packageId,
+                version,
+                "README.md",
+                "placeholder"));
+
+        try
+        {
+            byte[] content =
+            [
+                .. Encoding.UTF8.Preamble,
+                .. Encoding.UTF8.GetBytes(
+                    "See https://github.com/owner/repo/blob/main/docs/guide.md\r\n"),
+            ];
+            string readmePath = Path.Combine(
+                tempDir,
+                "packages",
+                packageId.ToLowerInvariant(),
+                version,
+                "README.md");
+            File.WriteAllBytes(readmePath, content);
+            string outputPath = Path.Combine(tempDir, "README.out");
+
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Package README file",
+                "--print",
+                "--out", outputPath);
+
+            Assert.Equal(0, exit);
+            Assert.Empty(output);
+            Assert.Empty(error);
+            Assert.Equal(content, File.ReadAllBytes(outputPath));
         }
         finally
         {

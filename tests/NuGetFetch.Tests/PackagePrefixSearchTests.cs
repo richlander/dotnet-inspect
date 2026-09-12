@@ -86,6 +86,14 @@ public sealed class PackagePrefixSearchTests
             takes: [20, 20, 40, 80]);
     }
 
+    [Fact]
+    public void Gallery_CandidateProjectionUsesMeasuredReadBuffer()
+    {
+        Assert.Equal(
+            128 * 1024,
+            PrefixSearchJsonContext.Default.Options.DefaultBufferSize);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

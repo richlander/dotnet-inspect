@@ -18,7 +18,7 @@ workspaces. Browser home demos execute every selected preset through
 `RunHomeDemo`, apply its typed package or Platform activation, and publish the
 ordinary canonical Browser workspace only after the selected result is ready.
 CLI Platform demos use the same `WorkspaceContextLoader` implementation-pack
-realization before lowering the selected image into the ordinary type/member
+realization before lowering the selected images into the ordinary type/member
 section pipeline.
 Schema version 2, packet format 2, complete view binding, and the restoration
 coordinator defined here are not yet implemented.
@@ -783,12 +783,12 @@ section; CLI and browser encodings consume that plan rather than parsing the
 member selection independently. **The current schema-version-1 home demos bind
 legacy product section display names** through
 `ProductDemoSections` (today: `Methods` for the STJ API tour; `Call
-Graph` primary bind for multi-package and focused graph demos, expanded
+Graph` primary bind for multi-source and focused graph demos, expanded
 at run via `ExpandRunSections` / `DemoScenarioRunner`: Markdown keeps
 `Call Graph` + `Callers`; table/tsv/jsonl select `Callers` when the demo has
 caller scope — MemberCommand re-adds Callers under caller scope, so
 Call Graph-only tabular would silently fall back to a member inventory — and
-select `Call Graph` when it does not, so package-local entry points with empty
+select `Call Graph` when it does not, so single-library entry points with empty
 Callers still emit rows; standalone `--mermaid` keeps `Call Graph`; document
 `--json` fails closed for Call Graph demos until graph sections project into
 that payload.
@@ -824,10 +824,13 @@ their exact canonical facet IDs before Registry resolution.
 (`DemoScenarioRunner`) so `dotnet-inspect demo <id>` returns ordinary section
 output from the existing pipelines; multi-package workspaces encode extra
 package members as `--caller-package` for the call-graph demo. A Platform demo
-retains its exact family, version, framework, and assembly through
-`WorkspaceContextLoader`, then materializes the selected implementation image
-for the existing CLI section renderers; it does not inspect the reference-pack
-stub as the implementation body. **inspect-web** loads home-demo metadata and exact scenario IDs from the
+retains every exact family, version, framework, and assembly coordinate through
+`WorkspaceContextLoader`, then materializes the selected implementation images
+for the existing CLI section renderers. The focused image remains the command
+root; additional selected images enter the ordinary member caller-scope path
+through one temporary directory. The CLI does not inspect reference-pack stubs
+as implementation bodies or fabricate package coordinates for Platform
+members. **inspect-web** loads home-demo metadata and exact scenario IDs from the
 ecosystem catalog through the browser engine (`ListHomeDemos` /
 `RunHomeDemo`; `ResolveHomeDemo` remains a tooling/debug projection).
 Every selected home demo executes through `RunHomeDemo`; the host does not
@@ -848,6 +851,8 @@ package workspaces until Browser has explicit execution support rather than
 silently dropping those bindings. These properties are gated by
 `ToRunPlan_AllProductHomeDemosHaveSupportedBrowserShape`,
 `StjSerializer_RunPlanOwnsTypeOnlyMethodsSelection`,
+`StjPlatformDemos_JoinExactSupplyAndCatalogEvidence`,
+`ExtensionsPlatformDemos_JoinExactSupplyAndCatalogEvidence`,
 `ToRunPlan_DerivesNonFirstFocusForTypeOnlyMethodsView`,
 `ToRunPlan_PlatformCoordinatePreservesSourceNativeFocus`,
 `ToRunPlan_RejectsMixedPackageAndPlatformWorkspace`,
@@ -865,6 +870,10 @@ silently dropping those bindings. These properties are gated by
 `HomeDemoRunCore_ProjectsTheAnchoredMemberAndItsGraph`,
 `PlatformHomeDemoRunCore_ProjectsMethodsWithSourceNativeActivation`, and
 `PlatformHomeDemoRunCore_PreservesContextAcrossEquivalentVersionSpellings`.
+CLI multi-Platform execution and caller-scope preservation are gated by
+`Runner_LowersMultiPlatformCallGraphWithCallerScopeSections`,
+`Cli_DemoCallGraph_Table_EmitsCallersRows`, and the all-demo Mermaid and table
+execution gates.
 
 The Browser host validates the complete typed result before replacing the
 current workspace. Package activation retains the returned coordinates and
@@ -882,23 +891,24 @@ gated by `product-home-demos.test.ts`,
 `spotlight-identity.test.ts`, and the package/Platform Methods and Call Graph
 production-composition cases in `library-hierarchy.spec.ts`.
 
-The System.Text.Json migration is gated by two independent exact facts:
-`PlatformPrunePolicy` reports that the former package pin is subsumed, and the
-same Platform target contains the explicitly selected `System.Text.Json`
-implementation library. Package identity is never treated as assembly
-identity. Demos requesting a version newer than the selected Platform ceiling
-remain package-backed. Microsoft.Extensions migration remains follow-on work,
-and Aspire demos remain package-backed because their libraries are not
-supplied by the Platform.
+The System.Text.Json and Microsoft.Extensions migrations are gated by two
+independent exact facts: `PlatformPrunePolicy` reports that each former package
+pin is subsumed, and the same target independently contains each explicitly
+selected implementation library. Package identity is never treated as assembly
+identity. The three System.Text.Json demos use the Runtime Platform target.
+The five Microsoft.Extensions demos remain owned by the Microsoft.Extensions
+ecosystem while their selected libraries use the ASP.NET Core Platform target;
+ecosystem grouping and source provenance are orthogonal. Demos requesting a
+version newer than the selected Platform ceiling remain package-backed. Aspire
+demos remain package-backed because their libraries are not supplied by the
+Platform.
 Browser package scopes now adapt product-selected, product-realized package
 participants into Browser coordinate/asset provenance; Browser still owns Wasm
 transport, cache/deadline/lifetime policy, and its resource-limit values.
 Residual: (1) bind minted facet IDs to replace the display-name allow list;
-(2) realize definitions via `WorkspaceContextLoader` instead of CLI package/
-`--caller-package` encoding; (3) migrate remaining shipped package coordinates
-that are supplied by an exact Platform target only after inventory, Platform
-catalog, and package discovery jointly establish that classification;
-(4) Call Graph / Callers structured JSON projection remains the shared
+(2) realize package definitions via `WorkspaceContextLoader` instead of CLI
+package/`--caller-package` encoding; (3) Call Graph / Callers structured JSON
+projection remains the shared
 member-pipeline gap
 (Markdown/Mermaid are the faithful graph formats today).
 

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using DotnetInspector.DependencyManifests;
 using ILInspector.DecompilerHarness;
 using ILInspector.Metadata;
 using Microsoft.CodeAnalysis;
@@ -179,7 +180,7 @@ public sealed class ReturnToSenderCompilationClosureTests
     }
 
     [Fact]
-    public void MatchingDependencyManifestSuppressesDuplicateSiblingDiscovery()
+    public void SdkDependencyManifestDrivesProjectAssetsAndSuppressesSiblings()
     {
         string directory = TempDirectory();
         try
@@ -202,19 +203,32 @@ public sealed class ReturnToSenderCompilationClosureTests
                 Path.ChangeExtension(targetPath, ".deps.json"),
                 """
                 {
+                  "runtimeTarget": {
+                    "name": ".NETCoreApp,Version=v11.0"
+                  },
                   "targets": {
-                    "net11.0": {
+                    ".NETCoreApp,Version=v11.0": {
                       "RtsManifestDependency/1.0.0": {
                         "runtime": {
-                          "RtsManifestDependency.dll": {
-                            "localPath": "RtsManifestDependency.dll"
-                          }
+                          "lib/net11.0/RtsManifestDependency.dll": {}
+                        }
+                      }
+                    },
+                    "decoy": {
+                      "MissingDecoy/1.0.0": {
+                        "runtime": {
+                          "MissingDecoy.dll": {}
                         }
                       }
                     }
                   },
                   "libraries": {
-                    "RtsManifestDependency/1.0.0": {}
+                    "RtsManifestDependency/1.0.0": {
+                      "type": "project"
+                    },
+                    "MissingDecoy/1.0.0": {
+                      "type": "project"
+                    }
                   }
                 }
                 """);
@@ -228,6 +242,48 @@ public sealed class ReturnToSenderCompilationClosureTests
                         Path.GetFileName(reference.FilePath),
                         "RtsManifestDependency.dll",
                         StringComparison.Ordinal))));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void MatchingMalformedDependencyManifestFailsWithoutSiblingFallback()
+    {
+        string directory = TempDirectory();
+        try
+        {
+            Compile(
+                "public sealed class AvailableSibling;",
+                directory,
+                "AvailableSibling");
+            string targetPath = Compile(
+                "public sealed class Fixture;",
+                directory,
+                "MalformedManifestTarget");
+            File.WriteAllText(
+                Path.ChangeExtension(targetPath, ".deps.json"),
+                """
+                {
+                  "targets": {
+                    "net11.0": {}
+                  },
+                  "libraries": {}
+                }
+                """);
+
+            InvalidOperationException error =
+                Assert.Throws<InvalidOperationException>(
+                    () => ReturnToSender.CreateCompilationClosure(
+                        targetPath));
+
+            Assert.Contains(
+                nameof(
+                    ApplicationDependencyManifestDiagnosticKind
+                        .MissingRuntimeTarget),
+                error.Message);
         }
         finally
         {

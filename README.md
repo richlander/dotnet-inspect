@@ -52,7 +52,7 @@ and repository-specific guidance.
 | Source | Examples | Notes |
 | ------ | -------- | ----- |
 | NuGet packages | `package System.Text.Json`, `type --package Markout` | Supports versions, custom sources, `nuget.config`, TFMs, package layout, dependencies, and vulnerabilities. |
-| Restored projects | `type Command --project ./src/DotnetInspect.Cli`, `project ./src/DotnetInspect.Cli -S Skills --print` | Uses an existing `project.assets.json` as restored-assets context for API lookup, relationship search, and dependency package skills; restore/build first if dependencies changed. dotnet-inspect does not restore or build. |
+| Restored projects | `type Command --project ./src/DotnetInspect.Cli`, `project ./src/DotnetInspect.Cli -S Skills --print`, `project ./src/DotnetInspect.Cli -S "Package README file"` | Uses an existing `project.assets.json` as restored-assets context for API lookup, relationship search, dependency package skills, and root package README files; restore/build first if dependencies changed. dotnet-inspect does not restore, build, or acquire missing packages. |
 | Platform libraries | `library System.Private.CoreLib`, `library System.Text.Json --version 10.0.0`, `diff --platform System.Runtime@9.0.0..10.0.0` | Resolves installed SDK/runtime assemblies, including runtime-only implementation assemblies with no NuGet package. |
 | Local assets | `library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll`, `package ./artifacts/MyLib.nupkg` | Useful for auditing local builds before publishing. |
 
@@ -145,7 +145,7 @@ stderr rather than mixed into structured output.
 | Capability | Commands | Highlights |
 | ---------- | -------- | ---------- |
 | Package inventory | `package` | Metadata, versions, TFMs, file layout, dependency tree, vulnerability data, custom feeds, and NuGet config support. |
-| Project package skills and docs | `project` | Direct dependency `Skills` rows from valid package `skills/**/SKILL.md` files plus version-resolved package docs in a restored project context. Skill inventory values and complete documents that require containment become `[Text omitted: required containment]`. |
+| Project package skills and docs | `project` | Section-driven direct-dependency rows from valid `skills/**/SKILL.md` files and root `README.md` files in the restored package cache. Use `--print --row N` to emit one selected document. Skill inventory values and complete documents that require containment become `[Text omitted: required containment]`. |
 | Query vocabulary | `vocabulary` | Product-owned stable values, operators, defaults, and applicability for rich queries. |
 | Ecosystem catalog | `ecosystem` | Product-configured ecosystem packs, namespace hints, core/tool packages, demos, and known Integration bindings without package acquisition. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, SourceLink, PDBs, references, resources, async methods, and body-shape search. |
@@ -413,6 +413,8 @@ share the package id and version.
 ```bash
 dotnet-inspect project ./src/DotnetInspect.Cli -S Skills
 dotnet-inspect project ./src/DotnetInspect.Cli -S Skills --print --row 1
+dotnet-inspect project ./src/DotnetInspect.Cli -S "Package README file"
+dotnet-inspect project ./src/DotnetInspect.Cli -S "Package README file" --print --row 1
 dotnet-inspect type Command --project ./src/DotnetInspect.Cli
 dotnet-inspect member Command --project ./src/DotnetInspect.Cli -S "Member Index"
 dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.Metadata.dll -S Signals
@@ -421,6 +423,9 @@ dotnet-inspect library ./artifacts/obj/ILInspector.Metadata/release/ILInspector.
 For API and relationship commands, `--project` means an existing
 `project.assets.json` restored-assets context. Passing a `.csproj` or project
 directory only locates that file; dotnet-inspect does not restore or build.
+The `project` command reads only valid package Skills and root `README.md`
+documents listed by the existing restore output. It does not interpret package
+`AGENTS.md` or `PROJECT.md` files.
 
 ### Types, members, and source
 
