@@ -10,6 +10,72 @@ public sealed class PackageHouseExecutionTests
     private const string Version = "10.0.0";
 
     [Fact]
+    public async Task CompleteVersionDiscoveryIssuesReporterBoundCandidate()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(["9.0.0", Version]),
+            new SourceBehavior(["9.0.0"]));
+        using PackageSourceOperationLease operation =
+            environment.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken);
+
+        PackageVersionDiscoveryResult discovery =
+            await operation.DiscoverVersionsAsync(
+                PackageId,
+                environment.Authorization,
+                PackageVersionDiscoveryContract.CompleteVersionEnumeration);
+
+        Assert.Equal(
+            PackageVersionDiscoveryState.Authoritative,
+            discovery.State);
+        Assert.Same(
+            PackageVersionDiscoveryContract.CompleteVersionEnumeration,
+            discovery.Contract);
+        Assert.True(
+            discovery.Contract.SupportsCompleteVersionEnumeration);
+        Assert.Equal([Version, "9.0.0"], discovery.Versions);
+        PackageAcquisitionCandidate candidate =
+            discovery.SelectCandidate(Version);
+        Assert.Equal(
+            PackageAcquisitionCandidateKind.Discovered,
+            candidate.Kind);
+        PackageAcquisitionAuthorityEvidence reporter =
+            Assert.Single(candidate.Authorities);
+        Assert.Same(
+            environment.Clients[0].Source,
+            reporter.Observation!.Source);
+        Assert.All(
+            environment.Clients,
+            client => Assert.Equal(1, client.VersionRequests));
+    }
+
+    [Fact]
+    public async Task CompleteVersionDiscoveryPreservesAuthoritativeEmpty()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior([]));
+        using PackageSourceOperationLease operation =
+            environment.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken);
+
+        PackageVersionDiscoveryResult discovery =
+            await operation.DiscoverVersionsAsync(
+                PackageId,
+                environment.Authorization,
+                PackageVersionDiscoveryContract.CompleteVersionEnumeration);
+
+        Assert.Equal(
+            PackageVersionDiscoveryState.Authoritative,
+            discovery.State);
+        Assert.Empty(discovery.Versions);
+        Assert.Empty(discovery.Listings);
+        Assert.Empty(discovery.Failures);
+        Assert.False(discovery.HasAnyCandidate);
+        Assert.Throws<ArgumentException>(
+            () => discovery.SelectCandidate(Version));
+    }
+
+    [Fact]
     public async Task ExactSettleAuthorizesWithoutPayloadWork()
     {
         await using HouseEnvironment environment = HouseEnvironment.Create(
