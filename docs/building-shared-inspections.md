@@ -35,7 +35,7 @@ CLI argv / Web gesture / restored Workspace definition
   -> typed subject and inspection intent
   -> House settlement and Workspace admission
   -> host-neutral query and section plans
-  -> one content disposition plus required Share projection
+  -> one content plan plus required Share projection
   -> InspectionEnvelope<TContent>
   -> CLI or Web projection
 ```
@@ -50,9 +50,8 @@ A successful capability usually has:
 - an L1 query that accepts content-shaped inputs and returns typed results;
 - an L2 inspection or section plan when the capability has user-visible
   sections, row sets, ordering, or shaping;
-- an `InspectionEnvelope<TContent>` carrying explicit owner-issued content
-  presence, required Share, and typed diagnostics at the final host-neutral
-  boundary;
+- an `InspectionEnvelope<TContent>` carrying non-null owner-issued content,
+  required Share, and typed diagnostics at the final host-neutral boundary;
 - PackageHouse, PlatformHouse, SourceHouse, DocumentationHouse, or another
   owning House when settlement crosses multiple lower owners;
 - a Workspace-backed execution path when multiple admitted artifacts,
@@ -140,16 +139,14 @@ completion, or typed success and failure variants. The complete baseline is:
 
 ```text
 InspectionEnvelope<TContent>
-  Content: Present(TContent) | NotRequested
+  Content: TContent
   Share: Available(FullUrl) | NonProjectable(Path, Reason)
   Diagnostics
 ```
 
-`Present` carries one non-null owner-issued result. `NotRequested` means the
-content producer was deliberately suppressed before execution, as with
-`--share`; it is not null, failure, unavailability, partial content, or a valid
-empty result. `TContent` remains the command's ordinary result type even when
-content is not requested.
+`Content` carries one non-null owner-issued result. `TContent` remains the
+command's ordinary result type and continues to own success, partial,
+unavailable, failure, completion, and empty-result semantics.
 
 Every envelope carries Share for the same semantic plan. The available arm
 contains the complete canonical production URL. The non-projectable arm names
@@ -162,8 +159,8 @@ query or intermediate. An operation with an L2 result envelopes that result;
 an operation with no L2 owner may envelope its final L1 result.
 
 For the same admitted content generation, exact subject, and semantic plan,
-the CLI and Web content presence, Share, and diagnostics must agree. A broader
-Web experience requests additional shared content explicitly:
+the CLI and Web content, Share, and diagnostics must agree. A broader Web
+experience requests additional shared content explicitly:
 
 ```text
 CLI experience
@@ -198,8 +195,8 @@ meaning.
 
 Diagnostics do not determine success, completeness, retry, exit status, or
 navigation by themselves. They cannot replace a typed failure, turn failed
-execution into successful empty content, stand in for content presence or
-Share, or change logical row selection.
+execution into successful empty content, stand in for Share, or change logical
+row selection.
 
 ### Retain typed meaning
 
@@ -222,8 +219,9 @@ Return the useful result and its limitations together when partial evidence is
 meaningful. Return a typed non-success when no valid result exists.
 
 Use diagnostics to disclose supplemental limitations, not as a second failure
-model. A non-projectable Share outcome may accompany useful present content; it
-fails the operation when content is `NotRequested`.
+model. A non-projectable Share outcome may accompany useful content. If the
+user explicitly requested Share presentation, the CLI may fail that requested
+side output without discarding or changing content.
 
 Do not:
 
@@ -239,11 +237,10 @@ decides how to explain it; the query owns whether the answer is complete.
 
 ### Return resource-free data
 
-An envelope, its present L1 or L2 result, Share, and diagnostics must not
-contain a live Workspace participant, metadata reader, stream, content lease,
-callback, or service. Execute while the host-owned operation or Workspace
-scope is valid, detach the result and envelope supplements, then release the
-resource.
+An envelope, its L1 or L2 result, Share, and diagnostics must not contain a live
+Workspace participant, metadata reader, stream, content lease, callback, or
+service. Execute while the host-owned operation or Workspace scope is valid,
+detach the result and envelope supplements, then release the resource.
 
 Use owner-issued references, receipts, identities, and immutable evidence for
 correspondence. Follow
@@ -375,19 +372,18 @@ or default intent; it does not receive a different execution model.
 
 ### 7. Choose content and Share independently
 
-One resolved inspection basis lowers to exactly one content disposition:
+One resolved inspection basis lowers to exactly one content purpose:
 
 - **Execute** runs selected queries and sections and returns inspection
   results.
 - **Discover** determines section applicability or effectiveness through
   declared probes.
-- **Content not requested** authorizes no result producer or effectiveness
-  probe.
 
-Every disposition also projects Share through Workspace Definitions without
-executing the inspection. CLI `--share` selects content not requested and
-renders the required Share outcome. Ordinary Execute and Discover operations
-retain Share even when the host does not display it.
+Every content plan also projects Share through Workspace Definitions. The
+Share projection performs no duplicate inspection. CLI `--share` leaves
+Execute or Discover content unchanged on stdout and writes the required URL or
+packet as the final non-empty stderr line. Ordinary operations retain Share
+even when the host does not display it.
 
 Content and Share overlap in source, context, subject, facet, and semantic
 bounds, but they do not accept identical policy. CLI verbosity is execution
@@ -458,9 +454,9 @@ The CLI should:
 - resolve source and target identity once;
 - construct the shared query or section plan;
 - execute it through a command-owned lifetime;
-- consume the shared envelope, lowering present content into Markout or another
-  documented structured format, rendering Share for `--share`, and lowering
-  diagnostics into the applicable diagnostic channel; and
+- consume the shared envelope, lowering content into Markout or another
+  documented structured format, writing Share to stderr for `--share`, and
+  lowering diagnostics into the applicable diagnostic channel; and
 - preserve typed failure distinctions in diagnostics and exit status.
 
 New commands use the current section, discovery, output-shape, and progressive
@@ -505,9 +501,9 @@ Use proportional evidence at each owned boundary.
    completion, and resource-free behavior.
 3. **L2 tests.** Gate section applicability, row units, selection, shaping,
    Count, and strict semantic failure.
-4. **Envelope tests.** Gate `Present(TContent)` versus `NotRequested`,
-   available versus non-projectable Share, deterministic typed diagnostics,
-   and baseline equality for equivalent plans and content generations.
+4. **Envelope tests.** Gate non-null content, available versus non-projectable
+   Share, deterministic typed diagnostics, and baseline equality for
+   equivalent plans and content generations.
 5. **CLI tests.** Gate syntax lowering, authorization, output modes,
    diagnostic lowering, and exit codes.
 6. **Inspect Web managed tests.** Gate Workspace use, participant selection,
@@ -534,10 +530,10 @@ repair the product evidence it claims to verify.
 | Reopen a path after Workspace selection | Query the admitted participant or owner-issued content |
 | Infer identity or provenance from labels | Preserve owner-issued typed correspondence |
 | Return `[]` after a decode or acquisition failure | Return typed failure or uncertified partial evidence |
-| Return `NotRequested` after failed or attempted execution | Reserve it for deliberate pre-execution content suppression |
 | Put diagnostics directly in each host DTO | Publish typed diagnostics in the shared envelope and lower them per host |
 | Add Browser facts to the shared content after execution | Request another owner-issued result and compose it around the unchanged baseline |
 | Rebuild Share from argv, rendered content, or Browser origin | Consume the required owner-issued Share outcome |
+| Replace ordinary stdout with a Share scalar | Keep content unchanged and write Share as the final non-empty stderr line |
 | Apply `-n` to rendered lines or graph nodes | Declare and select the logical row unit in L2 |
 | Use a row window to reduce upstream work implicitly | Add a separately owned work-bound or delegation contract |
 | Serialize argv for sharing | Project portable semantic state through Workspace Definitions |
@@ -558,9 +554,8 @@ For each materially different command mode, classify these stages:
    result, cost, capabilities, failure, and completion.
 2. **L2 inspection controls** — sections, applicability, declared rows,
    ordering, semantic selection, Count, traversal, and explicit work bounds.
-3. **Content and Share** — Execute, effective Discover, deliberate content
-   suppression, and required portable Share, including the explicit
-   `NotRequested` or `NonProjectable` outcome when applicable.
+3. **Content and Share** — Execute or effective Discover content plus required
+   portable Share, including a typed `NonProjectable` outcome when applicable.
 4. **Settlement and ownership** — applicable Houses, source authorization,
    resource issuance, transfer, borrowing, and release.
 5. **Workspace composition** — admission, binding groups, lifetime, population,
@@ -616,10 +611,10 @@ on the semantic operation and result.
 [#6710](https://github.com/richlander/dotnet-inspect/issues/6710) tracks the
 successor adoption of `InspectionEnvelope<TypeDependencySectionResult>` or its
 design-approved equivalent. #6712 makes ordinary execution return present
-content with Share, makes `depends <type> --share` return `NotRequested`
-without dependency execution, and carries the same Share through Inspect Web.
-The Browser composes Research-owned derived relationships and experience state
-around that unchanged baseline.
+content with Share, makes `depends <type> --share` preserve the same stdout
+while writing the URL to stderr, and carries the same Share through Inspect
+Web. The Browser composes Research-owned derived relationships and experience
+state around that unchanged baseline.
 
 ## Definition of done
 
@@ -632,13 +627,12 @@ A new command and website inspector are complete when:
 - L1 returns typed, safe, resource-free results with visible failure and
   completion;
 - L2 owns shared section, row, and shaping semantics where applicable;
-- the final shared result is an `InspectionEnvelope<TContent>` whose
-  content presence, Share, and diagnostics agree across hosts for an
-  equivalent plan;
+- the final shared result is an `InspectionEnvelope<TContent>` whose content,
+  Share, and diagnostics agree across hosts for an equivalent plan;
 - broader clients request and compose additional owner-issued content rather
   than privately extending the baseline;
-- exactly one of Execute, Discover, or content not requested is selected, while
-  Share remains required and executes no ordinary content;
+- exactly one of Execute or Discover is selected, while Share remains required
+  and causes no duplicate content execution;
 - CLI and Web lower their gestures into the same host-neutral plans;
 - host-specific code is limited to authorization, lifetime, transport,
   diagnostics, interaction, and presentation;
