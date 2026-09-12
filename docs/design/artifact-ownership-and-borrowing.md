@@ -11,6 +11,15 @@ It expands step 9 of
 tracked end to end by
 [#6647](https://github.com/richlander/dotnet-inspect/issues/6647).
 
+The current implementation floor classifies the existing Artifact obligations
+and issues `ArtifactContentLease` children from a published session. A child
+retains the exact Artifact identity and immutable snapshot without retaining
+the current authority-bearing compatibility reference. Session disposal
+rejects new issuance, keeps existing children usable, waits for their release
+and active-borrow completion, and only then releases acquisition leases.
+Making `ArtifactContentReference` resource-free and adding that exact reference
+to the child view remains the next slice.
+
 ## Authority and exact claim
 
 Artifact acquisition and Workspace composition owns this claim:

@@ -113,6 +113,11 @@ substrates, and inspection producers that will extend that space.
   exact Workspace revision and Metadata name evidence without redefining
   Analysis retrieval.
   The project has no Markout, console, or filesystem-path dependency.
+- `src/DotnetInspector.DependencyManifests/` processes bounded immutable
+  SDK-generated application `.deps.json` bytes into exact compilation/runtime
+  target asset coordinates and library metadata. It owns no filesystem,
+  package-store, platform, Workspace, compiler, or presentation policy. RTS is
+  its first direct consumer under the tools-first migration tracked by #6199.
 - `src/DotnetInspector.ResearchQueries/` contains the optional Research-backed
   L1 query family. It composes switch metadata with AppContext IL evidence,
   compares already-acquired Analysis body indexes, and compares retained
@@ -522,6 +527,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   candidate collection, classification precedence, source ordering, limits,
   failure visibility, and typed result boundary for `find`.
 - [Inspection layers](design/inspection-layers.md): layer split for multiple consumers, vocabulary, and seam rules.
+- [Inspection envelope](design/inspection-envelope.md): host-neutral terminal
+  wrapper preserving owner-issued primary content and typed cross-host
+  diagnostics while broader clients compose additional results and experience
+  state separately.
 - [Library family boundaries](design/library-family-boundaries.md): subject
   families for shared inspection substrate, compiled-program inspection,
   ecosystem composition, independent domains, and product hosts.

@@ -44,7 +44,7 @@ rather than another producer of the same semantic plan.
 | Section identity, applicability, declared rows, and shaping | [Section Model](section-model.md), [Section Pipeline](section-pipeline.md), and [Section-row shaping](section-row-shaping.md) | Supplies L2 plans and results |
 | Head, Tail, Window, and Top meaning | [Semantic row selection](semantic-row-selection.md) | Supplies the renderer-independent row language |
 | Explicit incomplete-work authorization | Each operation owner, with CLI lowering from [CLI execution bounds](cli-execution-bounds.md) | Supplies work-bound plans and completion evidence |
-| Execution, discovery, and sharing terminal split | [Inspection Plan Projections](inspection-plan-projections.md) | Supplies the closed terminal-purpose model |
+| Content purpose and required share projection | [Inspection Plan Projections](inspection-plan-projections.md) | Supplies the closed content-purpose model and share companion |
 | Portable scenario records | [Workspace Definitions](workspace-definitions.md) | Supplies share projection and restoration |
 | CLI parsing and output | [CLI Host Architecture](../cli-architecture.md) | Supplies argv lowering, ephemeral lifetime policy, diagnostics, and rendering |
 | Browser interaction and output | Inspect Web focused owners | Supplies gestures, retained lifetime policy, transport, navigation, and rendering |
@@ -60,19 +60,18 @@ CLI argv / Web gesture / restored Workspace definition
   -> subject-specific semantic request
   -> House settlement and Workspace admission when content is required
   -> resolved inspection basis
-  -> exactly one terminal purpose
+  -> exactly one content purpose
        |-- Execute
        |     -> L1 query plan(s)
        |     -> L2 section and logical-row plan
        |     -> optional owner-issued work-bound plan
-       |     -> typed result plus completion evidence
-       |     `-> host projection and presentation
-       |-- Discover
-       |     -> applicability/probe plan
-       |     `-> typed effectiveness outcomes
-       `-- Share
-             -> portable semantic projection
-             `-> Workspace Definitions
+       |     `-> typed result plus completion evidence
+       `-- Discover
+             -> applicability/probe plan
+             `-> typed effectiveness outcomes
+  -> required share projection
+       `-> Workspace Definitions
+  -> host projection and presentation
 ```
 
 The arrows are typed handoffs, not one universal plan class. A subject owner
@@ -85,7 +84,7 @@ section, row, and work-bound plans are semantic or executable currencies.
 Presentation is a host concern. Each value crosses only the boundary its owner
 defines.
 
-## Resolved basis and terminal purpose
+## Resolved basis, content, and share
 
 The resolved basis retains common semantic state established before terminal
 policy:
@@ -99,19 +98,23 @@ policy:
 It does not retain live content, a Workspace lease, an executable closure,
 probe outcomes, rendered rows, credentials, or host UI state.
 
-Exactly one terminal purpose consumes that basis:
+Exactly one content purpose consumes that basis:
 
 - **Execute** produces typed query and section results.
 - **Discover** determines applicability or effectiveness without pretending
   ordinary rendering is a probe.
-- **Share** projects only portable semantic state and does not execute the
-  selected inspection.
 
-The three purposes may share resolution without accepting the same inputs.
-For example, CLI verbosity may select automatic execution sections but has no
-portable share meaning. A discovery probe budget has no execution or share
-meaning. A portable graph depth may remain semantic in both execution and
-sharing.
+One required Share projection accompanies every content plan. It projects only
+portable semantic state and does not execute the selected inspection. A
+non-projectable Share outcome does not invalidate independently valid Execute
+or Discover content. A host may classify an explicitly requested Share
+presentation as unsuccessful without discarding that content.
+
+Content and Share consume the same resolution without accepting the same
+inputs. For example, CLI verbosity may select automatic execution sections but
+has no portable Share meaning. A discovery probe budget has no execution or
+Share meaning. A portable graph depth may remain semantic in both execution
+and sharing.
 
 ## Rows, work bounds, and presentation
 
@@ -174,7 +177,7 @@ permission.
 | Query | Same L1 definitions, plans, costs, failures, and resource-free results | Executes in-process and writes diagnostics | Executes through managed facade and worker transport |
 | Section/rows | Same L2 section and logical-row plans | Exposes the broad CLI grammar | May expose fewer controls but constructs the same plan |
 | Work bounds | Same owner-issued dimensions and completion evidence | Lowers CLI options | Uses view policy or future UI controls |
-| Share | Same portable definitions and facet identities | Emits packet or URL | Restores and may later emit portable state |
+| Share | Same required portable projection and facet identity accompanies content | Writes it to stderr for `--share`; otherwise retains it without ordinary display | Restores it and exposes it with content |
 | Presentation | Typed result is unchanged | Markout, JSON, tables, trees, stderr, exit codes | Browser DTOs, interactive graph, navigation, diagnostics |
 
 Transport DTOs are not semantic plans. CLI option objects and browser request
@@ -219,6 +222,48 @@ The gates are:
 - `TypeProjection_RetainsTypedRelationshipRowSelection` plus the existing
   cross-package Browser tests for retained Web capability and Workspace use.
 
+### Authentic package evidence
+
+The CLI test project restores the exact Npgsql and EF Relational `8.0.4`
+packages named in the motivation using `PackageDownload`. These are inspected
+inputs, not test-host assembly references. The original `.nupkg` archives are
+copied into test output without rewriting them or checking third-party content
+into the repository.
+
+`ConfiguredPayloadAcquisitionTests.AuthenticTypeDependencies.cs` owns the
+package coordinates, archive SHA-256 values, and expected relationships.
+The hashes were verified against the exact
+`https://api.nuget.org/v3-flatcontainer/` publications. Tests verify the archive
+bytes before supplying them through the existing offline HTTP test boundary;
+package acquisition, asset selection, metadata decoding, Workspace admission,
+query execution, row selection, and CLI rendering remain product-owned.
+
+The normal Release CLI suite runs five authentic cases:
+
+- `Depends_AuthenticPackages_ExpandOnlySelectedPopulation` checks both the
+  two-package relationship chain and the single-package neighbor. The neighbor
+  retains the direct `declared` base-type edge without claiming the unavailable
+  ancestor's interface edge.
+- `Depends_AuthenticPackages_SelectSecondLogicalRelationship` checks that
+  `--rows 2..2` selects the cross-package interface edge.
+- `TypeDependency_AuthenticPackages_RequireTheOwningParticipant` checks the
+  same populations through Workspace loading and the participant-qualified L2
+  executor. It preserves the exact Npgsql package/version provenance and refuses
+  to borrow the Npgsql root when the EF Relational participant is selected.
+
+Run these cases without live test-time network access:
+
+```bash
+dotnet run --project tests/DotnetInspect.Cli.Tests -c Release -- \
+  --filter-method '*AuthenticPackages*'
+```
+
+The malformed-input, same-name, fuzzy-root, strict-row-failure, and Browser
+transport fixtures remain complementary gates. This evidence slice does not
+retire the remaining direct CLI scanner adapter or adopt Discover and Share;
+those are separate follow-ups in
+[#6704](https://github.com/richlander/dotnet-inspect/issues/6704).
+
 ## Adoption sequence
 
 1. Lock this composition map and the Type Relationships execution pilot.
@@ -228,8 +273,8 @@ The gates are:
    command mode at a time.
 4. Route package realization through PackageHouse-to-Workspace orchestration
    without folding that migration into section plans.
-5. Adopt discovery and share terminal plans per subject, preserving their
-   different inputs and outputs.
+5. Adopt Discover content and required Share projection per subject,
+   preserving their different inputs and outputs.
 6. Record each materially different CLI route and corresponding Web adoption
    or explicit non-applicability in
    [#6639](https://github.com/richlander/dotnet-inspect/issues/6639).
@@ -243,7 +288,7 @@ This document does not:
 - make CLI verbosity, output formats, diagnostics, or browser navigation
   portable;
 - treat semantic row selection as an execution bound;
-- make every terminal purpose accept identical options;
+- make every content purpose or Share projection accept identical policy;
 - require Web to expose every CLI row-control widget;
 - define PackageHouse-to-Workspace orchestration;
 - finish the section-pipeline extraction from the CLI project; or

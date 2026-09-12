@@ -1,3 +1,5 @@
+using Inspector.Resources;
+
 namespace Inspector.Artifacts;
 
 /// <summary>A typed, source-owned artifact acquisition diagnostic.</summary>
@@ -15,6 +17,7 @@ public interface IArtifactAcquisitionDiagnostic
 /// quiesce. That lifetime is gated by
 /// <c>WorkspaceClose_ReleasesArtifactSessionAfterExactDependentGroupQuiesces</c>.
 /// </remarks>
+[ResourceOwnership]
 public interface IArtifactAcquisitionLease : IAsyncDisposable
 {
 }
@@ -42,6 +45,7 @@ public abstract class ArtifactAcquisitionOutcome
     {
     }
 
+    [ResourceOwnership]
     public sealed class Acquired : ArtifactAcquisitionOutcome
     {
         public Acquired(

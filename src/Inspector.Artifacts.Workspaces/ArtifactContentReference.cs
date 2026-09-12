@@ -29,6 +29,8 @@ public sealed class ArtifactContentReference
 
     public ArtifactDescriptor Descriptor { get; }
 
+    internal ArtifactSetSession Owner => _owner;
+
     public ArtifactAcquisitionRegistration Registration =>
         _owner.GetRegistration(Descriptor.Identity, _lease);
 
