@@ -88,6 +88,170 @@ public class SourceLinkQueryServiceTests
     }
 
     [Fact]
+    public async Task Integrity_ImmutableExactEvidenceIsReused()
+    {
+        const string Url =
+            "https://raw.githubusercontent.com/example/repo/"
+            + "0123456789abcdef0123456789abcdef01234567/src/a.cs";
+        byte[] body = "exact source"u8.ToArray();
+        string checksum = Convert.ToHexString(SHA256.HashData(body));
+        int requests = 0;
+        using var client = new HttpClient(new StubHandler(_ =>
+        {
+            requests++;
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(body),
+            };
+        }));
+        RecordingSourceLinkQueryCache cache = new();
+
+        SourceIntegritySummary initial = await SourceIntegrityService.InspectAsync(
+            [Document("/src/A.cs", url: Url, checksum: checksum)],
+            client,
+            cache,
+            cancellationToken: TestContext.Current.CancellationToken);
+        SourceIntegritySummary repeated = await SourceIntegrityService.InspectAsync(
+            [Document("/src/A.cs", url: Url, checksum: checksum)],
+            client,
+            cache,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, initial.Verified);
+        Assert.Equal(1, repeated.Verified);
+        Assert.Equal(1, requests);
+        Assert.Equal(["verified", "normalized", "verified"],
+            cache.Lookups.Select(static lookup => lookup.Extension));
+        Assert.All(cache.Lookups, lookup =>
+        {
+            Assert.Equal("source-integrity-v2", lookup.Category);
+            Assert.Equal($"{Url}|SHA256|{checksum}", lookup.Key);
+            Assert.Null(lookup.MaxAge);
+        });
+        Assert.Equal(
+            new CacheWrite(
+                "source-integrity-v2",
+                $"{Url}|SHA256|{checksum}",
+                "1",
+                "verified"),
+            Assert.Single(cache.Writes));
+    }
+
+    [Fact]
+    public async Task Integrity_ImmutableNormalizedEvidenceIsReused()
+    {
+        const string Url =
+            "https://raw.githubusercontent.com/example/repo/"
+            + "0123456789abcdef0123456789abcdef01234567/src/a.cs";
+        byte[] expected = "first\nsecond\n"u8.ToArray();
+        byte[] served = "first\r\nsecond\r\n"u8.ToArray();
+        string checksum = Convert.ToHexString(SHA256.HashData(expected));
+        int requests = 0;
+        using var client = new HttpClient(new StubHandler(_ =>
+        {
+            requests++;
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(served),
+            };
+        }));
+        RecordingSourceLinkQueryCache cache = new();
+
+        SourceIntegritySummary initial = await SourceIntegrityService.InspectAsync(
+            [Document("/src/A.cs", url: Url, checksum: checksum)],
+            client,
+            cache,
+            cancellationToken: TestContext.Current.CancellationToken);
+        SourceIntegritySummary repeated = await SourceIntegrityService.InspectAsync(
+            [Document("/src/A.cs", url: Url, checksum: checksum)],
+            client,
+            cache,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, initial.Verified);
+        Assert.Equal(1, initial.LineEndingNormalized);
+        Assert.Equal(1, repeated.Verified);
+        Assert.Equal(1, repeated.LineEndingNormalized);
+        Assert.Equal(1, requests);
+        Assert.Equal(
+            ["verified", "normalized", "verified", "normalized"],
+            cache.Lookups.Select(static lookup => lookup.Extension));
+        Assert.Equal(
+            new CacheWrite(
+                "source-integrity-v2",
+                $"{Url}|SHA256|{checksum}",
+                "1",
+                "normalized"),
+            Assert.Single(cache.Writes));
+    }
+
+    [Fact]
+    public async Task Integrity_MutablePositiveIsVerifiedOnEveryAudit()
+    {
+        const string Url = "https://example.test/src/a.cs";
+        byte[] body = "exact source"u8.ToArray();
+        string checksum = Convert.ToHexString(SHA256.HashData(body));
+        int requests = 0;
+        using var client = new HttpClient(new StubHandler(_ =>
+        {
+            requests++;
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(body),
+            };
+        }));
+        RecordingSourceLinkQueryCache cache = new();
+        SourceDocumentObservation[] documents =
+            [Document("/src/A.cs", url: Url, checksum: checksum)];
+
+        SourceIntegritySummary initial = await SourceIntegrityService.InspectAsync(
+            documents,
+            client,
+            cache,
+            cancellationToken: TestContext.Current.CancellationToken);
+        SourceIntegritySummary repeated = await SourceIntegrityService.InspectAsync(
+            documents,
+            client,
+            cache,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, initial.Verified);
+        Assert.Equal(1, repeated.Verified);
+        Assert.Equal(2, requests);
+        Assert.Empty(cache.Lookups);
+        Assert.Empty(cache.Writes);
+    }
+
+    [Fact]
+    public async Task Integrity_DuplicateObservationsRemainInTheDenominator()
+    {
+        const string Url = "https://example.test/src/a.cs";
+        byte[] body = "exact source"u8.ToArray();
+        string checksum = Convert.ToHexString(SHA256.HashData(body));
+        int requests = 0;
+        using var client = new HttpClient(new StubHandler(_ =>
+        {
+            Interlocked.Increment(ref requests);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(body),
+            };
+        }));
+        SourceDocumentObservation observation =
+            Document("/src/A.cs", url: Url, checksum: checksum);
+
+        SourceIntegritySummary result = await SourceIntegrityService.InspectAsync(
+            [observation, observation],
+            client,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, result.Verified);
+        Assert.Equal(0, result.Mismatched);
+        Assert.Equal(0, result.Unverifiable);
+        Assert.Equal(2, requests);
+    }
+
+    [Fact]
     public async Task Availability_DoesNotCountCrossOriginRedirectAsReachable()
     {
         const string Url =
@@ -356,6 +520,7 @@ public class SourceLinkQueryServiceTests
             + "?api-version=7.1&versionType=commit"
             + "&version=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&path=/A.cs";
         var content = new TrackingContent(body);
+        RecordingSourceLinkQueryCache cache = new();
         using var client = new HttpClient(new StubHandler(_ =>
             new HttpResponseMessage(HttpStatusCode.OK)
             {
@@ -374,6 +539,7 @@ public class SourceLinkQueryServiceTests
                     checksum: Convert.ToHexString(SHA256.HashData(body)))
             ],
             client,
+            cache,
             log: logs.Add,
             cancellationToken: TestContext.Current.CancellationToken);
 
@@ -381,6 +547,7 @@ public class SourceLinkQueryServiceTests
         Assert.Equal(0, result.Mismatched);
         Assert.Equal(1, result.Unverifiable);
         Assert.Equal(0, content.ReadCount);
+        Assert.Empty(cache.Writes);
         Assert.DoesNotContain(logs, message => message.Contains(Url, StringComparison.Ordinal));
         Assert.DoesNotContain(
             logs,
@@ -391,10 +558,13 @@ public class SourceLinkQueryServiceTests
     [Fact]
     public async Task Integrity_FailureDiagnosticsDoNotEchoArtifactUrls()
     {
-        const string Url = "https://example.test/secret.cs";
+        const string Url =
+            "https://raw.githubusercontent.com/example/secret/"
+            + "0123456789abcdef0123456789abcdef01234567/src/secret.cs";
         List<string> logs = [];
         using var client = new HttpClient(
             new ThrowingHandler($"transport exposed {Url}"));
+        RecordingSourceLinkQueryCache cache = new();
 
         SourceIntegritySummary result = await SourceIntegrityService.InspectAsync(
             [
@@ -404,16 +574,71 @@ public class SourceLinkQueryServiceTests
                     checksum: Convert.ToHexString(SHA256.HashData("expected"u8)))
             ],
             client,
+            cache,
             log: logs.Add,
             cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(1, result.Unverifiable);
         Assert.Contains("Source integrity fetch failed.", logs);
+        Assert.Empty(cache.Writes);
         Assert.DoesNotContain(logs, message => message.Contains(Url, StringComparison.Ordinal));
         Assert.DoesNotContain(
             logs,
             message => message.Contains("/src/Secret.cs", StringComparison.Ordinal));
         Assert.DoesNotContain(logs, message => message.Contains("https://", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Integrity_CancellationAfterBodyDoesNotPublishEvidence()
+    {
+        const string Url =
+            "https://raw.githubusercontent.com/example/repo/"
+            + "0123456789abcdef0123456789abcdef01234567/src/a.cs";
+        byte[] body = "exact source"u8.ToArray();
+        using CancellationTokenSource cancellation = new();
+        using var client = new HttpClient(new StubHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new CancellationAtEofContent(body, cancellation),
+            }));
+        RecordingSourceLinkQueryCache cache = new();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => SourceIntegrityService.InspectAsync(
+                [
+                    Document(
+                        "/src/A.cs",
+                        url: Url,
+                        checksum: Convert.ToHexString(SHA256.HashData(body)))
+                ],
+                client,
+                cache,
+                cancellationToken: cancellation.Token));
+
+        Assert.Empty(cache.Writes);
+    }
+
+    [Fact]
+    public async Task Integrity_UnexpectedFailureEscapesTheAudit()
+    {
+        const string Url = "https://example.test/source.cs";
+        using var client = new HttpClient(
+            new UnexpectedThrowingHandler(new InvalidOperationException("unexpected")));
+        RecordingSourceLinkQueryCache cache = new();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => SourceIntegrityService.InspectAsync(
+                [
+                    Document(
+                        "/src/A.cs",
+                        url: Url,
+                        checksum: Convert.ToHexString(SHA256.HashData("expected"u8)))
+                ],
+                client,
+                cache,
+                cancellationToken: TestContext.Current.CancellationToken));
+
+        Assert.Empty(cache.Writes);
     }
 
     [Fact]
@@ -479,7 +704,15 @@ public class SourceLinkQueryServiceTests
             HttpRequestMessage request,
             CancellationToken cancellationToken)
             => Task.FromException<HttpResponseMessage>(
-                new InvalidOperationException(message));
+                new HttpRequestException(message));
+    }
+
+    private sealed class UnexpectedThrowingHandler(Exception exception) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+            => Task.FromException<HttpResponseMessage>(exception);
     }
 
     private sealed class RecordingSourceLinkQueryCache : ISourceLinkQueryCache
@@ -524,6 +757,43 @@ public class SourceLinkQueryServiceTests
         string Key,
         string Content,
         string Extension);
+
+    private sealed class CancellationAtEofContent(
+        byte[] content,
+        CancellationTokenSource cancellation)
+        : HttpContent
+    {
+        protected override Task SerializeToStreamAsync(
+            Stream stream,
+            TransportContext? context)
+            => stream.WriteAsync(content).AsTask();
+
+        protected override Task<Stream> CreateContentReadStreamAsync()
+            => Task.FromResult<Stream>(
+                new CancellationAtEofStream(content, cancellation));
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = content.Length;
+            return true;
+        }
+    }
+
+    private sealed class CancellationAtEofStream(
+        byte[] content,
+        CancellationTokenSource cancellation)
+        : MemoryStream(content, writable: false)
+    {
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            int read = Read(buffer.Span);
+            if (read == 0)
+                cancellation.Cancel();
+            return ValueTask.FromResult(read);
+        }
+    }
 
     private sealed class TrackingContent(byte[] content) : HttpContent
     {
