@@ -29,7 +29,7 @@ or output.
 target composition between hosts, Workspace state, reusable services,
 the optional persistent-cache port, and detached terminal results. The detailed
 Workspace sections below remain authoritative for current behavior until their
-focused adoptions land; their retained-runtime and in-place mutation contracts
+focused adoptions land; their retained-realization and in-place mutation contracts
 are scheduled migration conflicts rather than implementations of the target.
 The library CLI and package
 `--all-libraries` now use an ephemeral workspace for focused Integrations

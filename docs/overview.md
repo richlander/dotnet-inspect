@@ -498,7 +498,7 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 
 - [Inspection space architecture](inspection-space.md): the target Rich, Fast, and Safe core that will be shared by hosts and inspection producers.
 - [Stateless core services](design/stateless-core-services.md): the target
-  composition relating explicit Workspace/runtime authority, stateless
+  composition relating explicit Workspace realization authority, stateless
   inspection operations, detached terminal results, and an optional
   persistent-cache port.
 - [Artifact acquisition and workspace composition](design/artifact-acquisition-and-workspaces.md):
