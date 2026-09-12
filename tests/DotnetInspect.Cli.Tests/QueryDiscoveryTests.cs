@@ -151,6 +151,56 @@ public class QueryDiscoveryTests
     }
 
     [Theory]
+    [InlineData("-D")]
+    [InlineData("-S")]
+    public async Task QueryRejectsDataDiscoveryModes(string mode)
+    {
+        var result = await Run(
+            "find",
+            "-Q",
+            "Packages",
+            mode,
+            "Packages");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            $"-Q cannot be combined with {mode}",
+            result.Error);
+    }
+
+    [Theory]
+    [InlineData(
+        "--rows",
+        "bad",
+        "--rows requires N..M, N.., or ..M")]
+    [InlineData(
+        "--take",
+        "bad",
+        "--take requires a positive whole number.")]
+    public async Task QueryConflictFollowsSharedSelectionFailure(
+        string option,
+        string value,
+        string expected)
+    {
+        var result = await Run(
+            "find",
+            option,
+            value,
+            "-Q",
+            "Packages",
+            "-D",
+            "Packages");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(expected, result.Error);
+        Assert.DoesNotContain(
+            "-Q cannot be combined",
+            result.Error);
+    }
+
+    [Theory]
     [InlineData("--where", "Kind=ObjectCreationExpression")]
     [InlineData("--order-by", "RootReach desc")]
     [InlineData("--top", "10")]

@@ -19,16 +19,6 @@ internal static class QueryDiscoveryCommand
             command.Options.Add(options.QueryHelp);
             if (command.Name == "find")
                 command.Options.Add(options.Select);
-            command.Validators.Add(result =>
-            {
-                if (result.GetResult(options.QueryHelp) is not { Implicit: false })
-                    return;
-                foreach (Option option in new Option[] { options.Select, options.Discover })
-                {
-                    if (result.GetResult(option) is { Implicit: false })
-                        result.AddError($"-Q cannot be combined with {option.Name}; use -Q <section> on its own.");
-                }
-            });
             WrapAction(command, options);
         }
     }
@@ -79,6 +69,24 @@ internal static class QueryDiscoveryCommand
             CommandError.Write(parseError);
             exitCode = 1;
             return true;
+        }
+        if (query is not null)
+        {
+            foreach (Option option in new Option[]
+            {
+                options.Select,
+                options.Discover,
+            })
+            {
+                if (result.GetResult(option) is { Implicit: false })
+                {
+                    CommandError.Write(
+                        $"-Q cannot be combined with {option.Name}; "
+                        + "use -Q <section> on its own.");
+                    exitCode = 1;
+                    return true;
+                }
+            }
         }
         if (companionDiscover && result.GetValue(options.Count))
         {
