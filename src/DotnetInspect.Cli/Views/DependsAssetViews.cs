@@ -7,6 +7,16 @@ using Markout;
 
 namespace DotnetInspect.Cli.Views;
 
+/// <summary>Containment for values composed by dependency presentation.</summary>
+internal static class DependencyEvidenceViewText
+{
+    public static InertString Field(string? value) =>
+        new(TextPolicy.Field, value ?? "");
+
+    public static InertString? Optional(string? value) =>
+        value is null ? null : Field(value);
+}
+
 [MarkoutSerializable(
     TitleProperty = nameof(Title),
     DescriptionProperty = nameof(Description),

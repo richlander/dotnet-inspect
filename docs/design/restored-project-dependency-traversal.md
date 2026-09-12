@@ -83,9 +83,9 @@ shared host-neutral substrate, so no single-consumer or single-host exception
 applies.
 
 The delivery sequence set by
-[the command design](dependency-inspection-command.md) is #5993, #5765, #5996,
-**#5998 (this owner)**, #3320, #5994, then `dependency-evidence` removal. This
-document adds no step to that plan.
+[the command design](dependency-inspection-command.md) was #5993, #5765, #5996,
+**#5998 (this owner)**, #3320, #5994, then #5995's `dependency-evidence`
+removal. This document adds no step to that completed plan.
 
 Total host steps to reach both planned hosts:
 

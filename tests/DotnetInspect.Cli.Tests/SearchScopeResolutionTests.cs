@@ -251,7 +251,7 @@ public class SearchScopeResolutionTests
     }
 
     [Fact]
-    public async Task DependsImplicitScope_RetainsBareLibraryFallback()
+    public async Task DependsImplicitScope_DoesNotTreatBareInputAsALibrary()
     {
         var (exit, output, error) = await RunAppAsync(
             "depends",
@@ -260,9 +260,12 @@ public class SearchScopeResolutionTests
             "--tips",
             "q");
 
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.True(int.Parse(output.Trim()) > 0);
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Type 'System.Runtime' not found in the specified scope.",
+            error,
+            StringComparison.Ordinal);
     }
 
     [Theory]

@@ -1925,39 +1925,24 @@ public sealed class DependsAssetCommandTests
 #endif
 
     [Fact]
-    public async Task PositionalLibraryFallbackHonorsDepth()
+    public async Task PositionalLibraryPathIsNotReinterpretedAsAnAssetRoot()
     {
-        CoreCache.Initialize("dotnet-inspect-test");
         string library = typeof(DependsAssetCommandTests).Assembly.Location;
-        (int fallbackExit, string fallbackCount, string fallbackError) =
-            await RunCapturedAsync(
+        (int exitCode, string output, string error) = await RunCapturedAsync(
         [
             "depends",
             library,
             "--depth",
             "1",
-            "--count",
-        ]);
-        (int explicitExit, string explicitCount, string explicitError) =
-            await RunCapturedAsync(
-        [
-            "depends",
-            "--library",
-            library,
-            "--depth",
-            "1",
-            "-S",
-            "Dependency Graph",
             "--count",
         ]);
 
-        Assert.True(
-            fallbackExit == 0,
-            $"fallback stderr: {fallbackError}");
-        Assert.True(
-            explicitExit == 0,
-            $"explicit stderr: {explicitError}");
-        Assert.Equal(explicitCount.Trim(), fallbackCount.Trim());
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"Type '{library}' not found",
+            error,
+            StringComparison.Ordinal);
     }
 
     [Fact]

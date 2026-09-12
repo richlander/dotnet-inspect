@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Breaking:** Removes the overlapping `dependency-evidence` command and the
+  positional type-to-library fallback from `depends`. Use `depends` with the
+  same explicit `--package`, `--nuspec`, `--project`, or `--package-prefix`
+  roots; select `Dependencies` for declaration evidence without transitive
+  traversal, and use explicit `--library` for library roots. The removed
+  command token remains reserved and reports this replacement instead of
+  entering implicit package routing (#5995).
 - **Breaking:** Simplifies `vocabulary` into a flat section catalog. Bare
   output now shows only section name, summary, and value count; `-D` lists
   sections without category doors; exact names, stable section IDs, and globs

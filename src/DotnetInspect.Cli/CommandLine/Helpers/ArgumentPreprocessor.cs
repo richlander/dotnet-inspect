@@ -124,12 +124,35 @@ public static class ArgumentPreprocessor
     }
 
     /// <summary>
+    /// Reports a removed command whose token remains reserved against implicit package routing.
+    /// </summary>
+    public static bool TryGetRemovedCommandError(
+        string[] args,
+        out string? error)
+    {
+        int commandIndex = FindFirstPositionalArgument(args);
+        if (commandIndex >= 0
+            && args[commandIndex].Equals(
+                "dependency-evidence",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            error = "'dependency-evidence' has been removed. Use 'depends' with "
+                + "the same explicit roots; add '-S Dependencies' for direct "
+                + "declaration evidence without transitive traversal.";
+            return true;
+        }
+
+        error = null;
+        return false;
+    }
+
+    /// <summary>
     /// Known/reserved commands for implicit package command detection.
     /// </summary>
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "api", "audit", // removed commands, reserved so they are not treated as implicit package targets
-        "package", "project", "library", "type", "member", "diff", "timeline", "graph", "find", "vocabulary", "ecosystem", "source", "list", "ls", "skill", "demo", "extensions", "implements", "match", "depends", "dependency-evidence", "cache", "workspace", "workspace-state", "help", "--help", "-h", "-?", "--version", "--flavor"
+        "api", "audit", "dependency-evidence", // removed commands reserved against implicit package routing
+        "package", "project", "library", "type", "member", "diff", "timeline", "graph", "find", "vocabulary", "ecosystem", "source", "list", "ls", "skill", "demo", "extensions", "implements", "match", "depends", "cache", "workspace", "workspace-state", "help", "--help", "-h", "-?", "--version", "--flavor"
     };
 
     internal static bool IsImplicitPackageCandidate(

@@ -442,7 +442,8 @@ public partial class DependsCommand
             int? traversalDepth,
             CancellationToken cancellationToken)
     {
-        DependencyEvidenceOptions evidenceOptions = EvidenceOptions(options);
+        DependencyEvidenceAcquisitionOptions evidenceOptions =
+            EvidenceOptions(options);
         DependencyEvidenceAcquisitionBatch? acquisition = null;
         PackageDependencyEvidenceRequest evidenceRequest;
 
@@ -458,9 +459,12 @@ public partial class DependsCommand
         if (options.PackagePrefix is { } prefix)
         {
             (evidenceRequest, _) =
-                await DependencyEvidenceCommand.AcquirePrefixAsync(
-                    evidenceOptions,
+                await DependencyEvidenceAcquisition.AcquirePackagePrefixAsync(
                     prefix,
+                    options.MaxPackages
+                        ?? DependencyEvidenceAcquisition
+                            .PackageProfileDefaultLimit,
+                    options.Tfm,
                     context,
                     cancellationToken).ConfigureAwait(false);
         }
@@ -713,35 +717,12 @@ public partial class DependsCommand
                 : []);
     }
 
-    private static DependencyEvidenceOptions EvidenceOptions(
+    private static DependencyEvidenceAcquisitionOptions EvidenceOptions(
         DependsOptions options) =>
-        new()
-        {
-            Packages =
-            [
-                .. options.AssetRoots
-                    .Where(root => root.Kind == DependsAssetRootKind.Package)
-                    .Select(root => root.Value),
-            ],
-            Nuspecs =
-            [
-                .. options.AssetRoots
-                    .Where(root => root.Kind == DependsAssetRootKind.Nuspec)
-                    .Select(root => root.Value),
-            ],
-            Projects =
-            [
-                .. options.AssetRoots
-                    .Where(root => root.Kind == DependsAssetRootKind.Project)
-                    .Select(root => root.Value),
-            ],
-            PackagePrefix = options.PackagePrefix,
-            Tfm = options.Tfm,
-            IncludePrerelease = options.IncludePrerelease,
-            MaxPackages = options.MaxPackages,
-            Verbose = options.Verbose,
-            SourceOptions = options.SourceOptions,
-        };
+        new(
+            options.Tfm,
+            options.IncludePrerelease,
+            options.SourceOptions);
 
     private static PackageDependencyTraversalFrameworkMode.Exact
         CreateFrameworkMode(string framework)
@@ -2026,7 +2007,7 @@ public partial class DependsCommand
             });
         summaryWriter.WriteSectionStart(
             2,
-            DependencyEvidenceCommand.SummarySection);
+            "Summary");
         summaryWriter.WriteFields(summary);
         summaryWriter.WriteSectionEnd();
         summaryWriter.Flush();

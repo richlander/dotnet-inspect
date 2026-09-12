@@ -31,7 +31,7 @@ internal delegate Task<PackageCoordinateResolution> DependencyEvidenceCoordinate
 /// <remarks>
 /// The seam is the composition call itself, not a second version policy: a regression supplies
 /// one <see cref="PackageVersionDiscoveryResult"/> — partial, failed, authoritatively empty —
-/// and states what this command then did with it, without reaching a live feed. Production
+/// and states what dependency acquisition then did with it, without reaching a live feed. Production
 /// binds it to <see cref="DesktopPackageSourceComposition.GetVersionsAsync"/>.
 /// </remarks>
 internal delegate Task<PackageVersionDiscoveryResult> DependencyEvidenceVersionDiscovery(
@@ -56,8 +56,14 @@ internal sealed record DependencyEvidenceAcquisitionBatch(
     PackageDependencyEvidenceRequest Request,
     ImmutableArray<DependencyEvidenceAcquiredRoot> Roots);
 
+/// <summary>Source and framework choices used while acquiring dependency roots.</summary>
+internal sealed record DependencyEvidenceAcquisitionOptions(
+    string? Tfm,
+    bool IncludePrerelease,
+    NuGetSourceOptions? SourceOptions);
+
 /// <summary>
-/// Thin acquisition adapters for <c>dependency-evidence</c> roots.
+/// Thin acquisition adapters for dependency roots.
 /// </summary>
 /// <remarks>
 /// Every adapter's only job is to turn one explicitly authorized input into bytes or typed facts
@@ -71,118 +77,6 @@ internal static class DependencyEvidenceAcquisition
     internal const int PackageProfileDefaultLimit = 500;
     internal const int PackageProfileMaximumLimit = 1_000;
 
-    /// <summary>Acquires the explicitly named package, nuspec, and project roots.</summary>
-    /// <remarks>
-    /// <para>
-    /// Every named root is one explicit gesture, so one unusable gesture is one typed failed
-    /// root: no root aborts the request, and none is silently rebound to a different input.
-    /// </para>
-    /// <para>
-    /// One package-owned source composition serves the whole request. It is the same lifetime
-    /// <see cref="CommandContext.CreatePackageSourceComposition"/> gives other commands — one
-    /// composition over this request's deadline, owned and disposed exactly once — and it is
-    /// created only when a remote package root asks a version or manifest question, so a
-    /// nuspec-only or archive-only request builds no source runtime at all.
-    /// </para>
-    /// </remarks>
-    public static async Task<PackageDependencyEvidenceRequest> AcquireExplicitRootsAsync(
-        DependencyEvidenceOptions options,
-        HttpClient httpClient,
-        Action<string>? log,
-        CancellationToken cancellationToken,
-        IPackageSourceAuthorization? authorization = null,
-        DependencyEvidenceCoordinateResolver? resolveCoordinate = null,
-        DependencyEvidenceVersionDiscovery? discoverVersions = null,
-        Func<TimeSpan, DesktopPackageSourceComposition>? createComposition = null)
-    {
-        ArgumentNullException.ThrowIfNull(options);
-        ArgumentNullException.ThrowIfNull(httpClient);
-
-        IPackageSourceAuthorization sourceAuthorization = authorization
-            ?? new SourcePolicyPackageSourceAuthorization(options.SourceOptions);
-        DesktopPackageSourceComposition? composition = null;
-        DesktopPackageSourceComposition GetComposition() =>
-            composition ??= createComposition?.Invoke(httpClient.Timeout)
-                ?? new DesktopPackageSourceComposition(httpClient.Timeout);
-        DependencyEvidenceVersionDiscovery discovery = discoverVersions
-            ?? ((packageId, includePrerelease, token) =>
-            {
-                return GetComposition().GetVersionsAsync(
-                    packageId,
-                    includePrerelease,
-                    // The composition sorts every authority's evidence together before it
-                    // limits, so one row is the global latest acceptable version rather than
-                    // the first authority's.
-                    limit: 1,
-                    options.SourceOptions,
-                    log,
-                    token);
-            });
-        DependencyEvidenceCoordinateResolver resolver = resolveCoordinate
-            ?? ((coordinate, sources, includePrerelease, token) =>
-                ResolveCoordinateAsync(
-                    httpClient,
-                    coordinate,
-                    sources,
-                    discovery,
-                    log,
-                    includePrerelease,
-                    token));
-
-        var roots = ImmutableArray.CreateBuilder<PackageDependencyEvidenceInput>();
-        var failures =
-            ImmutableArray.CreateBuilder<PackageDependencyEvidenceRootFailure>();
-
-        try
-        {
-            foreach (string package in options.Packages)
-            {
-                await AcquirePackageAsync(
-                    package,
-                    options,
-                    sourceAuthorization,
-                    resolver,
-                    GetComposition,
-                    httpClient,
-                    roots,
-                    failures,
-                    cancellationToken,
-                    operationContext: null).ConfigureAwait(false);
-            }
-
-            foreach (string nuspec in options.Nuspecs)
-            {
-                await AcquireNuspecAsync(
-                    nuspec,
-                    options.Tfm,
-                    roots,
-                    failures,
-                    cancellationToken).ConfigureAwait(false);
-            }
-
-            foreach (string project in options.Projects)
-            {
-                _ = await AcquireProjectAsync(
-                    project,
-                    options.Tfm,
-                    roots,
-                    failures,
-                    cancellationToken,
-                    graphRequested: false,
-                    maximumDepth: null).ConfigureAwait(false);
-            }
-        }
-        finally
-        {
-            if (composition is not null)
-                await composition.DisposeAsync().ConfigureAwait(false);
-        }
-
-        return new PackageDependencyEvidenceRequest(
-            roots.ToImmutable(),
-            failures.ToImmutable());
-    }
-
     /// <summary>
     /// Acquires ordered package, nuspec, and restored-project roots for unified
     /// <c>depends</c> while retaining occurrence correspondence and exact restored bytes.
@@ -190,7 +84,7 @@ internal static class DependencyEvidenceAcquisition
     internal static async Task<DependencyEvidenceAcquisitionBatch>
         AcquireDependsRootsAsync(
             IReadOnlyList<DependsAssetRoot> requestedRoots,
-            DependencyEvidenceOptions options,
+            DependencyEvidenceAcquisitionOptions options,
             HttpClient httpClient,
             Action<string>? log,
             DesktopPackageSourceComposition composition,
@@ -345,12 +239,41 @@ internal static class DependencyEvidenceAcquisition
             summary);
     }
 
+    internal static async Task<(
+        PackageDependencyEvidenceRequest Request,
+        PackageProfileSummary Summary)> AcquirePackagePrefixAsync(
+            string prefix,
+            int maximumPackages,
+            string? targetFramework,
+            CommandContext context,
+            CancellationToken cancellationToken)
+    {
+        NuGetFetchOptions fetchOptions =
+            NuGetFetchOptions.FromRequestTimeout(context.HttpClient.Timeout);
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create(),
+                DotnetInspector.Networking.HttpClientFactory
+                    .CreateCredentialFreeHandler(),
+                fetchOptions);
+        using var operationContext = new NuGetOperationContext(
+            fetchOptions.RequestTimeout,
+            fetchOptions.OperationTimeout,
+            cancellationToken);
+        return await AcquirePackagePrefixAsync(
+            source,
+            new PackagePrefixProfileRequest(prefix, maximumPackages),
+            targetFramework,
+            operationContext,
+            cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>Whether a package target names a local archive rather than a remote coordinate.</summary>
     public static bool IsLocalArchiveTarget(string package) =>
         package.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// This command's coordinate resolution: package-owned version discovery for a floating
+    /// Dependency acquisition's coordinate resolution: package-owned version discovery for a floating
     /// target, and the shared resolver's exact path for everything else.
     /// </summary>
     /// <remarks>
@@ -366,7 +289,7 @@ internal static class DependencyEvidenceAcquisition
     /// The composition is the normative owner of what a configured authority publishes: it
     /// composes HTTP and local-folder evidence together, applies listing state and prerelease
     /// policy, sorts every authority's candidates globally before it limits, and reports how
-    /// complete the aggregate is. This command therefore asks for one row and neither infers
+    /// complete the aggregate is. This acquisition path therefore asks for one row and neither infers
     /// which authorities can answer from source text or transport nor re-implements selection.
     /// </para>
     /// <para>
@@ -377,7 +300,7 @@ internal static class DependencyEvidenceAcquisition
     /// <see cref="PackageVersionDiscoveryState.Failed"/>, and an authoritative empty answer are
     /// all inconclusive rather than absence: some authority was not heard from, or none
     /// publishes a version this request accepts, and neither proves the coordinate does not
-    /// exist. Each becomes the typed unavailable resolution this command classifies as an
+    /// exist. Each becomes the typed unavailable resolution this acquisition path classifies as an
     /// acquisition failure.
     /// </para>
     /// <para>
@@ -445,7 +368,7 @@ internal static class DependencyEvidenceAcquisition
     /// </summary>
     /// <remarks>
     /// The candidate cache stays off so no answer is inherited from a legacy caller's less
-    /// strict resolution, and <c>requireStableFloating</c> stays on so this command's contract
+    /// strict resolution, and <c>requireStableFloating</c> stays on so this acquisition contract
     /// holds for any path that still reaches shared floating selection.
     /// </remarks>
     private static Task<PackageCoordinateResolution> ResolveExactAsync(
@@ -474,7 +397,7 @@ internal static class DependencyEvidenceAcquisition
     /// shared resolver constructs <see cref="PackageCoordinateResolution.Unavailable"/>, which
     /// this assembly cannot construct itself, and asking it for a floating coordinate with no
     /// authorized source is the one path that returns that outcome without consulting any
-    /// producer. Its message is the resolver's and is never surfaced; the reason this command
+    /// producer. Its message is the resolver's and is never surfaced; the reason the adapter
     /// refused is logged by the caller instead.
     /// </remarks>
     private static Task<PackageCoordinateResolution> InconclusiveAsync(
@@ -494,7 +417,7 @@ internal static class DependencyEvidenceAcquisition
 
     private static async Task AcquirePackageAsync(
         string package,
-        DependencyEvidenceOptions options,
+        DependencyEvidenceAcquisitionOptions options,
         IPackageSourceAuthorization authorization,
         DependencyEvidenceCoordinateResolver resolveCoordinate,
         Func<DesktopPackageSourceComposition> getComposition,
@@ -638,7 +561,7 @@ internal static class DependencyEvidenceAcquisition
     private static async Task AcquireSourceManifestAsync(
         PackageSourceCoordinate coordinate,
         IReadOnlyList<ConfiguredPackageAuthority> authorities,
-        DependencyEvidenceOptions options,
+        DependencyEvidenceAcquisitionOptions options,
         InertString label,
         DesktopPackageSourceComposition composition,
         HttpClient httpClient,
@@ -690,7 +613,7 @@ internal static class DependencyEvidenceAcquisition
     /// outcome therefore moves to the next source instead of terminating the root.
     /// </para>
     /// <para>
-    /// When no source succeeds, the reported failure is the most informative one this command
+    /// When no source succeeds, the reported failure is the most informative one the adapter
     /// can state without widening the host-neutral failure algebra: the last typed
     /// <c>PackageManifestFailure</c> if any manifest reached validation, and otherwise the
     /// existing acquisition classification. A remote package root is never reported as a

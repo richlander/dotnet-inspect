@@ -187,11 +187,11 @@ from a package archive have the same semantic kind while retaining distinct
 source provenance. An authored-project input consists of typed project
 declarations, not a `.csproj` path.
 
-Separately, the current L3 dependency-evidence gesture may accept a project
-path solely to locate existing `project.assets.json`. On that path the project
-file is not interpreted as package input: only the selected assets bytes enter
-L1, and the result is a restored-project input. The project path remains
-locator provenance outside this shape.
+Separately, the current L3 `depends --project` gesture may accept a project path
+solely to locate existing `project.assets.json`. On that path the project file
+is not interpreted as package input: only the selected assets bytes enter L1,
+and the result is a restored-project input. The project path remains locator
+provenance outside this shape.
 
 Declaration basis states what fidelity the declaration phase can claim:
 
@@ -930,20 +930,20 @@ is explicit; the current host's separate project-path locator convenience is
 not an authored-project input:
 
 ```console
-$ dotnet-inspect <dependency-evidence> --package Contoso.Root@1.0 --json \
+$ dotnet-inspect depends --package Contoso.Root@1.0 -S Dependencies --json \
     | jq '.dependencies | map({
         framework: .framework.id,
         dependency: .package.id,
         constraint: .declaredConstraint.canonical
       })'
-$ dotnet-inspect <dependency-evidence> --nuspec ./Contoso.Root.nuspec --json \
+$ dotnet-inspect depends --nuspec ./Contoso.Root.nuspec -S Dependencies --json \
     | jq '.dependencies | map({
         framework: .framework.id,
         dependency: .package.id,
         constraint: .declaredConstraint.canonical
       })'
-$ dotnet-inspect <dependency-evidence> \
-    --project ./obj/project.assets.json --json \
+$ dotnet-inspect depends --project ./obj/project.assets.json \
+    -S Dependencies --json \
     | jq '.dependencies | map({
         framework: .framework.id,
         dependency: .package.id,
@@ -1010,8 +1010,8 @@ in the same snapshot:
 A broad prefix returns neutral evidence suitable for downstream predicates:
 
 ```console
-$ dotnet-inspect <dependency-evidence> \
-    --package-prefix Microsoft --json > evidence.json
+$ dotnet-inspect depends --package-prefix Microsoft \
+    -S Dependencies --json > evidence.json
 
 $ jq '
     .dependencies[]
@@ -1198,7 +1198,7 @@ Release gate lands:
 
 - `PackageInput_CliAndBrowserConsumeTheSameTypedSnapshot`.
 
-## Existing dependency-evidence adoption sequence
+## Historical dependency-evidence adoption sequence
 
 1. Lock this result and equivalence contract under #5312.
 2. Land typed self-attested direct nuspec identity in #5316.

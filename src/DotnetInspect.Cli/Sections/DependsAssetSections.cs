@@ -8,15 +8,12 @@ namespace DotnetInspect.Cli.Sections;
 internal static class DependsAssetSections
 {
     public const string DependencyGraph = "Dependency Graph";
-    public const string Roots = DependencyEvidenceSections.Roots;
-    public const string Dependencies = DependencyEvidenceSections.Dependencies;
-    public const string RestoredEdges =
-        DependencyEvidenceSections.RestoredEdges;
-    public const string Failures = DependencyEvidenceSections.Failures;
-    public const string DependencyGroups =
-        DependencyEvidenceSections.DependencyGroups;
-    public const string RestoredPackages =
-        DependencyEvidenceSections.RestoredPackages;
+    public const string Roots = "Roots";
+    public const string Dependencies = "Dependencies";
+    public const string RestoredEdges = "Restored Edges";
+    public const string Failures = "Failures";
+    public const string DependencyGroups = "Dependency Groups";
+    public const string RestoredPackages = "Restored Packages";
 
     private static string[] ConsumerSectionOrder { get; } =
     [
