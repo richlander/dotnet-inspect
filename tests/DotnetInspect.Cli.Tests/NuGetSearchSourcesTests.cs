@@ -1335,6 +1335,33 @@ public class NuGetSearchSourcesTests
 
         Assert.Empty(outcome.Results);
         Assert.True(outcome.SourceSelectionIncomplete);
+        Assert.Equal(
+            [PrefixSearchCompletion.TakeReached],
+            outcome.PrefixSearchLimits);
+    }
+
+    [Fact]
+    public async Task SearchByPrefixWithStateAsync_PreservesClientPageLimit()
+    {
+        using var handler = new EndlessPrefixSearchHandler();
+        using var client = new HttpClient(handler);
+
+        NuGetSearchOutcome outcome =
+            await NuGetSearchService.SearchByPrefixWithStateAsync(
+                client,
+                "Contoso.",
+                take: 2,
+                sourceOptions:
+                    new NuGetSourceOptions
+                    {
+                        Sources = [IndexUrl],
+                    });
+
+        Assert.Empty(outcome.Results);
+        Assert.Equal(
+            [PrefixSearchCompletion.ClientPageLimitReached],
+            outcome.PrefixSearchLimits);
+        Assert.Equal(100, handler.SearchRequestCount);
     }
 
     [Fact]
@@ -2552,6 +2579,44 @@ public class NuGetSearchSourcesTests
         {
             int q = url.IndexOf('?', StringComparison.Ordinal);
             return q < 0 ? url : url[..q];
+        }
+    }
+
+    private sealed class EndlessPrefixSearchHandler : HttpMessageHandler
+    {
+        public int SearchRequestCount { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Uri uri = request.RequestUri!;
+            string body;
+            if (RouteHandler.WithoutQuery(uri.ToString())
+                .Equals(IndexUrl, StringComparison.OrdinalIgnoreCase))
+            {
+                body = ServiceIndex(SearchUrl);
+            }
+            else
+            {
+                SearchRequestCount++;
+                int skip = int.Parse(
+                    QueryParameters(uri)["skip"],
+                    System.Globalization.CultureInfo.InvariantCulture);
+                string results = string.Join(
+                    ',',
+                    Enumerable.Range(skip, 100)
+                        .Select(index =>
+                            $$"""{"id":"Other.Package{{index}}","version":"1.0.0"}"""));
+                body = $$"""{"data":[{{results}}]}""";
+            }
+
+            return Task.FromResult(
+                new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(body),
+                    RequestMessage = request,
+                });
         }
     }
 

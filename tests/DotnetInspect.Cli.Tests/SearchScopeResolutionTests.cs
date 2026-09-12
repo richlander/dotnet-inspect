@@ -4,6 +4,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using DotnetInspector.SourceSelection;
+using NuGetFetch;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -345,6 +346,36 @@ public class SearchScopeResolutionTests
             StringComparison.Ordinal);
         Assert.Contains(
             "additional matches may be omitted",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(
+        PrefixSearchCompletion.SourcePageLimitReached,
+        "source pagination limit")]
+    [InlineData(
+        PrefixSearchCompletion.ClientPageLimitReached,
+        "client pagination limit")]
+    public async Task PackagePrefixPaginationLimit_IsVisible(
+        PrefixSearchCompletion completion,
+        string expected)
+    {
+        var (exit, output, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            CommandLineHelpers.WarnIfPackagePrefixSearchIncomplete(
+                [completion],
+                new(
+                    "Contoso.",
+                    ScopeConstants.PackagePrefixExpansionLimit));
+            return Task.FromResult(0);
+        });
+
+        Assert.Equal(0, exit);
+        Assert.Empty(output);
+        Assert.Contains(expected, error);
+        Assert.DoesNotContain(
+            $"{ScopeConstants.PackagePrefixExpansionLimit}-package search limit",
             error,
             StringComparison.Ordinal);
     }

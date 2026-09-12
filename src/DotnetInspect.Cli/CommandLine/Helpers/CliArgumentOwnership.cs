@@ -54,6 +54,25 @@ internal static class CliArgumentOwnership
         return null;
     }
 
+    public static Option? FindDeclaredOption(
+        CommandResult scope,
+        string alias)
+    {
+        for (CommandResult? current = scope;
+            current is not null;
+            current = current.Parent as CommandResult)
+        {
+            Option? option = current.Command.Options.FirstOrDefault(
+                option =>
+                    option.Name == alias
+                    || option.Aliases.Contains(alias));
+            if (option is not null)
+                return option;
+        }
+
+        return null;
+    }
+
     public static ParsedArgument[] MapArguments(
         ParseResult parseResult,
         IReadOnlyList<string> arguments)

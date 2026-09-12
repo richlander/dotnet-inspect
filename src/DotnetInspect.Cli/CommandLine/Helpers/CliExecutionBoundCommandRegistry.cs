@@ -135,7 +135,7 @@ internal static class CliExecutionBoundCommandRegistry
                     && (value.StartsWith(
                             "--",
                             StringComparison.Ordinal)
-                        || CliArgumentOwnership.FindOption(
+                        || CliArgumentOwnership.FindDeclaredOption(
                             mapped[index + 1].Scope,
                             value) is not null);
                 bool missingValue =

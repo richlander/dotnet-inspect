@@ -38,10 +38,20 @@ public record NuGetSearchOutcome(
     IReadOnlyList<string> Failures)
 {
     /// <summary>
+    /// Prefix-search limits reached before package-source mapping.
+    /// </summary>
+    public IReadOnlyList<PrefixSearchCompletion> PrefixSearchLimits
+    {
+        get;
+        init;
+    } = [];
+
+    /// <summary>
     /// Whether a source or aggregate bound prevented exhaustive result
     /// selection before package-source mapping.
     /// </summary>
-    public bool SourceSelectionIncomplete { get; init; }
+    public bool SourceSelectionIncomplete =>
+        PrefixSearchLimits.Count > 0;
 }
 
 /// <summary>
@@ -122,7 +132,8 @@ public static class NuGetSearchService
             new(SearchResultKeyComparer.Instance);
         int searched = 0;
         bool operationTimedOut = false;
-        bool sourceSelectionIncomplete = false;
+        var prefixSearchLimits =
+            new HashSet<PrefixSearchCompletion>();
         bool useFactoryClients =
             ReferenceEquals(client, HttpClientFactory.Shared);
         _ = NuGetFetchOptions.RequestTimeoutForClient(
@@ -289,8 +300,12 @@ public static class NuGetSearchService
                             cancellationToken:
                                 operationCancellation.Token);
                         found = prefixResult.Matches;
-                        sourceSelectionIncomplete |=
-                            prefixResult.Truncated;
+                        if (prefixResult.Completion
+                            != PrefixSearchCompletion.Complete)
+                        {
+                            prefixSearchLimits.Add(
+                                prefixResult.Completion);
+                        }
                     }
                     ThrowIfOperationExpired(
                         operationStarted,
@@ -419,7 +434,8 @@ public static class NuGetSearchService
         if (resultFilter is not null
             && eligibleResults.Count > take)
         {
-            sourceSelectionIncomplete = true;
+            prefixSearchLimits.Add(
+                PrefixSearchCompletion.TakeReached);
         }
         List<NuGetSearchResult> finalResults =
             eligibleResults.Take(take).ToList();
@@ -432,8 +448,8 @@ public static class NuGetSearchService
         }
         return new NuGetSearchOutcome(finalResults, failures)
         {
-            SourceSelectionIncomplete =
-                sourceSelectionIncomplete,
+            PrefixSearchLimits =
+                [.. prefixSearchLimits.Order()],
         };
     }
 

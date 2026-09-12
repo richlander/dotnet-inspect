@@ -5,6 +5,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using DotnetInspector.SourceSelection;
+using NuGetFetch;
 
 namespace DotnetInspect.Cli.CommandLine;
 
@@ -13,8 +14,11 @@ internal sealed class SearchSourceValidationException(string message) : Exceptio
 internal sealed record SearchSourceBinding(
     SearchSourceSelection Selection,
     AssemblySetRequest Request,
-    bool PackagePrefixLimitReached)
+    IReadOnlyList<PrefixSearchCompletion> PackagePrefixLimits)
 {
+    public bool PackagePrefixLimitReached =>
+        PackagePrefixLimits.Count > 0;
+
     public void Deconstruct(
         out SearchSourceSelection selection,
         out AssemblySetRequest request) =>
@@ -102,7 +106,8 @@ internal static class SearchSourceAdapter
     {
         SearchSourceSelection selection = SearchSourceNormalizer.Normalize(intent);
         List<SourceSelector>? expanded = null;
-        bool packagePrefixLimitReached = false;
+        var packagePrefixLimits =
+            new HashSet<PrefixSearchCompletion>();
         foreach (var prefix in selection.OtherSources.OfType<SourceSelector.PackagePrefix>())
         {
             PrefixPackageResolution resolution =
@@ -111,8 +116,8 @@ internal static class SearchSourceAdapter
                     client,
                     verbose,
                     sourceOptions);
-            packagePrefixLimitReached |=
-                resolution.LimitReached;
+            packagePrefixLimits.UnionWith(
+                resolution.Limits);
             expanded ??= [.. intent.Selectors];
             expanded.AddRange(resolution.Packages);
         }
@@ -145,7 +150,7 @@ internal static class SearchSourceAdapter
         return new(
             selection,
             request,
-            packagePrefixLimitReached);
+            [.. packagePrefixLimits.Order()]);
     }
 
     private static string PackageArgument(SourceSelector.PackageSource source) => source switch

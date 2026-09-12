@@ -7,6 +7,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspector.Packages;
 using DotnetInspector.SourceSelection;
+using NuGetFetch;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -88,6 +89,9 @@ public class SearchSourceAdapterTests
             var (selection, request) = binding;
             Assert.Same(intent, selection.Intent);
             Assert.True(binding.PackagePrefixLimitReached);
+            Assert.Equal(
+                [PrefixSearchCompletion.TakeReached],
+                binding.PackagePrefixLimits);
             Assert.Equal(4, intent.Selectors.Count);
             Assert.Same(prefix, Assert.Single(selection.OtherSources));
             Assert.Equal(["Contoso.Other", "Contoso.First@1.0.0", "Contoso.Core", "Contoso.First", "Group.Remaining"],
@@ -154,6 +158,9 @@ public class SearchSourceAdapterTests
 
                     Assert.True(
                         binding.PackagePrefixLimitReached);
+                    Assert.Equal(
+                        [PrefixSearchCompletion.TakeReached],
+                        binding.PackagePrefixLimits);
                     Assert.Empty(request.Packages);
                     return 0;
                 });
@@ -168,6 +175,44 @@ public class SearchSourceAdapterTests
         {
             File.Delete(config);
         }
+    }
+
+    [Fact]
+    public async Task PrefixBindingPreservesClientPaginationLimit()
+    {
+        using var handler = new EndlessPrefixHandler();
+        using var client = new HttpClient(handler);
+        var prefix = new SourceSelector.PackagePrefix(
+            new(
+                "Contoso.",
+                maxPackages: 2,
+                includePrerelease: false));
+        SourceIntent intent = SourceIntent.Create([prefix]);
+
+        var (_, output, error) = await ConsoleCapture.RunAsync(
+            async () =>
+            {
+                SearchSourceBinding binding =
+                    await SearchSourceAdapter.BindAsync(
+                        intent,
+                        client,
+                        false,
+                        handler.SourceOptions);
+
+                Assert.True(binding.PackagePrefixLimitReached);
+                Assert.Equal(
+                    [PrefixSearchCompletion.ClientPageLimitReached],
+                    binding.PackagePrefixLimits);
+                Assert.Empty(binding.Request.Packages);
+                return 0;
+            });
+
+        Assert.Empty(output);
+        Assert.Contains("client pagination limit", error);
+        Assert.DoesNotContain("2-package search limit", error);
+        Assert.Contains(
+            "No packages found matching prefix",
+            error);
     }
 
     [Fact]
@@ -392,6 +437,64 @@ public class SearchSourceAdapterTests
             {
                 Content = new StringContent(body),
             });
+        }
+    }
+
+    private sealed class EndlessPrefixHandler : HttpMessageHandler
+    {
+        private const string Index = "https://source-intent.example/v3/index.json";
+        private const string Search = "https://source-intent.example/v3/query";
+
+        public NuGetSourceOptions SourceOptions { get; } =
+            new() { Sources = [Index] };
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Uri uri = request.RequestUri!;
+            string body;
+            if (uri.GetLeftPart(UriPartial.Path) == Index)
+            {
+                body =
+                    $$"""{"resources":[{"@id":"{{Search}}","@type":"SearchQueryService"}]}""";
+            }
+            else if (uri.GetLeftPart(UriPartial.Path) == Search)
+            {
+                string skipParameter = uri.Query
+                    .TrimStart('?')
+                    .Split('&')
+                    .Single(parameter =>
+                        parameter.StartsWith(
+                            "skip=",
+                            StringComparison.Ordinal));
+                int skip = int.Parse(
+                    skipParameter["skip=".Length..],
+                    System.Globalization.CultureInfo.InvariantCulture);
+                body = JsonSerializer.Serialize(
+                    new
+                    {
+                        data = Enumerable.Range(skip, 100)
+                            .Select(index =>
+                                new
+                                {
+                                    id = $"Other.Package{index}",
+                                    version = "1.0.0",
+                                })
+                            .ToArray(),
+                    });
+            }
+            else
+            {
+                throw new InvalidOperationException(
+                    $"Unexpected source request: {uri}");
+            }
+
+            return Task.FromResult(
+                new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(body),
+                });
         }
     }
 }

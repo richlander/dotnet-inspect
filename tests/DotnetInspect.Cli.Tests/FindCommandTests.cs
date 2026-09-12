@@ -1520,6 +1520,32 @@ public class FindCommandIntegrationTests
     }
 
     [Theory]
+    [InlineData("-D", "Packages")]
+    [InlineData("-n", "1")]
+    public void PackageProfileMissingTakeValueRecognizesDeclaredShortOption(
+        string option,
+        string value)
+    {
+        var (exit, output, error) = RunCli(
+            [
+                "find",
+                "--package-prefix",
+                "Contoso.",
+                "--rows",
+                "bad",
+                "--take",
+                option,
+                value,
+                "--offline",
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--take requires a value.", error);
+        Assert.DoesNotContain("--rows requires", error);
+    }
+
+    [Theory]
     [InlineData("--head=true")]
     [InlineData("--unknown")]
     public void PackageProfileMissingTakeValue_PrecedesLaterTokenArityFailure(
