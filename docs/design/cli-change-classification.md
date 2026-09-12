@@ -193,7 +193,13 @@ one manifest:
   and its zero-arity diagnostic instead;
 - removed `package --readme` receives replacement guidance at the package parse
   boundary. No independent current-input ambiguity is recorded, so the special
-  diagnostic's current-policy justification is **unverified**; and
+  diagnostic's current-policy justification is **unverified**;
+- removed `project --agents-index` and `project --readme <package-id>` receive
+  replacement guidance both at the optional project-path boundary, where a
+  removed option could otherwise bind as the path, and at the project parse
+  error boundary when a preceding path makes it an unmatched option.
+  `Project_RemovedDocumentModes_ReportMigrationGuidance` gates separated and
+  `=` spellings in both positions; and
 - removed top-level command names `api`, `audit`, and `source` remain reserved
   because releasing them would send the same bare tokens through implicit
   target resolution. The `api` and `source` outcomes are gated; the `audit`

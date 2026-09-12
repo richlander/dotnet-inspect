@@ -9,6 +9,12 @@
   traversal, and use explicit `--library` for library roots. The removed
   command token remains reserved and reports this replacement instead of
   entering implicit package routing (#5995).
+- **Breaking:** Makes restored-project package documents fully section-driven.
+  `project --agents-index` and `project --readme <package-id>` are removed; use
+  `-S Skills` or `-S "Package README file"` and add `--print --row N` to emit
+  one document. Package `AGENTS.md` and `PROJECT.md` files are no longer
+  interpreted, and the command no longer acquires missing packages from a
+  feed (#6676).
 - **Breaking:** Simplifies `vocabulary` into a flat section catalog. Bare
   output now shows only section name, summary, and value count; `-D` lists
   sections without category doors; exact names, stable section IDs, and globs

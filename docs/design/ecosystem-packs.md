@@ -649,11 +649,12 @@ selection, missing-capability results, and discovery materialization remain
 unchanged. Hosts must not infer executable traversal from a nonempty hint or
 core sequence, a curated set, or the presence of a pack identity.
 
-In particular, `ecosystem.platform` already groups product demos. It can retain
-that identity without pretending that its package-backed demos supply
-platform-source-owned traversal. This slice neither creates a Platform
-package set nor substitutes a `System.*` package prefix for a platform target.
-The catalog can expose the
+Ecosystem grouping and source provenance are orthogonal. `ecosystem.platform`
+groups Runtime Platform demos, while `ecosystem.microsoft-extensions` retains
+the Microsoft.Extensions demos whose exact implementation sources are ASP.NET
+Core Platform libraries. Neither grouping creates a Platform package set,
+changes curated package-set membership, or substitutes a package prefix for a
+Platform target. The catalog can expose the
 [resource-free population declaration](platform-library-population-declaration.md)
 independently; source realization and acquisition remain separate
 prerequisites.
@@ -1147,16 +1148,16 @@ The flat product-demo projection preserves current order and appends Aspire:
 ```text
 Demos
 
-System.Text.Json                     Browse the Runtime Platform API
-Cross-package call graph             Trace calls across three packages
-Serialize call graph                 Trace the Runtime STJ implementation
-Configuration Bind                  Recursive binder call graph
-Options hub                         Inbound fan-in at AddOptions
-DI TryAdd hub                       Keyed/scoped Try* fan-in
-AddHttpClient                       HttpClient factory registration
-JsonElement.GetDecimal              Trace the Runtime number parse path
-Aspire AddPostgres                  PostgreSQL resource registration graph
-Aspire AddRedis                     Redis resource registration graph
+System.Text.Json                    Browse the Runtime Platform API
+Cross-library call graph            Trace calls across three Platform libraries
+Serialize call graph                Trace the Runtime STJ implementation
+Configuration Bind                 Recursive binder call graph
+Options hub                        Inbound fan-in at AddOptions
+DI TryAdd hub                      Keyed/scoped Try* fan-in
+AddHttpClient                      HttpClient factory registration
+JsonElement.GetDecimal             Trace the Runtime number parse path
+Aspire AddPostgres                 PostgreSQL resource registration graph
+Aspire AddRedis                    Redis resource registration graph
 ```
 
 The grouped ecosystem projection uses the same registrations:
@@ -1259,15 +1260,17 @@ gating the generic registry path's no-lookup behavior.
 ten scenario IDs, pack mapping, metadata, and global order without deriving
 expectations from source records.
 `ProductEcosystemPackTests.ExistingDemoSourcesPreserveDonorRecordsAndRunPlans`
-resolves the transferred eight sources and pins their package coordinates,
-navigation shape, type and member selection, section, and run-plan lowering to
-the donor behavior.
+resolves the transferred eight sources and pins their Runtime or ASP.NET Core
+Platform coordinates, navigation shape, type and member selection, section,
+and run-plan lowering to the donor behavior while retaining their ecosystem
+grouping.
 `ProductEcosystemPackTests.AspireDemoSourcesMatchLiteralPinsAndAnchors` gates
 the two exact package IDs, versions, TFMs, types, member anchors, and Call Graph
 bindings.
 `DemoCommandTests.Cli_EveryCallGraphDemo_Table_EmitsNonEmptyRows` gates
 nonempty ordinary CLI Call Graph execution through the existing section
-pipeline, including both Aspire scenarios.
+pipeline, including multi-library ASP.NET Core Platform caller scope and both
+package-backed Aspire scenarios.
 `DemoCommandTests.ListUsesCatalogDescriptorMetadata` and
 `BrowserProductHomeDemosTests.CatalogProjectionUsesEcosystemDescriptorMetadata`
 prove both hosts use application-catalog title and summary even when the

@@ -116,8 +116,7 @@ public static class ArgumentPreprocessor
 
         // package --readme was removed: printing a document is a projection over a selected
         // section rather than a lens of its own, so a flag naming one document competed with the
-        // section selection for the same question. Scoped to the package command because
-        // project --readme <package-id> is a different option that still exists.
+        // section selection for the same question.
         return "'--readme' is no longer valid. Printing a document is a projection over a "
             + "selected section: use '-S \"Package README file\" --print' for one package, "
             + "or '--content --path @readme' to survey several.";
@@ -552,7 +551,7 @@ public static class ArgumentPreprocessor
         "--package-prefix", "--depth", "-n", "--rows", "--source",
         "--add-source", "--nugetconfig", "--columns", "--fields", "-v", "-T",
         "--tips", "-S", "-s", "--select", "--section", "-D", "--discover", "-Q", "--query-help",
-        "--at", "--file", "--finding", "--readme", "--relationship", "--repo"
+        "--at", "--file", "--finding", "--relationship", "--repo"
     };
     internal const string EscapedAtCategoryPrefix = "__dotnet_inspect_at__";
 
