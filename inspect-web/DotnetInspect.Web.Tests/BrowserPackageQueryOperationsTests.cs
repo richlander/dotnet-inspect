@@ -323,7 +323,7 @@ public sealed class BrowserPackageQueryOperationsTests
     }
 
     [Fact]
-    public void Serialize_RoundTripsThroughBrowserJsonContext()
+    public async Task Serialize_RoundTripsThroughBrowserJsonContext()
     {
         var queryEvent = new BrowserPackageQueryEvent(
             BrowserPackageQueryEventKind.Completed,
@@ -339,12 +339,30 @@ public sealed class BrowserPackageQueryOperationsTests
                 Failures: 0,
                 BrowserPackageQueryCompletionKind.Exhausted));
 
+        BrowserPackageQueryOperations.StartSerializationPreparation();
+        await BrowserPackageQueryOperations.WaitForSerializationPreparationAsync();
+        await BrowserPackageQueryOperations.WaitForSerializationPreparationAsync();
         string json = BrowserPackageQueryOperations.Serialize(queryEvent);
         BrowserPackageQueryEvent? roundTripped = JsonSerializer.Deserialize(
             json,
             BrowserPackageJsonContext.Default.BrowserPackageQueryEvent);
 
         Assert.Equal(queryEvent, roundTripped);
+    }
+
+    [Fact]
+    public async Task ListFacets_PreparesSerializationWithoutChangingCatalog()
+    {
+        string json = PackageExports.ListPackageQueryFacets();
+        await BrowserPackageQueryOperations.WaitForSerializationPreparationAsync();
+        BrowserPackageQueryFacetCatalog? catalog = JsonSerializer.Deserialize(
+            json,
+            BrowserPackageJsonContext.Default.BrowserPackageQueryFacetCatalog);
+
+        Assert.NotNull(catalog);
+        Assert.Equal(
+            BrowserPackageQueryOperations.Facets().Facets,
+            catalog.Facets);
     }
 
     [Fact]

@@ -409,11 +409,56 @@ static class TsTypeMapper
         }
 
         if (mappingContext == TsTypeMappingContext.JsonWire
-            && typeShape is { Kind: ApiTypeShapeKind.GenericInstance, Definition: { } unionIdentity }
-            && unionContext?.GenericArities.ContainsKey(unionIdentity) == true)
+            && typeShape is
+            {
+                Kind: ApiTypeShapeKind.GenericInstance,
+                Definition: { } closedGenericIdentity,
+            }
+            && unionContext?.GenericArities.ContainsKey(closedGenericIdentity) == true)
         {
             return TsJsonUnionMapper.MapClosedShape(
-                typeShape, unionContext, location ?? trimmed);
+                typeShape,
+                unionContext,
+                location ?? trimmed);
+        }
+
+        if (mappingContext == TsTypeMappingContext.JsonWire
+            && unionContext is not null
+            && TryParseGenericType(
+                trimmed,
+                out string? genericDefinition,
+                out IReadOnlyList<string> genericArguments)
+            && TryGetGenericName(
+                genericDefinition!,
+                unionContext,
+                mappedTypeNames,
+                out string? genericName,
+                out int genericArity))
+        {
+            if (genericArguments.Count != genericArity)
+            {
+                throw new UnsupportedWireContractException(
+                    location ?? trimmed,
+                    "generic JSON construction has the wrong arity");
+            }
+
+            string[] mappedArguments = new string[genericArguments.Count];
+            for (int index = 0; index < mappedArguments.Length; index++)
+            {
+                mappedArguments[index] = Map(
+                    genericArguments[index],
+                    recordNames,
+                    diagnostics,
+                    location,
+                    blockedAliases,
+                    mappedTypeNames,
+                    mappingContext,
+                    GenericArgumentShape(typeShape, index),
+                    identityNames,
+                    unionContext);
+            }
+
+            return $"{genericName}<{string.Join(", ", mappedArguments)}>";
         }
 
         if (typeShape is
@@ -1507,6 +1552,30 @@ static class TsTypeMapper
         return TrySplitGenericArguments(
             typeName[(genericStart + 1)..^1],
             out arguments);
+    }
+
+    static bool TryGetGenericName(
+        string definition,
+        TsJsonUnionMappingContext context,
+        IReadOnlyDictionary<string, string>? mappedTypeNames,
+        out string? name,
+        out int arity)
+    {
+        string simpleName = LastSegment(definition);
+        if (!context.GenericNameArities.TryGetValue(definition, out arity)
+            && !context.GenericNameArities.TryGetValue(simpleName, out arity))
+        {
+            name = null;
+            arity = 0;
+            return false;
+        }
+
+        if (mappedTypeNames?.TryGetValue(definition, out name) == true
+            || mappedTypeNames?.TryGetValue(simpleName, out name) == true)
+            return true;
+
+        return context.GenericNames.TryGetValue(definition, out name)
+            || context.GenericNames.TryGetValue(simpleName, out name);
     }
     static bool IsPrimitiveByteArray(
         string csharpType,

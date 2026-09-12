@@ -1736,10 +1736,12 @@ kbd {
 .signal-name { font: 13px var(--mono); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .signal-ns { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .signal-kind { flex: 0 0 auto; font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); }
-.integration-inspector { grid-template-rows: 40px auto minmax(0, 1fr) 34px; }
 .integration-inspector.library-integrations-with-controls,
-.integration-inspector.library-opportunities-with-controls { grid-template-rows: 40px auto auto minmax(0, 1fr) 34px; }
-.integration-mode-tabs { display: flex; gap: 16px; padding: 0 16px; border-bottom: 1px solid var(--line); }
+.integration-inspector.library-opportunities-with-controls { grid-template-rows: 40px auto minmax(0, 1fr) 34px; }
+.integration-inspector > .api-surface-head { gap: 12px; }
+.integration-inspector > .api-surface-head h1 { flex-shrink: 0; }
+.integration-inspector > .api-surface-head p { flex: 1; }
+.integration-mode-tabs { display: flex; flex: 0 0 auto; align-self: stretch; gap: 16px; }
 .integration-mode-tabs button { min-height: 36px; padding: 6px 0; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--muted); font-size: 12px; }
 .integration-mode-tabs button[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--text); }
 .integration-mode-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
