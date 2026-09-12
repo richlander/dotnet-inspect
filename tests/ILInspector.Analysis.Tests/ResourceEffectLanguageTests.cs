@@ -424,6 +424,101 @@ public class ResourceEffectLanguageTests
     }
 
     [Fact]
+    public void Admission_ExactReceiptPreservesProvenanceAssociations()
+    {
+        ResourceEffectModelIdentity declarationModel =
+            new("example.declaration-provenance-association");
+        ResourceEffectTargetSelector target = SimpleOperationTarget();
+        ResourceEffectModelDefinition Declarations(bool swap)
+            => new(
+                ResourceEffectLanguageIdentity.Version1,
+                declarationModel,
+                [],
+                [
+                    new ResourceEffectTargetDeclaration(
+                        target,
+                        [
+                            Source(
+                                declarationModel,
+                                swap ? "source.two" : "source.one",
+                                swap ? 1 : 0,
+                                "pass(source=parameter[0],target=return)"),
+                            Source(
+                                declarationModel,
+                                swap ? "source.one" : "source.two",
+                                swap ? 0 : 1,
+                                "independent(source=receiver,target=return)"),
+                        ]),
+                ]);
+
+        ResourceEffectAdmission declarationFirst = Build(Declarations(swap: false));
+        ResourceEffectAdmission declarationSwapped = Build(Declarations(swap: true));
+        Assert.Equal(
+            declarationFirst.Receipt.Models.Single().ContentHash,
+            declarationSwapped.Receipt.Models.Single().ContentHash);
+        Assert.Equal(
+            declarationFirst.Receipt.Models.Single().Provenances,
+            declarationSwapped.Receipt.Models.Single().Provenances);
+        Assert.Equal(
+            "source.one",
+            declarationFirst.Models.Single().Declarations
+                .Single(declaration => declaration.Effect is ResourceEffect.Pass)
+                .Provenances.Single().SourceIdentity.ToString());
+        Assert.Equal(
+            "source.two",
+            declarationSwapped.Models.Single().Declarations
+                .Single(declaration => declaration.Effect is ResourceEffect.Pass)
+                .Provenances.Single().SourceIdentity.ToString());
+        Assert.NotEqual(
+            declarationFirst.Receipt.ContentHash,
+            declarationSwapped.Receipt.ContentHash);
+
+        ResourceEffectModelIdentity kindModel =
+            new("example.kind-provenance-association");
+        ResourceEffectModelDefinition Kinds(bool swap)
+            => new(
+                ResourceEffectLanguageIdentity.Version1,
+                kindModel,
+                [
+                    new ResourceKindDefinition(
+                        new ResourceKindIdentity("example.first"),
+                        0,
+                        [Provenance(
+                            kindModel,
+                            swap ? "source.two" : "source.one",
+                            swap ? 1 : 0)]),
+                    new ResourceKindDefinition(
+                        new ResourceKindIdentity("example.second"),
+                        0,
+                        [Provenance(
+                            kindModel,
+                            swap ? "source.one" : "source.two",
+                            swap ? 0 : 1)]),
+                ],
+                []);
+
+        ResourceEffectAdmission kindFirst = Build(Kinds(swap: false));
+        ResourceEffectAdmission kindSwapped = Build(Kinds(swap: true));
+        Assert.Equal(
+            kindFirst.Receipt.Models.Single().ContentHash,
+            kindSwapped.Receipt.Models.Single().ContentHash);
+        Assert.Equal(
+            kindFirst.Receipt.Models.Single().Provenances,
+            kindSwapped.Receipt.Models.Single().Provenances);
+        Assert.Equal(
+            "source.one",
+            kindFirst.Models.Single().ResourceKinds
+                .Single(definition => definition.Identity.Value == "example.first")
+                .Provenances.Single().SourceIdentity.ToString());
+        Assert.Equal(
+            "source.two",
+            kindSwapped.Models.Single().ResourceKinds
+                .Single(definition => definition.Identity.Value == "example.first")
+                .Provenances.Single().SourceIdentity.ToString());
+        Assert.NotEqual(kindFirst.Receipt.ContentHash, kindSwapped.Receipt.ContentHash);
+    }
+
+    [Fact]
     public void Admission_ModelBudgetsSucceedAtExactUseAndFailOneUnder()
     {
         ResourceEffectModelDefinition model = Model(

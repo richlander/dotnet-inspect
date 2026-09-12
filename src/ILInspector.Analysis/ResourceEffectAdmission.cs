@@ -288,7 +288,7 @@ public static class ResourceEffectAdmissionBuilder
         ImmutableArray<ResourceEffectModelReceipt> receipts =
             [.. admitted.Select(model => model.Receipt)];
         var receipt = new ResourceEffectAdmissionReceipt(
-            Hash(ResourceEffectCanonicalizer.AdmissionContent(receipts)),
+            Hash(ResourceEffectCanonicalizer.AdmissionContent(admitted)),
             receipts);
         return new ResourceEffectAdmissionOutcome.Admitted(
             new ResourceEffectAdmission(admitted, receipt));
@@ -2299,18 +2299,31 @@ static class ResourceEffectCanonicalizer
                     Declaration(declaration.Target, declaration.Effect))));
 
     public static string AdmissionContent(
-        ImmutableArray<ResourceEffectModelReceipt> receipts)
+        ImmutableArray<AdmittedResourceEffectModel> models)
         => Node(
             "admission-content",
             List(
                 "models",
-                receipts.Select(receipt =>
+                models.Select(model =>
                     Node(
                         "model",
-                        Atom("identity", receipt.Identity.Value),
-                        Atom("language", receipt.Language.Value),
-                        Atom("content-hash", receipt.ContentHash),
-                        ProvenanceSet(receipt.Provenances)))));
+                        Atom("identity", model.Identity.Value),
+                        Atom("language", model.Language.Value),
+                        Atom("content-hash", model.Receipt.ContentHash),
+                        List(
+                            "resource-kind-provenance",
+                            model.ResourceKinds.Select(definition =>
+                                Node(
+                                    "resource-kind",
+                                    ResourceKind(definition),
+                                    ProvenanceSet(definition.Provenances)))),
+                        List(
+                            "declaration-provenance",
+                            model.Declarations.Select(declaration =>
+                                Node(
+                                    "declaration",
+                                    Declaration(declaration.Target, declaration.Effect),
+                                    ProvenanceSet(declaration.Provenances))))))));
 
     public static string Declaration(
         ResourceEffectTargetSelector target,
@@ -2330,7 +2343,12 @@ static class ResourceEffectCanonicalizer
 
     public static string ProvenanceSet(
         IEnumerable<ResourceDeclarationProvenance> provenances)
-        => List("provenances", provenances.Select(Provenance));
+        => List(
+            "provenances",
+            provenances
+                .Distinct()
+                .OrderBy(Provenance, StringComparer.Ordinal)
+                .Select(Provenance));
 
     public static string Target(ResourceEffectTargetSelector target)
         => target switch

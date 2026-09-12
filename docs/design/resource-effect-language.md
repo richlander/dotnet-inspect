@@ -923,7 +923,9 @@ Successful admission produces an **admission receipt** naming the exact model
 identities, language versions, content hashes, and provenances made available
 to a later resolver. The receipt proves source intake and local validity only.
 It does not assert that any selector matches, that two declarations are
-compatible, or that an analysis result is complete.
+compatible, or that an analysis result is complete. Its exact hash preserves
+which provenance set asserted each admitted declaration and resource-kind
+definition; the per-model semantic content hash remains provenance-free.
 
 Admission also assigns each source a declaration-authority class:
 `product-shipped`, `caller-supplied`, `producer-asserted`, or
