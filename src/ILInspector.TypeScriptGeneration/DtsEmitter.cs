@@ -283,15 +283,8 @@ static class DtsEmitter
         TypeMappingEnvironment environment,
         string name)
     {
-        var usedNames = new HashSet<string>(environment.IdentityNames.Values, StringComparer.Ordinal);
-        string[] parameters = new string[union.Definition.TypeParameters.Count];
-        for (int index = 0; index < parameters.Length; index++)
-        {
-            string parameter = $"T{index}";
-            while (!usedNames.Add(parameter))
-                parameter += "_";
-            parameters[index] = parameter;
-        }
+        string[] parameters =
+            AllocateTypeParameters(union.Definition, environment);
 
         string[] mapped = [.. union.CaseTypes.SelectMany(type =>
             TsJsonUnionMapper.MapCase(type, parameters, environment.UnionContext, union.Definition.FullName))];
@@ -531,20 +524,26 @@ static class DtsEmitter
             new TsJsonUnionMappingContext(
                 surface.AssemblyIdentity,
                 identityNames,
-                surface.AssemblyIdentity is { } unionAssembly
-                    ? surface.Unions
-                        .Where(union => union.Definition.TypeParameters.Count > 0)
+                surface.AssemblyIdentity is { } genericAssembly
+                    ? declarationTypes
+                        .Where(type =>
+                            type.Kind != "enum"
+                            && type.TypeParameters.Count > 0)
                         .ToDictionary(
-                            union => new ApiTypeReferenceIdentity(
-                                unionAssembly, union.Definition.FullName, union.Definition.DefinitionName),
-                            union => union.Definition.TypeParameters.Count)
+                            type => new ApiTypeReferenceIdentity(
+                                genericAssembly,
+                                type.FullName,
+                                type.DefinitionName),
+                            type => type.TypeParameters.Count)
                     : new Dictionary<ApiTypeReferenceIdentity, int>(),
                 delegateMappingContext));
     }
 
     static IReadOnlyDictionary<string, string> MappedTypeNames(
         TypeMappingEnvironment environment,
-        IEnumerable<ApiTypeReferenceIdentity> references)
+        IEnumerable<ApiTypeReferenceIdentity> references,
+        IReadOnlyList<TypeParameter>? genericParameters = null,
+        IReadOnlyList<string>? allocatedParameters = null)
     {
         var aliases = new Dictionary<string, string>(
             StringComparer.Ordinal);
@@ -565,6 +564,16 @@ static class DtsEmitter
             aliases[reference.FullName] = allocatedName;
             aliases[LastSegment(reference.FullName)] = allocatedName;
         }
+        if (genericParameters is not null
+            && allocatedParameters is not null)
+        {
+            if (genericParameters.Count != allocatedParameters.Count)
+                throw new ArgumentException(
+                    "Generic parameter definitions and allocated names must have equal counts.");
+            for (int index = 0; index < genericParameters.Count; index++)
+                aliases[genericParameters[index].Name] =
+                    allocatedParameters[index];
+        }
         return aliases;
     }
 
@@ -578,8 +587,7 @@ static class DtsEmitter
 
     internal static string PreferredTypeName(ApiType type)
     {
-        if (type.HasUnionAttribute == true
-            && type.TypeParameters.Count > 0
+        if (type.TypeParameters.Count > 0
             && type.DefinitionName is { } definition)
         {
             string segment = definition.Segments[^1];
@@ -669,17 +677,19 @@ static class DtsEmitter
         TypeMappingEnvironment typeEnvironment,
         TypeScriptGenerationDiagnostics? diagnostics)
     {
+        string[] parameters =
+            AllocateTypeParameters(record, typeEnvironment);
         JsonWireNamingPolicy namingPolicy = record.JsonPropertyNamingPolicy ?? JsonWireNamingPolicy.None;
         if (namingPolicy == JsonWireNamingPolicy.Unsupported)
         {
             ReportUnsupportedContextOptions(record, diagnostics);
-            EmitBlockedType(sb, declarationName);
+            EmitBlockedType(sb, declarationName, parameters);
             return;
         }
         if (HasUnsupportedJsonConverter(record))
         {
             ReportUnsupportedJsonConverter(record.Name, diagnostics);
-            EmitBlockedType(sb, declarationName);
+            EmitBlockedType(sb, declarationName, parameters);
             return;
         }
         if (HasUnsupportedRecordWireShape(
@@ -688,7 +698,7 @@ static class DtsEmitter
                 declaredTypesByScopedIdentity))
         {
             ReportUnsupportedJsonWireShape(record.Name, diagnostics);
-            EmitBlockedType(sb, declarationName);
+            EmitBlockedType(sb, declarationName, parameters);
             return;
         }
         if ((directions & JsonWireDirection.Deserialize)
@@ -704,7 +714,7 @@ static class DtsEmitter
             ReportUnsupportedConstructorBinding(
                 record.Name,
                 diagnostics);
-            EmitBlockedType(sb, declarationName);
+            EmitBlockedType(sb, declarationName, parameters);
             return;
         }
 
@@ -716,7 +726,7 @@ static class DtsEmitter
                     declaredTypesByScopedIdentity)))
         {
             ReportDirectionSplitWireShape(record.Name, diagnostics);
-            EmitBlockedType(sb, declarationName);
+            EmitBlockedType(sb, declarationName, parameters);
             return;
         }
 
@@ -731,7 +741,29 @@ static class DtsEmitter
                 ResolvedName: member.JsonPropertyName ?? ApplyNamingPolicy(member.Name, namingPolicy)))
             .ToArray();
 
-        sb.Append("export interface ").Append(declarationName).Append(" {\n");
+        foreach ((ApiMember member, _) in members)
+        {
+            string propertyType =
+                member.SignatureModel?.ReturnType
+                ?? member.ReturnType
+                ?? "unknown";
+            if (HasEmbeddedGenericRecordParameter(
+                    propertyType,
+                    record.TypeParameters,
+                    member.SignatureModel?.ReturnTypeShape,
+                    out string? parameter))
+            {
+                throw new UnsupportedWireContractException(
+                    $"{record.FullName}.{member.Name}",
+                    $"generic record parameter '{parameter}' is embedded "
+                        + "in a member type whose JSON mapping is not parametric");
+            }
+        }
+
+        sb.Append("export interface ").Append(declarationName);
+        if (parameters.Length > 0)
+            sb.Append('<').AppendJoin(", ", parameters).Append('>');
+        sb.Append(" {\n");
 
         foreach ((ApiMember member, string resolvedName) in members)
         {
@@ -758,8 +790,15 @@ static class DtsEmitter
                     MappedTypeNames(
                         typeEnvironment,
                         member.SignatureModel?.ReturnTypeReferences
-                            ?? []),
-                    member.SignatureModel?.ReturnTypeShape,
+                            ?? [],
+                        record.TypeParameters,
+                        parameters),
+                    IsDirectGenericRecordParameter(
+                        propertyType,
+                        record.TypeParameters,
+                        member.SignatureModel?.ReturnTypeShape)
+                            ? null
+                            : member.SignatureModel?.ReturnTypeShape,
                     typeEnvironment.IdentityNames,
                     typeEnvironment.UnionContext);
             }
@@ -1163,8 +1202,119 @@ static class DtsEmitter
     static string ResolvedEnumMemberName(ApiMember member) =>
         member.JsonStringEnumMemberName ?? member.Name;
 
-    static void EmitBlockedType(StringBuilder sb, string declarationName) =>
-        sb.Append("export type ").Append(declarationName).Append(" = unknown;\n\n");
+    static void EmitBlockedType(
+        StringBuilder sb,
+        string declarationName,
+        IReadOnlyList<string>? parameters = null)
+    {
+        sb.Append("export type ").Append(declarationName);
+        if (parameters is { Count: > 0 })
+            sb.Append('<').AppendJoin(", ", parameters).Append('>');
+        sb.Append(" = unknown;\n\n");
+    }
+
+    static string[] AllocateTypeParameters(
+        ApiType type,
+        TypeMappingEnvironment environment)
+    {
+        var usedNames = new HashSet<string>(
+            environment.IdentityNames.Values,
+            StringComparer.Ordinal);
+        string[] parameters = new string[type.TypeParameters.Count];
+        for (int index = 0; index < parameters.Length; index++)
+        {
+            string parameter = $"T{index}";
+            while (!usedNames.Add(parameter))
+                parameter += "_";
+            parameters[index] = parameter;
+        }
+        return parameters;
+    }
+
+    static bool IsDirectGenericRecordParameter(
+        string propertyType,
+        IReadOnlyList<TypeParameter> parameters,
+        ApiTypeShape? typeShape)
+    {
+        if (typeShape is not null)
+            return false;
+
+        string candidate = propertyType.Trim();
+        if (candidate.EndsWith("?", StringComparison.Ordinal))
+            candidate = candidate[..^1].TrimEnd();
+        else if (candidate.EndsWith('>'))
+        {
+            const string qualifiedNullable = "System.Nullable<";
+            const string nullable = "Nullable<";
+            if (candidate.StartsWith(
+                    qualifiedNullable,
+                    StringComparison.Ordinal))
+            {
+                candidate = candidate[
+                    qualifiedNullable.Length..^1].Trim();
+            }
+            else if (candidate.StartsWith(
+                    nullable,
+                    StringComparison.Ordinal))
+            {
+                candidate = candidate[nullable.Length..^1].Trim();
+            }
+        }
+        return parameters.Any(
+            parameter => string.Equals(
+                candidate,
+                parameter.Name,
+                StringComparison.Ordinal)
+                || string.Equals(
+                    candidate,
+                    $"@{parameter.Name}",
+                    StringComparison.Ordinal));
+    }
+
+    static bool HasEmbeddedGenericRecordParameter(
+        string propertyType,
+        IReadOnlyList<TypeParameter> parameters,
+        ApiTypeShape? typeShape,
+        out string? parameterName)
+    {
+        if (typeShape is not null
+            || IsDirectGenericRecordParameter(
+                propertyType,
+                parameters,
+                typeShape))
+        {
+            parameterName = null;
+            return false;
+        }
+
+        foreach (TypeParameter parameter in parameters)
+        {
+            int start = 0;
+            while ((start = propertyType.IndexOf(
+                parameter.Name,
+                start,
+                StringComparison.Ordinal)) >= 0)
+            {
+                int end = start + parameter.Name.Length;
+                bool leftBoundary = start == 0
+                    || !IsIdentifierCharacter(propertyType[start - 1]);
+                bool rightBoundary = end == propertyType.Length
+                    || !IsIdentifierCharacter(propertyType[end]);
+                if (leftBoundary && rightBoundary)
+                {
+                    parameterName = parameter.Name;
+                    return true;
+                }
+                start = end;
+            }
+        }
+
+        parameterName = null;
+        return false;
+    }
+
+    static bool IsIdentifierCharacter(char value) =>
+        value == '_' || char.IsLetterOrDigit(value);
 
     private sealed record TypeMappingEnvironment(
         HashSet<string> KnownTypeNames,

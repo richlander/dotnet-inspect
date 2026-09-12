@@ -6,7 +6,7 @@ namespace ILInspector.TypeScriptGeneration;
 sealed record TsJsonUnionMappingContext(
     ApiAssemblyIdentity? Assembly,
     IReadOnlyDictionary<ApiTypeReferenceIdentity, string> Names,
-    IReadOnlyDictionary<ApiTypeReferenceIdentity, int> GenericArities,
+    IReadOnlyDictionary<ApiTypeReferenceIdentity, int> LocalGenericArities,
     TsDelegateMappingContext LocalTypes);
 
 static class TsJsonUnionMapper
@@ -74,12 +74,19 @@ static class TsJsonUnionMapper
             }
 
             if (LocalIdentity(definition, context) is { } identity
-                && context.GenericArities.TryGetValue(identity, out int arity)
-                && arity == type.TypeArguments.Length
                 && context.Names.TryGetValue(identity, out string? name))
             {
-                return $"{name}<{string.Join(", ", type.TypeArguments.Select(
-                    argument => MapClosedCase(argument, context, location)))}>";
+                if (!context.LocalGenericArities.TryGetValue(
+                        identity,
+                        out int arity))
+                {
+                    return name;
+                }
+                if (arity == type.TypeArguments.Length)
+                {
+                    return $"{name}<{string.Join(", ", type.TypeArguments.Select(
+                        argument => MapClosedCase(argument, context, location)))}>";
+                }
             }
             throw Unsupported(location, "unsupported generic union case type");
         }
@@ -97,7 +104,7 @@ static class TsJsonUnionMapper
             return "unknown";
 
         if (LocalIdentity(definition, context) is { } local
-            && !context.GenericArities.ContainsKey(local)
+            && !context.LocalGenericArities.ContainsKey(local)
             && context.Names.TryGetValue(local, out string? localName))
             return localName;
 
@@ -125,14 +132,21 @@ static class TsJsonUnionMapper
             if (context.Names.TryGetValue(identity, out string? name))
             {
                 if (shape.Kind == ApiTypeShapeKind.Named
-                    && !context.GenericArities.ContainsKey(identity))
+                    && !context.LocalGenericArities.ContainsKey(identity))
                     return name;
-                if (shape.Kind == ApiTypeShapeKind.GenericInstance
-                    && context.GenericArities.TryGetValue(identity, out int arity)
-                    && arity == shape.TypeArguments.Length)
+                if (shape.Kind == ApiTypeShapeKind.GenericInstance)
                 {
-                    return $"{name}<{string.Join(", ", shape.TypeArguments.Select(
-                        argument => MapClosedShape(argument, context, location)))}>";
+                    if (!context.LocalGenericArities.TryGetValue(
+                            identity,
+                            out int arity))
+                    {
+                        return name;
+                    }
+                    if (arity == shape.TypeArguments.Length)
+                    {
+                        return $"{name}<{string.Join(", ", shape.TypeArguments.Select(
+                            argument => MapClosedShape(argument, context, location)))}>";
+                    }
                 }
             }
 

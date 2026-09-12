@@ -259,6 +259,35 @@ public static partial class TypeScriptFixtureExports
             UnionFixtureJsonContext.Default.WrappedByteArray);
 
     [JSExport]
+    public static string GetWidgetEnvelope(string name) =>
+        JsonSerializer.Serialize(
+            new GenericEnvelope<WidgetDto>(
+                new WidgetDto(name, 12),
+                "widget"),
+            GenericRecordFixtureJsonContext.Default.WidgetEnvelope);
+
+    [JSExport]
+    public static string GetBlobEnvelope() =>
+        JsonSerializer.Serialize(
+            new GenericEnvelope<byte[]>([1, 2, 3], "blob"),
+            GenericRecordFixtureJsonContext.Default.BlobEnvelope);
+
+    [JSExport]
+    public static string GetCollisionEnvelope() =>
+        JsonSerializer.Serialize(
+            new GenericCollision<int>(
+                7,
+                new global::ILInspector.JsExportSurface.TypeScriptFixtures.T(
+                    "concrete")),
+            GenericRecordFixtureJsonContext.Default.CollisionEnvelope);
+
+    [JSExport]
+    public static string GetNullableIntEnvelope(bool hasValue) =>
+        JsonSerializer.Serialize(
+            new NullableEnvelope<int>(hasValue ? 42 : null),
+            GenericRecordFixtureJsonContext.Default.NullableIntEnvelope);
+
+    [JSExport]
     public static async Task<string> GetSelectionEnvelopeAsync(string name)
     {
         await Task.Yield();

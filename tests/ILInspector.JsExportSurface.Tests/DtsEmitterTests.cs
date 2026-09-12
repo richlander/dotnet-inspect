@@ -11,6 +11,7 @@ using ILInspector.JsExportSurface.NestedContextConstructorFixtures;
 using ILInspector.JsExportSurface.NestedContextFixtures.Contexts;
 using ILInspector.JsExportSurface.NestedContextUnsupportedFixtures.Contexts;
 using ILInspector.JsExportSurface.PublishabilityFixtures;
+using ILInspector.JsExportSurface.TypeScriptFixtures;
 using ILInspector.Metadata;
 
 namespace ILInspector.JsExportSurface.Tests;
@@ -30,6 +31,21 @@ public sealed class DtsEmitterTests
 
     private static string EmitFixtureDtsWithWireContracts()
         => DtsEmitter.Emit(BuildFixtureSurfaceWithWireContracts());
+
+    private static ILInspector.JsExportSurface.JsExportSurface
+        BuildTypeScriptFixtureSurface()
+    {
+        string path = typeof(TypeScriptFixtureExports).Assembly.Location;
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface =
+            ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        var bodyIndex = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        return JsExportSurfaceBuilder.Build(apiSurface, bodyIndex);
+    }
 
     private static ILInspector.JsExportSurface.JsExportSurface
         BuildFixtureSurfaceWithWireContracts()
@@ -782,6 +798,132 @@ public sealed class DtsEmitterTests
                 + "Readonly<Record<string, ClosedGenericRootDto>>;",
             dts,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Facade_ProjectsGenericRecordAndClosedJsonArguments()
+    {
+        var diagnostics = new TypeScriptGenerationDiagnostics();
+        string facade = TypeScriptFacadeEmitter.Emit(
+            BuildTypeScriptFixtureSurface(),
+            "./dotnet.js",
+            diagnostics);
+
+        Assert.Contains(
+            """
+            export interface GenericEnvelope<T0> {
+              readonly content: T0;
+              readonly label: string;
+            }
+            """,
+            facade,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function getWidgetEnvelope(name: string): "
+                + "GenericEnvelope<WidgetDto>",
+            facade,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function getBlobEnvelope(): GenericEnvelope<string>",
+            facade,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface GenericCollision<T0> {
+              readonly content: T0;
+              readonly other: T;
+            }
+            """,
+            facade,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface NullableEnvelope<T0> {
+              readonly content: T0 | null;
+            }
+            """,
+            facade,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Kind<number>",
+            facade,
+            StringComparison.Ordinal);
+        Assert.False(diagnostics.HasUnmappedTypes);
+    }
+
+    [Fact]
+    public void Facade_RejectsGenericRecordParameterEmbeddedInClrArray()
+    {
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildTypeScriptFixtureSurface();
+        ApiType envelope = Assert.Single(
+            surface.Records,
+            type => type.Name.StartsWith(
+                "GenericEnvelope",
+                StringComparison.Ordinal));
+        string parameter = Assert.Single(envelope.TypeParameters).Name;
+        ApiMember content = Assert.Single(
+            envelope.Members,
+            member => member.Name == "Content");
+        content.ReturnType = $"{parameter}[]";
+        ApiSignature signature = Assert.IsType<ApiSignature>(
+            content.SignatureModel);
+        signature.ReturnType = $"{parameter}[]";
+        signature.ReturnTypeShape = null;
+
+        UnsupportedWireContractException failure =
+            Assert.Throws<UnsupportedWireContractException>(
+                () => TypeScriptFacadeEmitter.Emit(
+                    surface,
+                    "./dotnet.js"));
+
+        Assert.Contains(
+            "generic record parameter",
+            failure.Message,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "not parametric",
+            failure.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GenericArgumentMapping_ErasesContainingTypeArityFromNestedEnum()
+    {
+        var assembly = new ApiAssemblyIdentity(
+            "Fixture",
+            new Version(1, 0, 0, 0),
+            culture: null,
+            publicKeyToken: null);
+        var enumIdentity = new ApiTypeReferenceIdentity(
+            assembly,
+            "Fixture.Outer`1+Kind",
+            DefinitionName("Fixture", "Outer`1", "Kind"));
+        var context = new TsJsonUnionMappingContext(
+            assembly,
+            new Dictionary<ApiTypeReferenceIdentity, string>
+            {
+                [enumIdentity] = "Kind",
+            },
+            new Dictionary<ApiTypeReferenceIdentity, int>(),
+            new TsDelegateMappingContext(
+                new HashSet<string>(StringComparer.Ordinal),
+                new Dictionary<
+                    MetadataTypeDefinitionName,
+                    TsLocalTypeKind>(),
+                assembly));
+
+        string mapped = TsJsonUnionMapper.MapClosedShape(
+            ApiTypeShape.GenericInstance(
+                enumIdentity,
+                [
+                    ApiTypeShape.PrimitiveType(
+                        ApiPrimitiveType.Int32),
+                ]),
+            context,
+            "nested enum");
+
+        Assert.Equal("Kind", mapped);
     }
 
     [Fact]

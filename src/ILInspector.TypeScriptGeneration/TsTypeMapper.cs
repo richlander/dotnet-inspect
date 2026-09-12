@@ -410,7 +410,7 @@ static class TsTypeMapper
 
         if (mappingContext == TsTypeMappingContext.JsonWire
             && typeShape is { Kind: ApiTypeShapeKind.GenericInstance, Definition: { } unionIdentity }
-            && unionContext?.GenericArities.ContainsKey(unionIdentity) == true)
+            && unionContext?.LocalGenericArities.ContainsKey(unionIdentity) == true)
         {
             return TsJsonUnionMapper.MapClosedShape(
                 typeShape, unionContext, location ?? trimmed);

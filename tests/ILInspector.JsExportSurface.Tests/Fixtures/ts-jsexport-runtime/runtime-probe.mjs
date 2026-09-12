@@ -33,6 +33,11 @@ for (
     "boxedCount",
     "boxedWidget",
     "wrappedBlob",
+    "widgetEnvelope",
+    "blobEnvelope",
+    "collisionEnvelope",
+    "nullableIntEnvelope",
+    "nullableIntEnvelopeNull",
     "selectionEnvelope",
   ]
 ) {
@@ -81,6 +86,14 @@ const getBoxedWidgetKey =
   facadeSource.match(/"(GetBoxedWidget\.-?\d+)"/)?.[1];
 const getWrappedBlobKey =
   facadeSource.match(/"(GetWrappedBlob\.-?\d+)"/)?.[1];
+const getWidgetEnvelopeKey =
+  facadeSource.match(/"(GetWidgetEnvelope\.-?\d+)"/)?.[1];
+const getBlobEnvelopeKey =
+  facadeSource.match(/"(GetBlobEnvelope\.-?\d+)"/)?.[1];
+const getCollisionEnvelopeKey =
+  facadeSource.match(/"(GetCollisionEnvelope\.-?\d+)"/)?.[1];
+const getNullableIntEnvelopeKey =
+  facadeSource.match(/"(GetNullableIntEnvelope\.-?\d+)"/)?.[1];
 const getSelectionEnvelopeAsyncKey =
   facadeSource.match(/"(GetSelectionEnvelopeAsync\.-?\d+)"/)?.[1];
 const observeValueKey =
@@ -174,6 +187,22 @@ assert.ok(
 assert.ok(
   getWrappedBlobKey,
   "The generated GetWrappedBlob runtime dispatch key was not found.",
+);
+assert.ok(
+  getWidgetEnvelopeKey,
+  "The generated GetWidgetEnvelope runtime dispatch key was not found.",
+);
+assert.ok(
+  getBlobEnvelopeKey,
+  "The generated GetBlobEnvelope runtime dispatch key was not found.",
+);
+assert.ok(
+  getCollisionEnvelopeKey,
+  "The generated GetCollisionEnvelope runtime dispatch key was not found.",
+);
+assert.ok(
+  getNullableIntEnvelopeKey,
+  "The generated GetNullableIntEnvelope runtime dispatch key was not found.",
 );
 assert.ok(
   getSelectionEnvelopeAsyncKey,
@@ -293,6 +322,18 @@ function managedExports(methods = {}) {
               methods.getBoxedWidget ?? (() => unionPayloads.boxedWidget),
             [getWrappedBlobKey]:
               methods.getWrappedBlob ?? (() => unionPayloads.wrappedBlob),
+            [getWidgetEnvelopeKey]:
+              methods.getWidgetEnvelope ?? (() => unionPayloads.widgetEnvelope),
+            [getBlobEnvelopeKey]:
+              methods.getBlobEnvelope ?? (() => unionPayloads.blobEnvelope),
+            [getCollisionEnvelopeKey]:
+              methods.getCollisionEnvelope
+              ?? (() => unionPayloads.collisionEnvelope),
+            [getNullableIntEnvelopeKey]:
+              methods.getNullableIntEnvelope
+              ?? ((hasValue) => (hasValue
+                ? unionPayloads.nullableIntEnvelope
+                : unionPayloads.nullableIntEnvelopeNull)),
             [getSelectionEnvelopeAsyncKey]:
               methods.getSelectionEnvelopeAsync
               ?? (async () => unionPayloads.selectionEnvelope),
@@ -468,6 +509,35 @@ async function freshFacade() {
   // A closed byte[] union argument keeps its Base64 JSON string wire form.
   assert.equal(facade.getWrappedBlob(), "AQID");
   assert.deepEqual(
+    facade.getWidgetEnvelope("generic"),
+    {
+      content: { name: "generic", count: 12 },
+      label: "widget",
+    },
+  );
+  assert.deepEqual(
+    facade.getBlobEnvelope(),
+    {
+      content: "AQID",
+      label: "blob",
+    },
+  );
+  assert.deepEqual(
+    facade.getCollisionEnvelope(),
+    {
+      content: 7,
+      other: { value: "concrete" },
+    },
+  );
+  assert.deepEqual(
+    facade.getNullableIntEnvelope(true),
+    { content: 42 },
+  );
+  assert.deepEqual(
+    facade.getNullableIntEnvelope(false),
+    { content: null },
+  );
+  assert.deepEqual(
     await facade.getSelectionEnvelopeAsync("envelope"),
     {
       result: { name: "envelope", count: 5 },
@@ -500,6 +570,10 @@ async function freshFacade() {
     await unionUsage.summarizeEnvelope(),
     "envelope:5|first|envelope:6|outcome|kind-0|7/envelope|blob:BAU="
       + "|group:envelope,null",
+  );
+  assert.equal(
+    unionUsage.describeGenericEnvelopes(),
+    "generic:widget/AQID:blob/7:concrete/42:null",
   );
   assert.equal(unionUsage.missingSelectionEntry, null);
   assert.equal(unionUsage.missingMapEntry, null);

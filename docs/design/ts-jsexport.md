@@ -259,7 +259,6 @@ arguments are JSON wire types. Closed uses retain their structured argument
 identities. A parameter embedded inside a case signature remains unsupported:
 substituting a wire type into a CLR container is not generally faithful
 (`T[]` writes an array for `T = int`, but a Base64 string for `T = byte`).
-This boundary does not add general generic DTO support.
 
 Deserialize-reached unions, unavailable case/null evidence, unsupported
 converters, unmapped alternatives, and recursive union-case alias components
@@ -275,6 +274,68 @@ The four-step adoption path remains Metadata evidence, JsExportSurface
 evidence, this CLI generation/harness slice, and inspect-web browser/Wasm
 adoption. The existing TypeScript emitter owns this format lowering; no new
 human-readable rendering path or architecture retirement is needed.
+
+### Generic JSON record projection
+
+Issue [#6739](https://github.com/richlander/dotnet-inspect/issues/6739)
+extends the same authenticated wire view to generic records. Its motivating
+consumer is the host-neutral
+`InspectionEnvelope<TContent>` from
+[`inspection-envelope.md`](inspection-envelope.md): the Browser can consume a
+closed construction such as
+`InspectionEnvelope<TypeDependencySectionResult>` without introducing a
+parallel Browser envelope solely to erase the type parameter.
+
+A generic record reached through an authenticated closed System.Text.Json
+shape becomes a reusable TypeScript interface. Declaration parameters are
+allocated by metadata position, and a direct parameter-valued member retains
+that position:
+
+```csharp
+public sealed record InspectionEnvelope<TContent>(
+    TContent Content,
+    InspectionShare Share);
+```
+
+```ts
+export interface InspectionEnvelope<T0> {
+  readonly content: T0;
+  readonly share: InspectionShare;
+}
+```
+
+Every facade use remains closed. Its arguments come from the structured,
+authenticated wire shape and pass through the existing JSON mapping before
+instantiation, so `GenericEnvelope<byte[]>` is exposed as
+`GenericEnvelope<string>`, not as a CLR array. No CLR type argument crosses the
+JavaScript ABI, and generic `[JSExport]` methods and generic `JsExportRoot`
+types remain unsupported.
+
+The initial contract intentionally admits only direct type-parameter members,
+including their direct nullable form. A parameter embedded in a CLR shape is
+not generally parametric in the corresponding TypeScript wire type. For
+example, projecting `T[]` as `ReadonlyArray<T0>` would be correct for
+`T = int` but wrong for `T = byte`, whose closed CLR array is a Base64 JSON
+string. Such declarations fail visibly before publication rather than
+producing a plausible but unsound interface. Closed records, arrays,
+dictionaries, nullable values, and supported unions remain valid as type
+arguments because each argument is mapped from its own closed wire shape.
+
+The projection retains the existing naming, direction, converter,
+constructor-binding, scoped-identity, and declaration-name allocation rules.
+It does not invent serializer support for the record's reachable graph:
+envelope Share, diagnostic, content, and collection types must independently
+carry supported System.Text.Json evidence. The production adoption path is
+therefore two steps: this generator capability, then direct
+`InspectionEnvelope<TypeDependencySectionResult>` adoption by
+[#6736](https://github.com/richlander/dotnet-inspect/pull/6736) once that exact
+reachable wire graph is authenticated.
+
+`DtsEmitterTests` gate generic declaration and closed-use identity.
+`eng/test-ts-jsexport-typescript.sh` compiles consumers of two distinct closed
+constructions, rejects a mismatched argument, and executes the facade against
+real source-generated System.Text.Json payloads, including the wire-sensitive
+`byte[]` argument.
 
 ### Public facade view
 
@@ -830,6 +891,7 @@ evidence.
 - infer wire contracts from names, return-type display text, or nearby
   serializer metadata;
 - become a general JavaScript, C#, OpenAPI, or multi-language generator;
+- project open or non-parametric generic record contracts;
 - bundle, download, or select a TypeScript compiler;
 - generate network clients or define a network protocol;
 - bundle the generated runtime module with inspect-web's application assets; or

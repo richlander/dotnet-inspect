@@ -31,6 +31,15 @@ if (args is not [string outputPath])
     ("boxedCount", TypeScriptFixtureExports.GetBoxedCount(11)),
     ("boxedWidget", TypeScriptFixtureExports.GetBoxedWidget("boxed")),
     ("wrappedBlob", TypeScriptFixtureExports.GetWrappedBlob()),
+    ("widgetEnvelope", TypeScriptFixtureExports.GetWidgetEnvelope("generic")),
+    ("blobEnvelope", TypeScriptFixtureExports.GetBlobEnvelope()),
+    ("collisionEnvelope", TypeScriptFixtureExports.GetCollisionEnvelope()),
+    (
+        "nullableIntEnvelope",
+        TypeScriptFixtureExports.GetNullableIntEnvelope(true)),
+    (
+        "nullableIntEnvelopeNull",
+        TypeScriptFixtureExports.GetNullableIntEnvelope(false)),
     (
         "selectionEnvelope",
         await TypeScriptFixtureExports.GetSelectionEnvelopeAsync("envelope")),

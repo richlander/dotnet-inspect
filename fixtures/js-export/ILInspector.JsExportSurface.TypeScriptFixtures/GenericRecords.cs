@@ -1,0 +1,32 @@
+using System.Text.Json.Serialization;
+
+namespace ILInspector.JsExportSurface.TypeScriptFixtures;
+
+public sealed record GenericEnvelope<TContent>(
+    TContent Content,
+    string Label);
+
+public sealed record T(string Value);
+
+public sealed record GenericCollision<T>(
+    T Content,
+    global::ILInspector.JsExportSurface.TypeScriptFixtures.T Other);
+
+public sealed record NullableEnvelope<T>(T? Content)
+    where T : struct;
+
+[JsonSerializable(
+    typeof(GenericEnvelope<WidgetDto>),
+    TypeInfoPropertyName = "WidgetEnvelope")]
+[JsonSerializable(
+    typeof(GenericEnvelope<byte[]>),
+    TypeInfoPropertyName = "BlobEnvelope")]
+[JsonSerializable(
+    typeof(GenericCollision<int>),
+    TypeInfoPropertyName = "CollisionEnvelope")]
+[JsonSerializable(
+    typeof(NullableEnvelope<int>),
+    TypeInfoPropertyName = "NullableIntEnvelope")]
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+internal sealed partial class GenericRecordFixtureJsonContext :
+    JsonSerializerContext;

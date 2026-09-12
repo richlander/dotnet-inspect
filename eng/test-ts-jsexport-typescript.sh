@@ -60,14 +60,18 @@ TS
 
 cat > "$scratch/union-usage.ts" <<'TS'
 import {
+  getBlobEnvelope,
   getBoxedCount,
   getBoxedWidget,
+  getCollisionEnvelope,
   getCollectionSelection,
   getDefaultSelection,
   getFlagSelection,
   getKindSelection,
+  getNullableIntEnvelope,
   getOutcomeSelection,
   getSelectionEnvelopeAsync,
+  getWidgetEnvelope,
   getWidgetSelection,
   getWrappedBlob,
 } from "./facade.js";
@@ -75,9 +79,13 @@ import type {
   Boxed,
   CollectionSelection,
   FlagSelection,
+  GenericCollision,
+  GenericEnvelope,
   KindSelection,
+  NullableEnvelope,
   OutcomeSelection,
   SelectionEnvelope,
+  T,
   WidgetDto,
   WidgetKind,
   WidgetSelection,
@@ -187,6 +195,22 @@ export function describeBoxed(
     ? "none"
     : typeof widget === "string" ? widget : widget.name;
   return `${left}/${right}`;
+}
+
+export function describeGenericEnvelopes(): string {
+  const widget: GenericEnvelope<WidgetDto> =
+    getWidgetEnvelope("generic");
+  const blob: GenericEnvelope<string> = getBlobEnvelope();
+  const collision: GenericCollision<number> = getCollisionEnvelope();
+  const concrete: T = collision.other;
+  const nullable: NullableEnvelope<number> =
+    getNullableIntEnvelope(true);
+  const missing: NullableEnvelope<number> =
+    getNullableIntEnvelope(false);
+  return `${widget.content.name}:${widget.label}`
+    + `/${blob.content}:${blob.label}`
+    + `/${collision.content}:${concrete.value}`
+    + `/${nullable.content}:${missing.content}`;
 }
 
 export function selectWidget(widget: WidgetDto): WidgetSelection {
@@ -434,6 +458,11 @@ expect_union_facade_compile_failure \
   'Wrapped<string>' \
   'Wrapped<number>' \
   '^export function getWrappedBlob'
+expect_union_facade_compile_failure \
+  generic-record-closed-argument \
+  'GenericEnvelope<string>' \
+  'GenericEnvelope<number>' \
+  '^export function getBlobEnvelope'
 
 expect_union_facade_compile_failure \
   union-collection-entry-null \
@@ -471,5 +500,9 @@ expect_union_usage_compile_failure \
   union-closed-generic-mismatch \
   'describeBoxed\(getBoxedCount\(11\), getBoxedWidget\("boxed"\)\)' \
   'describeBoxed(getBoxedWidget("boxed"), getBoxedCount(11))'
+expect_union_usage_compile_failure \
+  generic-record-closed-mismatch \
+  'getWidgetEnvelope\("generic"\)' \
+  'getBlobEnvelope()'
 
 echo "ts-jsexport TypeScript compiler gates passed."
