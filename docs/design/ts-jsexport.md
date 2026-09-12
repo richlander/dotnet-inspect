@@ -263,8 +263,20 @@ Generic JSON records with direct, recursively parametric members use generic
 TypeScript interfaces. Closed constructions are discovered only from
 authenticated source-generated JSON roots, and their arguments are substituted
 through supported records, arrays, dictionaries, nullable values, and unions.
-Open, embedded non-parametric, or unauthenticated constructions fail visibly
-before publication; the boundary does not infer arbitrary CLR generic shapes.
+A direct serializer root does not retain nullable-reference annotations for
+its generic arguments, so reference-shaped arguments remain conservatively
+nullable. Union case signatures have the same nested-annotation erasure and
+apply the same rule to generic-record alternatives.
+
+Recursive composition remains parametric only when substituting a wire type
+preserves the surrounding wire shape. `GenericNested<T>[]` is an array of
+records for every supported `T`; direct `T[]` is not parametric because
+`T = byte` closes to `byte[]`, whose JSON form is a Base64 string rather than
+an array. A generic parameter directly wrapped in an array therefore fails
+visibly before publication, including when that array is nested in another
+supported container. Open, other embedded non-parametric, or unauthenticated
+constructions also fail visibly; the boundary does not infer arbitrary CLR
+generic shapes.
 
 Deserialize-reached unions, unavailable case/null evidence, unsupported
 converters, unmapped alternatives, and recursive union-case alias components
@@ -283,7 +295,10 @@ discriminated TypeScript union.
 
 `JsonUnionWireTests` and the compiler/runtime consumer harness
 `eng/test-ts-jsexport-typescript.sh` gate the generated contract against actual
-source-generated serializer results and compiled TypeScript consumers.
+source-generated serializer results and compiled TypeScript consumers,
+including an annotation-erased null reference root, a generic-record union
+alternative with null content, and rejected direct and container-nested `T[]`
+constructions whose `byte[]` payloads are Base64 text.
 The four-step adoption path remains Metadata evidence, JsExportSurface
 evidence, this CLI generation/harness slice, and inspect-web browser/Wasm
 adoption. The existing TypeScript emitter owns this format lowering; no new

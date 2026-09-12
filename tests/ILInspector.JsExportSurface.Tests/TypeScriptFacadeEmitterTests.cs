@@ -603,7 +603,7 @@ public sealed class TypeScriptFacadeEmitterTests
             export interface GenericRecord<T0> {
               readonly content: T0;
               readonly nested: GenericNested<T0>;
-              readonly items: ReadonlyArray<T0>;
+              readonly items: ReadonlyArray<GenericNested<T0>>;
               readonly lookup: Readonly<Record<string, T0>>;
               readonly choice: Boxed<T0>;
             }
@@ -617,7 +617,22 @@ public sealed class TypeScriptFacadeEmitterTests
             StringComparison.Ordinal);
         Assert.Contains(
             "export async function getGenericRecordWidgetAsync(name: string): "
-                + "Promise<GenericRecord<WidgetDto>>",
+                + "Promise<GenericRecord<WidgetDto | null>>",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function getNullableGenericNested(): "
+                + "GenericNested<string | null>",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export type GenericNestedChoice = "
+                + "GenericNested<string | null> | number | null;",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function getGenericNestedChoice(): "
+                + "GenericNestedChoice",
             source,
             StringComparison.Ordinal);
     }

@@ -27,6 +27,10 @@ public sealed record PackageProblem(int Code);
 public sealed record UnionEnvelope(DtoUnion Result, ScalarUnion[] Items);
 public sealed record OrdinaryValue(int Value);
 public sealed record T0(int Value);
+public sealed record NonParametricArrayRecord<T>(T[]? Items);
+public sealed record NonParametricNestedArrayRecord<T>(
+    IReadOnlyDictionary<string, T[]> Items);
+public sealed record ConcreteArrayRecord<T>(T Value, T0[] Items);
 
 public static partial class UnionExports
 {
@@ -161,6 +165,28 @@ public static partial class UnionExports
     public static string GetPlain() => "plain";
 
     [JSExport]
+    public static string GetNonParametricArrayRecord() =>
+        JsonSerializer.Serialize(
+            new NonParametricArrayRecord<byte>([1, 2, 3]),
+            UnionJsonContext.Default.NonParametricArrayRecordByte);
+
+    [JSExport]
+    public static string GetNonParametricNestedArrayRecord() =>
+        JsonSerializer.Serialize(
+            new NonParametricNestedArrayRecord<byte>(
+                new Dictionary<string, byte[]>
+                {
+                    ["value"] = [1, 2, 3],
+                }),
+            UnionJsonContext.Default.NonParametricNestedArrayRecordByte);
+
+    [JSExport]
+    public static string GetConcreteArrayRecord() =>
+        JsonSerializer.Serialize(
+            new ConcreteArrayRecord<int>(7, [new(8)]),
+            UnionJsonContext.Default.ConcreteArrayRecordInt32);
+
+    [JSExport]
     public static void ReadScalar(string json) =>
         _ = JsonSerializer.Deserialize(json, UnionJsonContext.Default.ScalarUnion);
 
@@ -202,4 +228,7 @@ public sealed class CustomUnionConverter : JsonConverter<CustomUnion>
 [JsonSerializable(typeof(CustomUnion))]
 [JsonSerializable(typeof(UnionEnvelope))]
 [JsonSerializable(typeof(OrdinaryValue))]
+[JsonSerializable(typeof(NonParametricArrayRecord<byte>))]
+[JsonSerializable(typeof(NonParametricNestedArrayRecord<byte>))]
+[JsonSerializable(typeof(ConcreteArrayRecord<int>))]
 public sealed partial class UnionJsonContext : JsonSerializerContext;

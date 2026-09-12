@@ -190,7 +190,12 @@ static class TsTypeMapper
             TsTypeMappingContext.JsonWire,
             wireTypeShape,
             identityNames,
-            unionContext);
+            unionContext is null
+                ? null
+                : unionContext with
+                {
+                    ConservativeReferenceArguments = true,
+                });
 
         if (IsJsonEnvelopeReturnType(trimmed))
         {

@@ -9,7 +9,9 @@ sealed record TsJsonUnionMappingContext(
     IReadOnlyDictionary<ApiTypeReferenceIdentity, int> GenericArities,
     IReadOnlyDictionary<string, string> GenericNames,
     IReadOnlyDictionary<string, int> GenericNameArities,
-    TsDelegateMappingContext LocalTypes);
+    TsDelegateMappingContext LocalTypes,
+    IReadOnlySet<ApiTypeReferenceIdentity> GenericRecords,
+    bool ConservativeReferenceArguments = false);
 
 static class TsJsonUnionMapper
 {
@@ -80,8 +82,12 @@ static class TsJsonUnionMapper
                 && arity == type.TypeArguments.Length
                 && context.Names.TryGetValue(identity, out string? name))
             {
+                bool conservativeArguments =
+                    context.GenericRecords.Contains(identity);
                 return $"{name}<{string.Join(", ", type.TypeArguments.Select(
-                    argument => MapClosedCase(argument, context, location)))}>";
+                    argument => conservativeArguments
+                        ? MapCollectionCase(argument, context, location)
+                        : MapClosedCase(argument, context, location)))}>";
             }
             throw Unsupported(location, "unsupported generic union case type");
         }
@@ -133,8 +139,13 @@ static class TsJsonUnionMapper
                     && context.GenericArities.TryGetValue(identity, out int arity)
                     && arity == shape.TypeArguments.Length)
                 {
+                    bool conservativeArguments =
+                        context.ConservativeReferenceArguments
+                        && context.GenericRecords.Contains(identity);
                     return $"{name}<{string.Join(", ", shape.TypeArguments.Select(
-                        argument => MapClosedShape(argument, context, location)))}>";
+                        argument => conservativeArguments
+                            ? MapCollectionShape(argument, context, location)
+                            : MapClosedShape(argument, context, location)))}>";
                 }
             }
 
@@ -164,7 +175,10 @@ static class TsJsonUnionMapper
     }
 
     internal static string WithNull(string type) =>
-        $"{type} | null";
+        type == "null"
+            || type.EndsWith(" | null", StringComparison.Ordinal)
+                ? type
+                : $"{type} | null";
 
     // Signature-only case trees do not retain nested nullable-reference annotations.
     static string MapCollectionCase(TypeRef type, TsJsonUnionMappingContext context, string location)

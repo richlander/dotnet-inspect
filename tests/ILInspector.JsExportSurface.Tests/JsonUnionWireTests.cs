@@ -255,6 +255,54 @@ public sealed class JsonUnionWireTests
     }
 
     [Fact]
+    public void Emit_DoesNotPublishGenericRecordParameterArrays()
+    {
+        Assert.Equal(
+            "{\"items\":\"AQID\"}",
+            UnionExports.GetNonParametricArrayRecord());
+        var surface = Build(
+            nameof(UnionExports.GetNonParametricArrayRecord));
+        var exception = Assert.Throws<UnsupportedWireContractException>(
+            () => DtsEmitter.Emit(surface));
+        Assert.Contains(
+            "array whose JSON mapping is not parametric",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.Throws<UnsupportedWireContractException>(
+            () => TypeScriptFacadeEmitter.Emit(surface, "./dotnet.js"));
+    }
+
+    [Fact]
+    public void Emit_DoesNotPublishNestedGenericRecordParameterArrays()
+    {
+        Assert.Equal(
+            "{\"items\":{\"value\":\"AQID\"}}",
+            UnionExports.GetNonParametricNestedArrayRecord());
+        var surface = Build(
+            nameof(UnionExports.GetNonParametricNestedArrayRecord));
+        var exception = Assert.Throws<UnsupportedWireContractException>(
+            () => DtsEmitter.Emit(surface));
+        Assert.Contains(
+            "array whose JSON mapping is not parametric",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_DoesNotConfuseConcreteArrayTypesWithGenericParameters()
+    {
+        Assert.Equal(
+            "{\"value\":7,\"items\":[{\"value\":8}]}",
+            UnionExports.GetConcreteArrayRecord());
+        string declaration = DtsEmitter.Emit(
+            Build(nameof(UnionExports.GetConcreteArrayRecord)));
+        Assert.Contains(
+            "readonly items: ReadonlyArray<T0>;",
+            declaration,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Emit_GenericParametersDoNotShadowCaseDeclarations()
     {
         string output = DtsEmitter.Emit(Build(nameof(UnionExports.GetParameterNameUnion)));

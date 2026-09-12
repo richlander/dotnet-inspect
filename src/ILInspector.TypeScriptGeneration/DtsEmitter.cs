@@ -555,7 +555,14 @@ static class DtsEmitter
                             item => item.Type.TypeParameters.Count),
                 GenericTypeNames(declarationTypes, allocatedTypeNames),
                 GenericTypeNameArities(declarationTypes, allocatedTypeNames),
-                delegateMappingContext));
+                delegateMappingContext,
+                typeIdentities
+                    .Where(item =>
+                        item.Type.TypeParameters.Count > 0
+                        && surface.Records.Any(record =>
+                            ReferenceEquals(record, item.Type)))
+                    .Select(item => item.Identity)
+                    .ToHashSet()));
     }
 
     static (ApiTypeReferenceIdentity Identity, ApiType Type)[] TypeIdentities(
@@ -890,6 +897,20 @@ static class DtsEmitter
                 ResolvedName: member.JsonPropertyName ?? ApplyNamingPolicy(member.Name, namingPolicy)))
             .ToArray();
 
+        foreach ((ApiMember member, _) in members)
+        {
+            if (TryGetArrayParameter(
+                    member.SignatureModel,
+                    record.TypeParameters,
+                    out string? parameter))
+            {
+                throw new UnsupportedWireContractException(
+                    $"{record.Name}.{member.Name}",
+                    $"generic record parameter '{parameter}' is embedded "
+                        + "in an array whose JSON mapping is not parametric");
+            }
+        }
+
         sb.Append("export interface ").Append(declarationName);
         if (genericParameters.Length > 0)
             sb.Append('<').AppendJoin(", ", genericParameters).Append('>');
@@ -951,6 +972,51 @@ static class DtsEmitter
         }
 
         sb.Append("}\n\n");
+    }
+
+    static bool TryGetArrayParameter(
+        ApiSignature? signature,
+        IReadOnlyList<TypeParameter> parameters,
+        out string? parameterName)
+    {
+        string? canonicalType =
+            signature?.CanonicalReturnType
+            ?? signature?.ReturnType;
+        if (canonicalType is null)
+        {
+            parameterName = null;
+            return false;
+        }
+
+        foreach (TypeParameter parameter in parameters)
+        {
+            int offset = 0;
+            while ((offset = canonicalType.IndexOf(
+                    parameter.Name,
+                    offset,
+                    StringComparison.Ordinal)) >= 0)
+            {
+                int suffix = offset + parameter.Name.Length;
+                bool identifierStart = offset == 0
+                    || (!char.IsLetterOrDigit(canonicalType[offset - 1])
+                        && canonicalType[offset - 1] != '_'
+                        && canonicalType[offset - 1] != '.'
+                        && canonicalType[offset - 1] != ':');
+                if (identifierStart
+                    && canonicalType.AsSpan(suffix).StartsWith(
+                        "[]",
+                        StringComparison.Ordinal))
+                {
+                    parameterName = parameter.Name;
+                    return true;
+                }
+
+                offset = suffix;
+            }
+        }
+
+        parameterName = null;
+        return false;
     }
 
     static void ValidateWireNames(

@@ -35,6 +35,8 @@ for (
     "wrappedBlob",
     "genericRecordInt",
     "genericRecordWidget",
+    "nullableGenericNested",
+    "genericNestedChoice",
     "selectionEnvelope",
   ]
 ) {
@@ -87,6 +89,10 @@ const getGenericRecordIntAsyncKey =
   facadeSource.match(/"(GetGenericRecordIntAsync\.-?\d+)"/)?.[1];
 const getGenericRecordWidgetAsyncKey =
   facadeSource.match(/"(GetGenericRecordWidgetAsync\.-?\d+)"/)?.[1];
+const getNullableGenericNestedKey =
+  facadeSource.match(/"(GetNullableGenericNested\.-?\d+)"/)?.[1];
+const getGenericNestedChoiceKey =
+  facadeSource.match(/"(GetGenericNestedChoice\.-?\d+)"/)?.[1];
 const getSelectionEnvelopeAsyncKey =
   facadeSource.match(/"(GetSelectionEnvelopeAsync\.-?\d+)"/)?.[1];
 const observeValueKey =
@@ -188,6 +194,14 @@ assert.ok(
 assert.ok(
   getGenericRecordWidgetAsyncKey,
   "The generated GetGenericRecordWidgetAsync runtime dispatch key was not found.",
+);
+assert.ok(
+  getNullableGenericNestedKey,
+  "The generated GetNullableGenericNested runtime dispatch key was not found.",
+);
+assert.ok(
+  getGenericNestedChoiceKey,
+  "The generated GetGenericNestedChoice runtime dispatch key was not found.",
 );
 assert.ok(
   getSelectionEnvelopeAsyncKey,
@@ -313,6 +327,12 @@ function managedExports(methods = {}) {
             [getGenericRecordWidgetAsyncKey]:
               methods.getGenericRecordWidgetAsync
               ?? (async () => unionPayloads.genericRecordWidget),
+            [getNullableGenericNestedKey]:
+              methods.getNullableGenericNested
+              ?? (() => unionPayloads.nullableGenericNested),
+            [getGenericNestedChoiceKey]:
+              methods.getGenericNestedChoice
+              ?? (() => unionPayloads.genericNestedChoice),
             [getSelectionEnvelopeAsyncKey]:
               methods.getSelectionEnvelopeAsync
               ?? (async () => unionPayloads.selectionEnvelope),
@@ -492,7 +512,7 @@ async function freshFacade() {
     {
       content: 7,
       nested: { value: 8 },
-      items: [1, 2],
+      items: [{ value: 1 }, { value: 2 }],
       lookup: { missing: 0 },
       choice: 9,
     },
@@ -502,10 +522,18 @@ async function freshFacade() {
     {
       content: { name: "sample", count: 10 },
       nested: { value: { name: "sample", count: 11 } },
-      items: [{ name: "sample", count: 12 }],
+      items: [{ value: { name: "sample", count: 12 } }],
       lookup: { missing: null },
       choice: { name: "sample", count: 13 },
     },
+  );
+  assert.deepEqual(
+    facade.getNullableGenericNested(),
+    { value: null },
+  );
+  assert.deepEqual(
+    facade.getGenericNestedChoice(),
+    { value: null },
   );
   assert.deepEqual(
     await facade.getSelectionEnvelopeAsync("envelope"),
@@ -543,11 +571,13 @@ async function freshFacade() {
   );
   assert.equal(
     await unionUsage.summarizeGenericRecords(),
-    "7|8|1,2|0|9|sample|11|12|null|13",
+    "7|8|1,2|0|9|sample|11|12|null|13|null|null",
   );
   assert.equal(unionUsage.missingSelectionEntry, null);
   assert.equal(unionUsage.missingMapEntry, null);
   assert.equal(unionUsage.missingGroupEntry, null);
+  assert.equal(unionUsage.missingGenericNestedValue, null);
+  assert.equal(unionUsage.missingGenericNestedChoiceValue, null);
   const observed = [];
   facade.observeValue((value) => {
     observed.push(value);

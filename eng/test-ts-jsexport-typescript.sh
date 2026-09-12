@@ -69,7 +69,9 @@ import {
   getFlagSelection,
   getGenericRecordIntAsync,
   getGenericRecordWidgetAsync,
+  getGenericNestedChoice,
   getKindSelection,
+  getNullableGenericNested,
   getOutcomeSelection,
   getSelectionEnvelopeAsync,
   getWidgetSelection,
@@ -80,6 +82,8 @@ import type {
   CollectionSelection,
   FlagSelection,
   GenericRecord,
+  GenericNested,
+  GenericNestedChoice,
   KindSelection,
   OutcomeSelection,
   SelectionEnvelope,
@@ -101,6 +105,10 @@ type GroupEntries = Extract<SelectionEnvelope["group"], ReadonlyArray<unknown>>;
 export const missingSelectionEntry: SelectionEntries[number] = null;
 export const missingMapEntry: SelectionMap[string] = null;
 export const missingGroupEntry: GroupEntries[number] = null;
+export const missingGenericNestedValue:
+  GenericNested<string | null>["value"] = null;
+export const missingGenericNestedChoiceValue:
+  Extract<GenericNestedChoice, { readonly value: unknown }>["value"] = null;
 
 function isEntryArray(
   selection: CollectionSelection,
@@ -249,21 +257,28 @@ export async function summarizeEnvelope(): Promise<string> {
 
 export async function summarizeGenericRecords(): Promise<string> {
   const numbers: GenericRecord<number> = await getGenericRecordIntAsync();
-  const widgets: GenericRecord<WidgetDto> =
+  const widgets: GenericRecord<WidgetDto | null> =
     await getGenericRecordWidgetAsync("sample");
+  const nullable: GenericNested<string | null> =
+    getNullableGenericNested();
+  const nestedChoice: GenericNestedChoice = getGenericNestedChoice();
   return [
     numbers.content,
     numbers.nested.value,
-    numbers.items.join(","),
+    numbers.items.map(item => item.value).join(","),
     numbers.lookup["missing"],
     numbers.choice,
-    widgets.content.name,
-    widgets.nested.value.count,
-    widgets.items[0]?.count,
+    widgets.content?.name ?? "null",
+    widgets.nested.value?.count ?? "null",
+    widgets.items[0]?.value?.count ?? "null",
     widgets.lookup["missing"]?.name ?? "null",
     typeof widgets.choice === "object" && widgets.choice !== null
       ? widgets.choice.count
       : "unexpected",
+    nullable.value ?? "null",
+    nestedChoice === null || typeof nestedChoice === "number"
+      ? nestedChoice
+      : nestedChoice.value ?? "null",
   ].join("|");
 }
 TS
@@ -459,6 +474,16 @@ expect_union_facade_compile_failure \
   'GenericRecord<number>' \
   'GenericRecord<string>' \
   '^export async function getGenericRecordIntAsync'
+expect_union_facade_compile_failure \
+  generic-record-direct-reference-null \
+  'GenericNested<string \| null>' \
+  'GenericNested<string>' \
+  '^export function getNullableGenericNested'
+expect_union_facade_compile_failure \
+  generic-record-union-reference-null \
+  'GenericNested<string \| null>' \
+  'GenericNested<string>' \
+  '^export type GenericNestedChoice'
 expect_union_facade_compile_failure \
   union-closed-byte-array-argument \
   'Wrapped<string>' \

@@ -11,10 +11,12 @@ public sealed record RuntimeAPI(string Value);
 
 public sealed record GenericNested<TValue>(TValue Value);
 
+public union GenericNestedChoice(GenericNested<string?>, int);
+
 public sealed record GenericRecord<TValue>(
     TValue Content,
     GenericNested<TValue> Nested,
-    TValue[] Items,
+    GenericNested<TValue>[] Items,
     IReadOnlyDictionary<string, TValue> Lookup,
     Boxed<TValue> Choice);
 
@@ -61,6 +63,10 @@ internal sealed partial class BlobFixtureJsonContext : JsonSerializerContext;
 
 [JsonSerializable(typeof(GenericRecord<int>))]
 [JsonSerializable(typeof(GenericRecord<WidgetDto>))]
+[JsonSerializable(
+    typeof(GenericNested<string>),
+    TypeInfoPropertyName = "NullableGenericNested")]
+[JsonSerializable(typeof(GenericNestedChoice))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal sealed partial class GenericRecordJsonContext : JsonSerializerContext;
 
@@ -186,7 +192,7 @@ public static partial class TypeScriptFixtureExports
             new GenericRecord<int>(
                 7,
                 new GenericNested<int>(8),
-                [1, 2],
+                [new(1), new(2)],
                 new Dictionary<string, int> { ["missing"] = 0 },
                 new Boxed<int>(9)),
             GenericRecordJsonContext.Default.GenericRecordInt32);
@@ -201,7 +207,7 @@ public static partial class TypeScriptFixtureExports
             new GenericRecord<WidgetDto>(
                 new WidgetDto(name, 10),
                 new GenericNested<WidgetDto>(new WidgetDto(name, 11)),
-                [new WidgetDto(name, 12)],
+                [new(new WidgetDto(name, 12))],
                 new Dictionary<string, WidgetDto>
                 {
                     ["missing"] = null!,
@@ -209,6 +215,19 @@ public static partial class TypeScriptFixtureExports
                 new Boxed<WidgetDto>(new WidgetDto(name, 13))),
             GenericRecordJsonContext.Default.GenericRecordWidgetDto);
     }
+
+    [JSExport]
+    public static string GetNullableGenericNested() =>
+        JsonSerializer.Serialize(
+            new GenericNested<string?>(null),
+            GenericRecordJsonContext.Default.NullableGenericNested);
+
+    [JSExport]
+    public static string GetGenericNestedChoice() =>
+        JsonSerializer.Serialize(
+            new GenericNestedChoice(
+                new GenericNested<string?>(null)),
+            GenericRecordJsonContext.Default.GenericNestedChoice);
 
     [JSExport]
     public static async Task<string> GetHiddenTypeJsonIncludeAsync()
