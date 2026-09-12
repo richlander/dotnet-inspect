@@ -24,6 +24,10 @@ namespace DotnetInspect.Cli.CommandLine;
 /// </remarks>
 public sealed class PrefixResolutionException(string message) : Exception(message);
 
+internal sealed record PrefixPackageResolution(
+    SourceSelector.PackageReference[] Packages,
+    bool LimitReached);
+
 /// <summary>
 /// Shared helper methods for command-line argument processing.
 /// Provides file path classification and version number detection.
@@ -101,7 +105,7 @@ public static class CommandLineHelpers
     /// <summary>
     /// Resolves a package ID prefix to a list of matching package names via NuGet search.
     /// </summary>
-    internal static async Task<SourceSelector.PackageReference[]> ResolvePrefixPackagesAsync(
+    internal static async Task<PrefixPackageResolution> ResolvePrefixPackagesAsync(
         PackagePrefixRequest request,
         HttpClient client,
         bool verbose,
@@ -112,11 +116,11 @@ public static class CommandLineHelpers
 
         log?.Invoke($"Resolving packages with prefix: {prefix}");
 
-        List<NuGetSearchResult> results;
+        NuGetSearchOutcome outcome;
         SourceSelector.PackageReference[] packages;
         try
         {
-            results = await NuGetSearchService.SearchByPrefixAsync(
+            outcome = await NuGetSearchService.SearchByPrefixWithStateAsync(
                 client,
                 prefix,
                 take: request.MaxPackages,
@@ -137,7 +141,11 @@ public static class CommandLineHelpers
 
         try
         {
-            packages = results.Select(result => new SourceSelector.PackageReference(result.PackageId)).ToArray();
+            packages = outcome.Results
+                .Select(result =>
+                    new SourceSelector.PackageReference(
+                        result.PackageId))
+                .ToArray();
         }
         catch (ArgumentException)
         {
@@ -145,23 +153,33 @@ public static class CommandLineHelpers
                 $"Could not resolve packages for prefix \"{prefix}\": the source returned an invalid package ID.");
         }
 
-        if (results.Count == 0)
+        WarnIfPackagePrefixLimitReached(
+            outcome.SourceSelectionIncomplete,
+            request);
+
+        if (outcome.Results.Count == 0)
         {
             CommandError.WriteWarning($"No packages found matching prefix \"{prefix}\"");
-            return [];
+            return new([], outcome.SourceSelectionIncomplete);
         }
 
-        WarnIfPackagePrefixLimitReached(results.Count, request);
-        log?.Invoke($"Found {results.Count} package(s) matching prefix \"{prefix}\"");
+        log?.Invoke($"Found {outcome.Results.Count} package(s) matching prefix \"{prefix}\"");
         foreach (var package in packages)
             log?.Invoke($"  {package.PackageId}");
 
-        return packages;
+        return new(packages, outcome.SourceSelectionIncomplete);
     }
 
     internal static void WarnIfPackagePrefixLimitReached(int resultCount, PackagePrefixRequest request)
+        => WarnIfPackagePrefixLimitReached(
+            resultCount >= request.MaxPackages,
+            request);
+
+    private static void WarnIfPackagePrefixLimitReached(
+        bool limitReached,
+        PackagePrefixRequest request)
     {
-        if (resultCount < request.MaxPackages)
+        if (!limitReached)
             return;
 
         CommandError.WriteWarning(

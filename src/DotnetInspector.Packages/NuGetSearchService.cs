@@ -35,7 +35,14 @@ public record NuGetSearchResult(
 /// </summary>
 public record NuGetSearchOutcome(
     IReadOnlyList<NuGetSearchResult> Results,
-    IReadOnlyList<string> Failures);
+    IReadOnlyList<string> Failures)
+{
+    /// <summary>
+    /// Whether a source or aggregate bound prevented exhaustive result
+    /// selection before package-source mapping.
+    /// </summary>
+    public bool SourceSelectionIncomplete { get; init; }
+}
 
 /// <summary>
 /// Searches NuGet by delegating to NuGetFetch.SearchService.
@@ -115,6 +122,7 @@ public static class NuGetSearchService
             new(SearchResultKeyComparer.Instance);
         int searched = 0;
         bool operationTimedOut = false;
+        bool sourceSelectionIncomplete = false;
         bool useFactoryClients =
             ReferenceEquals(client, HttpClientFactory.Shared);
         _ = NuGetFetchOptions.RequestTimeoutForClient(
@@ -261,19 +269,29 @@ public static class NuGetSearchService
                         endpointClient,
                         searchUrl,
                         fetchOptions);
-                    found = resultFilter is null
-                        ? await service.SearchAsync(
-                            query,
-                            take,
-                            prerelease,
-                            auth,
-                            operationCancellation.Token)
-                        : await service.SearchByPrefixAsync(
+                    if (resultFilter is null)
+                    {
+                        found = await service.SearchAsync(
                             query,
                             take,
                             prerelease,
                             auth,
                             operationCancellation.Token);
+                    }
+                    else
+                    {
+                        PrefixSearchResult prefixResult =
+                            await service.SearchByPrefixWithStateAsync(
+                            query,
+                            take,
+                            prerelease,
+                            auth,
+                            cancellationToken:
+                                operationCancellation.Token);
+                        found = prefixResult.Matches;
+                        sourceSelectionIncomplete |=
+                            prefixResult.Truncated;
+                    }
                     ThrowIfOperationExpired(
                         operationStarted,
                         fetchOptions.OperationTimeout,
@@ -397,7 +415,14 @@ public static class NuGetSearchService
                 fetchOptions.OperationTimeout,
                 operationCancellation.Token);
         }
-        List<NuGetSearchResult> finalResults = limited.Take(take).ToList();
+        List<NuGetSearchResult> eligibleResults = limited.ToList();
+        if (resultFilter is not null
+            && eligibleResults.Count > take)
+        {
+            sourceSelectionIncomplete = true;
+        }
+        List<NuGetSearchResult> finalResults =
+            eligibleResults.Take(take).ToList();
         if (!operationTimedOut)
         {
             ThrowIfOperationExpired(
@@ -405,7 +430,11 @@ public static class NuGetSearchService
                 fetchOptions.OperationTimeout,
                 operationCancellation.Token);
         }
-        return new NuGetSearchOutcome(finalResults, failures);
+        return new NuGetSearchOutcome(finalResults, failures)
+        {
+            SourceSelectionIncomplete =
+                sourceSelectionIncomplete,
+        };
     }
 
     private static void AddOperationTimeoutFailures(
@@ -498,6 +527,32 @@ public static class NuGetSearchService
         NuGetSourceOptions? sourceOptions = null,
         NuGetFetchOptions? fetchOptions = null)
     {
+        NuGetSearchOutcome outcome =
+            await SearchByPrefixWithStateAsync(
+                client,
+                prefix,
+                take,
+                prerelease,
+                log,
+                sourceOptions,
+                fetchOptions).ConfigureAwait(false);
+        return [.. outcome.Results];
+    }
+
+    /// <summary>
+    /// Searches by package-ID prefix while preserving whether source selection
+    /// stopped before package-source mapping completed.
+    /// </summary>
+    public static async Task<NuGetSearchOutcome>
+        SearchByPrefixWithStateAsync(
+        HttpClient client,
+        string prefix,
+        int take = 100,
+        bool prerelease = false,
+        Action<string>? log = null,
+        NuGetSourceOptions? sourceOptions = null,
+        NuGetFetchOptions? fetchOptions = null)
+    {
         log?.Invoke($"Searching packages by prefix: {prefix}");
         List<NuGetSource> sources = NuGetSourceResolver.ResolveSources(sourceOptions);
         PackageSourceMapping mapping =
@@ -523,7 +578,7 @@ public static class NuGetSearchService
                 + string.Join(Environment.NewLine + "  ", outcome.Failures));
         }
 
-        return [.. outcome.Results];
+        return outcome;
     }
 
     private sealed class SearchResultKeyComparer

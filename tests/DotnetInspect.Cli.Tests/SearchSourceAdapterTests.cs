@@ -103,6 +103,74 @@ public class SearchSourceAdapterTests
     }
 
     [Fact]
+    public async Task PrefixBindingPreservesLimitWhenSourceMappingFiltersEveryResult()
+    {
+        using var handler = new PrefixHandler(
+            [
+                "Contoso.Unmapped1",
+                "Contoso.Unmapped2",
+                "Contoso.Allowed",
+            ]);
+        using var client = new HttpClient(handler);
+        string config = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(
+                config,
+                $$"""
+                    <?xml version="1.0" encoding="utf-8"?>
+                    <configuration>
+                      <packageSources>
+                        <clear />
+                        <add key="fixture" value="{{handler.SourceUrl}}" />
+                      </packageSources>
+                      <packageSourceMapping>
+                        <packageSource key="fixture">
+                          <package pattern="Contoso.Allowed" />
+                        </packageSource>
+                      </packageSourceMapping>
+                    </configuration>
+                    """);
+            var prefix = new SourceSelector.PackagePrefix(
+                new(
+                    "Contoso.",
+                    maxPackages: 2,
+                    includePrerelease: false));
+            SourceIntent intent = SourceIntent.Create([prefix]);
+
+            var (_, output, error) = await ConsoleCapture.RunAsync(
+                async () =>
+                {
+                    SearchSourceBinding binding =
+                        await SearchSourceAdapter.BindAsync(
+                            intent,
+                            client,
+                            false,
+                            new NuGetSourceOptions
+                            {
+                                ConfigFile = config,
+                            });
+                    var (_, request) = binding;
+
+                    Assert.True(
+                        binding.PackagePrefixLimitReached);
+                    Assert.Empty(request.Packages);
+                    return 0;
+                });
+
+            Assert.Empty(output);
+            Assert.Contains("2-package search limit", error);
+            Assert.Contains(
+                "No packages found matching prefix",
+                error);
+        }
+        finally
+        {
+            File.Delete(config);
+        }
+    }
+
+    [Fact]
     public async Task EmptyPrefixRemainsExplicitAndWarns()
     {
         using var handler = new PrefixHandler([]);
@@ -298,6 +366,7 @@ public class SearchSourceAdapterTests
     {
         private const string Index = "https://source-intent.example/v3/index.json";
         private const string Search = "https://source-intent.example/v3/query";
+        public string SourceUrl => Index;
         public NuGetSourceOptions SourceOptions { get; } = new() { Sources = [Index] };
         public List<Uri> Queries { get; } = [];
 

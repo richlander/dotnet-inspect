@@ -1301,6 +1301,43 @@ public class NuGetSearchSourcesTests
     }
 
     [Fact]
+    public async Task SearchByPrefixWithStateAsync_PreservesLimitBeforeSourceMapping()
+    {
+        const string index = "https://a.example/v3/index.json";
+        const string search = "https://a.example/v3/query";
+        using var config = new TempNuGetConfig(
+            [("a", index)],
+            mappings: [("a", "Contoso.Allowed")]);
+        var handler = new RouteHandler
+        {
+            [index] =
+                $$"""{"resources":[{"@id":"{{search}}","@type":"SearchQueryService"}]}""",
+            [search] = """
+                {"data":[
+                    {"id":"Contoso.Unmapped1","version":"1.0.0"},
+                    {"id":"Contoso.Unmapped2","version":"1.0.0"},
+                    {"id":"Contoso.Allowed","version":"1.0.0"}
+                ]}
+                """,
+        };
+        using var client = new HttpClient(handler);
+
+        NuGetSearchOutcome outcome =
+            await NuGetSearchService.SearchByPrefixWithStateAsync(
+                client,
+                "Contoso.",
+                take: 2,
+                sourceOptions:
+                    new NuGetSourceOptions
+                    {
+                        ConfigFile = config.Path,
+                    });
+
+        Assert.Empty(outcome.Results);
+        Assert.True(outcome.SourceSelectionIncomplete);
+    }
+
+    [Fact]
     public async Task SearchByPrefixAsync_DeduplicatesPackageIdsAcrossSources()
     {
         const string indexA = "https://a.example/v3/index.json";

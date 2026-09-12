@@ -105,12 +105,16 @@ internal static class SearchSourceAdapter
         bool packagePrefixLimitReached = false;
         foreach (var prefix in selection.OtherSources.OfType<SourceSelector.PackagePrefix>())
         {
-            SourceSelector.PackageReference[] packages = await CommandLineHelpers.ResolvePrefixPackagesAsync(
-                prefix.Request, client, verbose, sourceOptions);
+            PrefixPackageResolution resolution =
+                await CommandLineHelpers.ResolvePrefixPackagesAsync(
+                    prefix.Request,
+                    client,
+                    verbose,
+                    sourceOptions);
             packagePrefixLimitReached |=
-                packages.Length >= prefix.Request.MaxPackages;
+                resolution.LimitReached;
             expanded ??= [.. intent.Selectors];
-            expanded.AddRange(packages);
+            expanded.AddRange(resolution.Packages);
         }
 
         // Augment, never replace, the declaration for acquisition ordering. The retained
