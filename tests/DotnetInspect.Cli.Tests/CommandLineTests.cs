@@ -831,19 +831,8 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void ParsedLineWindow_UsesActiveCommandOptionArity()
+    public void ParsedLineWindow_RequiredOptionsOwnLimitShapedValues()
     {
-        PreprocessAndApplyLineWindow(
-            ["extensions", "--platform", "-n1", "HttpClient"]);
-        Assert.Equal(1, CommandLineBuilder.HeadLines);
-
-        string[] shorthand = PreprocessAndApplyLineWindow(
-            ["extensions", "--platform", "-1", "HttpClient"]);
-        Assert.Equal(
-            ["extensions", "--platform", "-n", "1", "HttpClient"],
-            shorthand);
-        Assert.Equal(1, CommandLineBuilder.HeadLines);
-
         PreprocessAndApplyLineWindow(
             ["member", "System.String", "--focus", "-n1"]);
         Assert.Null(CommandLineBuilder.HeadLines);

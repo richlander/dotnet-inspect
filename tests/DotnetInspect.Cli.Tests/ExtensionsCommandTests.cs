@@ -263,6 +263,28 @@ public class ExtensionsCommandTests
             document.RootElement[0].GetProperty("method").GetString());
     }
 
+    [Theory]
+    [InlineData("-n1")]
+    [InlineData("-1")]
+    public async Task CommandLine_SemanticHeadShorthandReturnsOneCollapsedRow(
+        string limit)
+    {
+        var result = await ExecuteCommandLineAsync(
+            "extensions",
+            "String",
+            "--library",
+            typeof(ExtensionsCommandTests).Assembly.Location,
+            "--all",
+            "--json",
+            limit);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
+        Assert.Equal(1, document.RootElement.GetArrayLength());
+    }
+
     [Fact]
     public async Task CommandLine_SemanticRangeSelectionAppliesBeforeCount()
     {
