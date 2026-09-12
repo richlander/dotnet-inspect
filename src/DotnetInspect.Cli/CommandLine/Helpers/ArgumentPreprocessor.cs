@@ -136,10 +136,20 @@ public static class ArgumentPreprocessor
         out string? error)
     {
         int command = FindFirstPositionalArgument(args);
-        if (command >= 0
-            && args[command].Equals(
-                "dependency-evidence",
-                StringComparison.OrdinalIgnoreCase))
+        bool removedCommand =
+            command >= 0 && IsDependencyEvidenceToken(args[command]);
+        int prefixLength = command >= 0 ? command : args.Length;
+        for (int i = 0; !removedCommand && i < prefixLength - 1; i++)
+        {
+            if (args[i] is "--tips" or "-T"
+                && !args[i].Contains('=', StringComparison.Ordinal)
+                && IsDependencyEvidenceToken(args[i + 1]))
+            {
+                removedCommand = true;
+            }
+        }
+
+        if (removedCommand)
         {
             error = "'dependency-evidence' is no longer valid. Use 'depends' "
                 + "with the same root options; add '-S Dependencies' for "
@@ -150,6 +160,11 @@ public static class ArgumentPreprocessor
         error = null;
         return false;
     }
+
+    private static bool IsDependencyEvidenceToken(string token) =>
+        token.Equals(
+            "dependency-evidence",
+            StringComparison.OrdinalIgnoreCase);
 
     internal static bool IsImplicitPackageCandidate(
         string[] args,

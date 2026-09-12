@@ -3500,6 +3500,30 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Network traffic", error);
     }
 
+    [Theory]
+    [InlineData("--tips")]
+    [InlineData("-T")]
+    public async Task DependencyEvidenceCommand_AfterBareTipsReportsReplacement(
+        string tipsOption)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            tipsOption,
+            "dependency-evidence",
+            "--package",
+            "Definitely.Does.Not.Exist");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "'dependency-evidence' is no longer valid.",
+            error);
+        Assert.Contains("Use 'depends'", error);
+        Assert.DoesNotContain(
+            "Package 'dependency-evidence' not found",
+            error);
+        Assert.DoesNotContain("Network traffic", error);
+    }
+
     // ── type command ─────────────────────────────────────────────────
 
     [Fact]
