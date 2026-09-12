@@ -4,6 +4,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.PackageQueries;
+using DotnetInspector.RowSelection;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
@@ -644,7 +645,6 @@ public static class SearchCommandDefinitions
                 result.AddError(
                     "--tree is a standalone graph rendering and cannot combine with another output format.");
             }
-
             bool typeMode =
                 !string.IsNullOrEmpty(result.GetValue(targetTypeArg));
             bool effective = result.GetValue(opts.Effective);
@@ -657,6 +657,14 @@ public static class SearchCommandDefinitions
             }
             if (typeMode)
             {
+                if (result.GetResult(opts.Limit)
+                    is { Implicit: false }
+                    && result.GetValue(opts.Limit) is int count
+                    && count <= 0)
+                {
+                    result.AddError(
+                        "-n requires a positive whole number for type dependency rows.");
+                }
                 if (effective)
                 {
                     result.AddError(
@@ -716,6 +724,14 @@ public static class SearchCommandDefinitions
             var projects = parseResult.GetValue(projectOption) ?? [];
             OutputFormat outputFormat = opts.ResolveFormat(parseResult);
             RowWindow? rows = ParseDependsRows(parseResult, opts);
+            RowSelectionIntent<TypeDependencyRowOrder>
+                typeDependencyRows =
+                    string.IsNullOrEmpty(targetType)
+                        ? RowSelectionIntent<
+                            TypeDependencyRowOrder>.Empty
+                        : ParseTypeDependencyRows(
+                            parseResult,
+                            opts);
             WorkspaceShareFormat? shareFormat =
                 WorkspaceShareOption.Parse(parseResult, shareOption);
             bool hasNonPackageShareInput =
@@ -854,6 +870,7 @@ public static class SearchCommandDefinitions
                 EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
                 Tree = parseResult.GetValue(opts.Tree),
                 Rows = rows,
+                TypeDependencyRows = typeDependencyRows,
                 Count = parseResult.GetValue(opts.Count),
                 Tabular = opts.ResolveTabular(parseResult),
                 Tsv = opts.ResolveTsv(parseResult),
@@ -994,5 +1011,64 @@ public static class SearchCommandDefinitions
         return parseResult.GetValue(opts.Tail)
             ? RowWindow.Tail(count)
             : RowWindow.Head(count);
+    }
+
+    private static RowSelectionIntent<TypeDependencyRowOrder>
+        ParseTypeDependencyRows(
+        ParseResult parseResult,
+        SharedOptions opts)
+    {
+        string? rows = parseResult.GetValue(opts.Rows);
+        if (rows is not null)
+        {
+            if (!RowSpec.TryParse(
+                    rows,
+                    out RowSpec spec,
+                    out string? error))
+            {
+                throw new RowWindowValidationException(
+                    $"--rows {error}");
+            }
+
+            RowSelectionIntentOperation<TypeDependencyRowOrder>
+                operation =
+                    spec.Kind switch
+                    {
+                        RowSpecKind.Count
+                            when parseResult.GetValue(opts.Tail) =>
+                            RowSelectionIntentOperation<
+                                TypeDependencyRowOrder>.Tail(
+                                    spec.Count),
+                        RowSpecKind.Count =>
+                            RowSelectionIntentOperation<
+                                TypeDependencyRowOrder>.Head(
+                                    spec.Count),
+                        RowSpecKind.Range =>
+                            RowSelectionIntentOperation<
+                                TypeDependencyRowOrder>.Window(
+                                    spec.Start,
+                                    spec.End),
+                        _ => throw new InvalidOperationException(
+                            "Unsupported type-dependency row selection."),
+                    };
+            return RowSelectionIntent<
+                TypeDependencyRowOrder>.Create([operation]);
+        }
+
+        if (parseResult.GetResult(opts.Limit) is not { Implicit: false }
+            || parseResult.GetValue(opts.Limit) is not int count)
+        {
+            return RowSelectionIntent<
+                TypeDependencyRowOrder>.Empty;
+        }
+
+        return RowSelectionIntent<TypeDependencyRowOrder>.Create(
+            [
+                parseResult.GetValue(opts.Tail)
+                    ? RowSelectionIntentOperation<
+                        TypeDependencyRowOrder>.Tail(count)
+                    : RowSelectionIntentOperation<
+                        TypeDependencyRowOrder>.Head(count),
+            ]);
     }
 }

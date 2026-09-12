@@ -59,7 +59,7 @@ import {
   type PackageIdentity,
   type PlatformPack,
   type WorkspaceCoordinate,
-  uniqueTypeByQueryId,
+  uniqueWorkspaceTypeByQueryId,
   workspaceCoordinatesMatch
 } from "./data.ts";
 import type { EngineClient } from "./engine-client.ts";
@@ -1913,7 +1913,8 @@ const metadataInspection = createMetadataInspectionCoordinator({
     request.version,
     request.framework,
     request.assembly,
-    request.type),
+    request.type,
+    request.workspaceJson),
   queryPackageTable: (explorer, index, startRowId, maxRows) =>
     inspectPackageMetadataTable(
       explorer.packageId,
@@ -3379,10 +3380,12 @@ function selectWorkspacePackage(
     stayInWorkspace = false,
     publishInitial = false,
     navigationSeq,
+    renderSelection = true,
   }: {
     stayInWorkspace?: boolean;
     publishInitial?: boolean;
     navigationSeq?: number;
+    renderSelection?: boolean;
   } = {},
 ) {
   const packageModel = pkg
@@ -3421,7 +3424,8 @@ function selectWorkspacePackage(
   state.workspaceSubjectOpen = stayInWorkspace;
   if (rollbackSnapshot
     && !publishInitialLoadedWorkspace(rollbackSnapshot)) return;
-  render({ synchronizeUrl: rollbackSnapshot === null });
+  if (renderSelection)
+    render({ synchronizeUrl: rollbackSnapshot === null });
 }
 
 function workspaceOccurrenceRequest() {
@@ -4848,7 +4852,7 @@ function maybeAutoLoadTypeMetadata() {
   if (state.lens !== "metadata") return;
   const type = selectedType();
   if (!type) return;
-  const signature = typeMetadataSignature(
+  const signature = currentTypeMetadataSignature(
     type,
     currentPackage(),
     selectedTypeMetadataLibraryIdentity());
@@ -6362,6 +6366,7 @@ function renderTypeMetadataHtml(item: AppTypeSurface) {
     item,
     packageContext: currentPackage(),
     libraryIdentity: selectedTypeMetadataLibraryIdentity(),
+    workspaceIdentity: typeMetadataWorkspaceIdentity(),
     metadataState: state,
     memberCompositionHtml: renderMemberComposition(item),
     escapeHtml,
@@ -9385,6 +9390,43 @@ function selectedCallGraphWorkspacePackages(): AppPackage[] {
   });
 }
 
+function selectedTypeMetadataWorkspacePackages(): AppPackage[] {
+  const active = currentPackage();
+  if (active.isRuntimePack || active.source.kind === "platform")
+    return [active];
+  return state.packages
+    .filter(pkg =>
+      (pkg.id === active.id
+        && pkg.version === active.version
+        && pkg.activeFramework === active.activeFramework)
+      || (!pkg.isRuntimePack && pkg.source.kind !== "platform"))
+    .sort((left, right) =>
+      left.id.localeCompare(right.id)
+      || left.version.localeCompare(right.version)
+      || left.activeFramework.localeCompare(right.activeFramework));
+}
+
+function typeMetadataWorkspaceIdentity(): string {
+  return JSON.stringify(
+    selectedTypeMetadataWorkspacePackages().map(pkg => ({
+      package: pkg.id,
+      version: pkg.version,
+      framework: pkg.activeFramework,
+    })));
+}
+
+function currentTypeMetadataSignature(
+  type: AppTypeSurface,
+  pkg: AppPackage,
+  metadataLibraryIdentity = "",
+): string {
+  return typeMetadataSignature(
+    type,
+    pkg,
+    metadataLibraryIdentity,
+    typeMetadataWorkspaceIdentity());
+}
+
 function activeShareTabIndex(
   tabs: BrowserWorkspaceShareState["tabs"],
   resolvedTabs = tabs,
@@ -11698,10 +11740,12 @@ async function loadSelectedTypeMetadata() {
   }
   const pkg = currentPackage();
   const metadataLibraryIdentity = selectedTypeMetadataLibraryIdentity();
+  const workspaceJson = typeMetadataWorkspaceIdentity();
   const signature = typeMetadataSignature(
     type,
     pkg,
-    metadataLibraryIdentity);
+    metadataLibraryIdentity,
+    workspaceJson);
   return metadataInspection.loadTypeMetadata({
     signature,
     packageId: pkg.id,
@@ -11709,6 +11753,7 @@ async function loadSelectedTypeMetadata() {
     framework: pkg.activeFramework,
     assembly: type.assembly,
     type: type.queryId ?? type.id,
+    workspaceJson,
     isVisible: () => {
       const currentType = selectedType();
       return !state.home
@@ -11722,7 +11767,7 @@ async function loadSelectedTypeMetadata() {
       && !state.atPackageRoot
       && !state.atLibraryRoot
       && currentType != null
-      && typeMetadataSignature(
+      && currentTypeMetadataSignature(
         currentType,
         pkg,
         selectedTypeMetadataLibraryIdentity()) === signature;
@@ -11770,22 +11815,27 @@ async function renderTypeGraph() {
         const graphNode = nodeId ? graphNodeOf.get(nodeId) : null;
         if (!graphNode) return null;
         const fullName = graphNode.id;
-        const pkg = currentPackage();
-        const target = graphNode.role === "self"
-          ? selectedType()
-          : uniqueTypeByQueryId(pkg.types, fullName);
-        return target
-          ? {
-              onSelect: () => {
-                closeGraphExplorerForNavigation();
-                navigateToType(target);
-              },
-              label: `Open ${graphNode.displayName}`,
-            }
-          : {
-              unavailableLabel:
-                `${fullName} — not in the browsable public surface`,
-            };
+        const currentType = selectedType();
+        const candidate = graphNode.role === "self"
+          ? currentType
+            ? { pkg: currentPackage(), type: currentType }
+            : null
+          : uniqueWorkspaceTypeByQueryId<AppTypeSurface, AppPackage>(
+              state.packages,
+              fullName);
+        if (!candidate) {
+          return {
+            unavailableLabel:
+              `${fullName} — not uniquely available in the loaded Workspace surfaces`,
+          };
+        }
+        return {
+          onSelect: () => {
+            closeGraphExplorerForNavigation();
+            navigateToWorkspaceType(candidate.pkg, candidate.type);
+          },
+          label: `Open ${graphNode.displayName}`,
+        };
       },
     });
   } catch (error) {
@@ -11796,8 +11846,20 @@ async function renderTypeGraph() {
 }
 
 function navigateToTypeByName(fullName: string) {
-  const target = uniqueTypeByQueryId(currentPackage().types, fullName);
-  if (!target) return;
+  const candidate =
+    uniqueWorkspaceTypeByQueryId<AppTypeSurface, AppPackage>(
+      state.packages,
+      fullName);
+  if (!candidate) return;
+  navigateToWorkspaceType(candidate.pkg, candidate.type);
+}
+
+function navigateToWorkspaceType(
+  pkg: AppPackage,
+  target: AppTypeSurface,
+) {
+  if (state.package !== pkg)
+    selectWorkspacePackage(pkg, { renderSelection: false });
   navigateToType(target);
 }
 
@@ -11818,23 +11880,22 @@ function navigateToType(target: AppTypeSurface) {
   render();
 }
 
-// A related type (interface / base / derived) is only openable if it is part of
-// the loaded surface. Non-public implementers in the loaded assemblies are now
-// included (with an accessibility filter), so only types in OTHER assemblies
-// remain unbrowsable.
+// A related type is openable only when one loaded Workspace surface owns its
+// exact query identity. Ambiguous or external relationships stay static.
 function typeIsNavigable(fullName: string) {
-  return !!state.package && uniqueTypeByQueryId(state.package.types, fullName) !== null;
+  return uniqueWorkspaceTypeByQueryId<AppTypeSurface, AppPackage>(
+    state.packages,
+    fullName) !== null;
 }
 
-// Render a related-type chip: an active button when it resolves to a browsable
-// type in the loaded surface, otherwise a static chip that explains why it can't
-// be opened (it lives in another assembly).
+// Render a related-type chip as an active button only for a unique loaded
+// Workspace type.
 function relatedTypeChip(name: string) {
   const short = escapeHtml(shortTypeName(name));
   if (typeIsNavigable(name)) {
     return `<button class="type-chip" data-graph-type="${escapeHtml(name)}" title="${escapeHtml(name)}">${short}</button>`;
   }
-  return `<span class="type-chip is-static" title="${escapeHtml(name)} — not in the loaded surface (in another assembly)">${short}</span>`;
+  return `<span class="type-chip is-static" title="${escapeHtml(name)} — not uniquely available in the loaded Workspace surfaces">${short}</span>`;
 }
 
 // Projects the current package and its transitive dependency neighbourhood into a
@@ -12550,7 +12611,7 @@ function dependencyGraphAvailable() {
 function typeGraphAvailable() {
   const type = selectedType();
   return Boolean(type && state.package
-    && state.typeMetadataKey === typeMetadataSignature(
+    && state.typeMetadataKey === currentTypeMetadataSignature(
       type,
       state.package,
       selectedTypeMetadataLibraryIdentity())
@@ -12571,7 +12632,7 @@ function graphExplorerKey(): string | null {
   }
   const type = selectedType();
   if (scope() === "type" && state.lens === "metadata" && type && state.package) {
-    const signature = typeMetadataSignature(
+    const signature = currentTypeMetadataSignature(
       type,
       state.package,
       selectedTypeMetadataLibraryIdentity());

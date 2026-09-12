@@ -26,6 +26,11 @@ public enum BrowserCompileLibraryStatus
     InvalidImplementationAssets,
 }
 
+public sealed record BrowserWorkspacePackage(
+    string Package,
+    string Version,
+    string Framework);
+
 /// <summary>
 /// One type's metadata projection, adapted from <c>ResearchViews.TypeProjectionResult</c> — the
 /// presentation-neutral seam the CLI consumes — so the browser never reimplements type-fact
@@ -290,4 +295,5 @@ public sealed record BrowserExceptionSurface(
 [JsonSerializable(typeof(BrowserHeapListing))]
 [JsonSerializable(typeof(BrowserTypeMetadata))]
 [JsonSerializable(typeof(BrowserGraphMemberSurface))]
+[JsonSerializable(typeof(BrowserWorkspacePackage[]))]
 internal sealed partial class BrowserMetadataJsonContext : JsonSerializerContext;

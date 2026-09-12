@@ -18,6 +18,19 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
     <PackageReference Include="xunit.v3" />
+    <PackageDownload Include="Npgsql.EntityFrameworkCore.PostgreSQL"
+                     Version="[8.0.4]" />
+    <PackageDownload Include="Microsoft.EntityFrameworkCore.Relational"
+                     Version="[8.0.4]" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="$(NuGetPackageRoot)npgsql.entityframeworkcore.postgresql/8.0.4/npgsql.entityframeworkcore.postgresql.8.0.4.nupkg"
+          Link="RealAssets/TypeDependencies/npgsql.entityframeworkcore.postgresql.8.0.4.nupkg"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.entityframeworkcore.relational/8.0.4/microsoft.entityframeworkcore.relational.8.0.4.nupkg"
+          Link="RealAssets/TypeDependencies/microsoft.entityframeworkcore.relational.8.0.4.nupkg"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

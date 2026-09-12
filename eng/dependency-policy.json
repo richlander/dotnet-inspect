@@ -12,7 +12,6 @@
       ],
       "targets": [
         "CSharpText",
-        "Inspector.Artifacts",
         "Inspector.Resources",
         "DotnetInspector.RowSelection",
         "Inspector.Findings",
@@ -22,6 +21,21 @@
       ],
       "allowOnly": [
         "$platform"
+      ]
+    },
+    {
+      "id": "artifact-contract-floor-dependencies",
+      "source": "docs/design/artifact-ownership-and-borrowing.md#authority-and-exact-claim",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "Inspector.Artifacts"
+      ],
+      "allowOnly": [
+        "$platform",
+        "Inspector.Resources"
       ]
     },
     {

@@ -119,6 +119,15 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
     public RowWindow? Rows { get; init; }
 
     /// <summary>
+    /// Host-neutral semantic selection over type-dependency relationship rows.
+    /// </summary>
+    public RowSelectionIntent<TypeDependencyRowOrder>? TypeDependencyRows
+    {
+        get;
+        init;
+    }
+
+    /// <summary>
     /// Output the number of selected logical dependency edges.
     /// </summary>
     public bool Count { get; init; }

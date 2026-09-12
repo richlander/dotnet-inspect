@@ -117,6 +117,8 @@ function typeRequest(
     framework: "net10.0",
     assembly: "Example.Package.dll",
     type: "Example.Widget",
+    workspaceJson:
+      '[{"package":"Example.Package","version":"1.2.3","framework":"net10.0"}]',
     isVisible: () => true,
     ...overrides,
   };
@@ -181,6 +183,7 @@ test("type metadata publishes the current result and restores visible focus", as
             value.framework,
             value.assembly,
             value.type,
+            value.workspaceJson,
           ],
           [
             "Example.Package",
@@ -188,6 +191,7 @@ test("type metadata publishes the current result and restores visible focus", as
             "net10.0",
             "Example.Package.dll",
             "Example.Widget",
+            '[{"package":"Example.Package","version":"1.2.3","framework":"net10.0"}]',
           ]);
         return request.promise;
       },

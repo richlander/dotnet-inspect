@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using Inspector.Resources;
 
 namespace Inspector.Artifacts.Workspaces;
 
@@ -120,6 +121,7 @@ public abstract class ArtifactSetPublicationOutcome
 /// <c>ArtifactSetSession_ReleasesLeasesOnlyAfterOpenArtifactStreamsQuiesce</c>
 /// and <c>ArtifactSetSession_DisposalCancelsInFlightMaterialization</c>.
 /// </remarks>
+[ResourceOwnership]
 public sealed class ArtifactSetSession : IAsyncDisposable
 {
     private const string CleanupFailuresKey =
