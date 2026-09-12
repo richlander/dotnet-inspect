@@ -1,12 +1,19 @@
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.Versioning;
+using System.Collections.Immutable;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using DotnetInspector.Core;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using ILInspector.Metadata;
 
 using BrowserMetadataJsonContext =
     DotnetInspect.Web.Interop.Metadata.BrowserMetadataJsonContext;
+using BrowserMetadataJsonSerialization =
+    DotnetInspect.Web.Interop.Metadata.BrowserMetadataJsonSerialization;
 using BrowserTypeMetadata =
     DotnetInspect.Web.Interop.Metadata.BrowserTypeMetadata;
 
@@ -92,10 +99,10 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Empty(workspace.InspectionFailures);
         Assert.Equal(
             typeName,
-            workspace.TypeDependencyInspection.Content.MatchedType);
-        Assert.Equal(
-            "Available",
-            workspace.TypeDependencyInspection.Share.Kind.ToString());
+            workspace.TypeDependencyInspection.Content
+                .QueryResult.Dependency.MatchedType);
+        Assert.IsType<InspectionShare.Available>(
+            workspace.TypeDependencyInspection.Share);
         Assert.Empty(workspace.TypeDependencyInspection.Diagnostics);
     }
 
@@ -255,7 +262,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 diagnostic.Code
                     == "type-dependency.participant-rejected");
         Assert.Equal("Warning", rejection.Severity.ToString());
-        Assert.Contains(rejectedPackageId, rejection.Summary);
+        Assert.Contains(rejectedPackageId, rejection.Summary.ToString());
     }
 
     [Fact]
@@ -406,9 +413,96 @@ public sealed partial class BrowserEngineBoundaryTests
                     assemblyName,
                     typeName,
                     workspaceJson);
-        return JsonSerializer.Deserialize(
+        var options = new JsonSerializerOptions(
+            BrowserMetadataJsonContext.Default.Options);
+        _ = BrowserMetadataJsonSerialization.BrowserTypeMetadata;
+        options.Converters.Insert(
+            0,
+            new TypeDependencyEnvelopeJsonConverter());
+        return JsonSerializer.Deserialize<BrowserTypeMetadata>(
             json,
-            BrowserMetadataJsonContext.Default.BrowserTypeMetadata)!;
+            options)!;
+    }
+
+    sealed class TypeDependencyEnvelopeJsonConverter
+        : JsonConverter<InspectionEnvelope<TypeDependencySectionResult>>
+    {
+        public override InspectionEnvelope<TypeDependencySectionResult> Read(
+            ref Utf8JsonReader reader,
+            Type typeToConvert,
+            JsonSerializerOptions options)
+        {
+            using JsonDocument document = JsonDocument.ParseValue(ref reader);
+            JsonElement root = document.RootElement;
+            JsonElement content = root.GetProperty("content");
+            var wireOptions = new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true,
+            };
+            TypeDependencyResult dependency =
+                JsonSerializer.Deserialize<TypeDependencyResult>(
+                    content.GetProperty("queryResult")
+                        .GetProperty("dependency"),
+                    wireOptions)!;
+            IReadOnlyList<TypeDependencyRelationship> relationships =
+                JsonSerializer.Deserialize<
+                    List<TypeDependencyRelationship>>(
+                    content.GetProperty("rowSelection")
+                        .GetProperty("relationships"),
+                    wireOptions)
+                ?? [];
+            TypeDependencyRowSelectionResult rowSelection =
+                new(relationships, failure: null);
+            InspectionShare share =
+                JsonSerializer.Deserialize<InspectionShare>(
+                    root.GetProperty("share"),
+                    wireOptions)!;
+            ImmutableArray<InspectionDiagnostic> diagnostics =
+                root.GetProperty("diagnostics")
+                    .EnumerateArray()
+                    .Select(static diagnostic =>
+                    {
+                        InspectionDiagnosticSeverity severity =
+                            diagnostic.GetProperty("severity").ValueKind
+                                is JsonValueKind.Number
+                                ? (InspectionDiagnosticSeverity)(
+                                    diagnostic.GetProperty("severity")
+                                        .GetInt32())
+                                : Enum.Parse<InspectionDiagnosticSeverity>(
+                                    diagnostic.GetProperty("severity")
+                                        .GetString()!,
+                                    ignoreCase: true);
+                        string? correspondence =
+                            diagnostic.TryGetProperty(
+                                "correspondence",
+                                out JsonElement correspondenceElement)
+                                && correspondenceElement.ValueKind
+                                    != JsonValueKind.Null
+                                ? correspondenceElement.GetString()
+                                : null;
+                        return new InspectionDiagnostic(
+                            diagnostic.GetProperty("code").GetString()!,
+                            severity,
+                            diagnostic.GetProperty("summary").GetString()!,
+                            correspondence);
+                    })
+                    .ToImmutableArray();
+
+            return new(
+                new TypeDependencySectionResult(
+                    new AssemblyContextTypeDependencyResult(
+                        dependency,
+                        []),
+                    rowSelection),
+                share,
+                diagnostics);
+        }
+
+        public override void Write(
+            Utf8JsonWriter writer,
+            InspectionEnvelope<TypeDependencySectionResult> value,
+            JsonSerializerOptions options) =>
+            throw new NotSupportedException();
     }
 
     static byte[] BuildTypeDependencyImage(

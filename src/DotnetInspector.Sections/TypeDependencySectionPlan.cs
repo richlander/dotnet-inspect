@@ -65,7 +65,7 @@ public sealed class TypeDependencySectionPlan
 
 public sealed class TypeDependencyRowSelectionResult
 {
-    internal TypeDependencyRowSelectionResult(
+    public TypeDependencyRowSelectionResult(
         IReadOnlyList<TypeDependencyRelationship> relationships,
         RowsCohortSemanticFailure<TypeDependencyRowSet>? failure)
     {

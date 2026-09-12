@@ -300,6 +300,12 @@ static class TsTypeMapper
         TsJsonUnionMappingContext? unionContext = null)
     {
         string trimmed = csharpType.Trim();
+        if (mappingContext == TsTypeMappingContext.JsonWire
+            && trimmed is "InertText.InertString" or "InertString")
+        {
+            return "string";
+        }
+
         if (typeShape is null
             && IsBlockedType(trimmed, blockedAliases))
         {
@@ -408,6 +414,22 @@ static class TsTypeMapper
             return dictionaryType!;
         }
 
+        if (TryMapCollection(
+                trimmed,
+                recordNames,
+                diagnostics,
+                location,
+                blockedAliases,
+                mappedTypeNames,
+                mappingContext,
+                typeShape,
+                identityNames,
+                unionContext,
+                out string? collectionType))
+        {
+            return collectionType!;
+        }
+
         if (mappingContext == TsTypeMappingContext.JsonWire
             && typeShape is
             {
@@ -507,6 +529,25 @@ static class TsTypeMapper
                     blockedAliases))
             {
                 return "unknown";
+            }
+            if ((typeShape is
+                    {
+                        Kind: ApiTypeShapeKind.Named,
+                        Definition: { } exactFrameworkIdentity,
+                    }
+                    && IsAuthenticFrameworkShape(
+                        exactFrameworkIdentity,
+                        "System.Guid"))
+                || (typeShape is
+                    {
+                        Kind: ApiTypeShapeKind.Named,
+                        Definition: { } exactVersionIdentity,
+                    }
+                    && IsAuthenticFrameworkShape(
+                        exactVersionIdentity,
+                        "System.Version")))
+            {
+                return "string";
             }
             if (mappingContext == TsTypeMappingContext.JsInterop
                 && typeShape is
@@ -660,6 +701,7 @@ static class TsTypeMapper
             mappedType = "unknown";
             return true;
         }
+
         string expectedDefinition =
             typeName.StartsWith(
                 "System.Collections.Generic.IReadOnlyDictionary<",
@@ -718,6 +760,98 @@ static class TsTypeMapper
             ? $"Readonly<{recordType}>"
             : recordType;
         return true;
+    }
+
+    static bool TryMapCollection(
+        string typeName,
+        IReadOnlySet<string> recordNames,
+        TypeScriptGenerationDiagnostics? diagnostics,
+        string? location,
+        IReadOnlySet<string>? blockedAliases,
+        IReadOnlyDictionary<string, string>? mappedTypeNames,
+        TsTypeMappingContext mappingContext,
+        ApiTypeShape? typeShape,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, string>?
+            identityNames,
+        TsJsonUnionMappingContext? unionContext,
+        out string? mappedType)
+    {
+        if (mappingContext != TsTypeMappingContext.JsonWire
+            || !TryGetCollectionDefinition(
+                typeName,
+                out string? definition,
+                out string? arguments)
+            || !TrySplitGenericArguments(
+                arguments!,
+                out IReadOnlyList<string> collectionArguments)
+            || collectionArguments.Count != 1)
+        {
+            mappedType = null;
+            return false;
+        }
+        string elementType = collectionArguments[0];
+
+        if (typeShape is not null
+            && (!IsGenericShape(typeShape, definition!)
+                || IsBlockedType(typeName, blockedAliases)))
+        {
+            diagnostics?.ReportUnmappedType(
+                location ?? typeName,
+                typeName);
+            mappedType = "unknown";
+            return true;
+        }
+
+        string mappedElement = Map(
+            elementType,
+            recordNames,
+            diagnostics,
+            location,
+            blockedAliases,
+            mappedTypeNames,
+            mappingContext,
+            GenericArgumentShape(typeShape, 0),
+            identityNames,
+            unionContext);
+        mappedType = $"ReadonlyArray<{mappedElement}>";
+        return true;
+    }
+
+    static bool TryGetCollectionDefinition(
+        string typeName,
+        out string? definition,
+        out string? arguments)
+    {
+        foreach (string candidate in new[]
+        {
+            "System.Collections.Generic.ICollection",
+            "System.Collections.Generic.IEnumerable",
+            "System.Collections.Generic.IReadOnlyCollection",
+            "System.Collections.Generic.IReadOnlyList",
+            "System.Collections.Generic.List",
+            "System.Collections.Immutable.ImmutableArray",
+            "ICollection",
+            "IEnumerable",
+            "IReadOnlyCollection",
+            "IReadOnlyList",
+            "List",
+            "ImmutableArray",
+        })
+        {
+            if (TryUnwrapGeneric(typeName, candidate, out arguments))
+            {
+                definition = candidate.StartsWith(
+                    "System.",
+                    StringComparison.Ordinal)
+                    ? $"{candidate}`1"
+                    : $"System.Collections.Generic.{candidate}`1";
+                return true;
+            }
+        }
+
+        definition = null;
+        arguments = null;
+        return false;
     }
 
     static string MapAuthenticatedDelegate(
@@ -1265,6 +1399,8 @@ static class TsTypeMapper
                 or "Single"
                 or "Double"
                 or "Decimal"
+                or "Guid"
+                or "Version"
                 or "IntPtr"
                 or "DateTime"
                 or "DateTimeOffset"
@@ -1280,7 +1416,12 @@ static class TsTypeMapper
                 or "ValueTask`1",
             "System.Collections.Generic" => type.Name is
                 "Dictionary`2"
-                or "IReadOnlyDictionary`2",
+                or "IReadOnlyDictionary`2"
+                or "ICollection`1"
+                or "IEnumerable`1"
+                or "IReadOnlyCollection`1"
+                or "IReadOnlyList`1"
+                or "List`1",
             "System.Text.Json" => type.Name == "JsonElement",
             "System.Runtime.InteropServices.JavaScript" =>
                 type.Name == "JSObject",
@@ -1357,6 +1498,17 @@ static class TsTypeMapper
             _ => false,
         };
     }
+
+    static bool IsAuthenticFrameworkShape(
+        ApiTypeReferenceIdentity identity,
+        string fullName) =>
+        identity.FullName == fullName
+        && PlatformKeys.IsPlatform(identity.Assembly.PublicKeyToken)
+        && identity.Assembly.Name is
+            "System.Private.CoreLib"
+            or "System.Runtime"
+            or "mscorlib"
+            or "netstandard";
 
     static bool IsType(
         TypeRef type,

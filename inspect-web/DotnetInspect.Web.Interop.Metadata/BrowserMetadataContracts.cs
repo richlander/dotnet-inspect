@@ -1,4 +1,9 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
+using DotnetInspector.Core;
+using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Web.Interop.Metadata;
 
@@ -53,52 +58,8 @@ public sealed record BrowserTypeMetadata(
     BrowserTypeComposition? Composition,
     BrowserTypeGraphNode[] GraphNodes,
     BrowserTypeGraphEdge[] GraphEdges,
-    BrowserTypeDependencyEnvelope TypeDependencyInspection,
+    InspectionEnvelope<TypeDependencySectionResult> TypeDependencyInspection,
     string[] InspectionFailures);
-
-public sealed record BrowserTypeDependencyEnvelope(
-    BrowserTypeDependencyContent Content,
-    BrowserInspectionShare Share,
-    BrowserInspectionDiagnostic[] Diagnostics);
-
-public sealed record BrowserTypeDependencyContent(
-    bool Found,
-    string? MatchedType,
-    BrowserTypeDependencyRelationship[] Relationships,
-    bool IsComplete);
-
-public sealed record BrowserTypeDependencyRelationship(
-    int Ordinal,
-    string SourceTypeName,
-    string TargetTypeName,
-    string Kind);
-
-public sealed record BrowserInspectionShare(
-    BrowserInspectionShareKind Kind,
-    string? FullUrl,
-    string? Path,
-    string? Reason);
-
-[JsonConverter(typeof(JsonStringEnumConverter<BrowserInspectionShareKind>))]
-public enum BrowserInspectionShareKind
-{
-    Available,
-    NonProjectable,
-}
-
-public sealed record BrowserInspectionDiagnostic(
-    string Code,
-    BrowserInspectionDiagnosticSeverity Severity,
-    string Summary,
-    string? Correspondence);
-
-[JsonConverter(typeof(JsonStringEnumConverter<BrowserInspectionDiagnosticSeverity>))]
-public enum BrowserInspectionDiagnosticSeverity
-{
-    Info,
-    Warning,
-    Error,
-}
 
 public sealed record BrowserTypeParameter(string Name, string? Variance, string[] Constraints);
 
@@ -339,6 +300,16 @@ public sealed record BrowserExceptionSurface(
 [JsonSerializable(typeof(BrowserMetadataWindow))]
 [JsonSerializable(typeof(BrowserHeapListing))]
 [JsonSerializable(typeof(BrowserTypeMetadata))]
+[JsonSerializable(typeof(InspectionEnvelope<TypeDependencySectionResult>))]
 [JsonSerializable(typeof(BrowserGraphMemberSurface))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]
 internal sealed partial class BrowserMetadataJsonContext : JsonSerializerContext;
+
+internal static class BrowserMetadataJsonSerialization
+{
+    internal static JsonSerializerOptions Options =>
+        BrowserMetadataJsonContext.Default.Options;
+
+    internal static JsonTypeInfo<BrowserTypeMetadata> BrowserTypeMetadata
+        => BrowserMetadataJsonContext.Default.BrowserTypeMetadata;
+}

@@ -693,6 +693,7 @@ internal static class JsExportContextGenerator
         {
             if (!JsExportSurfaceLoader.TryLoad(
                     root.AssemblyPath,
+                    searchLocations,
                     toolName,
                     error,
                     out global::ILInspector.JsExportSurface.JsExportSurface?

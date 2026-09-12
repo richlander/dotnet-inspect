@@ -45,6 +45,7 @@ public static partial class MetadataExports
             typeId,
             workspaceJson,
             RowSelectionIntent<TypeDependencyRowOrder>.Empty);
+        _ = BrowserMetadataJsonSerialization.BrowserTypeMetadata;
         return JsonSerializer.Serialize(
             type,
             BrowserMetadataJsonContext.Default.BrowserTypeMetadata);
@@ -105,7 +106,7 @@ public static partial class MetadataExports
         (BrowserTypeGraphNode[] graphNodes,
             BrowserTypeGraphEdge[] graphEdges) =
             TypeRelationshipGraph(projection, result.Dependencies);
-        BrowserTypeDependencyEnvelope dependencyEnvelope =
+        InspectionEnvelope<TypeDependencySectionResult> dependencyEnvelope =
             TypeDependencyEnvelope(
                 scope,
                 root,
@@ -161,7 +162,7 @@ public static partial class MetadataExports
                 ]);
     }
 
-    static BrowserTypeDependencyEnvelope TypeDependencyEnvelope(
+    static InspectionEnvelope<TypeDependencySectionResult> TypeDependencyEnvelope(
         BrowserInspectionScope scope,
         BrowserPackageCoordinate root,
         TypeDependencySectionResult dependencies,
@@ -198,69 +199,14 @@ public static partial class MetadataExports
                     rowFailure));
         }
 
-        BrowserTypeDependencyContent content =
-            new(
-                dependencies.QueryResult.Dependency.Found,
-                dependencies.QueryResult.Dependency.MatchedType,
-                [
-                    .. dependencies.RowSelection.Relationships.Select(
-                        static relationship =>
-                            new BrowserTypeDependencyRelationship(
-                                relationship.Ordinal,
-                                relationship.SourceTypeName,
-                                relationship.TargetTypeName,
-                                relationship.Kind.ToString())),
-                ],
-                dependencies.QueryResult.IsComplete
-                && dependencies.RowSelection.IsSuccess);
         InspectionShare share =
             ProjectTypeShare(
                 root,
                 typeName);
-        var envelope =
-            new InspectionEnvelope<TypeDependencySectionResult>(
-                dependencies,
-                share,
-                diagnostics);
-        BrowserInspectionDiagnostic[] projectedDiagnostics =
-        [
-            .. envelope.Diagnostics.Select(
-                static diagnostic => new BrowserInspectionDiagnostic(
-                    diagnostic.Code,
-                    diagnostic.Severity switch
-                    {
-                        InspectionDiagnosticSeverity.Information =>
-                            BrowserInspectionDiagnosticSeverity.Info,
-                        InspectionDiagnosticSeverity.Warning =>
-                            BrowserInspectionDiagnosticSeverity.Warning,
-                        InspectionDiagnosticSeverity.Error =>
-                            BrowserInspectionDiagnosticSeverity.Error,
-                        _ => throw new InvalidOperationException(
-                            "Unknown inspection diagnostic severity."),
-                    },
-                    diagnostic.Summary.ToString(),
-                    diagnostic.Correspondence?.ToString())),
-        ];
-        return new BrowserTypeDependencyEnvelope(
-            content,
-            share switch
-            {
-                InspectionShare.NonProjectable nonProjectable =>
-                    new BrowserInspectionShare(
-                        BrowserInspectionShareKind.NonProjectable,
-                        null,
-                        nonProjectable.Path,
-                        nonProjectable.Reason.ToString()),
-                InspectionShare.Available available =>
-                    new BrowserInspectionShare(
-                        BrowserInspectionShareKind.Available,
-                        available.FullUrl,
-                        null,
-                        null),
-                _ => throw new InvalidOperationException(
-                    "Unknown inspection Share outcome."),
-            },
-            projectedDiagnostics);
+        return new InspectionEnvelope<TypeDependencySectionResult>(
+            dependencies,
+            share,
+            diagnostics);
     }
 
     static InspectionShare ProjectTypeShare(

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 using InertText;
 
 namespace DotnetInspector.Core;
@@ -13,12 +14,25 @@ public sealed record InspectionEnvelope<TContent>
         TContent content,
         InspectionShare share,
         IEnumerable<InspectionDiagnostic>? diagnostics = null)
+        : this(
+            content,
+            share,
+            (diagnostics ?? []).ToImmutableArray())
+    {
+    }
+
+    [JsonConstructor]
+    public InspectionEnvelope(
+        TContent content,
+        InspectionShare share,
+        ImmutableArray<InspectionDiagnostic> diagnostics)
     {
         ArgumentNullException.ThrowIfNull(content);
         Content = content;
         Share = share ?? throw new ArgumentNullException(nameof(share));
-        Diagnostics = (diagnostics ?? [])
-            .ToImmutableArray();
+        Diagnostics = diagnostics.IsDefault
+            ? []
+            : diagnostics;
     }
 
     public TContent Content { get; }
@@ -103,6 +117,9 @@ public sealed record InspectionEnvelope<TContent>
 /// <summary>
 /// The required portable-share outcome for an inspection.
 /// </summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(InspectionShare.Available), "available")]
+[JsonDerivedType(typeof(InspectionShare.NonProjectable), "nonProjectable")]
 public abstract record InspectionShare
 {
     private InspectionShare()
@@ -140,16 +157,24 @@ public abstract record InspectionShare
     public sealed record NonProjectable : InspectionShare
     {
         public NonProjectable(string path, string reason)
+            : this(
+                path,
+                new InertString(TextPolicy.Field, reason))
+        {
+        }
+
+        [JsonConstructor]
+        public NonProjectable(string path, InertString reason)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(path);
-            ArgumentException.ThrowIfNullOrWhiteSpace(reason);
 
             Path = path;
-            Reason = new InertString(TextPolicy.Field, reason);
+            Reason = reason;
         }
 
         public string Path { get; }
 
+        [JsonConverter(typeof(InertStringJsonConverter))]
         public InertString Reason { get; }
     }
 }
@@ -174,25 +199,38 @@ public sealed record InspectionDiagnostic
         InspectionDiagnosticSeverity severity,
         string summary,
         string? correspondence = null)
+        : this(
+            code,
+            severity,
+            new InertString(TextPolicy.Field, summary),
+            correspondence is null
+                ? null
+                : new InertString(TextPolicy.Field, correspondence))
+    {
+    }
+
+    [JsonConstructor]
+    public InspectionDiagnostic(
+        string code,
+        InspectionDiagnosticSeverity severity,
+        InertString summary,
+        InertString? correspondence)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(code);
-        ArgumentException.ThrowIfNullOrWhiteSpace(summary);
-        if (correspondence is not null)
-            ArgumentException.ThrowIfNullOrWhiteSpace(correspondence);
 
         Code = code;
         Severity = severity;
-        Summary = new InertString(TextPolicy.Field, summary);
-        Correspondence = correspondence is null
-            ? null
-            : new InertString(TextPolicy.Field, correspondence);
+        Summary = summary;
+        Correspondence = correspondence;
     }
 
     public string Code { get; }
 
     public InspectionDiagnosticSeverity Severity { get; }
 
+    [JsonConverter(typeof(InertStringJsonConverter))]
     public InertString Summary { get; }
 
+    [JsonConverter(typeof(InertStringJsonConverter))]
     public InertString? Correspondence { get; }
 }

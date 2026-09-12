@@ -273,6 +273,14 @@ alias components and retain their existing behavior.
 Unused union registrations remain inert. No discriminator, replacement
 transport, or runtime schema validator is introduced.
 
+The envelope pilot has one deliberate converter exception: the shared
+`InertText.InertString` field converter is authenticated as the JSON `string`
+wire shape and preserves nullable fields as `string | null`. Polymorphic
+`System.Text.Json` base records remain structural in this generation slice;
+their runtime discriminator and derived members are preserved by the managed
+serializer, while a later union-lowering slice may expose them as a
+discriminated TypeScript union.
+
 `JsonUnionWireTests` and the compiler/runtime consumer harness
 `eng/test-ts-jsexport-typescript.sh` gate the generated contract against actual
 source-generated serializer results and compiled TypeScript consumers.

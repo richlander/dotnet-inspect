@@ -232,6 +232,15 @@ A Browser-specific DTO may project an envelope for transport, but it must
 preserve content, Share, and diagnostic identity without converting the DTO
 into an alternate domain model.
 
+The first Browser pilot uses the closed CLR contract
+`InspectionEnvelope<TypeDependencySectionResult>` directly. Its
+`System.Text.Json` discriminator and inert-string converters are part of the
+authenticated runtime wire shape. `ts-jsexport` currently emits the
+polymorphic base records structurally rather than inventing a TypeScript
+discriminated union; the runtime boundary tests still verify the discriminator,
+derived fields, and diagnostic text. A future union-lowering slice may expose
+those alternatives more narrowly without changing this envelope contract.
+
 ## Content extent and equality
 
 Host agreement applies per envelope, not to the complete visible experience.

@@ -1,6 +1,46 @@
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
-export type BrowserInspectionDiagnosticSeverity = "Info" | "Warning" | "Error" | number;
-export type BrowserInspectionShareKind = "Available" | "NonProjectable" | number;
+export type InspectionDiagnosticSeverity = number;
+export type MetadataRootMalformedReason = number;
+export type TypeDependencyRejectionKind = number;
+export type TypeDependencyRelationshipKind = number;
+export type TypeDependencyRowSet = number;
+export interface ArtifactAcquisitionRegistration {
+    readonly generation: ArtifactGenerationIdentity;
+    readonly artifact: ArtifactIdentity;
+    readonly provenance: IArtifactProvenance;
+}
+export interface ArtifactGenerationIdentity {
+}
+export interface ArtifactIdentity {
+    readonly generation: ArtifactGenerationIdentity;
+    readonly ordinal: number;
+}
+export interface AssemblyAcquisitionRegistration {
+    readonly artifactRegistration: ArtifactAcquisitionRegistration | null;
+    readonly moduleVersionId: string | null;
+}
+export interface AssemblyContextSubject {
+    readonly registration: AssemblyAcquisitionRegistration;
+    readonly identity: AssemblyReferenceIdentity;
+    readonly provenance: AssemblyResolutionProvenance;
+}
+export interface AssemblyContextTypeDependencyEntry {
+    readonly subject: AssemblyContextSubject;
+}
+export interface AssemblyContextTypeDependencyResult {
+    readonly dependency: TypeDependencyResult;
+    readonly participants: ReadonlyArray<AssemblyContextTypeDependencyEntry>;
+    readonly hasSurvivingParticipant: boolean;
+    readonly isComplete: boolean;
+}
+export interface AssemblyReferenceIdentity {
+    readonly name: string;
+    readonly version: string | null;
+    readonly culture: string | null;
+    readonly publicKeyToken: string | null;
+}
+export interface AssemblyResolutionProvenance {
+}
 export interface BrowserAssemblyMetadata {
     readonly assembly: string;
     readonly metadataRoots: ReadonlyArray<BrowserMetadataImage>;
@@ -36,18 +76,6 @@ export interface BrowserHeapListing {
     readonly rowsTruncated: boolean;
     readonly entriesTruncated: boolean;
     readonly error: string | null;
-}
-export interface BrowserInspectionDiagnostic {
-    readonly code: string;
-    readonly severity: BrowserInspectionDiagnosticSeverity;
-    readonly summary: string;
-    readonly correspondence: string | null;
-}
-export interface BrowserInspectionShare {
-    readonly kind: BrowserInspectionShareKind;
-    readonly fullUrl: string | null;
-    readonly path: string | null;
-    readonly reason: string | null;
 }
 export interface BrowserMemberBodySelector {
     readonly token: number;
@@ -219,23 +247,6 @@ export interface BrowserTypeComposition {
     readonly obsolete: number;
     readonly total: number;
 }
-export interface BrowserTypeDependencyContent {
-    readonly found: boolean;
-    readonly matchedType: string | null;
-    readonly relationships: ReadonlyArray<BrowserTypeDependencyRelationship>;
-    readonly isComplete: boolean;
-}
-export interface BrowserTypeDependencyEnvelope {
-    readonly content: BrowserTypeDependencyContent;
-    readonly share: BrowserInspectionShare;
-    readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
-}
-export interface BrowserTypeDependencyRelationship {
-    readonly ordinal: number;
-    readonly sourceTypeName: string;
-    readonly targetTypeName: string;
-    readonly kind: string;
-}
 export interface BrowserTypeGraphEdge {
     readonly fromId: string;
     readonly toId: string;
@@ -263,7 +274,7 @@ export interface BrowserTypeMetadata {
     readonly composition: BrowserTypeComposition | null;
     readonly graphNodes: ReadonlyArray<BrowserTypeGraphNode>;
     readonly graphEdges: ReadonlyArray<BrowserTypeGraphEdge>;
-    readonly typeDependencyInspection: BrowserTypeDependencyEnvelope;
+    readonly typeDependencyInspection: InspectionEnvelope<TypeDependencySectionResult>;
     readonly inspectionFailures: ReadonlyArray<string>;
 }
 export interface BrowserTypeParameter {
@@ -289,6 +300,66 @@ export interface BrowserTypeSurface {
     readonly signature: string;
     readonly api: ReadonlyArray<BrowserMemberSurface>;
     readonly platformPack: string | null;
+}
+export interface IArtifactProvenance {
+}
+export interface InspectionDiagnostic {
+    readonly code: string;
+    readonly severity: InspectionDiagnosticSeverity;
+    readonly summary: string;
+    readonly correspondence: string | null;
+}
+export interface InspectionEnvelope<T0> {
+    readonly content: T0;
+    readonly share: InspectionShare;
+    readonly diagnostics: ReadonlyArray<InspectionDiagnostic>;
+}
+export interface InspectionShare {
+}
+export interface RowWindowFailure {
+    readonly stageNumber: number;
+    readonly requiredPosition: number;
+    readonly availableCount: number;
+}
+export interface RowsCohortSemanticFailure<T0> {
+    readonly identity: T0;
+    readonly failure: RowWindowFailure;
+}
+export interface TypeDependencyDepthBoundary {
+    readonly typeName: string;
+    readonly maximumDepth: number;
+}
+export interface TypeDependencyNode {
+    readonly typeName: string;
+    readonly children: ReadonlyArray<TypeDependencyNode>;
+}
+export interface TypeDependencyRejection {
+    readonly assemblyPath: string;
+    readonly kind: TypeDependencyRejectionKind;
+    readonly metadataRootReason: MetadataRootMalformedReason | null;
+}
+export interface TypeDependencyRelationship {
+    readonly sourceTypeName: string;
+    readonly targetTypeName: string;
+    readonly kind: TypeDependencyRelationshipKind;
+    readonly ordinal: number;
+}
+export interface TypeDependencyResult {
+    readonly matchedType: string | null;
+    readonly tree: ReadonlyArray<TypeDependencyNode>;
+    readonly found: boolean;
+    readonly relationships: ReadonlyArray<TypeDependencyRelationship>;
+    readonly depthBoundaries: ReadonlyArray<TypeDependencyDepthBoundary>;
+    readonly rejections: ReadonlyArray<TypeDependencyRejection>;
+}
+export interface TypeDependencyRowSelectionResult {
+    readonly isSuccess: boolean;
+    readonly relationships: ReadonlyArray<TypeDependencyRelationship>;
+    readonly failure: RowsCohortSemanticFailure<TypeDependencyRowSet> | null;
+}
+export interface TypeDependencySectionResult {
+    readonly queryResult: AssemblyContextTypeDependencyResult;
+    readonly rowSelection: TypeDependencyRowSelectionResult;
 }
 export interface JsExportRuntime {
     readonly getAssemblyExports: (assemblyName: string) => Promise<unknown>;
