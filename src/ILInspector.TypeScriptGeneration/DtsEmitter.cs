@@ -532,14 +532,102 @@ static class DtsEmitter
                 surface.AssemblyIdentity,
                 identityNames,
                 surface.AssemblyIdentity is { } unionAssembly
-                    ? surface.Unions
-                        .Where(union => union.Definition.TypeParameters.Count > 0)
+                    ? declarationTypes
+                        .Where(type => type.TypeParameters.Count > 0)
                         .ToDictionary(
-                            union => new ApiTypeReferenceIdentity(
-                                unionAssembly, union.Definition.FullName, union.Definition.DefinitionName),
-                            union => union.Definition.TypeParameters.Count)
+                            type => new ApiTypeReferenceIdentity(
+                                unionAssembly, type.FullName, type.DefinitionName),
+                            type => type.TypeParameters.Count)
                     : new Dictionary<ApiTypeReferenceIdentity, int>(),
+                GenericTypeNames(declarationTypes, allocatedTypeNames),
+                GenericTypeNameArities(declarationTypes, allocatedTypeNames),
                 delegateMappingContext));
+    }
+
+    static string[] GenericParameterNames(
+        ApiType type,
+        TypeMappingEnvironment environment)
+    {
+        if (type.TypeParameters.Count == 0)
+            return [];
+
+        var usedNames = new HashSet<string>(
+            environment.IdentityNames.Values,
+            StringComparer.Ordinal);
+        var names = new string[type.TypeParameters.Count];
+        for (int index = 0; index < names.Length; index++)
+        {
+            string name = $"T{index}";
+            while (!usedNames.Add(name))
+                name += "_";
+            names[index] = name;
+        }
+        return names;
+    }
+
+    static Dictionary<string, string> GenericTypeNames(
+        IEnumerable<ApiType> types,
+        IReadOnlyDictionary<ApiType, string>? allocatedTypeNames)
+    {
+        var names = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (ApiType type in types.Where(type => type.TypeParameters.Count > 0))
+        {
+            string allocatedName = AllocatedTypeName(type, allocatedTypeNames);
+            foreach (string? alias in new string?[]
+            {
+                type.Name,
+                type.FullName,
+                type.MetadataName,
+                allocatedName,
+            })
+            {
+                if (!string.IsNullOrEmpty(alias))
+                {
+                    names.TryAdd(alias, allocatedName);
+                    names.TryAdd(RemoveMetadataArity(alias), allocatedName);
+                }
+            }
+        }
+        return names;
+    }
+
+    static Dictionary<string, int> GenericTypeNameArities(
+        IEnumerable<ApiType> types,
+        IReadOnlyDictionary<ApiType, string>? allocatedTypeNames)
+    {
+        var arities = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (ApiType type in types.Where(type => type.TypeParameters.Count > 0))
+        {
+            foreach (string? alias in new string?[]
+            {
+                type.Name,
+                type.FullName,
+                type.MetadataName,
+                AllocatedTypeName(type, allocatedTypeNames),
+            })
+            {
+                if (!string.IsNullOrEmpty(alias))
+                {
+                    arities.TryAdd(alias, type.TypeParameters.Count);
+                    arities.TryAdd(RemoveMetadataArity(alias), type.TypeParameters.Count);
+                }
+            }
+        }
+        return arities;
+    }
+
+    static string RemoveMetadataArity(string name)
+    {
+        string segment = name;
+        int lastDot = name.LastIndexOf('.');
+        if (lastDot >= 0)
+            segment = name[(lastDot + 1)..];
+
+        int arity = segment.LastIndexOf('`');
+        if (arity < 0)
+            return name;
+
+        return name[..(lastDot + 1)] + segment[..arity];
     }
 
     static IReadOnlyDictionary<string, string> MappedTypeNames(
@@ -578,8 +666,7 @@ static class DtsEmitter
 
     internal static string PreferredTypeName(ApiType type)
     {
-        if (type.HasUnionAttribute == true
-            && type.TypeParameters.Count > 0
+        if (type.TypeParameters.Count > 0
             && type.DefinitionName is { } definition)
         {
             string segment = definition.Segments[^1];
@@ -720,6 +807,23 @@ static class DtsEmitter
             return;
         }
 
+        string[] genericParameters =
+            GenericParameterNames(record, typeEnvironment);
+        IReadOnlyDictionary<string, string> recordTypeNames =
+            MappedTypeNames(typeEnvironment, []);
+        if (record.TypeParameters.Count > 0)
+        {
+            var names = new Dictionary<string, string>(
+                recordTypeNames,
+                StringComparer.Ordinal);
+            for (int index = 0; index < record.TypeParameters.Count; index++)
+            {
+                names[record.TypeParameters[index].Name] =
+                    genericParameters[index];
+            }
+            recordTypeNames = names;
+        }
+
         var members = record.Members
             .Where(member => JsonWireMemberRules.IsSerialized(
                 member,
@@ -731,7 +835,10 @@ static class DtsEmitter
                 ResolvedName: member.JsonPropertyName ?? ApplyNamingPolicy(member.Name, namingPolicy)))
             .ToArray();
 
-        sb.Append("export interface ").Append(declarationName).Append(" {\n");
+        sb.Append("export interface ").Append(declarationName);
+        if (genericParameters.Length > 0)
+            sb.Append('<').AppendJoin(", ", genericParameters).Append('>');
+        sb.Append(" {\n");
 
         foreach ((ApiMember member, string resolvedName) in members)
         {
@@ -758,7 +865,13 @@ static class DtsEmitter
                     MappedTypeNames(
                         typeEnvironment,
                         member.SignatureModel?.ReturnTypeReferences
-                            ?? []),
+                            ?? [])
+                        .Concat(recordTypeNames)
+                        .GroupBy(item => item.Key, StringComparer.Ordinal)
+                        .ToDictionary(
+                            group => group.Key,
+                            group => group.Last().Value,
+                            StringComparer.Ordinal),
                     member.SignatureModel?.ReturnTypeShape,
                     typeEnvironment.IdentityNames,
                     typeEnvironment.UnionContext);
