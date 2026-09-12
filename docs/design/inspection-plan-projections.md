@@ -3,16 +3,19 @@
 Status: **proposed**.
 
 The **Inspection Plan Projections** design owns one composition rule: a
-resolved inspection basis produces exactly one typed terminal plan for section
-execution, effective-section discovery, or portable sharing.
+resolved inspection basis produces one explicit content disposition and one
+required portable-share projection.
 
-This is the focused owner for the shared shape and the separation among those
-three purposes. It consumes, but does not redefine, target resolution, section
-selection, query planning, capability authorization, facet identity,
-Workspace definitions, or host presentation.
+This is the focused owner for the shared shape and the separation between
+content work and sharing. It consumes, but does not redefine, target
+resolution, section selection, query planning, capability authorization, facet
+identity, Workspace definitions, the inspection envelope, or host
+presentation.
 
-The implementation tracker is
-[#6555](https://github.com/richlander/dotnet-inspect/issues/6555). The first
+The share-envelope revision tracker is
+[#6716](https://github.com/richlander/dotnet-inspect/issues/6716). The existing
+implementation tracker is
+[#6555](https://github.com/richlander/dotnet-inspect/issues/6555), and the first
 portable-sharing consumer is
 [#6540](https://github.com/richlander/dotnet-inspect/issues/6540), under the
 overall CLI-to-Inspect-Web tracker
@@ -30,21 +33,23 @@ section, discover whether sections are effective, or share an inspection:
 - explicit section, facet, and query intent; and
 - capability-request provenance.
 
-Those operations should not independently reinterpret that state. They also
-must not be forced into identical behavior. In particular:
+Those operations should not independently reinterpret that state. Sharing is
+useful alongside ordinary content, so it is not a competing terminal purpose.
+Content execution, content discovery, and share projection still must not be
+forced into identical behavior. In particular:
 
 - verbosity selects automatic render content but has no meaning in a shared
   scenario;
 - effective discovery may run bounded probes that ordinary sharing must not
   run;
-- sharing may preserve a facet that the producing host cannot currently
-  execute, provided the facet is structurally applicable and the receiving
-  host can faithfully restore it; and
+- the share projection may preserve a facet that the producing host cannot
+  currently execute, provided the facet is structurally applicable and the
+  receiving host can faithfully restore it; and
 - one inspection result may render several sections even when one portable
   facet is the appropriate semantic view.
 
-The design therefore shares resolution and identity while keeping terminal
-policy separate.
+The design therefore shares resolution and identity while keeping content
+policy separate from the always-present share projection.
 
 ## Ownership
 
@@ -63,24 +68,27 @@ This composition consumes owner-issued contracts:
 This document does not move those responsibilities. It defines the typed
 handoff among them.
 
-The user explicitly approved this cross-owner composition for the three
-terminal purposes. The design remains narrow: it does not specify the internal
-producer graph, section catalog contents, packet schema, Browser renderer, or
-CLI option grammar.
+The user explicitly approved this cross-owner composition and later replaced
+Share as an exclusive terminal purpose with a required envelope companion. The
+design remains narrow: it does not specify the internal producer graph, section
+catalog contents, packet schema, envelope schema, Browser renderer, or CLI
+option grammar.
 
 ## Decision
 
-One inspection-plan request has exactly one terminal purpose:
+One inspection-plan request has exactly one content disposition:
 
 ```text
-InspectionPlanPurpose
+InspectionContentPurpose
   = ExecuteSections
   | DiscoverEffectiveSections
-  | ProjectShareScenario
+  | SuppressContent
 ```
 
-The purpose is a closed sum type, not three independent flags. A plan cannot
-simultaneously authorize render execution, probe discovery, and sharing.
+The purpose is a closed sum type, not independent flags. A plan cannot
+simultaneously authorize render execution and probe discovery.
+`SuppressContent` means the caller deliberately requests no content work; it
+is not failure, unavailability, partial content, or a successful empty result.
 
 Planning has two phases:
 
@@ -88,9 +96,11 @@ Planning has two phases:
 parsed inspection intent
   -> authorized target resolution
   -> ResolvedInspectionBasis
-  -> purpose-specific lowering
-       |-- SectionExecutionPlan
-       |-- EffectiveDiscoveryPlan
+  -> inspection-plan lowering
+       |-- content
+       |     |-- SectionExecutionPlan
+       |     |-- EffectiveDiscoveryPlan
+       |     `-- ContentNotRequested
        `-- ShareProjectionPlan
 ```
 
@@ -119,10 +129,10 @@ It does not contain:
 - an executable producer closure or host authorization grant;
 - a packet, URL, Browser compatibility token, or rendered result.
 
-The basis is not itself executable or serializable. A terminal lowering must
-interpret it under exactly one purpose.
+The basis is not itself executable or serializable. Lowering chooses exactly
+one content disposition and always produces one share projection plan.
 
-## Terminal plans
+## Content and share plans
 
 ### Section execution
 
@@ -166,7 +176,17 @@ Effective-discovery outcomes remain bound to the operation and preflighted
 plan as specified by Member Inspection Planning. They are not portable share
 state.
 
-### Share projection
+### Suppressed content
+
+`ContentNotRequested` authorizes no content producer or effectiveness probe.
+The public `--share` gesture lowers to this disposition so it can return the
+already-required share outcome without executing ordinary inspection content.
+
+The eventual envelope represents this state explicitly rather than using null,
+an empty result, or a failed content variant. The envelope owner defines that
+result shape.
+
+### Required share projection
 
 `ShareProjectionPlan` produces portable scenario definitions or one typed
 non-projectable result.
@@ -181,8 +201,9 @@ It:
 4. asks Workspace Definitions to project canonical scenario records; and
 5. emits no ordinary inspection result.
 
-The share plan does not preflight or execute section producers, determine
-section effectiveness, or carry an operation-scoped authorization grant.
+Every content disposition carries a share projection plan. The share plan does
+not preflight or execute section producers, determine section effectiveness,
+or carry an operation-scoped authorization grant.
 Bounded acquisition or metadata work required to resolve an exact portable
 coordinate, library, type, or member remains target resolution rather than
 inspection execution.
@@ -192,13 +213,18 @@ inspection under its own capabilities and source authorization. A producing
 host's inability to execute a structurally applicable portable facet is not by
 itself a reason to erase or replace that facet.
 
-If explicit semantic state has no faithful portable form, sharing fails with a
-typed path and reason. It never chooses the nearest supported facet, drops a
-query, or serializes a CLI display name.
+If explicit semantic state has no faithful portable form, the share outcome is
+non-projectable with a typed path and reason. It never chooses the nearest
+supported facet, drops a query, or serializes a CLI display name.
 
-## Where the purposes agree
+A non-projectable share outcome does not invalidate independently valid
+Execute or Discover content. When content is deliberately suppressed for
+`--share`, non-projectability is the visible operation failure because no
+primary content was requested.
 
-All three terminal plans preserve:
+## Shared basis
+
+The content plan and share projection preserve:
 
 - exact source and target coordinate;
 - selected framework and Workspace context;
@@ -212,20 +238,20 @@ All three terminal plans preserve:
 A different answer on one of those axes means the plans were not derived from
 the same resolved inspection basis.
 
-## Where the purposes differ
+## Where content and sharing differ
 
-| Input or behavior | Execute sections | Discover effective sections | Project share scenario |
+| Input or behavior | Execute content | Discover content | Required share projection |
 | --- | --- | --- | --- |
 | Explicit section selection | Selects render candidates | Scopes probes when part of discovery | Maps through an owner-issued facet binding or refuses |
 | Verbosity | Selects automatic render candidates | Does not substitute for discovery scope | Has no semantic meaning and cannot affect the packet |
-| Discovery selectors | Not render demand | Select candidate probes | Conflict with the share terminal purpose |
+| Discovery selectors | Not render demand | Select candidate probes | Do not change the share projection |
 | Probe policy and budget | Not used | Governs producer probes | Not used |
 | Render capability grants | Preflighted and operation-bound | Not used as render authority | Never serialized |
 | Probe capability grants | Not used | Preflighted and operation-bound | Never serialized |
-| Fields, columns, rows, count, tree, Mermaid | Presentation or result projection | Discovery presentation only where defined | Competing output or unsupported semantic state |
+| Fields, columns, rows, count, tree, Mermaid | Presentation or result projection | Discovery presentation only where defined | Not portable scenario state |
 | Facet identity | Optional; several sections may be rendered | Optional; discovery ranges across sections | Exactly one canonical facet is required |
 | Producer execution | Authorized render closures | Authorized probe closures only | None beyond exact target resolution |
-| Success value | Inspection result | Typed effectiveness catalog | Portable definitions/packet candidate |
+| Outcome | Inspection result | Typed effectiveness catalog | Canonical full URL or typed non-projectable result |
 
 An explicitly supplied verbosity value may remain valid producing-host policy,
 but normalizing it away must yield the same share plan and canonical packet as
@@ -272,14 +298,17 @@ plan.
 The parser retains independent gesture axes long enough for the plan builder
 to classify them.
 
-- `--share` plus a discovery gesture requests two terminal purposes and is
+- `--share` selects `ContentNotRequested`; it does not add a second purpose.
+- `--share` plus a discovery gesture requests two content dispositions and is
   rejected.
-- `--share` plus an ordinary result format, reducer, or renderer requests two
-  terminal outputs and is rejected.
+- `--share` plus an ordinary result format, reducer, or renderer requests both
+  suppressed and rendered content and is rejected.
 - verbosity with `--share` is normalized away because it does not describe the
   receiving inspection.
+- ordinary Execute and Discover operations retain their share outcome even when
+  the host does not render it.
 - explicit section, facet, query, focus, or traversal choices are semantic.
-  Sharing preserves them or returns a typed refusal.
+  Share projection preserves them or returns a typed non-projectable outcome.
 - local source policy, credentials, offline mode, timeout, cache choice,
   tracing, and tips govern producing-host resolution but are not portable
   scenario state.
@@ -291,7 +320,7 @@ canonical packets after resolving the same exact target.
 ## Failure model
 
 Common resolution returns its existing typed target and selection failures.
-Each terminal arm then adds only failures it owns:
+Each plan adds only failures it owns:
 
 | Plan | Owned non-success |
 | --- | --- |
@@ -299,10 +328,10 @@ Each terminal arm then adds only failures it owns:
 | Effective discovery | Per-section `Unknown` or `Failed`, plus common plan denial |
 | Share projection | `NonProjectable(path, reason)` or Workspace Definition projection failure |
 
-A terminal-plan mismatch is invalid construction, not an empty result. A share
-refusal writes no packet or partial URL. Effective discovery does not convert a
-denied probe to ineffective. Section execution does not convert producer
-failure to an empty section.
+A content-disposition mismatch is invalid construction, not an empty result. A
+share refusal writes no packet or partial URL. It does not discard valid
+content. Effective discovery does not convert a denied probe to ineffective.
+Section execution does not convert producer failure to an empty section.
 
 ## Real asset and demo
 
@@ -332,7 +361,7 @@ dotnet-inspect member Utf8JsonWriter WriteStringValue:7 \
   --package System.Text.Json@9.0.4 --tfm net9.0 \
   -D
 
-# Serialize the graph request without executing it.
+# Return the required share URL without executing content.
 dotnet-inspect member Utf8JsonWriter WriteStringValue:7 \
   --package System.Text.Json@9.0.4 --tfm net9.0 \
   -S "Call Graph" --share
@@ -341,53 +370,60 @@ dotnet-inspect member Utf8JsonWriter WriteStringValue:7 \
 The graph contains real inbound `EnumConverter<T>.Write` and
 `UriConverter.Write` callers plus null, span, validation, escaping, and writer
 branches. The execution plan produces that result. Effective discovery reports
-section dispositions under probe policy. The share plan carries the target and
-`member.call-graph` configuration but no graph nodes or edges.
+section dispositions under probe policy. Every operation also projects the
+target and `member.call-graph` configuration without graph nodes or edges.
+`--share` suppresses content and renders only that URL.
 
 ## Comparative evidence
 
 PostgreSQL separates planning from execution: ordinary `EXPLAIN` describes a
 plan without running the statement, while `EXPLAIN ANALYZE` executes it and
 adds runtime observations. Its options also affect only the applicable mode.
-That is evidence for a shared resolved basis with explicit terminal purpose,
-not authority for this design. dotnet-inspect differs by adding a portable
-share projection and by retaining section-level typed effectiveness outcomes.
+That is evidence for a shared resolved basis with explicit content purpose,
+not authority for this design. dotnet-inspect differs by always adding a
+portable share projection and by retaining section-level typed effectiveness
+outcomes.
 
 Reference:
 [PostgreSQL `EXPLAIN`](https://www.postgresql.org/docs/current/sql-explain.html).
 
 ## Production adoption
 
-The plan has three steps:
+The share-envelope revision has four steps under
+[#6716](https://github.com/richlander/dotnet-inspect/issues/6716):
 
-1. This design establishes the common basis, closed terminal-purpose model,
-   real asset, differences among modes, and evidence requirements.
-2. The production CLI exact-member path adopts the typed model for existing
-   Overview execution, effective discovery, and Overview sharing. Existing
-   behavior remains the compatibility oracle until equivalent outcomes pass.
-3. #6540 adopts `member.call-graph` through the same share arm and completes
-   published Inspect Web restoration and execution over the exact package.
+1. This design replaces exclusive Share purpose with one content disposition
+   plus one required share projection.
+2. #6711 adopts the resulting content/share split in the inspection envelope.
+3. #6703 updates contributor guidance.
+4. #6712 implements the first CLI and Browser/Wasm type-dependency adoption.
 
-Total steps: **3**. Step 2 is direct CLI adoption. Step 3 is Browser/Wasm
-adoption. Package Dependencies and other commands migrate through separately
-scoped follow-up adoptions; they are not prerequisites for this contract.
+Total steps: **4**. Existing exact-member adoption under #6555 and #6540
+continues to consume this model; package dependencies and other commands
+migrate through separately scoped follow-ups.
 
 ## Verification obligations
 
 The design remains **unverified** until the production slices provide:
 
-- one plan-basis gate proving all three purposes retain the same exact package,
-  framework, type, member anchor, catalog, and explicit semantic demand;
-- type-shape gates proving exactly one terminal purpose and preventing a share
-  plan from containing render/probe closures or operation authorization;
+- one plan-basis gate proving content and share plans retain the same exact
+  package, framework, type, member anchor, catalog, and explicit semantic
+  demand;
+- type-shape gates proving exactly one content disposition, one required share
+  projection, and no render/probe closure or operation authorization in the
+  share plan;
 - execution gates proving explicit sections and verbosity defaults lower only
   through `SectionExecutionPlan`;
 - effectiveness gates proving discovery scope and probe policy lower only
   through `EffectiveDiscoveryPlan` and retain typed unknown/failure outcomes;
+- content-presence gates proving `--share` yields `ContentNotRequested`, while
+  failure and unavailability never do;
 - canonical packet equality for share invocations that differ only by
   verbosity or other non-portable producing-host policy;
-- typed refusal gates for discovery-plus-share, competing terminal output, and
-  semantic section/query state with no portable facet or codec;
+- typed refusal gates for discovery-plus-share, suppressed-plus-rendered
+  content, and semantic state with no portable facet or codec;
+- a gate proving non-projectable sharing does not discard independently valid
+  Execute or Discover content;
 - existing member Overview output, effective discovery, and sharing parity
   through the first CLI adoption;
 - the real `System.Text.Json@9.0.4` Call Graph CLI-to-published-Browser gate
@@ -398,7 +434,7 @@ The design remains **unverified** until the production slices provide:
 ## Non-goals
 
 - One universal migration of every command or section.
-- Making the three terminal purposes select identical sections or policies.
+- Making Execute and Discover select identical sections or policies.
 - Giving verbosity, formatting, fields, columns, rows, count, tree, or Mermaid
   portable meaning.
 - Making every section an independently shareable facet.
@@ -408,3 +444,5 @@ The design remains **unverified** until the production slices provide:
 - Replacing Markout rendering, the Section Model, the View Facet Registry,
   query planning, or Workspace Definitions.
 - Treating the plan as a second CLI grammar or reconstructing it from argv.
+- Choosing a new CLI passthrough spelling. Existing `--raw` remains the
+  GitHub-URL-shape option unless its owner separately changes it.

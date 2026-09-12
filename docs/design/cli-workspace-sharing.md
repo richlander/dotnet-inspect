@@ -40,14 +40,15 @@ of its source, focus, selector, query, traversal, and execution semantics.
 Inspect Web remains the owner of URL activation and presentation. This design
 composes those owner-issued contracts without redefining them.
 [Inspection Plan Projections](inspection-plan-projections.md) owns the shared
-resolved basis and the typed split between section execution,
-effective-section discovery, and portable sharing.
+resolved basis, closed content disposition, and required portable-share
+projection.
 
 The repository convention is that a caller selects source, focus, operation,
 and lens on the command that performs the inspection, then chooses output
 through an option on that same command. `--share` follows that convention. It
-is a terminal projection, like selecting another output representation, not a
-new structural focus or operation arity under the
+selects Share as the only CLI output while suppressing ordinary content, like
+selecting another output representation rather than a new structural focus or
+operation arity under the
 [Command Transition Model](command-transition-model.md).
 
 Canonical packet and URL output deliberately bypass Markout. They are
@@ -106,15 +107,18 @@ parse, normalize, and resolve exact portable identity
    |
    v
 resolved semantic invocation
-   |-- --share --------------------> scenario packet or URL
-   `-- execute target observation -> inspection result
+   -> required share projection --> scenario packet and URL
+   `-> content disposition
+         |-- --share -------------> content not requested
+         `-- ordinary invocation -> execute or discover content
 ```
 
-Sharing takes the upper branch. It serializes what the caller asked the product
-to inspect: acquisition coordinates, Workspace context, structural focus,
-exact subject selectors, selected facets or queries, traversal choices, and
-other portable semantic options. It does not serialize the target being
-inspected or the answer produced by inspecting it.
+Every plan includes the Share projection. `--share` suppresses content and
+renders that projection. It serializes what the caller asked the product to
+inspect: acquisition coordinates, Workspace context, structural focus, exact
+subject selectors, selected facets or queries, traversal choices, and other
+portable semantic options. It does not serialize the target being inspected or
+the answer produced by inspecting it.
 
 The distinction is semantic rather than temporal. A command may need bounded
 acquisition or metadata resolution to establish an exact portable coordinate
@@ -328,7 +332,7 @@ The adoption has three planned steps:
 1. This design records the real asset, observed graph, exact invocation,
    compatibility mapping, boundaries, and required gates.
 2. [#6555](https://github.com/richlander/dotnet-inspect/issues/6555) implements
-   the shared typed plan-purpose model and adopts it in the exact-member CLI
+   the shared typed content/share model and adopts it in the exact-member CLI
    path for execution, effective discovery, and existing Overview sharing.
 3. The final production-adoption PR projects Call Graph through that share
    plan and restores it in Inspect Web, gated against the unchanged committed
