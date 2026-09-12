@@ -282,7 +282,8 @@ public partial class NuGetJsonContext : JsonSerializerContext
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
-    NumberHandling = JsonNumberHandling.AllowReadingFromString)]
+    NumberHandling = JsonNumberHandling.AllowReadingFromString,
+    DefaultBufferSize = 128 * 1024)]
 [JsonSerializable(typeof(PrefixSearchWireResponse))]
 internal partial class PrefixSearchJsonContext : JsonSerializerContext
 {

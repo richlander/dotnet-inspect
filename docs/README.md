@@ -42,6 +42,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [CLI Change Classification and Obsolete Inputs](design/cli-change-classification.md) | Published CLI surfaces, observable change classification, disclosure, invalid-input guards, and routing reservations. |
 | [CLI Option-Value Validation](design/cli-option-value-validation.md) | Shared zero-arity diagnostics that preserve positional ownership and command-owned capacity. |
 | [Dependency Inspection Command](design/dependency-inspection-command.md) | Target unification of dependency graph traversal and normalized evidence under one asset-driven `depends` operation. |
+| [Application Dependency Manifest Format](design/application-dependency-manifest-format.md) | Host-neutral bounded interpretation of SDK application compile/runtime asset coordinates for direct RTS consumption. |
 | [Assembly Dependency Candidate Inventory](design/assembly-dependency-candidate-inventory.md) | Services-owned undiscarded discovery evidence, target-input association and typed acquisition outcomes before consumer selection. |
 | [Assembly Reference Resolution Ladder](design/assembly-reference-resolution-ladder.md) | Ordered, revision-bound resolution of one exact `AssemblyRef` through its referencing context, applicable platform, and owner-issued package dependency routes under finite operation work. |
 | [Search Scope Resolution](design/search-scope-resolution.md) | Default activation, explicit-source suppression and composition, and named platform/package scope expansion for search commands. |
@@ -141,6 +142,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Member Body Substrate](design/member-body-substrate.md) | One base for skeleton/full/merged/diff body rendering: `ApiType` shape, `MemberAnchor` address, one scope, and `MemberBody`'s scalar (whole-body) and vector (offset-keyed) shapes. |
 | [NuGet API Selection](design/nuget.md) | Scenario-to-API decisions, endpoint roles, first/last-result performance evidence, and current versus proposed adoption. |
 | [NuGet Catalog Acquisition](design/nuget-catalog-acquisition.md) | Bounded incremental acquisition of advertised Catalog event windows with source identity, horizon, completion, and typed failure. |
+| [NuGet Catalog Package Receipt](design/nuget-catalog-package-receipt.md) | Exact Package Details leaf enrichment for source-issued first-receipt time with event correspondence and typed failure. |
 | [GitHub NuGet Advisory Evidence](design/github-nuget-advisory-evidence.md) | Bounded reviewed-advisory acquisition and exact-coordinate current-affected and explicitly-fixed evidence with honest category availability. |
 | [Package Query Input Selection](design/package-query-input-selection.md) | Exact-ID and explicit-prefix selection shared by Package Query consumers, with blank input remaining idle. |
 | [Package Query Inspection Evidence](design/package-query-inspection-evidence.md) | Inspection-produced item counts and bounded previews, distinct from query-wide context. |
@@ -171,6 +173,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Inspect Web Graph Source State](design/inspect-web-graph-source-state.md) | One feature-owned Graph Source modal state with distinct pending, available, failed, and cancelled outcomes. |
 | [Inspect Web Document Viewer State](design/inspect-web-document-viewer-state.md) | One feature-owned package document modal state with distinct pending, available, and failed outcomes. |
 | [Inspect Web Spotlight Package Search State](design/inspect-web-spotlight-package-search-state.md) | One feature-owned Spotlight package-search result state with typed cache retention and snapshot settlement. |
+| [Inspect Web Type and Member Source State](design/inspect-web-type-member-source-state.md) | Independent Type and Member Source result states with shared cancellation, exact publication ownership, and snapshot settlement. |
 | [Inspect Web Source Comparison](design/inspect-web-source-comparison.md) | Explicit package-version/member pair interaction, paired Source query adoption, and authored-source changes, moves, provenance, and non-success in the browser. |
 | [Analysis Universe Realization](design/analysis-universe-realization.md) | Operation-scoped binding from one exact finite analysis universe and validated plan to owner-issued executable capabilities, deterministic access, retained lifetimes, and visible failure. |
 | [Analysis String-Literal-Use Pattern](design/analysis-string-literal-use-pattern.md) | Bounded ordinal matching over decoded `ldstr` occurrences with durable instruction identity, contained literal evidence, and typed incomplete outcomes. |
@@ -207,6 +210,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [C# Memory-Safety Declaration Spelling](design/csharp-memory-safety-spelling.md) | Proposed CSharp-owned spelling of caller contracts independently from pointer syntax and body-context requirements. |
 | [Source Finding Producers](design/source-finding-producers.md) | How source-derived Findings are produced. |
 | [Source Availability Audit](design/source-availability-audit.md) | Operation-scoped source reachability and origin-validated positive reuse. |
+| [Source Integrity Audit](design/source-integrity-audit.md) | Operation-scoped SourceLink body verification and immutable positive reuse. |
 | [Untrusted Data Threat Model](design/untrusted-data-threat-model.md) | Trust boundaries, existing controls, and the security-scope rationale for untrusted internet-origin data. |
 | [Finding Adoption](design/finding-adoption.md) | How Analysis, Findings, and Research compose. |
 | [Call Graph Projection](design/call-graph-projection.md) | Projecting the inspection graph into a call graph. |

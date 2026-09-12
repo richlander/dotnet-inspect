@@ -1,10 +1,11 @@
 # Inspect Web Surface Composition
 
-This document owns browser host page-level composition and placement: which
-working surfaces exist, where they sit relative to navigation, how Unified
-Settings and package-source presentation are placed, how the layout responds
-to viewport size, where the shell-owned Application menu and contextual
-working-surface actions sit, and the data bar and Diagnostics. Internal
+This document owns browser host page-level composition and placement: how Home
+orients and exposes its primary entry, which working surfaces exist, where they
+sit relative to navigation, how Unified Settings and package-source
+presentation are placed, how the layout responds to viewport size, where the
+shell-owned Application menu and contextual working-surface actions sit, and
+the data bar and Diagnostics. Internal
 surface semantics -- the package-query engine, the Annotated Source viewer,
 the Member Diff viewer, shell actions, and package-source registration --
 remain with their existing focused owners; this document places them.
@@ -13,6 +14,8 @@ remain with their existing focused owners; this document places them.
 
 This owner defines:
 
+- Home's page-level hierarchy, wide and narrow composition, and relationship to
+  the data bar;
 - which working surfaces exist (Type API, Member API, Type Metadata, Compare,
   Source, Annotated Source, Member Diff, Package query, Diagnostics) and their
   page-level placement relative to Type/Member navigation;
@@ -107,6 +110,32 @@ This document consumes, without redefining:
   owned by
   [Inspect Web Navigation
   Presentation](inspect-web-navigation-presentation.md#application-scope-strip).
+
+## Home inspection entry
+
+Home is a routed, full-bleed inspection entry rather than a marketing page,
+package registry, or workbench. Its first useful action is the existing
+Spotlight Search, preceded only by concise product orientation.
+
+At wide widths, orientation, Search, the product-issued Demos entry, and a
+local-processing statement form the primary column. The dotnet-bot mark
+occupies a smaller supporting column. Demos remain visibly subordinate to
+Search and describe their entry as a curated package query.
+
+At narrow widths, the content order is orientation, Search, Demos,
+local-processing statement, and artwork. Home keeps a short introduction, but
+elides the Demos description while retaining its label, action, and catalog
+state. Search and Demos are both visible in the initial 390 by 844 CSS-pixel
+content viewport; artwork never precedes them.
+
+Home does not repeat links already owned by the data bar. The data bar is the
+shared entry for the CLI tool, agent skill, and Credits. The current Home-bar
+action inventory remains unchanged by this composition.
+
+Loading, catalog-unavailable, query-notice, and long-label states retain the
+same primary hierarchy. They do not replace Search with artwork, turn failure
+into empty success, or create page-level horizontal overflow. Search may
+contain its own horizontal scope-control pressure.
 
 ## Shell navigation and application actions
 
@@ -1351,7 +1380,7 @@ expand, or host runtime diagnostics:
 
 <!-- markdownlint-disable MD013 -->
 ```text
-dotnet-inspect v0.35.2 · abc1234 · Aug 27, 2026 UTC · Package source: Corporate mirror (pkgs.dev.azure.com/org/_packaging/feed/nuget/v3/index.json) · CLI tool · Agent skill
+dotnet-inspect v0.35.2 · abc1234 · Aug 27, 2026 UTC · Package source: Corporate mirror (pkgs.dev.azure.com/org/_packaging/feed/nuget/v3/index.json) · CLI tool · Agent skill · Credits
 ```
 <!-- markdownlint-enable MD013 -->
 
@@ -1361,8 +1390,9 @@ The data bar includes:
 - linked short commit;
 - concise UTC build date without a `built` prefix;
 - read-only package producer, or the applicable non-package acquisition kind;
-- the same `CLI tool` link used on Home; and
-- the same `agent skill` link used on Home.
+- `CLI tool`;
+- `Agent skill`; and
+- `Credits`.
 
 On a narrow viewport, the line remains non-wrapping and horizontally scrollable.
 It does not discard the source or promotional actions to fit.
@@ -1428,6 +1458,21 @@ rendering, the consumer effect lifecycle, or shell/modal semantics.
 
 An implementation claiming this redesign is complete must satisfy these
 outcomes.
+
+### Home entry acceptance
+
+1. At 1440 by 900 CSS pixels, confirm that orientation, Search, Demos, and the
+   local-processing statement form the primary column, while artwork occupies
+   the smaller supporting column and the data bar remains fixed.
+2. At 390 by 844 CSS pixels, confirm that the short introduction, Search, and
+   Demos are all initially visible, the Demos description is elided, artwork
+   follows the primary entry, and no page-level horizontal overflow appears.
+3. Exercise engine loading, unavailable demos, a query notice, and long labels.
+   Confirm that Search retains its primary geometry, typed status stays
+   visible, and delayed rerenders do not reclaim focus from a user-selected
+   control.
+4. Activate Credits from the data bar on Home and a Workspace surface. Confirm
+   that both use the existing routed Credits entry.
 
 ### Application and contextual action placement
 
