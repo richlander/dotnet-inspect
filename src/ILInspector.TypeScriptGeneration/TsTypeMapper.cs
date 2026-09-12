@@ -413,7 +413,10 @@ static class TsTypeMapper
             && unionContext?.LocalGenericArities.ContainsKey(unionIdentity) == true)
         {
             return TsJsonUnionMapper.MapClosedShape(
-                typeShape, unionContext, location ?? trimmed);
+                typeShape,
+                unionContext,
+                location ?? trimmed,
+                trimmed);
         }
 
         if (typeShape is
@@ -1489,7 +1492,7 @@ static class TsTypeMapper
             ? typeName["global::".Length..]
             : typeName;
 
-    static bool TryParseGenericType(
+    internal static bool TryParseGenericType(
         string typeName,
         out string? definition,
         out IReadOnlyList<string> arguments)

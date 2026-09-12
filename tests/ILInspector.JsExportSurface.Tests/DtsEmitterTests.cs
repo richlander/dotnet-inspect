@@ -844,6 +844,18 @@ public sealed class DtsEmitterTests
             """,
             facade,
             StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface NullableTextRoot {
+              readonly result: GenericEnvelope<string | null>;
+            }
+            """,
+            facade,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function getNullableTextRoot(): NullableTextRoot",
+            facade,
+            StringComparison.Ordinal);
         Assert.DoesNotContain(
             "Kind<number>",
             facade,

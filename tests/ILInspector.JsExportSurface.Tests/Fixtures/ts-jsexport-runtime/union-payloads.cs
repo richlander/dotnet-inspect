@@ -41,6 +41,9 @@ if (args is not [string outputPath])
         "nullableIntEnvelopeNull",
         TypeScriptFixtureExports.GetNullableIntEnvelope(false)),
     (
+        "nullableTextRoot",
+        TypeScriptFixtureExports.GetNullableTextRoot()),
+    (
         "selectionEnvelope",
         await TypeScriptFixtureExports.GetSelectionEnvelopeAsync("envelope")),
 ];

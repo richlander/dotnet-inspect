@@ -311,6 +311,13 @@ instantiation, so `GenericEnvelope<byte[]>` is exposed as
 JavaScript ABI, and generic `[JSExport]` methods and generic `JsExportRoot`
 types remain unsupported.
 
+Structured shape owns each argument's identity and CLR construction; the
+corresponding reachable member signature supplies nullable-reference
+annotations that the structural metadata view does not retain. The mapper
+combines those two views by argument position, so `GenericEnvelope<string?>`
+becomes `GenericEnvelope<string | null>` without accepting a display-text
+lookalike as identity evidence.
+
 The initial contract intentionally admits only direct type-parameter members,
 including their direct nullable form. A parameter embedded in a CLR shape is
 not generally parametric in the corresponding TypeScript wire type. For
@@ -335,7 +342,7 @@ reachable wire graph is authenticated.
 `eng/test-ts-jsexport-typescript.sh` compiles consumers of two distinct closed
 constructions, rejects a mismatched argument, and executes the facade against
 real source-generated System.Text.Json payloads, including the wire-sensitive
-`byte[]` argument.
+`byte[]` argument and a null value carried by a nullable-reference argument.
 
 ### Public facade view
 

@@ -15,6 +15,9 @@ public sealed record GenericCollision<T>(
 public sealed record NullableEnvelope<T>(T? Content)
     where T : struct;
 
+public sealed record NullableTextRoot(
+    GenericEnvelope<string?> Result);
+
 [JsonSerializable(
     typeof(GenericEnvelope<WidgetDto>),
     TypeInfoPropertyName = "WidgetEnvelope")]
@@ -27,6 +30,7 @@ public sealed record NullableEnvelope<T>(T? Content)
 [JsonSerializable(
     typeof(NullableEnvelope<int>),
     TypeInfoPropertyName = "NullableIntEnvelope")]
+[JsonSerializable(typeof(NullableTextRoot))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal sealed partial class GenericRecordFixtureJsonContext :
     JsonSerializerContext;

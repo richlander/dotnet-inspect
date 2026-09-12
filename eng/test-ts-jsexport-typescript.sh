@@ -69,6 +69,7 @@ import {
   getFlagSelection,
   getKindSelection,
   getNullableIntEnvelope,
+  getNullableTextRoot,
   getOutcomeSelection,
   getSelectionEnvelopeAsync,
   getWidgetEnvelope,
@@ -83,6 +84,7 @@ import type {
   GenericEnvelope,
   KindSelection,
   NullableEnvelope,
+  NullableTextRoot,
   OutcomeSelection,
   SelectionEnvelope,
   T,
@@ -104,6 +106,8 @@ type GroupEntries = Extract<SelectionEnvelope["group"], ReadonlyArray<unknown>>;
 export const missingSelectionEntry: SelectionEntries[number] = null;
 export const missingMapEntry: SelectionMap[string] = null;
 export const missingGroupEntry: GroupEntries[number] = null;
+export const missingGenericArgument:
+  NullableTextRoot["result"]["content"] = null;
 
 function isEntryArray(
   selection: CollectionSelection,
@@ -207,10 +211,12 @@ export function describeGenericEnvelopes(): string {
     getNullableIntEnvelope(true);
   const missing: NullableEnvelope<number> =
     getNullableIntEnvelope(false);
+  const nullableText: NullableTextRoot = getNullableTextRoot();
   return `${widget.content.name}:${widget.label}`
     + `/${blob.content}:${blob.label}`
     + `/${collision.content}:${concrete.value}`
-    + `/${nullable.content}:${missing.content}`;
+    + `/${nullable.content}:${missing.content}`
+    + `/${nullableText.result.content}:${nullableText.result.label}`;
 }
 
 export function selectWidget(widget: WidgetDto): WidgetSelection {
@@ -463,6 +469,11 @@ expect_union_facade_compile_failure \
   'GenericEnvelope<string>' \
   'GenericEnvelope<number>' \
   '^export function getBlobEnvelope'
+expect_union_facade_compile_failure \
+  generic-record-nullable-argument \
+  'GenericEnvelope<string \| null>' \
+  'GenericEnvelope<string>' \
+  '^  readonly result:'
 
 expect_union_facade_compile_failure \
   union-collection-entry-null \

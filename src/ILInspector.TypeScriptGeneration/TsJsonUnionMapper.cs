@@ -114,8 +114,20 @@ static class TsJsonUnionMapper
     internal static string MapClosedShape(
         ApiTypeShape shape,
         TsJsonUnionMappingContext context,
-        string location)
+        string location,
+        string? displayType = null)
     {
+        string? display = displayType?.Trim();
+        if (display?.EndsWith("?", StringComparison.Ordinal) == true
+            && !IsNullableShape(shape))
+        {
+            return WithNull(MapClosedShape(
+                shape,
+                context,
+                location,
+                display[..^1]));
+        }
+
         if (shape.Kind == ApiTypeShapeKind.Primitive
             && shape.Primitive is { } primitive
             && primitive != ApiPrimitiveType.Void
@@ -125,7 +137,13 @@ static class TsJsonUnionMapper
         if (shape.Kind == ApiTypeShapeKind.SzArray && shape.ElementType is { } element)
             return element is { Kind: ApiTypeShapeKind.Primitive, Primitive: ApiPrimitiveType.Byte }
                 ? "string"
-                : $"ReadonlyArray<{MapCollectionShape(element, context, location)}>";
+                : $"ReadonlyArray<{MapCollectionShape(
+                    element,
+                    context,
+                    location,
+                    display?.EndsWith("[]", StringComparison.Ordinal) == true
+                        ? display[..^2]
+                        : null)}>";
 
         if (shape.Definition is { } identity)
         {
@@ -144,8 +162,17 @@ static class TsJsonUnionMapper
                     }
                     if (arity == shape.TypeArguments.Length)
                     {
+                        IReadOnlyList<string>? displayArguments =
+                            GenericDisplayArguments(
+                                display,
+                                shape.TypeArguments.Length,
+                                location);
                         return $"{name}<{string.Join(", ", shape.TypeArguments.Select(
-                            argument => MapClosedShape(argument, context, location)))}>";
+                            (argument, index) => MapClosedShape(
+                                argument,
+                                context,
+                                location,
+                                displayArguments?[index])))}>";
                     }
                 }
             }
@@ -161,22 +188,47 @@ static class TsJsonUnionMapper
                 if (shape.Kind == ApiTypeShapeKind.GenericInstance
                     && identity.FullName == "System.Nullable`1"
                     && shape.TypeArguments is [var nullable])
-                    return WithNull(MapClosedShape(nullable, context, location));
+                {
+                    string? nullableDisplay =
+                        display?.EndsWith("?", StringComparison.Ordinal) == true
+                            ? display[..^1]
+                            : GenericDisplayArguments(
+                                display,
+                                1,
+                                location)?[0];
+                    return WithNull(MapClosedShape(
+                        nullable,
+                        context,
+                        location,
+                        nullableDisplay));
+                }
                 if (shape.Kind == ApiTypeShapeKind.GenericInstance
                     && identity.FullName is "System.Collections.Generic.Dictionary`2"
                         or "System.Collections.Generic.IReadOnlyDictionary`2"
                     && shape.TypeArguments is [var key, var value]
                     && key is { Kind: ApiTypeShapeKind.Primitive, Primitive: ApiPrimitiveType.String })
                 {
-                    return $"Readonly<Record<string, {MapCollectionShape(value, context, location)}>>";
+                    IReadOnlyList<string>? displayArguments =
+                        GenericDisplayArguments(
+                            display,
+                            2,
+                            location);
+                    return $"Readonly<Record<string, {MapCollectionShape(
+                        value,
+                        context,
+                        location,
+                        displayArguments?[1])}>>";
                 }
             }
         }
-        throw Unsupported(location, "unsupported closed generic union argument");
+        throw Unsupported(location, "unsupported closed generic JSON argument");
     }
 
     internal static string WithNull(string type) =>
-        $"{type} | null";
+        type == "null"
+            || type.EndsWith(" | null", StringComparison.Ordinal)
+                ? type
+                : $"{type} | null";
 
     // Signature-only case trees do not retain nested nullable-reference annotations.
     static string MapCollectionCase(TypeRef type, TsJsonUnionMappingContext context, string location)
@@ -187,9 +239,17 @@ static class TsJsonUnionMapper
             : mapped;
     }
 
-    static string MapCollectionShape(ApiTypeShape shape, TsJsonUnionMappingContext context, string location)
+    static string MapCollectionShape(
+        ApiTypeShape shape,
+        TsJsonUnionMappingContext context,
+        string location,
+        string? displayType = null)
     {
-        string mapped = MapClosedShape(shape, context, location);
+        string mapped = MapClosedShape(
+            shape,
+            context,
+            location,
+            displayType);
         bool reference = shape.Kind == ApiTypeShapeKind.SzArray
             || shape is { Kind: ApiTypeShapeKind.Primitive, Primitive: ApiPrimitiveType.String };
         if (shape.Definition is { } identity)
@@ -204,6 +264,33 @@ static class TsJsonUnionMapper
         }
         return reference ? WithNull(mapped) : mapped;
     }
+
+    static IReadOnlyList<string>? GenericDisplayArguments(
+        string? displayType,
+        int expectedCount,
+        string location)
+    {
+        if (displayType is null)
+            return null;
+        if (!TsTypeMapper.TryParseGenericType(
+                displayType,
+                out _,
+                out IReadOnlyList<string> arguments)
+            || arguments.Count != expectedCount)
+        {
+            throw Unsupported(
+                location,
+                "closed generic display arguments are unavailable");
+        }
+        return arguments;
+    }
+
+    static bool IsNullableShape(ApiTypeShape shape) =>
+        shape is
+        {
+            Kind: ApiTypeShapeKind.GenericInstance,
+            Definition.FullName: "System.Nullable`1",
+        };
 
     static ApiTypeReferenceIdentity? LocalIdentity(
         TypeRef type,

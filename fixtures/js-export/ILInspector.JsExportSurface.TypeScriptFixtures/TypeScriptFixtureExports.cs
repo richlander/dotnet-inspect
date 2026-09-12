@@ -288,6 +288,13 @@ public static partial class TypeScriptFixtureExports
             GenericRecordFixtureJsonContext.Default.NullableIntEnvelope);
 
     [JSExport]
+    public static string GetNullableTextRoot() =>
+        JsonSerializer.Serialize(
+            new NullableTextRoot(
+                new GenericEnvelope<string?>(null, "nullable")),
+            GenericRecordFixtureJsonContext.Default.NullableTextRoot);
+
+    [JSExport]
     public static async Task<string> GetSelectionEnvelopeAsync(string name)
     {
         await Task.Yield();
