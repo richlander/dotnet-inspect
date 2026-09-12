@@ -131,6 +131,26 @@ public static class ArgumentPreprocessor
         "package", "project", "library", "type", "member", "diff", "timeline", "graph", "find", "vocabulary", "ecosystem", "source", "list", "ls", "skill", "demo", "extensions", "implements", "match", "depends", "dependency-evidence", "cache", "workspace", "workspace-state", "help", "--help", "-h", "-?", "--version", "--flavor"
     };
 
+    internal static bool TryGetRemovedCommandError(
+        string[] args,
+        out string? error)
+    {
+        int command = FindFirstPositionalArgument(args);
+        if (command >= 0
+            && args[command].Equals(
+                "dependency-evidence",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            error = "'dependency-evidence' is no longer valid. Use 'depends' "
+                + "with the same root options; add '-S Dependencies' for "
+                + "declaration evidence without traversal.";
+            return true;
+        }
+
+        error = null;
+        return false;
+    }
+
     internal static bool IsImplicitPackageCandidate(
         string[] args,
         bool directionPresence = false)

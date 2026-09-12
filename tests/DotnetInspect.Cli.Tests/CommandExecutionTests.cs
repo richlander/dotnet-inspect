@@ -1738,10 +1738,16 @@ public partial class CommandExecutionTests
         return ConsoleCapture.RunAsync(async () =>
         {
             var root = CommandLineBuilder.CreateRootCommand();
-            // Mirror Program.cs: the stale `--head N`/`--tail N` spelling is a raw-token
-            // question, so it is answered by the product before parsing rather than by
-            // a validator. Call the same product method the entry point calls; do not
-            // reimplement the check here.
+            if (CommandLineBuilder.TryGetRemovedCommandError(
+                    args,
+                    out var removedCommandError))
+            {
+                CommandError.Write(removedCommandError!);
+                return 1;
+            }
+
+            // Mirror Program.cs: stale spellings are raw-token questions, so
+            // the product answers them before parsing rather than in a validator.
             if (CommandLineBuilder.TryGetStaleArgumentError(
                     args,
                     root,
@@ -3468,6 +3474,29 @@ public partial class CommandExecutionTests
         Assert.Empty(output);
         Assert.Contains("Unrecognized command or argument 'api'", error);
         Assert.DoesNotContain("Package 'api' not found", error);
+        Assert.DoesNotContain("Network traffic", error);
+    }
+
+    [Fact]
+    public async Task DependencyEvidenceCommand_ReportsDependsReplacement()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "--tips",
+            "q",
+            "dependency-evidence",
+            "--package",
+            "Definitely.Does.Not.Exist");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "'dependency-evidence' is no longer valid.",
+            error);
+        Assert.Contains("Use 'depends'", error);
+        Assert.Contains("-S Dependencies", error);
+        Assert.DoesNotContain(
+            "Package 'dependency-evidence' not found",
+            error);
         Assert.DoesNotContain("Network traffic", error);
     }
 
@@ -7383,7 +7412,9 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, dependsExit);
         Assert.Empty(dependsOutput);
-        Assert.Contains("Could not resolve 'System.Text'", dependsError);
+        Assert.Contains(
+            "Type 'System.Text' not found in the specified scope.",
+            dependsError);
         Assert.Contains("looks like a namespace prefix", dependsError);
         Assert.Contains("type System.Text", dependsError);
         Assert.Contains("find \"System.Text*\" --platform", dependsError);
@@ -12265,7 +12296,6 @@ public partial class CommandExecutionTests
         Assert.Equal(
             new[]
             {
-                "dependency-evidence",
                 "depends",
                 "ecosystem",
                 "extensions",

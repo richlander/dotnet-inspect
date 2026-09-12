@@ -31,8 +31,7 @@ changed.
 `depends -S Dependencies` reports normalized direct declarations without
 requesting transitive traversal. Select `Dependencies,Failures` when a mixed
 root request should retain usable declaration rows while also reporting roots
-that could not be inspected. The `dependency-evidence` command remains
-supported with its existing direct-evidence-only contract.
+that could not be inspected.
 
 ```bash
 dnx dotnet-inspect -y -- depends \
@@ -41,7 +40,7 @@ dnx dotnet-inspect -y -- depends \
   --project ./src/App/App.csproj \
   --nuspec ./artifacts/App.nuspec \
   -S "Dependencies,Failures"
-dnx dotnet-inspect -y -- dependency-evidence \
+dnx dotnet-inspect -y -- depends \
   --package-prefix Microsoft.Extensions --tfm net10.0 -v:n
 ```
 

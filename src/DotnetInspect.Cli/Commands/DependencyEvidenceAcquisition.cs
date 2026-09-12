@@ -57,7 +57,8 @@ internal sealed record DependencyEvidenceAcquisitionBatch(
     ImmutableArray<DependencyEvidenceAcquiredRoot> Roots);
 
 /// <summary>
-/// Thin acquisition adapters for <c>dependency-evidence</c> roots.
+/// Thin acquisition adapters for normalized evidence used by asset-mode
+/// <c>depends</c>.
 /// </summary>
 /// <remarks>
 /// Every adapter's only job is to turn one explicitly authorized input into bytes or typed facts
@@ -71,118 +72,6 @@ internal static class DependencyEvidenceAcquisition
     internal const int PackageProfileDefaultLimit = 500;
     internal const int PackageProfileMaximumLimit = 1_000;
 
-    /// <summary>Acquires the explicitly named package, nuspec, and project roots.</summary>
-    /// <remarks>
-    /// <para>
-    /// Every named root is one explicit gesture, so one unusable gesture is one typed failed
-    /// root: no root aborts the request, and none is silently rebound to a different input.
-    /// </para>
-    /// <para>
-    /// One package-owned source composition serves the whole request. It is the same lifetime
-    /// <see cref="CommandContext.CreatePackageSourceComposition"/> gives other commands — one
-    /// composition over this request's deadline, owned and disposed exactly once — and it is
-    /// created only when a remote package root asks a version or manifest question, so a
-    /// nuspec-only or archive-only request builds no source runtime at all.
-    /// </para>
-    /// </remarks>
-    public static async Task<PackageDependencyEvidenceRequest> AcquireExplicitRootsAsync(
-        DependencyEvidenceOptions options,
-        HttpClient httpClient,
-        Action<string>? log,
-        CancellationToken cancellationToken,
-        IPackageSourceAuthorization? authorization = null,
-        DependencyEvidenceCoordinateResolver? resolveCoordinate = null,
-        DependencyEvidenceVersionDiscovery? discoverVersions = null,
-        Func<TimeSpan, DesktopPackageSourceComposition>? createComposition = null)
-    {
-        ArgumentNullException.ThrowIfNull(options);
-        ArgumentNullException.ThrowIfNull(httpClient);
-
-        IPackageSourceAuthorization sourceAuthorization = authorization
-            ?? new SourcePolicyPackageSourceAuthorization(options.SourceOptions);
-        DesktopPackageSourceComposition? composition = null;
-        DesktopPackageSourceComposition GetComposition() =>
-            composition ??= createComposition?.Invoke(httpClient.Timeout)
-                ?? new DesktopPackageSourceComposition(httpClient.Timeout);
-        DependencyEvidenceVersionDiscovery discovery = discoverVersions
-            ?? ((packageId, includePrerelease, token) =>
-            {
-                return GetComposition().GetVersionsAsync(
-                    packageId,
-                    includePrerelease,
-                    // The composition sorts every authority's evidence together before it
-                    // limits, so one row is the global latest acceptable version rather than
-                    // the first authority's.
-                    limit: 1,
-                    options.SourceOptions,
-                    log,
-                    token);
-            });
-        DependencyEvidenceCoordinateResolver resolver = resolveCoordinate
-            ?? ((coordinate, sources, includePrerelease, token) =>
-                ResolveCoordinateAsync(
-                    httpClient,
-                    coordinate,
-                    sources,
-                    discovery,
-                    log,
-                    includePrerelease,
-                    token));
-
-        var roots = ImmutableArray.CreateBuilder<PackageDependencyEvidenceInput>();
-        var failures =
-            ImmutableArray.CreateBuilder<PackageDependencyEvidenceRootFailure>();
-
-        try
-        {
-            foreach (string package in options.Packages)
-            {
-                await AcquirePackageAsync(
-                    package,
-                    options,
-                    sourceAuthorization,
-                    resolver,
-                    GetComposition,
-                    httpClient,
-                    roots,
-                    failures,
-                    cancellationToken,
-                    operationContext: null).ConfigureAwait(false);
-            }
-
-            foreach (string nuspec in options.Nuspecs)
-            {
-                await AcquireNuspecAsync(
-                    nuspec,
-                    options.Tfm,
-                    roots,
-                    failures,
-                    cancellationToken).ConfigureAwait(false);
-            }
-
-            foreach (string project in options.Projects)
-            {
-                _ = await AcquireProjectAsync(
-                    project,
-                    options.Tfm,
-                    roots,
-                    failures,
-                    cancellationToken,
-                    graphRequested: false,
-                    maximumDepth: null).ConfigureAwait(false);
-            }
-        }
-        finally
-        {
-            if (composition is not null)
-                await composition.DisposeAsync().ConfigureAwait(false);
-        }
-
-        return new PackageDependencyEvidenceRequest(
-            roots.ToImmutable(),
-            failures.ToImmutable());
-    }
-
     /// <summary>
     /// Acquires ordered package, nuspec, and restored-project roots for unified
     /// <c>depends</c> while retaining occurrence correspondence and exact restored bytes.
@@ -190,7 +79,7 @@ internal static class DependencyEvidenceAcquisition
     internal static async Task<DependencyEvidenceAcquisitionBatch>
         AcquireDependsRootsAsync(
             IReadOnlyList<DependsAssetRoot> requestedRoots,
-            DependencyEvidenceOptions options,
+            DependencyEvidenceAcquisitionOptions options,
             HttpClient httpClient,
             Action<string>? log,
             DesktopPackageSourceComposition composition,
@@ -345,6 +234,39 @@ internal static class DependencyEvidenceAcquisition
             summary);
     }
 
+    /// <summary>
+    /// Acquires a bounded package-prefix request from the public Gallery.
+    /// </summary>
+    internal static async Task<(
+        PackageDependencyEvidenceRequest Request,
+        PackageProfileSummary Summary)> AcquireGalleryPackagePrefixAsync(
+            string prefix,
+            DependencyEvidenceAcquisitionOptions options,
+            CommandContext context,
+            CancellationToken cancellationToken)
+    {
+        NuGetFetchOptions fetchOptions =
+            NuGetFetchOptions.FromRequestTimeout(context.HttpClient.Timeout);
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create(),
+                DotnetInspector.Networking.HttpClientFactory
+                    .CreateCredentialFreeHandler(),
+                fetchOptions);
+        using var operationContext = new NuGetOperationContext(
+            fetchOptions.RequestTimeout,
+            fetchOptions.OperationTimeout,
+            cancellationToken);
+        return await AcquirePackagePrefixAsync(
+            source,
+            new PackagePrefixProfileRequest(
+                prefix,
+                options.MaxPackages ?? PackageProfileDefaultLimit),
+            options.Tfm,
+            operationContext,
+            cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>Whether a package target names a local archive rather than a remote coordinate.</summary>
     public static bool IsLocalArchiveTarget(string package) =>
         package.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
@@ -494,7 +416,7 @@ internal static class DependencyEvidenceAcquisition
 
     private static async Task AcquirePackageAsync(
         string package,
-        DependencyEvidenceOptions options,
+        DependencyEvidenceAcquisitionOptions options,
         IPackageSourceAuthorization authorization,
         DependencyEvidenceCoordinateResolver resolveCoordinate,
         Func<DesktopPackageSourceComposition> getComposition,
@@ -638,7 +560,7 @@ internal static class DependencyEvidenceAcquisition
     private static async Task AcquireSourceManifestAsync(
         PackageSourceCoordinate coordinate,
         IReadOnlyList<ConfiguredPackageAuthority> authorities,
-        DependencyEvidenceOptions options,
+        DependencyEvidenceAcquisitionOptions options,
         InertString label,
         DesktopPackageSourceComposition composition,
         HttpClient httpClient,

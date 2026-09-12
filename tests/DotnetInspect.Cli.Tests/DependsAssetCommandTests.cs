@@ -1925,42 +1925,6 @@ public sealed class DependsAssetCommandTests
 #endif
 
     [Fact]
-    public async Task PositionalLibraryFallbackHonorsDepth()
-    {
-        CoreCache.Initialize("dotnet-inspect-test");
-        string library = typeof(DependsAssetCommandTests).Assembly.Location;
-        (int fallbackExit, string fallbackCount, string fallbackError) =
-            await RunCapturedAsync(
-        [
-            "depends",
-            library,
-            "--depth",
-            "1",
-            "--count",
-        ]);
-        (int explicitExit, string explicitCount, string explicitError) =
-            await RunCapturedAsync(
-        [
-            "depends",
-            "--library",
-            library,
-            "--depth",
-            "1",
-            "-S",
-            "Dependency Graph",
-            "--count",
-        ]);
-
-        Assert.True(
-            fallbackExit == 0,
-            $"fallback stderr: {fallbackError}");
-        Assert.True(
-            explicitExit == 0,
-            $"explicit stderr: {explicitError}");
-        Assert.Equal(explicitCount.Trim(), fallbackCount.Trim());
-    }
-
-    [Fact]
     public async Task PreCanceledAssetRequestDoesNotPublishAnOutcome()
     {
         using var cancellation = new CancellationTokenSource();

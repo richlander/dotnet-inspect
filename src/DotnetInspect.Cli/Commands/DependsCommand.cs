@@ -15,12 +15,13 @@ using Markout.Formatting;
 namespace DotnetInspect.Cli.Commands;
 
 /// <summary>
-/// Walks dependency graphs upward: type hierarchies, library references, or package dependencies.
+/// Walks dependency graphs upward for positional types and explicit asset roots.
 /// </summary>
 public partial class DependsCommand
 {
     /// <summary>
-    /// Returned when the target type was not found. The caller can fall back to library mode.
+    /// Returned when the target type was not found so the command boundary can
+    /// report a type-specific diagnostic.
     /// </summary>
     internal const int TypeNotFoundExitCode = 2;
 
@@ -33,8 +34,8 @@ public partial class DependsCommand
 
     /// <summary>
     /// The outcome of a type dependency scan. <see cref="ExitCode"/> reports
-    /// what the scan found, so the caller can still fall back to library mode
-    /// or diagnose an absence. <see cref="Uncertified"/> reports separately
+    /// what the scan found so the caller can diagnose an absence.
+    /// <see cref="Uncertified"/> reports separately
     /// that a candidate was excluded. The two must stay separate: folding
     /// uncertainty into the exit code hides the outcome the caller dispatches
     /// on, which silently withholds an answer the caller would otherwise emit.
@@ -152,8 +153,8 @@ public partial class DependsCommand
 
             if (!result.Dependency.Found)
             {
-                // Report the absence as an absence so the caller can still fall
-                // back or diagnose it, and carry the uncertainty alongside.
+                // Report the absence as an absence and carry the uncertainty
+                // alongside it.
                 return new TypeDependsOutcome(TypeNotFoundExitCode, uncertified);
             }
 
@@ -258,75 +259,6 @@ public partial class DependsCommand
         CommandError.Write(
             "--depth requires the Dependency Graph section.");
         return false;
-    }
-
-    public static async Task<int> ExecuteLibraryDependsAsync(
-        DependsOptions options,
-        CancellationToken cancellationToken = default)
-    {
-        if (IsColumnProjectionRequested(options))
-        {
-            CommandError.Write(
-                "--columns and --fields are not supported by positional library fallback; use an explicit --library root.");
-            return 1;
-        }
-        var context = new CommandContext(options.Verbose);
-        var logger = context.Logger;
-
-        try
-        {
-            var libraryName = options.LibraryName!;
-            var result = await DependencyGraphService.BuildLibraryDependencyTreeAsync(
-                context.HttpClient,
-                libraryName,
-                options.SourceOptions,
-                logger,
-                options.Depth,
-                cancellationToken,
-                requestedTfm: options.Tfm);
-            if (result is LibraryDependencyGraphResult.Error error)
-            {
-                CommandError.Write($"{error.Message}");
-                if (error.HintInput != null)
-                    NamespacePrefixHints.WriteIfLikelyNamespacePrefix(error.HintInput);
-                return 1;
-            }
-            if (result is LibraryDependencyGraphResult.Empty empty)
-            {
-                WriteGraph(
-                    DependencyGraphProjection.Library(empty),
-                    options);
-                return 0;
-            }
-            if (result is LibraryDependencyGraphResult.NoMetadata noMetadata)
-            {
-                if (options.Count)
-                {
-                    CountOutput.WriteCount(0);
-                    return 0;
-                }
-
-                CommandError.WriteLine(
-                    $"No assembly references found in '{noMetadata.AssemblyName}'.");
-                return 0;
-            }
-
-            var graph = (LibraryDependencyGraphResult.Graph)result;
-            WriteGraph(
-                DependencyGraphProjection.Library(graph),
-                options);
-            return 0;
-        }
-        catch (OperationCanceledException)
-            when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            CommandError.Write(ex);
-            return 1;
-        }
     }
 
     public static async Task<int> ExecutePackageDependsAsync(

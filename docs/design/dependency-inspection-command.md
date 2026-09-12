@@ -3,10 +3,10 @@
 This document owns the target CLI dependency operation tracked by
 [#5993](https://github.com/richlander/dotnet-inspect/issues/5993).
 
-**Status:** implementation contract. Asset-mode `depends` implements the
-explicit-root, traversal, section, and output contract in #5994.
-`dependency-evidence` and the positional type-to-library fallback remain
-supported until the focused retirement and cleanup in #5995.
+**Status:** adopted implementation contract. Asset-mode `depends` implements
+the explicit-root, traversal, section, and output contract in #5994. The
+separate `dependency-evidence` command and positional type-to-library fallback
+were retired in #5995.
 
 ## Owner and claim
 
@@ -72,12 +72,12 @@ labels, or create a second dependency-normalization model.
 
 ## User purpose
 
-The two current commands divide one user question along an implementation
+The two former commands divided one user question along an implementation
 boundary:
 
 - `depends` follows reachable relationships but drops most declaration,
   constraint, provenance, completion, and failure evidence; and
-- `dependency-evidence` retains that evidence but does not expand package
+- `dependency-evidence` retained that evidence but did not expand package
   manifests into a transitive traversal.
 
 That division creates both overlap and underlap. A user may need to know that a
@@ -96,7 +96,7 @@ Neither axis changes the admitted subject or operation arity, so the
 [Command Transition Model](command-transition-model.md) keeps them within
 `depends`.
 
-The current `dependency-evidence` design used heterogeneous root cardinality to
+The historical `dependency-evidence` design used heterogeneous root cardinality to
 justify a separate command. This target supersedes that conclusion. Root-set
 cardinality is source context inside the dependency operation: one or several
 roots still produce the same dependency document, per-root completion, graph
@@ -117,7 +117,7 @@ end-to-end dependency-evidence tracker. Browser/Wasm adoption remains owned by
 [#5535](https://github.com/richlander/dotnet-inspect/issues/5535); this
 CLI-focused design neither changes nor blocks that host.
 
-The delivery plan has seven steps:
+The seven-step delivery is complete:
 
 1. Lock this command contract in #5993.
 2. Supply the shared declaration-to-exact-candidate handoff under
@@ -138,9 +138,8 @@ The delivery plan has seven steps:
    contracts under
    [#5995](https://github.com/richlander/dotnet-inspect/issues/5995).
 
-This is an alternative to the current two-command architecture. Adoption is
-not complete until the old command and its command-specific projection path are
-removed.
+This replaced the former two-command architecture. The old command and its
+command-specific projection path are removed.
 
 The exact-candidate adapter in #5765 and typed package traversal owner in #5996
 are shared host-neutral prerequisites. They are separated because
@@ -851,10 +850,8 @@ The change is **intentionally breaking** under
 requires a Breaking release-note entry, replacement examples, routing tests,
 and machine-contract tests for the new `depends` document.
 
-The current
-[Dependency Evidence CLI](dependency-evidence-cli.md) document remains the
-implementation contract until the retirement slice lands. At that point it
-becomes historical and this document is the sole command owner.
+The [Dependency Evidence CLI](dependency-evidence-cli.md) document is
+historical. This document is the sole command owner.
 
 ## Demonstration
 

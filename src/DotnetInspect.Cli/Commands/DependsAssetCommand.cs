@@ -22,6 +22,7 @@ public partial class DependsCommand
 {
     private const int PackageManifestTraversalBudget = 1_024;
     private const int PackageDeclarationTraversalBudget = 16_384;
+    private const string SummarySection = "Summary";
 
     public static async Task<int> ExecuteAssetDependsAsync(
         DependsOptions options,
@@ -442,7 +443,8 @@ public partial class DependsCommand
             int? traversalDepth,
             CancellationToken cancellationToken)
     {
-        DependencyEvidenceOptions evidenceOptions = EvidenceOptions(options);
+        DependencyEvidenceAcquisitionOptions evidenceOptions =
+            EvidenceOptions(options);
         DependencyEvidenceAcquisitionBatch? acquisition = null;
         PackageDependencyEvidenceRequest evidenceRequest;
 
@@ -458,11 +460,12 @@ public partial class DependsCommand
         if (options.PackagePrefix is { } prefix)
         {
             (evidenceRequest, _) =
-                await DependencyEvidenceCommand.AcquirePrefixAsync(
-                    evidenceOptions,
-                    prefix,
-                    context,
-                    cancellationToken).ConfigureAwait(false);
+                await DependencyEvidenceAcquisition
+                    .AcquireGalleryPackagePrefixAsync(
+                        prefix,
+                        evidenceOptions,
+                        context,
+                        cancellationToken).ConfigureAwait(false);
         }
         else
         {
@@ -713,33 +716,13 @@ public partial class DependsCommand
                 : []);
     }
 
-    private static DependencyEvidenceOptions EvidenceOptions(
+    private static DependencyEvidenceAcquisitionOptions EvidenceOptions(
         DependsOptions options) =>
         new()
         {
-            Packages =
-            [
-                .. options.AssetRoots
-                    .Where(root => root.Kind == DependsAssetRootKind.Package)
-                    .Select(root => root.Value),
-            ],
-            Nuspecs =
-            [
-                .. options.AssetRoots
-                    .Where(root => root.Kind == DependsAssetRootKind.Nuspec)
-                    .Select(root => root.Value),
-            ],
-            Projects =
-            [
-                .. options.AssetRoots
-                    .Where(root => root.Kind == DependsAssetRootKind.Project)
-                    .Select(root => root.Value),
-            ],
-            PackagePrefix = options.PackagePrefix,
             Tfm = options.Tfm,
             IncludePrerelease = options.IncludePrerelease,
             MaxPackages = options.MaxPackages,
-            Verbose = options.Verbose,
             SourceOptions = options.SourceOptions,
         };
 
@@ -2026,7 +2009,7 @@ public partial class DependsCommand
             });
         summaryWriter.WriteSectionStart(
             2,
-            DependencyEvidenceCommand.SummarySection);
+            SummarySection);
         summaryWriter.WriteFields(summary);
         summaryWriter.WriteSectionEnd();
         summaryWriter.Flush();
