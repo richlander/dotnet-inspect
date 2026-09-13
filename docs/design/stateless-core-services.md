@@ -51,23 +51,26 @@ their Release gates.
 
 ## Demo
 
-Consider a Browser Workspace containing:
+Consider a Browser host with one active Workspace realization. Its current
+definition snapshot contains:
 
 ```text
 System.Text.Json@10.0.0
 Humanizer.Core@2.14.1
 ```
 
-The user chooses a definition containing only:
+The user explicitly selects a saved or newly constructed definition containing
+only:
 
 ```text
 System.Text.Json@10.0.0
 ```
 
-The host does not remove `Humanizer.Core` from the live realization or transfer
-the existing `System.Text.Json` package, Artifact, Library, assembly group,
-index, or lease into a successor. It constructs a candidate realization from
-the one-package definition.
+The host does not search for another existing or "compatible" Workspace
+realization. It does not remove `Humanizer.Core` from the active realization or
+transfer the existing `System.Text.Json` package, Artifact, Library, assembly
+group, index, or lease into a successor. It constructs a candidate realization
+from the explicitly selected one-package definition.
 
 The candidate may receive the exact authorized package payload through the
 persistent-cache port. It still receives fresh Workspace identity,
@@ -104,6 +107,13 @@ recursively adding its dependencies or validating its compatibility with
 existing participants. Adding the same exact coordinate again returns
 `AlreadyPresent` and identifies the existing component. A later traversal may
 return a typed missing- or incompatible-edge result.
+
+Spotlight keeps its more specific captured-snapshot rule from
+[Spotlight destination activation](inspect-web-spotlight-destination-activation.md#exact-claim):
+an exact destination already admitted or registration-covered in the captured
+Scope snapshot preserves the active Workspace realization; only an uncovered
+Package requests a fresh curated Workspace, and an uncovered Library is
+unavailable. Spotlight does not search for another compatible Workspace.
 
 ## Why this is service orientation
 
@@ -308,6 +318,9 @@ selection. Selecting one constructs another realization. A retained definition i
 not a dormant live Workspace and cannot authorize access to resources from its
 former materialization.
 
+Definition selection is explicit. Neither host searches retained definitions or
+past realizations for a compatible Workspace and chooses one implicitly.
+
 Only one realization is selected for new operation admission before and after
 cutover. Candidate construction and predecessor drainage may temporarily keep
 resources from more than one realization alive, but that transition is not a
@@ -477,6 +490,7 @@ hidden cross-operation state.
 - Several materialized Workspaces retained for instant switching.
 - Transfer of live resources between replacement Workspaces.
 - Recursive dependency admission or whole-Workspace compatibility validation.
+- Searching retained definitions or realizations for a compatible Workspace.
 - Workspace Update, Refresh, Remove, Clear, or Replace operations.
 - Async borrows or an assumption of future asynchronous compiler `Drop`.
 - Elimination of Workspace-owned correctness indexes or exact retained
