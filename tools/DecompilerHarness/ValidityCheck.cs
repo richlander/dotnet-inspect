@@ -183,10 +183,10 @@ static class ValidityCheck
         return 0;
     }
 
-    internal static IReadOnlyList<MethodResult> Evaluate(string assemblyPath, int cap = int.MaxValue, bool lowered = false, bool importSiblingBodies = false, int? workers = null, bool sequential = false)
-        => Evaluate([assemblyPath], cap, lowered, importSiblingBodies, workers, sequential);
+    internal static IReadOnlyList<MethodResult> Evaluate(string assemblyPath, int cap = int.MaxValue, bool lowered = false, int? workers = null, bool sequential = false)
+        => Evaluate([assemblyPath], cap, lowered, workers, sequential);
 
-    internal static IReadOnlyList<MethodResult> Evaluate(IReadOnlyList<string> assemblies, int cap = int.MaxValue, bool lowered = false, bool importSiblingBodies = false, int? workers = null, bool sequential = false)
+    internal static IReadOnlyList<MethodResult> Evaluate(IReadOnlyList<string> assemblies, int cap = int.MaxValue, bool lowered = false, int? workers = null, bool sequential = false)
     {
         var references = RuntimeReferences();
         var compileOptions = CompileOptions();
@@ -265,12 +265,7 @@ static class ValidityCheck
                     var function = item.Function;
                     var productParameterList = item.ProductParameterList;
 
-                    Func<MethodRef, IrFunction?>? importMethodBody = importSiblingBodies
-                        ? method => IrImporter.Import(source, method)
-                        : null;
-                    var projection = lowered
-                        ? CSharpPrinter.PrintLowered(function, importMethodBody)
-                        : CSharpPrinter.PrintRaised(function, importMethodBody);
+                    var projection = RenderProjection(source, function, lowered);
                     var rendered = projection.Output;
                     if (rendered is null)
                         return;
@@ -373,6 +368,21 @@ static class ValidityCheck
             .ThenBy(r => r.MethodName, StringComparer.Ordinal)
             .ThenBy(r => r.Signature, StringComparer.Ordinal)
             .ToList();
+    }
+
+    internal static DecompilerResult RenderProjection(
+        MetadataSource source,
+        IrFunction function,
+        bool lowered = false)
+    {
+        Func<MethodRef, IrFunction?> importMethodBody =
+            method => IrImporter.Import(source, method);
+        return lowered
+            ? CSharpPrinter.PrintLowered(function, importMethodBody)
+            : CSharpPrinter.PrintRaised(
+                function,
+                importMethodBody,
+                typesProvablyDisjoint: source.AreProvablyDisjoint);
     }
 
     sealed record ValidityCandidate(

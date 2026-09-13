@@ -228,7 +228,7 @@ public class LadderIteratorGateTests
     [Fact]
     public void IteratorFixture_HasNoMalformedOrSemanticDefectiveFullOutput()
     {
-        var results = ValidityCheck.Evaluate(FixturePath, importSiblingBodies: true)
+        var results = ValidityCheck.Evaluate(FixturePath)
             .Where(r => FixtureTypes.Contains(r.TypeName))
             .ToList();
 

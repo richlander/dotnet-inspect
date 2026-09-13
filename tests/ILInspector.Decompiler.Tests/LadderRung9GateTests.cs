@@ -67,7 +67,7 @@ public class LadderRung9GateTests
     [Fact]
     public void Rung9Fixture_HasNoInvalidFull()
     {
-        var results = ValidityCheck.Evaluate(FixturePath, importSiblingBodies: true)
+        var results = ValidityCheck.Evaluate(FixturePath)
             .Where(r => r.TypeName == FixtureType)
             .ToList();
 
