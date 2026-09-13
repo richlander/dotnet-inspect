@@ -884,6 +884,38 @@ public sealed class ResolvedResourceEffectTests
     }
 
     [Fact]
+    public void GenericMethodDefinitionCallWithoutInstantiationIsUnsupported()
+    {
+        const string AssemblyName = "UninstantiatedGenericMethod";
+        byte[] image = BuildDirectCallAssembly(
+            AssemblyName,
+            "Target",
+            MethodAttributes.Public | MethodAttributes.Static,
+            [0x10, 0x01, 0x00, 0x01],
+            methodGenericParameterRows: 1);
+
+        ResourceEffectResolutionOutcome.Incomplete incomplete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Incomplete>(
+                ResolveSynthetic(
+                    image,
+                    AssemblyName,
+                    SyntheticMethodModel(
+                        AssemblyName,
+                        "Target",
+                        ResourceEffectMemberKind.Method,
+                        parameters: [],
+                        genericArity: 1)));
+
+        Assert.Empty(incomplete.Effects);
+        Assert.Contains(
+            incomplete.Evaluations.SelectMany(
+                evaluation => evaluation.Gaps),
+            gap =>
+                gap.Kind
+                    == ResourceEffectResolutionGapKind.UnsupportedSignature);
+    }
+
+    [Fact]
     public void ProvenanceAssociationWorkLimitIsVisible()
     {
         ResourceEffectTargetSelector target =
@@ -2682,7 +2714,8 @@ public sealed class ResolvedResourceEffectTests
         string methodName,
         ResourceEffectMemberKind kind,
         ImmutableArray<ResourceEffectParameterSelector> parameters,
-        bool isStatic = true)
+        bool isStatic = true,
+        int genericArity = 0)
     {
         var identity = new ResourceEffectModelIdentity(
             $"example.{assemblyName.ToLowerInvariant()}");
@@ -2707,7 +2740,7 @@ public sealed class ResolvedResourceEffectTests
                                 methodName,
                                 kind,
                                 isStatic,
-                                genericArity: 0,
+                                genericArity,
                                 ResourceEffectCallingConvention.Default,
                                 hasThis: !isStatic,
                                 explicitThis: false,

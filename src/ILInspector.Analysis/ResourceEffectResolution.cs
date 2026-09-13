@@ -2376,27 +2376,24 @@ public static class ResourceEffectResolver
         if (selector.Parameters.Length != matchedParameterCount)
             return TypeMatchResult.NoMatch;
 
-        if (!member.TypeArguments.IsEmpty)
+        if (member.TypeArguments.Length != selector.GenericArity)
+            return TypeMatchResult.Unsupported;
+        for (int i = 0; i < member.TypeArguments.Length; i++)
         {
-            if (member.TypeArguments.Length != selector.GenericArity)
-                return TypeMatchResult.Unsupported;
-            for (int i = 0; i < member.TypeArguments.Length; i++)
+            ResourceEffectGenericVariable variable =
+                new(
+                    ResourceEffectGenericVariableKind.Method,
+                    i);
+            if (bindings.TryGetValue(
+                    variable,
+                    out TypeRef? existing)
+                && !TypeRef.ExactSignatureEquals(
+                    existing,
+                    member.TypeArguments[i]))
             {
-                ResourceEffectGenericVariable variable =
-                    new(
-                        ResourceEffectGenericVariableKind.Method,
-                        i);
-                if (bindings.TryGetValue(
-                        variable,
-                        out TypeRef? existing)
-                    && !TypeRef.ExactSignatureEquals(
-                        existing,
-                        member.TypeArguments[i]))
-                {
-                    return TypeMatchResult.NoMatch;
-                }
-                bindings[variable] = member.TypeArguments[i];
+                return TypeMatchResult.NoMatch;
             }
+            bindings[variable] = member.TypeArguments[i];
         }
 
         TypeMatchResult result = MatchType(
