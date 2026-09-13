@@ -47,8 +47,13 @@ Markdown, plain text, table, TSV, JSONL, and projected JSON lower one typed
 `VocabularyView` through `MarkoutSerializer` and
 `VocabularyViewContext`. Runtime-named sections and runtime-column tables keep
 `VocabularyCatalog` authoritative for names, field labels, stable field IDs,
-and row order. `VocabularyCommandTests` gates these formats in Release,
-including `Command_JsonlUsesProjectedRuntimeColumns`.
+and row order. Each runtime section carries its summary as an ordinary
+Markout paragraph because unwrapped child sections lower their content rather
+than their `DescriptionProperty` metadata. `VocabularyCommandTests` gates these
+formats in Release, including
+`Command_DefaultRendersTheSelfDescribingSectionIndex`,
+`Command_PlainTextUsesThePlainTextFormatter`, and
+`Command_JsonlUsesProjectedRuntimeColumns`.
 
 Plain unprojected `--json` is an approved CLI-host exception to ordinary
 Markout lowering. Its typed input is the selected owner-issued

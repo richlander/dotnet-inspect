@@ -21,9 +21,7 @@ public sealed class VocabularyView
 }
 
 /// <summary>One runtime-named vocabulary section with owner-issued runtime columns.</summary>
-[MarkoutSerializable(
-    TitleProperty = nameof(Name),
-    DescriptionProperty = nameof(Summary))]
+[MarkoutSerializable(TitleProperty = nameof(Name))]
 public sealed class VocabularySectionView
 {
     [MarkoutIgnore]
@@ -33,12 +31,9 @@ public sealed class VocabularySectionView
         init => field = LibraryViewText.Contain(value) ?? "";
     } = "";
 
-    [MarkoutIgnore]
-    public string Summary
-    {
-        get;
-        init => field = LibraryViewText.Contain(value) ?? "";
-    } = "";
+    [MarkoutSection(Headless = true)]
+    [MarkoutIgnoreInTable]
+    public VocabularySummaryParagraph? Summary { get; init; }
 
     [MarkoutIgnoreInTable]
     public MarkoutTable? Values { get; init; }
@@ -47,7 +42,7 @@ public sealed class VocabularySectionView
         new()
         {
             Name = section.Name,
-            Summary = section.Summary,
+            Summary = new VocabularySummaryParagraph(section.Summary),
             Values = new MarkoutTable(
                 [.. section.Fields.Select(field => field.Label)],
                 [.. section.Fields.Select(field => field.Id)],
@@ -57,6 +52,19 @@ public sealed class VocabularySectionView
                             ? value.ToDisplayString()
                             : "").ToArray())]),
         };
+}
+
+/// <summary>A section summary rendered as ordinary document content.</summary>
+public sealed class VocabularySummaryParagraph : IMarkoutFormattable
+{
+    private readonly string _text;
+
+    public VocabularySummaryParagraph(string text) =>
+        _text = LibraryViewText.Contain(text) ?? "";
+
+    public void WriteTo(MarkoutWriter writer) => writer.WriteParagraph(_text);
+
+    public string? ToMarkoutString() => _text;
 }
 
 [MarkoutContext(typeof(VocabularyView))]

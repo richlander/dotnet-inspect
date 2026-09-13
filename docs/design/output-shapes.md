@@ -269,6 +269,8 @@ one typed `VocabularyView` through `VocabularyViewContext`. The Release gates
 are
 `VocabularyCommandTests.JsonSerialization_PreservesWireShapeAcrossIndentationModes`,
 `Command_JsonCarriesTypedSchemaAndValues`,
+`Command_DefaultRendersTheSelfDescribingSectionIndex`,
+`Command_PlainTextUsesThePlainTextFormatter`,
 `Command_JsonlUsesProjectedRuntimeColumns`, and
 `Command_PartialMachineKeyProjectionKeepsSectionIdentityAcrossFormats`.
 The focused adoption is tracked by

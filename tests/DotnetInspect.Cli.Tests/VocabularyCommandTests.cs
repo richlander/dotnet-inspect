@@ -87,6 +87,9 @@ public sealed class VocabularyCommandTests
         Assert.Empty(result.Error);
         Assert.Contains("# Vocabulary", result.Output);
         Assert.Contains("## Vocabulary Sections", result.Output);
+        Assert.Contains(
+            VocabularyCatalog.GetById("vocabulary.sections").Summary,
+            result.Output);
         Assert.Contains("| Section | Summary | Values |", result.Output);
         Assert.Contains("| C# Style Choices |", result.Output);
         Assert.DoesNotContain("| ID |", result.Output);
@@ -343,6 +346,9 @@ public sealed class VocabularyCommandTests
         Assert.Empty(result.Error);
         Assert.Contains("Vocabulary", result.Output);
         Assert.Contains("Accessibility", result.Output);
+        Assert.Contains(
+            VocabularyCatalog.GetById("api.accessibility").Summary,
+            result.Output);
         Assert.DoesNotContain("# Vocabulary", result.Output);
         Assert.DoesNotContain("| ID |", result.Output);
     }
