@@ -171,13 +171,13 @@ contracts. The target claim is:
 > resource or a live Workspace's authority.
 
 Issue [#6802](https://github.com/richlander/dotnet-inspect/issues/6802) specifies
-this distinction. The full request-to-plan path is **unverified and not
-implemented**. The
-registration-only profile below exists; context plans, definition lowering and
-host adoption follow the counted plan below. This is not a second JSON format
-or a requirement that every in-process plan have a portable representation.
+this distinction. The full request-to-plan path remains **unverified and not
+implemented**. The registration and context-bearing profiles below exist;
+definition lowering and host adoption follow the counted plan below. This is
+not a second JSON format or a requirement that every in-process plan have a
+portable representation.
 
-##### Current registration-only profile
+##### Implemented registration profile
 
 Issue [#6790](https://github.com/richlander/dotnet-inspect/issues/6790)
 separates the registration data from the live owner. This owner issues
@@ -260,7 +260,14 @@ current revision cannot both publish: after one changes the revision, the
 other is stale. An empty replacement is the explicit registration-clear
 gesture, including an empty-to-empty no-op.
 
-##### Planned context profile
+##### Implemented context profile
+
+Issue [#6810](https://github.com/richlander/dotnet-inspect/issues/6810)
+extends `WorkspacePlan` with ordered context construction intent. The plan
+snapshots the supplied context sequence and each context's member sequence,
+while retaining the existing `WorkspaceContextInput` and
+`WorkspaceMemberCoordinate` contracts. Contexts remain distinct and
+unselected.
 
 The expanded plan keeps two kinds of construction intent distinct:
 **registrations** describe relevant discovery populations; **contexts** request
@@ -283,6 +290,15 @@ changes only its registration component and preserves its context intent;
 registration equality and revision authority remain as defined below. Retaining
 contexts does not turn a registration revision into an atomic snapshot of
 acquired Package membership, physical groups or query results.
+
+Constructing multiple `InspectionWorkspace` owners from one plan retains the
+same inert plan while issuing independent live Workspace and registration
+revision identities. Closing one owner does not consume the plan. Plan
+construction invokes no acquisition, scanner, source lookup or host work and
+does not duplicate loader validation; malformed acquisition intent remains a
+typed failure when the existing loader is invoked. Only null contexts or null
+member collections are rejected as shapes that cannot form a valid immutable
+plan.
 
 **Invokable does not mean already acquired or guaranteed to succeed.** The
 plan is ready for the ordinary construction and preparation APIs, not a cache
@@ -340,12 +356,13 @@ claiming the corresponding property. The planned gates are:
 | Required outcome | Enforcing adoption gate and current status |
 | --- | --- |
 | Pinned equivalent inline document and programmatic intent preserve the same context/target associations and inspect the same System.Text.Json subject. | Definitions lowering plus CLI and Browser demo conformance; **unverified**. |
-| A context-bearing plan remains reusable after close; a registration replacement preserves context intent and does not alter another live owner. | Expanded `WorkspacePlanTests` and public non-friend consumer; **unverified**. |
+| A context-bearing plan remains reusable after close; a registration replacement preserves context intent and does not alter another live owner. | Expanded `WorkspacePlanTests` and public non-friend consumer; **implemented by #6810**. |
 | Incompatible target declarations or an unsupported subscription remain explicit failures, not a successful partial composition or a silently selected context. | Existing loader/Definitions failure contracts exercised through the new plan path; **unverified**. |
 | Raw and definition-authored construction do not receive implicit Ecosystems curation; explicit catalog plans retain their authored registrations. | Definitions lowering and both host adoption gates; **unverified** for the new path. |
 
-The wire owner's grammar/version decisions, floating selection, group
-subscription implementation and restoration coordinator remain separate
+Definitions lowering, CLI adoption and Browser/Wasm adoption remain explicitly
+unimplemented. The wire owner's grammar/version decisions, floating selection,
+group subscription implementation and restoration coordinator remain separate
 efforts. This subplan introduces no new rendering domain or format lowering;
 CLI Markout output and Browser presentation continue to consume their existing
 typed results. It adds no temporal protocol, so the existing registration and

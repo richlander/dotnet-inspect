@@ -8,13 +8,19 @@ public sealed record WorkspaceRegistrationObservation(
     WorkspaceRegistrationRevision Revision,
     ImmutableArray<ExactLibrarySourceCoordinate> ExactLibraries,
     ImmutableArray<PackagePrefixDeclaration> PackagePrefixes,
-    ImmutableArray<WorkspaceEcosystemRegistrationDeclaration> Ecosystems);
+    ImmutableArray<WorkspaceEcosystemRegistrationDeclaration> Ecosystems,
+    ImmutableArray<WorkspaceContextInput> Contexts);
 
 public static class WorkspaceRegistrationConsumer
 {
     public static WorkspacePlan CreatePlan(
         ImmutableArray<WorkspaceRegistration> registrations) =>
         new(registrations);
+
+    public static WorkspacePlan CreatePlan(
+        ImmutableArray<WorkspaceRegistration> registrations,
+        IReadOnlyList<WorkspaceContextInput> contexts) =>
+        new(registrations, contexts);
 
     public static InspectionWorkspace Create(WorkspacePlan plan) => new(plan);
 
@@ -47,7 +53,12 @@ public static class WorkspaceRegistrationConsumer
                     throw new InvalidOperationException("Unknown Workspace registration arm.");
             }
         }
-        return new(available.Revision, libraries.ToImmutable(), prefixes.ToImmutable(), ecosystems.ToImmutable());
+        return new(
+            available.Revision,
+            libraries.ToImmutable(),
+            prefixes.ToImmutable(),
+            ecosystems.ToImmutable(),
+            available.Revision.Plan.Contexts);
     }
 
     public static WorkspaceRegistrationOperationResult Replace(
