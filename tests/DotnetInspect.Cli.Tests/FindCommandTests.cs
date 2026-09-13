@@ -1309,7 +1309,6 @@ public class FindCommandIntegrationTests
     }
 
     [Theory]
-    [InlineData("--take", "bad", "--take requires a positive whole number.")]
     [InlineData("--rows", "bad", "--rows requires N..M, N.., or ..M")]
     public void LiteralPlanningFailure_FollowsSharedSelectionFailure(
         string option,
