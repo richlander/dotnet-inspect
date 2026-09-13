@@ -46,6 +46,7 @@ hierarchy or callers.
 | What is this component built on? | Keep the component as focus; inspect outgoing base/interface, signature, invocation, and dependency evidence without conflating them. |
 | What integrates with Aspire resource management? | Locate its builder/resource contracts; find providers and separately identify actual callers. |
 | What could I use with `foreach`? | Discover enumerable interfaces and supported enumeration-pattern candidates, including candidates that implement no enumerable interface. |
+| Which APIs accept or return a particular type shape? | Locate members by typed signature evidence, distinguishing a parameter occurrence from the declared return type and from the declaring type's interfaces. |
 | Who uses this registration API? | Locate one exact overload; find incoming static call sites, not merely APIs with a similar signature. |
 | What can I do with this package I already opened? | Select `@Relations` without re-entering its source, version, target, or binding context. |
 | Can another person explore this result? | Share the same resolved subject, population and relation view, or report why that state is not portable. |
@@ -395,6 +396,152 @@ visible diagnostic rather than silently choosing one route. A future
 This is permission for high-value shorthand, not a requirement to recreate
 every removed verb as an alias.
 
+## Find by contract and signature shape
+
+Name search is only one way to locate an API. `--members` already changes
+`find` from type-name to member-name search; contract and signature predicates
+can answer questions where the useful clue is a type's role, not a method's
+name. These are proposed typed queries and shortcut spellings, not additional
+shipping flags:
+
+| Proposed gesture | Result kind and question |
+| --- | --- |
+| `find Pattern --members` | Members whose names match the pattern; existing gesture. |
+| `find --implements Interface` | Types implementing the selected interface, including owner-established inherited implementation. |
+| `find --signature TypeShape` | Members whose parameter or return type structure contains that shape. |
+| `find --returns TypeShape` | Members whose declared return type matches that shape, rather than merely mentioning it elsewhere. |
+| `find --span` | Members with `System.Span<T>` or `System.ReadOnlySpan<T>` occurrences in their signatures, for any element type. |
+
+The signature predicates imply member results; an optional positional pattern
+still filters member names. An implementation predicate selects types, not
+all methods on those types. Cross-kind combinations must not silently change
+that result unit; any supported declaring-type/member join needs explicit
+query semantics. Every result retains the exact reopening context used by
+ordinary `find`.
+
+### Span is a signature-family shortcut
+
+```console
+# Both Span<T> and ReadOnlySpan<T>, including parameter and return occurrences.
+dotnet-inspect find --span
+
+# A specific constructed shape, anywhere in the signature.
+dotnet-inspect find --signature 'System.ReadOnlySpan<byte>'
+
+# The returned shape, not an input or the result of awaiting a wrapper.
+dotnet-inspect find --returns 'System.ReadOnlySpan<char>'
+```
+
+Two inspected .NET 10.0.10 APIs show the difference:
+
+| API | Proposed match |
+| --- | --- |
+| `string Convert.ToHexString(ReadOnlySpan<byte> bytes)` | `--span` and the byte-span signature query; not a span-return query. |
+| `ReadOnlySpan<char> MemoryExtensions.AsSpan(string? text)` | `--span` and the char-span return query, despite having no span parameter. |
+
+`--span` should be a vocabulary-backed union over the two exact framework
+type definitions, not a text search for `Span`, an alias for all ref structs,
+or an allocation-free certification. `SpanLike` in a name or span use only
+inside a method body does not satisfy this signature query. Concrete element
+arguments remain available when narrowing the family.
+
+### Middleware separates implementation, signature use and return shape
+
+ASP.NET Core 10.0.10 provides these real declaration shapes:
+
+| Declaration | What it establishes |
+| --- | --- |
+| `ApplicationBuilder : IApplicationBuilder` | Type implementation, not a member return. |
+| `IMiddleware? IMiddlewareFactory.Create(Type middlewareType)` | A factory API returning the middleware contract. |
+| `void IMiddlewareFactory.Release(IMiddleware middleware)` | A parameter occurrence of that same contract, not a factory result. |
+| `IApplicationBuilder IApplicationBuilder.Use(Func<RequestDelegate, RequestDelegate> middleware)` | The pipeline contract occurs inside a parameter's generic arguments. |
+| `IApplicationBuilder UseExtensions.Use(IApplicationBuilder app, Func<HttpContext, RequestDelegate, Task> middleware)` | An extension receiver, nested delegate argument types, and a builder return are separate signature facts. |
+| `Task ExceptionHandlerMiddleware.Invoke(HttpContext context)` | A convention-shaped middleware entry method; its declaring type does not implement `IMiddleware`. |
+
+Use those differences to discover APIs, then inspect the selected subjects:
+
+```console
+# Implementations of a contract versus APIs that mention it.
+dotnet-inspect find --implements IApplicationBuilder --ecosystem aspnetcore
+dotnet-inspect find --signature IApplicationBuilder --ecosystem aspnetcore
+
+# Both Create and Release mention IMiddleware; only Create returns it.
+dotnet-inspect find --signature IMiddleware --ecosystem aspnetcore
+dotnet-inspect find --returns IMiddleware --ecosystem aspnetcore
+
+# Builder-returning Use APIs, then their nested pipeline signature shape.
+dotnet-inspect find 'Use*' --members --returns IApplicationBuilder \
+  --ecosystem aspnetcore
+dotnet-inspect find 'Use*' --members --signature RequestDelegate \
+  --ecosystem aspnetcore
+
+# Distinct middleware discovery routes, not equivalent inventories.
+dotnet-inspect find --implements IMiddleware --ecosystem aspnetcore
+dotnet-inspect find 'Invoke*' --members --signature HttpContext \
+  --returns Task --ecosystem aspnetcore
+```
+
+The return filter earns its place: a signature match on `IMiddleware` includes
+both factory methods, while a return match excludes `Release`. Likewise,
+`Task` inside a `Use` delegate is a signature occurrence, but the `Use` method
+returns `IApplicationBuilder`, not `Task`. Reference-nullability annotations
+such as `IMiddleware?` remain visible without becoming another interface
+identity.
+
+Precision is not completeness. Builder-returning `Use*` APIs omit terminal
+`Run` APIs that return `void`. Interface-only middleware discovery misses
+`ExceptionHandlerMiddleware`. The broader `Invoke*` query produces candidates:
+it does not establish the complete ASP.NET Core convention, including public
+method shape, first-parameter position, constructor requirements, ambiguity
+and activation dependencies.
+[Convention-based middleware](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/middleware/write?view=aspnetcore-10.0)
+and [factory-based middleware](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/middleware/extensibility?view=aspnetcore-10.0)
+are the framework's distinct contracts. Any stronger middleware classification
+belongs to its Integration producer, not to a generic signature match.
+
+### Preserve the position and structure that explain a match
+
+For these workflows, signature means the API's parameter and return type
+structure, including explicit extension receivers and nested constructed type
+arguments. It does not include the declaring type's interfaces, generic
+constraints, attributes, locals or body calls. Matching does not recursively
+expand a named delegate's `Invoke` declaration: returning `RequestDelegate`
+is not itself a signature occurrence of `HttpContext`.
+
+`--signature` can find a nested occurrence; `--returns` matches the declared
+returned shape as a whole. It does not implicitly unwrap `Task<T>`, infer
+assignability or substitute an interface implemented by the returned class.
+Combined name, signature and return predicates constrain the same exact
+member, rather than matching different overloads or sibling methods.
+
+Results retain match sites such as return, parameter index, receiver and nested
+type-argument path, alongside the exact member and type identities. One member
+with several matching sites is one locator row with several reasons, not
+several apparent overloads. Generic arguments, array structure and
+by-reference qualifications must survive the evidence projection; shortened
+rendered signatures are not the matching substrate. Ambiguous type selectors
+or unavailable signature/binding evidence stay visible under the existing
+owner contracts, rather than becoming fuzzy positive matches or no-match
+answers.
+
+The existing [MemberSignatureShape](member-signature-shape.md) is not this
+query model: it deliberately omits ordinary returns and assembly identity for
+its non-authoritative source lookup. The typed Metadata producers must supply
+the needed declaration evidence and bound type correspondence. Their focused
+adoption owns matching details, supported type-shape grammar and bounds; this
+workflow does not introduce a general C# applicability solver or a new
+signature-identity codec.
+
+The flags follow the same shortcut rule as `--depends`. For example, a
+proposed `--span` lowers to member results with a `signature-family=span`
+predicate; `--signature Shape` and `--returns Shape` lower to their respective
+typed predicates on those results. They do not get separate scanners.
+`find -D Results` and `find -Q Results` expose the row shape and adopted
+bindings; `vocabulary` explains the signature family. The same predicates can
+filter member results within an already selected subject without locating it
+again. CLI and browser consume the same match sites, and sharing retains the
+predicate rather than expanding it into a name-only search.
+
 ## One subject, a separate population
 
 The report subject is not the set being searched for relationships.
@@ -499,9 +646,10 @@ only the first 64 and call the ecosystem complete.
 ### Making ecosystem selection useful in find
 
 The target `find --ecosystem aspire` selects the pack's declared candidates;
-with a member/type pattern it locates those subjects, and without a pattern
-it discovers the available package/library roots rather than enumerating every
-API. A namespace hint is not a replacement for a declared population.
+with a member/type pattern or an explicit contract/signature predicate it
+locates those subjects. Without either, it discovers the available
+package/library roots rather than enumerating every API. A namespace hint is
+not a replacement for a declared population.
 Explicit ecosystem, prefix, package and local-library selections compose under
 the Source Selection contract; the default activates only without an explicit
 candidate selection.
@@ -542,6 +690,7 @@ The conceptual axes are independent:
 | Relation | The precise producer-defined relationship within that mechanism. |
 | Direction | Incoming/outgoing incidence at the focused subject; `both` selects their union. |
 | Evidence | Declaration, static IL observation, bounded pattern candidate, or inferred opportunity. |
+| Signature site/shape | Where a referenced type occurs in a member declaration, preserving parameter/return role and constructed shape; not proof of interface implementation or invocation. |
 | Ecosystem/concept | Zero or more producer-issued semantic associations; not a population or ownership assertion. |
 
 Initial mechanical readings:
@@ -626,7 +775,7 @@ map, not a specification of the participating components' internals.
 | Workspace | [Registration handoff](workspace-ecosystem-registration-handoff.md) and [scope](workspace-scope-and-expansion.md) retain inert registrations, finite realization, revision and coverage; solve the capacity boundary before claiming complete broad execution. |
 | Source Selection / search binding | [Source intent](search-scope-domain.md) and [search scope](search-scope-resolution.md) preserve explicit selection, authority and bounded prefix expansion; adopt the new default and ecosystem selector in their owners. |
 | Locator | [Find service](find-search-service.md) needs an exact host-neutral result/context handoff rather than its current CLI-local display rows. |
-| Metadata | Hierarchy, extension, reference and signature producers must issue exact typed endpoints; name matching alone is not endpoint correspondence or general assignability. |
+| Metadata | Hierarchy, extension, reference and signature producers must issue exact typed endpoints. Signature discovery additionally needs parameter/return roles, constructed shapes and match sites; name matching alone is not endpoint correspondence or general assignability. |
 | Analysis | [Pair call-use](pairwise-library-call-use.md) supplies physical invocation evidence and static-target qualifications; keep Metadata-to-call-node correspondence owner-issued. |
 | Integration | [Integration](integrations.md) supplies concepts, classified currency and opportunity evidence; adopt annotations on composed declaration/use evidence without redefining call semantics. |
 | Dependencies | [Dependency inspection](dependency-inspection-command.md) owns the current root-set operation and section/traversal contract; adopt subject presets and a graph-host entry point before retiring `depends`. Existing package/restored-project evidence and traversal owners remain unchanged. |
@@ -671,6 +820,27 @@ The first has actual prior inspection evidence above; the latter two supply
 the HttpClient extension and interface/pattern test populations to pin in
 adoption. Their new Relations projections remain **unverified**.
 
+The 2026-09-12 signature probes used the same released `0.25.0+473d56a`
+against installed .NET/ASP.NET Core 10.0.10 implementation assemblies:
+`System.Private.CoreLib`, `Microsoft.AspNetCore.Http.Abstractions`,
+`Microsoft.AspNetCore.Http` and `Microsoft.AspNetCore.Diagnostics`.
+They confirmed the declarations in the signature-shape worked example, not
+execution of the proposed Find predicates. For example, existing commands
+reproduce the factory and nested-delegate evidence:
+
+```console
+dotnet-inspect type IMiddlewareFactory \
+  --library "$ASP_NET_10_0_10/Microsoft.AspNetCore.Http.Abstractions.dll"
+dotnet-inspect member UseExtensions \
+  --library "$ASP_NET_10_0_10/Microsoft.AspNetCore.Http.Abstractions.dll" \
+  -m Use -S "Member Index"
+```
+
+Here `ASP_NET_10_0_10` is the installed runtime directory reported by
+`dotnet --list-runtimes`, including its `10.0.10` version subdirectory.
+Retain those real API shapes as adoption fixtures; new signature discovery
+and its shortcut equivalence remain **unverified**.
+
 The [LSP call-hierarchy workflow](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_prepareCallHierarchy)
 first resolves an item, then asks for incoming or outgoing calls. It supports
 the locator/capability separation and preserved item identity, but not claims
@@ -696,14 +866,14 @@ unreviewable changes inside a nominal slice.
 | 3 | Ecosystems-owned platform and all-known-pack factories/manifests, preserving empty raw Workspace construction. |
 | 4 | Search Scope Resolution adopts broad versus explicit candidate intent using existing Source Selection declarations. |
 | 5 | Find's exact host-neutral locator/context handoff. |
-| 6 | Metadata-owned typed hierarchy, extension and reference relation projections. |
+| 6 | Metadata-owned typed hierarchy, extension, reference and signature-shape projections, including return/parameter match sites. |
 | 7 | Analysis-owned invocation/correspondence joins. |
 | 8 | Integration-owned semantic annotations and opportunity distinctions. |
 | 9 | A focused language-pattern candidate contract and producer. |
 | 10 | Shared Subject Relations query composition over adopted producers. |
 | 11 | Shared typed section projection and Markout format lowerings. |
 | 12 | Workspace Definitions adoption for portable relation views and locator context. |
-| 13 | CLI ecosystem-to-locator handoff, subject categories, Integration view, section-backed shortcuts and dependency root-set mode, queries, sharing and focused ecosystem skill adoption. |
+| 13 | CLI ecosystem-to-locator handoff, contract/signature Find queries and vocabulary, subject categories, Integration view, section-backed shortcuts and dependency root-set mode, sharing and focused ecosystem skill adoption. |
 | 14 | Inspect Web/Browser-Wasm adoption of the same locator and relation request/results. |
 | 15 | Retire `extensions`, `implements`, `depends` and per-ecosystem Integration sections after single-subject and root-set parity and disclosure; retain `ecosystem` as the vocabulary command. Coordinate existing `dependency-evidence` retirement with its owner. |
 
@@ -727,6 +897,7 @@ the named adoption gates run in Release:
 | Claim | Required outcome gate |
 | --- | --- |
 | Exact locator continuity | Find two same-named types or overloads; reopening each preserves its package/source, target, subject and context without substitution. |
+| Signature discovery fidelity | ToHexString's byte-span input and AsSpan's char-span return differ correctly. Factory Create/Release differ by return versus parameter; Use retains its nested delegate sites without claiming to return Task. Combined predicates apply to one member, repeated sites do not duplicate it, and unavailable evidence stays visible. The flags and section predicates yield the same results in CLI and browser. |
 | Ecosystem identity continuity | The catalog's canonical ecosystem identity selects its declared Find population and filters its Integration associations without conflating membership with evidence. Catalog inspection remains acquisition-free. |
 | Direction and evidence fidelity | One AddRedis declaration and a real caller remain separate rows; incoming/outgoing views retain the same canonical endpoints and physical call receipt. |
 | Construction and broad scope | Empty, platform-curated and all-known factories retain distinct registration sets without acquisition; find/Relations use the all-known set. Unavailable/offline/budget-limited populations remain visible; an empty partial scan never reports complete absence. Exercise more than 64 candidate packages. |
