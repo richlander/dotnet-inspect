@@ -30,7 +30,17 @@ internal static class OperationMemorySafetyContract
                 node,
                 refBindingTargetType?.Invoke(node)
                     ?? InferredRefBindingTargetType(node))
-            || node switch
+            || RequiresUnsafeOperation(
+                node,
+                callerUsesUpdatedRules,
+                skipLocalsInit);
+    }
+
+    static bool RequiresUnsafeOperation(
+        IrNode node,
+        bool callerUsesUpdatedRules,
+        bool skipLocalsInit)
+        => node switch
         {
             CallIndirect => true,
             StackAllocate => true,
@@ -80,7 +90,6 @@ internal static class OperationMemorySafetyContract
             DelegateCreation creation => IsPointerReceiver(creation.Target),
             _ => false,
         };
-    }
 
     internal static bool RequiresUnsafeRefBinding(
         IrNode node,
