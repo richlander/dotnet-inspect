@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Breaking:** Removes the `dependency-evidence` command and the positional
+  type-to-library fallback from `depends`. Use `depends` with explicit
+  `--package`, `--nuspec`, `--project`, `--library`, or `--package-prefix`
+  roots; add `-S Dependencies` for declaration evidence without traversal.
+  The retired command token remains reserved and reports this replacement
+  guidance instead of being interpreted as a package target (#5995).
 - Routes `vocabulary` value rows through the shared semantic selection path:
   `-n` and bare `-N` select Head rows, `--tail` selects from the end, and
   range-form `--rows` composes in argument order across every selected section.
