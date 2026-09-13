@@ -1165,6 +1165,74 @@ public sealed class ResolvedResourceEffectTests
     }
 
     [Fact]
+    public void VarargMemberReferenceCannotSelectDifferentMethodThanParent()
+    {
+        const string AssemblyName = "MismatchedVarargParent";
+        var identity = new ResourceEffectModelIdentity(
+            "example.mismatched-vararg-parent");
+        ResourceTypeExpression.Named declaringType = new(
+            new ResourceAssemblySelector(
+                AssemblyName,
+                publicKeyToken: null,
+                ResourceAssemblyVersionPolicy.Any),
+            "N",
+            [new ResourceTypeNameSegment("Owner", 0)]);
+        ResourceEffectAdmission admission = Admit(
+            new ResourceEffectModelDefinition(
+                ResourceEffectLanguageIdentity.Version1,
+                identity,
+                [],
+                [],
+                [
+                    new ResourceEffectTypedDeclaration(
+                        new ResourceEffectTargetSelector.Member(
+                            new ResourceEffectMemberSelector(
+                                declaringType,
+                                "B",
+                                ResourceEffectMemberKind.Method,
+                                isStatic: true,
+                                genericArity: 0,
+                                ResourceEffectCallingConvention.VarArgs,
+                                hasThis: false,
+                                explicitThis: false,
+                                [
+                                    new ResourceEffectParameterSelector(
+                                        CoreLibraryType(
+                                            "System",
+                                            "Int32"),
+                                        ResourceEffectRefKind.Value),
+                                ],
+                                CoreLibraryType(
+                                    "System",
+                                    "Void"))),
+                        new ResourceEffect.Operation(
+                            ResourceOperationBoundary.Ordinary,
+                            ResourceOperationThrows.Possible,
+                            Guard: null),
+                        [Provenance(identity.Value, 0)]),
+                ]));
+
+        ResourceEffectResolutionOutcome.Incomplete incomplete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Incomplete>(
+                ResolveSynthetic(
+                    BuildMismatchedVarargParentAssembly(AssemblyName),
+                    AssemblyName,
+                    admission));
+
+        Assert.Empty(incomplete.Effects);
+        ResourceEffectTargetEvaluation evaluation =
+            Assert.Single(incomplete.Evaluations);
+        Assert.Equal(
+            ResourceEffectTargetEvaluationKind.Unsupported,
+            evaluation.Kind);
+        Assert.Contains(
+            evaluation.Gaps,
+            gap =>
+                gap.Kind
+                    == ResourceEffectResolutionGapKind.UnsupportedSignature);
+    }
+
+    [Fact]
     public void EquivalentResolvedGuardTypesCoalesce()
     {
         ResourceTypeExpression byteArray =
@@ -2533,6 +2601,117 @@ public sealed class ResolvedResourceEffectTests
                     eventTargetsCaller ? caller : target);
             }
         }
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildMismatchedVarargParentAssembly(
+        string assemblyName)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            metadata.GetOrAddString(assemblyName + ".dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(assemblyName),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: AssemblyHashAlgorithm.Sha1);
+        AssemblyReferenceHandle systemRuntime =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Runtime"),
+                new Version(11, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: metadata.GetOrAddBlob(
+                    Convert.FromHexString("b03f5f7f11d50a3a")),
+                flags: default,
+                hashValue: default);
+        TypeReferenceHandle objectType =
+            metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Owner"),
+            baseType: objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        byte[] varargSignature = [0x05, 0x01, 0x01, 0x08];
+        MemberReferenceHandle mismatchedReference =
+            metadata.AddMemberReference(
+                MetadataTokens.MethodDefinitionHandle(1),
+                metadata.GetOrAddString("B"),
+                metadata.GetOrAddBlob(varargSignature));
+        metadata.AddParameter(
+            ParameterAttributes.None,
+            metadata.GetOrAddString("value"),
+            sequenceNumber: 1);
+        metadata.AddParameter(
+            ParameterAttributes.None,
+            metadata.GetOrAddString("value"),
+            sequenceNumber: 1);
+
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        var targetIl = new BlobBuilder();
+        targetIl.WriteByte((byte)ILOpCode.Ret);
+        int firstBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(targetIl));
+        int secondBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(targetIl));
+        var callerIl = new BlobBuilder();
+        callerIl.WriteByte((byte)ILOpCode.Ldc_i4_0);
+        callerIl.WriteByte((byte)ILOpCode.Call);
+        callerIl.WriteInt32(
+            MetadataTokens.GetToken(mismatchedReference));
+        callerIl.WriteByte((byte)ILOpCode.Ret);
+        int callerBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(callerIl));
+
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("A"),
+            metadata.GetOrAddBlob(varargSignature),
+            firstBody,
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("B"),
+            metadata.GetOrAddBlob(varargSignature),
+            secondBody,
+            MetadataTokens.ParameterHandle(2));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Caller"),
+            metadata.GetOrAddBlob(
+                new byte[] { 0x00, 0x00, 0x01 }),
+            callerBody,
+            MetadataTokens.ParameterHandle(3));
 
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),

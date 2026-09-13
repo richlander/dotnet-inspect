@@ -200,6 +200,12 @@ public sealed record MemberRef(
 
     internal int RequiredParameterCount { get; init; } = -1;
 
+    /// <summary>
+    /// Exact parent token for the ECMA-335 vararg MemberRef form whose parent is
+    /// a MethodDef. Zero for every other member shape.
+    /// </summary>
+    internal int MethodDefinitionParentToken { get; init; }
+
     // Candidate metadata only; this affects rewrite compatibility, not method identity.
     internal bool TrailingParameterCanBeOmitted { get; init; }
 
@@ -250,6 +256,8 @@ public sealed record MemberRef(
             && ((SignatureHeader & 0x0F) != 0x05
                 || RequiredParameterCount
                     == other.RequiredParameterCount)
+            && MethodDefinitionParentToken
+                == other.MethodDefinitionParentToken
             && GenericArity == other.GenericArity
             && ImmutableArrayValueEquality.SequenceEqual(OpenParameterTypes, other.OpenParameterTypes)
             && Equals(OpenReturnType, other.OpenReturnType);
@@ -267,6 +275,7 @@ public sealed record MemberRef(
         hash.Add(SignatureHeader);
         if ((SignatureHeader & 0x0F) == 0x05)
             hash.Add(RequiredParameterCount);
+        hash.Add(MethodDefinitionParentToken);
         hash.Add(GenericArity);
         ImmutableArrayValueEquality.AddToHash(ref hash, OpenParameterTypes);
         hash.Add(OpenReturnType);

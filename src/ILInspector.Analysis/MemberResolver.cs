@@ -70,6 +70,12 @@ internal static class MemberResolver
                     SignatureHeader = signature.Header.RawValue,
                     RequiredParameterCount =
                         signature.RequiredParameterCount,
+                    MethodDefinitionParentToken =
+                        member.Parent.Kind
+                            == HandleKind.MethodDefinition
+                                ? MetadataTokens.GetToken(
+                                    member.Parent)
+                                : 0,
                     GenericArity = signature.GenericParameterCount,
                 };
             }

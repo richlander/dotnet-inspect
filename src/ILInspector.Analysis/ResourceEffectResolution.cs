@@ -942,6 +942,7 @@ public static class ResourceEffectResolver
 
             SelectedMemberOutcome selected = SelectDefinition(
                 issued.Key,
+                item.Call.Callee,
                 resolved,
                 definitionCandidates[item],
                 context,
@@ -1521,6 +1522,7 @@ public static class ResourceEffectResolver
 
     static SelectedMemberOutcome SelectDefinition(
         CatalogMemberJoinKey callKey,
+        MemberRef callMember,
         TypeResolutionOutcome.Resolved resolved,
         DefinitionCandidateSet candidateSet,
         TypeResolutionContext context,
@@ -1552,9 +1554,19 @@ public static class ResourceEffectResolver
         var matches =
             new List<PendingDefinitionCandidate>();
         ResourceEffectTargetEvaluationKind? failureKind = null;
+        bool hasMethodDefinitionParent =
+            callMember.MethodDefinitionParentToken != 0;
+        bool foundMethodDefinitionParent = false;
         foreach (PendingDefinitionCandidate candidate
             in candidateSet.Candidates)
         {
+            if (hasMethodDefinitionParent
+                && MetadataTokens.GetToken(candidate.Definition)
+                    != callMember.MethodDefinitionParentToken)
+            {
+                continue;
+            }
+            foundMethodDefinitionParent = true;
             long requiredWork = invocationBindings + 1;
             if (requiredWork > limits.MaxInvocationBindings)
             {
@@ -1565,7 +1577,11 @@ public static class ResourceEffectResolver
             }
             invocationBindings = requiredWork;
             if (!CouldMatch(callKey, candidate.Member))
+            {
+                if (hasMethodDefinitionParent)
+                    return new SelectedMemberOutcome.Unsupported();
                 continue;
+            }
             CatalogMemberJoinProjection projection =
                 candidate.Plan.Project(context);
             if (projection
@@ -1589,8 +1605,18 @@ public static class ResourceEffectResolver
                     ResourceEffectTargetEvaluationKind.Incomplete);
                 continue;
             }
-            if (MemberKeysMatch(callKey, issued.Key))
-                matches.Add(candidate);
+            if (!MemberKeysMatch(callKey, issued.Key))
+            {
+                if (hasMethodDefinitionParent)
+                    return new SelectedMemberOutcome.Unsupported();
+                continue;
+            }
+            matches.Add(candidate);
+        }
+        if (hasMethodDefinitionParent
+            && !foundMethodDefinitionParent)
+        {
+            return new SelectedMemberOutcome.Unsupported();
         }
         if (failureKind is not null)
         {
