@@ -12510,12 +12510,12 @@ public partial class CommandExecutionTests
                 "package", "--rows", "1", "--out", outputPath,
                 "search", "Fixture", "--count", "--take", "2");
 
-            Assert.Equal(0, exit);
+            Assert.Equal(1, exit);
             Assert.Empty(output);
             Assert.Equal("1\n", await File.ReadAllTextAsync(
                 outputPath,
                 TestContext.Current.CancellationToken));
-            Assert.Empty(error);
+            Assert.Contains("per-feed source limit", error);
         }
         finally
         {
@@ -12585,10 +12585,24 @@ public partial class CommandExecutionTests
             "package", "--rows", "5..6",
             "search", "Fixture", "--take", "2");
 
-        Assert.Equal(0, exit);
+        Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("requested row window", error);
+        Assert.Contains("per-feed source limit", error);
         Assert.DoesNotContain("No packages found", error);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchSelectionFailureKeepsBoundEvidence()
+    {
+        var (exit, output, error) = await RunPackageSearchFixtureAsync(
+            "package", "--rows", "3..6",
+            "search", "Fixture", "--take", "2");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("requested row window", error);
+        Assert.Contains("per-feed source limit", error);
     }
 
     [Fact]
@@ -12757,21 +12771,31 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("NuGet source", error);
     }
 
-    [Theory]
-    [InlineData("--count", "--count cannot be combined with -n")]
-    [InlineData("--take=3", "--take and -n both limit package search results")]
-    public async Task ProjectedJsonRoutingAudit_PackageSearchItemLimitConflictsFailBeforeNetwork(
-        string conflict,
-        string expected)
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchSourceAndItemLimitsCompose()
+    {
+        var (exit, output, error) = await RunPackageSearchFixtureAsync(
+            "package", "-n2",
+            "search", "Fixture", "--take=3", "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Equal(2, output.Split(
+            '\n',
+            StringSplitOptions.RemoveEmptyEntries).Length);
+        Assert.Contains("per-feed source limit", error);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchCountStillConflictsWithItemLimit()
     {
         var (exit, output, error) = await RunAppAsync(
             "package", "-n2",
-            "search", "ThisQueryMustNotReachTheNetwork", conflict,
+            "search", "ThisQueryMustNotReachTheNetwork", "--count",
             "--source", "http://127.0.0.1:9/index.json");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains(expected, error);
+        Assert.Contains("--count cannot be combined with -n", error);
         Assert.DoesNotContain("NuGet source", error);
     }
 
