@@ -15,6 +15,10 @@ using ChainPropertyArgumentDerived =
     ILInspector.Decompiler.Fixtures.UnsafeChainB.ContractPropertyArgumentDerived;
 using ChainRefArgumentDerived =
     ILInspector.Decompiler.Fixtures.UnsafeChainB.ContractRefArgumentDerived;
+using ChainInArgumentDerived =
+    ILInspector.Decompiler.Fixtures.UnsafeChainB.ContractInArgumentDerived;
+using ChainRefPropertyArgumentDerived =
+    ILInspector.Decompiler.Fixtures.UnsafeChainB.ContractRefPropertyArgumentDerived;
 using ChainThis =
     ILInspector.Decompiler.Fixtures.UnsafeChainB.ThisContract;
 using ChainThisArgument =
@@ -323,6 +327,65 @@ public class DecompilerMethodMemorySafetyTests
             {
                 static int s_value;
                 public static unsafe ref int ContractRef() => ref s_value;
+            }
+            """);
+    }
+
+    [Fact]
+    public void SafeBaseConstructorInitializer_PreservesExplicitInArgument()
+    {
+        DecompilerResult result =
+            DecompileType(typeof(ChainInArgumentDerived));
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Contains(
+            "base(in unsafe(LibraryA.ContractIn()))",
+            result.Output);
+        AssertCompilesType(
+            result.Output!,
+            """
+            public class SafeInArgumentBase
+            {
+                public SafeInArgumentBase(int value) { }
+                public SafeInArgumentBase(in int value) { }
+            }
+            public static class LibraryA
+            {
+                static int s_value;
+                public static unsafe ref readonly int ContractIn()
+                    => ref s_value;
+            }
+            """);
+    }
+
+    [Fact]
+    public void UnsafeBaseConstructorInitializer_PreservesRefPropertyArgument()
+    {
+        DecompilerResult result =
+            DecompileType(typeof(ChainRefPropertyArgumentDerived));
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Contains(
+            "public unsafe ContractRefPropertyArgumentDerived()",
+            result.Output);
+        Assert.Contains(
+            "base(ref LibraryA.ContractRefProperty)",
+            result.Output);
+        Assert.DoesNotContain(
+            "unsafe(LibraryA.ContractRefProperty)",
+            result.Output);
+        AssertCompilesType(
+            result.Output!,
+            """
+            public class SafeRefArgumentBase
+            {
+                public SafeRefArgumentBase(ref int value) { }
+            }
+            public static class LibraryA
+            {
+                static int s_value;
+                public static unsafe ref int ContractRefProperty
+                    => ref s_value;
             }
             """);
     }

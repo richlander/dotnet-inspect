@@ -56,6 +56,12 @@ public static class LibraryA
     public static unsafe ref int ContractRef()
         => ref s_contractRef;
 
+    public static unsafe ref readonly int ContractIn()
+        => ref s_contractRef;
+
+    public static unsafe ref int ContractRefProperty
+        => ref s_contractRef;
+
     public static Task<int> SafePointerTask(int* value)
         => Task.FromResult(1);
 
@@ -218,6 +224,15 @@ public class SafeArgumentBase
 public class SafeRefArgumentBase
 {
     public SafeRefArgumentBase(ref int value)
+        => _ = value;
+}
+
+public class SafeInArgumentBase
+{
+    public SafeInArgumentBase(int value)
+        => _ = value;
+
+    public SafeInArgumentBase(in int value)
         => _ = value;
 }
 

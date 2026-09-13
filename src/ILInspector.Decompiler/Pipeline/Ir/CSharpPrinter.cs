@@ -3696,6 +3696,7 @@ public sealed partial class CSharpPrinter
             arguments,
             callee.ParameterTypes,
             callee.ParameterRefKinds,
+            explicitIn: true,
             chainFidelityCasts: true,
             unsafeExpressions: true)});";
     }

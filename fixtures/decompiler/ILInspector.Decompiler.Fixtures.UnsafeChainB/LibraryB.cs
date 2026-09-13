@@ -146,6 +146,22 @@ public sealed class ContractRefArgumentDerived : SafeRefArgumentBase
     }
 }
 
+public sealed class ContractInArgumentDerived : SafeInArgumentBase
+{
+    public ContractInArgumentDerived()
+        : base(in unsafe(LibraryA.ContractIn()))
+    {
+    }
+}
+
+public sealed class ContractRefPropertyArgumentDerived : SafeRefArgumentBase
+{
+    public unsafe ContractRefPropertyArgumentDerived()
+        : base(ref LibraryA.ContractRefProperty)
+    {
+    }
+}
+
 public sealed class ThisArgumentContract
 {
     public int Value;

@@ -1230,6 +1230,7 @@ public sealed partial class CSharpPrinter
     {
         if (!_newMemorySafetyRules
             || _unsafeDepth != 0
+            || _function.RequiresUnsafeContract
             || !HasRequiredUnsafeOperation(argument))
         {
             return text;
@@ -1348,7 +1349,8 @@ public sealed partial class CSharpPrinter
         LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or FixedBufferElementAddress or LoadElementAddress => Deref(argument),
         Unbox u => $"({TypeText(u.Type)}){Operand(u.Operand)}",
         { ResultType.Kind: TypeRefKind.Pointer } when dereferencePointer => Deref(argument),
-        LoadLocal or LoadArgument or LoadStackSlot or LoadIndirect or Call or CallIndirect => Expression(argument),
+        LoadLocal or LoadArgument or LoadStackSlot or LoadIndirect or Call or CallIndirect
+            or LoadProperty { ResultType.Kind: TypeRefKind.ByRef } => Expression(argument),
         _ => null,
     };
 
@@ -1375,7 +1377,8 @@ public sealed partial class CSharpPrinter
         // ref-returning call, or a ref slot the importer spilled the managed
         // pointer into (a ref argument evaluated before a later side-effecting
         // argument). Each renders as a bare name the ref/out keyword prefixes.
-        LoadLocal or LoadArgument or LoadStackSlot or LoadIndirect or Call or CallIndirect => Expression(argument),
+        LoadLocal or LoadArgument or LoadStackSlot or LoadIndirect or Call or CallIndirect
+            or LoadProperty { ResultType.Kind: TypeRefKind.ByRef } => Expression(argument),
         _ => null,
     };
 }
