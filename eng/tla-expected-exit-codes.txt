@@ -143,6 +143,13 @@ docs/design/models/workspace-binding-policy-realization/BrokenAutomaticRetryAfte
 docs/design/models/workspace-binding-policy-realization/BrokenImportedBindingVersionLifecycle.cfg=13
 docs/design/models/workspace-binding-policy-realization/WorkspaceBindingPolicyRealizationLiveness.cfg=0
 docs/design/models/workspace-binding-policy-realization/WorkspaceBindingPolicyRealizationSafety.cfg=0
+docs/design/models/workspace-registration-revisions/BrokenCloseBeforePublication.cfg=12
+docs/design/models/workspace-registration-revisions/BrokenDuplicateCandidate.cfg=12
+docs/design/models/workspace-registration-revisions/BrokenEcosystemInstanceEquality.cfg=12
+docs/design/models/workspace-registration-revisions/BrokenForeignWorkspace.cfg=12
+docs/design/models/workspace-registration-revisions/BrokenNoOpChurn.cfg=12
+docs/design/models/workspace-registration-revisions/BrokenStaleRevision.cfg=12
+docs/design/models/workspace-registration-revisions/Safety.cfg=0
 docs/design/models/workspace-scope-revisions/BrokenCleanup.cfg=12
 docs/design/models/workspace-scope-revisions/BrokenCorrespondence.cfg=12
 docs/design/models/workspace-scope-revisions/BrokenFinalCommit.cfg=12

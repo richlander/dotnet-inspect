@@ -121,6 +121,131 @@ The historical-state gate retains both a Preparing snapshot and a committed
 result, awaits actual product retirement settlement, and then checks collection
 of package bindings, content, sessions, and realization resources.
 
+### Inert registration adoption
+
+Issue [#6577](https://github.com/richlander/dotnet-inspect/issues/6577) adds
+one independent, resource-free registration revision to `InspectionWorkspace`.
+It consumes the approved registration experience in
+[Workspace registration and call-graph focal length](workspace-registration-and-call-graph-scope.md)
+and the already implemented
+[ecosystem declaration handoff](workspace-ecosystem-registration-handoff.md).
+This section owns the registration-state contract; acquisition and package
+publication remain unchanged.
+
+The claim is:
+
+> For one exact open Workspace, construction or replacement retains one
+> complete ordered registration revision. Replacement either publishes the
+> entire validated request against the exact current revision, reports a
+> no-op, or leaves that revision unchanged.
+
+`WorkspaceRegistration` is a closed union of exact-library coordinates,
+package-prefix declarations, and lower ecosystem declarations. Each arm
+retains its source owner's value rather than interpreting display text or
+reconstructing ecosystem contributions. Registration describes possible
+populations, not permission, acquisition, Package membership or query results.
+
+The public construction forms are:
+
+```csharp
+ImmutableArray<WorkspaceRegistration> registrations =
+[
+    new WorkspaceRegistration.PackagePrefix(new("Microsoft.Extensions.")),
+];
+using var empty = new InspectionWorkspace();
+using var explicitWorkspace = new InspectionWorkspace(registrations);
+await using var emptyAsync = InspectionWorkspace.CreateAsynchronous();
+await using var explicitAsync =
+    InspectionWorkspace.CreateAsynchronous(registrations);
+```
+
+Both no-argument forms start with an empty registration revision. Explicit
+forms validate the entire immutable input before exposing a Workspace;
+default arrays, null entries and duplicate registration identities are
+argument errors, never partial initialization. Every constructed Workspace
+has an independent Workspace identity and initial registration revision.
+No form chooses product curation or executes a contribution.
+
+`GetRegistrationSnapshot()` returns the current complete
+`WorkspaceRegistrationRevision`, including its exact Workspace identity,
+opaque revision identity and ordered registrations. A closing or closed
+Workspace instead returns `Unavailable` with its historical last revision
+and the existing Workspace lifetime failure. It does not return that revision
+as current.
+
+`ReplaceRegistrations(expectedRevision, registrations)` is a synchronous,
+in-memory operation in both lifetime modes. It shares the existing Workspace
+runtime gate with close; there is no preparation phase, background work,
+deadline, cancellation protocol or acquired resource. The result is one of:
+
+- `Committed`: a fresh revision contains the entire requested sequence;
+- `NoEffect`: an equal ordered sequence retains the exact current revision;
+- `Rejected`: malformed input, a foreign Workspace, a stale revision or
+  duplicate identities retain the current revision; or
+- `Unavailable`: close has started, and the returned last revision is
+  historical.
+
+Lifetime unavailability wins before request validation. Otherwise expected
+revision validity precedes candidate-set validation, and all validation
+precedes equality/no-op classification. Two replacements using the same
+current revision cannot both publish: after one changes the revision, the
+other is stale. An empty replacement is the explicit registration-clear
+gesture, including an empty-to-empty no-op.
+
+#### Identity and equality
+
+Duplicate identity is arm-specific: exact-library source equality,
+package-prefix declaration equality, or canonical lower ecosystem ID.
+Different arms are not coalesced merely because their populations overlap.
+Prefix equality retains the source declaration's literal equality; this
+owner does not introduce package-discovery matching semantics.
+
+No-op comparison is ordered registration-value equality. Exact-library and
+prefix arms use their owners' equality. The ecosystem declaration owner does
+not issue structural value equality, so this arm retains exact declaration
+instance identity. A new declaration with an existing ecosystem ID is a
+replacement contribution, even if its visible fields look equal; two such
+declarations in one requested set are duplicate identities and are rejected.
+This preserves newly issued contribution correspondence rather than
+discarding it through a display-derived equivalence.
+
+Historical revisions stay immutable. Reordering is an effective change;
+replacing an equal sequence does not create a new revision. Removed then
+re-added registrations do not revive an old revision identity.
+
+#### Independence and consumers
+
+The registration revision and the existing Package `WorkspaceScopeRevision`
+are separate currencies belonging to the same Workspace. Registration edits
+do not publish a Package revision, advance an Artifact epoch, supersede a
+preparing Package edit, or evict admitted content. Package edits do not
+reinterpret or clear registrations. This slice does not issue an atomic
+combined Package/registration snapshot.
+
+The 64-Package membership limit is unchanged and is not a registration-count
+limit. A registration for a population larger than that limit does not promise
+that it can be realized completely. Population planning, capacity/coverage
+outcomes, persistence and host queries remain later owner adoptions.
+
+The next consumers are Ecosystems-owned construction and Workspace Definitions
+restoration under #6570, #6012 and #6761, followed by both CLI and Inspect Web.
+A public non-friend consumer exercises construction, reading, pattern matching
+and replacement in this slice. No host-specific registration registry, product
+factory, CLI flag or browser behavior is introduced here.
+
+`WorkspaceRegistrationTests` and the registration/Package interaction cases in
+`WorkspaceScopeTests` are the Release conformance gates. They retain a real
+`System.Text.Json@11.0.0-preview.7.26381.103` exact-library coordinate alongside
+Platform and `Microsoft.Extensions.` declarations. They cover complete initial
+state, identity/equality boundaries, stale/foreign requests, close, historical
+revisions, competing replacements, and unchanged physical/Package state.
+The [registration revision model](models/workspace-registration-revisions/README.md)
+provides separate bounded evidence for revision and close interleavings,
+including stale/foreign requests and no-op/correspondence negative controls.
+The older Package-publication model does not establish this new revision's
+correctness. Registered-population realization and joined host behavior remain
+**unverified** by these gates.
+
 ### Package membership terminology
 
 The logical Scope concept is **Package**, not Root. The target host-neutral
@@ -181,14 +306,14 @@ conformance gates.
 
 [Workspace registration and call-graph focal
 length](workspace-registration-and-call-graph-scope.md) supersedes the
-unimplemented expansion-permission target in this document. The implemented
-Package membership and mutation contract above remains current. A
-focused Workspace Scope revision must replace proposed `ExpansionScopes`,
-closed/selectively-open permission semantics, and Browser-only defaults with
-inert exact-library/prefix/ecosystem registration and empty-only Workspace API
-construction. Ecosystems separately owns the one curated Workspace
-composition. Until that revision lands, those later expansion sections are
-historical design context, not an implementation claim.
+unimplemented expansion-permission target in this document. The Package
+membership profile and inert-registration contract above are current.
+Later material involving `ExpansionScopes`, permission-based closed/selectively
+open boundaries, or expansion operations is retained as superseded design
+history, not registration authority or an implementation claim. The existing
+Package-only `ClosedBoundary` observation does not grant or deny use of a
+registered population. Ecosystems separately adopts product construction
+policy, including the two intents approved by #6763.
 
 ## Authority and exact claim
 
@@ -198,11 +323,11 @@ logical inspection scope of one exact Workspace.
 It owns:
 
 - one immutable current `WorkspaceScopeRevision` per exact open Workspace;
+- one independent immutable current `WorkspaceRegistrationRevision`;
 - ordered committed Package occurrences, typed Package descriptors, and their
   Workspace-bound identities;
 - explicit Package addition, replacement, removal, and Clear operations;
-- registered typed dependency-expansion scopes;
-- the derived closed or selectively open boundary;
+- complete ordered inert registration and exact-revision replacement;
 - finite logical-scope limits;
 - exact closure-completeness and boundary-failure evidence;
 - revision-bound mutation admission, supersession, and publication; and
@@ -225,9 +350,8 @@ It does not own:
 
 The owner answers:
 
-> Which exact Packages are committed in this Workspace revision, which external
-> dependencies may be admitted next, and what complete snapshot resulted from
-> this one scope operation?
+> Which exact Packages are committed, which inert populations are registered,
+> and what complete owner-issued revision resulted from this operation?
 
 ## Consumers and proportionality
 

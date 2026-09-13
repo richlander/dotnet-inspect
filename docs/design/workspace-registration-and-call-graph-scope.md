@@ -9,9 +9,12 @@ one-Workspace tracker
 platform-first tracker
 [#6228](https://github.com/richlander/dotnet-inspect/issues/6228). The
 construction-ownership replacement is tracked by
-[#6570](https://github.com/richlander/dotnet-inspect/issues/6570). It is **not
-implemented**; the target behavior and acceptance scenarios below remain
-**unverified**.
+[#6570](https://github.com/richlander/dotnet-inspect/issues/6570).
+[Workspace Scope](workspace-scope-and-expansion.md#inert-registration-adoption)
+implements the inert registration state, empty/explicit initialization and
+revision-bound replacement subset under #6577. Product curation, population
+realization, persistence and the joined host experience below remain
+**unimplemented and unverified**.
 
 The operator explicitly approved this bounded cross-owner replacement:
 
@@ -484,7 +487,8 @@ There are ten counted production-adoption stages, tracked by #6012:
    Microsoft.Extensions.
 4. Revise Workspace Scope from expansion permission to inert registration,
    make default Workspace API construction empty, accept complete explicit
-   initial registrations, and expose no curated option.
+   initial registrations, and expose no curated option. The registration-state
+   subset is adopted in #6577; population realization remains separate.
 5. Have Ecosystems construct one fresh independent Workspace from its current
    complete curated manifest through the public Workspace API.
 6. Add the three typed focal lengths to the host-neutral call-graph request and
