@@ -17,7 +17,9 @@ internal static class MethodMemorySafetyContract
         {
             MetadataFactState.Yes => true,
             MetadataFactState.No => false,
-            _ => legacyShapeRequiresUnsafe,
+            _ => (method.MemorySafetyRulesState is
+                    null or MemorySafetyRulesState.Legacy)
+                && legacyShapeRequiresUnsafe,
         };
     }
 

@@ -306,6 +306,10 @@ public class ExpressionInliningPassTests
             MemorySafetyRulesState = MemorySafetyRulesState.Updated,
             MemorySafetyContractUnavailable = true,
         };
+        var updatedUnknownContract = unresolved with
+        {
+            MemorySafetyRulesState = MemorySafetyRulesState.Updated,
+        };
         var invalidContract = unresolved with
         {
             MemorySafetyRulesState = MemorySafetyRulesState.Malformed,
@@ -335,6 +339,9 @@ public class ExpressionInliningPassTests
             usesUpdatedMemorySafetyRules: false));
         Assert.False(UnsafeAwaitOperand.MethodRequiresUnsafe(
             unavailableContract,
+            usesUpdatedMemorySafetyRules: true));
+        Assert.False(UnsafeAwaitOperand.MethodRequiresUnsafe(
+            updatedUnknownContract,
             usesUpdatedMemorySafetyRules: true));
         Assert.False(UnsafeAwaitOperand.MethodRequiresUnsafe(
             invalidContract,
