@@ -92,12 +92,8 @@ internal sealed class BrowserPlatformScope(
 
     public ValueTask DisposeAsync()
     {
-        if (_context is null)
-            return ValueTask.CompletedTask;
-
         _context = null;
-        _workspace.Dispose();
-        return ValueTask.CompletedTask;
+        return BrowserInspectionScope.CloseWorkspaceAsync(_workspace);
     }
 }
 
@@ -970,14 +966,14 @@ internal static class BrowserPlatformWorkspace
                     },
                     Options(store, host, deadline),
                     deadline.Token).ConfigureAwait(false);
-            return Attempt(
+            return await AttemptAsync(
                 workspace,
                 outcome,
-                store.PackageKeys);
+                store.PackageKeys).ConfigureAwait(false);
         }
-        catch
+        catch (Exception failure)
         {
-            workspace.Dispose();
+            await CloseAfterFailureAsync(workspace, failure).ConfigureAwait(false);
             throw;
         }
     }
@@ -998,14 +994,14 @@ internal static class BrowserPlatformWorkspace
                     coordinates,
                     Options(store, host, deadline),
                     deadline.Token).ConfigureAwait(false);
-            return Attempt(
+            return await AttemptAsync(
                 workspace,
                 outcome,
-                store.PackageKeys);
+                store.PackageKeys).ConfigureAwait(false);
         }
-        catch
+        catch (Exception failure)
         {
-            workspace.Dispose();
+            await CloseAfterFailureAsync(workspace, failure).ConfigureAwait(false);
             throw;
         }
     }
@@ -1028,17 +1024,17 @@ internal static class BrowserPlatformWorkspace
                     coordinates,
                     Options(store, host, deadline),
                     deadline.Token).ConfigureAwait(false);
-            PlatformLoadAttempt attempt = Attempt(
+            PlatformLoadAttempt attempt = await AttemptAsync(
                 workspace,
                 outcome,
-                store.PackageKeys);
+                store.PackageKeys).ConfigureAwait(false);
             return attempt.Failure is null
                 ? (attempt.Scope!, attempt.PackageKeys)
                 : throw Failure(attempt.Failure);
         }
-        catch
+        catch (Exception failure)
         {
-            workspace.Dispose();
+            await CloseAfterFailureAsync(workspace, failure).ConfigureAwait(false);
             throw;
         }
     }
@@ -1062,7 +1058,7 @@ internal static class BrowserPlatformWorkspace
             UseVersionCache = false,
         };
 
-    static PlatformLoadAttempt Attempt(
+    static async Task<PlatformLoadAttempt> AttemptAsync(
         InspectionWorkspace workspace,
         WorkspaceContextLoadOutcome outcome,
         ImmutableHashSet<string> packageKeys)
@@ -1075,7 +1071,7 @@ internal static class BrowserPlatformWorkspace
                 failure: null);
         }
 
-        workspace.Dispose();
+        await BrowserInspectionScope.CloseWorkspaceAsync(workspace).ConfigureAwait(false);
         return outcome is WorkspaceContextLoadOutcome.Failed failed
             ? new PlatformLoadAttempt(
                 scope: null,
@@ -1083,6 +1079,17 @@ internal static class BrowserPlatformWorkspace
                 failed)
             : throw new InvalidOperationException(
                 "Platform workspace loading returned an unknown outcome.");
+    }
+
+    static async ValueTask CloseAfterFailureAsync(
+        InspectionWorkspace workspace,
+        Exception failure)
+    {
+        List<Exception> cleanupFailures = [];
+        await BrowserInspectionScope.TryCloseAsync(workspace, cleanupFailures)
+            .ConfigureAwait(false);
+        if (cleanupFailures.Count > 0)
+            throw new BrowserScopeConstructionException(failure, cleanupFailures);
     }
 
     static BrowserPlatformScope Scope(

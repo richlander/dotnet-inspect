@@ -69,7 +69,7 @@ internal static class MemberSearchService
             };
         }
 
-        using var workspace = new AssemblySetInspectionWorkspace();
+        await using var workspace = new AssemblySetInspectionWorkspace();
         return new(
             await CollectMembersAsync(
                 options,

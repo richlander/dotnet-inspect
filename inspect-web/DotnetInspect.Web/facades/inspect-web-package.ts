@@ -407,7 +407,7 @@ type $ManagedExports = {
           readonly "PackageExports": {
             readonly "ActivateWorkspacePackageOccurrence.976702342": (action: string) => Promise<string>;
             readonly "CancelPackageQuery.271973316": (operationId: string, reason: string) => string;
-            readonly "ClearWorkspacePackageOccurrences.19325221": () => void;
+            readonly "ClearWorkspacePackageOccurrences.1731052262": () => Promise<void>;
             readonly "GetPackageDocument.1001223652": (packageId: string, version: string, path: string) => Promise<string>;
             readonly "GetPlatformCatalog.451505237": (targetFramework: string, platformVersion: string) => Promise<string>;
             readonly "GetPlatformVersions.976702342": (targetFramework: string) => Promise<string>;
@@ -509,9 +509,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Package");
     value = $ownDataProperty(value, "PackageExports");
-    value = $ownDataProperty(value, "ClearWorkspacePackageOccurrences.19325221");
+    value = $ownDataProperty(value, "ClearWorkspacePackageOccurrences.1731052262");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.ClearWorkspacePackageOccurrences.19325221\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.ClearWorkspacePackageOccurrences.1731052262\u0027 is not callable.");
     }
   }
   {
@@ -815,8 +815,8 @@ export function cancelPackageQuery(operationId: string, reason: string): Browser
   return $parsed as BrowserPackageQueryCancellation;
 }
 
-export function clearWorkspacePackageOccurrences(): void {
-  return $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ClearWorkspacePackageOccurrences.19325221"]();
+export async function clearWorkspacePackageOccurrences(): Promise<void> {
+  return await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ClearWorkspacePackageOccurrences.1731052262"]();
 }
 
 export async function getPackageDocument(packageId: string, version: string, path: string): Promise<BrowserPackageDocumentContent> {

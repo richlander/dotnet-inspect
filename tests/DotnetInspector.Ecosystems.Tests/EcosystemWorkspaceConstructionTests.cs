@@ -46,7 +46,7 @@ public sealed class EcosystemWorkspaceConstructionTests
     }
 
     [Fact]
-    public void ProjectionRetainsTheAuthoredPairWithoutExecutingNeighboringCapabilities()
+    public async Task ProjectionRetainsTheAuthoredPairWithoutExecutingNeighboringCapabilities()
     {
         var prefix = new PackagePrefixDeclaration("Aspire.");
         var scanner = EcosystemIntegrationScannerBinding.Create(FailIfScannerInvoked);
@@ -64,7 +64,7 @@ public sealed class EcosystemWorkspaceConstructionTests
 
         Assert.Same(declaration, Assert.IsType<EcosystemWorkspaceRegistrationSelectionResult.Known>(
             registry.SelectWorkspaceRegistration(EcosystemPackIds.Aspire)).Declaration);
-        using InspectionWorkspace workspace = new EcosystemWorkspaceFactory(
+        await using InspectionWorkspace workspace = new EcosystemWorkspaceFactory(
             registry, [EcosystemPackIds.Aspire]).Create();
         var retained = Assert.Single(Declarations(Read(workspace)));
         Assert.Same(declaration, retained);
@@ -148,7 +148,7 @@ public sealed class EcosystemWorkspaceConstructionTests
     }
 
     [Fact]
-    public void ManifestEvolutionDoesNotReinterpretExistingOrExplicitlyRestoredState()
+    public async Task ManifestEvolutionDoesNotReinterpretExistingOrExplicitlyRestoredState()
     {
         var registry = new EcosystemPackRegistry(
         [
@@ -159,11 +159,11 @@ public sealed class EcosystemWorkspaceConstructionTests
         var firstFactory = new EcosystemWorkspaceFactory(registry, manifest);
         manifest[0] = EcosystemPackIds.Aspire;
         var laterFactory = new EcosystemWorkspaceFactory(registry, manifest);
-        using InspectionWorkspace first = firstFactory.Create();
-        using InspectionWorkspace later = laterFactory.Create();
+        await using InspectionWorkspace first = firstFactory.Create();
+        await using InspectionWorkspace later = laterFactory.Create();
         WorkspaceRegistrationRevision initial = Read(first);
-        using InspectionWorkspace restored = new(initial.Registrations);
-        using InspectionWorkspace empty = new([]);
+        await using InspectionWorkspace restored = new(initial.Registrations);
+        await using InspectionWorkspace empty = new([]);
 
         Assert.Equal("ecosystem.platform", Assert.Single(Declarations(initial)).Id.Value);
         Assert.Equal("ecosystem.aspire", Assert.Single(

@@ -14,11 +14,11 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class AssemblyContextMethodAnalysisQueryTests
 {
     [Fact]
-    public void MethodAnalysis_ReturnsExactPhysicalBodyEvidence()
+    public async Task MethodAnalysis_ReturnsExactPhysicalBodyEvidence()
     {
         byte[] image = File.ReadAllBytes(
             typeof(MethodAnalysisProbe).Assembly.Location);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = Group(workspace, image);
         AssemblyContextParticipant participant =
             Assert.Single(group.Participants);
@@ -66,11 +66,11 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
     }
 
     [Fact]
-    public void MethodAnalysis_DoesNotReturnNeighborBodyEvidence()
+    public async Task MethodAnalysis_DoesNotReturnNeighborBodyEvidence()
     {
         byte[] image = File.ReadAllBytes(
             typeof(MethodAnalysisProbe).Assembly.Location);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = Group(workspace, image);
         AssemblyContextParticipant participant =
             Assert.Single(group.Participants);
@@ -92,11 +92,11 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
     }
 
     [Fact]
-    public void MethodAnalysis_KeepsAsyncKickoffAndMoveNextEvidenceSeparate()
+    public async Task MethodAnalysis_KeepsAsyncKickoffAndMoveNextEvidenceSeparate()
     {
         byte[] image = File.ReadAllBytes(
             typeof(ClassicAsyncSiblingFixture).Assembly.Location);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = Group(workspace, image);
         AssemblyContextParticipant participant =
             Assert.Single(group.Participants);
@@ -161,11 +161,11 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
     }
 
     [Fact]
-    public void MethodAnalysis_ReturnsExactUnsafetyOccurrences()
+    public async Task MethodAnalysis_ReturnsExactUnsafetyOccurrences()
     {
         byte[] image = File.ReadAllBytes(
             typeof(MethodAnalysisProbe).Assembly.Location);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = Group(workspace, image);
         int token = typeof(MethodAnalysisProbe)
             .GetMethod(nameof(MethodAnalysisProbe.StackAllocate))!
@@ -187,11 +187,11 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
     }
 
     [Fact]
-    public void MethodAnalysis_InvalidTokenIsAVisibleParticipantFailure()
+    public async Task MethodAnalysis_InvalidTokenIsAVisibleParticipantFailure()
     {
         byte[] image = File.ReadAllBytes(
             typeof(MethodAnalysisProbe).Assembly.Location);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = Group(workspace, image);
 
         var failed = Assert.IsType<
@@ -205,11 +205,11 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
     }
 
     [Fact]
-    public void MethodAnalysis_BodylessMethodIsAVisibleParticipantFailure()
+    public async Task MethodAnalysis_BodylessMethodIsAVisibleParticipantFailure()
     {
         byte[] image = File.ReadAllBytes(
             typeof(IMethodAnalysisProbe).Assembly.Location);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = Group(workspace, image);
         int token = typeof(IMethodAnalysisProbe)
             .GetMethod(nameof(IMethodAnalysisProbe.Bodyless))!

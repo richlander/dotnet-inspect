@@ -6,9 +6,9 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class AnalysisUniverseRealizationTests
 {
     [Fact]
-    public void AnalysisUniverseRealization_RequiresExactDescription()
+    public async Task AnalysisUniverseRealization_RequiresExactDescription()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         TestFixture first = TestFixture.Create(workspace);
         TestFixture second = TestFixture.Create(workspace);
 
@@ -24,10 +24,10 @@ public sealed class AnalysisUniverseRealizationTests
     }
 
     [Fact]
-    public void AnalysisUniverseRealization_RejectsForeignProviderOffer()
+    public async Task AnalysisUniverseRealization_RejectsForeignProviderOffer()
     {
-        using var owner = new InspectionWorkspace();
-        using var foreign = new InspectionWorkspace();
+        await using var owner = new InspectionWorkspace();
+        await using var foreign = new InspectionWorkspace();
         TestFixture fixture = TestFixture.Create(owner);
 
         AnalysisUniverseIssuanceResult.Rejected rejected =
@@ -43,9 +43,9 @@ public sealed class AnalysisUniverseRealizationTests
     }
 
     [Fact]
-    public void AnalysisUniverseRealization_RejectsLookalikeCapabilityIdentity()
+    public async Task AnalysisUniverseRealization_RejectsLookalikeCapabilityIdentity()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AnalysisUniverseCapabilityDescriptor capability =
             Capability("lookalike");
         AnalysisUniverseCapabilityDescriptor lookalike =
@@ -74,9 +74,9 @@ public sealed class AnalysisUniverseRealizationTests
     }
 
     [Fact]
-    public void AnalysisUniverseRealization_BindsEveryPlanRequirementExactlyOnce()
+    public async Task AnalysisUniverseRealization_BindsEveryPlanRequirementExactlyOnce()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         TestFixture fixture = TestFixture.Create(workspace);
 
         using AnalysisUniverseExecutionAccess access =
@@ -94,9 +94,9 @@ public sealed class AnalysisUniverseRealizationTests
     }
 
     [Fact]
-    public void AnalysisUniverseRealization_OneCapabilityMayBackSeveralRequirements()
+    public async Task AnalysisUniverseRealization_OneCapabilityMayBackSeveralRequirements()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AnalysisUniverseCapabilityDescriptor capability =
             Capability("shared");
         AnalysisUniverseRequirementDescriptor first =
@@ -136,7 +136,7 @@ public sealed class AnalysisUniverseRealizationTests
     }
 
     [Fact]
-    public void AnalysisUniverseRealization_RejectsExtraneousExecutableBinding()
+    public async Task AnalysisUniverseRealization_RejectsExtraneousExecutableBinding()
     {
         AnalysisUniverseCapabilityDescriptor expectedCapability =
             Capability("expected");
@@ -146,7 +146,7 @@ public sealed class AnalysisUniverseRealizationTests
             Requirement("expected", expectedCapability);
         AnalysisUniverseRequirementDescriptor extra =
             Requirement("extra", extraCapability);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AnalysisUniverseOffer offer = CreateOffer(
             workspace,
             [expectedCapability],
@@ -179,9 +179,9 @@ public sealed class AnalysisUniverseRealizationTests
     }
 
     [Fact]
-    public void AnalysisUniverseRealization_PreservesProviderOrderAndFailures()
+    public async Task AnalysisUniverseRealization_PreservesProviderOrderAndFailures()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AnalysisUniverseCapabilityDescriptor capability =
             Capability("ordered");
         AnalysisUniverseRequirementDescriptor requirement =
@@ -213,9 +213,9 @@ public sealed class AnalysisUniverseRealizationTests
     }
 
     [Fact]
-    public void AnalysisUniverseRealization_UsesOwnerIssuedContextIdentity()
+    public async Task AnalysisUniverseRealization_UsesOwnerIssuedContextIdentity()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AnalysisUniverseCapabilityDescriptor capability =
             Capability("contexts");
         AnalysisUniverseRequirementDescriptor requirement =
@@ -243,9 +243,9 @@ public sealed class AnalysisUniverseRealizationTests
     }
 
     [Fact]
-    public void AnalysisUniverseRealization_DoesNotUseBindingPolicyVersionAsContextIdentity()
+    public async Task AnalysisUniverseRealization_DoesNotUseBindingPolicyVersionAsContextIdentity()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AnalysisUniverseCapabilityDescriptor capability =
             Capability("contexts");
         AnalysisUniverseRequirementDescriptor requirement =
@@ -275,9 +275,9 @@ public sealed class AnalysisUniverseRealizationTests
     }
 
     [Fact]
-    public void AnalysisUniverseRealization_PreservesPopulationContextIncidence()
+    public async Task AnalysisUniverseRealization_PreservesPopulationContextIncidence()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AnalysisUniverseCapabilityDescriptor capability =
             Capability("incidence");
         AnalysisUniverseRequirementDescriptor requirement =
@@ -315,9 +315,9 @@ public sealed class AnalysisUniverseRealizationTests
     }
 
     [Fact]
-    public void AnalysisUniverseRealization_KeepsOwnerAccessAliveUntilRelease()
+    public async Task AnalysisUniverseRealization_KeepsOwnerAccessAliveUntilRelease()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         int releases = 0;
         TestFixture fixture = TestFixture.Create(
             workspace,
@@ -340,9 +340,9 @@ public sealed class AnalysisUniverseRealizationTests
     }
 
     [Fact]
-    public void AnalysisUniverseRealization_IdentityValuesSurviveAccessReleaseWithinScope()
+    public async Task AnalysisUniverseRealization_IdentityValuesSurviveAccessReleaseWithinScope()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         var identity = new OwnerContext("context-a", "policy-1");
         TestFixture fixture = TestFixture.Create(
             workspace,
@@ -363,9 +363,9 @@ public sealed class AnalysisUniverseRealizationTests
     }
 
     [Fact]
-    public void AnalysisUniverseRealization_RejectedIssuanceReleasesPartialAccess()
+    public async Task AnalysisUniverseRealization_RejectedIssuanceReleasesPartialAccess()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AnalysisUniverseCapabilityDescriptor firstCapability =
             Capability("first");
         AnalysisUniverseCapabilityDescriptor secondCapability =
@@ -413,9 +413,9 @@ public sealed class AnalysisUniverseRealizationTests
     }
 
     [Fact]
-    public void AnalysisUniverseRealization_CancellationReleasesPartialAccess()
+    public async Task AnalysisUniverseRealization_CancellationReleasesPartialAccess()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using var cancellation = new CancellationTokenSource();
         AnalysisUniverseCapabilityDescriptor capability =
             Capability("cancelled");
@@ -444,7 +444,7 @@ public sealed class AnalysisUniverseRealizationTests
 
         Assert.Equal(1, releases);
 
-        using var secondWorkspace = new InspectionWorkspace();
+        await using var secondWorkspace = new InspectionWorkspace();
         using var secondCancellation = new CancellationTokenSource();
         AnalysisUniverseCapabilityDescriptor firstCapability =
             Capability("first");
@@ -490,9 +490,9 @@ public sealed class AnalysisUniverseRealizationTests
     }
 
     [Fact]
-    public void AnalysisUniverseRealization_CancellationTakesPrecedenceOverCapabilityRejection()
+    public async Task AnalysisUniverseRealization_CancellationTakesPrecedenceOverCapabilityRejection()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using var cancellation = new CancellationTokenSource();
         AnalysisUniverseCapabilityDescriptor firstCapability =
             Capability("first");
@@ -535,9 +535,10 @@ public sealed class AnalysisUniverseRealizationTests
     }
 
     [Fact]
-    public void AnalysisUniverseRealization_CloseDuringIssuancePublishesNoPartialAccess()
+    public async Task AnalysisUniverseRealization_CloseDuringIssuancePublishesNoPartialAccess()
     {
-        var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
+        Task<InspectionWorkspaceCloseReport>? close = null;
         AnalysisUniverseCapabilityDescriptor capability =
             Capability("closing");
         AnalysisUniverseRequirementDescriptor requirement =
@@ -551,7 +552,7 @@ public sealed class AnalysisUniverseRealizationTests
                     capability,
                     () =>
                     {
-                        workspace.Dispose();
+                        close = workspace.CloseAsync();
                         return new TestAccess();
                     },
                     () => releases++),
@@ -570,12 +571,14 @@ public sealed class AnalysisUniverseRealizationTests
             AnalysisUniverseIssuanceRejectionReason.WorkspaceUnavailable,
             rejected.Rejection.Reason);
         Assert.Equal(1, releases);
+        Assert.NotNull(close);
+        await close;
     }
 
     [Fact]
-    public void AnalysisUniverseRealization_DoesNotCacheAuthorizationOrPinMetadataGeneration()
+    public async Task AnalysisUniverseRealization_DoesNotCacheAuthorizationOrPinMetadataGeneration()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AnalysisUniverseCapabilityDescriptor capability =
             Capability("authorization");
         AnalysisUniverseRequirementDescriptor requirement =
@@ -655,9 +658,9 @@ public sealed class AnalysisUniverseRealizationTests
     }
 
     [Fact]
-    public void AnalysisUniverseRealization_CompatiblePlansRequireIndependentAuthorization()
+    public async Task AnalysisUniverseRealization_CompatiblePlansRequireIndependentAuthorization()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         int authorizations = 0;
         TestFixture fixture = TestFixture.Create(
             workspace,
@@ -680,9 +683,9 @@ public sealed class AnalysisUniverseRealizationTests
     }
 
     [Fact]
-    public void AnalysisUniverseRealization_WiderBoundaryRequiresNewRealization()
+    public async Task AnalysisUniverseRealization_WiderBoundaryRequiresNewRealization()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         TestFixture narrow = TestFixture.Create(
             workspace,
             boundary: new TestBoundary("narrow"));
@@ -705,9 +708,9 @@ public sealed class AnalysisUniverseRealizationTests
     }
 
     [Fact]
-    public void AnalysisUniverseRealization_SequentialExecutionUsesDeclaredOrder()
+    public async Task AnalysisUniverseRealization_SequentialExecutionUsesDeclaredOrder()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AnalysisUniverseCapabilityDescriptor firstCapability =
             Capability("first");
         AnalysisUniverseCapabilityDescriptor secondCapability =

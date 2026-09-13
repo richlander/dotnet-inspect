@@ -238,7 +238,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     package: {
       searchTypes: () => searchResult,
       activateWorkspacePackageOccurrence: async () => activation,
-      clearWorkspacePackageOccurrences: () => {
+      clearWorkspacePackageOccurrences: async () => {
         cleared++;
       },
       queryMemberDocumentation: async () =>

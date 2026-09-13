@@ -10,10 +10,10 @@ public sealed class AssemblyContextClosedWorldBindingTests
     [Theory]
     [InlineData(0)]
     [InlineData(1)]
-    public void WorkspaceResearchTarget_RejectsAcquiringPolicyBeforeDiscoveryOrOpen(int participant)
+    public async Task WorkspaceResearchTarget_RejectsAcquiringPolicyBeforeDiscoveryOrOpen(int participant)
     {
         byte[] omitted = BuildAssembly("Omitted");
-        using var fixture = new WorkspaceResearchTargetFixture(
+        await using var fixture = new WorkspaceResearchTargetFixture(
             BuildAssembly("Facade", false, Identity(omitted)), BuildAssembly("Unused", false));
         var policy = new AcquiringPolicy(fixture.Group.BindingPolicyVersion, omitted);
         using var group = fixture.CreateGroup(fixture.Nodes.Select((node, index) =>
@@ -59,7 +59,7 @@ public sealed class AssemblyContextClosedWorldBindingTests
     }
 
     [Fact]
-    public void WorkspaceResearchTarget_RejectsDependencyResolverBeforeItAcquiresOmittedSibling()
+    public async Task WorkspaceResearchTarget_RejectsDependencyResolverBeforeItAcquiresOmittedSibling()
     {
         byte[] omitted = BuildAssembly("Omitted");
         byte[] facade = BuildAssembly("Facade", false, Identity(omitted));
@@ -82,7 +82,7 @@ public sealed class AssemblyContextClosedWorldBindingTests
                     SnapshotAssemblyImages = true,
                 });
             var probe = new SelectionProbe(resolver);
-            using var fixture = new WorkspaceResearchTargetFixture(facade);
+            await using var fixture = new WorkspaceResearchTargetFixture(facade);
             using var group = fixture.CreateGroup(
                 [new AssemblyContextParticipant(fixture.Nodes[0].Assembly, probe)]);
             var plan = fixture.Plan();
@@ -120,10 +120,10 @@ public sealed class AssemblyContextClosedWorldBindingTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void WorkspaceResearchTarget_ClosedWorldPreservesTypedBindingMiss(bool unavailable)
+    public async Task WorkspaceResearchTarget_ClosedWorldPreservesTypedBindingMiss(bool unavailable)
     {
         byte[] omitted = BuildAssembly("Omitted");
-        using var fixture = new WorkspaceResearchTargetFixture(
+        await using var fixture = new WorkspaceResearchTargetFixture(
             BuildAssembly("Facade", false, Identity(omitted)));
         fixture.Nodes[0].Policy.SelectOverride = _ => unavailable
             ? AssemblyBindingSelection.CannotSelect(new(AssemblyBindingFailureKind.CandidateUnavailable))
@@ -153,10 +153,10 @@ public sealed class AssemblyContextClosedWorldBindingTests
     }
 
     [Fact]
-    public void WorkspaceResearchTarget_ClosedWorldPreservesAdmittedVersionPolicyWithoutReopening()
+    public async Task WorkspaceResearchTarget_ClosedWorldPreservesAdmittedVersionPolicyWithoutReopening()
     {
         byte[] contract = BuildAssembly("Terminal");
-        using var fixture = new WorkspaceResearchTargetFixture(
+        await using var fixture = new WorkspaceResearchTargetFixture(
             BuildAssembly("Facade", false, Identity(contract)),
             BuildAssembly("Terminal", version: new Version(2, 0, 0, 0)));
         fixture.Nodes[0].Policy.Target = fixture.Nodes[1].Assembly;
@@ -181,10 +181,10 @@ public sealed class AssemblyContextClosedWorldBindingTests
     }
 
     [Fact]
-    public void WorkspaceResearchTarget_ClosedWorldPreservesInGroupAmbiguity()
+    public async Task WorkspaceResearchTarget_ClosedWorldPreservesInGroupAmbiguity()
     {
         byte[] terminal = BuildAssembly("Terminal");
-        using var fixture = new WorkspaceResearchTargetFixture(
+        await using var fixture = new WorkspaceResearchTargetFixture(
             BuildAssembly("Facade", false, Identity(terminal)), terminal, terminal);
         var plan = fixture.Plan();
         var query = Assert.IsType<AssemblyContextTypeResolutionResult.Available>(

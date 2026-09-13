@@ -20,10 +20,10 @@ public sealed class StructuralSubjectIdentityTests
     }
 
     [Fact]
-    public void WorkspaceSubject_BindsOneExactWorkspaceOccurrence()
+    public async Task WorkspaceSubject_BindsOneExactWorkspaceOccurrence()
     {
-        using var owner = new InspectionWorkspace();
-        using var otherOwner = new InspectionWorkspace();
+        await using var owner = new InspectionWorkspace();
+        await using var otherOwner = new InspectionWorkspace();
         StructuralSubjectIdentity.WorkspaceSubject workspace =
             StructuralSubjectIdentity.ForWorkspace(owner.Identity);
 

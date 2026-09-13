@@ -205,7 +205,7 @@ public class ExtensionsCommand
                     logger.Log);
             AssemblySetDiagnosticWriter.Write(assemblySet);
 
-            using var workspace =
+            await using var workspace =
                 new AssemblySetInspectionWorkspace();
             if (options.Reachable)
             {

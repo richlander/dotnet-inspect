@@ -14,7 +14,7 @@ public sealed class NavigationWorkspaceSnapshotTests
         for (int count = 0; count <= 3; count++)
         {
             await using InspectionWorkspace workspace =
-                InspectionWorkspace.CreateAsynchronous();
+                new InspectionWorkspace();
             PackageRootBinding[] bindings =
             [
                 .. Enumerable.Range(0, count).Select(
@@ -56,7 +56,7 @@ public sealed class NavigationWorkspaceSnapshotTests
     public async Task ExactSelectedOccurrence_PreservesAncestryInventoriesAndEvidence()
     {
         await using InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         PackageRootBinding first =
             NavigationSnapshotTestData.Binding("Navigation.First");
         PackageRootBinding second =
@@ -158,7 +158,7 @@ public sealed class NavigationWorkspaceSnapshotTests
     public async Task PerSubjectAvailabilityProvider_RetainsUnavailableAndFailedEvidence()
     {
         await using InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         PackageRootBinding binding =
             NavigationSnapshotTestData.Binding("Navigation.Lenses");
         WorkspaceScopeSnapshot scope =
@@ -242,7 +242,7 @@ public sealed class NavigationWorkspaceSnapshotTests
     public async Task SubjectlessRetainedContext_IsRejectedBeforeRecommendation()
     {
         await using InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         PackageRootBinding binding =
             NavigationSnapshotTestData.Binding("Navigation.Context");
         WorkspaceScopeSnapshot scope =
@@ -285,7 +285,7 @@ public sealed class NavigationWorkspaceSnapshotTests
     public async Task MemberHierarchy_UnresolvedEvidenceIsFailed()
     {
         await using InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         PackageRootBinding binding =
             NavigationSnapshotTestData.Binding("Navigation.MemberEvidence");
         WorkspaceScopeSnapshot scope =
@@ -350,7 +350,7 @@ public sealed class NavigationWorkspaceSnapshotTests
     public async Task PackageDescriptors_RetainPendingAndFailedPreparationEvidence()
     {
         await using InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         PackageRootBinding binding =
             NavigationSnapshotTestData.Binding("Navigation.Preparation");
         WorkspaceScopeSnapshot ready =
@@ -422,9 +422,9 @@ public sealed class NavigationWorkspaceSnapshotTests
     public async Task PreparedPackage_RequiresExactOwnerIssuedAssetParticipantAssociation()
     {
         await using InspectionWorkspace firstWorkspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         await using InspectionWorkspace secondWorkspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         PackageRootBinding first =
             NavigationSnapshotTestData.Binding("Navigation.Association");
         PackageRootBinding second =
@@ -461,7 +461,7 @@ public sealed class NavigationWorkspaceSnapshotTests
     public async Task TypeHierarchy_UsesTheExactLibraryInventoryOutcome()
     {
         await using InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         PackageRootBinding binding =
             NavigationSnapshotTestData.BindingWithAssemblyImages(
                 "Navigation.Hierarchy",
@@ -545,7 +545,7 @@ public sealed class NavigationWorkspaceSnapshotTests
     public async Task SelectorMiss_RetainsIncompleteScopedInventoryEvidence()
     {
         await using InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         PackageRootBinding binding =
             NavigationSnapshotTestData.Binding("Navigation.Selector");
         WorkspaceScopeSnapshot scope =
@@ -602,7 +602,7 @@ public sealed class NavigationWorkspaceSnapshotTests
         string fullName)
     {
         await using InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         PackageRootBinding binding =
             NavigationSnapshotTestData.Binding("Navigation.Whitespace");
         WorkspaceScopeSnapshot scope =
@@ -655,7 +655,7 @@ public sealed class NavigationWorkspaceSnapshotTests
     public async Task MemberSelector_UsesTheSelectedContainingTypeInventory()
     {
         await using InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         PackageRootBinding binding =
             NavigationSnapshotTestData.Binding("Navigation.MemberSelector");
         WorkspaceScopeSnapshot scope =

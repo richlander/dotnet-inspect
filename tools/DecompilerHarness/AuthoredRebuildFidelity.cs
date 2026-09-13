@@ -55,8 +55,8 @@ sealed record AuthoredRebuildFidelityResult(
 
 static class AuthoredRebuildFidelity
 {
-    public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples)
-        => RunAsync(assemblies, cap, maxExamples).GetAwaiter().GetResult();
+    public static Task<int> Run(IReadOnlyList<string> assemblies, int cap, int maxExamples)
+        => RunAsync(assemblies, cap, maxExamples);
 
     static async Task<int> RunAsync(
         IReadOnlyList<string> assemblies,
@@ -107,7 +107,7 @@ static class AuthoredRebuildFidelity
             try
             {
                 compilationClosure = ReturnToSender.CreateCompilationClosure(assemblyPath);
-                decompilerResults = ReturnToSender.CompileBackPropertyGetters(
+                decompilerResults = await ReturnToSender.CompileBackPropertyGetters(
                     assemblyPath,
                     cap - results.Count,
                     compilationClosure);
@@ -296,7 +296,7 @@ static class AuthoredRebuildFidelity
                 MemberComparison: null);
         }
 
-        return CompileAuthoredBody(
+        return await CompileAuthoredBody(
             decompilerResult,
             targetBody,
             authored.ChecksumVerification,
@@ -832,7 +832,7 @@ static class AuthoredRebuildFidelity
         => type is PredefinedTypeSyntax predefined
            && predefined.Keyword.IsKind(SyntaxKind.VoidKeyword);
 
-    internal static AuthoredRebuildFidelityResult CompileAuthoredBody(
+    internal static async Task<AuthoredRebuildFidelityResult> CompileAuthoredBody(
         ReturnToSender.Result decompilerResult,
         string authoredBody,
         SourceChecksumVerification? checksumVerification,
@@ -862,7 +862,9 @@ static class AuthoredRebuildFidelity
                 MemberComparison: null);
         }
 
+        await using var workspace = new InspectionWorkspace();
         return compilationClosure.Use(context => CompileAuthoredBodyCore(
+            workspace,
             decompilerResult,
             request,
             authoredBody,
@@ -872,6 +874,7 @@ static class AuthoredRebuildFidelity
     }
 
     static AuthoredRebuildFidelityResult CompileAuthoredBodyCore(
+        InspectionWorkspace workspace,
         ReturnToSender.Result decompilerResult,
         ArtifactRequest request,
         string authoredBody,
@@ -921,6 +924,7 @@ static class AuthoredRebuildFidelity
             var originalMethod = MetadataTokens.MethodDefinitionHandle(
                 MetadataTokens.GetRowNumber(request.TargetMethod));
             memberComparison = ReturnToSender.CompareMemberBodies(
+                workspace,
                 request.AssemblyPath,
                 originalReader,
                 originalMethod,

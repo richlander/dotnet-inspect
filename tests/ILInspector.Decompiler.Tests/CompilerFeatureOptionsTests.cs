@@ -302,7 +302,7 @@ public class CompilerFeatureOptionsTests
     }
 
     [Fact]
-    public void CompileBackReportsUnsupportedModuleModeAsUnavailable()
+    public async Task CompileBackReportsUnsupportedModuleModeAsUnavailable()
     {
         var updatedOptions = new CSharpParseOptions(LanguageVersion.Preview)
             .WithFeatures([
@@ -467,7 +467,7 @@ public class CompilerFeatureOptionsTests
                 "M",
                 Overload: 0);
             ReturnToSender.Result returnToSender = Assert.Single(
-                ReturnToSender.CompileBackTargets(path, [target]));
+                await ReturnToSender.CompileBackTargets(path, [target]));
             Assert.Equal(
                 FidelityCheck.CompileBackStatus.FidelityUnavailable,
                 returnToSender.Status);
@@ -476,7 +476,7 @@ public class CompilerFeatureOptionsTests
                 returnToSender.Detail);
 
             ReturnToSender.Result propertyGetter =
-                ReturnToSender.CompileBackFirstPropertyGetter(path);
+                await ReturnToSender.CompileBackFirstPropertyGetter(path);
             Assert.Equal(
                 FidelityCheck.CompileBackStatus.FidelityUnavailable,
                 propertyGetter.Status);
@@ -485,7 +485,7 @@ public class CompilerFeatureOptionsTests
                 propertyGetter.Detail);
 
             ReturnToSenderSourceProbeResult sourceProbe = Assert.Single(
-                ReturnToSenderSourceProbe.EvaluateTargets(path, [target]));
+                await ReturnToSenderSourceProbe.EvaluateTargets(path, [target]));
             Assert.Equal(
                 ReturnToSenderSourceOutcome.SourceUnavailable,
                 sourceProbe.Outcome);

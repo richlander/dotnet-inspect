@@ -347,7 +347,7 @@ export declare function initializeRuntime(runtime?: JsExportRuntime | PromiseLik
 export declare function runEntryPoint(mainAssemblyName?: string, args?: string[]): Promise<number>;
 export declare function activateWorkspacePackageOccurrence(action: string): Promise<BrowserWorkspacePackageOccurrenceActivation>;
 export declare function cancelPackageQuery(operationId: string, reason: string): BrowserPackageQueryCancellation;
-export declare function clearWorkspacePackageOccurrences(): void;
+export declare function clearWorkspacePackageOccurrences(): Promise<void>;
 export declare function getPackageDocument(packageId: string, version: string, path: string): Promise<BrowserPackageDocumentContent>;
 export declare function getPlatformCatalog(targetFramework: string, platformVersion: string): Promise<BrowserPlatformCatalog>;
 export declare function getPlatformVersions(targetFramework: string): Promise<ReadonlyArray<string>>;

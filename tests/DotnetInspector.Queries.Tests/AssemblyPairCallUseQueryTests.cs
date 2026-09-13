@@ -13,9 +13,9 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class AssemblyPairCallUseQueryTests
 {
     [Fact]
-    public void ExecuteReturnsExactCallsAcrossBothPairDirections()
+    public async Task ExecuteReturnsExactCallsAcrossBothPairDirections()
     {
-        using PairContext context = PairContext.Create(
+        await using PairContext context = PairContext.Create(
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
             FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
 
@@ -70,9 +70,9 @@ public sealed class AssemblyPairCallUseQueryTests
     }
 
     [Fact]
-    public void ProjectionRetainsEveryOccurrenceInBothSummaryViews()
+    public async Task ProjectionRetainsEveryOccurrenceInBothSummaryViews()
     {
-        using PairContext context = PairContext.Create(
+        await using PairContext context = PairContext.Create(
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
             FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
         AssemblyPairCallUseResult result =
@@ -178,9 +178,9 @@ public sealed class AssemblyPairCallUseQueryTests
     }
 
     [Fact]
-    public void ProjectionOrderIsIndependentOfRequestArgumentOrder()
+    public async Task ProjectionOrderIsIndependentOfRequestArgumentOrder()
     {
-        using PairContext context = PairContext.Create(
+        await using PairContext context = PairContext.Create(
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
             FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
 
@@ -206,9 +206,9 @@ public sealed class AssemblyPairCallUseQueryTests
     }
 
     [Fact]
-    public void ExecuteRejectsARegistrationOutsideTheGroup()
+    public async Task ExecuteRejectsARegistrationOutsideTheGroup()
     {
-        using PairContext context = PairContext.Create(
+        await using PairContext context = PairContext.Create(
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
             FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
         ResolvedAssemblyReference outside =
@@ -226,9 +226,9 @@ public sealed class AssemblyPairCallUseQueryTests
     }
 
     [Fact]
-    public void ExecuteDoesNotTurnVersionSkewIntoAnAbsenceClaim()
+    public async Task ExecuteDoesNotTurnVersionSkewIntoAnAbsenceClaim()
     {
-        using PairContext context = PairContext.Create(
+        await using PairContext context = PairContext.Create(
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
             FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath());
 
@@ -245,9 +245,9 @@ public sealed class AssemblyPairCallUseQueryTests
     }
 
     [Fact]
-    public void SameNameParticipantsDoNotTurnLocalCallsIntoPairGaps()
+    public async Task SameNameParticipantsDoNotTurnLocalCallsIntoPairGaps()
     {
-        using PairContext context = PairContext.Create(
+        await using PairContext context = PairContext.Create(
             FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
             FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath());
 
@@ -302,11 +302,11 @@ public sealed class AssemblyPairCallUseQueryTests
     }
 
     [Fact]
-    public void ExecuteRejectsDistinctRegistrationsForTheSamePhysicalImage()
+    public async Task ExecuteRejectsDistinctRegistrationsForTheSamePhysicalImage()
     {
         string path =
             FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
-        using PairContext context = PairContext.Create(path, path);
+        await using PairContext context = PairContext.Create(path, path);
 
         AssemblyPairCallUseRequestException exception =
             Assert.Throws<AssemblyPairCallUseRequestException>(
@@ -322,7 +322,7 @@ public sealed class AssemblyPairCallUseQueryTests
     }
 
     [Fact]
-    public void ExecuteCarriesRejectedParticipantBesideAvailableEvidence()
+    public async Task ExecuteCarriesRejectedParticipantBesideAvailableEvidence()
     {
         string callerPath =
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
@@ -345,7 +345,7 @@ public sealed class AssemblyPairCallUseQueryTests
                 () => new MemoryStream([0x00, 0x01, 0x02]),
                 AssemblyResolutionProvenance.Local(
                     "malformed pairwise call-use test"));
-        using PairContext context =
+        await using PairContext context =
             PairContext.Create(caller, malformed, callerPath);
 
         AssemblyPairCallUseResult result =
@@ -401,7 +401,7 @@ public sealed class AssemblyPairCallUseQueryTests
         string.Join(",", type.OccurrenceIndexes));
 
     [Fact]
-    public void ExecuteSeparatesFunctionPointerDependenciesInPlanCache()
+    public async Task ExecuteSeparatesFunctionPointerDependenciesInPlanCache()
     {
         string directory = Path.Combine(
             Path.GetTempPath(),
@@ -435,7 +435,7 @@ public sealed class AssemblyPairCallUseQueryTests
                 BuildFunctionPointerCaller(
                     dependencyV1,
                     dependencyV2));
-            using PairContext context = PairContext.Create(
+            await using PairContext context = PairContext.Create(
                 callerPath,
                 providerPath);
 
@@ -741,7 +741,7 @@ public sealed class AssemblyPairCallUseQueryTests
         return image.ToArray();
     }
 
-    sealed class PairContext : IDisposable
+    sealed class PairContext : IAsyncDisposable
     {
         PairContext(
             InspectionWorkspace workspace,
@@ -818,6 +818,6 @@ public sealed class AssemblyPairCallUseQueryTests
             return new(workspace, group, first, second);
         }
 
-        public void Dispose() => Workspace.Dispose();
+        public ValueTask DisposeAsync() => Workspace.DisposeAsync();
     }
 }

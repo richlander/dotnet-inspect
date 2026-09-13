@@ -148,9 +148,9 @@ public class GeneratedFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderCatalogReport_ClassifiesSupportedAndSkippedTargets()
+    public async Task ReturnToSenderCatalogReport_ClassifiesSupportedAndSkippedTargets()
     {
-        var run = GeneratedFixtureRunner.RunReturnToSenderCatalog(
+        var run = await GeneratedFixtureRunner.RunReturnToSenderCatalog(
             [
                 GeneratedFixtureCatalog.MinimalPropertyLiteral,
                 GeneratedFixtureCatalog.MinimalMethodCallSameType,
@@ -491,9 +491,9 @@ public class GeneratedFixtureCatalogTests
             Diagnostics: []);
 
     [Fact]
-    public void ReturnToSenderRecordCatalog_CoversGeneratedRecordHelpers()
+    public async Task ReturnToSenderRecordCatalog_CoversGeneratedRecordHelpers()
     {
-        var run = GeneratedFixtureRunner.RunReturnToSenderCatalog(
+        var run = await GeneratedFixtureRunner.RunReturnToSenderCatalog(
             GeneratedFixtureCatalog.Select("record"));
         string report = GeneratedFixtureRunner.FormatReturnToSenderCatalogReport(run, maxExamples: 10);
 
@@ -529,9 +529,9 @@ public class GeneratedFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderRtsCatalog_CoversAttributeShellBaseType()
+    public async Task ReturnToSenderRtsCatalog_CoversAttributeShellBaseType()
     {
-        var run = GeneratedFixtureRunner.RunReturnToSenderCatalog(
+        var run = await GeneratedFixtureRunner.RunReturnToSenderCatalog(
             GeneratedFixtureCatalog.Select("rts.attribute-shell"));
         string report = GeneratedFixtureRunner.FormatReturnToSenderCatalogReport(run, maxExamples: 10);
 
@@ -552,9 +552,9 @@ public class GeneratedFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderRtsCatalog_KeepsShiftedSiblingNestedGenericParameter()
+    public async Task ReturnToSenderRtsCatalog_KeepsShiftedSiblingNestedGenericParameter()
     {
-        var run = GeneratedFixtureRunner.RunReturnToSenderCatalog(
+        var run = await GeneratedFixtureRunner.RunReturnToSenderCatalog(
             GeneratedFixtureCatalog.Select("rts.shifted-sibling-nested-generic"));
         string report = GeneratedFixtureRunner.FormatReturnToSenderCatalogReport(run, maxExamples: 10);
 
@@ -567,7 +567,7 @@ public class GeneratedFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderRecordCatalog_TargetBodyFragmentsDoNotMatchShellSource()
+    public async Task ReturnToSenderRecordCatalog_TargetBodyFragmentsDoNotMatchShellSource()
     {
         var shellOnlyFragment = new GeneratedFixtureDefinition(
             "test.record-shell-only-fragment",
@@ -586,7 +586,7 @@ public class GeneratedFixtureCatalogTests
             ],
             ["test", "record"]);
 
-        var run = GeneratedFixtureRunner.RunReturnToSenderCatalog([shellOnlyFragment]);
+        var run = await GeneratedFixtureRunner.RunReturnToSenderCatalog([shellOnlyFragment]);
         string report = GeneratedFixtureRunner.FormatReturnToSenderCatalogReport(run, maxExamples: 10);
         var result = Assert.Single(run.Results);
 
@@ -598,7 +598,7 @@ public class GeneratedFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderCatalog_StatusMismatchesKeepFailureReasonBeforeBodyFragments()
+    public async Task ReturnToSenderCatalog_StatusMismatchesKeepFailureReasonBeforeBodyFragments()
     {
         var opcodeDiffWithBodyFragment = new GeneratedFixtureDefinition(
             "test.non-exact-body-fragment",
@@ -632,7 +632,7 @@ public class GeneratedFixtureCatalogTests
             ],
             ["test"]);
 
-        var run = GeneratedFixtureRunner.RunReturnToSenderCatalog([opcodeDiffWithBodyFragment]);
+        var run = await GeneratedFixtureRunner.RunReturnToSenderCatalog([opcodeDiffWithBodyFragment]);
         string report = GeneratedFixtureRunner.FormatReturnToSenderCatalogReport(run, maxExamples: 10);
         var result = Assert.Single(run.Results);
 

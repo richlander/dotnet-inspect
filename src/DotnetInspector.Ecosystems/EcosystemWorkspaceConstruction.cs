@@ -40,19 +40,23 @@ public static partial class EcosystemPackCatalog
         EcosystemPackId id) =>
         ProductEcosystemPacks.Registry.SelectWorkspaceRegistration(id);
 
-    /// <summary>Creates an independent synchronous Workspace registering every shipped ecosystem.</summary>
+    /// <summary>Synchronously creates an independent Workspace registering every shipped ecosystem; close must be awaited.</summary>
+    /// <remarks>This transitional factory is retired by the upcoming Ecosystems plan factories.</remarks>
     public static InspectionWorkspace CreateWorkspace() =>
         ProductEcosystemPacks.AllKnownWorkspace.Create();
 
-    /// <summary>Creates the all-known Workspace with asynchronous lifetime management.</summary>
+    /// <summary>Synchronously creates the same awaited-lifetime all-known Workspace as <see cref="CreateWorkspace"/>.</summary>
+    /// <remarks>This transitional factory is retired by the upcoming Ecosystems plan factories.</remarks>
     public static InspectionWorkspace CreateWorkspaceAsynchronous() =>
         ProductEcosystemPacks.AllKnownWorkspace.CreateAsynchronous();
 
-    /// <summary>Creates an independent synchronous Workspace with the platform-curated registrations.</summary>
+    /// <summary>Synchronously creates an independent Workspace with platform-curated registrations; close must be awaited.</summary>
+    /// <remarks>This transitional factory is retired by the upcoming Ecosystems plan factories.</remarks>
     public static InspectionWorkspace CreatePlatformWorkspace() =>
         ProductEcosystemPacks.PlatformWorkspace.Create();
 
-    /// <summary>Creates the platform-curated Workspace with asynchronous lifetime management.</summary>
+    /// <summary>Synchronously creates the same awaited-lifetime platform Workspace as <see cref="CreatePlatformWorkspace"/>.</summary>
+    /// <remarks>This transitional factory is retired by the upcoming Ecosystems plan factories.</remarks>
     public static InspectionWorkspace CreatePlatformWorkspaceAsynchronous() =>
         ProductEcosystemPacks.PlatformWorkspace.CreateAsynchronous();
 }
@@ -124,6 +128,5 @@ internal sealed class EcosystemWorkspaceFactory
 
     internal InspectionWorkspace Create() => new(_registrations);
 
-    internal InspectionWorkspace CreateAsynchronous() =>
-        InspectionWorkspace.CreateAsynchronous(_registrations);
+    internal InspectionWorkspace CreateAsynchronous() => Create();
 }

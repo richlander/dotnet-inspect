@@ -381,8 +381,8 @@ for the current query plan, not a permanent property of the group.
 
 [Workspace Scope and Expansion](design/workspace-scope-and-expansion.md) owns
 the committed logical Package occurrences above those physical contexts and
-the independent inert registration revision. Both Workspace lifetime modes
-support empty or complete explicit registration initialization and exact-revision
+the independent inert registration revision. Workspace construction supports
+empty or complete explicit registration initialization and exact-revision
 replacement without realizing those populations or changing Package membership.
 Package edits retain their existing publication and closure contract.
 Artifact Acquisition retains realization, admission, binding-context
@@ -506,44 +506,33 @@ into exception text or a second cleanup taxonomy. Expected cleanup failures are
 data in the report. The report becomes available only after all entries are
 terminal and is the same immutable instance returned by every close call.
 
-Workspace construction selects its lifetime mode before any group admission.
-The existing public construction path creates a synchronous-compatibility
-workspace. It continues to accept the current synchronous direct and
-package-role construction APIs. A coordinated registration in that mode must
-provide a synchronous request-release adapter over the same owner-issued
-completion retained by the package-role session; workspace disposal requests
-that path exactly once and never independently disposes the group.
+Every `InspectionWorkspace` has this complete awaited lifetime. Construction
+is synchronous and does not acquire a population; asynchronous cleanup is
+needed because admitted work and owned resources may still be active. There
+is no construction-time lifetime choice. The parameterless constructor and
+the constructor accepting inert registrations both use the same protocol.
 
-The synchronous compatibility path preserves the existing `IDisposable`
-boundary, not the target complete-report contract. `Dispose()` closes new
-workspace access and requests every direct or coordinated release before
-returning, but it does not block for quiescent completion or return the eventual
-report. Deferred release continues only through the already-owned group
-callback and release-completion state machine; the adapter starts no task or
-background work. Expected synchronous request failures retain the current
-throwing compatibility behavior. New retained or shared hosts instead use an
-explicit asynchronous construction path whose close is awaitable and reports
-every terminal result.
+```csharp
+await using var workspace = new InspectionWorkspace();
+// Construct groups or perform explicit acquisition and inspection.
+```
 
-On an asynchronous workspace, `DisposeAsync` awaits the same close completion
-and exposes its report through the workspace rather than throwing expected
-cleanup failures that could replace a primary exception from an `await using`
-body. On a synchronous-compatibility workspace, `DisposeAsync` performs the
-same release request as `Dispose()` so generic asynchronous disposal remains
-compatible. Callers that need to branch on cleanup use `CloseAsync` and inspect
-its returned report.
+`InspectionWorkspace` implements `IAsyncDisposable`. `DisposeAsync` awaits
+the same close completion and exposes its report through `CloseReport`,
+rather than throwing expected cleanup failures that could replace a primary
+exception from an `await using` body. Callers that need to branch on cleanup
+use `CloseAsync` and inspect its returned report.
 
-Lifetime-mode enforcement is fail-before-mutation. A
-synchronous-compatibility workspace rejects construction that requires an
-awaited admission or lacks a synchronous request-release adapter before that
-construction begins. Calling synchronous `Dispose()` on an asynchronous
-workspace throws `InvalidOperationException` before changing workspace state
-and directs the caller to asynchronous close. The validity of `Dispose()`
-therefore never depends on a race with later registration. Synchronous
-disposal never blocks a thread on a task, starts fire-and-forget cleanup, or
-leaves a half-closed workspace after rejecting the path. Its accepted
-compatibility path records a durable release request before returning; it does
-not launch an unobserved task or transfer progress to a background thread.
+The operator-approved migration retires the Workspace's synchronous
+`IDisposable`/`Dispose` compatibility path and `CreateAsynchronous` factories.
+This is an intentional source and behavior change, not a renamed mode
+selector: all callers now await terminal cleanup, and expected cleanup failures
+belong to the report. Synchronous group construction and the caller-owned
+package-role APIs remain available with their own existing contracts.
+Workspace close does not take over an adjacent owner's release authority.
+CLI and Browser consumers adopt the same lifetime; neither host adds a
+blocking adapter or detached cleanup path. A close initiated inside an active
+callback is joined only after that callback or lease can drain.
 
 The state transitions are short synchronous updates under the workspace gate.
 No gate is held across user or owner callbacks, group release, or an `await`.
@@ -567,16 +556,12 @@ model. The model checks the interaction contract. The Release gates below
 enforce the shipped close mechanics; exact direct-receipt attribution remains
 unverified by a fault-injection implementation gate.
 
-The direct and coordinated workspace-close paths are implemented. The
-parameterless constructor retains synchronous compatibility.
-`CreateAsynchronous()` selects the awaited lifetime before admission,
+The direct and coordinated workspace-close paths are implemented.
 `CloseAsync()` returns one shared `Task<InspectionWorkspaceCloseReport>`,
 `DisposeAsync()` awaits that task, and `CloseReport` exposes the same immutable
 report after completion. Each direct group has one release completion. An
-asynchronous workspace captures that outcome as an
-`InspectionWorkspaceDirectGroupCloseResult`; synchronous compatibility
-continues to throw the same cleanup failure while requesting the same
-group-owned release.
+admitted group's outcome is captured as an
+`InspectionWorkspaceDirectGroupCloseResult`.
 
 The direct implementation is enforced by these Release gates:
 
@@ -592,10 +577,11 @@ The direct implementation is enforced by these Release gates:
 - `WorkspaceClose_ConcurrentCallersShareCompletionAndReportInstance` proves
   repeated and concurrent close calls join one task and receive the same
   immutable report object;
-- `WorkspaceDispose_CompatibilityUsesSharedReleaseAuthority` proves
-  asynchronous `Dispose()` rejection is fail-before-mutation and synchronous
-  compatibility retains its throwing behavior through the group-owned release
-  completion; and
+- `WorkspaceDispose_AwaitsSharedReleaseAuthorityAndRetainsFailures` proves
+  ordinary construction and awaited disposal observe the same group-owned
+  release, retain failures, and expose the shared terminal report;
+- `AwaitUsing_PreservesBodyFailureAndRetainsCleanupReport` preserves the exact
+  body exception while retaining expected cleanup failures in that report; and
 - `WorkspaceClose_BrowserWasmUsesAwaitedProgressWithoutThreadBlocking` proves
   close rejects new work immediately, preserves an already-admitted callback,
   and reaches terminal close through awaited progress without a blocking wait
@@ -610,10 +596,9 @@ Package-role completion remains their sole physical release authority, while
 `InspectionWorkspaceCoordinatedGroupCloseResult<PackageRoleGroupCleanupRecord>`
 retains the exact keyed cleanup record without translating it.
 
-The shareable completion operation requires `CreateAsynchronous()` because its
-construction has awaited admission and it does not provide a synchronous
-request-release adapter. The synchronous caller-owned
-`CreatePackageAssemblyContextRoles` path remains unchanged.
+The shareable completion operation uses the same Workspace lifetime and its
+awaited admission. The synchronous caller-owned
+`CreatePackageAssemblyContextRoles` path retains its existing release authority.
 
 The coordinated composition is enforced by these Release gates:
 

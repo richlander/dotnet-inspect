@@ -20,7 +20,6 @@ public sealed partial class InspectionWorkspace
     /// generation into reference-preferred surface and implementation roles.
     /// </summary>
     /// <remarks>
-    /// The workspace must be created by <see cref="CreateAsynchronous"/>.
     /// Distinct selected assets are materialized once under
     /// <see cref="PackageAssemblyContextRealizationOptions.MaxAggregateRetainedImageBytes"/>,
     /// then the artifact session is transferred to the exact resulting role
@@ -68,13 +67,6 @@ public sealed partial class InspectionWorkspace
             CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(package);
-        if (_lifetimeMode
-            != InspectionWorkspaceLifetimeMode.Asynchronous)
-        {
-            throw new InvalidOperationException(
-                "Artifact-backed package realization requires a workspace created by CreateAsynchronous.");
-        }
-
         PackageRoleRealizationPreparation preparation =
             PreparePackageRoleRealization(
                 [package.Root],

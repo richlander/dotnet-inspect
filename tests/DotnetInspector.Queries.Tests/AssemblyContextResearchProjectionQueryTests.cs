@@ -21,10 +21,10 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class AssemblyContextResearchProjectionQueryTests
 {
     [Fact]
-    public void TypeProjection_ProjectsFromContentWithoutAFilesystemPath()
+    public async Task TypeProjection_ProjectsFromContentWithoutAFilesystemPath()
     {
         var policy = new RecordingBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = ContentGroup(workspace, policy);
         Assert.Null(Assert.Single(group.Participants).Assembly.Path);
 
@@ -42,10 +42,10 @@ public sealed class AssemblyContextResearchProjectionQueryTests
     }
 
     [Fact]
-    public void MemberProjection_ProducesAnAnnotatedSourceDocumentFromContent()
+    public async Task MemberProjection_ProducesAnAnnotatedSourceDocumentFromContent()
     {
         var policy = new RecordingBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = ContentGroup(workspace, policy);
 
         AssemblyMemberProjection projection = Available(
@@ -63,10 +63,10 @@ public sealed class AssemblyContextResearchProjectionQueryTests
     }
 
     [Fact]
-    public void MemberProjection_CarriesTheWholeAssemblyFactContext()
+    public async Task MemberProjection_CarriesTheWholeAssemblyFactContext()
     {
         var policy = new RecordingBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = ContentGroup(workspace, policy);
 
         AssemblyMemberProjection projection = Available(
@@ -83,10 +83,10 @@ public sealed class AssemblyContextResearchProjectionQueryTests
     }
 
     [Fact]
-    public void MemberProjection_MapsAnInvocationNodeToItsTypedCallee()
+    public async Task MemberProjection_MapsAnInvocationNodeToItsTypedCallee()
     {
         var policy = new RecordingBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = ContentGroup(workspace, policy);
 
         AssemblyMemberProjection projection = Available(
@@ -110,10 +110,10 @@ public sealed class AssemblyContextResearchProjectionQueryTests
     }
 
     [Fact]
-    public void MemberProjection_MapsAnExternalInvocationWithoutParsingSource()
+    public async Task MemberProjection_MapsAnExternalInvocationWithoutParsingSource()
     {
         var policy = new RecordingBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = ContentGroup(workspace, policy);
 
         AssemblyMemberProjection projection = Available(
@@ -130,10 +130,10 @@ public sealed class AssemblyContextResearchProjectionQueryTests
     }
 
     [Fact]
-    public void MemberProjection_MapsNestedInvocationsToTheirOwnCallees()
+    public async Task MemberProjection_MapsNestedInvocationsToTheirOwnCallees()
     {
         var policy = new RecordingBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = ContentGroup(workspace, policy);
 
         AssemblyMemberProjection projection = Available(
@@ -159,10 +159,10 @@ public sealed class AssemblyContextResearchProjectionQueryTests
     }
 
     [Fact]
-    public void MemberProjection_DoesNotConfusePropertyArgumentsWithTheirInvocation()
+    public async Task MemberProjection_DoesNotConfusePropertyArgumentsWithTheirInvocation()
     {
         var policy = new RecordingBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = ContentGroup(workspace, policy);
 
         AssemblyMemberProjection projection = Available(
@@ -183,10 +183,10 @@ public sealed class AssemblyContextResearchProjectionQueryTests
     }
 
     [Fact]
-    public void MemberProjection_RetainsRepeatedCallSiteNodes()
+    public async Task MemberProjection_RetainsRepeatedCallSiteNodes()
     {
         var policy = new RecordingBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = ContentGroup(workspace, policy);
 
         AssemblyMemberProjection projection = Available(
@@ -219,11 +219,11 @@ public sealed class AssemblyContextResearchProjectionQueryTests
     }
 
     [Fact]
-    public void MemberProjection_RetainsVersionDistinctInvocationTargets()
+    public async Task MemberProjection_RetainsVersionDistinctInvocationTargets()
     {
         ImmutableArray<byte> image = BuildVersionedInvocationImage();
         var policy = new RecordingBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
             [Participant(image, ContentIdentity(image), policy)]);
 
@@ -270,10 +270,10 @@ public sealed class AssemblyContextResearchProjectionQueryTests
     }
 
     [Fact]
-    public void MemberProjection_RequiresSourceForInvocationDestinations()
+    public async Task MemberProjection_RequiresSourceForInvocationDestinations()
     {
         var policy = new RecordingBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = ContentGroup(workspace, policy);
 
         ArgumentException error = Assert.Throws<ArgumentException>(() =>
@@ -289,10 +289,10 @@ public sealed class AssemblyContextResearchProjectionQueryTests
     }
 
     [Fact]
-    public void MemberProjection_MethodTokenAddressesTheExactOverload()
+    public async Task MemberProjection_MethodTokenAddressesTheExactOverload()
     {
         var policy = new RecordingBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = ContentGroup(workspace, policy);
         int token = typeof(ResearchProjectionProbe)
             .GetMethod(
@@ -316,10 +316,10 @@ public sealed class AssemblyContextResearchProjectionQueryTests
     }
 
     [Fact]
-    public void Projection_ResolvesReferencesThroughTheParticipantBindingPolicy()
+    public async Task Projection_ResolvesReferencesThroughTheParticipantBindingPolicy()
     {
         var policy = new RecordingBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = ContentGroup(workspace, policy);
         AssemblyContextParticipant participant = Assert.Single(group.Participants);
 
@@ -341,7 +341,7 @@ public sealed class AssemblyContextResearchProjectionQueryTests
     }
 
     [Fact]
-    public void Projection_DoesNotAcquireAPolicySelectionOutsideTheGroup()
+    public async Task Projection_DoesNotAcquireAPolicySelectionOutsideTheGroup()
     {
         ImmutableArray<byte> image = SelfImage();
         int outsiderOpens = 0;
@@ -361,7 +361,7 @@ public sealed class AssemblyContextResearchProjectionQueryTests
                 "net11.0",
                 rid: null));
         var policy = new SelectingBindingPolicy(outsider);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = ContentGroup(workspace, policy);
 
         Available(
@@ -374,11 +374,11 @@ public sealed class AssemblyContextResearchProjectionQueryTests
     }
 
     [Fact]
-    public void Execute_CarriesRejectedParticipantBesideLaterResultsInGroupOrder()
+    public async Task Execute_CarriesRejectedParticipantBesideLaterResultsInGroupOrder()
     {
         ImmutableArray<byte> image = SelfImage();
         var policy = new RecordingBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
             [
                 Participant(image, ContentIdentity(image) with { Name = "WrongIdentity" }, policy),
@@ -401,10 +401,10 @@ public sealed class AssemblyContextResearchProjectionQueryTests
     }
 
     [Fact]
-    public void TypeProjection_ReportsAMissingTypeAsATypedParticipantFailure()
+    public async Task TypeProjection_ReportsAMissingTypeAsATypedParticipantFailure()
     {
         var policy = new RecordingBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = ContentGroup(workspace, policy);
 
         AssemblyContextResult<ResearchViews.TypeProjectionResult> result =
@@ -419,11 +419,11 @@ public sealed class AssemblyContextResearchProjectionQueryTests
     }
 
     [Fact]
-    public void ExecuteParticipant_RefusesAParticipantOutsideTheGroup()
+    public async Task ExecuteParticipant_RefusesAParticipantOutsideTheGroup()
     {
         ImmutableArray<byte> image = SelfImage();
         var policy = new RecordingBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = ContentGroup(workspace, policy);
         AssemblyContextParticipant outsider =
             Participant(image, ContentIdentity(image), policy);
@@ -437,10 +437,10 @@ public sealed class AssemblyContextResearchProjectionQueryTests
     }
 
     [Fact]
-    public void ExecuteParticipant_ProjectsOnlyTheRequestedParticipant()
+    public async Task ExecuteParticipant_ProjectsOnlyTheRequestedParticipant()
     {
         var policy = new RecordingBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = ContentGroup(workspace, policy);
 
         AssemblyContextEntry<AssemblyMemberProjection> entry =
@@ -456,11 +456,11 @@ public sealed class AssemblyContextResearchProjectionQueryTests
     }
 
     [Fact]
-    public void TypeProjection_DoesNotPublishAfterBindingVersionChanges()
+    public async Task TypeProjection_DoesNotPublishAfterBindingVersionChanges()
     {
         using var policy = new ResearchPublicationBindingPolicy(
             changeOnVersionRead: 4);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = ContentGroup(workspace, policy);
 
         var failed = Assert.IsType<
@@ -483,7 +483,7 @@ public sealed class AssemblyContextResearchProjectionQueryTests
             AnalysisFeatures: LibraryBodyAnalysisFeatures.None);
         int selectionCount;
         using (var stablePolicy = new ResearchPublicationBindingPolicy())
-        using (var stableWorkspace = new InspectionWorkspace())
+        await using (var stableWorkspace = new InspectionWorkspace())
         using (AssemblyContextGroup stable =
             ContentGroup(stableWorkspace, stablePolicy))
         {
@@ -496,7 +496,7 @@ public sealed class AssemblyContextResearchProjectionQueryTests
         Assert.True(selectionCount > 0);
 
         using var policy = new ResearchPublicationBindingPolicy(selectionCount);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = ContentGroup(workspace, policy);
         Task<AssemblyContextResult<AssemblyMemberProjection>> execution =
             Task.Run(
