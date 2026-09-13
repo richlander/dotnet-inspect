@@ -24,6 +24,13 @@ public readonly record struct GenericNestedValue<TValue>(TValue Value);
 public sealed record NullableWrappedGenericNestedEnvelope(
     Wrapped<GenericNestedValue<string?>?> Item);
 
+public readonly record struct NullablePair<TFirst, TSecond>(
+    TFirst First,
+    TSecond Second);
+
+public sealed record MixedNullableValueEnvelope(
+    NullablePair<int?, string?> Item);
+
 public union GenericNestedChoice(GenericNested<string?>, int);
 
 public sealed record GenericRecord<TValue>(
@@ -82,6 +89,7 @@ internal sealed partial class BlobFixtureJsonContext : JsonSerializerContext;
 [JsonSerializable(typeof(GenericNestedEnvelope))]
 [JsonSerializable(typeof(WrappedGenericNestedEnvelope))]
 [JsonSerializable(typeof(NullableWrappedGenericNestedEnvelope))]
+[JsonSerializable(typeof(MixedNullableValueEnvelope))]
 [JsonSerializable(typeof(GenericNestedChoice))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal sealed partial class GenericRecordJsonContext : JsonSerializerContext;
@@ -271,6 +279,13 @@ public static partial class TypeScriptFixtureExports
                     new GenericNestedValue<string?>(null))),
             GenericRecordJsonContext.Default
                 .NullableWrappedGenericNestedEnvelope);
+
+    [JSExport]
+    public static string GetMixedNullableValueEnvelope() =>
+        JsonSerializer.Serialize(
+            new MixedNullableValueEnvelope(
+                new NullablePair<int?, string?>(null, null)),
+            GenericRecordJsonContext.Default.MixedNullableValueEnvelope);
 
     [JSExport]
     public static string GetGenericNestedChoice() =>

@@ -39,6 +39,7 @@ for (
     "genericNestedEnvelope",
     "wrappedGenericNestedEnvelope",
     "nullableWrappedGenericNestedEnvelope",
+    "mixedNullableValueEnvelope",
     "genericNestedChoice",
     "selectionEnvelope",
   ]
@@ -102,6 +103,8 @@ const getNullableWrappedGenericNestedEnvelopeKey =
   facadeSource.match(
     /"(GetNullableWrappedGenericNestedEnvelope\.-?\d+)"/,
   )?.[1];
+const getMixedNullableValueEnvelopeKey =
+  facadeSource.match(/"(GetMixedNullableValueEnvelope\.-?\d+)"/)?.[1];
 const getGenericNestedChoiceKey =
   facadeSource.match(/"(GetGenericNestedChoice\.-?\d+)"/)?.[1];
 const getSelectionEnvelopeAsyncKey =
@@ -222,6 +225,10 @@ assert.ok(
   getNullableWrappedGenericNestedEnvelopeKey,
   "The generated GetNullableWrappedGenericNestedEnvelope dispatch key "
     + "was not found.",
+);
+assert.ok(
+  getMixedNullableValueEnvelopeKey,
+  "The generated GetMixedNullableValueEnvelope dispatch key was not found.",
 );
 assert.ok(
   getGenericNestedChoiceKey,
@@ -363,6 +370,9 @@ function managedExports(methods = {}) {
             [getNullableWrappedGenericNestedEnvelopeKey]:
               methods.getNullableWrappedGenericNestedEnvelope
               ?? (() => unionPayloads.nullableWrappedGenericNestedEnvelope),
+            [getMixedNullableValueEnvelopeKey]:
+              methods.getMixedNullableValueEnvelope
+              ?? (() => unionPayloads.mixedNullableValueEnvelope),
             [getGenericNestedChoiceKey]:
               methods.getGenericNestedChoice
               ?? (() => unionPayloads.genericNestedChoice),
@@ -581,6 +591,10 @@ async function freshFacade() {
     { item: { value: null } },
   );
   assert.deepEqual(
+    facade.getMixedNullableValueEnvelope(),
+    { item: { first: null, second: null } },
+  );
+  assert.deepEqual(
     facade.getGenericNestedChoice(),
     { value: null },
   );
@@ -620,7 +634,7 @@ async function freshFacade() {
   );
   assert.equal(
     await unionUsage.summarizeGenericRecords(),
-    "7|8|1,2|0|9|sample|11|12|null|13|null|null|null|null|null|null|null",
+    "7|8|1,2|0|9|sample|11|12|null|13|null|null|null|null|null|null|null|null|null",
   );
   assert.equal(unionUsage.missingSelectionEntry, null);
   assert.equal(unionUsage.missingMapEntry, null);

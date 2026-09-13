@@ -50,6 +50,9 @@ if (args is not [string outputPath])
         "nullableWrappedGenericNestedEnvelope",
         TypeScriptFixtureExports.GetNullableWrappedGenericNestedEnvelope()),
     (
+        "mixedNullableValueEnvelope",
+        TypeScriptFixtureExports.GetMixedNullableValueEnvelope()),
+    (
         "genericNestedChoice",
         TypeScriptFixtureExports.GetGenericNestedChoice()),
     (

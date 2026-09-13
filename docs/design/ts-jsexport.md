@@ -271,6 +271,11 @@ signatures retain their nested nullable annotations and project those precise
 generic arguments instead, including when a supported generic union wraps a
 generic record directly, through a nullable value wrapper, or through supported
 array and dictionary containers.
+Metadata nullability traversal follows the compiler transform encoding:
+`System.Nullable<T>` and non-generic value types contribute no independent
+transform slots, so following reference annotations remain aligned. Generic
+value types and generic parameters retain their compiler-issued placeholder
+slots.
 
 Recursive composition remains parametric only when substituting a wire type
 preserves the surrounding wire shape. `GenericNested<T>[]` is an array of
@@ -308,10 +313,11 @@ source-generated serializer results and compiled TypeScript consumers,
 including an annotation-erased null reference root, a generic-record union
 alternative with null content, a precise nullable generic argument in an
 ordinary record member both directly and through generic-union collection
-arguments and a nullable generic record struct, rejected direct and
-container-nested `T[]` and unconstrained `T?[]` constructions whose `byte[]`
-payloads are Base64 text, a supported value-constrained `T?[]` neighboring
-case, and a concrete array whose name collides with a generic parameter.
+arguments, a nullable generic record struct, and mixed nullable value/reference
+generic arguments, rejected direct and container-nested `T[]` and
+unconstrained `T?[]` constructions whose `byte[]` payloads are Base64 text, a
+supported value-constrained `T?[]` neighboring case, and a concrete array whose
+name collides with a generic parameter.
 The four-step adoption path remains Metadata evidence, JsExportSurface
 evidence, this CLI generation/harness slice, and inspect-web browser/Wasm
 adoption. The existing TypeScript emitter owns this format lowering; no new

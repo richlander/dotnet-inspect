@@ -675,6 +675,28 @@ public sealed class TypeScriptFacadeEmitterTests
             source,
             StringComparison.Ordinal);
         Assert.Contains(
+            """
+            export interface NullablePair<T0, T1> {
+              readonly first: T0;
+              readonly second: T1;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface MixedNullableValueEnvelope {
+              readonly item: NullablePair<number | null, string | null>;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function getMixedNullableValueEnvelope(): "
+                + "MixedNullableValueEnvelope",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "export type GenericNestedChoice = "
                 + "GenericNested<string | null> | number | null;",
             source,

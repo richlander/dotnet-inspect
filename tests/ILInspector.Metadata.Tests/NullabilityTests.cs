@@ -176,14 +176,27 @@ public sealed class NullabilityTests
     }
 
     [Fact]
-    public void PrimitiveNode_Int_IgnoresNullability()
+    public void PrimitiveNode_Int_DoesNotConsumeNullability()
     {
         var node = new PrimitiveTypeNode("int", isReferenceType: false);
-        byte[] bytes = [2]; // even if byte says 2, value types don't render ?
+        byte[] bytes = [2];
         int pos = 0;
         node.ApplyNullability(bytes, ref pos, 0);
         Assert.Equal("int", node.Render());
-        Assert.Equal(1, pos); // byte still consumed
+        Assert.Equal(0, pos);
+    }
+
+    [Fact]
+    public void NamedValueNode_DoesNotConsumeNullability()
+    {
+        var node = new NamedTypeNode("Choice", isReferenceType: false);
+        byte[] bytes = [2];
+        int pos = 0;
+
+        node.ApplyNullability(bytes, ref pos, 0);
+
+        Assert.Equal("Choice", node.Render());
+        Assert.Equal(0, pos);
     }
 
     [Fact]
