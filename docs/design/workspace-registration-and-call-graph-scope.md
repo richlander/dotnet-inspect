@@ -12,15 +12,18 @@ construction-ownership replacement is tracked by
 [#6570](https://github.com/richlander/dotnet-inspect/issues/6570).
 [Workspace Scope](workspace-scope-and-expansion.md#inert-registration-adoption)
 implements the inert registration state, empty/explicit initialization and
-revision-bound replacement subset under #6577. Product curation, population
+revision-bound replacement subset under #6577. The
+[ecosystem handoff](workspace-ecosystem-registration-handoff.md) implements pack
+projection and platform/all-known construction under #6786. Population
 realization, persistence and the joined host experience below remain
 **unimplemented and unverified**.
 
 The operator explicitly approved this bounded cross-owner replacement:
 
 - the Workspace API defaults to an empty Workspace and has no curated option;
-- the Ecosystems API owns the product's one curated Workspace composition,
-  initially Platform, ASP.NET Core, and Microsoft.Extensions;
+- the Ecosystems API owns product curation: the initial platform composition
+  contains Platform, ASP.NET Core, and Microsoft.Extensions; #6763 subsequently
+  approved separate all-known construction, including Aspire;
 - callers explicitly choose raw or curated construction according to their
   operation;
 - registration describes what the Workspace is about and supplies typed
@@ -47,7 +50,7 @@ This document is the normative owner of one joined experience claim:
 > prefix, or ecosystem without granting reachability. A call-graph request
 > independently chooses how far beyond its focal subject to traverse. The
 > Workspace API defaults to no registrations, while the Ecosystems API may
-> construct the product's one curated Workspace. Call graphs default to every
+> construct a product-curated Workspace. Call graphs default to every
 > resolvable participant within the Workspace that the caller actually chose,
 > under explicit operation bounds.
 
@@ -135,9 +138,9 @@ Registering an ecosystem makes its contribution available to a consumer that
 selects registered ecosystems. It does not execute a scanner, add curated
 packages, or load an entire ecosystem.
 
-The application catalog also owns the single curated product manifest. It
-uses Platform, ASP.NET Core, and Microsoft.Extensions to construct the one
-curated product Workspace through the shared ecosystem-registration handoff.
+The application catalog also authors the platform and all-known manifests
+adopted by the shared ecosystem-registration handoff. The latter construction
+intent comes from the approved Subject Relations composition (#6763).
 Scope owns neither those product choices nor a duplicate identity table.
 
 ## Workspace construction
@@ -150,7 +153,7 @@ constructor, preset, flag, callback, or catalog hook. Raw construction performs
 no acquisition or analysis and never consults
 `DotnetInspector.Ecosystems`.
 
-The Ecosystems API owns one current curated Workspace composition. Its initial
+The Ecosystems API owns the current product manifests. The platform-curated
 registration sequence is:
 
 1. Platform
@@ -162,16 +165,18 @@ atomic explicit-initialization path and returns a new independent Workspace.
 It is not a singleton Workspace instance and does not confer special
 registration, acquisition, traversal, persistence, or lifetime semantics.
 
-There is one curated composition, not a family of named presets or a
-compatibility catalog of earlier compositions. The Ecosystems owner may change
-it over time as product policy. A change affects only later curated
+The separate all-known constructor includes Aspire, as required by
+[Subject Relations](subject-relations-workflows.md#broad-discovery-by-default).
+The focused handoff owns validation and construction for both choices. Neither
+is a compatibility catalog of earlier compositions. The catalog may change
+its manifests over time as product policy. A change affects only later curated
 construction. It does not mutate an existing Workspace or reinterpret a saved
 or shared definition.
 
 Callers choose the construction owner according to their purpose:
 
-- a discovery experience such as `find` may request the curated Workspace from
-  Ecosystems;
+- a discovery experience such as the new `find` workflow chooses the all-known
+  Workspace; a consumer that wants platform curation selects it explicitly;
 - a high-fidelity or explicitly scoped operation may construct a raw Workspace
   and add only its declared inputs; and
 - restoration constructs a raw Workspace and applies the complete persisted
@@ -483,8 +488,7 @@ There are ten counted production-adoption stages, tracked by #6012:
 3. Define the lower-layer ecosystem-registration declaration and Ecosystem
    Packs projection under #6307, then extend catalog and source owners with the
    exact typed platform, exact-library, and package-prefix contributions and
-   one curated manifest for Platform, ASP.NET Core, and
-   Microsoft.Extensions.
+   separate platform and all-known manifests under the focused handoff.
 4. Revise Workspace Scope from expansion permission to inert registration,
    make default Workspace API construction empty, accept complete explicit
    initial registrations, and expose no curated option. The registration-state
@@ -515,7 +519,7 @@ The following are required future outcome-level scenarios:
 | Scenario | Required observation |
 | --- | --- |
 | Construct directly through the Workspace API | The registration set is empty; no catalog lookup, acquisition, or analysis occurs |
-| Construct through the Ecosystems curated API | A new independent Workspace contains Platform, ASP.NET Core, and Microsoft.Extensions in order; no registration-triggered acquisition or analysis occurs |
+| Construct through the Ecosystems factories | The platform variant contains Platform, ASP.NET Core, and Microsoft.Extensions in order; all-known construction additionally contains Aspire. Neither performs registration-triggered acquisition or analysis. |
 | Remove one or all curated registrations, then navigate, open another subject, save, and restore | The exact registration set survives; the current curated composition does not reappear |
 | Change the curated manifest in a later product build | Later curated construction uses the new complete manifest; existing and restored Workspaces retain their exact registrations |
 | Run `find` for the real `System.Text.Json` overlap | The command explicitly chooses curated construction and can discover the Platform library without making curation intrinsic to Workspace |

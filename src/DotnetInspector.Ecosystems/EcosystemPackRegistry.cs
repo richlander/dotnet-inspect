@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using ILInspector.Metadata;
 
@@ -25,13 +26,16 @@ internal sealed record EcosystemPackRegistration(
     public IReadOnlyList<PackageCoordinate> CorePackages { get; init; } = [];
 
     public IReadOnlyList<PackageCoordinate> ToolPackages { get; init; } = [];
+
+    public WorkspaceEcosystemRegistrationDeclaration? WorkspaceRegistration { get; init; }
 }
 
 internal sealed class EcosystemPackRegistry
 {
     private sealed record PackEntry(
         EcosystemPackDescriptor Descriptor,
-        EcosystemIntegrationScannerBinding? Scanner);
+        EcosystemIntegrationScannerBinding? Scanner,
+        WorkspaceEcosystemRegistrationDeclaration? WorkspaceRegistration);
 
     private sealed record DemoEntry(
         EcosystemDemoDescriptor Descriptor,
@@ -103,8 +107,17 @@ internal sealed class EcosystemPackRegistry
                         $"Ecosystem pack '{registration.Id}' has no demo sequence.",
                         nameof(registrations)),
             ];
+            if (registration.WorkspaceRegistration is { } declaration
+                && !StringComparer.Ordinal.Equals(registration.Id.Value, declaration.Id.Value))
+            {
+                throw new ArgumentException(
+                    $"Ecosystem pack '{registration.Id}' cannot project Workspace"
+                    + $" declaration '{declaration.Id}'.",
+                    nameof(registrations));
+            }
+
             if (registration.PackageSet is null && demos.Length == 0
-                && registration.Scanner is null)
+                && registration.Scanner is null && registration.WorkspaceRegistration is null)
             {
                 throw new ArgumentException(
                     $"Ecosystem pack '{registration.Id}' must expose at least one capability.",
@@ -174,10 +187,11 @@ internal sealed class EcosystemPackRegistry
                 registration.Scanner is not null,
                 namespaceRoots,
                 corePackages,
-                toolPackages);
+                toolPackages,
+                registration.WorkspaceRegistration is not null);
             _packsById.Add(
                 packDescriptor.Id,
-                new PackEntry(packDescriptor, registration.Scanner));
+                new PackEntry(packDescriptor, registration.Scanner, registration.WorkspaceRegistration));
             packDescriptors.Add(packDescriptor);
             previousPackOrder = registration.Order;
             hasPreviousPackOrder = true;
@@ -213,6 +227,17 @@ internal sealed class EcosystemPackRegistry
         return entry.Scanner is { } binding
             ? new EcosystemScannerSelectionResult.Known(binding)
             : new EcosystemScannerSelectionResult.Unavailable(id);
+    }
+
+    internal EcosystemWorkspaceRegistrationSelectionResult SelectWorkspaceRegistration(EcosystemPackId id)
+    {
+        ArgumentNullException.ThrowIfNull(id);
+        if (!_packsById.TryGetValue(id, out PackEntry? entry))
+            return new EcosystemWorkspaceRegistrationSelectionResult.Unknown(id);
+
+        return entry.WorkspaceRegistration is { } declaration
+            ? new EcosystemWorkspaceRegistrationSelectionResult.Known(declaration)
+            : new EcosystemWorkspaceRegistrationSelectionResult.Unavailable(id);
     }
 
     internal EcosystemDemoSelectionResult SelectDemo(string scenarioId)
@@ -335,7 +360,7 @@ internal sealed class EcosystemPackRegistry
 }
 
 /// <summary>Discovery and exact selection for shipped ecosystem content.</summary>
-public static class EcosystemPackCatalog
+public static partial class EcosystemPackCatalog
 {
     public static ImmutableArray<EcosystemPackDescriptor> Discover() =>
         ProductEcosystemPacks.Registry.Packs;

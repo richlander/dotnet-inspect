@@ -44,7 +44,9 @@ call-graph reachability.
 The
 [Workspace Ecosystem Registration Handoff](workspace-ecosystem-registration-handoff.md)
 owns the explicit projection from one selected pack and the application-owned
-curated manifest into one newly constructed Workspace. This catalog retains
+platform or all-known manifest into one newly constructed Workspace. Pack
+projection and both factory paths are implemented under #6786; their CLI and
+Browser activation remains staged. This catalog retains
 application identity and contribution authorship; the handoff does not make
 Queries or browser Core depend on this assembly, and Workspace exposes no
 curated option.
@@ -154,7 +156,7 @@ It does not own:
 The lower Workspace projection is not another catalog capability implemented
 by copying descriptor fields at selection time. This owner explicitly pairs a
 pack with one handoff-owned immutable declaration and separately authors the
-ordered current curated-Workspace identities. The handoff defines projection,
+ordered current platform/all-known Workspace identities. The handoff defines projection,
 construction validation, and lower shape; this owner decides which shipped
 packs and contributions are paired.
 
@@ -960,18 +962,20 @@ Platform deliberately contributes no package coordinate as a substitute for
 its future platform-source-owned discovery/acquisition binding. This metadata
 is not derived from package-set membership or demo records.
 
-The initial Workspace projection is staged under
+The initial Workspace projection is implemented under
 [the focused handoff](workspace-ecosystem-registration-handoff.md). Its
-application-owned curated order is Platform, ASP.NET Core, then
+application-owned platform order is Platform, ASP.NET Core, then
 Microsoft.Extensions, which deliberately differs from ordinary pack discovery
 order. Platform requires a source-owned runtime population declaration;
 ASP.NET Core requires both its source-owned shared-framework population and
 the recorded `Microsoft.AspNetCore.` prefix; Microsoft.Extensions requires the
 recorded `Microsoft.Extensions.` prefix. Retrieval knowledge alone cannot make
-one of those curated registrations population-complete. This is the current
-product composition rather than a permanent set of named Workspace presets;
-later product builds may change the one curated manifest without changing raw
-Workspace construction or existing expanded registration sets.
+one of those registrations population-complete. A separate all-known manifest
+uses that order followed by Aspire, retaining its `Aspire.` prefix and exact
+scanner binding. The handoff owns completeness and fresh-construction semantics
+for the two intents approved in #6763; this is not a compatibility catalog of
+earlier manifests. Later product builds may change either manifest without
+changing raw Workspace construction or existing expanded registration sets.
 
 | Global order | Scenario ID | Pack |
 | ---: | --- | --- |
