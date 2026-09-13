@@ -114,6 +114,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Finding Producer Design](design/finding-producers.md) | Choosing producer ownership, payloads, identities, result shapes, matching modes, and higher-rung boundaries. |
 | [Finding Instance Census](design/finding-instance-census.md) | Producer-issued receipt and per-instance keys for one sealed Finding census, including exact-association validation. |
 | [Research Finding Census Projection](design/research-finding-census-projection.md) | Preserving one producer-sealed body-fact census through Facts and Annotated Source without shape-derived identity. |
+| [Research Assembly-Context Ownership](design/research-assembly-context-ownership.md) | Exact-index Research memoization without extending an operation-owned Analysis index lifetime. |
 | [Member Source Presentation](design/member-source-presentation.md) | CLI presentation of one Research-issued Finding census across member Facts and Annotated Source output. |
 | [Inspect Web Finding Census Transport](design/inspect-web-finding-census-transport.md) | Managed Source-facade transport of one Research-issued Finding census across Facts and Annotated Source. |
 | [Inspect Web Finding Interaction](design/inspect-web-finding-interaction.md) | Receipt-scoped browser selection of exact Finding instances across member Facts and Annotated Source. |
@@ -161,6 +162,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Version Resolution](design/version-resolution.md) | Resource-free package version-selection requests and receipts plus current package/platform version and cache behavior. |
 | [Cache concurrency and publication](design/cache-concurrency.md) | Process-local single-flight, cross-process atomic publication, dependency overlap, and filesystem guarantees. |
 | [Package Index Cache](design/package-index-cache.md) | Persistent filesystem-derived package inspection identity, completeness, freshness, validation, and reuse. |
+| [Analysis Index Cache Ownership](design/analysis-index-cache.md) | Operation- or realization-bounded Analysis index reuse without hidden process history. |
 | [Package Metadata Persistence](design/package-metadata-persistence.md) | Authority-scoped, time-bounded present and absent metadata observations, production completion, field-state preservation, and reuse. |
 | [Assembly Inspection Query Model](design/assembly-inspection-query.md) | Target boundary where the CLI forms a query and the metadata/service layer resolves, opens, and returns the typed inspection result (why the CLI should not hold a `PEReader`). |
 | [ReadyToRun Image Projection](design/readytorun-image-projection.md) | PE managed-native and `RTR_HEADER` discovery, validated R2R headers and section directories, manifest-metadata extent identification, bounds, and failure behavior. |

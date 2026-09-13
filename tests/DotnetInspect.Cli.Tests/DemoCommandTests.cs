@@ -4,6 +4,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspector.Ecosystems;
 using DotnetInspect.Cli.Options;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
@@ -731,6 +732,58 @@ public class DemoCommandTests
     }
 
     [Fact]
+    public async Task ExecuteScenario_StjDefinitionAndProgrammaticPlanReturnSameMethods()
+    {
+        ResolvedScenario scenario = CreateStjDefinitionScenario();
+        WorkspacePlan documentPlan = Assert.IsType<WorkspacePlan>(scenario.WorkspacePlan);
+        Assert.Same(documentPlan.Contexts[1], scenario.SelectedContext!.Input);
+        Assert.Empty(documentPlan.Registrations);
+
+        var document = await ConsoleCapture.RunAsync(
+            () => DemoCommand.ExecuteScenarioAsync(scenario));
+        WorkspacePlan programmaticPlan = CreateStjPlan();
+        Assert.Empty(programmaticPlan.Registrations);
+        Assert.True(DemoScenarioRunner.TryCreateOptions(
+            scenario, OutputFormat.Markdown, noHeader: false, out var options, out var error), error);
+        var programmatic = await ConsoleCapture.RunAsync(
+            () => DemoCommand.ExecutePlatformScenarioAsync(
+                "programmatic-stj", programmaticPlan, programmaticPlan.Contexts[1], options));
+        var shipped = await ConsoleCapture.RunAsync(
+            () => DemoCommand.ExecuteScenarioAsync(ProductDemoIds.StjSerializer));
+
+        Assert.True(document.ExitCode == 0, document.Error);
+        Assert.True(programmatic.ExitCode == 0, programmatic.Error);
+        Assert.True(shipped.ExitCode == 0, shipped.Error);
+        Assert.Equal(["## Methods"], MarkdownSectionHeadings(document.Output));
+        Assert.Contains("JsonSerializer", document.Output, StringComparison.Ordinal);
+        Assert.Equal(shipped.Output, document.Output);
+        Assert.Equal(document.Output, programmatic.Output);
+    }
+
+    [Theory]
+    [InlineData("net9.0", null, WorkspaceContextLoadFailureKind.ConflictingAcquisitionTarget)]
+    [InlineData("net10.0", "LINUX-X64", WorkspaceContextLoadFailureKind.InvalidCoordinate)]
+    public async Task ExecutePlatformScenario_PreservesPlanTargetFailures(
+        string framework,
+        string? runtimeIdentifier,
+        WorkspaceContextLoadFailureKind failureKind)
+    {
+        ResolvedScenario scenario = CreateStjDefinitionScenario();
+        Assert.True(DemoScenarioRunner.TryCreateOptions(
+            scenario, OutputFormat.Markdown, noHeader: false, out var options, out var error), error);
+        WorkspacePlan plan = CreateStjPlan(framework, runtimeIdentifier);
+
+        var result = await ConsoleCapture.RunAsync(
+            () => DemoCommand.ExecutePlatformScenarioAsync(
+                "programmatic-stj", plan, plan.Contexts[1], options));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains("could not load its exact Platform implementation", result.Error, StringComparison.Ordinal);
+        Assert.Contains(failureKind.ToString(), result.Error, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ExecuteScenario_CallGraph_ReturnsDeclaredSectionSet()
     {
         var (exitCode, output, error) = await ConsoleCapture.RunAsync(
@@ -942,6 +995,76 @@ public class DemoCommandTests
             .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
             .Where(line => line.StartsWith("## ", StringComparison.Ordinal))
             .ToArray();
+
+    private static ResolvedScenario CreateStjDefinitionScenario()
+    {
+        var registry = new InspectionDefinitionRegistry();
+        registry.AddJson("""
+            {
+              "schemaVersion": 1,
+              "kind": "workspace",
+              "id": "stj-workspace",
+              "contexts": [
+                {
+                  "name": "unused",
+                  "framework": "net8.0",
+                  "members": [
+                    {
+                      "kind": "platform", "family": "runtime",
+                      "assembly": "System.Text.Json", "version": "10.0.12",
+                      "framework": "net10.0"
+                    }
+                  ]
+                },
+                {
+                  "name": "stj",
+                  "framework": "net10.0",
+                  "members": [
+                    {
+                      "kind": "platform", "family": "runtime",
+                      "assembly": "System.Text.Json", "version": "10.0.12",
+                      "framework": "net10.0"
+                    }
+                  ]
+                }
+              ]
+            }
+            """);
+        registry.AddJson("""
+            {
+              "schemaVersion": 1, "kind": "view", "id": "stj-view",
+              "type": "System.Text.Json.JsonSerializer", "section": "Methods"
+            }
+            """);
+        registry.AddJson("""
+            {
+              "schemaVersion": 1, "kind": "scenario", "id": "stj-scenario",
+              "workspace": "stj-workspace", "context": "stj", "view": "stj-view"
+            }
+            """);
+        return registry.ResolveScenario("stj-scenario");
+    }
+
+    private static WorkspacePlan CreateStjPlan(
+        string framework = "net10.0",
+        string? runtimeIdentifier = null) =>
+        new(
+            [],
+            [
+                new WorkspaceContextInput
+                {
+                    Framework = "net8.0",
+                    Members = [WorkspaceMemberCoordinate.Platform(
+                        "runtime", "System.Text.Json", "10.0.12", "net10.0")],
+                },
+                new WorkspaceContextInput
+                {
+                    Framework = framework,
+                    RuntimeIdentifier = runtimeIdentifier,
+                    Members = [WorkspaceMemberCoordinate.Platform(
+                        "runtime", "System.Text.Json", "10.0.12", "net10.0")],
+                },
+            ]);
 
     private static IReadOnlyList<EcosystemDemoDescriptor> ProductDemos =>
         EcosystemPackCatalog.DiscoverDemos();

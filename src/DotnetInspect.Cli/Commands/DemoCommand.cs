@@ -138,6 +138,15 @@ public static class DemoCommand
 
         ResolvedScenario resolved =
             ((EcosystemDemoSelectionResult.Known)result).Selection.Scenario;
+        return await ExecuteScenarioAsync(resolved, format, noHeader, embeddedMermaid);
+    }
+
+    internal static async Task<int> ExecuteScenarioAsync(
+        ResolvedScenario resolved,
+        OutputFormat format = OutputFormat.Markdown,
+        bool noHeader = false,
+        bool embeddedMermaid = false)
+    {
         if (!DemoScenarioRunner.TryCreateOptions(
                 resolved, format, noHeader, embeddedMermaid, out var options, out var error))
         {
@@ -146,7 +155,14 @@ public static class DemoCommand
         }
 
         if (options.PlatformAssembly is not null)
-            return await ExecutePlatformScenarioAsync(resolved, options);
+        {
+            ProductDemoRunPlan plan = ProductDemoRunPlan.Create(resolved);
+            return await ExecutePlatformScenarioAsync(
+                resolved.ScenarioId,
+                resolved.WorkspacePlan!,
+                plan.Context.Input,
+                options);
+        }
 
         return await (options switch
         {
@@ -157,20 +173,21 @@ public static class DemoCommand
         });
     }
 
-    static async Task<int> ExecutePlatformScenarioAsync(
-        ResolvedScenario resolved,
+    internal static async Task<int> ExecutePlatformScenarioAsync(
+        string scenarioId,
+        WorkspacePlan workspacePlan,
+        WorkspaceContextInput contextInput,
         ApiOptions options)
     {
-        ProductDemoRunPlan plan = ProductDemoRunPlan.Create(resolved);
         WorkspaceMemberCoordinate.PlatformMember[] platformMembers =
         [
-            .. plan.Context.Members
+            .. contextInput.Members
                 .OfType<WorkspaceMemberCoordinate.PlatformMember>(),
         ];
-        if (platformMembers.Length != plan.Context.Members.Count)
+        if (platformMembers.Length != contextInput.Members.Count)
         {
             CommandError.Write(
-                $"Home demo '{resolved.ScenarioId}' cannot mix package and Platform members.");
+                $"Home demo '{scenarioId}' cannot mix package and Platform members.");
             return 1;
         }
 
@@ -182,19 +199,15 @@ public static class DemoCommand
         if (platform is null)
         {
             CommandError.Write(
-                $"Home demo '{resolved.ScenarioId}' has no matching Platform member to run.");
+                $"Home demo '{scenarioId}' has no matching Platform member to run.");
             return 1;
         }
 
-        await using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace(workspacePlan);
         WorkspaceContextLoadOutcome outcome =
             await WorkspaceContextLoader.LoadAsync(
                 workspace,
-                new WorkspaceContextInput
-                {
-                    Framework = options.Tfm ?? plan.Context.Framework,
-                    Members = platformMembers,
-                },
+                contextInput,
                 new WorkspaceContextLoadOptions
                 {
                     HttpClient = HttpClientFactory.Shared,
@@ -210,7 +223,7 @@ public static class DemoCommand
         if (outcome is WorkspaceContextLoadOutcome.Failed failed)
         {
             CommandError.Write(
-                $"Home demo '{resolved.ScenarioId}' could not load its exact Platform implementation.",
+                $"Home demo '{scenarioId}' could not load its exact Platform implementation.",
                 [
                     .. failed.Failures.Select(static failure =>
                         $"{failure.Kind}: {failure.Message}"),
@@ -224,7 +237,7 @@ public static class DemoCommand
         if (loaded.Members.Length != platformMembers.Length)
         {
             CommandError.Write(
-                $"Home demo '{resolved.ScenarioId}' did not load every declared Platform member.");
+                $"Home demo '{scenarioId}' did not load every declared Platform member.");
             return 1;
         }
 
@@ -243,7 +256,7 @@ public static class DemoCommand
                 if (!Equals(loadedMember.Declared, declared))
                 {
                     CommandError.Write(
-                        $"Home demo '{resolved.ScenarioId}' loaded Platform members out of declaration order.");
+                        $"Home demo '{scenarioId}' loaded Platform members out of declaration order.");
                     return 1;
                 }
 
@@ -253,7 +266,7 @@ public static class DemoCommand
                 if (!materializedPaths.Add(materializedPath))
                 {
                     CommandError.Write(
-                        $"Home demo '{resolved.ScenarioId}' has Platform members that map to the same local image name.");
+                        $"Home demo '{scenarioId}' has Platform members that map to the same local image name.");
                     return 1;
                 }
 
@@ -274,7 +287,7 @@ public static class DemoCommand
             if (assemblyPath is null)
             {
                 CommandError.Write(
-                    $"Home demo '{resolved.ScenarioId}' did not materialize its focused Platform member.");
+                    $"Home demo '{scenarioId}' did not materialize its focused Platform member.");
                 return 1;
             }
 
@@ -289,7 +302,7 @@ public static class DemoCommand
                 SourceKind.Platform,
                 platform.Version,
                 platform.Family,
-                options.Tfm ?? plan.Context.Framework,
+                options.Tfm ?? contextInput.Framework,
                 ProjectAssetsPath: null,
                 TempDir: null,
                 options.TypeName,
@@ -301,7 +314,7 @@ public static class DemoCommand
             if (surface is null)
             {
                 CommandError.Write(
-                    $"Home demo '{resolved.ScenarioId}' could not inspect its exact Platform implementation.");
+                    $"Home demo '{scenarioId}' could not inspect its exact Platform implementation.");
                 return 1;
             }
 
