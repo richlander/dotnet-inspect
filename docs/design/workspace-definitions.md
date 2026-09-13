@@ -28,7 +28,7 @@ demos, and role realization listed under
 below is **unverified** until the gates named in
 [Status and gates](#status-and-gates) exist.
 
-The planned common construction target is the
+The common construction target is the
 [Workspace-Scope-owned `WorkspacePlan`](workspace-scope-and-expansion.md#workspaceplan-construction):
 this document's portable request and that invokable in-process representation
 sit at different altitudes, rather than compete as workspace descriptions.

@@ -12,8 +12,11 @@ boundary for semantic row selection and rendered-line selection. The package
 Lines subset. The finite `demo list` catalog and the equivalent bare `demo`
 listing adopt the same subset. `vocabulary` value rendering adopts Head/Tail
 and Window without rendered-line selection; its `-D` structural discovery
-retains the existing discovery-row window contract. Other command surfaces
-retain their existing contracts.
+retains the existing discovery-row window contract. `timeline` applies
+Head/Tail and Window independently to its Evaluations and Transitions row sets
+after sparse or dense package-cell evaluation; `--at` remains separate
+traversal authorization. Other command surfaces retain their existing
+contracts.
 
 Implementation is partial. #5644 implements value parsing, ordered lowering,
 modifier composition, Top-order attachment, typed capability rejection, and
@@ -32,8 +35,9 @@ finite product-demo catalog for explicit `demo list` and equivalent bare
 `demo` listing. #6489 adopts `find` across API search, package profile,
 Package Query, and literal Package Query modes, including shared semantic
 selection and Count evidence. #6643 adopts product-vocabulary value rows across
-selected sections. Remaining command adoptions and shared universal guidance
-remain unimplemented.
+selected sections. #6650 adopts timeline Evaluation and Transition rows while
+preserving its explicit package-cell acquisition plan. Remaining command
+adoptions and shared universal guidance remain unimplemented.
 
 Only the implemented subsets are verified by their named Release gates in
 [Required gates](#required-gates). Every other asserted behavior remains
@@ -620,6 +624,34 @@ adoption waits for the shared row-query owner rather than adding a
 vocabulary-local implementation. Structural `-D` output remains outside this
 adoption and keeps the existing discovery projection behavior.
 
+## Timeline adoption
+
+`timeline` declares two independent row sets in version-vector order:
+Evaluations use the stable package-version address as row identity, while
+Transitions use the ordered evaluated endpoint pair and producer-native
+Finding identity. Head/Tail and Window stages apply independently to every
+selected row set after the command completes its explicitly authorized
+package-cell evaluation. One strict Window failure withholds the complete
+timeline document.
+
+```console
+$ dotnet-inspect timeline \
+    --package Markout@0.33.0..0.35.2 \
+    --type Markout.MarkoutWriterOptions \
+    --members --at all \
+    -S Transitions -n 10 --tail
+```
+
+`--at` remains traversal authorization: no selector acquires no package
+payloads, repeated selectors authorize sparse cells, and `--at all` authorizes
+the complete vector. Semantic row selection never reduces those acquired
+cells. Markdown, table, TSV, JSONL, typed JSON, and Count consume the same
+selected rows.
+
+The command does not expose Lines, Top, `--order-by`, or predicates. Those
+capabilities require their owning rendering or row-query adoption rather than
+a timeline-local implementation.
+
 ## Required gates
 
 All gates run in Release. New gates are **unverified** until implemented.
@@ -691,6 +723,13 @@ The vocabulary adoption is enforced by:
 | Gate | Property |
 | --- | --- |
 | `VocabularyCommandTests` | Explicit `vocabulary` value rendering applies semantic Head/Tail and ordered Window stages to stable catalog rows before count or format lowering; bare `-N` and explicit `-n` select the same identities, multiple selected sections remain independent named sequences, and one strict Window failure emits no partial document. Structural discovery retains its existing projection path. |
+
+The timeline adoption is enforced by:
+
+| Gate | Property |
+| --- | --- |
+| `TimelineCommandTests` | Evaluations and Transitions apply semantic Head/Tail and ordered Window stages independently before Markdown, table, TSV, JSONL, typed JSON, or Count lowering; one strict Window failure emits no partial document. |
+| `ConfiguredPayloadAcquisitionTests.TimelineRange_SemanticRowsComposeWithoutReducingExplicitAcquisition` | Bare `-N`, Tail, and Window compose over final Evaluation rows while explicit dense `--at all` still acquires every selected package cell. |
 
 The remaining implementation must satisfy:
 

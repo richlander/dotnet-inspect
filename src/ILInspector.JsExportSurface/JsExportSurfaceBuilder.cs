@@ -2626,6 +2626,9 @@ public static class JsExportSurfaceBuilder
             if (left.Kind != right.Kind
                 || left.Primitive != right.Primitive
                 || left.Definition != right.Definition
+                || left.GenericParameterIndex != right.GenericParameterIndex
+                || left.IsMethodGenericParameter
+                    != right.IsMethodGenericParameter
                 || left.ArrayRank != right.ArrayRank
                 || left.TypeArguments.Length != right.TypeArguments.Length
                 || (left.ElementType is null) != (right.ElementType is null)

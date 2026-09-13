@@ -22,6 +22,12 @@
   range-form `--rows` composes in argument order across every selected section.
   Strict windows fail without partial output, and `--count` observes the
   selected rows (#6643).
+- Routes `timeline` Evaluations and Transitions through the shared semantic
+  selection path. `-n`, bare `-N`, `--tail`, and range-form `--rows` compose in
+  argument order independently for each selected section; strict windows fail
+  without partial output, JSON and count observe the selected rows, and
+  selection never reduces the package cells explicitly authorized by `--at`
+  (#6650).
 - **Breaking:** Makes restored-project package documents fully section-driven.
   `project --agents-index` and `project --readme <package-id>` are removed; use
   `-S Skills` or `-S "Package README file"` and add `--print --row N` to emit

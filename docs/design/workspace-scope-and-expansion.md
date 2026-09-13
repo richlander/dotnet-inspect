@@ -171,11 +171,11 @@ contracts. The target claim is:
 > resource or a live Workspace's authority.
 
 Issue [#6802](https://github.com/richlander/dotnet-inspect/issues/6802) specifies
-this distinction. The full request-to-plan path remains **unverified and not
-implemented**. The registration and context-bearing profiles below exist;
-definition lowering and host adoption follow the counted plan below. This is
-not a second JSON format or a requirement that every in-process plan have a
-portable representation.
+this distinction. The registration and context-bearing profiles below and
+Definitions lowering into the common plan are implemented. CLI and Browser
+adoption remain **unverified and not implemented**, following the counted plan
+below. This is not a second JSON format or a requirement that every in-process
+plan have a portable representation.
 
 ##### Implemented registration profile
 
@@ -360,7 +360,7 @@ claiming the corresponding property. The planned gates are:
 | CLI and Browser/Wasm inspect the same System.Text.Json subject through the shared plan path. | CLI and Browser demo conformance remain **unverified**. |
 | A context-bearing plan remains reusable after close; a registration replacement preserves context intent and does not alter another live owner. | Expanded `WorkspacePlanTests` and public non-friend consumer; **implemented by #6810**. |
 | Incompatible target declarations or an unsupported subscription remain explicit failures, not a successful partial composition or a silently selected context. | `InspectionDefinitionTests.ResolveScenario_DefersTargetValidationToPlanInvocation` and `Registry_RejectsSubscribeAndFilesystemCoordinates_AndCrossKindPeers`; **implemented by #6750**. |
-| Raw and definition-authored construction do not receive implicit Ecosystems curation; explicit catalog plans retain their authored registrations. | Definitions' raw plan is gated by `InspectionDefinitionTests.ResolveScenario_LowersSupportedContextsIntoReusableWorkspacePlan`; explicit catalog plans remain gated by #6810, while both host adoptions remain **unverified**. |
+| Raw and definition-authored construction do not receive implicit Ecosystems curation; explicit catalog plans retain their authored registrations. | Definitions' raw plan is gated by `InspectionDefinitionTests.ResolveScenario_LowersSupportedContextsIntoReusableWorkspacePlan`; explicit catalog plans retain the existing `EcosystemWorkspaceConstructionTests` and public-consumer gates, while both host adoptions remain **unverified**. |
 
 Definitions lowering is implemented by #6750. CLI adoption and Browser/Wasm
 adoption remain explicitly unimplemented. The wire owner's grammar/version
