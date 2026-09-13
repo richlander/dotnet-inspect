@@ -1,6 +1,5 @@
 using System.Net;
 using System.Net.Sockets;
-using DotnetInspector.Core;
 using DotnetInspector.Packages;
 using NuGetFetch;
 

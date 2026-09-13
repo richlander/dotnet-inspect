@@ -1063,6 +1063,5 @@ public sealed class LayeringTests
         new(PackageImplementationProjects, StringComparer.Ordinal)
         {
             "DotnetInspector.Cache",
-            "DotnetInspector.Core",
         };
 }

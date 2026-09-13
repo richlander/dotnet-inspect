@@ -1,4 +1,4 @@
-using DotnetInspector.Core;
+using DotnetInspect.Cli;
 
 namespace DotnetInspect.Cli.Tests;
 

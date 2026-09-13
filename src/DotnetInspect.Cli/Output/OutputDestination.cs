@@ -1,5 +1,5 @@
 using System.Text;
-using DotnetInspector.Core;
+using DotnetInspect.Cli;
 using DotnetInspect.Cli.Options;
 
 namespace DotnetInspect.Cli.Output;
