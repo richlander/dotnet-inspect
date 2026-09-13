@@ -1,7 +1,6 @@
 using System.Text.Json;
-using DotnetInspector.Core;
 
-namespace DotnetInspector.Services.Tests;
+namespace UntrustedDocuments.Tests;
 
 /// <summary>
 /// Negative fixtures for <see cref="HardenedJson"/>. JSON leaves duplicate-key resolution

@@ -172,6 +172,7 @@
     <Project Path="src/runfaster/runfaster.csproj" />
     <Project Path="src/ts-jsexport/ts-jsexport.csproj" />
     <Project Path="src/TsJsExport.Contracts/TsJsExport.Contracts.csproj" />
+    <Project Path="src/UntrustedDocuments/UntrustedDocuments.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/CSharpText.MemberSlicing.Tests/CSharpText.MemberSlicing.Tests.csproj" />
@@ -205,6 +206,7 @@
     <Project Path="tests/DotnetInspector.Platforms.Formats.Tests/DotnetInspector.Platforms.Formats.Tests.csproj" />
     <Project Path="tests/DotnetInspector.Platforms.Tests/DotnetInspector.Platforms.Tests.csproj" />
     <Project Path="tests/NuGetFetch.Tests/NuGetFetch.Tests.csproj" />
+    <Project Path="tests/UntrustedDocuments.Tests/UntrustedDocuments.Tests.csproj" />
     <Project Path="tests/nuget/NuGetFetch.CustomClientFixture/NuGetFetch.CustomClientFixture.csproj" />
     <Project Path="tests/nuget/NuGetFetch.PluginFixture/NuGetFetch.PluginFixture.csproj" />
     <Project Path="tests/DotnetInspector.PackageManifestCorpus/DotnetInspector.PackageManifestCorpus.csproj" />

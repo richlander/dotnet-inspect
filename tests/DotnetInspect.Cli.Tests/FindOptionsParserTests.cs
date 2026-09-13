@@ -21,27 +21,6 @@ public class FindOptionsParserTests
         });
 
     [Fact]
-    public void PackagePrefixWithoutPattern_SelectsManifestProfile()
-    {
-        Assert.True(
-            new FindOptions
-            {
-                PackagePrefix = "Microsoft.",
-            }.IsPackageProfile);
-    }
-
-    [Fact]
-    public void PackagePrefixWithPattern_PreservesApiSearch()
-    {
-        Assert.False(
-            new FindOptions
-            {
-                Pattern = "JsonSerializer",
-                PackagePrefix = "Microsoft.",
-            }.IsPackageProfile);
-    }
-
-    [Fact]
     public void Literal_PreservesRawOperandAndExactPackageSelection()
     {
         const string operand = " leading\tliteral\r\n ";

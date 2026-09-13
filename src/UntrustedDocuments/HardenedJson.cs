@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace DotnetInspector.Core;
+namespace UntrustedDocuments;
 
 /// <summary>
 /// Parses JSON from untrusted sources (NuGet feed responses, package contents, restored project

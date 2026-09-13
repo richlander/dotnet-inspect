@@ -521,6 +521,7 @@ internal sealed class ChangeRoutingPolicy
             "src/ILInspector.Metadata*",
             "src/DotnetInspector.Cache/*",
             "src/DotnetInspector.Core/*",
+            "src/UntrustedDocuments/*",
             "*.props",
             "*.targets",
             "*.sln",

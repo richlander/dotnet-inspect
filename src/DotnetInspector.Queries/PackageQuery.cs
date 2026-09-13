@@ -524,13 +524,12 @@ public static partial class PackageQuery
         bool includePrerelease,
         SourceSelector? packageInput = null)
     {
-        if (maximumMatches is int presentMatchLimit
-            && presentMatchLimit
-                is <= 0 or > PackageProfileQuery.MaximumPackageLimit)
+        if (maximumMatches is int matchLimit
+            && matchLimit is <= 0 or > PackageProfileQuery.MaximumPackageLimit)
         {
             return Rejected(
                 PackageQueryRequestFailureReason.InvalidMatchLimit,
-                value: maximumMatches);
+                value: matchLimit);
         }
 
         IReadOnlyCollection<string> requested =

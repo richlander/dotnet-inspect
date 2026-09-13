@@ -33,6 +33,7 @@
     <ProjectReference Include="../DotnetInspector.Networking/DotnetInspector.Networking.csproj" />
     <ProjectReference Include="../DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
     <ProjectReference Include="../InertText/InertText.csproj" />
+    <ProjectReference Include="../UntrustedDocuments/UntrustedDocuments.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -110,6 +110,7 @@ tests/DecompilerHarness.Tests
 tests/DotnetInspect.Cli.Tests
 tests/DotnetInspector.AssemblyOnlyHost.Fixture
 tests/DotnetInspector.Cache.Tests
+tests/DotnetInspector.DependencyManifests.Tests
 tests/DotnetInspector.Ecosystems.Consumer.Tests
 tests/DotnetInspector.Ecosystems.Tests
 tests/DotnetInspector.FixtureInfrastructure.Tests
@@ -150,6 +151,7 @@ tests/Inspector.Text.Tests
 tests/NetworkAccess.Tests
 tests/NuGetFetch.Tests
 tests/TestExtensions
+tests/UntrustedDocuments.Tests
 tests/nuget/NuGetFetch.CustomClientFixture
 tests/nuget/NuGetFetch.PluginFixture
 tests/nuget/PackageAssetSelection.BuildOracle/Consumer

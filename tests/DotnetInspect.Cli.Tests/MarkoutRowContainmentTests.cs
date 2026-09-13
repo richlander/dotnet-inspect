@@ -285,11 +285,6 @@ public class MarkoutRowContainmentTests
         "OptimizationOpportunityRow.UnknownPaths",
         "OptimizationOpportunityRow.Weight",
         "PackageDependenciesView.Title",
-        "PackageSearchResultView.Title",
-        "PackageSearchRow.Description",
-        "PackageSearchRow.Downloads",
-        "PackageSearchRow.Package",
-        "PackageSearchRow.Version",
         "PropertySummaryRow.Accessors",
         "PropertySummaryRow.Decode",
         "PropertySummaryRow.Name",
@@ -363,11 +358,11 @@ public class MarkoutRowContainmentTests
     ];
 
     [Fact]
-    public void ResidualCensus_IsPinnedAt241MembersAcross54Types()
+    public void ResidualCensus_IsPinnedAt236MembersAcross52Types()
     {
-        Assert.Equal(241, NotSelfContaining.Length);
+        Assert.Equal(236, NotSelfContaining.Length);
         Assert.Equal(
-            54,
+            52,
             NotSelfContaining
                 .Select(entry => entry[..entry.IndexOf('.')])
                 .Distinct(StringComparer.Ordinal)

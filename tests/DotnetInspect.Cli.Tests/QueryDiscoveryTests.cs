@@ -156,7 +156,8 @@ public class QueryDiscoveryTests
     public async Task QueryRejectsDataDiscoveryModes(string mode)
     {
         var result = await Run(
-            "find",
+            "package",
+            "query",
             "-Q",
             "Packages",
             mode,
@@ -184,7 +185,8 @@ public class QueryDiscoveryTests
         string expected)
     {
         var result = await Run(
-            "find",
+            "package",
+            "query",
             option,
             value,
             "-Q",
@@ -270,12 +272,20 @@ public class QueryDiscoveryTests
     }
 
     [Fact]
-    public async Task PackageProfileQueryDiscovery_IsInertAndDescribesExecutableFacets()
+    public async Task PackageQueryDiscovery_IsInertAndDescribesExecutableFacets()
     {
-        var result = await Run("find", "--package-prefix", "Microsoft.", "-Q", "Packages", "--json");
+        var result = await Run(
+            "package",
+            "query",
+            "-Q",
+            "Packages",
+            "--json");
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("package.query.", result.Output);
         using var json = JsonDocument.Parse(result.Output);
+        Assert.Equal(
+            "package query",
+            json.RootElement.GetProperty("command").GetString());
         var facet = Assert.Single(json.RootElement.GetProperty("sections")[0]
             .GetProperty("facets").EnumerateArray());
         Assert.Equal("facet", facet.GetProperty("name").GetString());
@@ -310,31 +320,24 @@ public class QueryDiscoveryTests
     [InlineData("-S", true)]
     [InlineData("--select", false)]
     [InlineData("--select", true)]
-    public async Task FindCompanionSelection_DoesNotFallThroughToSearch(string option, bool attached)
+    public async Task PackageQueryCompanionSelection_DoesNotExecuteQuery(
+        string option,
+        bool attached)
     {
         string[] selector = attached
             ? [$"{option}=Query: Packages"]
             : [option, "Query: Packages"];
-        var result = await Run(["find", .. selector,
-            "--library", "/missing/query-discovery.dll", "--json"]);
-        var query = await Run("find", "-Q", "Packages", "--json");
+        var result = await Run(
+            ["package", "query", .. selector, "--json"]);
+        var query = await Run(
+            "package",
+            "query",
+            "-Q",
+            "Packages",
+            "--json");
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
         Assert.Equal(query.Output, result.Output);
-    }
-
-    [Theory]
-    [InlineData("-S")]
-    [InlineData("-S=Results")]
-    [InlineData("--select=*")]
-    public async Task FindDataSelection_RemainsUnsupported(string selection)
-    {
-        var result = await Run("find", selection,
-            "--library", "/missing/query-discovery.dll", "--json");
-        Assert.Equal(1, result.ExitCode);
-        Assert.Empty(result.Output);
-        Assert.Contains("require patternless find --package-prefix", result.Error);
-        Assert.DoesNotContain("Library not found", result.Error);
     }
 
     [Fact]
@@ -447,10 +450,11 @@ public class QueryDiscoveryTests
     }
 
     [Fact]
-    public async Task FindQueryDiscovery_AppliesSemanticSelectionStages()
+    public async Task PackageQueryDiscovery_AppliesSemanticSelectionStages()
     {
         var result = await Run(
-            "find",
+            "package",
+            "query",
             "-Q",
             "Packages",
             "-n",
@@ -462,7 +466,7 @@ public class QueryDiscoveryTests
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains(
-            "Find row selection stage 2 requires query facet row 2, "
+            "Package Query row selection stage 2 requires query facet row 2, "
                 + "but only 1 query facet rows are available.",
             result.Error);
     }
@@ -500,15 +504,6 @@ public class QueryDiscoveryTests
         var longForm = await Run("type", "--query-help=Body Shapes", "--json");
         Assert.Equal(0, longForm.ExitCode);
         Assert.Equal(shortForm.Output, longForm.Output);
-    }
-
-    [Fact]
-    public async Task QueryBeforeSubcommand_DoesNotFallThroughToItsExecution()
-    {
-        var result = await Run("package", "-Q=Packages", "search");
-        Assert.NotEqual(0, result.ExitCode);
-        Assert.Empty(result.Output);
-        Assert.Contains("subcommand", result.Error);
     }
 
     [Fact]

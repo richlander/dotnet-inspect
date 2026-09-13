@@ -1,6 +1,6 @@
 using System.Text;
 using System.Text.Json;
-using DotnetInspector.Core;
+using UntrustedDocuments;
 
 namespace DotnetInspector.Platforms.Formats;
 
