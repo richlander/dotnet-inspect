@@ -863,6 +863,9 @@ jobs:
             shard: cli-mem
           - os: ubuntu-24.04
             rid: linux-x64
+            shard: cli-q-z
+          - os: ubuntu-24.04
+            rid: linux-x64
             shard: cli-rest
           - os: ubuntu-24.04
             rid: linux-x64
@@ -975,7 +978,7 @@ jobs:
         shell: bash
         run: eng/restore-iltools.sh --rid ${{ matrix.rid }} >> "$GITHUB_PATH"
 
-      # The first four shards select explicit class-name prefixes. The final
+      # The first five shards select explicit class-name prefixes. The final
       # shard is their complement, so new or unusually named test classes
       # cannot fall between ranges and silently disappear from PR CI.
       - name: Run CLI tests A-C (fast)
@@ -1013,6 +1016,22 @@ jobs:
           --filter-class 'DotnetInspect.Cli.Tests.Mem*'
           --filter-not-trait "Speed=Slow"
 
+      - name: Run CLI tests Q-Z (fast)
+        if: matrix.shard == 'cli-q-z'
+        run: >-
+          dotnet run --project tests/DotnetInspect.Cli.Tests -c Release --no-build --
+          --filter-class 'DotnetInspect.Cli.Tests.Q*'
+          'DotnetInspect.Cli.Tests.R*'
+          'DotnetInspect.Cli.Tests.S*'
+          'DotnetInspect.Cli.Tests.T*'
+          'DotnetInspect.Cli.Tests.U*'
+          'DotnetInspect.Cli.Tests.V*'
+          'DotnetInspect.Cli.Tests.W*'
+          'DotnetInspect.Cli.Tests.X*'
+          'DotnetInspect.Cli.Tests.Y*'
+          'DotnetInspect.Cli.Tests.Z*'
+          --filter-not-trait "Speed=Slow"
+
       - name: Run remaining CLI tests (fast)
         if: matrix.shard == 'cli-rest'
         run: >-
@@ -1028,6 +1047,16 @@ jobs:
           'DotnetInspect.Cli.Tests.I*'
           'DotnetInspect.Cli.Tests.Ma*'
           'DotnetInspect.Cli.Tests.Mem*'
+          'DotnetInspect.Cli.Tests.Q*'
+          'DotnetInspect.Cli.Tests.R*'
+          'DotnetInspect.Cli.Tests.S*'
+          'DotnetInspect.Cli.Tests.T*'
+          'DotnetInspect.Cli.Tests.U*'
+          'DotnetInspect.Cli.Tests.V*'
+          'DotnetInspect.Cli.Tests.W*'
+          'DotnetInspect.Cli.Tests.X*'
+          'DotnetInspect.Cli.Tests.Y*'
+          'DotnetInspect.Cli.Tests.Z*'
           --filter-not-trait "Speed=Slow"
 
       - name: Run GitHub Packages fixture test

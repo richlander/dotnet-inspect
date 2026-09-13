@@ -35,6 +35,7 @@ public class CiWorkflowTests
             "cli-d-i",
             "cli-ma",
             "cli-mem",
+            "cli-q-z",
             "cli-rest",
             "contracts",
             "analysis",
@@ -72,10 +73,20 @@ public class CiWorkflowTests
             "filter-class",
             ["Mem"]);
         AssertCliShard(
+            "Run CLI tests Q-Z (fast)",
+            "cli-q-z",
+            "filter-class",
+            'Q',
+            'Z');
+        AssertCliShard(
             "Run remaining CLI tests (fast)",
             "cli-rest",
             "filter-not-class",
-            ["A", "B", "C", "D", "E", "F", "G", "H", "I", "Ma", "Mem"]);
+            [
+                "A", "B", "C", "D", "E", "F", "G", "H", "I",
+                "Ma", "Mem",
+                "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
+            ]);
     }
 
     [Fact]

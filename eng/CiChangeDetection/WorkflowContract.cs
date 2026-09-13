@@ -39,6 +39,7 @@ internal static partial class WorkflowContract
         "cli-d-i",
         "cli-ma",
         "cli-mem",
+        "cli-q-z",
         "cli-rest",
         "contracts",
         "analysis",

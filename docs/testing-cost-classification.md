@@ -74,9 +74,9 @@ public void SomeExpensiveTheory(string assemblyName)
 ## Existing consumers (no workflow changes needed to add a tag)
 
 - `ci.yml`'s PR-blocking fast leg filters `Speed=Slow` from the CLI and
-  Analysis suites. The CLI selection is split across five parallel matrix
-  entries: four select non-overlapping class-name prefix ranges, and the
-  fifth selects their complement. The complement makes the partition
+  Analysis suites. The CLI selection is split across six parallel matrix
+  entries: five select non-overlapping class-name prefix ranges, and the
+  sixth selects their complement. The complement makes the partition
   exhaustive even when a future test class uses an unexpected identifier.
   `deep-inspect.yml` runs both suites fully unfiltered, so a newly tagged test
   automatically keeps running daily.
