@@ -106,7 +106,8 @@ public static class InspectionGraphCommandDefinitions
                 "Exact relationship id. Repeat to override the default Integration family.",
             AllowMultipleArgumentsPerToken = false,
         };
-        relationshipOption.AcceptOnlyFromAmong(
+        CliOptionValueValidation.AcceptOnlyFromAmong(
+            relationshipOption,
             StringComparer.Ordinal,
             [.. InspectionGraphCommand.SupportedRelationshipIds]);
         var prereleaseOption = new Option<bool>("--preview")

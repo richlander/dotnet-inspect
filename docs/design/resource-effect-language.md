@@ -23,10 +23,10 @@ Its exact claim is:
 > program.
 
 [Resource ownership and borrowing](resource-ownership-and-borrowing.md) owns
-the lifecycle semantics described by the language. The planned Analysis-owned
-[Resolved Resource Effects](https://github.com/richlander/dotnet-inspect/issues/6728)
-successor will own binding admitted selectors to concrete metadata occurrences
-and deciding whether effects meeting at one occurrence are compatible.
+the lifecycle semantics described by the language. The Analysis-owned
+[Resolved Resource Effects](resolved-resource-effects.md)
+owner binds admitted selectors to concrete metadata occurrences
+and decides whether effects meeting at one occurrence are compatible.
 `ILInspector.Analysis` owns IL interpretation, value flow, control flow,
 supported proof boundaries, incompleteness, and Finding production. Resource
 Triage owns actionability, impact, confidence, and remediation. This language
@@ -826,9 +826,9 @@ therefore does not depend on System.Text.Json or contain Analysis policy.
 
 `ILInspector.Analysis` owns the bounded statement parser, admitted
 declarations, and shipped typed mappings because it is the first consumer.
-Concrete structural selector resolution is assigned to the planned #6728
-owner. Both paths remain SRM-only, NativeAOT-friendly, Roslyn-free, and free of
-inspected-assembly loading.
+[Resolved Resource Effects](resolved-resource-effects.md) owns concrete
+structural selector resolution. Both paths remain SRM-only,
+NativeAOT-friendly, Roslyn-free, and free of inspected-assembly loading.
 
 The ArrayPool model is realized once in `ILInspector.Analysis` as immutable C#
 data. It uses the public admitted-declaration types and local validator, not an
@@ -965,8 +965,9 @@ rejects every declaration sharing its model identity in that defining module.
 One invalid JSON declaration rejects its complete JSON model. Rejection of one
 model does not publish its valid-looking subset.
 
-The planned #6728 owner will bind admitted declarations to one exact inspected
-metadata generation. It will decide whether selectors match the same
+The [Resolved Resource Effects](resolved-resource-effects.md) owner binds
+admitted declarations to one exact inspected metadata generation. It decides
+whether selectors match the same
 occurrence, whether their finite applicability domains overlap, and whether
 their occurrence-bound effects coalesce or conflict. A valid model naming an
 absent API remains inert. A potentially matching operation whose defining
@@ -1249,9 +1250,10 @@ owner-derived result as detached.
 ## Consumer handoff
 
 The language publishes admitted declarations and their admission receipt.
-The planned #6728 boundary will resolve them against concrete metadata
-occurrences and publish occurrence-bound effects. Analysis consumes only those
-resolved effects plus existing metadata, IL, and control-flow evidence.
+The [Resolved Resource Effects](resolved-resource-effects.md) boundary resolves
+them against concrete metadata occurrences and publishes occurrence-bound
+effects. Analysis consumes only those resolved effects plus existing metadata,
+IL, and control-flow evidence.
 Declaration source remains attached for diagnostics but cannot select a flow
 algorithm.
 

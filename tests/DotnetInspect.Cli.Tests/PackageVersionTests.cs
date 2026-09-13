@@ -390,6 +390,24 @@ public class PackageVersionTests
         }
     }
 
+    [Fact]
+    public async Task Versions_QueryDiscoveryRetainsLegacyLenientRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "--offline",
+            "package",
+            "--versions",
+            "-Q",
+            "Package Info",
+            "--rows",
+            "999..999",
+            "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("0", output.Trim());
+        Assert.Empty(error);
+    }
+
     [Theory]
     [InlineData("--versions")]
     [InlineData("--versions-with-feed")]

@@ -121,6 +121,20 @@ public sealed class PackageQueryTests
     }
 
     [Fact]
+    public void Plan_PreservesAbsentMatchLimit()
+    {
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.",
+                    MaximumCandidates: 500,
+                    MaximumMatches: null)));
+
+        Assert.Equal(500, plan.MaximumCandidates);
+        Assert.Null(plan.MaximumMatches);
+    }
+
+    [Fact]
     public void Plan_TreatsOneTrailingWildcardAsPrefixShorthand()
     {
         PackageQueryPlan plan = Accepted(
@@ -364,6 +378,49 @@ public sealed class PackageQueryTests
         Assert.Equal(5, source.ManifestRequests.Count);
         Assert.Equal(6, source.LastSearchTake);
         Assert.Equal(0, source.PackageRequests);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AbsentMatchLimitRunsAllThousandMatchesToCompletion()
+    {
+        SearchResult[] candidates =
+        [
+            .. Enumerable.Range(1, 1_000)
+                .Select(index =>
+                    Match($"Contoso.{index:D4}", verified: true)),
+        ];
+        var source = new FakePackageSource(
+            candidates,
+            candidates.ToDictionary(
+                candidate =>
+                    $"{candidate.Id.ToLowerInvariant()}@1.0.0",
+                candidate => Manifest(candidate.Id)));
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.",
+                    [PackageQuery.VerifiedFacetId],
+                    MaximumCandidates: 1_000,
+                    MaximumMatches: null)));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            candidates.Select(candidate => candidate.Id),
+            events.OfType<PackageQueryEvent.Match>()
+                .Select(item => item.Value.Package.PackageId));
+        PackageQuerySummary summary =
+            Assert.IsType<PackageQueryEvent.Completed>(events[^1]).Value;
+        Assert.Null(summary.MatchLimit);
+        Assert.Equal(1_000, summary.Matches);
+        Assert.Equal(
+            PackageQueryCompletionKind.Exhausted,
+            summary.Completion);
+        Assert.Equal(1_000, source.ManifestRequests.Count);
     }
 
     [Fact]
