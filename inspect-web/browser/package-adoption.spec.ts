@@ -453,6 +453,9 @@ async function boot(page: Page): Promise<void> {
           realmReleased: () => undefined,
         },
         operationDiagnostic: diagnostic => {
+          console.error(
+            `INSPECT_WEB_PRODUCT_OPERATION_FAILURE:${diagnostic.kind}`,
+          );
           throw new Error(`Production operation failed: ${diagnostic.kind}.`);
         },
       },
@@ -957,6 +960,12 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     page,
     context,
   }) => {
+    page.on("console", message => {
+      const text = message.text();
+      if (text.startsWith("INSPECT_WEB_PRODUCT_OPERATION_FAILURE:")) {
+        console.log(text);
+      }
+    });
     const workers: Worker[] = [];
     page.on("worker", worker => workers.push(worker));
     const registry = new GalleryFixtureRegistry(allFixtures);
