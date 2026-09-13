@@ -211,6 +211,29 @@ public sealed class NullabilityTests
     }
 
     [Fact]
+    public void NullableValueNode_DoesNotConsumeGenericHeadByte()
+    {
+        var node = new GenericTypeNode(
+            "System.Nullable",
+            isReferenceType: false,
+            [
+                new GenericTypeNode(
+                    "Slot",
+                    isReferenceType: false,
+                    [new PrimitiveTypeNode("string", true)]),
+            ]);
+        byte[] bytes = [0, 2];
+        int pos = 0;
+
+        node.ApplyNullability(bytes, ref pos, 0);
+
+        Assert.Equal(
+            "System.Nullable<Slot<string?>>",
+            node.Render());
+        Assert.Equal(2, pos);
+    }
+
+    [Fact]
     public void ArrayNode_NullableElement()
     {
         // string?[] where array is not nullable, string is

@@ -211,7 +211,13 @@ static class TsJsonUnionMapper
                 if (shape.Kind == ApiTypeShapeKind.GenericInstance
                     && identity.FullName == "System.Nullable`1"
                     && shape.TypeArguments is [var nullable])
-                    return WithNull(MapClosedShape(nullable, context, location));
+                    return WithNull(MapClosedShape(
+                        nullable,
+                        context,
+                        location,
+                        NullableArgumentDisplay(
+                            displayType,
+                            nullableDisplay)));
                 if (shape.Kind == ApiTypeShapeKind.GenericInstance
                     && identity.FullName is "System.Collections.Generic.Dictionary`2"
                         or "System.Collections.Generic.IReadOnlyDictionary`2"
@@ -250,6 +256,25 @@ static class TsJsonUnionMapper
             || type.EndsWith(" | null", StringComparison.Ordinal)
                 ? type
                 : $"{type} | null";
+
+    static string? NullableArgumentDisplay(
+        string? displayType,
+        bool nullableSuffix)
+    {
+        if (nullableSuffix)
+            return displayType;
+        if (displayType is not null
+            && TsTypeMapper.TryParseGenericType(
+                displayType,
+                out string? definition,
+                out IReadOnlyList<string> arguments)
+            && definition is "Nullable" or "System.Nullable"
+            && arguments is [var argument])
+        {
+            return argument;
+        }
+        return null;
+    }
 
     // Signature-only case trees do not retain nested nullable-reference annotations.
     static string MapCollectionCase(TypeRef type, TsJsonUnionMappingContext context, string location)

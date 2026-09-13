@@ -38,6 +38,7 @@ for (
     "nullableGenericNested",
     "genericNestedEnvelope",
     "wrappedGenericNestedEnvelope",
+    "nullableWrappedGenericNestedEnvelope",
     "genericNestedChoice",
     "selectionEnvelope",
   ]
@@ -97,6 +98,10 @@ const getGenericNestedEnvelopeKey =
   facadeSource.match(/"(GetGenericNestedEnvelope\.-?\d+)"/)?.[1];
 const getWrappedGenericNestedEnvelopeKey =
   facadeSource.match(/"(GetWrappedGenericNestedEnvelope\.-?\d+)"/)?.[1];
+const getNullableWrappedGenericNestedEnvelopeKey =
+  facadeSource.match(
+    /"(GetNullableWrappedGenericNestedEnvelope\.-?\d+)"/,
+  )?.[1];
 const getGenericNestedChoiceKey =
   facadeSource.match(/"(GetGenericNestedChoice\.-?\d+)"/)?.[1];
 const getSelectionEnvelopeAsyncKey =
@@ -212,6 +217,11 @@ assert.ok(
 assert.ok(
   getWrappedGenericNestedEnvelopeKey,
   "The generated GetWrappedGenericNestedEnvelope dispatch key was not found.",
+);
+assert.ok(
+  getNullableWrappedGenericNestedEnvelopeKey,
+  "The generated GetNullableWrappedGenericNestedEnvelope dispatch key "
+    + "was not found.",
 );
 assert.ok(
   getGenericNestedChoiceKey,
@@ -350,6 +360,9 @@ function managedExports(methods = {}) {
             [getWrappedGenericNestedEnvelopeKey]:
               methods.getWrappedGenericNestedEnvelope
               ?? (() => unionPayloads.wrappedGenericNestedEnvelope),
+            [getNullableWrappedGenericNestedEnvelopeKey]:
+              methods.getNullableWrappedGenericNestedEnvelope
+              ?? (() => unionPayloads.nullableWrappedGenericNestedEnvelope),
             [getGenericNestedChoiceKey]:
               methods.getGenericNestedChoice
               ?? (() => unionPayloads.genericNestedChoice),
@@ -564,6 +577,10 @@ async function freshFacade() {
     },
   );
   assert.deepEqual(
+    facade.getNullableWrappedGenericNestedEnvelope(),
+    { item: { value: null } },
+  );
+  assert.deepEqual(
     facade.getGenericNestedChoice(),
     { value: null },
   );
@@ -603,7 +620,7 @@ async function freshFacade() {
   );
   assert.equal(
     await unionUsage.summarizeGenericRecords(),
-    "7|8|1,2|0|9|sample|11|12|null|13|null|null|null|null|null|null",
+    "7|8|1,2|0|9|sample|11|12|null|13|null|null|null|null|null|null|null",
   );
   assert.equal(unionUsage.missingSelectionEntry, null);
   assert.equal(unionUsage.missingMapEntry, null);

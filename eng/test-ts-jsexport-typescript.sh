@@ -73,6 +73,7 @@ import {
   getGenericNestedChoice,
   getKindSelection,
   getNullableGenericNested,
+  getNullableWrappedGenericNestedEnvelope,
   getOutcomeSelection,
   getSelectionEnvelopeAsync,
   getWrappedGenericNestedEnvelope,
@@ -88,6 +89,7 @@ import type {
   GenericNestedEnvelope,
   GenericNestedChoice,
   KindSelection,
+  NullableWrappedGenericNestedEnvelope,
   OutcomeSelection,
   SelectionEnvelope,
   WrappedGenericNestedEnvelope,
@@ -268,6 +270,8 @@ export async function summarizeGenericRecords(): Promise<string> {
   const envelope: GenericNestedEnvelope = getGenericNestedEnvelope();
   const wrappedEnvelope: WrappedGenericNestedEnvelope =
     getWrappedGenericNestedEnvelope();
+  const nullableWrappedEnvelope: NullableWrappedGenericNestedEnvelope =
+    getNullableWrappedGenericNestedEnvelope();
   const nestedChoice: GenericNestedChoice = getGenericNestedChoice();
   return [
     numbers.content,
@@ -296,6 +300,10 @@ export async function summarizeGenericRecords(): Promise<string> {
       || typeof wrappedEnvelope.lookup === "number"
       ? wrappedEnvelope.lookup
       : wrappedEnvelope.lookup["missing"]?.value ?? "null",
+    nullableWrappedEnvelope.item === null
+      || typeof nullableWrappedEnvelope.item === "number"
+      ? nullableWrappedEnvelope.item
+      : nullableWrappedEnvelope.item.value ?? "null",
     nestedChoice === null || typeof nestedChoice === "number"
       ? nestedChoice
       : nestedChoice.value ?? "null",

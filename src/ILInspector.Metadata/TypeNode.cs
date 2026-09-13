@@ -669,11 +669,19 @@ internal sealed class GenericTypeNode(
 
     public override void ApplyNullability(byte[]? bytes, ref int position, byte defaultByte)
     {
-        byte b = ConsumeByte(bytes, ref position, defaultByte);
-        if (IsReferenceType && b == 2) IsNullableAnnotated = true;
+        if (!IsNullableValueType)
+        {
+            byte b = ConsumeByte(bytes, ref position, defaultByte);
+            if (IsReferenceType && b == 2) IsNullableAnnotated = true;
+        }
         foreach (var arg in arguments)
             arg.ApplyNullability(bytes, ref position, defaultByte);
     }
+
+    bool IsNullableValueType =>
+        !IsReferenceType
+        && arguments.Length == 1
+        && DefinitionName is "System.Nullable" or "System.Nullable`1";
 
     public override void ApplyDynamic(byte[]? flags, ref int position)
     {
