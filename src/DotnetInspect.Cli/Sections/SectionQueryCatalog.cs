@@ -39,11 +39,12 @@ public sealed record SectionQueryCatalog(
                 Project(StructuralViewIdentity.MemberTarget, InspectionCatalogIdentity.ApiMemberDetail),
             ],
             "package" => [Project(StructuralViewIdentity.Package, InspectionCatalogIdentity.Package)],
+            "package query" => [],
             "find" => [],
             _ => throw new ArgumentOutOfRangeException(nameof(command)),
         };
         List<SectionQueryDescriptor> queries = [];
-        if (command == "find")
+        if (command == "package query")
         {
             queries.Add(new(
                 PackageProfileSections.Packages,
@@ -110,11 +111,14 @@ public sealed record SectionQueryCatalog(
             }
         }
 
-        ImmutableArray<string> sections = command == "find"
-            ? ["Packages", "Results", "Members"]
-            : [.. projections.SelectMany(projection => projection.Schema.SectionNames)
+        ImmutableArray<string> sections = command switch
+        {
+            "find" => ["Results", "Members"],
+            "package query" => [PackageProfileSections.Packages],
+            _ => [.. projections.SelectMany(projection => projection.Schema.SectionNames)
                 .Concat(queries.Select(query => query.Section))
-                .Distinct(StringComparer.OrdinalIgnoreCase)];
+                .Distinct(StringComparer.OrdinalIgnoreCase)],
+        };
         var categories = projections
             .SelectMany(projection => projection.SectionCategories)
             .GroupBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)

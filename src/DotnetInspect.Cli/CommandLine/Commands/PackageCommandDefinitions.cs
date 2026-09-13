@@ -1,16 +1,18 @@
 using DotnetInspect.Cli.Output;
 using System.CommandLine;
-using System.Globalization;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Sections;
+using DotnetInspector.Queries;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 
 namespace DotnetInspect.Cli.CommandLine;
 
 /// <summary>
-/// Defines the package and package search commands.
+/// Defines the package command and its package-space query surface.
 /// </summary>
 public static class PackageCommandDefinitions
 {
@@ -168,14 +170,12 @@ public static class PackageCommandDefinitions
                     opts.ResolveFormat(result),
                     lowering));
 
-        // Search subcommand
-        var searchCommand = CreatePackageSearchCommand(
+        var queryCommand = CreatePackageQueryCommand(
             opts,
             packageCommand,
             packageNameArg,
-            prereleaseOption,
-            outOption);
-        packageCommand.Subcommands.Add(searchCommand);
+            prereleaseOption);
+        packageCommand.Subcommands.Add(queryCommand);
 
         var commandArgs = new PackageOptionsParser.PackageCommandArgs(
             packageNameArg, dependenciesOption, layoutOption, pathOption, tfmsOption,
@@ -192,6 +192,16 @@ public static class PackageCommandDefinitions
 
         packageCommand.SetAction(async (parseResult, ct) =>
         {
+            if (parseResult.GetValue(packageNameArg) is [var first, ..]
+                && first.Equals("search", StringComparison.OrdinalIgnoreCase))
+            {
+                CommandError.Write(
+                    "'package search' has been removed. Use 'package query <ID>' "
+                    + "for an exact package or 'package query <PREFIX>*' for "
+                    + "package-prefix discovery.");
+                return 1;
+            }
+
             var result = PackageOptionsParser.Parse(parseResult, opts, commandArgs);
 
             switch (result)
@@ -235,108 +245,83 @@ public static class PackageCommandDefinitions
     }
 
     /// <summary>
-    /// Creates the package search subcommand for searching NuGet packages.
+    /// Creates the host-neutral package query subcommand.
     /// </summary>
-    public static Command CreatePackageSearchCommand(
+    public static Command CreatePackageQueryCommand(
         SharedOptions opts,
         Command packageCommand,
         Argument<string[]> inheritedPackageArgument,
-        Option<bool> inheritedPrereleaseOption,
-        Option<string?> inheritedOutOption)
+        Option<bool> inheritedPrereleaseOption)
     {
-        var searchCommand = new Command(PackageSearchCommand.Name, "Search NuGet for packages by keyword");
+        var queryCommand = new Command(
+            "query",
+            "Query exact package IDs or package-ID prefixes");
 
-        var queryArg = new Argument<string?>("query")
+        var inputArg = new Argument<string?>("package")
         {
-            Description = "Search query (keyword or package name prefix)",
+            Description =
+                "Exact package ID or literal package-ID prefix ending in '*'",
             Arity = ArgumentArity.ZeroOrOne
         };
-
-        var takeOption = new Option<int>("--take")
+        var takeOption = new Option<string[]>("--take")
         {
-            Description = "Maximum number of results (default: 20)",
-            DefaultValueFactory = _ => 20
+            Description =
+                "Maximum package candidates to inspect "
+                + $"(otherwise default {PackageQuery.DefaultMaximumCandidates}; "
+                + $"{PackageQuery.MaximumPackageContentCandidates} for "
+                + "package-content queries; maximum "
+                + $"{PackageQueryOptions.MaximumCandidates})",
+            Arity = ArgumentArity.OneOrMore,
+            AllowMultipleArgumentsPerToken = false
         };
-        var prereleaseOption = new Option<bool>("--preview") { Description = "Include prerelease versions" };
-        prereleaseOption.Aliases.Add("--prerelease");
-        var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
-
-        searchCommand.Arguments.Add(queryArg);
-        searchCommand.Options.Add(takeOption);
-        searchCommand.Options.Add(prereleaseOption);
-        searchCommand.Options.Add(opts.Json);
-        searchCommand.Options.Add(compactOption);
-        searchCommand.Options.Add(opts.Verbose);
-        searchCommand.Options.Add(opts.Limit);
-        searchCommand.Options.Add(opts.Count);
-        searchCommand.Options.Add(opts.Fields);
-        searchCommand.Options.Add(opts.Columns);
-        opts.AddNuGetOptionsTo(searchCommand);
-        opts.AddRowWindowValidators(searchCommand);
-        searchCommand.Validators.Add(result =>
+        var prereleaseOption = new Option<bool>("--preview")
         {
-            int? resultLimit = null;
-            var limitResult = result.GetResult(opts.Limit);
-            if (limitResult is { Implicit: false }
-                && limitResult.Tokens.Count > 0)
-            {
-                if (!int.TryParse(
-                    limitResult.Tokens[^1].Value,
-                    NumberStyles.Integer,
-                    CultureInfo.InvariantCulture,
-                    out int parsedLimit))
-                {
-                    return;
-                }
+            Description = "Include prerelease versions"
+        };
+        prereleaseOption.Aliases.Add("--prerelease");
+        var nuspecOnlyOption = new Option<bool>("--nuspec-only")
+        {
+            Description =
+                "Reject queries that require package archive content"
+        };
+        var compactOption = new Option<bool>("--compact")
+        {
+            Description = "Minified JSON (use with --json)"
+        };
+        var linesOption = new Option<bool>("--lines");
+        var tailLinesOption = new Option<bool>("--tail-lines");
 
-                resultLimit = parsedLimit;
-            }
+        queryCommand.Arguments.Add(inputArg);
+        queryCommand.Options.Add(takeOption);
+        queryCommand.Options.Add(prereleaseOption);
+        queryCommand.Options.Add(nuspecOnlyOption);
+        queryCommand.Options.Add(opts.RowWhere);
+        queryCommand.Options.Add(opts.Json);
+        queryCommand.Options.Add(compactOption);
+        opts.AddTableOptionsTo(queryCommand);
+        queryCommand.Options.Add(opts.Limit);
+        queryCommand.Options.Add(opts.Rows);
+        queryCommand.Options.Add(opts.Head);
+        queryCommand.Options.Add(opts.Tail);
+        queryCommand.Options.Add(opts.Count);
+        queryCommand.Options.Add(opts.Fields);
+        queryCommand.Options.Add(opts.Columns);
+        queryCommand.Options.Add(opts.Discover);
+        queryCommand.Options.Add(opts.QueryHelp);
+        queryCommand.Options.Add(opts.Select);
+        queryCommand.Options.Add(opts.Tree);
+        opts.AddNuGetOptionsTo(queryCommand);
 
-            if (resultLimit is <= 0)
-            {
-                result.AddError(
-                    "-n requires a positive package search result limit greater than zero.");
-            }
-
-            bool hasDirection =
-                result.GetValue(opts.Head) || result.GetValue(opts.Tail);
-            bool hasRows =
-                result.GetResult(opts.Rows) is { Implicit: false };
-            if (hasDirection && !hasRows && resultLimit is null)
-            {
-                result.AddError(
-                    "--head/--tail requires a carrier: use -n for result rows "
-                    + "or --rows for data rows.");
-            }
-
-            if (resultLimit is null)
-                return;
-
-            if (result.GetValue(opts.Count))
-                result.AddError("--count cannot be combined with -n.");
-
-            if (result.GetValue(opts.Tail))
-            {
-                result.AddError(
-                    "--tail cannot be combined with -n for package search "
-                    + "because bounded remote pages do not establish a suffix.");
-            }
-
-            if (result.GetResult(takeOption) is { Implicit: false }
-                && resultLimit > 0)
-            {
-                result.AddError(
-                    "--take and -n both limit package search results; choose one.");
-            }
-        });
-
-        searchCommand.SetAction(async (parseResult, ct) =>
+        queryCommand.SetAction(async (parseResult, ct) =>
         {
             var acceptedParentOptions = new HashSet<Option>
             {
                 opts.Json,
                 opts.Markdown,
-                opts.Verbose,
+                opts.Table,
+                opts.Tsv,
+                opts.Jsonl,
+                opts.NoHeaders,
                 opts.Info,
                 opts.Limit,
                 opts.Count,
@@ -352,8 +337,11 @@ public static class PackageCommandDefinitions
                 opts.Tail,
                 opts.Fields,
                 opts.Columns,
+                opts.Discover,
+                opts.Select,
+                opts.Tree,
+                opts.QueryHelp,
                 inheritedPrereleaseOption,
-                inheritedOutOption,
             };
             var unsupportedParentOption = packageCommand.Options.FirstOrDefault(
                 option => !acceptedParentOptions.Contains(option)
@@ -361,59 +349,145 @@ public static class PackageCommandDefinitions
             if (unsupportedParentOption is not null)
             {
                 CommandError.Write(
-                    $"{unsupportedParentOption.Name} is not available with package search.");
+                    $"{unsupportedParentOption.Name} is not available with package query.");
                 return 1;
             }
 
             if (parseResult.GetValue(inheritedPackageArgument) is { Length: > 0 })
             {
                 CommandError.Write(
-                    "A package target is not available with package search; "
-                    + "place 'search' immediately after 'package'.");
+                    "A package inspection target is not available with package query; "
+                    + "place 'query' immediately after 'package'.");
                 return 1;
             }
 
-            var query = parseResult.GetValue(queryArg);
-
-            if (string.IsNullOrEmpty(query))
+            NuGetSourceOptions sourceOptions =
+                opts.ParseNuGetSourceOptions(parseResult);
+            if (sourceOptions.Sources.Length > 0
+                || sourceOptions.AdditionalSources.Length > 0
+                || sourceOptions.ConfigFile is not null)
             {
-                CommandError.WriteLine("Usage: package search <query>");
-                CommandError.WriteBlankLine();
-                CommandError.WriteLine("Examples:");
-                CommandError.WriteLine("  package search Azure.AI");
-                CommandError.WriteLine("  package search AWSSDK --take 50");
-                CommandError.WriteLine("  package search \"json serializer\" --json");
-                CommandError.WriteLine("  package search Contoso --source https://pkgs.dev.azure.com/org/_packaging/feed/nuget/v3/index.json");
-                return 0;
+                CommandError.Write(
+                    "Package Query currently uses NuGet.org and cannot be combined "
+                    + "with source overrides.");
+                return 1;
             }
 
-            var projection = ProjectionAudit.Requested(parseResult, opts);
-            var options = new PackageSearchOptions
+            string[]? discover = opts.ParseDiscover(parseResult);
+            OutputFormat format = opts.ResolveFormat(parseResult);
+            if (!CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
+                    parseResult,
+                    "Package Query",
+                    out RowSelectionIntent<string>? rowSelection,
+                    out string? rowSelectionError))
             {
-                Query = query,
-                Take = parseResult.GetValue(opts.Limit)
-                    ?? parseResult.GetValue(takeOption),
-                Prerelease =
-                    parseResult.GetValue(inheritedPrereleaseOption)
-                    || parseResult.GetValue(prereleaseOption),
-                JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
-                CompactJson = parseResult.GetValue(compactOption),
-                Verbose = parseResult.GetValue(opts.Verbose),
-                Count = projection.Count,
-                Print = projection.Print,
-                Value = projection.Value,
-                Urls = projection.Urls,
-                Paths = projection.Paths,
-                OutputPath = parseResult.GetValue(inheritedOutOption),
-                Rows = projection.Rows,
-                Fields = projection.Fields,
-                Columns = projection.Columns,
-                SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
-            };
+                CommandError.Write(rowSelectionError!);
+                return 1;
+            }
+            if (discover is not null)
+            {
+                var discoveryOptions = new PackageQueryOptions
+                {
+                    Plan = ((PackageQueryPlanResult.Accepted)PackageQuery.PlanInput(
+                        "dotnet-inspect",
+                        maximumMatches: null)).Plan,
+                    Discover = discover,
+                    Tree = opts.ParseTree(parseResult),
+                    JsonOutput = format == OutputFormat.Json,
+                    Tabular = opts.ResolveTabular(parseResult),
+                    Tsv = opts.ResolveTsv(parseResult),
+                    Jsonl = opts.ResolveJsonl(parseResult),
+                    Columns = opts.ParseColumns(parseResult),
+                    Fields = opts.ParseFields(parseResult),
+                    RowSelection = rowSelection,
+                    Count = parseResult.GetValue(opts.Count),
+                };
+                return await PackageQueryCommand.ExecuteAsync(
+                    discoveryOptions,
+                    new CommandContext(verbose: false),
+                    ct);
+            }
 
-            return await PackageSearchCommand.ExecuteAsync(options);
+            string? input = parseResult.GetValue(inputArg);
+            if (string.IsNullOrWhiteSpace(input))
+            {
+                CommandError.Write(
+                    "Package Query requires an exact package ID or a literal "
+                    + "package-ID prefix ending in '*'.");
+                return 1;
+            }
+
+            string[]? select = opts.ParseSelect(parseResult);
+            if (select is not null)
+            {
+                SelectResult selection = SelectResolver.ResolveSelectAsSections(
+                    select,
+                    [PackageProfileSections.Packages],
+                    categories: new Dictionary<string, string[]>());
+                if (SelectOutput.WriteUnresolved(selection))
+                    return 1;
+                if (selection.Sections?.Contains(PackageProfileSections.Packages) != true)
+                {
+                    CommandError.Write(
+                        "Package Query data selection must include Packages.");
+                    return 1;
+                }
+            }
+
+            if (!PackageQueryOptions.TryCreate(
+                    input,
+                    parseResult.GetValue(opts.RowWhere) ?? [],
+                    parseResult.GetValue(nuspecOnlyOption),
+                    CliExecutionBoundCommandRegistry.GetPreparedValue(parseResult),
+                    rowSelection,
+                    parseResult.GetValue(inheritedPrereleaseOption)
+                        || parseResult.GetValue(prereleaseOption),
+                    out PackageQueryOptions? options,
+                    out OptionError error))
+            {
+                CommandError.Write(error);
+                return 1;
+            }
+
+            options = options! with
+            {
+                RowSelection = rowSelection,
+                Count = parseResult.GetValue(opts.Count),
+                JsonOutput = format == OutputFormat.Json,
+                CompactJson = parseResult.GetValue(compactOption),
+                Tabular = opts.ResolveTabular(parseResult),
+                Tsv = opts.ResolveTsv(parseResult),
+                Jsonl = opts.ResolveJsonl(parseResult),
+                NoHeader = parseResult.GetValue(opts.NoHeaders),
+                Columns = opts.ParseColumns(parseResult),
+                Fields = opts.ParseFields(parseResult),
+            };
+            return await PackageQueryCommand.ExecuteAsync(
+                options,
+                new CommandContext(verbose: false),
+                ct);
         });
 
-        return searchCommand;
+        CliRowSelectionCommandRegistry.Register(
+            queryCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                linesOption,
+                tailLinesOption),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window,
+            _ => true);
+        CliExecutionBoundCommandRegistry.Register(
+            queryCommand,
+            takeOption,
+            _ => PackageQueryOptions.MaximumCandidates,
+            isActive: static _ => true);
+
+        return queryCommand;
     }
 }

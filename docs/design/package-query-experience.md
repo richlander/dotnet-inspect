@@ -465,9 +465,9 @@ preset never needs to "contain" its own history.
 
 ## v1 non-goals
 
-- No free-text predicate DSL. Facets map 1:1 to the CLI's named profiles so
-  the browser experience and `find --package-prefix` stay one product surface
-  with two front ends, not two designs to keep in sync.
+- No free-text predicate DSL. Browser and `package query` consume the same
+  product-issued facet descriptors and semantics, while each host deliberately
+  chooses which descriptors to admit.
 - No client-side re-filtering of a fetched result set — every facet change is
   a new request, keeping displayed counts honest.
 - No unbounded archive evaluation. Package-content facets are an explicit

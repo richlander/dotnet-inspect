@@ -69,12 +69,6 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
     public bool Members { get; init; }
 
     /// <summary>
-    /// Maximum package candidates or manifest enrichments authorized by
-    /// <c>--take</c> for the active package-prefix mode.
-    /// </summary>
-    public int? Take { get; init; }
-
-    /// <summary>
     /// Internal operational limit used by trusted lookup consumers. The
     /// <c>find</c> CLI does not lower semantic row selection into this value.
     /// </summary>
@@ -152,10 +146,6 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
     /// </summary>
     public string[]? Discover { get; init; }
 
-    public string[]? Select { get; init; }
-
-    public PackageQueryOptions? PackageQuery { get; init; }
-
     /// <summary>
     /// Show discovery as a tree.
     /// </summary>
@@ -175,17 +165,6 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
     /// Whether <c>--package-prefix</c> was explicitly supplied.
     /// </summary>
     public bool PackagePrefixSpecified { get; init; }
-
-    internal bool HasPackageProfileGroupScope { get; init; }
-
-    /// <summary>
-    /// True when a patternless package-prefix search projects package manifests
-    /// rather than acquiring package archives for API search.
-    /// </summary>
-    public bool IsPackageProfile =>
-        Literal is null
-        && Pattern.Length == 0
-        && (PackagePrefixSpecified || PackagePrefix is not null);
 
     /// <summary>
     /// Returns true if a scope has been selected, including a normalized empty contribution.

@@ -42,12 +42,7 @@ public static class CommandLineBuilder
             return false;
         }
 
-        return (result.CommandResult.Command.Name
-                    == PackageSearchCommand.Name
-                && result.CommandResult.Parent is
-                    System.CommandLine.Parsing.CommandResult parentCommand
-                && parentCommand.Command.Name == PackageCommand.Name)
-            || result.CommandResult.Command.Name == "depends"
+        return result.CommandResult.Command.Name == "depends"
             || (result.CommandResult.Command.Name
                     == PackageCommand.Name
                 && (HasParsedOption(result, "--versions")
