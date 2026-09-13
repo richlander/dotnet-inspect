@@ -75,6 +75,7 @@ import {
   getNullableGenericNested,
   getOutcomeSelection,
   getSelectionEnvelopeAsync,
+  getWrappedGenericNestedEnvelope,
   getWidgetSelection,
   getWrappedBlob,
 } from "./facade.js";
@@ -89,6 +90,7 @@ import type {
   KindSelection,
   OutcomeSelection,
   SelectionEnvelope,
+  WrappedGenericNestedEnvelope,
   WidgetDto,
   WidgetKind,
   WidgetSelection,
@@ -264,6 +266,8 @@ export async function summarizeGenericRecords(): Promise<string> {
   const nullable: GenericNested<string | null> =
     getNullableGenericNested();
   const envelope: GenericNestedEnvelope = getGenericNestedEnvelope();
+  const wrappedEnvelope: WrappedGenericNestedEnvelope =
+    getWrappedGenericNestedEnvelope();
   const nestedChoice: GenericNestedChoice = getGenericNestedChoice();
   return [
     numbers.content,
@@ -280,6 +284,18 @@ export async function summarizeGenericRecords(): Promise<string> {
       : "unexpected",
     nullable.value ?? "null",
     envelope.item.value ?? "null",
+    wrappedEnvelope.item === null
+      || typeof wrappedEnvelope.item === "number"
+      ? wrappedEnvelope.item
+      : wrappedEnvelope.item.value ?? "null",
+    wrappedEnvelope.items === null
+      || typeof wrappedEnvelope.items === "number"
+      ? wrappedEnvelope.items
+      : wrappedEnvelope.items[0]?.value ?? "null",
+    wrappedEnvelope.lookup === null
+      || typeof wrappedEnvelope.lookup === "number"
+      ? wrappedEnvelope.lookup
+      : wrappedEnvelope.lookup["missing"]?.value ?? "null",
     nestedChoice === null || typeof nestedChoice === "number"
       ? nestedChoice
       : nestedChoice.value ?? "null",

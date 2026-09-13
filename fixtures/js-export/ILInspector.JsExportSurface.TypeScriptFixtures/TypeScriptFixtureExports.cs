@@ -14,6 +14,11 @@ public sealed record GenericNested<TValue>(TValue Value);
 public sealed record GenericNestedEnvelope(
     GenericNested<string?> Item);
 
+public sealed record WrappedGenericNestedEnvelope(
+    Wrapped<GenericNested<string?>> Item,
+    Wrapped<GenericNested<string?>[]> Items,
+    Wrapped<IReadOnlyDictionary<string, GenericNested<string?>>> Lookup);
+
 public union GenericNestedChoice(GenericNested<string?>, int);
 
 public sealed record GenericRecord<TValue>(
@@ -70,6 +75,7 @@ internal sealed partial class BlobFixtureJsonContext : JsonSerializerContext;
     typeof(GenericNested<string>),
     TypeInfoPropertyName = "NullableGenericNested")]
 [JsonSerializable(typeof(GenericNestedEnvelope))]
+[JsonSerializable(typeof(WrappedGenericNestedEnvelope))]
 [JsonSerializable(typeof(GenericNestedChoice))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal sealed partial class GenericRecordJsonContext : JsonSerializerContext;
@@ -232,6 +238,24 @@ public static partial class TypeScriptFixtureExports
             new GenericNestedEnvelope(
                 new GenericNested<string?>(null)),
             GenericRecordJsonContext.Default.GenericNestedEnvelope);
+
+    [JSExport]
+    public static string GetWrappedGenericNestedEnvelope() =>
+        JsonSerializer.Serialize(
+            new WrappedGenericNestedEnvelope(
+                new Wrapped<GenericNested<string?>>(
+                    new GenericNested<string?>(null)),
+                new Wrapped<GenericNested<string?>[]>(
+                    [new GenericNested<string?>(null)]),
+                new Wrapped<IReadOnlyDictionary<
+                    string,
+                    GenericNested<string?>>>(
+                        new Dictionary<string, GenericNested<string?>>
+                        {
+                            ["missing"] = new(null),
+                        })),
+            GenericRecordJsonContext.Default
+                .WrappedGenericNestedEnvelope);
 
     [JSExport]
     public static string GetGenericNestedChoice() =>

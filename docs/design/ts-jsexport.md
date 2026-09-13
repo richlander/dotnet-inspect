@@ -268,7 +268,8 @@ its generic arguments, so reference-shaped arguments remain conservatively
 nullable. Union case signatures have the same nested-annotation erasure and
 apply the same rule to generic-record alternatives. Ordinary record member
 signatures retain their nested nullable annotations and project those precise
-generic arguments instead.
+generic arguments instead, including when a supported generic union wraps a
+generic record directly or through supported array and dictionary containers.
 
 Recursive composition remains parametric only when substituting a wire type
 preserves the surrounding wire shape. `GenericNested<T>[]` is an array of
@@ -305,10 +306,11 @@ discriminated TypeScript union.
 source-generated serializer results and compiled TypeScript consumers,
 including an annotation-erased null reference root, a generic-record union
 alternative with null content, a precise nullable generic argument in an
-ordinary record member, rejected direct and container-nested `T[]` and
-unconstrained `T?[]` constructions whose `byte[]` payloads are Base64 text, a
-supported value-constrained `T?[]` neighboring case, and a concrete array whose
-name collides with a generic parameter.
+ordinary record member both directly and through generic-union collection
+arguments, rejected direct and container-nested `T[]` and unconstrained `T?[]`
+constructions whose `byte[]` payloads are Base64 text, a supported
+value-constrained `T?[]` neighboring case, and a concrete array whose name
+collides with a generic parameter.
 The four-step adoption path remains Metadata evidence, JsExportSurface
 evidence, this CLI generation/harness slice, and inspect-web browser/Wasm
 adoption. The existing TypeScript emitter owns this format lowering; no new

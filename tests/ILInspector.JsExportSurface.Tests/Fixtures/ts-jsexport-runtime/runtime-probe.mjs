@@ -37,6 +37,7 @@ for (
     "genericRecordWidget",
     "nullableGenericNested",
     "genericNestedEnvelope",
+    "wrappedGenericNestedEnvelope",
     "genericNestedChoice",
     "selectionEnvelope",
   ]
@@ -94,6 +95,8 @@ const getNullableGenericNestedKey =
   facadeSource.match(/"(GetNullableGenericNested\.-?\d+)"/)?.[1];
 const getGenericNestedEnvelopeKey =
   facadeSource.match(/"(GetGenericNestedEnvelope\.-?\d+)"/)?.[1];
+const getWrappedGenericNestedEnvelopeKey =
+  facadeSource.match(/"(GetWrappedGenericNestedEnvelope\.-?\d+)"/)?.[1];
 const getGenericNestedChoiceKey =
   facadeSource.match(/"(GetGenericNestedChoice\.-?\d+)"/)?.[1];
 const getSelectionEnvelopeAsyncKey =
@@ -205,6 +208,10 @@ assert.ok(
 assert.ok(
   getGenericNestedEnvelopeKey,
   "The generated GetGenericNestedEnvelope runtime dispatch key was not found.",
+);
+assert.ok(
+  getWrappedGenericNestedEnvelopeKey,
+  "The generated GetWrappedGenericNestedEnvelope dispatch key was not found.",
 );
 assert.ok(
   getGenericNestedChoiceKey,
@@ -340,6 +347,9 @@ function managedExports(methods = {}) {
             [getGenericNestedEnvelopeKey]:
               methods.getGenericNestedEnvelope
               ?? (() => unionPayloads.genericNestedEnvelope),
+            [getWrappedGenericNestedEnvelopeKey]:
+              methods.getWrappedGenericNestedEnvelope
+              ?? (() => unionPayloads.wrappedGenericNestedEnvelope),
             [getGenericNestedChoiceKey]:
               methods.getGenericNestedChoice
               ?? (() => unionPayloads.genericNestedChoice),
@@ -546,6 +556,14 @@ async function freshFacade() {
     { item: { value: null } },
   );
   assert.deepEqual(
+    facade.getWrappedGenericNestedEnvelope(),
+    {
+      item: { value: null },
+      items: [{ value: null }],
+      lookup: { missing: { value: null } },
+    },
+  );
+  assert.deepEqual(
     facade.getGenericNestedChoice(),
     { value: null },
   );
@@ -585,7 +603,7 @@ async function freshFacade() {
   );
   assert.equal(
     await unionUsage.summarizeGenericRecords(),
-    "7|8|1,2|0|9|sample|11|12|null|13|null|null|null",
+    "7|8|1,2|0|9|sample|11|12|null|13|null|null|null|null|null|null",
   );
   assert.equal(unionUsage.missingSelectionEntry, null);
   assert.equal(unionUsage.missingMapEntry, null);

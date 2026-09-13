@@ -449,9 +449,7 @@ static class TsTypeMapper
             && unionContext?.GenericArities.ContainsKey(closedGenericIdentity) == true)
         {
             if (!unionContext.ConservativeReferenceArguments
-                && (unionContext.GenericRecords.Contains(
-                        closedGenericIdentity)
-                    || ContainsGenericParameter(typeShape))
+                && ContainsGenericParameter(typeShape)
                 && TryParseGenericType(
                     trimmed,
                     out _,
@@ -487,7 +485,10 @@ static class TsTypeMapper
             return TsJsonUnionMapper.MapClosedShape(
                 typeShape,
                 unionContext,
-                location ?? trimmed);
+                location ?? trimmed,
+                unionContext.ConservativeReferenceArguments
+                    ? null
+                    : trimmed);
         }
 
         if (mappingContext == TsTypeMappingContext.JsonWire
@@ -1744,7 +1745,7 @@ static class TsTypeMapper
             ? typeName["global::".Length..]
             : typeName;
 
-    static bool TryParseGenericType(
+    internal static bool TryParseGenericType(
         string typeName,
         out string? definition,
         out IReadOnlyList<string> arguments)
