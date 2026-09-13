@@ -14,7 +14,8 @@ internal static class WorkspaceShareOption
             Description = description,
             Arity = ArgumentArity.ZeroOrOne,
         };
-        option.AcceptOnlyFromAmong(
+        CliOptionValueValidation.AcceptOnlyFromAmong(
+            option,
             StringComparer.OrdinalIgnoreCase,
             "packet",
             "url");
