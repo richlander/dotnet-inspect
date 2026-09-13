@@ -203,6 +203,39 @@ public sealed class ResolvedResourceEffectTests
     }
 
     [Fact]
+    public void VarargMethodDefinitionParentSearchConsumesBindingWork()
+    {
+        const string AssemblyName = "VarargParentBudget";
+        ResourceEffectResolutionOutcome.Incomplete incomplete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Incomplete>(
+                ResolveSynthetic(
+                    BuildVarargMethodDefinitionParentAssembly(
+                        AssemblyName,
+                        precedingMethods: 8,
+                        parentName: "Target",
+                        referenceName: "Target"),
+                    AssemblyName,
+                    SyntheticVarargMethodModel(
+                        AssemblyName,
+                        "Target"),
+                    new ResourceEffectResolutionLimits(
+                        maxInvocationBindings: 1)));
+
+        Assert.Empty(incomplete.Effects);
+        Assert.Contains(
+            incomplete.Evaluations.SelectMany(
+                evaluation => evaluation.Gaps),
+            gap =>
+                gap.Kind
+                    == ResourceEffectResolutionGapKind.WorkLimitExceeded
+                && gap.WorkDimension
+                    == ResourceEffectResolutionWorkDimension
+                        .InvocationBindings
+                && gap.Limit == 1
+                && gap.RequiredWork == 2);
+    }
+
+    [Fact]
     public void InvocationBindingWorkAtIntMaximumDoesNotOverflow()
     {
         ResourceEffectResolutionOutcome.Complete complete =
@@ -699,6 +732,43 @@ public sealed class ResolvedResourceEffectTests
                         "Target",
                         ResourceEffectMemberKind.PropertyGetter,
                         parameters: [])));
+
+        Assert.Empty(incomplete.Effects);
+        Assert.Contains(
+            incomplete.Evaluations.SelectMany(
+                evaluation => evaluation.Gaps),
+            gap =>
+                gap.Kind
+                    == ResourceEffectResolutionGapKind.UnsupportedSignature);
+    }
+
+    [Fact]
+    public void OrdinaryMethodOutOfRangeGenericReferenceIsUnsupported()
+    {
+        const string AssemblyName = "InvalidMethodGenericReference";
+        byte[] image = BuildDirectCallAssembly(
+            AssemblyName,
+            "Target",
+            MethodAttributes.Public | MethodAttributes.Static,
+            [0x00, 0x01, 0x01, 0x13, 0x00],
+            ParameterAttributes.None);
+
+        ResourceEffectResolutionOutcome.Incomplete incomplete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Incomplete>(
+                ResolveSynthetic(
+                    image,
+                    AssemblyName,
+                    SyntheticMethodModel(
+                        AssemblyName,
+                        "Target",
+                        ResourceEffectMemberKind.Method,
+                        [
+                            new ResourceEffectParameterSelector(
+                                CoreLibraryType(
+                                    "System",
+                                    "Object"),
+                                ResourceEffectRefKind.Value),
+                        ])));
 
         Assert.Empty(incomplete.Effects);
         Assert.Contains(
@@ -1215,7 +1285,11 @@ public sealed class ResolvedResourceEffectTests
         ResourceEffectResolutionOutcome.Incomplete incomplete =
             Assert.IsType<ResourceEffectResolutionOutcome.Incomplete>(
                 ResolveSynthetic(
-                    BuildMismatchedVarargParentAssembly(AssemblyName),
+                    BuildVarargMethodDefinitionParentAssembly(
+                        AssemblyName,
+                        precedingMethods: 0,
+                        parentName: "A",
+                        referenceName: "B"),
                     AssemblyName,
                     admission));
 
@@ -1897,6 +1971,46 @@ public sealed class ResolvedResourceEffectTests
 
         ResourceEffectLocation.Parameter parameter =
             new(0);
+        ResourceEffectLocation.Parameter operationSource =
+            new(1);
+        ResourceEffectModelDefinition OutcomeModel(
+            string name,
+            ResourceKindReference? effectKind)
+        {
+            ResourceEffectLocation.OperationSlot slot =
+                new(operationSource, effectKind);
+            return new(
+                ResourceEffectLanguageIdentity.Version1,
+                new ResourceEffectModelIdentity(name),
+                [
+                    new ResourceKindDefinition(
+                        ArrayPoolResourceEffectModel.BufferKind,
+                        1,
+                        [Provenance(name, 0)]),
+                ],
+                [],
+                [
+                    new ResourceEffectTypedDeclaration(
+                        target,
+                        new ResourceEffect.Consume(
+                            operationSource,
+                            slot,
+                            effectKind),
+                        [Provenance(name, 1)]),
+                    new ResourceEffectTypedDeclaration(
+                        target,
+                        new ResourceEffect.Release(
+                            parameter,
+                            new ResourceEffectCompletion.OutcomeCase(
+                                slot,
+                                new ResourceEffectOutcomeTest.Boolean(
+                                    true)),
+                            effectKind,
+                            Correspondence: null,
+                            Observation: null),
+                        [Provenance(name, 2)]),
+                ]);
+        }
         ResourceEffectResolutionOutcome.Complete complete =
             Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
                 Resolve(
@@ -1935,6 +2049,28 @@ public sealed class ResolvedResourceEffectTests
                         Assert.IsType<ResourceEffect.Consume>(
                             effect.Effect).Kind is not null);
             });
+
+        ResourceEffectResolutionOutcome outcomeWithCompletion =
+            Resolve(
+                Admit(
+                    OutcomeModel(
+                        "example.outcome-slot-all-kinds",
+                        effectKind: null),
+                    OutcomeModel(
+                        "example.outcome-slot-buffer-kind",
+                        kind)));
+        Assert.True(
+            outcomeWithCompletion
+                is ResourceEffectResolutionOutcome.Complete,
+            outcomeWithCompletion
+                is ResourceEffectResolutionOutcome.Conflict conflict
+                    ? string.Join(
+                        ", ",
+                        conflict.Conflicts.SelectMany(
+                            value => value.Effects).Select(
+                                effect =>
+                                    effect.Effect.GetType().Name))
+                    : outcomeWithCompletion.GetType().Name);
 
         Assert.IsType<ResourceEffectResolutionOutcome.Conflict>(
             Resolve(
@@ -2431,6 +2567,55 @@ public sealed class ResolvedResourceEffectTests
                 ]));
     }
 
+    static ResourceEffectAdmission SyntheticVarargMethodModel(
+        string assemblyName,
+        string methodName)
+    {
+        var identity = new ResourceEffectModelIdentity(
+            $"example.{assemblyName.ToLowerInvariant()}");
+        ResourceTypeExpression.Named declaringType = new(
+            new ResourceAssemblySelector(
+                assemblyName,
+                publicKeyToken: null,
+                ResourceAssemblyVersionPolicy.Any),
+            "N",
+            [new ResourceTypeNameSegment("Owner", 0)]);
+        return Admit(
+            new ResourceEffectModelDefinition(
+                ResourceEffectLanguageIdentity.Version1,
+                identity,
+                [],
+                [],
+                [
+                    new ResourceEffectTypedDeclaration(
+                        new ResourceEffectTargetSelector.Member(
+                            new ResourceEffectMemberSelector(
+                                declaringType,
+                                methodName,
+                                ResourceEffectMemberKind.Method,
+                                isStatic: true,
+                                genericArity: 0,
+                                ResourceEffectCallingConvention.VarArgs,
+                                hasThis: false,
+                                explicitThis: false,
+                                [
+                                    new ResourceEffectParameterSelector(
+                                        CoreLibraryType(
+                                            "System",
+                                            "Int32"),
+                                        ResourceEffectRefKind.Value),
+                                ],
+                                CoreLibraryType(
+                                    "System",
+                                    "Void"))),
+                        new ResourceEffect.Operation(
+                            ResourceOperationBoundary.Ordinary,
+                            ResourceOperationThrows.Possible,
+                            Guard: null),
+                        [Provenance(identity.Value, 0)]),
+                ]));
+    }
+
     static byte[] BuildDirectCallAssembly(
         string assemblyName,
         string targetName,
@@ -2612,9 +2797,14 @@ public sealed class ResolvedResourceEffectTests
         return image.ToArray();
     }
 
-    static byte[] BuildMismatchedVarargParentAssembly(
-        string assemblyName)
+    static byte[] BuildVarargMethodDefinitionParentAssembly(
+        string assemblyName,
+        int precedingMethods,
+        string parentName,
+        string referenceName)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            precedingMethods);
         var metadata = new MetadataBuilder();
         metadata.AddModule(
             generation: 0,
@@ -2659,51 +2849,64 @@ public sealed class ResolvedResourceEffectTests
             MetadataTokens.MethodDefinitionHandle(1));
 
         byte[] varargSignature = [0x05, 0x01, 0x01, 0x08];
-        MemberReferenceHandle mismatchedReference =
+        var methodNames = Enumerable.Range(
+                0,
+                precedingMethods)
+            .Select(index => $"Dummy{index}")
+            .Append(parentName)
+            .ToList();
+        if (!string.Equals(
+                parentName,
+                referenceName,
+                StringComparison.Ordinal))
+        {
+            methodNames.Add(referenceName);
+        }
+        MemberReferenceHandle reference =
             metadata.AddMemberReference(
-                MetadataTokens.MethodDefinitionHandle(1),
-                metadata.GetOrAddString("B"),
+                MetadataTokens.MethodDefinitionHandle(
+                    precedingMethods + 1),
+                metadata.GetOrAddString(referenceName),
                 metadata.GetOrAddBlob(varargSignature));
-        metadata.AddParameter(
-            ParameterAttributes.None,
-            metadata.GetOrAddString("value"),
-            sequenceNumber: 1);
-        metadata.AddParameter(
-            ParameterAttributes.None,
-            metadata.GetOrAddString("value"),
-            sequenceNumber: 1);
+        foreach (string _ in methodNames)
+        {
+            metadata.AddParameter(
+                ParameterAttributes.None,
+                metadata.GetOrAddString("value"),
+                sequenceNumber: 1);
+        }
 
         var bodies = new BlobBuilder();
         var bodyEncoder = new MethodBodyStreamEncoder(bodies);
-        var targetIl = new BlobBuilder();
-        targetIl.WriteByte((byte)ILOpCode.Ret);
-        int firstBody = bodyEncoder.AddMethodBody(
-            new InstructionEncoder(targetIl));
-        int secondBody = bodyEncoder.AddMethodBody(
-            new InstructionEncoder(targetIl));
+        var methodBodies = new List<int>(methodNames.Count);
+        foreach (string _ in methodNames)
+        {
+            var methodIl = new BlobBuilder();
+            methodIl.WriteByte((byte)ILOpCode.Ret);
+            methodBodies.Add(
+                bodyEncoder.AddMethodBody(
+                    new InstructionEncoder(methodIl)));
+        }
         var callerIl = new BlobBuilder();
         callerIl.WriteByte((byte)ILOpCode.Ldc_i4_0);
         callerIl.WriteByte((byte)ILOpCode.Call);
         callerIl.WriteInt32(
-            MetadataTokens.GetToken(mismatchedReference));
+            MetadataTokens.GetToken(reference));
         callerIl.WriteByte((byte)ILOpCode.Ret);
         int callerBody = bodyEncoder.AddMethodBody(
             new InstructionEncoder(callerIl));
 
-        metadata.AddMethodDefinition(
-            MethodAttributes.Public | MethodAttributes.Static,
-            MethodImplAttributes.IL,
-            metadata.GetOrAddString("A"),
-            metadata.GetOrAddBlob(varargSignature),
-            firstBody,
-            MetadataTokens.ParameterHandle(1));
-        metadata.AddMethodDefinition(
-            MethodAttributes.Public | MethodAttributes.Static,
-            MethodImplAttributes.IL,
-            metadata.GetOrAddString("B"),
-            metadata.GetOrAddBlob(varargSignature),
-            secondBody,
-            MetadataTokens.ParameterHandle(2));
+        for (int index = 0; index < methodNames.Count; index++)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString(methodNames[index]),
+                metadata.GetOrAddBlob(varargSignature),
+                methodBodies[index],
+                MetadataTokens.ParameterHandle(index + 1));
+        }
         metadata.AddMethodDefinition(
             MethodAttributes.Public | MethodAttributes.Static,
             MethodImplAttributes.IL,
@@ -2711,7 +2914,8 @@ public sealed class ResolvedResourceEffectTests
             metadata.GetOrAddBlob(
                 new byte[] { 0x00, 0x00, 0x01 }),
             callerBody,
-            MetadataTokens.ParameterHandle(3));
+            MetadataTokens.ParameterHandle(
+                methodNames.Count + 1));
 
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),

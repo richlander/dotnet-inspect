@@ -1560,13 +1560,6 @@ public static class ResourceEffectResolver
         foreach (PendingDefinitionCandidate candidate
             in candidateSet.Candidates)
         {
-            if (hasMethodDefinitionParent
-                && MetadataTokens.GetToken(candidate.Definition)
-                    != callMember.MethodDefinitionParentToken)
-            {
-                continue;
-            }
-            foundMethodDefinitionParent = true;
             long requiredWork = invocationBindings + 1;
             if (requiredWork > limits.MaxInvocationBindings)
             {
@@ -1576,6 +1569,13 @@ public static class ResourceEffectResolver
                     requiredWork);
             }
             invocationBindings = requiredWork;
+            if (hasMethodDefinitionParent
+                && MetadataTokens.GetToken(candidate.Definition)
+                    != callMember.MethodDefinitionParentToken)
+            {
+                continue;
+            }
+            foundMethodDefinitionParent = true;
             if (!CouldMatch(callKey, candidate.Member))
             {
                 if (hasMethodDefinitionParent)
@@ -4015,7 +4015,7 @@ public static class ResourceEffectResolver
                 a.Identity == b.Identity,
             (ResourceEffectCompletion.OutcomeCase a,
                 ResourceEffectCompletion.OutcomeCase b) =>
-                BoundLocationEquals(
+                BoundTransitionLocationEquals(
                     leftEffect,
                     a.Source,
                     rightEffect,
@@ -4319,7 +4319,13 @@ public static class ResourceEffectResolver
             return ResourceEffectSelectedMemberSemantics.PropertyGetter;
         if (isPropertySetter)
             return ResourceEffectSelectedMemberSemantics.PropertySetter;
-        return ResourceEffectSelectedMemberSemantics.Method;
+        return member.GenericArity == genericParameterRows
+            && GenericReferencesAreValid(
+                member,
+                typeGenericParameterRows,
+                member.GenericArity)
+                ? ResourceEffectSelectedMemberSemantics.Method
+                : ResourceEffectSelectedMemberSemantics.Unsupported;
     }
 
     static bool PropertyAccessorShapeIsInvalid(
