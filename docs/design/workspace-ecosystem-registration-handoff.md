@@ -23,8 +23,15 @@ public consumer canary are implemented by
 [#6640](https://github.com/richlander/dotnet-inspect/issues/6640).
 [Workspace Scope](workspace-scope-and-expansion.md#inert-registration-adoption)
 adopts retention, empty/explicit initialization and exact-revision replacement
-under #6577. Application pack correspondence, curated construction, persistence
-and host adoption remain in their separately owned slices.
+under #6577. Application pack correspondence and platform-curated/all-known
+construction are implemented under #6786. Persistence and host activation
+remain in their separately owned slices.
+
+[Subject Relations](subject-relations-workflows.md#broad-discovery-by-default),
+approved in #6763, supplies the two construction intents adopted here. The
+platform composition keeps its narrower meaning; all-known construction adds
+every shipped ecosystem, including Aspire. This replaces the earlier
+one-composition restriction without adding product policy to Workspace.
 
 ## Authority and exact claim
 
@@ -34,7 +41,7 @@ and host adoption remain in their separately owned slices.
 > immutable set of owner-issued Workspace-relevant contributions, construct
 > one resource-free lower-layer ecosystem-registration declaration or one
 > typed rejection. The application catalog may project a selected pack and use
-> one separately authored ordered curated manifest to construct a new
+> either separately authored ordered product manifest to construct a new
 > independent Workspace through the neutral Workspace API, without lower
 > layers referencing or rediscovering the catalog.
 
@@ -44,7 +51,7 @@ The owner defines:
 - the explicit correspondence between one `EcosystemPackId` and one lower
   declaration;
 - the closed version-1 contribution slots crossing this boundary;
-- complete declaration, correspondence, and curated-manifest validation;
+- complete declaration, correspondence, and product-manifest validation;
 - single-pack projection outcomes; and
 - curated Workspace construction and the non-action rules for projection.
 
@@ -140,8 +147,8 @@ EcosystemWorkspaceRegistrationProjection
   WorkspaceEcosystemRegistrationDeclaration
         |
         v
-Ecosystems curated-Workspace constructor
-  one authored current manifest
+Ecosystems Workspace constructors
+  authored platform and all-known manifests
         |
         v
 neutral Workspace API
@@ -150,7 +157,7 @@ neutral Workspace API
   later explicit registration
 ```
 
-The application catalog may expose:
+`EcosystemPackCatalog` exposes:
 
 ```text
 SelectWorkspaceRegistration(EcosystemPackId)
@@ -158,15 +165,21 @@ SelectWorkspaceRegistration(EcosystemPackId)
    | Unavailable(EcosystemPackId)
    | Unknown(EcosystemPackId)
 
-CreateCuratedWorkspace()
-  Create()             -> new synchronous InspectionWorkspace
-  CreateAsynchronous() -> new asynchronous InspectionWorkspace
+CreatePlatformWorkspace()             -> new synchronous InspectionWorkspace
+CreatePlatformWorkspaceAsynchronous() -> new asynchronous InspectionWorkspace
+CreateWorkspace()                     -> new synchronous InspectionWorkspace
+CreateWorkspaceAsynchronous()         -> new asynchronous InspectionWorkspace
 ```
 
 Grammar-invalid external text is rejected before exact lookup by the existing
 application identity boundary. `Unavailable` means the pack is known but the
 product build contributes no lower Workspace declaration. `Unknown` means no
 pack registration has that exact application identity.
+
+The `Asynchronous` suffix selects the Workspace's lifetime mode, not deferred
+construction; all four calls synchronously return their newly initialized
+Workspace. Discovery exposes `HasWorkspaceRegistration`, and single-pack
+selection returns the exact retained declaration rather than constructing it.
 
 Curated construction has no partial or unavailable success shape. The static
 product manifest is invalid if any authored entry cannot project a complete
@@ -340,13 +353,19 @@ once; discovery and selection reuse that immutable value.
 
 ## Curated Workspace manifest
 
-The application catalog owns one separate authored sequence:
+The application catalog owns two separate authored sequences:
 
 ```text
-CuratedProductWorkspace
+PlatformProductWorkspace
   ecosystem.platform
   ecosystem.aspnetcore
   ecosystem.microsoft-extensions
+
+AllKnownProductWorkspace
+  ecosystem.platform
+  ecosystem.aspnetcore
+  ecosystem.microsoft-extensions
+  ecosystem.aspire
 ```
 
 This order is product policy. It is not derived from pack discovery order,
@@ -354,17 +373,23 @@ alphabetical order, package-set order, or namespace roots. The current pack
 discovery order places Microsoft.Extensions before ASP.NET Core, so filtering
 the ordinary pack manifest would produce the wrong curated order.
 
-Complete curated-manifest validation requires:
+Complete validation of either manifest requires:
 
 - at least one authored application identity;
 - no duplicate application or lower identity;
 - every application identity to resolve to one explicit projection; and
 - every projected declaration to contain at least one population contribution.
 
-The three identities above are the initial product composition and require
-direct product gates when implemented. They are not a permanent closed grammar.
-Ecosystems may add, remove, or reorder entries in a later product build when
-product policy changes, with updated real-scenario evidence and gates.
+All-known validation additionally requires every registered application pack
+to occur in its manifest, including packs whose projection is unavailable.
+Such a pack fails complete construction; it is not silently filtered out.
+Unknown, unavailable, duplicate and hints-only rows are product-construction
+errors, not shorter successful Workspaces.
+
+These sequences are the current product policy, not a permanent closed grammar.
+Ecosystems may add, remove, or reorder entries in a later product build with
+updated real-scenario evidence and gates. Both orders are authored independently
+of discovery; the all-known set check validates coverage without deriving order.
 
 The initial target contributions are:
 
@@ -373,15 +398,24 @@ The initial target contributions are:
 | Platform | `Platform(DotNetRuntime)` |
 | ASP.NET Core | `Platform(AspNetCore)` and `Microsoft.AspNetCore.` package prefix |
 | Microsoft.Extensions | `Microsoft.Extensions.` package prefix |
+| Aspire (all-known only) | `Aspire.` package prefix |
 
 Namespace roots and core-package priorities remain additional inert knowledge.
 They cannot satisfy the curated population requirement by themselves.
 
-Aspire remains a shipped pack but is not part of the curated Workspace. Adding
-or removing a curated entry is an application-manifest change, not a Workspace
-Scope default embedded in CLI, Browser, Queries, or persisted data.
+Aspire is absent from platform curation and present in all-known construction.
+Its `Aspire.Hosting` priority and exact Integration-owned scanner binding are
+retained alongside the prefix. This supports the real `Aspire.Hosting.Redis`
+scenario without resolving that package or invoking the scanner. Platform
+retains its runtime declaration for scenarios such as `System.Text.Json`,
+without inventing a package coordinate for the framework library.
 
-The catalog constructs the same curated Workspace for the CLI and through the
+Adding or removing an entry is an application-manifest change, not a Workspace
+Scope default embedded in CLI, Browser, Queries, or persisted data. All-known
+means all shipped ecosystem declarations, not every package that might integrate
+with those ecosystems or every matching package acquired.
+
+The catalog offers the same construction choices for the CLI and through the
 Inspect Web application boundary. Browser Core receives only the resulting
 lower Workspace state. Hosts consume that construction result rather than
 determining curation from ordinary pack discovery or asking Workspace to
@@ -390,7 +424,7 @@ discover defaults.
 The curated API is a factory, not a singleton. Every successful call returns a
 new Workspace with independent identity, lifetime, registrations, content, and
 revision history. Existing Workspaces do not observe later catalog changes.
-The two construction entry points mirror the Workspace owner's existing
+Each intent's two construction entry points mirror the Workspace owner's existing
 synchronous and asynchronous lifetime modes. Ecosystems selects no new close,
 cleanup, or artifact-session behavior; callers close the returned Workspace
 under its ordinary owner-issued contract.
@@ -504,7 +538,7 @@ visibly. It does not omit Platform and return a shorter Workspace.
 ### Product curation changes
 
 One product build constructs the initial three-registration Workspace. A later
-build changes the one curated manifest. New curated construction uses the later
+build changes its platform manifest. New platform construction uses the later
 complete sequence; an existing Workspace and a restored definition retain
 their exact expanded registrations. Neither carries a `curated` mode that is
 re-evaluated against the later catalog.
@@ -536,7 +570,7 @@ operation behavior.
 
 | Owner | Responsibility retained |
 | --- | --- |
-| This handoff | Lower identity, declaration envelope, explicit pack correspondence, projection outcomes, curated-manifest validation, and complete curated construction |
+| This handoff | Lower identity, declaration envelope, explicit pack correspondence, projection outcomes, platform/all-known manifest validation, and complete construction |
 | [Static Ecosystem Packs](ecosystem-packs.md) | Application pack identity, static contributions, display/actions, shipped pack manifest, and authored curated-Workspace choices |
 | [Typed Source Intent](search-scope-domain.md) | Package-prefix declaration validation and later request policy |
 | Platform source owner | Platform population identity, inventory, target selection, acquisition, completion, and failures |
@@ -554,14 +588,15 @@ There are nine counted adoption steps:
    population declarations defined by #6328.
 3. Implement the lower identity, declaration, three owner-issued population
    arms, validation, and public consumer canary in Queries.
-4. Add package-prefix slots, explicit lower projections, exact selection
-   outcomes, and the authored three-row curated manifest to Static Ecosystem
-   Packs.
+4. Add explicit lower projections with package-prefix populations, exact
+   selection outcomes, and the separately authored platform/all-known manifests
+   to Static Ecosystem Packs (#6786). Standalone prefix discovery actions remain
+   with their catalog/host adoption.
 5. Adopt retained ecosystem declarations, empty default construction, and
    complete explicit initialization in Workspace Scope without adding
    application-catalog dependencies or a curated option.
-6. Have Ecosystems construct one fresh independent Workspace from the current
-   complete curated manifest through the public Workspace API.
+6. Have Ecosystems construct a fresh independent Workspace from either complete
+   manifest through the public Workspace API (#6786).
 7. Adopt portable declarations and exact expanded registration state,
    including an empty set, in Workspace Definitions.
 8. Have each CLI command explicitly choose raw Workspace construction or the
@@ -594,31 +629,39 @@ Known
 
 Reading this result does not inspect installed packs or query NuGet.
 
-Curated construction obtains:
+Construction through `EcosystemPackCatalog` obtains:
 
 ```text
-CreateCuratedWorkspace()
-
-Create()
+CreatePlatformWorkspace()
   -> synchronous InspectionWorkspace
      Registrations
        1. ecosystem.platform
        2. ecosystem.aspnetcore
        3. ecosystem.microsoft-extensions
 
-CreateAsynchronous()
+CreatePlatformWorkspaceAsynchronous()
   -> asynchronous InspectionWorkspace
      same initial registrations
+
+CreateWorkspace()
+  -> synchronous InspectionWorkspace
+     Registrations
+       1. ecosystem.platform
+       2. ecosystem.aspnetcore
+       3. ecosystem.microsoft-extensions
+       4. ecosystem.aspire
+
+CreateWorkspaceAsynchronous()
+  -> asynchronous InspectionWorkspace
+     same four registrations
 ```
 
 Direct Workspace construction instead returns an empty registration set.
 Restoring an explicitly empty registration sequence constructs raw and remains
 empty; neither host calls curated construction during restoration.
 
-The neighboring Aspire pack remains discoverable through the application
-catalog but is absent from the curated sequence. Selecting Aspire may return
-its own lower declaration as contribution slots land; its presence in ordinary
-pack discovery does not make it curated.
+The neighboring Aspire pack has a selectable lower declaration and appears only
+in the all-known sequence. All four calls leave Package membership empty.
 
 ## Required gates
 
@@ -629,6 +672,7 @@ pack discovery does not make it curated.
 | Projection fidelity | Known selection returns the exact retained declaration; known unavailable and unknown identities remain distinct. |
 | Resource-free projection | Discovery and selection invoke no prefix query, platform source, package-set lookup, scanner, acquisition, or Workspace mutation. |
 | Curated product Workspace | The current Platform, ASP.NET Core, Microsoft.Extensions order and required population contributions are enforced without filtering ordinary pack discovery. |
+| All-known product Workspace | The separate current four-row order includes Aspire and every known pack; missing or unavailable projections cannot be silently omitted. |
 | Independent construction | Repeated curated calls return distinct Workspace identities and lifetimes with equal initial registrations. |
 | Lifetime preservation | Curated synchronous and asynchronous construction preserve the corresponding Workspace close, cleanup, artifact-session, and report contracts without an Ecosystems-owned variant. |
 | Empty lower-layer default | Direct Workspace construction without explicit registrations is empty and has no path that consults Ecosystems or requests curation. |
@@ -646,8 +690,16 @@ or API-prohibition gate policing the statement that Workspace offers no
 curated option or that hosts do not determine curation independently. Those
 are ownership rules enforced by design review. Required future positive Release
 gates instead prove empty default construction, complete explicit
-initialization, Ecosystems-owned curated construction, and both host call
-paths. The handoff and curated construction remain unverified until they land.
+initialization, Ecosystems-owned construction, and both host call paths.
+`EcosystemWorkspaceConstructionTests` gates the implemented projection,
+manifest, exact-value retention, independent construction, inherited lifetime,
+empty Package membership and explicit-state preservation outcomes in Release.
+`EcosystemWorkspaceConstructionConsumerTests` in the existing non-friend consumer
+suite exercises public construction, selection and result pattern matching.
+Existing catalog suites retain
+their discovery, demo and scanner gates. CLI and Browser activation and portable
+restoration remain unverified future adoption, not evidence manufactured by
+the direct-construction canary.
 
 Platform and package-prefix operations keep their own Release gates; this
 handoff's tests do not manufacture their population, acquisition, or completion
@@ -655,11 +707,13 @@ evidence.
 
 ## TLA+ assessment
 
-No TLA+ model is required for the implemented lower declaration. It is one
-immutable value with no publication, revision, replacement, scheduling,
-concurrency, or failure-state transition. Workspace revisions and curated
-construction retain their own state-model assessments when they consume this
-value.
+No new TLA+ model is required for the lower declaration, immutable catalog or
+validated manifests. Their construction is a deterministic mapping over exact
+pack/declaration pairs, not a publication, revision, replacement or scheduling
+protocol. Factories forward one complete immutable set to the existing
+Workspace initializer and own no lifetime transition. Workspace's registration
+model remains evidence for that owner, not a proof transferred to this
+composition; the public factory outcomes have the Release gates named above.
 
 ## Non-claims
 

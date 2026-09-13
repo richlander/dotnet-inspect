@@ -11,8 +11,11 @@ See [overview.md](../overview.md) for subsystem ownership,
 [Artifact acquisition and workspace composition](artifact-acquisition-and-workspaces.md)
 owns the source-neutral boundary below workspace-backed assembly queries.
 [The package query CLI](package-query-cli.md) applies this split to a
-concrete feature: its host-neutral nuspec facet engine is implemented at L1,
-while CLI exposure and promoted-tier predicates remain future work.
+concrete feature: its host-neutral package facet engine is implemented at L1
+while CLI exposure remains at L3. The
+[Find assembly-semantic query](find-assembly-semantic-query.md) separately
+composes bounded package-selected implementation bodies into occurrence-shaped
+Find results.
 
 ## Purpose
 

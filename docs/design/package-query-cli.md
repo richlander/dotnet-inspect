@@ -28,12 +28,12 @@ canary.
 
 The focused CLI adoption binds a deliberately smaller initial vocabulary:
 the broad .NET tool facet and its CLI v1/v2 alternatives. Other Browser facets
-are not automatically CLI surface. The promoted assembly tier has a separate
-focused owner in
-[Package Query assembly-pattern evaluation](package-query-assembly-evaluation.md);
-its first CLI host route has landed as `find --literal` plus
-`workspace --root-request` — see
-[The landed promoted-tier CLI route](#the-landed-promoted-tier-cli-route).
+are not automatically CLI surface. Assembly-semantic `find` is no longer a
+Package Query tier: its population composition and occurrence-result meaning
+are owned by
+[Find assembly-semantic query](find-assembly-semantic-query.md), while the
+one-candidate evaluator remains in
+[Package Query assembly-pattern evaluation](package-query-assembly-evaluation.md).
 `package query` uses [CLI execution bounds](cli-execution-bounds.md):
 `--take` bounds candidate work and semantic `-n` selects final package rows.
 Without explicit `--take`, a single semantic Head is delegated to the shared
@@ -65,13 +65,11 @@ Related docs:
 - [Package source model](package-source-model.md) and
   [browser package sources](browser-package-sources.md) — own the source
   clients and manifest acquisition `package query` composes.
-- [Progressive disclosure](progressive-disclosure.md) — owns the
-  capability-gated, explicit-cost pattern that promoted assembly evaluation
-  must follow.
-- [Package Query assembly-pattern
-  evaluation](package-query-assembly-evaluation.md) — owns one-candidate
-  primary-asset selection, semantic confirmation, evidence, and resource
-  release.
+- [Progressive disclosure](progressive-disclosure.md) — owns capability-gated,
+  explicit-cost package enrichment.
+- [Find assembly-semantic query](find-assembly-semantic-query.md) — owns the
+  bounded package-population composition for occurrence-shaped Find results;
+  this Package Query owner does not own that route.
 - [Inspection graph document](inspection-graph-document.md) — owns the
   relational (`graph integrations`) shape a subset of "wide query" questions
   actually need, instead of this document's flat, per-package row model.
@@ -260,10 +258,10 @@ Core. Concretely:
   #4551 places in this layer rather than in the CLI project. A typed
   query that evaluates nuspec-tier facets over a streamed manifest and
   package-content facets through an explicit host capability returns typed
-  results and chooses no renderer — the existing L1 contract. A future query
-  that evaluates promoted assembly patterns over an explicitly bounded
-  package/version set composes the separate package-aware evaluator rather
-  than adding assembly selection or reader lifetime to this CLI contract.
+  results and chooses no renderer — the existing L1 contract.
+  Assembly-semantic Find is a separate L1 composition owned by
+  [Find assembly-semantic query](find-assembly-semantic-query.md); it does not
+  extend this facet engine.
   This is what makes the facet engine reachable from a second consumer (the
   browser/Wasm engine) without re-deriving it, the exact failure mode
   [inspection-layers.md](inspection-layers.md) exists to prevent.
@@ -464,7 +462,7 @@ declared sections, yet the corpus limit is still `-t`. See
 [Sections migration: already landed, ahead of this document's sequencing](#sections-migration-already-landed-ahead-of-this-documents-sequencing)
 for the resulting follow-up.
 
-## Current tiers and promoted assembly evaluation
+## Current Package Query tiers
 
 For existing facets, L1 owns the vocabulary and predicate semantics; front
 ends submit product-issued opaque facet IDs and do not reconstruct those
@@ -489,14 +487,6 @@ predicates:
   explicitly unrecognized settings from the admitted archive. Tool v1 and v2
   are combining members, so selecting both returns either recognized format
   with evidence identifying the matched version.
-- **Promoted assembly tier.** The one-candidate asset, pattern, semantic
-  confirmation, evidence, and resource-lifetime contract is owned by
-  [Package Query assembly-pattern
-  evaluation](package-query-assembly-evaluation.md). This CLI document retains
-  only gesture lowering, capability admission, candidate-bound disclosure, and
-  row shaping. L2 and L3 submit product-owned opaque pattern identities and do
-  not recreate the pattern vocabulary. Its first CLI gesture has landed; see
-  [The landed promoted-tier CLI route](#the-landed-promoted-tier-cli-route).
 
 The CLI reuses `RowPredicateSyntaxParser` and repeated `--where` syntax for
 `facet=<ID>`. The IDs come from the product descriptor catalog; this is not an
@@ -512,137 +502,26 @@ explicit cost gesture in both Browser and CLI. Each host lowers its candidate
 bound from 200 to 20 before dispatch; the CLI additionally offers
 `--nuspec-only` to reject such a plan before acquisition.
 
-For the future promoted assembly tier, the proposed gate is enforced at L2
-before L1 is asked to evaluate anything: a `--where` clause naming a
-capability-bearing field is rejected up front unless the capability flag is
-present, exactly
-mirroring how a coordinate-scoped section is discoverable only when its
-carrier flag is present
-([output-shapes.md](output-shapes.md), "Coordinate carriers sit before the
-ladder"). The bound itself — how many candidates promoted-tier evaluation
-may run against — is not the whole corpus scanned so far; it is whatever
-`--deepen`'s own bound expresses (a row-count cap, an explicit selection, or
-both), mirroring the browser experience's Deepen action, which is
-"an explicit, checkbox-gated escalation... bounded to a selection so a
-thousand-row funnel doesn't silently trigger a thousand package downloads."
+Assembly-semantic escalation is not a `package query --where` tier and does
+not use a future `--deepen` flag. The focused
+[Find assembly-semantic query](find-assembly-semantic-query.md) owns its exact
+package and bounded prefix populations, occurrence rows, completion, and first
+production adoption. `package query` stops at package-content facets.
 
-The metadata/content CLI gesture is defined in
-[CLI facet binding](#cli-facet-binding). The promoted assembly tier's first CLI
-gesture is no longer open either: see
-[The landed promoted-tier CLI route](#the-landed-promoted-tier-cli-route).
-`--deepen`'s exact spelling and bound shape remain open for the corpus-scale
-slice that first needs them (see
-[Landing sequence](#landing-sequence)).
+## Historical assembly-semantic route
 
-## The landed promoted-tier CLI route
+This document originally recorded `find --literal` as a promoted Package Query
+tier. The command separation completed by #6768 makes that classification
+obsolete: the route returns decoded body occurrences and candidate execution
+outcomes, not package facet rows.
 
-The first promoted-tier CLI host route is deliberately narrower than
-`--deepen`: it does not escalate from a corpus funnel at all, so it needs no
-candidate-bound gesture to escalate *from*. The user names the candidates
-outright.
-
-```bash
-dotnet-inspect find --literal TEXT --package ID@VERSION --tfm TFM
-```
-
-- **The gesture is the explicit cost.** Naming 1-5 exact `ID@VERSION`
-  coordinates and one `--tfm` *is* the bounded, explicit-cost admission the
-  [tier gating](#tier-gating) rules require. There is no corpus streaming, no
-  `--package-prefix` expansion, and no implicit widening, so the promoted-tier
-  bound is the user's own literal candidate list. The shared planner enforces
-  the 1-5 maximum, the exact-coordinate requirement, and duplicate rejection;
-  the CLI lowers to it rather than re-deriving those rules.
-- **The pattern identity stays product-owned.** `--literal` lowers to the
-  product-issued `il-string-literal-contains` descriptor and its operand
-  contract. The CLI does not spell the pattern vocabulary, and `--literal`
-  text is a raw ordinal substring — not this repository's type-pattern
-  grammar, not a glob, and not a regex.
-- **Candidates are disposable.** Evaluation runs through the shared serial
-  pipeline against a fresh per-candidate store, so a query never adds a
-  candidate to the durable package cache.
-- **The source policy is narrow and explicit.** The route uses the same
-  credential-free NuGet Gallery client `package query` uses and
-  *rejects* `--source`/`--add-source`/NuGet-config overrides rather than
-  silently ignoring them.
-- **Every candidate reports its own outcome.** Rows carry `matched`,
-  `no-match`, `not-applicable`, or `failed`, so a semantic miss, an
-  inapplicable selection, an evaluation failure, and an acquisition failure
-  stay distinguishable. Only failures affect the exit code.
-- **Corpus work bounds do not apply.** The explicit 1-5 package list is the
-  candidate admission. Literal mode rejects `--take`, `--candidates`, and
-  `--matches`; command-wide row adoption may bind `-n` to the final Matches
-  row set, but never to the candidate list.
-
-### Row shaping for the landed route
-
-Unlike the nuspec tier's single wide per-package row
-([Row declaration](#row-declaration-coercing-a-wide-per-package-fact-set-into-a-table)),
-promoted-tier results have two natural row units, so the document declares two
-sections rather than flattening evidence into the candidate row:
-
-- **Matches** leads, one row per occurrence: package, version, assembly,
-  method-definition token, IL offset, and the inert literal text. That triple
-  is the evidence unit; it is the same evidence the Browser host projects.
-- **Candidates** follows, one row per named candidate: package, version,
-  outcome, selected asset, selected TFM, an owner-derived detail, and the
-  candidate's exact `Root` reopening token.
-
-The default minimal view renders **Candidates** as its single high-value
-section: it preserves every candidate's outcome and exact reopening token.
-Normal verbosity (`-v:n`) adds **Matches**, with occurrence evidence leading
-the expanded document. Quiet verbosity suppresses row sections. These presets
-apply to Markdown and JSON and follow the existing
-[progressive disclosure](progressive-disclosure.md) contract; they do not
-change evaluation scope or acquire more content. Single-section row formats
-(`--table`, `--tsv`, and `--jsonl`) expose **Candidates** and retain their
-existing prohibition on `-v`. Use Markdown or `-v:n --json` for occurrence
-evidence.
-
-`--count` counts matching literal-use occurrences, preserving Find's
-match-count meaning rather than counting the candidate inventory. It does not
-publish a count if any candidate failed: an incomplete semantic evaluation is
-not evidence of zero matches. Zero-row descriptions likewise report that no
-matches were reported, rather than claiming that failed or inapplicable
-assemblies contain no matching literal.
-
-### Exact reopening is part of the CLI contract
-
-A promoted-tier result is only useful if the user can get back to *exactly*
-the Root the evidence came from, so the `Root` column carries the artifact
-owner's opaque, resource-free reopening token, and the CLI ships the route
-that consumes it:
-
-```bash
-dotnet-inspect workspace --root-request TOKEN
-```
-
-- The token is the only portable form. The CLI never reconstructs an opening
-  intent from displayed package id, version, selected asset, or selected TFM —
-  a requested TFM may select a different one, so display fields are not an
-  identity.
-- Decoding is total: a token this tool did not issue is refused by parse,
-  not repaired.
-- Acquisition authorization *intersects* the token's pinned producer, so a
-  host source override fails visibly instead of quietly opening different
-  content.
-- A typed failure (`InvalidCoordinate`, `PackageUnavailable`,
-  `ProducerNotAuthorized`, `SelectionRequestNotReproduced`) is reported as
-  itself. There is no fallback to opening the package by id and version.
-- The acquired binding is committed through the Workspace Scope owner's
-  `AddPackagesAsync` and rendered from the returned snapshot, exactly as
-  `workspace --package` does (see
-  [Workspace scope and expansion](workspace-scope-and-expansion.md)). The
-  binding is handed over as acquired, so no physical Artifact Root is
-  reconstructed from archive bytes or a store path, and root-only and
-  explicit-empty compile selections remain reportable Packages rather than a
-  refusal.
-
-Its Release gates are `PackageAssemblyQueryOutputTests` (row shaping, ordinal
-substring semantics, inert rendering, section ordering, JSON token presence,
-and refusal of a completion-less event stream) and `WorkspaceRootRequestTests`
-(option parsing, mutual exclusion, malformed-token refusal, exact reopening,
-including root-only and explicit-empty compile selections, and typed failure
-reporting).
+The current exact-package behavior, Match and Candidate row meanings, Count,
+exact Root reopening, and the bounded package-prefix target are now specified
+by [Find assembly-semantic query](find-assembly-semantic-query.md). The
+one-candidate selected-asset and producer contract remains in
+[Package Query assembly-pattern
+evaluation](package-query-assembly-evaluation.md). This historical note
+assigns no assembly-semantic responsibility to the `package query` command.
 
 ## Row declaration: coercing a wide per-package fact set into a Table
 
@@ -699,20 +578,11 @@ order:
   the first 20 matches," not "inspect 20 candidates." If only seven match
   before the candidate bound is reached, the command returns seven and
   preserves bounded incompleteness.
-- **Promoted-tier `--deepen`** bounds the *candidate set fed into assembly
-  evaluation*, not the final matched-row count — mirroring the browser
-  Deepen action, which bounds cost (how many selected package assemblies get
-  opened), not the answer's semantic-completeness claim. Completion accounts
-  for every admitted candidate, but it reports matches, semantic non-matches,
-  non-applicable candidates, and failures separately. Fewer matches than the
-  candidate bound therefore does not by itself imply either truncation or
-  successful semantic evaluation of every candidate.
 
 The implementation must preserve the orderings: candidate admission precedes
 facet evaluation, nuspec predicates precede semantic `-n`, the package-content
 candidate cap applies before archive evaluation with manifest prefilters
-running before acquisition, and `--deepen` bounds candidates before future
-promoted assembly evaluation. Help text and rendered completion state must name
+running before acquisition. Help text and rendered completion state must name
 the candidate bound, and each asserted ordering must name its enforcing gate.
 
 The current `PackageQuery.ExecuteAsync` product contract supports
@@ -746,8 +616,8 @@ candidate population.
 product behavior for Browser and other budgeted callers, including the
 numeric summary denominator and completion mapping. Existing Package Query
 gates continue to own the shared product match-budget behavior; CLI gates do
-not redefine it. Promoted assembly ordering remains proposal-only and composes
-[the focused evaluator](package-query-assembly-evaluation.md).
+not redefine it. Assembly-semantic Find ordering is owned separately by
+[Find assembly-semantic query](find-assembly-semantic-query.md).
 
 ## Shared request/outcome shape with the browser
 
@@ -775,15 +645,11 @@ the CLI's named facets as canonical for the browser's facet rail.
 - No relational query surface here. Package-to-capability or
   package-to-integration questions route through the existing inspection
   graph, not through a new edge concept invented for this document.
-- No unbounded package-content or promoted-tier evaluation. Package-content
-  facets retain their product-owned 20-candidate maximum. Every future
-  assembly-pattern facet requires an explicit, bounded `--deepen` (or
-  equivalent) — never a corpus-wide default.
-- No decision here on `--deepen`'s exact spelling, bound shape, or the saved
-  query/result file's exact fields — those are implementation-slice
-  decisions, not settled by this document. The landed
-  `find --literal` route sidesteps `--deepen` entirely by requiring the user
-  to name every candidate.
+- No unbounded package-content evaluation. Package-content facets retain their
+  product-owned 20-candidate maximum.
+- No assembly-semantic Find gesture, population, occurrence, or result
+  contract. Those belong to
+  [Find assembly-semantic query](find-assembly-semantic-query.md).
 
 ## Landing sequence
 
@@ -819,15 +685,10 @@ the CLI's named facets as canonical for the browser's facet rail.
 6. **Command retirement — implemented by #6768.** `package search` and
    patternless `find --package-prefix` are removed without aliases.
    Patterned `find PATTERN --package-prefix PREFIX` remains API search.
-7. **Compose the focused
-   [assembly-pattern evaluator](package-query-assembly-evaluation.md) through
-   a promoted-tier capability gate and candidate bound.** The first host route
-   landed as `find --literal` plus `workspace --root-request`, where the
-   explicit 1-5 `ID@VERSION` list and required `--tfm` *are* the bound, gated
-   by `PackageAssemblyQueryOutputTests` and `WorkspaceRootRequestTests`. Still
-   open: escalating into the promoted tier from a corpus funnel, which is what
-   `--deepen`'s spelling, bound shape, and L2 tier-gating error for an ungated
-   promoted-tier field are actually for.
+7. **Assembly-semantic Find transferred to its focused owner.**
+   [Find assembly-semantic query](find-assembly-semantic-query.md) owns the
+   existing exact-package route and target bounded package-prefix population.
+   They are not Package Query facets or tiers.
 8. **Define the shared save/resume file shape**, coordinated with whatever
    the browser experience's local-storage record settles on when it is
    implemented.
