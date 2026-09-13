@@ -301,7 +301,6 @@ public sealed class PackageHouse
 
                 PackageHouseAcquisitionReceipt acquisition = new(
                     decision,
-                    candidate,
                     payloadResult.Authority!,
                     payloadResult.Source!,
                     payload.Origin,

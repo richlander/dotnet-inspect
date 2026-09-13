@@ -248,7 +248,7 @@ Each detailed row records:
 | Future compiler correspondence | The operation parameter corresponds to a consuming resource parameter; House calls borrow the owned value and terminal release corresponds to synchronous `Drop`. PackageHouse and its receipts have no resource correspondence. |
 | Asynchronous residual | Awaited source work, cancellation, timeout, exception settlement, payload lifetime, and later root quiescence remain explicit protocol. |
 | Resource-free evidence | `PackageHouseResult`, `PackageHouseEvidence`, decisions, candidates, failures, and receipts. `PackageHouseSettlement.Acquired.Payload` remains separately owned. |
-| Simplification and owner task | Compiler consumption can prevent caller reuse but cannot replace request, issuer, source, or payload correspondence. Desktop routing, `Realize`, Workspace, CLI, and Browser/Wasm adoption remain #6426. |
+| Simplification and owner task | PackageHouse evidence retains only completed joins: the acquisition derives its exact candidate from the decision, realization directly wraps the selector-issued receipt, and result or handoff values mint no unused occurrence identities. Compiler consumption can prevent caller reuse but cannot replace request, issuer, source, or payload correspondence. Desktop routing, `Realize`, Workspace, CLI, and Browser/Wasm adoption remain #6426. |
 
 ## Designed and planned mappings
 

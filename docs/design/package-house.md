@@ -342,6 +342,13 @@ In particular:
 
 ## House result and receipts
 
+This section applies the detached-value and receipt distinctions from
+[Resource Ownership and Borrowing](resource-ownership-and-borrowing.md). The
+[resource-owner type map](resource-owner-type-map.md) records the corresponding
+implemented PackageHouse shapes. A House receipt preserves a completed
+cross-owner join; it does not mint identity merely to distinguish one object
+occurrence from another.
+
 Every terminal House result retains:
 
 - the original request and operation profile;
@@ -355,7 +362,8 @@ Every terminal House result retains:
 - selected package assets and their package-relative identities;
 - dependency-edge correspondence when the request came from traversal;
 - completion and every typed failure; and
-- one owner-issued settlement identity that consumers retain opaquely.
+- the exact request and its operation identity for request- and failure-scoped
+  correspondence.
 
 The result contains four separable receipts when the corresponding work ran:
 
@@ -366,11 +374,11 @@ The result contains four separable receipts when the corresponding work ran:
 - a **package acquisition receipt** binds the retained decision and candidate
   to the selected configured authority, source result and producer, payload
   origin, and package-content generation; and
-- a **package realization receipt** binds that acquisition to an
+- a **package realization receipt** directly binds that acquisition to one
   asset-selection-owner receipt and any library-focused handoffs.
 
 Every terminal arm retains one common immutable evidence envelope containing
-the settlement identity, every completed receipt, and every typed failure.
+the exact request, every completed receipt, and every typed failure.
 A later no-match, rejection, incompleteness, or failure does not rewrite or
 discard an earlier package-retention decision or successful acquisition.
 Recovered request-scoped failures may accompany `Settled`; operation timeout
@@ -385,9 +393,17 @@ Consumers may retain the decision without retaining payload bytes. A disposed
 payload or expired artifact session does not erase the historical decision
 evidence, but it does make content access visibly unavailable.
 
-The settlement identity does not replace package coordinate, content
-generation, Workspace membership, or dependency-edge identity. It associates
-them for this operation.
+The evidence envelope and package-to-library handoffs do not add synthetic
+settlement or handoff identities. The exact request, decision, source
+association, content generation, selector receipt, and selected asset already
+provide the owner-issued correspondence required by the operation. A future
+consumer that needs another durable cross-operation join must obtain it from
+the owner of that new boundary rather than extending PackageHouse evidence
+preemptively.
+
+The operation identity associates request-scoped deadlines and failures. It is
+not a claim that repeated execution of one reusable request has a separate
+durable settlement-occurrence identity.
 
 The implemented selecting-demand floor does not yet permit pruning or platform
 delegation after version resolution. That composition remains in the pruning
@@ -797,7 +813,7 @@ every supported host that uses it.
 | Claim | Required Release evidence |
 | --- | --- |
 | Execution floor | Exact and typed selecting `Settle` and `Acquire` operations produce closed House results; `Realize` remains unavailable until its owner is composed. |
-| Request association | A result retains the exact demand, operation, target context, and owner-issued settlement identity without reconstructing them from display values. |
+| Request association | A result retains the exact demand, operation identity, and target context without reconstructing them from display values or adding a second settlement identity. |
 | Terminal evidence | Every terminal arm retains the same immutable evidence envelope, completed receipts, and typed failures; direct and owner-adapted operation timeouts cannot produce success. |
 | Source lease authority | One operation lease owns one candidate issuer; candidates from another root generation and clients or results from another configured-authority association are rejected. |
 | Source operation ownership | House execution releases its transferred operation after success, typed failure, invalid plan or deadline, unsupported profile, caller cancellation, operation timeout, and source exception; root settlement can then complete. |
@@ -822,6 +838,21 @@ owner outcomes; they do not manufacture package evidence or inspect private
 test seams.
 
 ## Demo
+
+### Evidence follows owner-issued correspondence
+
+```text
+System.Text.Json@10.0.0 request + operation identity
+  -> decision retains the exact candidate
+  -> acquisition adds authority, source, origin, and content generation
+  -> realization adds the selector-issued receipt
+  -> each library handoff adds one selected package asset
+```
+
+PackageHouse does not copy the candidate into the acquisition receipt, wrap
+the selector receipt in a second asset-selection receipt, or mint settlement
+and handoff identities that no owner consumes. Live payload and later Library
+ownership remain separate from this resource-free evidence.
 
 ### Target context crosses a dependency edge
 
