@@ -91,7 +91,7 @@ catalog generations, `PersistentCache`, typed provenance and resolution currenci
 and `InertString`; the remaining workspace model describes how those pieces
 will be composed.
 
-Patternless `find --package-prefix` is a package-space query rather than an
+`package query` is a package-space query rather than an
 assembly workspace query. It streams bounded typed match, failure, and
 completion events from source-owned search metadata and exact manifests.
 Search supplies owners and candidate provenance; the manifest supplies authors

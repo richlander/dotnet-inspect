@@ -237,34 +237,32 @@ dotnet-inspect package Markout@0.33.0 -S "Package skill files" --paths
 skills/markout/SKILL.md
 ```
 
-## 7. Search NuGet for packages
+## 7. Query NuGet packages
 
-> Goal: Find packages by keyword, with download counts and descriptions.
+> Goal: Select an exact package ID or a literal package-ID prefix.
 
-### 7a. Keyword search
+### 7a. Exact package
 
 ```prompt
-What JSON packages are available on NuGet?
+What package row does NuGet report for Azure.Mcp?
 ```
 
 ```bash
-dotnet-inspect package search json -n 10
+dotnet-inspect package query Azure.Mcp
 ```
 
 ```expect
-# NuGet Search: json
-Newtonsoft.Json
-System.Text.Json
+Azure.Mcp
 ```
 
-### 7b. Scoped search
+### 7b. Prefix query
 
 ```bash
-dotnet-inspect package search 'Azure.AI' -n 10
+dotnet-inspect package query 'Azure.AI*' --take 20 -n 10
 ```
 
 ```expect
-# NuGet Search: Azure.AI
+# Package Query: Azure.AI
 Azure.AI.OpenAI
 ```
 

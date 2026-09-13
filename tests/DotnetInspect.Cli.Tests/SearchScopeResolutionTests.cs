@@ -288,23 +288,6 @@ public class SearchScopeResolutionTests
             StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact]
-    public void PackageProfileGuidance_DisclosesDefaultAndMaximum()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["find"]);
-        var option = result.CommandResult.Command.Options.Single(
-            candidate => candidate.Name == "--package-prefix");
-
-        Assert.Contains(
-            $"{FindCommand.PackageProfileDefaultLimit} latest manifests by default",
-            option.Description,
-            StringComparison.OrdinalIgnoreCase);
-        Assert.Contains(
-            $"--take up to {FindCommand.PackageProfileMaximumLimit}",
-            option.Description,
-            StringComparison.OrdinalIgnoreCase);
-    }
-
     [Theory]
     [InlineData(
         "docs/workflows/core/type-queries.md",

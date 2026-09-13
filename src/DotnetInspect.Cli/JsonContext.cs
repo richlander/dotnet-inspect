@@ -255,14 +255,6 @@ internal partial class ImplementsJsonContext : JsonSerializerContext { }
 [JsonSerializable(typeof(List<ImplementerJsonResult>))]
 internal partial class ImplementsCompactJsonContext : JsonSerializerContext { }
 
-// Package search JSONL context (one compact object per line)
-[JsonSourceGenerationOptions(
-    WriteIndented = false,
-    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(NuGetSearchResult))]
-internal partial class PackageSearchJsonlContext : JsonSerializerContext { }
-
 [JsonSourceGenerationOptions(
     WriteIndented = true,
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,

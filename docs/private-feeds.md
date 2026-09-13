@@ -250,14 +250,16 @@ Older paths may instead expose the equivalent NativeAOT resource key or CoreCLR 
 Give it more time with `--http-timeout`:
 
 ```bash
-dotnet inspect package search widgets --source myfeed --http-timeout 120
+dotnet inspect find Widget --package-prefix MyCompany. \
+  --source myfeed --http-timeout 120
 ```
 
 Or set `DOTNET_INSPECT_HTTP_TIMEOUT_IN_SECONDS`, which is the more convenient form in CI where
 the same value applies to every command:
 
 ```bash
-DOTNET_INSPECT_HTTP_TIMEOUT_IN_SECONDS=120 dotnet inspect package search widgets --source myfeed
+DOTNET_INSPECT_HTTP_TIMEOUT_IN_SECONDS=120 \
+  dotnet inspect find Widget --package-prefix MyCompany. --source myfeed
 ```
 
 Whole seconds only, from 1 to 3600. The flag wins over the variable, so an export left in a shell
@@ -265,11 +267,13 @@ profile cannot override what you typed. A value outside the range, or one that i
 number, fails the command when given as a flag and is ignored when given as the variable: you
 typed the flag just now, but a stale variable should not make every command fail.
 
-For `package search` and package-name prefix expansion, the configured value replaces the 30
-second request deadline through service-index discovery and search-response consumption. Each
-selected source gets its own search operation ceiling four times that value so pagination remains
-finite without silently restoring the default. Discovery and multiple selected sources do not
-share one operation ceiling.
+For package-name prefix expansion, the configured value replaces the 30 second
+request deadline through service-index discovery and search-response
+consumption. Each selected source gets its own search operation ceiling four
+times that value so pagination remains finite without silently restoring the
+default. Discovery and multiple selected sources do not share one operation
+ceiling. `package query` currently uses NuGet.org only and rejects source
+overrides.
 
 This setting does not raise ordinary package-download body consumption above its existing 30
 second baseline.
