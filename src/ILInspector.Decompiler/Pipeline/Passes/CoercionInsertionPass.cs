@@ -110,28 +110,34 @@ public static class CoercionSinks
     /// Measurement consumers use the status to distinguish an untyped load with
     /// no derivable sink from loads that actively disagree. At materialization,
     /// Boolean-valued stores may recover integer-typed loads at Boolean sinks;
-    /// earlier passes retain the importer's testimony until raising is complete.
+    /// constant conditionals may recover char/enum element-store identity.
+    /// Earlier passes retain the importer's testimony until raising is complete.
     /// </summary>
     public static Dictionary<int, SlotTypeTestimony> AnalyzeSlotTypeTestimony(
         IrNode scope,
         TypeRef? returnType,
         IReadOnlyDictionary<TypeRef, TypeShape> shapes,
-        bool recoverBooleanIdentity = false)
+        bool recoverBooleanIdentity = false,
+        bool recoverElementIdentity = false,
+        IReadOnlyDictionary<TypeRef, TypeRef>? enumUnderlyingTypes = null)
     {
-        var booleanSlots = recoverBooleanIdentity
+        var storesBySlot = recoverBooleanIdentity || recoverElementIdentity
             ? ScopeNodes(scope).OfType<StoreStackSlot>()
-                .GroupBy(static store => store.Slot)
-                .Where(static stores => stores.All(store => TypeFamilies.IsBoolean(store.Value.ResultType)))
-                .Select(static stores => stores.Key)
-                .ToHashSet()
+                .ToLookup(static store => store.Slot, static store => store.Value)
             : null;
         var testimony = new Dictionary<int, SlotTypeTestimony>();
         foreach (var load in ScopeNodes(scope).OfType<LoadStackSlot>())
         {
-            var booleanType = booleanSlots?.Contains(load.Slot) == true
+            var stores = storesBySlot?[load.Slot];
+            var booleanType = recoverBooleanIdentity && stores?.Any() == true
+                && stores.All(static value => TypeFamilies.IsBoolean(value.ResultType))
                 ? BooleanSlotLoadType(load, returnType, shapes)
                 : null;
-            var evidence = booleanType ?? BitwiseEnumSinkType(load, shapes) ?? load.Type ?? LoadSinkTargetType(load, returnType, shapes);
+            var elementType = recoverElementIdentity && stores?.Any() == true
+                ? ElementSlotLoadType(load, stores, shapes, enumUnderlyingTypes)
+                : null;
+            var evidence = booleanType ?? elementType ?? BitwiseEnumSinkType(load, shapes)
+                ?? load.Type ?? LoadSinkTargetType(load, returnType, shapes);
             if (evidence is null)
             {
                 testimony[load.Slot] = new(null, SlotTypeTestimonyStatus.Underivable);
@@ -151,6 +157,36 @@ public static class CoercionSinks
             }
         }
         return testimony;
+    }
+
+    static TypeRef? ElementSlotLoadType(
+        LoadStackSlot load,
+        IEnumerable<IrExpression> stores,
+        IReadOnlyDictionary<TypeRef, TypeShape> shapes,
+        IReadOnlyDictionary<TypeRef, TypeRef>? enumUnderlyingTypes)
+    {
+        if (load.Type is not { } type || !TypeFamilies.IsIntegerLike(type)
+            || load.Parent is not StoreElement element || !ReferenceEquals(element.Value, load)
+            || StoreElementTarget(element, shapes) is not { } target)
+            return null;
+
+        bool isChar = target is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Char" };
+        var underlying = enumUnderlyingTypes?.GetValueOrDefault(CoercionRendering.NamedDefinition(target));
+        if (!isChar && (!CoercionRendering.IsEnum(target, shapes) || underlying is null))
+            return null;
+
+        return stores.All(value => value is Conditional conditional
+            && PreservesConstant(conditional.WhenTrue) && PreservesConstant(conditional.WhenFalse))
+                ? target
+                : null;
+
+        bool PreservesConstant(IrExpression value)
+            => value.ResultType is { } valueType && TypeFamilies.IsIntegerLike(valueType)
+                && (isChar
+                    ? CoercionRendering.TryCharConstantValue(value, out _)
+                    : value is Constant { Value: int or long } constant
+                        && CSharpConversionRules.ConstantFits(
+                            constant.Value is int i ? i : (long)constant.Value, underlying!));
     }
 
     /// <summary>The target type of the sink directly consuming an untyped slot load, where one is derivable.</summary>

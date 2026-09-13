@@ -17,6 +17,7 @@ using ILInspector.Analysis;
 using Inspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -60,7 +61,7 @@ public sealed class TimelineCommandTests
     }
 
     [Fact]
-    public async Task Count_AppliesRowsAndValidatesProjectedColumns()
+    public async Task Count_AppliesSemanticRowsAndValidatesProjectedColumns()
     {
         var view = new TimelineDocumentView
         {
@@ -84,7 +85,8 @@ public sealed class TimelineCommandTests
                 {
                     Count = true,
                     Columns = ["Version"],
-                    Rows = RowWindow.Head(1)
+                    RowSelection = Select(
+                        RowSelectionIntentOperation<string>.Head(1))
                 },
                 sections)));
         var invalid = await ConsoleCapture.RunAsync(() => Task.FromResult(
@@ -136,7 +138,8 @@ public sealed class TimelineCommandTests
                 {
                     Count = true,
                     JsonOutput = true,
-                    Rows = RowWindow.Head(1)
+                    RowSelection = Select(
+                        RowSelectionIntentOperation<string>.Head(1))
                 },
                 sections)));
 
@@ -155,6 +158,164 @@ public sealed class TimelineCommandTests
                 Assert.Equal("Transitions", row.GetProperty("section").GetString());
                 Assert.Equal(1, row.GetProperty("count").GetInt32());
             });
+    }
+
+    [Fact]
+    public async Task SemanticRows_ComposeInArgumentOrder()
+    {
+        var view = new TimelineDocumentView
+        {
+            Title = "Timeline",
+            Evaluations =
+            [
+                new("Sample@1.0.0", "1.0.0", "Present", 1, null),
+                new("Sample@1.0.1", "1.0.1", "Present", 1, null),
+                new("Sample@1.0.2", "1.0.2", "Present", 1, null),
+                new("Sample@1.0.3", "1.0.3", "Present", 1, null)
+            ]
+        };
+
+        var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            TimelineCommand.Write(
+                view,
+                new TimelineOptions
+                {
+                    Tabular = true,
+                    Tsv = true,
+                    Columns = ["Version"],
+                    RowSelection = Select(
+                        RowSelectionIntentOperation<string>.Tail(3),
+                        RowSelectionIntentOperation<string>.Window(2, 2))
+                },
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    TimelineSections.Evaluations
+                })));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            ["version", "1.0.2"],
+            result.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    [Theory]
+    [InlineData("markdown")]
+    [InlineData("table")]
+    [InlineData("tsv")]
+    [InlineData("jsonl")]
+    [InlineData("json")]
+    public async Task SemanticRows_SelectSameIdentityAcrossFormats(
+        string format)
+    {
+        var view = new TimelineDocumentView
+        {
+            Title = "Timeline",
+            Evaluations =
+            [
+                new("Sample@1.0.0", "1.0.0", "Present", 1, null),
+                new("Sample@1.0.1", "1.0.1", "Present", 1, null),
+                new("Sample@1.0.2", "1.0.2", "Present", 1, null)
+            ]
+        };
+        var options = new TimelineOptions
+        {
+            Tabular = format is "table" or "tsv" or "jsonl",
+            Tsv = format == "tsv",
+            Jsonl = format == "jsonl",
+            JsonOutput = format == "json",
+            RowSelection = Select(
+                RowSelectionIntentOperation<string>.Window(2, 2))
+        };
+
+        var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            TimelineCommand.Write(
+                view,
+                options,
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    TimelineSections.Evaluations
+                })));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("1.0.1", result.Output);
+        Assert.DoesNotContain("1.0.0", result.Output);
+        Assert.DoesNotContain("1.0.2", result.Output);
+    }
+
+    [Fact]
+    public async Task SemanticRows_MultiSectionStrictWindowFailsWithoutPartialOutput()
+    {
+        var view = new TimelineDocumentView
+        {
+            Title = "Timeline",
+            Evaluations =
+            [
+                new("Sample@1.0.0", "1.0.0", "Present", 1, null),
+                new("Sample@1.0.1", "1.0.1", "Present", 1, null)
+            ],
+            Transitions =
+            [
+                new("1.0.0", "1.0.1", "Adjacent", "Added", "api.member", "Run", null)
+            ]
+        };
+
+        var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            TimelineCommand.Write(
+                view,
+                new TimelineOptions
+                {
+                    RowSelection = Select(
+                        RowSelectionIntentOperation<string>.Window(2, null))
+                },
+                Sections())));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Equal(
+            "Error: Timeline row selection stage 1 for 'Transitions' "
+                + "requires row 2, but only 1 rows are available.",
+            result.Error.Trim());
+    }
+
+    [Fact]
+    public async Task TypedJson_ObservesSemanticRows()
+    {
+        var view = new TimelineDocumentView
+        {
+            Title = "Timeline",
+            Evaluations =
+            [
+                new("Sample@1.0.0", "1.0.0", "Present", 1, null),
+                new("Sample@1.0.1", "1.0.1", "Present", 1, null)
+            ]
+        };
+
+        var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            TimelineCommand.Write(
+                view,
+                new TimelineOptions
+                {
+                    JsonOutput = true,
+                    RowSelection = Select(
+                        RowSelectionIntentOperation<string>.Head(1))
+                },
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    TimelineSections.Evaluations
+                })));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement evaluations = document.RootElement.GetProperty("Evaluations");
+        Assert.Equal(1, evaluations.GetArrayLength());
+        Assert.Equal(
+            "1.0.0",
+            evaluations[0].GetProperty("Version").GetString());
     }
 
     [Fact]
@@ -1198,6 +1359,10 @@ public sealed class TimelineCommandTests
             TimelineCommand.EvaluationsSection,
             TimelineCommand.TransitionsSection,
         };
+
+    static RowSelectionIntent<string> Select(
+        params RowSelectionIntentOperation<string>[] operations)
+        => RowSelectionIntent<string>.Create(operations);
 
     static byte[] BuildMalformedBodyImage()
     {
