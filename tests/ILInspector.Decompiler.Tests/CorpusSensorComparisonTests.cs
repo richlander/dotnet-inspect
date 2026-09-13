@@ -2287,18 +2287,18 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
-    public void DeepInspectCensus_RetainsNativeReturnToSenderCutoverEvidence()
+    public void DeepInspectCensus_UsesNativeReturnToSenderForRealWorldBaseline()
     {
         string root = AuthoredCorpusRatchetTests.FindRepositoryRoot();
         string workflow = File.ReadAllText(
             Path.Combine(root, ".github", "workflows", "deep-inspect.yml"));
 
         Assert.Contains(
-            "artifacts/deep-inspect/rts-cutover-snapshot.json",
+            "artifacts/deep-inspect/corpus-snapshot.json",
             workflow,
             StringComparison.Ordinal);
         Assert.Contains(
-            "artifacts/deep-inspect/rts-cutover.txt",
+            "--diff-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json",
             workflow,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -2313,14 +2313,14 @@ public class CorpusSensorComparisonTests
             "artifacts/deep-inspect/corpus-assemblies.txt",
             workflow,
             StringComparison.Ordinal);
-        Assert.True(
-            workflow.IndexOf(
-                "Record independently selected native RTS cutover evidence",
-                StringComparison.Ordinal)
-            < workflow.IndexOf(
-                "Run real-world corpus sensor",
-                StringComparison.Ordinal),
-            "Native RTS cutover evidence must run before baseline-gated census steps.");
+        Assert.DoesNotContain(
+            "artifacts/deep-inspect/rts-cutover-snapshot.json",
+            workflow,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Record independently selected native RTS cutover evidence",
+            workflow,
+            StringComparison.Ordinal);
     }
 
     [Fact]

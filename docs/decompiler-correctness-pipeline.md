@@ -143,6 +143,12 @@ contract.
 | 10 | Changed-method boss | `--emit-corpus-delta`, `--fidelity-method-delta` | The methods a behavior PR changed are identified and attempted by compile-back fidelity. | That uncheckable changed methods are safe. |
 | 11 | Final boss | changed-method fidelity over the risky target population, improved examples, still-flat near misses, adversarial review | A risky raise/structuring PR has evidence over the methods it actually changed and its nearest false positives. | Whole-program semantic equivalence. |
 
+The real-world Corpus boss uses independently selected native ReturnToSender
+results as its baseline-gated fidelity evidence. Legacy compile-back remains
+per-row reference evidence for that sensor and cannot replace an unavailable or
+failed native result. Standalone fidelity and changed-method consumers retain
+their existing contracts until their own #6199 adoption slices land.
+
 The goal is not to make every PR fight every boss. The goal is to make the
 highest relevant boss explicit. A docs-only PR may stop at markdown lint. A
 small pass refactor may need the entry gate plus a no-movement quality card. A

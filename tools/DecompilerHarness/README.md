@@ -949,12 +949,17 @@ plus dotnet-inspect's own assemblies — and compares the run against
 lane tracks fully-raised rate,
 `structuring: conditional-branch`, forward-merge structuring stops
 (`cond-target-past-region` + `forward-branch-not-region-exit`), Full malformed
-output, semantic validity defects, compile-back fidelity defects, and pass bugs.
+output, semantic validity defects, native RTS fidelity defects, and pass bugs.
 The validity and fidelity caps are per assembly so the sensor samples every
 corpus member at bounded cost without adding that cost to every PR. When you
 want to compare a baseline cap with a larger exploratory cap, repeat
 `--corpus-fidelity-cap` (or use a comma-separated list) and the harness prints a
-fidelity coverage series with the same per-bucket failure breakdown for each cap. The fidelity sample records useful compile-back outcomes (`Exact`, `OpcodeDiff`, and `OperandDiff`) while surfacing unavailable comparisons and recompile- and context-failure buckets for triage. Each Deep Inspect census run
+fidelity coverage series with the same per-bucket failure breakdown for each
+cap. The real-world baseline uses independently selected native RTS outcomes
+(`Exact`, `OpcodeDiff`, and `OperandDiff`) while surfacing unavailable
+comparisons and recompile- and context-failure buckets for triage. It retains
+legacy compile-back only as per-row reference evidence; legacy success cannot
+replace a native result. Each Deep Inspect census run
 uploads the current JSON snapshot as an artifact so
 trends can be compared without scraping logs.
 
@@ -1028,10 +1033,11 @@ assembly, so the corpus run continues and exposes the matching legacy
 outcomes. The run fails when an assembly cannot supply the exact requested
 eligible-method cap or an unexpected native failure occurs.
 
-The on-demand Deep Inspect `census` lane retains
-`rts-cutover-snapshot.json` and the bounded text report. This is evidence for
-[#6472](https://github.com/richlander/dotnet-inspect/issues/6472) and #6199
-step 4, not the primary corpus baseline or a default-oracle change.
+The on-demand Deep Inspect `census` lane uses this native-first mode for the
+baseline-gated real-world sensor and retains `corpus-snapshot.json` plus the
+bounded text report. This is the first #6199 step-5 primary-consumer adoption;
+the general corpus default and standalone fidelity command remain separate
+cutover work.
 
 Standalone `--fidelity-check` reports also print bounded examples for every
 non-success bucket: opcode and operand diffs include canonical opcode streams,
@@ -1051,6 +1057,7 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --quality-diff-card \
   --compile-cap 4000 \
   --corpus-fidelity-cap 50 \
+  --corpus-fidelity-oracle rts-cutover \
   --max-examples 3
 ```
 
@@ -1235,7 +1242,10 @@ base=$(git merge-base origin/main HEAD)
 dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --diff-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json \
   --diff-corpus-baseline-ref "$base" \
-  --quality-diff-card
+  --quality-diff-card \
+  --compile-cap 4000 \
+  --corpus-fidelity-cap 50 \
+  --corpus-fidelity-oracle rts-cutover
 ```
 
 `--diff-corpus-baseline-ref` reads the same repository-relative baseline path
