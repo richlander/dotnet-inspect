@@ -180,6 +180,24 @@ public static class Entry
         return buffer.Length;
     }
 
+    public static void CallGenericMarker() => GenericMarker<byte>();
+
+    public static void CallOpenGenericMarker<T>() => GenericMarker<T>();
+
+    public static void CallSecondOpenGenericMarker<T>() => GenericMarker<T>();
+
+    public static void GenericMarker<T>()
+    {
+    }
+
+    public static void CallRefMarker()
+    {
+        int value = 0;
+        RefMarker(ref value);
+    }
+
+    public static void RefMarker(ref int value) => value++;
+
     static void ForwardRentedArray(byte[] buffer) =>
         ReturnRentedArray(buffer);
 
