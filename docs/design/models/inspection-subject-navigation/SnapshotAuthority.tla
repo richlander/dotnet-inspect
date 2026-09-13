@@ -2,15 +2,15 @@
 (***************************************************************************)
 (* Design model of retained versus stateless navigation execution.          *)
 (*                                                                          *)
-(* A retained operation reads prior state only from its navigation session,  *)
-(* and a caller cannot supply a second retained-state value.  A stateless    *)
+(* A retained operation takes the host's current product state explicitly,  *)
+(* never a consumer-authored snapshot as retained prior state. A stateless  *)
 (* evaluation may consume an explicit prior snapshot as data and retains     *)
 (* nothing.  The model checks those two execution modes and the effect       *)
 (* authority that guards a result.  It says nothing about how a snapshot is  *)
 (* computed, how lenses are ranked, or what a lens contains.                 *)
 (*                                                                          *)
 (* Product concept                       Model variable                      *)
-(*   the session's installed snapshot      installed                         *)
+(*   snapshot in host current product state installed                        *)
 (*   how many retained commits happened    retainedCommits                   *)
 (*   the operation now executing           command                           *)
 (*   the returned navigation result        result                            *)
@@ -20,8 +20,9 @@
 (*   authority held by a consumer          hostAuthority                     *)
 (*                                                                          *)
 (* Snapshots carry custody as well as provenance.  Custody says who is       *)
-(* holding the value: `sessionInstalled` is the snapshot the session         *)
-(* installed, and `supplied` is any value handed in by a consumer.  A stale  *)
+(* holding the value: `hostCurrentState` is the product-issued state held    *)
+(* in the host's authoritative slot; `supplied` is a consumer snapshot. An  *)
+(* explicit host-current state argument is valid, not supplied custody. A stale *)
 (* copy of this session's own earlier snapshot is still supplied, so it stays *)
 (* detectable even though its origin and its lens look like session data.    *)
 (* Each installed snapshot also records the origin and the custody of the     *)
@@ -73,7 +74,7 @@ vars == << installed, retainedCommits, command, result, effectEpoch, effect,
 Modes == {"retained", "stateless"}
 AllLenses == SessionLenses \cup ForeignLenses
 
-Custodies == {"sessionInstalled", "supplied", "initial", "none"}
+Custodies == {"hostCurrentState", "supplied", "initial", "none"}
 
 Snapshot(origin, custody, rev, lens, derivedFrom, derivedCustody) ==
   [ origin         |-> origin,
@@ -85,7 +86,7 @@ Snapshot(origin, custody, rev, lens, derivedFrom, derivedCustody) ==
 
 NoSnapshot == Snapshot("none", "none", 0, "none", "none", "none")
 
-\* Prior state a caller might hand in explicitly.  "caller" is a snapshot the
+\* Prior snapshot a UI consumer might supply. "caller" is a snapshot the
 \* consumer invented, "foreign" is one from another session or host, and
 \* "session" is a stale copy of this session's own earlier snapshot that the
 \* consumer kept.  In retained mode all three are equally inadmissible: the
@@ -105,7 +106,9 @@ LensesOfSnapshot(s) ==
 \* the session assigns on submission.  Every result records the ID of the
 \* operation it answers, so a claim can name one operation's own outcome
 \* instead of settling for some outcome having happened.
-NoCommand == [id |-> 0, mode |-> "none", lens |-> "none", prior |-> NoSnapshot]
+NoCommand ==
+  [id |-> 0, mode |-> "none", lens |-> "none",
+   state |-> NoSnapshot, prior |-> NoSnapshot]
 NoResult ==
   [id |-> 0, mode |-> "none", outcome |-> "none", lens |-> "none",
    basis |-> "none", reason |-> "none"]
@@ -133,6 +136,7 @@ TypeOK ==
   /\ command.mode \in Modes \cup {"none"}
   /\ command.lens \in AllLenses \cup {"none"}
   /\ command.prior \in SuppliedSnapshots \cup {NoSnapshot}
+  /\ (command.state = NoSnapshot \/ command.state = installed)
   /\ result.mode \in Modes \cup {"none"}
   /\ result.outcome \in {"applied", "rejected", "none"}
   /\ commandsIssued \in 0 .. MaxCommands
@@ -145,7 +149,7 @@ TypeOK ==
   /\ executeWitness \in BOOLEAN
 
 Init ==
-  /\ installed = Snapshot("session", "sessionInstalled", 0,
+  /\ installed = Snapshot("session", "hostCurrentState", 0,
                           CHOOSE l \in SessionLenses : TRUE,
                           "initial", "initial")
   /\ retainedCommits = 0
@@ -162,15 +166,17 @@ Init ==
   /\ executeWitness = TRUE
 
 (***************************************************************************)
-(* Submitting an operation.  A retained submission may carry prior state    *)
-(* the caller invented; a stateless submission may carry an explicit prior   *)
-(* snapshot legitimately.  Either way a new operation supersedes unconsumed  *)
+(* The retaining host passes its current product-issued state explicitly.   *)
+(* `prior` is a separate consumer input: retained submission cannot use it,  *)
+(* while stateless evaluation may legitimately consume an explicit snapshot. *)
+(* Either way a new operation supersedes unconsumed                          *)
 (* authority, which is how a consumer can end up holding a stale one.        *)
 (***************************************************************************)
 SubmitCommand(mode, lens, prior) ==
   /\ command = NoCommand
   /\ commandsIssued < MaxCommands
   /\ command' = [id |-> commandsIssued + 1, mode |-> mode, lens |-> lens,
+                 state |-> IF mode = "retained" THEN installed ELSE NoSnapshot,
                  prior |-> prior]
   /\ commandsIssued' = commandsIssued + 1
   /\ requestedLenses' =
@@ -184,7 +190,7 @@ SubmitCommand(mode, lens, prior) ==
        /\ installed' = installed
        /\ retainedCommits' = retainedCommits
 
-\* A retained operation that carries explicitly supplied prior state is
+\* A retained operation that carries consumer-supplied prior snapshot data is
 \* rejected with a typed outcome, whether that value was invented by the
 \* consumer, minted by another session, or is a stale copy of this session's
 \* own earlier snapshot.  The session never adopts it.  The rejection is
@@ -249,8 +255,8 @@ RejectLensOutsideInstalledSnapshot ==
        /\ retainedCommits' = retainedCommits
 
 (***************************************************************************)
-(* Retained execution.  The basis is the installed snapshot and nothing      *)
-(* else; the replacement snapshot records the origin and the custody of what *)
+(* Retained execution reads the explicitly passed current product state.    *)
+(* The replacement snapshot records the origin and the custody of what     *)
 (* it was derived from.  If this action ever took its basis from             *)
 (* `command.prior`, `derivedCustody` would record `supplied` and             *)
 (* InstalledSnapshotIsSessionCustody would fail, including for a stale       *)
@@ -260,16 +266,17 @@ ExecuteRetained ==
   /\ command.mode = "retained"
   /\ command.prior = NoSnapshot
   /\ command.lens \in LensesOfSnapshot(installed)
-  /\ LET basis == installed IN
-       /\ installed' = Snapshot("session", "sessionInstalled", basis.rev + 1,
+  /\ LET basis == command.state IN
+       /\ installed' = Snapshot("session", "hostCurrentState", basis.rev + 1,
                                 command.lens, basis.origin, basis.custody)
        /\ result' = [id |-> command.id, mode |-> "retained",
                      outcome |-> "applied", lens |-> command.lens,
                      basis |-> basis.origin, reason |-> "none"]
        /\ basisWitness' =
             /\ basisWitness
+            /\ basis = command.state
             /\ basis = installed
-            /\ basis.custody = "sessionInstalled"
+            /\ basis.custody = "hostCurrentState"
             /\ basis.origin = "session"
             /\ command.prior = NoSnapshot
   /\ retainedCommits' = retainedCommits + 1
@@ -408,16 +415,16 @@ Spec == Init /\ [][Next]_vars /\ Fairness
 (***************************************************************************)
 
 \* No supplied snapshot becomes retained state.  The installed snapshot is
-\* always in session custody, is session-owned, carries a session lens, and
-\* was derived from a snapshot that was itself in session custody.  The
+\* in the host's current product state, is session-owned, carries a session
+\* lens, and was derived from the explicit state argument in that custody. The
 \* custody conjunct is what rejects a stale copy of this session's own
 \* earlier snapshot: that value has session origin and a session lens, so
 \* origin and lens alone would accept it.
 InstalledSnapshotIsSessionCustody ==
-  /\ installed.custody = "sessionInstalled"
+  /\ installed.custody = "hostCurrentState"
   /\ installed.origin = "session"
   /\ installed.derivedFrom \in {"session", "initial"}
-  /\ installed.derivedCustody \in {"sessionInstalled", "initial"}
+  /\ installed.derivedCustody \in {"hostCurrentState", "initial"}
   /\ installed.lens \in SessionLenses
 
 \* Only retained execution installs state.  A stateless evaluation, a typed
@@ -425,8 +432,8 @@ InstalledSnapshotIsSessionCustody ==
 \* break this.
 OnlyRetainedExecutionInstalls == installed.rev = retainedCommits
 
-\* A retained operation used the session-custody installed snapshot as its
-\* only prior state.
+\* A retained operation used the host-current product state argument as its
+\* only prior state, never the separately supplied consumer snapshot.
 RetainedPriorStateIsInstalledSnapshot == basisWitness
 
 \* Operations and results stay correlated.  A result always names a submitted
@@ -500,8 +507,8 @@ EveryCommandResolves ==
 
 EffectEventuallyConsumed == (effect # NoAuthority) ~> (effect = NoAuthority)
 
-\* Every retained operation that arrives carrying explicitly supplied prior
-\* state reaches its own typed rejection, identified by that operation's ID,
+\* Every retained operation carrying a consumer-supplied prior snapshot
+\* reaches its own typed rejection, identified by that operation's ID,
 \* rather than being applied or left pending.  This holds for caller,
 \* foreign, and stale same-session prior values alike, because the rule is
 \* about who owns retained prior state.  Naming the ID matters: a later
