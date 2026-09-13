@@ -15,25 +15,28 @@ must preserve when they compose through this pattern.
 
 ## Claim
 
-One host selects zero or one active Workspace realization. A realization
-materializes one resource-free Workspace definition and issues the exact
-realization identity and operation authority used by services. A conforming
-service retains no behavior-bearing observation after the operation that
-received it.
+One host selects zero or one active Workspace realization. A realization starts
+from one resource-free Workspace definition, owns the current append-only
+coordinate set, and issues the exact realization identity and operation
+authority used by services. A conforming service retains no behavior-bearing
+observation after the operation that received it.
 
 The composition preserves four owner-issued associations:
 
-1. a realization identifies the exact definition it materialized;
-2. operation authority identifies the exact realization that issued it;
+1. a realization identifies the exact current definition snapshot it has
+   admitted;
+2. operation authority identifies the exact realization and definition
+   snapshot that admitted it;
 3. detached content identifies the evidence and outcome produced by that
    operation without retaining live authority; and
 4. persistent-cache evidence identifies the cache owner's exact key, result
    class, and validity contract, never Workspace authority.
 
-Replacing a Workspace definition creates a fresh realization association.
-Equal coordinates do not transfer realization identity or live authority across that
-boundary. The Workspace and retained-host owners define construction, cutover,
-admission closure, and drainage while preserving this invariant.
+When a host selects a definition for a new Workspace, it creates a fresh
+realization association. Equal coordinates do not transfer realization
+identity or live authority across that boundary. The Workspace and
+retained-host owners define construction, cutover, admission closure, and
+drainage while preserving this invariant.
 
 The optional persistent-cache port is the only general observed-content state
 this pattern admits beyond a Workspace lifetime. Each cache-category owner
@@ -95,12 +98,12 @@ If candidate construction fails, the active-realization association does not
 change. The focused owners make the failure and candidate settlement visible;
 this pattern does not prescribe their concrete transaction algorithm.
 
-The neighboring extension case is conditional. Adding
-`Microsoft.Extensions.Logging@10.0.0` may preserve the active realization only
-when the Workspace owner issues evidence that the addition does not reinterpret
-any prior identity, binding, policy, correspondence, or derived result. Without
-that evidence, the addition uses the same fresh-realization boundary as removal
-or replacement.
+The neighboring Add case is deliberately uneventful. Adding
+`Microsoft.Extensions.Logging@10.0.0` admits that exact component without
+recursively adding its dependencies or validating its compatibility with
+existing participants. Adding the same exact coordinate again returns
+`AlreadyPresent` and identifies the existing component. A later traversal may
+return a typed missing- or incompatible-edge result.
 
 ## Why this is service orientation
 
@@ -136,10 +139,12 @@ their focused request and result types.
 
 The Workspace port has two distinct forms.
 
-The **Workspace definition** is resource-free. It contains the coordinates,
-registrations, and policy needed to describe the intended inspection
-population. A definition may be copied, serialized, retained by a host, or
-selected again without keeping any process resource alive.
+The **Workspace definition** is an immutable, resource-free snapshot. It
+contains the coordinates and their ordering needed to describe the intended
+inspection population. It contains no acquisition, dependency-expansion,
+compatibility, traversal, refresh, or retry policy. A definition may be copied,
+serialized, retained by a host, or selected again without keeping any process
+resource alive.
 
 The **active Workspace realization** is the physical owner for one
 materialization of a definition. Its focused owner may retain:
@@ -147,6 +152,7 @@ materialization of a definition. Its focused owner may retain:
 - Artifact sessions and owner-issued content children;
 - realized Library owners;
 - binding-consistent assembly groups and immutable image snapshots;
+- immutable definition snapshots and their publication generations;
 - catalog generations and correctness-bearing indexes;
 - operation admissions and leases;
 - retained-byte and work budgets; and
@@ -159,7 +165,8 @@ They end with the realization.
 The terms above are architectural roles, not final CLR type names. The
 Workspace owner chooses the concrete names and APIs in its focused adoption.
 That adoption must expose enough typed evidence to associate each realization
-with its definition and each operation authority with its issuing realization.
+with its current definition snapshot and each operation authority with its
+issuing realization.
 
 ### Persistent cache
 
@@ -198,11 +205,36 @@ succeeds.
 
 ## Workspace composition requirements
 
-### Immutable components and extension
+### Append-only components
 
 A Workspace component is a coordinate-bearing member of the definition. Once
 realized, its observed content is fixed for that realization's lifetime. It has
 no update or refresh operation.
+
+The Workspace exposes Add, not Update, Remove, Clear, or Replace. The successful
+Add result distinguishes:
+
+- `Added`, carrying the newly admitted component; and
+- `AlreadyPresent`, carrying the existing component for the same exact
+  owner-issued coordinate.
+
+The exact CLR result shape belongs to the Workspace owner; a closed result union
+is the required semantic shape. The caller decides whether `AlreadyPresent`
+satisfies its use case. Acquisition failure, cancellation, capacity, and
+unavailability remain separate typed non-success outcomes.
+
+`Added` publishes a new immutable definition snapshot containing the appended
+coordinate while preserving the realization identity and every existing
+component. `AlreadyPresent` publishes no new snapshot.
+
+Add publishes the new snapshot atomically. Operation authority admitted before
+publication retains the prior snapshot; authority admitted afterward identifies
+the new snapshot. An operation never discovers membership by reading mutable
+Workspace state after admission.
+
+Add admits only the explicitly requested component. It does not recursively add
+the component's dependencies, validate the whole Workspace, or decide whether
+the component is compatible with existing participants.
 
 If a host learns that the content available at an existing coordinate changed,
 it creates a new Workspace realization, even when the definition still contains
@@ -211,26 +243,17 @@ directories used as feeds; nuget.org package content is immutable under its
 source contract. How the host detects the change, whether replacement is
 automatic, and whether the user is notified are outside this design.
 
-The Workspace owner may preserve a realization across the addition of a new
-component only when it issues non-interference evidence for that exact change.
-The evidence must establish that every prior coordinate, identity, binding,
-policy decision, correspondence, derived result, and admitted operation keeps
-its meaning.
+The Workspace owner defines exact coordinate equality, occurrence identity,
+ordering, deduplication, capacity, acquisition failure, and publication.
 
-The Workspace owner defines the evidence shape, publication, failure,
-occurrence identity, ordering, deduplication, capacity, and expansion policy.
-An addition lacking that evidence is replacement; the fact that all prior
-coordinates remain textually present is insufficient. Re-observing changed
-content at an existing coordinate is replacement, not addition.
+### Host-selected reboot
 
-### Replacement
-
-Any operation that removes a coordinate, replaces a coordinate, clears scope,
-or lacks the required non-interference evidence selects a complete definition
-and creates a fresh realization. The selected definition may compare equal to
+Removing a coordinate, selecting different coordinates, or re-observing changed
+content at an existing coordinate is not a Workspace mutation. The host creates
+a new Workspace from a complete definition. The definition may compare equal to
 the prior definition when content at a mutable coordinate changed.
 
-Replacement is a semantic reboot:
+Creating that Workspace is a semantic reboot:
 
 - only the replacement definition participates in construction;
 - prior realization identities, failures, generations, registrations, leases,
@@ -242,6 +265,29 @@ Replacement is a semantic reboot:
 This does not require bypassing `PersistentCache`, the operating-system page
 cache, immutable product tables, or host transport pools. It prohibits using a
 live old-realization object or hidden process observation as semantic input.
+
+### Compatibility, traversal, and diff
+
+Admission is not compatibility policy. A participant built for .NET 12 may be
+added beside a Workspace platform registered for .NET 11. A
+`Microsoft.Extensions.Logging@10.0.0` component may likewise be added without
+reading its dependency graph or validating it against existing package
+versions.
+
+Compatibility belongs to the concrete traversal or composition edge, as
+defined by
+[Platform composition and overlays](platform-composition-and-overlays.md#overlay-compatibility-is-a-property-of-the-pair-and-request).
+Standalone metadata, API, IL, source, decompilation, and comparison remain
+available. A traversal that needs a missing or incompatible participant returns
+its owner-issued typed result. This design introduces no `Workspace.Validate()`
+capability and no recursive dependency-admission mode.
+
+Diff is an explicit two-endpoint comparison, not a compatibility check during
+Add. The two endpoint components may coexist in one Workspace realization under
+separate binding contexts. For example, .NET 10 and .NET 11
+`System.Security.Cryptography.dll` can both be admitted and selected as the
+Before and After endpoints. The comparison owner defines their correspondence;
+ordinary traversal compatibility does not reject either endpoint at admission.
 
 ### Active-realization cutover
 
@@ -340,7 +386,7 @@ listed owners.
 | Current state | Target classification | Focused owner action |
 | --- | --- | --- |
 | `InspectionWorkspace` combines logical scope and physical ownership | Resource-free definition plus one active realization owner | Workspace Definitions [#6750](https://github.com/richlander/dotnet-inspect/issues/6750) and realization [#6752](https://github.com/richlander/dotnet-inspect/issues/6752) |
-| Scope supports Replace, Clear, Add, and Remove | Evidence-bearing non-interfering extension or fresh-realization replacement | Workspace Scope [#6751](https://github.com/richlander/dotnet-inspect/issues/6751) |
+| Scope supports Replace, Clear, Add, and Remove | Add-only admission with distinct `Added` and `AlreadyPresent` success; host-created Workspace for every other change | Workspace Scope [#6751](https://github.com/richlander/dotnet-inspect/issues/6751) |
 | Browser retains several live Workspace scopes | Retained definitions with one materialized realization | Inspect Web retained host [#6757](https://github.com/richlander/dotnet-inspect/issues/6757) |
 | Spotlight activation preserves current realized content after registration removal | Current consumer requiring focused adaptation, not rollback here | Workspace Scope [#6751](https://github.com/richlander/dotnet-inspect/issues/6751) and retained host [#6757](https://github.com/richlander/dotnet-inspect/issues/6757) |
 | Artifact sessions, groups, snapshots, and query admissions | Correctness-bearing active-realization ownership | Artifact and Workspace owners |
@@ -366,17 +412,21 @@ Focused adopters must demonstrate these composition outcomes:
   settles them all, the prior realization remains active, and the failure is
   visible;
 - cutover races an old operation: every accepted operation is associated with
-  exactly one realization generation;
+  exactly one realization and definition-snapshot generation;
+- Add races an operation: the operation observes either the prior or appended
+  snapshot according to its admission authority, never a mixed membership;
 - equal package coordinates occur in both definitions: the successor receives
   fresh authority and may reuse only validated external cache material;
+- Add names an existing exact coordinate: `AlreadyPresent` returns that
+  component without acquisition, refresh, or compatibility policy;
+- Add names a participant whose dependencies are absent or incompatible:
+  `Added` remains valid, and only a later traversal reports its typed edge
+  failure;
 - old-realization cleanup fails after successor publication: the successor
   remains active, while the old settlement failure remains visible to the
   host;
 - a cache entry is missing or invalid: the ordinary cold path runs or returns
   its typed failure without inventing empty success;
-- a negative cache entry remains effective until its owner-defined expiry: the
-  source/cache owner controls retry and disclosure, and the entry does not
-  refresh an already realized component; and
 - a terminal result attempts to retain live authority: the focused result owner
   rejects it rather than exporting the authority through the host boundary.
 
@@ -394,7 +444,7 @@ efforts:
 | Owner effort | Required outcome |
 | --- | --- |
 | Workspace Definitions [#6750](https://github.com/richlander/dotnet-inspect/issues/6750) | Distinguish a resource-free definition from each materialized realization identity. |
-| Workspace Scope [#6751](https://github.com/richlander/dotnet-inspect/issues/6751) | Make realized components immutable, require owner-issued non-interference evidence for extension, and route every other change through replacement. |
+| Workspace Scope [#6751](https://github.com/richlander/dotnet-inspect/issues/6751) | Define Add with `Added` and `AlreadyPresent`, keep components immutable, and remove update/removal/validation policy from Workspace. |
 | Workspace realization [#6752](https://github.com/richlander/dotnet-inspect/issues/6752) | Define and model candidate construction, cutover, admission closure, drainage, and visible settlement. |
 | Analysis [#6754](https://github.com/richlander/dotnet-inspect/issues/6754) | End `AnalysisIndexCache` history at an operation or exact Workspace realization boundary. |
 | Research [#6755](https://github.com/richlander/dotnet-inspect/issues/6755) | Stop exact-index memoization from extending index ownership across unrelated operations. |
@@ -426,6 +476,8 @@ hidden cross-operation state.
 - Simultaneous queries spanning several Workspaces.
 - Several materialized Workspaces retained for instant switching.
 - Transfer of live resources between replacement Workspaces.
+- Recursive dependency admission or whole-Workspace compatibility validation.
+- Workspace Update, Refresh, Remove, Clear, or Replace operations.
 - Async borrows or an assumption of future asynchronous compiler `Drop`.
 - Elimination of Workspace-owned correctness indexes or exact retained
   content.
