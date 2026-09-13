@@ -29,6 +29,9 @@ The end-to-end tracker has four steps:
 4. retire plain `package search --take`, using semantic `-n` plus proven source
    delegation only where the full multi-source result remains equivalent.
 
+Steps 1 through 3 are implemented: #6489 reconciles Package Query and adopts
+the command-wide `find` surface. Step 4 remains separate future work.
+
 Other command-owned bounds are evidence for the family, not implicit
 participants in that adoption path.
 
@@ -183,7 +186,7 @@ example:
 
 ```console
 dotnet-inspect find --package-prefix dotnet-inspect \
-  --where "facet=package.query.dotnet-tool" --take 500 -n 20
+  --where "facet=package.query.has-dependencies" --take 500 -n 20
 ```
 
 `-n 20` requests up to 20 final matched-package rows. Source delegation may
@@ -405,7 +408,7 @@ The following request is valid:
 
 ```console
 dotnet-inspect find --package-prefix dotnet-inspect \
-  --where "facet=package.query.dotnet-tool" --take 500 -n 20
+  --where "facet=package.query.has-dependencies" --take 500 -n 20
 ```
 
 It authorizes inspection of at most 500 package candidates, then selects up to
@@ -418,7 +421,7 @@ The inverse numeric relationship is also valid:
 
 ```console
 dotnet-inspect find --package-prefix dotnet-inspect \
-  --where "facet=package.query.dotnet-tool" --take 10 -n 20
+  --where "facet=package.query.has-dependencies" --take 10 -n 20
 ```
 
 The operation may produce fewer than 20 final rows. L3 does not reject the

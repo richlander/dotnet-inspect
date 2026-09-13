@@ -151,6 +151,56 @@ public class QueryDiscoveryTests
     }
 
     [Theory]
+    [InlineData("-D")]
+    [InlineData("-S")]
+    public async Task QueryRejectsDataDiscoveryModes(string mode)
+    {
+        var result = await Run(
+            "find",
+            "-Q",
+            "Packages",
+            mode,
+            "Packages");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            $"-Q cannot be combined with {mode}",
+            result.Error);
+    }
+
+    [Theory]
+    [InlineData(
+        "--rows",
+        "bad",
+        "--rows requires N..M, N.., or ..M")]
+    [InlineData(
+        "--take",
+        "bad",
+        "--take requires a positive whole number.")]
+    public async Task QueryConflictFollowsSharedSelectionFailure(
+        string option,
+        string value,
+        string expected)
+    {
+        var result = await Run(
+            "find",
+            option,
+            value,
+            "-Q",
+            "Packages",
+            "-D",
+            "Packages");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(expected, result.Error);
+        Assert.DoesNotContain(
+            "-Q cannot be combined",
+            result.Error);
+    }
+
+    [Theory]
     [InlineData("--where", "Kind=ObjectCreationExpression")]
     [InlineData("--order-by", "RootReach desc")]
     [InlineData("--top", "10")]
@@ -394,6 +444,44 @@ public class QueryDiscoveryTests
         var bare = await Run("type", "-Q", "--count");
         Assert.Equal(0, bare.ExitCode);
         Assert.Equal("4", bare.Output.Trim());
+    }
+
+    [Fact]
+    public async Task FindQueryDiscovery_AppliesSemanticSelectionStages()
+    {
+        var result = await Run(
+            "find",
+            "-Q",
+            "Packages",
+            "-n",
+            "1",
+            "--rows",
+            "2..2",
+            "--count");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Find row selection stage 2 requires query facet row 2, "
+                + "but only 1 query facet rows are available.",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task FindSchemaDiscovery_CountsSelectedSemanticRows()
+    {
+        var result = await Run(
+            "find",
+            "JsonDocument",
+            "-D",
+            "Results",
+            "-n",
+            "1",
+            "--count");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("1", result.Output.Trim());
+        Assert.Empty(result.Error);
     }
 
     [Fact]

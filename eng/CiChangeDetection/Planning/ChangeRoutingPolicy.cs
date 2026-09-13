@@ -519,6 +519,7 @@ internal sealed class ChangeRoutingPolicy
             "tests/DotnetInspector.ILRoundtrip.Tests/*",
             "eng/restore-ilassembler.sh",
             "src/ILInspector.Metadata*",
+            "src/DotnetInspector.Cache/*",
             "src/DotnetInspector.Core/*",
             "*.props",
             "*.targets",

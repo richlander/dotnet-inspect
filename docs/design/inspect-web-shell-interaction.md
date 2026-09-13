@@ -323,15 +323,12 @@ typing, paste, drag and drop of text, autofill where applicable, and input
 method composition. Pasting a package coordinate updates results immediately;
 it is not dependent on keyboard events that paste does not emit.
 
-Spotlight's package action is one-shot Workspace composition. Selecting an
-external package explicitly requests the Ecosystems-owned curated Workspace,
-adds one explicit package Root before publication, publishes and activates the
-fresh unnamed Workspace, and makes that package active in the subject strip.
-Existing Workspaces remain available in the Workspace subject. Selecting a
-loaded coordinate, Library, Type, or Member instead performs ordinary
-Navigation within the active Workspace. Spotlight exposes no **Add to current
-Workspace** gesture; multi-package and multi-ecosystem composition remains on
-the Workspace editor.
+Spotlight's
+[destination-activation
+owner](inspect-web-spotlight-destination-activation.md) supplies each exact
+result's effect and settled product outcome. Shell Interaction retains only
+Spotlight opening, dismissal, focus, keyboard, and modal behavior; it does not
+classify Workspace coverage or reconstruct activation from the selected row.
 
 [Package-row removal](inspect-web-package-removal.md) owns the trailing close
 control for open and recent NuGet package rows in Home and modal Spotlight.

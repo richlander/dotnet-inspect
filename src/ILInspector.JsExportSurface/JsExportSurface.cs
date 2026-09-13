@@ -47,6 +47,20 @@ public sealed class JsExportSurface
     public IReadOnlyList<ApiType> AllTypes { get; init; } = [];
 
     /// <summary>
+    /// Exact definitions from referenced assemblies that were needed to resolve
+    /// this surface's authenticated JSON roots.
+    /// </summary>
+    /// <remarks>
+    /// The rooted assembly remains the owner of <see cref="Functions"/>. These
+    /// definitions only extend wire-shape resolution, so a referenced assembly
+    /// cannot contribute an unrelated JavaScript export.
+    /// </remarks>
+    [JsonIgnore]
+    public IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+        ReferencedTypeDefinitions { get; init; } =
+        new Dictionary<ApiTypeReferenceIdentity, ApiType>();
+
+    /// <summary>
     /// The wire directions each declared type was reached in, keyed by the
     /// <see cref="ApiType"/> instances published in <see cref="Records"/> and
     /// <see cref="Enums"/> and <see cref="Unions"/>.

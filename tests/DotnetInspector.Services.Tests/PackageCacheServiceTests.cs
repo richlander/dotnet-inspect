@@ -1,8 +1,9 @@
+using DotnetInspector.Cache;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.Services.Tests;
 
-[Collection(CoreCacheCollection.Name)]
+[Collection(PersistentCacheCollection.Name)]
 public class PackageCacheServiceTests
 {
     [Fact]

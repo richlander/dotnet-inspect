@@ -3,6 +3,7 @@ using System.CommandLine;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Options;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
@@ -37,6 +38,17 @@ internal static class QueryDiscoverOutput
                 .Where(name => selection.Sections!.Contains(name))
                 .Select(name => catalog.Queries.FirstOrDefault(item => item.Section == name)
                     ?? new SectionQueryDescriptor(name, NoOperators, []))];
+        RowSelectionIntent<string>? semanticRowSelection = null;
+        if (result.CommandResult.Command.Name == "find"
+            && !CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
+                result,
+                "Find",
+                out semanticRowSelection,
+                out string? rowSelectionError))
+        {
+            CommandError.Write(rowSelectionError!);
+            return 1;
+        }
         OutputFormat format = options.ResolveFormat(result);
         IProjectionOptions projection = ProjectionAudit.Requested(result, options);
         if (discoverSchema)
@@ -57,7 +69,9 @@ internal static class QueryDiscoverOutput
                 tsv: format == OutputFormat.Tsv,
                 jsonl: format == OutputFormat.Jsonl,
                 plainText: format == OutputFormat.PlainText,
-                projection: projection);
+                projection: projection,
+                semanticRowSelection: semanticRowSelection,
+                semanticSelectionName: "Find");
         }
 
         string[] headers = bare ? CatalogColumns : FacetColumns;
@@ -67,14 +81,47 @@ internal static class QueryDiscoverOutput
         string[]? projectedColumns = projection.Fields is { Length: > 0 }
             || projection.Columns is { Length: > 0 } ? resolvedColumns : null;
 
-        RowWindow? window = options.ParseRows(result);
+        RowWindow? window =
+            semanticRowSelection is null
+                ? options.ParseRows(result)
+                : null;
         if (bare)
-            selected = [.. RowWindow.Apply(window, selected)];
-        else
-            selected = [.. selected.Select(section => section with
+        {
+            if (!TryApplyRows(
+                    selected,
+                    window,
+                    semanticRowSelection,
+                    "query section",
+                    out IReadOnlyList<SectionQueryDescriptor> selectedRows))
             {
-                Facets = [.. RowWindow.Apply(window, section.Facets)],
-            })];
+                return 1;
+            }
+            selected = [.. selectedRows];
+        }
+        else
+        {
+            var selectedSections =
+                new List<SectionQueryDescriptor>(
+                    selected.Length);
+            foreach (SectionQueryDescriptor section in selected)
+            {
+                if (!TryApplyRows(
+                        section.Facets,
+                        window,
+                        semanticRowSelection,
+                        "query facet",
+                        out IReadOnlyList<SectionQueryFacet> selectedFacets))
+                {
+                    return 1;
+                }
+                selectedSections.Add(
+                    section with
+                    {
+                        Facets = [.. selectedFacets],
+                    });
+            }
+            selected = [.. selectedSections];
+        }
 
         if (projection.Count)
         {
@@ -156,6 +203,24 @@ internal static class QueryDiscoverOutput
                     ? ["Facet", "Operators", "Comparisons", "Values"]
                     : null);
     }
+
+    private static bool TryApplyRows<T>(
+        IReadOnlyList<T> rows,
+        RowWindow? legacyWindow,
+        RowSelectionIntent<string>? semanticRowSelection,
+        string rowKind,
+        out IReadOnlyList<T> selectedRows)
+        => CliSemanticRowSelection.TrySelectOrApplyLegacy(
+            semanticRowSelection,
+            legacyWindow,
+            rows,
+            rowKind,
+            failure =>
+                $"Find row selection stage "
+                + $"{failure.Failure.StageNumber} requires {rowKind} row "
+                + $"{failure.Failure.RequiredPosition}, but only "
+                + $"{failure.Failure.AvailableCount} {rowKind} rows are available.",
+            out selectedRows);
 
     private static ImmutableArray<string> Operators(SectionQueryDescriptor section)
         => [.. section.Facets.SelectMany(facet => facet.Operators).Distinct(StringComparer.Ordinal)];

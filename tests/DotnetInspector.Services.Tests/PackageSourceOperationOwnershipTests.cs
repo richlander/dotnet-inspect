@@ -203,7 +203,7 @@ public sealed class PackageSourceOperationOwnershipTests
 
         MethodInfo[] wrappers = operation.GetMethods(BindingFlags.Public | BindingFlags.Instance)
             .Where(method => method.Name.EndsWith("Async", StringComparison.Ordinal)).ToArray();
-        Assert.Equal(6, wrappers.Length);
+        Assert.Equal(7, wrappers.Length);
         Assert.All(wrappers, method =>
         {
             Assert.Null(method.GetCustomAttribute<AsyncStateMachineAttribute>());

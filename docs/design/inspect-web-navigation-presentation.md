@@ -770,7 +770,11 @@ Opening Platform selects its catalog, with no implicit Library or Type.
 Selecting a platform-library search result opens that exact Library with
 Platform as its parent. A search such as `System.Text.Json` can offer both the
 NuGet package and the platform library; source and target labeling distinguish
-the destinations rather than merging names.
+the destinations rather than merging names. The
+[Spotlight destination-activation
+owner](inspect-web-spotlight-destination-activation.md) separately supplies
+their current-Workspace or fresh-Workspace effect and opaque action;
+presentation does not infer either from the shared display name.
 
 Platform content owns its target/version control, library-name filter, and
 `Include all libraries` control. It does not expose package version/TFM editors

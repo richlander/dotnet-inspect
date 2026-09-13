@@ -39,15 +39,13 @@ owner in
 its first CLI host route has landed as `find --literal` plus
 `workspace --root-request` — see
 [The landed promoted-tier CLI route](#the-landed-promoted-tier-cli-route).
-Despite the Sections migration landing,
-`find --package-prefix`'s corpus limit is also still spelled `-t`, not the
-semantic `-n` target. [CLI execution bounds](cli-execution-bounds.md) now owns
-the separate `--take` work-bound grammar, and
-[#6547](https://github.com/richlander/dotnet-inspect/issues/6547) reconciles
-this owner's current `--candidates`/`--matches` binding before command-wide
-`find` adoption. Product behavior remains unchanged until that implementation
-slice lands. The reconciled CLI behavior and optional match-budget state below
-are unverified until their named Release gates land.
+The command-wide adoption tracked by
+[#6489](https://github.com/richlander/dotnet-inspect/issues/6489) now uses the
+semantic `-n` and `--rows` grammar for final package rows.
+[CLI execution bounds](cli-execution-bounds.md) owns the separate `--take`
+candidate-work grammar. The low-compatibility migration retires numeric `-t`,
+`--candidates`, and `--matches` from `find`; the optional match-budget state
+below preserves the shared query capability without imposing it on the CLI.
 
 Related docs:
 
@@ -109,7 +107,7 @@ is:
 
 ```sh
 find -Q Packages
-find --package-prefix dotnet-inspect -S Packages \
+find --package-prefix dotnet-inspect --package-content -S Packages \
   --where "facet=package.query.dotnet-tool" --take 20 -n 5
 find --package-prefix dotnet-inspect --package-content \
   --where "facet=package.query.dotnet-tool-v2" --take 20 -n 5
@@ -166,8 +164,8 @@ semantic Package Query. `--take`, `-n`, `--count`, output options, and
 `-S Packages` are mode-neutral; without a query-specific gesture, a
 patternless `--package-prefix` remains ordinary package-profile mode.
 Query-only gestures require a patternless `--package-prefix` and reject API
-scopes and source overrides before acquisition. `-t` is rejected in
-semantic-query mode until command-wide adoption retires its numeric form.
+scopes and source overrides before acquisition. Numeric and short-form `-t`
+are retired command-wide; long-form `--type` is rejected in Package Query mode.
 
 One semantic result row is one matched package, carrying its exact version,
 source, and product-authored nonempty evidence. `-n` and `--rows` select those
@@ -202,8 +200,7 @@ is authored. Its semantic row intent remains separate and reaches L2 only after
 candidate execution. This optional state is required rather than a sentinel:
 with `--take 1000`, all 1,000 candidates may match, so no larger valid integer
 exists under the owner's 1,000 match-budget maximum. README examples, shipped
-skills, help, completion, and Release gates change with product adoption rather
-than this docs-only reconciliation.
+skills, help, completion, and Release gates reflect this adoption.
 
 The currently shipped binding is gated by `PackageQueryCliTests`:
 `DiscoveryValues_LowerToExactlyTheProductFacets`,
@@ -226,8 +223,9 @@ discovery and profile contracts.
 `find --package-prefix` (#4551, merged) is the right CLI verb: it streams
 typed manifests over a corpus, with an explicit bound and honest truncation
 and partial-source failure, rendered through the shared Sections registry
-just as `library`/`member`/`package` are. Its corpus-limit spelling is still
-`-t`; the historical #4677 target proposed `-n` instead — see
+just as `library`/`member`/`package` are. Its corpus-limit spelling is now
+`--take`; before #6489 it was numeric `-t`, while the historical #4677 target
+proposed semantic `-n` instead — see
 [Sections migration: already landed, ahead of this document's sequencing](#sections-migration-already-landed-ahead-of-this-documents-sequencing).
 The L1 facet engine now provides a host-neutral way to ask "and does each
 package satisfy *this*" over facts available from the source, exact manifest,
@@ -314,15 +312,16 @@ and category maps), and the JSON/TSV/JSONL/projected-JSON output formats all
 route through the shared pipeline, the same infrastructure `library`/`member`/
 `package` use.
 
-**What did not land alongside it:** the flag-numbering half of this
+**What did not land alongside it before #6489:** the flag-numbering half of this
 recommendation. This document's own "one deliberate, called-out behavior
 change" for this migration step was retiring `-t`-as-package-limit in favor of
-the historical #4677 `-n` proposal — but `find --package-prefix`'s corpus limit is
-still spelled `-t` on `main` (`FindOptions.Limit`, validated as "`-t` must be
-between 1 and..."). #6107 adds `-S Packages` and the finite `--where` facet
-binding without replacing that ordinary profile mode.
+the historical #4677 `-n` proposal — but before #6489,
+`find --package-prefix`'s corpus limit remained `-t` (`FindOptions.Limit`,
+validated as "`-t` must be between 1 and..."). #6107 added `-S Packages` and
+the finite `--where` facet binding without replacing that ordinary profile
+mode.
 
-While that legacy spelling remains, numeric `-t` clamps the package candidates
+Under that legacy spelling, numeric `-t` clamps the package candidates
 the source is asked to return and is mutually exclusive with `--count`.
 Accepting both would present a count over an intentionally shortened
 acquisition as though no package clamp applied. This package-source rule does
@@ -422,7 +421,7 @@ boundary took about 284 seconds, so neither that boundary nor the requested
 5,000 and host-neutral 10,000 ceilings are behavior-safe CLI limits under the
 default timeout policy.
 
-**Resolved interaction for the next CLI slice:** the Sections migration and
+**Resolved interaction for #6489:** the Sections migration and
 the `-t` retirement were assumed to be one atomic step; in practice they
 decoupled, and the migration landed first. The focused
 [CLI row-selection](cli-row-selection.md) and
@@ -486,9 +485,11 @@ predicates:
   `PackageQuery` still applies manifest predicates first, so a tool-format
   facet does not acquire non-tool packages. The current archive-derived
   facets inspect `DotnetToolSettings.xml` for tool v1/v2 and package paths for
-  `skills/SKILL.md` or `skills/**/SKILL.md`. Tool v1 and v2 are combining
-  members, so selecting both returns either format with evidence identifying
-  the matched version; the manifest-only any-tool facet remains exclusive.
+  `skills/SKILL.md` or `skills/**/SKILL.md`. The exclusive any-tool facet
+  preserves the nuspec package-type prefilter, then reports CLI v1, CLI v2, or
+  explicitly unrecognized settings from the admitted archive. Tool v1 and v2
+  are combining members, so selecting both returns either recognized format
+  with evidence identifying the matched version.
 - **Promoted assembly tier.** The one-candidate asset, pattern, semantic
   confirmation, evidence, and resource-lifetime contract is owned by
   [Package Query assembly-pattern
@@ -803,23 +804,19 @@ the CLI's named facets as canonical for the browser's facet rail.
    provider and at most 20 candidates. `PackageQueryTests` and
    `PackageQueryPlanner_IsReachableFromBrowserConsumer` are the named Release
    gates.
-4. **CLI metadata facet binding — implemented by #6107.** The finite
-   `facet=<ID>` binding and the currently shipped
-   `--candidates`/`--matches` query budgets preserve
-   filter-before-match-bound behavior. They do not implement the reconciled
-   row-selection and execution-bound grammar or retire the ordinary profile's
-   `-t`.
+4. **CLI metadata facet binding — implemented by #6107 and reconciled under
+   #6489.** The finite `facet=<ID>` binding remains; candidate work is now
+   `--take`, and `-n`/`--rows` select matched package rows after authorized
+   candidate evaluation.
 5. **CLI package-content capability — implemented by #6107.**
    `--package-content` preserves the product-owned candidate cap, uses
    admitted payload acquisition, and retains visible failures. The focused
    Release gates are named in [CLI facet binding](#cli-facet-binding).
-6. **CLI limit reconciliation — designed by #6547, implementation pending
-   under #6489.** Retire `--candidates`/`--matches`, use candidate-work
-   `--take` and semantic `-n`, remove the implicit 100-match default, keep
-   `--take`/`-n` mode-neutral, add the shared optional match-budget state, and
-   preserve later failures by applying row selection after the authorized
-   candidate execution until source delegation proves an exact early stop. The
-   same command-wide slice retires numeric `-t` and adopts ordinary
+6. **CLI limit reconciliation — designed by #6547 and implemented under
+   #6489.** `--take` authorizes candidate work, semantic `-n`/`--rows` select
+   final rows, the implicit 100-match CLI default is gone, and later failures
+   remain visible because selection follows authorized candidate execution.
+   The same command-wide slice retires numeric `-t` and adopts ordinary
    package-profile `--take`/`-n`.
 7. **Compose the focused
    [assembly-pattern evaluator](package-query-assembly-evaluation.md) through

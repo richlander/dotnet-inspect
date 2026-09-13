@@ -175,14 +175,19 @@ substrates, and inspection producers that will extend that space.
   leases, while session settlement drains children and scoped accesses before
   releasing source acquisition resources.
 - [Resource Effect Language](design/resource-effect-language.md) owns the
-  portable compiled-attribute and JSON declaration language, exact structural
-  API matching, declaration validation and provenance, and normalization into
-  resource-neutral effects. ArrayPool and repository ownership declarations
-  enter the same lifecycle engine through this boundary; the language owns no
-  control-flow or Finding policy.
+  portable compiled-attribute and JSON declaration language, structural
+  selectors, bounded source admission, local declaration validation and
+  provenance, and immutable admitted declarations.
+  [Resolved Resource Effects](design/resolved-resource-effects.md) owns
+  generation-bound matching to exact metadata definitions and direct-call
+  occurrences, occurrence-local generic substitution, compatibility, and
+  visible resolution incompleteness. Neither owner defines control-flow or
+  Finding policy.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction,
   package/source caches, feeds, symbol package acquisition, and version
-  resolution. Its
+  resolution. Its internal `AsyncCache<TKey, TValue>` lives beside its sole
+  production consumer, `PackageExtractor`, and supplies that consumer's
+  process-local single-flight registry. Its
   [Package Version Selection](design/version-resolution.md) owner defines
   resource-free latest, prerelease, always-refresh, wildcard, and
   addressable-range requests plus the resolution receipt that binds one exact
@@ -328,10 +333,20 @@ substrates, and inspection producers that will extend that space.
   diagnostics. Its project and compiled assembly dependencies are restricted
   to the platform, `InertText`, and `NetworkAccess` by
   `networking-stays-below-core-and-hosts`.
-- `src/DotnetInspector.Core/` is a transitional runtime bucket beneath
-  Packages, Services, and the CLI. Its cache and combined request/cache
-  diagnostics, untrusted-document, CLI telemetry, and single-consumer helpers
-  move to subject owners under
+- `src/DotnetInspector.Cache/` owns
+  `DotnetInspector.Cache.PersistentCache` and `CacheTelemetry`: shared cache
+  roots, path-safe hashed keys, maintenance, atomic file publication, and
+  redacted request-aware cache observations. It depends only on the platform,
+  `InertText`, and `DotnetInspector.Networking`. This is step 3 of the
+  `DotnetInspector.Core` decomposition under
+  [#6334](https://github.com/richlander/dotnet-inspect/issues/6334), tracked by
+  [#6671](https://github.com/richlander/dotnet-inspect/issues/6671).
+- `src/DotnetInspector.Core/` remains a transitional runtime bucket beneath
+  Packages, Services, and the CLI. `RequestMermaidDiagram` composes network,
+  cache, and breadcrumb observations; `InfoTracker` subscribes to network and
+  cache telemetry and counts hits and misses while excluding stores.
+  `CountingTextWriter` and the hardened JSON/XML readers remain. Later
+  subject-owned moves continue under
   [#6334](https://github.com/richlander/dotnet-inspect/issues/6334).
 - `src/ILInspector.Decompiler/` emits lowered C#, raw IL, and structural annotated IL from method bodies.
 - `src/ILInspector.Research/` owns the offset-keyed fact overlay above Analysis
@@ -376,6 +391,14 @@ substrates, and inspection producers that will extend that space.
   contract. It consumes owner-backed edit-save completion and existing
   navigation outcomes; it does not own admission, persistence, history,
   focus, or layout.
+- [Inspect Web Spotlight Destination
+  Activation](design/inspect-web-spotlight-destination-activation.md) owns
+  exact-candidate classification and Browser activation settlement across
+  already admitted subjects, registration-covered current-Workspace
+  destinations, host-local Platform Libraries, and uncovered packages that
+  require a fresh curated Workspace. It consumes Scope, registration,
+  Navigation, Platform, source, and host-publication outcomes without
+  redefining them.
 - [Browser Diff targets](design/inspect-web-diff-targets.md) owns the
   session-local Package Diff baseline, inheritance during subject navigation,
   and target-setting controls. Clone candidate scope has transferred to the
@@ -629,6 +652,12 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   host-neutral Workspace, Package, Library, Type, and
   Member descriptors, availability, initial recommendations, transitions,
   reconciliation, and model-checked retained-session authority.
+- [Inspect Web Spotlight destination
+  activation](design/inspect-web-spotlight-destination-activation.md):
+  Browser-specific classification and settlement for current-Workspace versus
+  fresh-Workspace Spotlight destinations, including exact registration
+  coverage, partial committed membership, Platform delegation, and consumption
+  of the Definitions-owned non-install cleanup boundary.
 - [Inspect Web UI](design/inspect-web-ui.md): composition map for the website
   redesign, linking
   [presentation language](design/inspect-web-presentation-language.md),

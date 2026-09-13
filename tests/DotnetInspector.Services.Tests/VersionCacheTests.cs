@@ -1,4 +1,4 @@
-using DotnetInspector.Core;
+using DotnetInspector.Cache;
 using DotnetInspector.Packages;
 using NuGetFetch;
 using NuGetSource = NuGetFetch.PackageSource;
@@ -10,7 +10,7 @@ namespace DotnetInspector.Services.Tests;
 /// Tests for version resolution caching in PackageExtractor.
 /// Validates source-scoped candidate caching, multi-source support, TTL expiry, and skipCache.
 /// </summary>
-[Collection(CoreCacheCollection.Name)]
+[Collection(PersistentCacheCollection.Name)]
 public class VersionCacheTests : IDisposable
 {
     private const string VersionCacheCategory = "versions-v5";
@@ -25,13 +25,13 @@ public class VersionCacheTests : IDisposable
 
     public VersionCacheTests()
     {
-        CoreCache.Initialize("dotnet-inspect-test");
-        CoreCache.Clear(VersionCacheCategory);
+        PersistentCache.Initialize("dotnet-inspect-test");
+        PersistentCache.Clear(VersionCacheCategory);
     }
 
     public void Dispose()
     {
-        CoreCache.Clear(VersionCacheCategory);
+        PersistentCache.Clear(VersionCacheCategory);
     }
 
     // --- GetLatestVersionAsync ---
@@ -324,9 +324,9 @@ public class VersionCacheTests : IDisposable
         var key = PackageExtractor.GetLatestVersionCacheKey(
             "ExpiredPackage",
             NuGetOrgSource);
-        CoreCache.Set(VersionCacheCategory, key, "0.9.0", extension: "txt");
+        PersistentCache.Set(VersionCacheCategory, key, "0.9.0", extension: "txt");
 
-        var cachePath = CoreCache.GetFilePath(VersionCacheCategory, key, extension: "txt");
+        var cachePath = PersistentCache.GetFilePath(VersionCacheCategory, key, extension: "txt");
         File.SetLastWriteTimeUtc(cachePath, DateTime.UtcNow.AddHours(-2));
 
         var result = await PackageExtractor.GetLatestVersionAsync(
@@ -391,7 +391,7 @@ public class VersionCacheTests : IDisposable
     public async Task GetVersions_WithIncompleteCachedSnapshot_RefetchesSource()
     {
         string packageName = $"partial-{Guid.NewGuid():N}";
-        CoreCache.Set(
+        PersistentCache.Set(
             VersionCacheCategory,
             PackageExtractor.GetListingsVersionCacheKey(
                 packageName,
@@ -465,9 +465,9 @@ public class VersionCacheTests : IDisposable
         var key = PackageExtractor.GetListingsVersionCacheKey(
             "Expired",
             NuGetOrgSource);
-        CoreCache.Set(VersionCacheCategory, key, "1.0.0\n2.0.0", extension: "txt");
+        PersistentCache.Set(VersionCacheCategory, key, "1.0.0\n2.0.0", extension: "txt");
 
-        var cachePath = CoreCache.GetFilePath(VersionCacheCategory, key, extension: "txt");
+        var cachePath = PersistentCache.GetFilePath(VersionCacheCategory, key, extension: "txt");
         File.SetLastWriteTimeUtc(cachePath, DateTime.UtcNow.AddHours(-2));
 
         var result = await PackageExtractor.GetVersionsAsync(
@@ -570,7 +570,7 @@ public class VersionCacheTests : IDisposable
         NuGetSource source,
         string version,
         bool includePrerelease = false)
-        => CoreCache.Set(
+        => PersistentCache.Set(
             VersionCacheCategory,
             PackageExtractor.GetLatestVersionCacheKey(
                 packageName,
@@ -583,7 +583,7 @@ public class VersionCacheTests : IDisposable
         string packageName,
         NuGetSource source,
         string versions)
-        => CoreCache.Set(
+        => PersistentCache.Set(
             VersionCacheCategory,
             PackageExtractor.GetListingsVersionCacheKey(packageName, source),
             string.Join(

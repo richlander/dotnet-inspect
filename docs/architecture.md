@@ -119,7 +119,8 @@ alphabetically.
 | Region | Place in flow | Responsibility | Primary authority |
 | ------ | ------------- | -------------- | ----------------- |
 | `Inspector.Artifacts` | Contract floor | Source-neutral artifact identity, provenance, diagnostics, acquisition outcomes, resource-classified access authority, and scoped content borrowing. | [Artifact acquisition and workspaces](design/artifact-acquisition-and-workspaces.md), [Artifact ownership and borrowing](design/artifact-ownership-and-borrowing.md), [library family boundaries](design/library-family-boundaries.md) |
-| `DotnetInspector.Core` (transitional) | Runtime floor | Cache roots, cache publication, combined request/cache diagnostics, and hardened readers pending subject-based decomposition. | [Inspection space architecture](inspection-space.md), [cache concurrency](design/cache-concurrency.md), [#6334](https://github.com/richlander/dotnet-inspect/issues/6334) |
+| `DotnetInspector.Cache` | Cache mechanism | `PersistentCache` roots, hashed keys, maintenance, atomic file publication, and `CacheTelemetry`. Its dependencies are limited to the platform, `InertText`, and `DotnetInspector.Networking`. | [Inspection space architecture](inspection-space.md#persistentcache), [cache concurrency](design/cache-concurrency.md), [#6671](https://github.com/richlander/dotnet-inspect/issues/6671) |
+| `DotnetInspector.Core` (transitional) | Runtime composition and document utilities | `RequestMermaidDiagram` composes network, cache, and breadcrumb observations; `InfoTracker` subscribes to network and cache telemetry and counts cache hits and misses, not stores. `CountingTextWriter` and the hardened JSON/XML readers remain pending later subject decomposition. | [Library family boundaries](design/library-family-boundaries.md), [#6334](https://github.com/richlander/dotnet-inspect/issues/6334) |
 | `Inspector.Resources` | Resource protocol floor | Dependency-free current-C# declaration carriers plus the serializer-neutral synchronous snapshot callback and ref-like view shared by resource owners and Analysis. | [Resource ownership and borrowing](design/resource-ownership-and-borrowing.md), [Resource Effect Language](design/resource-effect-language.md), [#6544](https://github.com/richlander/dotnet-inspect/issues/6544) |
 | `Inspector.Artifacts.Workspaces` | Workspace composition | Bounded immutable contribution composition, resource-free content references, transferable retained-content children, and asynchronously settled workspace-session lifetime, currently exercised by the package-free fixture canary. | [Artifact acquisition and workspaces](design/artifact-acquisition-and-workspaces.md), [Artifact ownership and borrowing](design/artifact-ownership-and-borrowing.md), [library family boundaries](design/library-family-boundaries.md) |
 | `Inspector.Artifacts.Local` | Source adapter canary | Snapshotting explicitly supplied local files into artifact contracts for the current local-acquisition canary. | [Artifact acquisition and workspaces](design/artifact-acquisition-and-workspaces.md), [library family boundaries](design/library-family-boundaries.md) |
@@ -188,7 +189,7 @@ interpretation and Decompiler reconstruction stay with their respective owners.
 | `ILInspector.Instructions` | Decode substrate | Shared instruction decoding and exception-region-aware basic blocks. | [Instruction substrate](design/instruction-substrate.md) |
 | `ILInspector.ControlFlow` | Flow substrate | Shared control-flow, dominance, and dataflow kernels. | [Instruction substrate](design/instruction-substrate.md) |
 | `Inspector.Text` | Text producer | Exact ordered line inspection, generic text comparison, and deterministic LF construction. | [Finding producers](design/finding-producers.md), [library family boundaries](design/library-family-boundaries.md) |
-| `ILInspector.Analysis` | IL evidence producer | SRM-based whole-assembly and targeted IL evidence, including calls, allocations, safety, leverage, and resource analysis over portable normalized effect declarations. | [Resource Effect Language](design/resource-effect-language.md), focused Analysis designs, [Finding adoption](design/finding-adoption.md) |
+| `ILInspector.Analysis` | IL evidence producer | SRM-based whole-assembly and targeted IL evidence, including calls, allocations, safety, leverage, current ArrayPool resource evidence, bounded admission of portable resource-effect declarations, and generation-bound resolution of those declarations to exact metadata occurrences. | [Resource Effect Language](design/resource-effect-language.md), [Resolved Resource Effects](design/resolved-resource-effects.md), focused Analysis designs, [Finding adoption](design/finding-adoption.md) |
 | `ILInspector.Decompiler` | IR producer | Per-method IR, structuring, typing, C# projection, and annotated IL. | [Decompiler correctness pipeline](decompiler-correctness-pipeline.md) |
 | `ILInspector.ILDiff` | Comparison producer | Canonical IL-body and assembly comparison with typed failures and Finding projection. | [Implementation diff](design/implementation-diff.md) |
 | `ILInspector.CallGraph` | Derived projection | Host-neutral projection of Analysis call trees into graph nodes, edges, cycles, and characteristics. | [Call graph projection](design/call-graph-projection.md) |
@@ -256,14 +257,14 @@ without taking ownership of those producers or of manifest enrollment.
 Within the CLI host, `PackageIndexCache` is a focused derived-result owner. Its
 [package index cache](design/package-index-cache.md) contract defines when a
 persistent filesystem-derived package projection may replace cold inspection;
-`CoreCache` remains only its storage mechanism.
+`PersistentCache` remains only its storage mechanism.
 
 Within `DotnetInspector.Services`, package-metadata persistence is a focused
 observation-reuse owner. Its
 [package metadata persistence](design/package-metadata-persistence.md)
 contract defines when a complete, authority-scoped present or absent
 observation may replace a fresh metadata operation; `MetadataFieldCache` and
-`CoreCache` remain encoding and storage mechanisms.
+`PersistentCache` remain encoding and storage mechanisms.
 
 ## Core currencies
 
@@ -354,7 +355,7 @@ faithfulness claims. This map does not duplicate those evolving gate lists.
 
 | Change area | Start with | Then inspect |
 | ----------- | ---------- | ------------ |
-| Workspace, acquisition, cache, network, or source policy | [Inspection space](inspection-space.md), [artifact acquisition](design/artifact-acquisition-and-workspaces.md) | `Inspector.Artifacts*`, `DotnetInspector.Core`, `DotnetInspector.Networking`, `DotnetInspector.Packages`, `DotnetInspector.Services` |
+| Workspace, acquisition, cache, network, or source policy | [Inspection space](inspection-space.md), [artifact acquisition](design/artifact-acquisition-and-workspaces.md) | `Inspector.Artifacts*`, `DotnetInspector.Cache`, `DotnetInspector.Core`, `DotnetInspector.Networking`, `DotnetInspector.Packages`, `DotnetInspector.Services` |
 | Query planning or execution | [Inspection layers](design/inspection-layers.md) | `DotnetInspector.Queries`, optional query companions |
 | Sections, discovery, or selection | [Progressive disclosure](design/progressive-disclosure.md), [section model](design/section-model.md), [semantic row selection](design/semantic-row-selection.md) | `DotnetInspector.RowSelection`, `DotnetInspector.Sections`, `src/DotnetInspect.Cli/Sections`, `src/DotnetInspect.Cli/Output` |
 | Metadata, API, type, or member facts | [Assembly inspection query](design/assembly-inspection-query.md), [representation](design/type-member-api-representation.md) | `ILInspector.Metadata*`, `ILInspector.CSharp`, `CSharpText` |

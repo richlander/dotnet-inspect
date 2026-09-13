@@ -4,6 +4,7 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using System.Xml.Linq;
+using DotnetInspector.Cache;
 using ILInspector.Metadata;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -335,6 +336,23 @@ public sealed class BrowserEngineLayeringTests
     }
 
     [Fact]
+    public void CacheOwnerRemainsInBrowserProductClosure()
+    {
+        Assembly cache = typeof(PersistentCache).Assembly;
+        Type[] ownerTypes =
+        [
+            typeof(PersistentCache),
+            typeof(CacheTelemetry),
+            typeof(CacheObservation),
+            typeof(CacheAccessResult),
+        ];
+
+        Assert.Equal("DotnetInspector.Cache", cache.GetName().Name);
+        Assert.Contains(cache, ProductAssemblies);
+        Assert.All(ownerTypes, type => Assert.Same(cache, type.Assembly));
+    }
+
+    [Fact]
     public void EveryPublicInspectionStreamOwnerIsBannedOrApprovedAcquisitionSurface()
     {
         IReadOnlyList<string> banned = BannedSymbols();
@@ -454,7 +472,7 @@ public sealed class BrowserEngineLayeringTests
         string[] approvedOwners =
         [
             "CSharpText.XmlDocText",
-            "DotnetInspector.Core.CoreCache",
+            "DotnetInspector.Cache.PersistentCache",
             "DotnetInspector.Core.HardenedXml",
             "DotnetInspector.Packages.FileSystemPackageContent",
             "DotnetInspector.Packages.HttpRetryHelper",

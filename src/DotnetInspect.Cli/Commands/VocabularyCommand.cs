@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Sections;
 using DotnetInspector.Vocabulary;
 using Markout;
 
@@ -79,12 +80,20 @@ public static class VocabularyCommand
                         .Resolved.Length > 0),
             ]
             : sections;
+        if (!TryApplyRowSelection(
+                renderedSections,
+                options.RowSelection,
+                document,
+                out renderedSections))
+        {
+            return 1;
+        }
 
         if (options.Count)
         {
             if (sections.Length == 1)
             {
-                CountOutput.WriteCount(RowWindow.Apply(options.Rows, sections[0].Values).Count);
+                CountOutput.WriteCount(renderedSections[0].Values.Length);
             }
             else
             {
@@ -98,16 +107,16 @@ public static class VocabularyCommand
                 }
 
                 var renderedNames = renderedSections
-                    .Select(section => section.Name)
-                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    .ToDictionary(
+                        section => section.Name,
+                        section => section.Values.Length,
+                        StringComparer.OrdinalIgnoreCase);
                 var projection = new CountProjection();
                 foreach (VocabularySection section in sections)
                 {
                     projection.SetRows(
                         section.Name,
-                        renderedNames.Contains(section.Name)
-                            ? RowWindow.Apply(options.Rows, section.Values).Count
-                            : 0);
+                        renderedNames.GetValueOrDefault(section.Name));
                 }
                 CountOutput.Write(
                     projection,
@@ -139,25 +148,18 @@ public static class VocabularyCommand
                             new MarkoutWriter(writer, formatter, writerOptions),
                             renderedSections,
                             includeDocumentHeading: true),
-                    maxRows: options.Rows);
+                    maxRows: null);
             }
             else
             {
-                VocabularySection[] windowed =
-                [
-                    .. sections.Select(section => section with
-                    {
-                        Values = [.. RowWindow.Apply(options.Rows, section.Values)],
-                    }),
-                ];
-                Console.WriteLine(VocabularyJson.Serialize(document, windowed));
+                Console.WriteLine(VocabularyJson.Serialize(document, renderedSections));
             }
             return 0;
         }
 
         if (options.Tabular)
         {
-            VocabularySection section = sections[0];
+            VocabularySection section = renderedSections[0];
             OutputFormatter.WriteProjectedTable(
                 Console.Out,
                 showHeader: !options.NoHeader,
@@ -171,14 +173,14 @@ public static class VocabularyCommand
                     WriteTable(markout, section);
                     markout.Flush();
                 },
-                options.Rows);
+                maxRows: null);
             return 0;
         }
 
         var markdownOptions = OutputFormatter.CreateProjectedWriterOptions(
             renderedColumns,
             fields: null,
-            options.Rows);
+            rows: null);
         var markdown = new MarkoutWriter(
             Console.Out,
             options.PlainText
@@ -188,6 +190,49 @@ public static class VocabularyCommand
         WriteSections(markdown, renderedSections, includeDocumentHeading: true);
         markdown.Flush();
         return 0;
+    }
+
+    private static bool TryApplyRowSelection(
+        VocabularySection[] sections,
+        RowSelectionIntent<string>? rowSelection,
+        VocabularyDocument document,
+        out VocabularySection[] selectedSections)
+    {
+        selectedSections = sections;
+        if (rowSelection is null || rowSelection.Operations.Count == 0)
+            return true;
+
+        RowsCohortResult<string, VocabularyRow> result =
+            RowsCohortExecutor.ApplyUnordered(
+                [
+                    .. sections.Select(section =>
+                        RowsCohortSequence<string, VocabularyRow>.Create(
+                            section.Id,
+                            section.Values)),
+                ],
+                rowSelection);
+        if (!result.IsSuccess)
+        {
+            RowsCohortSemanticFailure<string> failure = result.Failure!;
+            VocabularySection section = document.Sections.Single(
+                candidate => candidate.Id == failure.Identity);
+            CommandError.Write(
+                $"Vocabulary row selection stage "
+                + $"{failure.Failure.StageNumber} for '{section.Name}' "
+                + $"requires row {failure.Failure.RequiredPosition}, but only "
+                + $"{failure.Failure.AvailableCount} rows are available.");
+            selectedSections = [];
+            return false;
+        }
+
+        selectedSections =
+        [
+            .. sections.Zip(
+                result.RowSets,
+                static (section, rowSet) =>
+                    section with { Values = [.. rowSet.Values] }),
+        ];
+        return true;
     }
 
     private static void WriteSections(

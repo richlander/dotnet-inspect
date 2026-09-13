@@ -3,7 +3,7 @@ using System.CommandLine.Parsing;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
-using DotnetInspector.PackageQueries;
+using DotnetInspector.Queries;
 using DotnetInspector.RowSelection;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
@@ -69,17 +69,17 @@ public static class SearchCommandDefinitions
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
         var packagePrefixOption = new Option<string?>("--package-prefix")
         {
-            Description = $"With a type pattern, search up to {ScopeConstants.PackagePrefixExpansionLimit} matching package IDs; without one, inspect {FindCommand.PackageProfileDefaultLimit} latest manifests by default (-t up to {FindCommand.PackageProfileMaximumLimit}). Use -Q Packages for facet queries."
+            Description = $"With a type pattern, search up to {ScopeConstants.PackagePrefixExpansionLimit} matching package IDs; without one, inspect {FindCommand.PackageProfileDefaultLimit} latest manifests by default (--take up to {FindCommand.PackageProfileMaximumLimit}). Use -Q Packages for facet queries."
         };
-        var typeFilterOption = new Option<string?>("-t") { Description = "Limit result count (-t 5) or filter API types by glob (-t *Json*)" };
-        typeFilterOption.Aliases.Add("--type");
-        var candidatesOption = new Option<int?>("--candidates")
+        var typeFilterOption = new Option<string?>("--type")
         {
-            Description = "Package Query candidate budget (default 200, or 20 with --package-content; maximum 1000)"
+            Description = "Filter API types by glob (for example --type *Json*)"
         };
-        var matchesOption = new Option<int?>("--matches")
+        var takeOption = new Option<string[]>("--take")
         {
-            Description = "Package Query match budget after facet evaluation (default 100; maximum 1000)"
+            Description = "Maximum package candidates or manifest enrichments to attempt (default 200 for Package Query, 20 with --package-content, or 500 for Package Profile; maximum 1000)",
+            Arity = ArgumentArity.OneOrMore,
+            AllowMultipleArgumentsPerToken = false
         };
         var packageContentOption = new Option<bool>("--package-content")
         {
@@ -101,8 +101,7 @@ public static class SearchCommandDefinitions
         findCommand.Options.Add(literalOption);
         findCommand.Options.Add(typeFilterOption);
         findCommand.Options.Add(opts.RowWhere);
-        findCommand.Options.Add(candidatesOption);
-        findCommand.Options.Add(matchesOption);
+        findCommand.Options.Add(takeOption);
         findCommand.Options.Add(packageContentOption);
         findCommand.Options.Add(opts.Json);
         findCommand.Options.Add(compactOption);
@@ -113,67 +112,17 @@ public static class SearchCommandDefinitions
         findCommand.Options.Add(opts.Columns);
         findCommand.Options.Add(opts.Fields);
         opts.AddCountOptionTo(findCommand);
-        opts.AddOutputOptionsTo(findCommand);
+        opts.AddOutputOptionsTo(
+            findCommand,
+            validateLegacyRowWindow: static _ => false);
         opts.AddNuGetOptionsTo(findCommand);
-
-        findCommand.Validators.Add(result =>
-        {
-            string? literal = result.GetValue(literalOption);
-            if (literal is null)
-                return;
-
-            if (!string.IsNullOrEmpty(result.GetValue(patternArg))
-                || result.GetResult(packagePrefixOption) is { Implicit: false }
-                || result.GetResult(assemblyOption) is { Implicit: false }
-                || result.GetResult(platformOption) is { Implicit: false }
-                || result.GetResult(platformLibraryOption) is { Implicit: false }
-                || result.GetValue(extensionsOption)
-                || result.GetValue(aspnetcoreOption)
-                || result.GetResult(projectOption) is { Implicit: false }
-                || result.GetResult(binOption) is { Implicit: false }
-                || result.GetValue(membersOption)
-                || result.GetValue(allOption)
-                || result.GetResult(typeFilterOption) is { Implicit: false })
-            {
-                result.AddError(
-                    "--literal searches only explicit ID@VERSION packages; "
-                    + "it cannot be combined with a type pattern, API search scopes, "
-                    + "--package-prefix, --members, --all, or -t.");
-                return;
-            }
-
-            if (result.GetValue(opts.Discover) is not null)
-                return;
-
-            // The planner rejects a missing target framework through the ordinary argument
-            // contract, which carries no product-authored sentence. The CLI owns that diagnostic.
-            string tfm = result.GetValue(tfmOption) ?? "";
-            if (string.IsNullOrWhiteSpace(tfm))
-            {
-                result.AddError(PackageAssemblyQueryDiagnostics.MissingTargetFramework);
-                return;
-            }
-
-            try
-            {
-                _ = PackageAssemblyQuery.Plan(
-                    PackageAssemblyPatterns.StringLiteralContains,
-                    literal,
-                    result.GetValue(packageOption) ?? [],
-                    tfm);
-            }
-            catch (ArgumentException ex)
-            {
-                result.AddError(PackageAssemblyQueryDiagnostics.Describe(ex));
-            }
-        });
 
         var commandArgs = new FindOptionsParser.FindCommandArgs(
             patternArg, packageOption, assemblyOption, platformOption, platformLibraryOption,
             extensionsOption, aspnetcoreOption, projectOption, binOption, tfmOption, allOption,
             typeFilterOption, compactOption, opts.NoHeaders, packagePrefixOption, membersOption,
             literalOption,
-            candidatesOption, matchesOption, packageContentOption);
+            takeOption, packageContentOption);
 
         findCommand.SetAction(async (parseResult, ct) =>
         {
@@ -215,6 +164,30 @@ public static class SearchCommandDefinitions
                     return 1;
             }
         });
+
+        var linesOption = new Option<bool>("--lines");
+        var tailLinesOption = new Option<bool>("--tail-lines");
+        CliRowSelectionCommandRegistry.Register(
+            findCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                linesOption,
+                tailLinesOption),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window,
+            isActive: static _ => true);
+        CliExecutionBoundCommandRegistry.Register(
+            findCommand,
+            takeOption,
+            result => result.GetValue(packageContentOption)
+                ? PackageQuery.MaximumPackageContentCandidates
+                : FindCommand.PackageProfileMaximumLimit,
+            isActive: static _ => true);
 
         return findCommand;
     }
@@ -774,11 +747,29 @@ public static class SearchCommandDefinitions
                 || (parseResult.GetValue(platformLibraryOption)?.Length ?? 0) > 0
                 || parseResult.GetValue(extensionsOption)
                 || parseResult.GetValue(aspnetcoreOption);
-            if (shareFormat is not null && hasNonPackageShareInput)
+            bool hasValidTypeShareInput =
+                !string.IsNullOrEmpty(targetType)
+                && packages.Length == 1
+                && (parseResult.GetValue(nuspecOption)?.Length ?? 0) == 0
+                && assemblies.Length == 0
+                && projects.Length == 0
+                && parseResult.GetValue(packagePrefixOption) is null
+                && (parseResult.GetValue(platformLibraryOption)?.Length ?? 0) == 0
+                && !parseResult.GetValue(platformOption)
+                && !parseResult.GetValue(extensionsOption)
+                && !parseResult.GetValue(aspnetcoreOption);
+            bool invalidShareInput =
+                string.IsNullOrEmpty(targetType)
+                    ? hasNonPackageShareInput
+                    : !hasValidTypeShareInput;
+            if (shareFormat is not null && invalidShareInput)
             {
                 CommandError.Write(
-                    "--share requires exactly one --package input and "
-                    + "cannot be used with type, library, project, or platform dependency modes.");
+                    string.IsNullOrEmpty(targetType)
+                        ? "--share requires exactly one --package input and "
+                            + "cannot be used with type, library, project, or platform dependency modes."
+                        : "--share in type mode requires exactly one --package "
+                            + "input and cannot be used with another dependency source.");
                 return 1;
             }
 
@@ -913,7 +904,8 @@ public static class SearchCommandDefinitions
                 Columns = opts.ParseColumns(parseResult),
                 Fields = opts.ParseFields(parseResult),
                 Verbose = parseResult.GetValue(opts.Verbose),
-                SourceOptions = sourceOptions
+                SourceOptions = sourceOptions,
+                ShareFormat = shareFormat
             };
 
             var outcome = await DependsCommand.ExecuteTypeDependsAsync(

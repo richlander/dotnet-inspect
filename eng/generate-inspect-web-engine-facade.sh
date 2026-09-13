@@ -191,6 +191,7 @@ for index in "${!context_artifacts[@]}"; do
     ${generator_build_properties[@]+"${generator_build_properties[@]}"} \
     -- \
     "$root_assembly" \
+    --assembly-search-path "$source_assembly_directory" \
     --runtime-module ./runtime-loader.js \
     --output "$scratch/direct/$artifact"
   if ! cmp "$context_output/$artifact" "$scratch/direct/$artifact"; then

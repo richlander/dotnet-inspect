@@ -18,6 +18,26 @@ public sealed record WorkspaceOptions
     /// </remarks>
     public string? RootRequest { get; init; }
 
+    /// <summary>
+    /// One-based ordered Package occurrence to evaluate as Navigation context.
+    /// </summary>
+    public int? ActivePackage { get; init; }
+
+    /// <summary>The exact owner-issued compile asset id for a Library.</summary>
+    public string? Library { get; init; }
+
+    /// <summary>Use the aggregate Library subject as the descendant source.</summary>
+    public bool AllLibraries { get; init; }
+
+    /// <summary>An exact returned metadata Type full name.</summary>
+    public string? Type { get; init; }
+
+    /// <summary>An exact returned Member stable selector.</summary>
+    public string? Member { get; init; }
+
+    /// <summary>The exact destination view-facet id.</summary>
+    public string? Lens { get; init; }
+
     public bool IncludePrerelease { get; init; }
     public OutputFormat Format { get; init; } = OutputFormat.Markdown;
     public bool Count { get; init; }

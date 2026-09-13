@@ -1,10 +1,10 @@
+using DotnetInspector.Cache;
 using System.Buffers.Binary;
 using System.IO.Compression;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 using DotnetInspect.Cli.Commands;
-using DotnetInspector.Core;
 using DotnetInspector.MetadataRendering;
 using DotnetInspect.Cli.Models;
 using DotnetInspector.Sections;
@@ -431,10 +431,10 @@ public partial class CommandExecutionTests
 
         try
         {
-            await CoreCache.RequestVersionedCategoryCleanupAsync();
+            await PersistentCache.RequestVersionedCategoryCleanupAsync();
             foreach (string key in keys)
             {
-                CoreCache.Set(
+                PersistentCache.Set(
                     legacyCategory,
                     key,
                     "Library Info\n",
@@ -468,7 +468,7 @@ public partial class CommandExecutionTests
 
         static void DeleteCacheFile(string category, string key)
         {
-            string path = CoreCache.GetFilePath(
+            string path = PersistentCache.GetFilePath(
                 category,
                 key,
                 extension: "tsv");
@@ -1166,7 +1166,7 @@ public partial class CommandExecutionTests
             // Two assemblies whose discovery catalogs differ, the smaller padded to the larger's
             // length so the pair collides on every non-content component of the old key.
             var large = TestAssemblyPath;
-            var small = typeof(DotnetInspector.Core.CoreCache).Assembly.Location;
+            var small = typeof(DotnetInspector.Cache.PersistentCache).Assembly.Location;
             var largeBytes = File.ReadAllBytes(large);
             var smallBytes = File.ReadAllBytes(small);
             // Asserted rather than skipped: a silent early return would disable this gate
@@ -1228,7 +1228,7 @@ public partial class CommandExecutionTests
         try
         {
             var large = TestAssemblyPath;
-            var small = typeof(DotnetInspector.Core.CoreCache).Assembly.Location;
+            var small = typeof(DotnetInspector.Cache.PersistentCache).Assembly.Location;
             var largeBytes = File.ReadAllBytes(large);
             var smallBytes = File.ReadAllBytes(small);
             Assert.True(

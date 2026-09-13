@@ -152,6 +152,11 @@ work, but it permits duplicate download and extraction.
 
 ## Process-local single-flight
 
+The implementation helper is the internal
+`src/DotnetInspector.Packages/AsyncCache.cs`. `PackageExtractor` is its sole
+production consumer; the helper is package-owned coordination rather than
+shared persistent-cache infrastructure.
+
 The process-wide in-flight registry is keyed by one exact package coordinate
 together with the canonical authorized-producer set, cache root, and the
 acquisition policy that affects whether a result is legal, including

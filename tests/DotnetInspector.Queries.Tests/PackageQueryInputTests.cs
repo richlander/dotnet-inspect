@@ -186,6 +186,42 @@ public sealed class PackageQueryInputTests
     }
 
     [Fact]
+    public async Task AbsentMatchLimitReturnsAllAcquiredPrefixRows()
+    {
+        using var handler = new InputHandler
+        {
+            SearchIds =
+            [
+                "Newtonsoft.A",
+                "Newtonsoft.B",
+                "Newtonsoft.C",
+            ],
+            TotalHits = 3,
+        };
+        using var source = Source(handler);
+
+        var events = await PackageQuery.ExecuteToArrayAsync(
+            source,
+            Accepted(PackageQuery.PlanInput(
+                "Newtonsoft*",
+                maximumCandidates: 3,
+                maximumMatches: null)),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            ["Newtonsoft.A", "Newtonsoft.B", "Newtonsoft.C"],
+            events.OfType<PackageQueryEvent.Match>()
+                .Select(item => item.Value.Package.PackageId));
+        PackageQuerySummary summary = Summary(events);
+        Assert.Null(summary.MatchLimit);
+        Assert.Equal(3, summary.Candidates);
+        Assert.Equal(3, summary.Matches);
+        Assert.Equal(
+            PackageQueryCompletionKind.CandidateLimitReached,
+            summary.Completion);
+    }
+
+    [Fact]
     public async Task PrefixMatchLimitStopsBeforeTheNextSourcePage()
     {
         using var handler = new InputHandler

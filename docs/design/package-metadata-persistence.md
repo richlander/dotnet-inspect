@@ -59,7 +59,7 @@ boundaries:
   after an earlier absence observation expires.
 
 No TLA+ model is required. This owner adds no coordination protocol:
-`CoreCache` retains atomic file replacement, and correctness rests on immutable
+`PersistentCache` retains atomic file replacement, and correctness rests on immutable
 subject equality, complete-value validation, and time-bounded reuse.
 
 ## Owner and boundaries
@@ -75,7 +75,7 @@ It consumes:
 - the package owner's normalized package ID and exact normalized version;
 - compatible NuGet endpoint evidence already admitted and bounded under the
   NuGet API contracts; and
-- `CoreCache` storage under one versioned metadata-persistence contract.
+- `PersistentCache` storage under one versioned metadata-persistence contract.
 
 Within this owner, the authority-scoped metadata operation issues the typed
 production outcome consumed by publication. Constructing that internal
@@ -102,7 +102,7 @@ It does not own:
 - NuGet service discovery, endpoint compatibility, authentication, retry,
   deadline, response-bounding, or metadata-field parsing;
 - package candidate or payload authority;
-- `CoreCache` paths, hashing, atomic replacement, maintenance, or telemetry;
+- `PersistentCache` paths, hashing, atomic replacement, maintenance, or telemetry;
   or
 - command selection, metadata disclosure, rendering, or output containment.
 
@@ -111,8 +111,9 @@ whether it has a credential-safe durable key. This design does not turn source
 declaration order into authority precedence.
 [NuGet API](nuget.md) supplies the endpoint and field evidence from which the
 metadata operation forms its result.
-[Inspection space](../inspection-space.md#corecache) owns the repository-wide
-derived-cache rules, and `CoreCache` supplies only the storage mechanism.
+[Inspection space](../inspection-space.md#persistentcache) owns the
+repository-wide derived-cache rules, and `PersistentCache` supplies only the
+storage mechanism.
 
 ## Cache subject
 
@@ -280,7 +281,7 @@ A repeated authoritative absence after expiry starts a new bounded window
 because it is new source evidence. A cache read never does so.
 
 The freshness contract assumes the host's ordinary wall clock and filesystem
-timestamp behavior supplied through `CoreCache`. Within that assumption, reads
+timestamp behavior supplied through `PersistentCache`. Within that assumption, reads
 cannot extend an observation indefinitely. The owner does not claim a
 cross-process monotonic clock or defend against same-machine clock or cache
 file manipulation.
@@ -306,7 +307,7 @@ A storage write failure leaves the live metadata outcome and diagnostics
 usable. Neither failure can mint absence or a complete present snapshot.
 
 Concurrent producers may observe mutable metadata at different times.
-`CoreCache` atomic replacement may select either complete observation; readers
+`PersistentCache` atomic replacement may select either complete observation; readers
 see an old complete entry, a new complete entry, or a miss, never a partially
 published entry. This owner promises bounded freshness, not monotonic metadata
 values or cross-process single flight.
@@ -438,7 +439,7 @@ This design does not:
 - require persistent reuse for an authority without a safe durable key;
 - define NuGet endpoint compatibility, authentication, retry, or field parsing;
 - make metadata values monotonic during their freshness window;
-- make `CoreCache` a semantic cache owner;
+- make `PersistentCache` a semantic cache owner;
 - guarantee a cache hit, durable write, cross-process single flight, or
   operation across host clock rollback; or
 - change package commands, output, disclosure, or rendering.

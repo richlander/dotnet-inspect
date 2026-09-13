@@ -132,7 +132,12 @@ public partial class DependsCommand
                 context.HttpClient,
                 options,
                 logger,
-                cancellationToken);
+                cancellationToken,
+                options.ShareFormat is not null
+                    ? typeName => DependsShareProjection.ProjectType(
+                        options,
+                        typeName)
+                    : null);
 
             // A rejected participant scopes to itself and leaves the rest of
             // the scan intact, but the resulting graph is uncertified: it may
@@ -148,14 +153,18 @@ public partial class DependsCommand
                     CommandError.Write(
                         "Dependency scan unavailable because every selected assembly was rejected.");
                 }
-                return new TypeDependsOutcome(1, false);
+                return WithTypeShare(result, options, 1, false);
             }
 
             if (!result.Dependency.Found)
             {
                 // Report the absence as an absence and carry the uncertainty
                 // alongside it.
-                return new TypeDependsOutcome(TypeNotFoundExitCode, uncertified);
+                return WithTypeShare(
+                    result,
+                    options,
+                    TypeNotFoundExitCode,
+                    uncertified);
             }
 
             if (result.RowSelectionFailure is { } rowFailure)
@@ -166,10 +175,10 @@ public partial class DependsCommand
                     + $"{rowFailure.Failure.RequiredPosition}, but "
                     + $"{rowFailure.Identity} has "
                     + $"{rowFailure.Failure.AvailableCount} rows.");
-                return new TypeDependsOutcome(1, uncertified);
+                return WithTypeShare(result, options, 1, uncertified);
             }
             if (emptyQuietSelection)
-                return Certified(0, uncertified);
+                return WithTypeShare(result, options, 0, uncertified);
 
             DependencyGraphDocument document =
                 DependencyGraphProjection.Type(result.Dependency);
@@ -214,7 +223,7 @@ public partial class DependsCommand
                     options.CompactJson);
             }
 
-            return Certified(0, uncertified);
+            return WithTypeShare(result, options, 0, uncertified);
         }
         catch (Exception ex)
         {
@@ -350,6 +359,25 @@ public partial class DependsCommand
         => new(
             uncertified && exitCode == 0 ? UncertifiedScanExitCode : exitCode,
             uncertified);
+
+    private static TypeDependsOutcome WithTypeShare(
+        TypeDependencyExecutionResult result,
+        DependsOptions options,
+        int exitCode,
+        bool uncertified)
+    {
+        if (options.ShareFormat is { } format)
+        {
+            int shareExitCode =
+                WorkspaceShareOutput.Write(
+                    result.Share,
+                    format);
+            if (shareExitCode != 0)
+                exitCode = shareExitCode;
+        }
+
+        return Certified(exitCode, uncertified);
+    }
 
     private static string ContainLabel(string label)
         => CSharpIdentifier.ContainRenderedText(label);

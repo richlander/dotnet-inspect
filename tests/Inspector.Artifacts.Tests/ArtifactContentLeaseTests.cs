@@ -49,6 +49,8 @@ public sealed partial class ArtifactSetSessionTests
                     content.WithContent(
                         (view, _) =>
                         {
+                            Assert.Same(reference, content.Reference);
+                            Assert.Same(reference, view.Reference);
                             Assert.Same(
                                 reference.Descriptor.Identity,
                                 view.Artifact);
@@ -62,6 +64,14 @@ public sealed partial class ArtifactSetSessionTests
                         },
                         cancellationToken));
         Assert.Equal(3, accessed.Value);
+        ArtifactContentDigest digest =
+            Assert.IsType<
+                ArtifactContentAccessOutcome<
+                    ArtifactContentDigest>.Accessed>(
+                        content.GetContentDigest(
+                            _ => { },
+                            cancellationToken)).Value;
+        Assert.Same(reference.Artifact, digest.Artifact);
 
         content.Dispose();
         await disposal.WaitAsync(cancellationToken);
@@ -69,6 +79,10 @@ public sealed partial class ArtifactSetSessionTests
         Assert.Throws<ObjectDisposedException>(
             () => content.WithContent(
                 static (_, _) => 0,
+                cancellationToken));
+        Assert.Throws<ObjectDisposedException>(
+            () => content.GetContentDigest(
+                _ => { },
                 cancellationToken));
     }
 
@@ -133,6 +147,7 @@ public sealed partial class ArtifactSetSessionTests
             session.IssueLease(replacement);
         using ArtifactContentLease content =
             session.IssueContentLease(reference, current);
+        Assert.Same(reference, content.Reference);
         Assert.Same(reference.Descriptor.Identity, content.Artifact);
         current.Dispose();
         Assert.Throws<ObjectDisposedException>(

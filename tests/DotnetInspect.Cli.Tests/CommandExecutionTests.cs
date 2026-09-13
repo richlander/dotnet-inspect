@@ -1,3 +1,4 @@
+using DotnetInspector.Cache;
 using System.Buffers;
 using System.Buffers.Binary;
 using System.CommandLine;
@@ -13696,11 +13697,11 @@ public partial class CommandExecutionTests
 
         try
         {
-            await CoreCache.RequestVersionedCategoryCleanupAsync();
+            await PersistentCache.RequestVersionedCategoryCleanupAsync();
             foreach (string key in keys)
             {
-                CoreCache.Set(legacyCategory, key, "Library Info\n", extension: "tsv");
-                Assert.NotNull(CoreCache.TryGet(legacyCategory, key, extension: "tsv"));
+                PersistentCache.Set(legacyCategory, key, "Library Info\n", extension: "tsv");
+                Assert.NotNull(PersistentCache.TryGet(legacyCategory, key, extension: "tsv"));
             }
 
             var (exit, output, error) = await RunAppAsync(
@@ -13718,8 +13719,8 @@ public partial class CommandExecutionTests
         {
             foreach (string key in keys)
             {
-                DeleteIfPresent(CoreCache.GetFilePath(legacyCategory, key, extension: "tsv"));
-                DeleteIfPresent(CoreCache.GetFilePath(currentCategory, key, extension: "tsv"));
+                DeleteIfPresent(PersistentCache.GetFilePath(legacyCategory, key, extension: "tsv"));
+                DeleteIfPresent(PersistentCache.GetFilePath(currentCategory, key, extension: "tsv"));
             }
             Directory.Delete(directory, recursive: true);
         }
@@ -14625,17 +14626,17 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("3")]
+    [InlineData("..3")]
     [InlineData("2..10")]
-    [InlineData("2+10")]
+    [InlineData("2..11")]
     [InlineData("1..1")]
     public async Task Find_RowWindowUnderProjectedJson_MatchesTheTableFormats(string window)
     {
         // #3494: --rows is a Shape decision, so it has to survive the change of Format. It is
-        // applied by Markout before rows reach any formatter rather than by a line-oriented
+        // applied to semantic rows before they reach any formatter rather than by a line-oriented
         // post-processor -- counting lines is only safe when one row is one line, which a
-        // pretty-printed JSON document violates. Every window kind is covered because Markout,
-        // not the caller, decides what head/range/start+count mean.
+        // pretty-printed JSON document violates. Prefix, closed, and single-row ranges therefore
+        // select the same identities in each format.
         var (tsvExit, tsvOutput, _) = await RunAppAsync(
             "find", "*", "--library", TestAssemblyPath, "--columns", "Type", "--tsv", "--rows", window);
         var (jsonExit, jsonOutput, _) = await RunAppAsync(
@@ -14660,14 +14661,14 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Find_RowWindowUnderProjectedJson_KeepsTheDocumentParsable()
     {
-        // A window that selects nothing must still be a JSON document. The table formats emit an
-        // empty string here; JSON cannot, because "no bytes" is not a value a consumer can parse.
+        // A one-row semantic window remains a complete JSON document rather than becoming a
+        // line-oriented fragment of the pretty-printed representation.
         var (exit, output, _) = await RunAppAsync(
-            "find", "*", "--library", TestAssemblyPath, "--columns", "Type", "--json", "--rows", "100000..");
+            "find", "*", "--library", TestAssemblyPath, "--columns", "Type", "--json", "--rows", "1..1");
 
         Assert.Equal(0, exit);
         using var document = JsonDocument.Parse(output);
-        Assert.Empty(document.RootElement.GetProperty("results").EnumerateArray());
+        Assert.Single(document.RootElement.GetProperty("results").EnumerateArray());
     }
 
     [Fact]
@@ -14734,9 +14735,9 @@ public partial class CommandExecutionTests
         // The member search reaches the lowered view through a separate call site; a fix applied to
         // only one of the two would leave --rows silently dropped on the other.
         var (tsvExit, tsvOutput, _) = await RunAppAsync(
-            "find", "Dispose", "--members", "--library", TestAssemblyPath, "--columns", "Member", "--tsv", "--rows", "2");
+            "find", "Dispose", "--members", "--library", TestAssemblyPath, "--columns", "Member", "--tsv", "--rows", "1..2");
         var (jsonExit, jsonOutput, _) = await RunAppAsync(
-            "find", "Dispose", "--members", "--library", TestAssemblyPath, "--columns", "Member", "--json", "--rows", "2");
+            "find", "Dispose", "--members", "--library", TestAssemblyPath, "--columns", "Member", "--json", "--rows", "1..2");
 
         Assert.Equal(0, tsvExit);
         Assert.Equal(0, jsonExit);
@@ -15229,10 +15230,10 @@ public partial class CommandExecutionTests
     {
         var find = await RunAppAsync(
             "find", "*", "--platform", "System.Private.CoreLib",
-            "--count", "--rows", "1", "--tips", "q");
+            "--count", "--rows", "1..1", "--tips", "q");
         var members = await RunAppAsync(
             "find", ".ToString", "--platform", "System.Private.CoreLib",
-            "--count", "--rows", "1", "--tips", "q");
+            "--count", "--rows", "1..1", "--tips", "q");
         var implements = await RunAppAsync(
             "implements", "IDisposable", "--platform", "System.Private.CoreLib",
             "--count", "--rows", "1", "--tips", "q");
@@ -22752,7 +22753,7 @@ public partial class CommandExecutionTests
                     LibraryCommand.BuildEffectiveCacheKey(path, hash, hasSourceLink: true),
                 };
             })
-            .Select(key => CoreCache.GetFilePath(currentCategory, key, extension: "tsv"))];
+            .Select(key => PersistentCache.GetFilePath(currentCategory, key, extension: "tsv"))];
 
         try
         {
@@ -35046,58 +35047,6 @@ public partial class CommandExecutionTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
-    }
-
-    [Theory]
-    [InlineData("--agents-index", null, "-S Skills")]
-    [InlineData("--agents-index=true", null, "-S Skills")]
-    [InlineData(
-        "--readme",
-        "Test.Package",
-        "-S \"Package README file\"")]
-    [InlineData(
-        "--readme=Test.Package",
-        null,
-        "-S \"Package README file\"")]
-    public async Task Project_RemovedDocumentModes_ReportMigrationGuidance(
-        string option,
-        string? value,
-        string replacement)
-    {
-        string[] removedArguments =
-            value is null ? [option] : [option, value];
-        var withoutPath = await RunAppAsync(
-            ["project", .. removedArguments]);
-        var afterPath = await RunAppAsync(
-            ["project", ".", .. removedArguments]);
-
-        foreach (var result in new[] { withoutPath, afterPath })
-        {
-            Assert.NotEqual(0, result.Exit);
-            Assert.Empty(result.Output);
-            Assert.Contains(option.Split('=', 2)[0], result.Error);
-            Assert.Contains(replacement, result.Error);
-            Assert.DoesNotContain(
-                "Unrecognized command or argument",
-                result.Error);
-        }
-    }
-
-    [Fact]
-    public async Task Project_RemovedReadmeMode_DoesNotRebindPackageIdAsPath()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "project",
-            "--readme",
-            "Test.Package");
-
-        Assert.NotEqual(0, exit);
-        Assert.Empty(output);
-        Assert.Contains("--readme", error);
-        Assert.Contains("-S \"Package README file\"", error);
-        Assert.DoesNotContain(
-            "Select at least one project section",
-            error);
     }
 
     [Fact]

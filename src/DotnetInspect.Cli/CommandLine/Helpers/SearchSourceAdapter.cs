@@ -5,10 +5,25 @@ using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using DotnetInspector.SourceSelection;
+using NuGetFetch;
 
 namespace DotnetInspect.Cli.CommandLine;
 
 internal sealed class SearchSourceValidationException(string message) : Exception(message);
+
+internal sealed record SearchSourceBinding(
+    SearchSourceSelection Selection,
+    AssemblySetRequest Request,
+    IReadOnlyList<PrefixSearchCompletion> PackagePrefixLimits)
+{
+    public bool PackagePrefixLimitReached =>
+        PackagePrefixLimits.Count > 0;
+
+    public void Deconstruct(
+        out SearchSourceSelection selection,
+        out AssemblySetRequest request) =>
+        (selection, request) = (Selection, Request);
+}
 
 internal static class SearchSourceAdapter
 {
@@ -83,7 +98,7 @@ internal static class SearchSourceAdapter
         return new SourceSelector.PackageReference(name, version);
     }
 
-    internal static async Task<(SearchSourceSelection Selection, AssemblySetRequest Request)> BindAsync(
+    internal static async Task<SearchSourceBinding> BindAsync(
         SourceIntent intent,
         HttpClient client,
         bool verbose,
@@ -91,12 +106,20 @@ internal static class SearchSourceAdapter
     {
         SearchSourceSelection selection = SearchSourceNormalizer.Normalize(intent);
         List<SourceSelector>? expanded = null;
+        var packagePrefixLimits =
+            new HashSet<PrefixSearchCompletion>();
         foreach (var prefix in selection.OtherSources.OfType<SourceSelector.PackagePrefix>())
         {
-            SourceSelector.PackageReference[] packages = await CommandLineHelpers.ResolvePrefixPackagesAsync(
-                prefix.Request, client, verbose, sourceOptions);
+            PrefixPackageResolution resolution =
+                await CommandLineHelpers.ResolvePrefixPackagesAsync(
+                    prefix.Request,
+                    client,
+                    verbose,
+                    sourceOptions);
+            packagePrefixLimits.UnionWith(
+                resolution.Limits);
             expanded ??= [.. intent.Selectors];
-            expanded.AddRange(packages);
+            expanded.AddRange(resolution.Packages);
         }
 
         // Augment, never replace, the declaration for acquisition ordering. The retained
@@ -124,7 +147,10 @@ internal static class SearchSourceAdapter
             }).ToArray(),
             SourceOptions = sourceOptions,
         };
-        return (selection, request);
+        return new(
+            selection,
+            request,
+            [.. packagePrefixLimits.Order()]);
     }
 
     private static string PackageArgument(SourceSelector.PackageSource source) => source switch
