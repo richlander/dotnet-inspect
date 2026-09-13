@@ -57,6 +57,38 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
+    public void CommittedRealWorldBaseline_UsesNativeReturnToSenderWithoutFloor()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null
+            && !File.Exists(Path.Combine(directory.FullName, "dotnet-inspect.slnx")))
+        {
+            directory = directory.Parent;
+        }
+        Assert.NotNull(directory);
+        string path = Path.Combine(
+            directory.FullName,
+            "tools/DecompilerHarness/corpus/real-world-baseline.json");
+
+        var baseline = CorpusSensor.ReadBaselineForTesting(path);
+        var cutover = Assert.IsType<ReturnToSenderCutoverMetrics>(
+            baseline.Metrics.Fidelity.ReturnToSenderCutover);
+        int legacyExactNativeUncheckable = baseline.Methods!.Count(method =>
+            method.FidelityReference == nameof(FidelityCheck.CompileBackStatus.Exact)
+            && method.FidelityCheck is
+                nameof(FidelityCheck.CompileBackStatus.RecompileFail)
+                or nameof(FidelityCheck.CompileBackStatus.ContextFail));
+
+        Assert.Equal(CorpusSensor.CurrentSchemaVersion, baseline.SchemaVersion);
+        Assert.Equal(CorpusFidelityOracle.ReturnToSenderCutover, baseline.FidelityOracle);
+        Assert.Equal(700, cutover.SelectedMethods);
+        Assert.Equal(43, cutover.ExactLossMethods);
+        Assert.Equal(44, cutover.AvailabilityLossMethods);
+        Assert.Equal(36, legacyExactNativeUncheckable);
+        Assert.Equal(0, cutover.CompileBackFloorAppliedMethods);
+    }
+
+    [Fact]
     public void OptInNet11Profile_UsesDistinctDescriptionAndCardHeading()
     {
         Assert.Contains(
