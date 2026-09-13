@@ -59,8 +59,8 @@ System.Text.Json@10.0.0
 Humanizer.Core@2.14.1
 ```
 
-The user explicitly selects a saved or newly constructed definition containing
-only:
+The user explicitly selects a saved or newly constructed definition (for
+example, via Spotlight) containing only:
 
 ```text
 System.Text.Json@10.0.0
