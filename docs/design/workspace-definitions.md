@@ -32,10 +32,14 @@ The planned common construction target is the
 [Workspace-Scope-owned `WorkspacePlan`](workspace-scope-and-expansion.md#workspaceplan-construction):
 this document's portable request and that invokable in-process representation
 sit at different altitudes, rather than compete as workspace descriptions.
-Current registry lowering still produces `ResolvedWorkspaceContext`; adoption
-of the common plan is a separate, unimplemented Definitions effort in the
-linked five-step construction subplan. This reference changes neither this
-owner's wire grammar nor its restoration contract.
+Registry scenario resolution now retains both its existing
+`ResolvedWorkspaceContext` values and one exact resource-free `WorkspacePlan`
+lowered from the same ordered package, platform, and embedded contexts.
+The resolved scenario keeps the selected `WorkspaceDefinition` beside that
+plan, while each caller constructs and closes its own fresh
+`InspectionWorkspace`. CLI and Browser adoption remain separate steps in the
+linked five-step construction subplan. This changes neither this owner's wire
+grammar nor its restoration contract.
 
 ## Purpose
 
@@ -1763,6 +1767,16 @@ Implementation must add, at minimum:
   `Registry_UnknownPeerReference_FailsVisibly`,
   `Registry_WorkspaceFreeScenario_CreatesNoAssemblyGroup`, and
   `Registry_DoesNotActivateImplicitlyFromRecordCount`;
+- a request-to-plan lowering gate —
+  `InspectionDefinitionTests.ResolveScenario_LowersSupportedContextsIntoReusableWorkspacePlan`
+  and
+  `ResolveScenario_EqualDefinitionsRetainExactAssociationAndFreshIdentity`
+  preserve the exact selected definition, ordered package/platform/embedded
+  context intent, raw registration set, reusable plan, and fresh live Workspace
+  identity; `ResolveScenario_DefersTargetValidationToPlanInvocation` keeps
+  acquisition-target validation at ordinary plan invocation, while
+  `Registry_RejectsSubscribeAndFilesystemCoordinates_AndCrossKindPeers`
+  preserves explicit unsupported outcomes;
 - a grammar gate covering recursive catalog paths and composition, plus one
   exact-pin parser exercised through member coordinates, group subscriptions,
   and packet tuples, including rejection of `latest`, ranges, build metadata,
@@ -1994,8 +2008,11 @@ Definition records and product demos (this slice):
   scenarios by explicit id, and lowers package/platform/embedded coordinates to
   `WorkspaceMemberCoordinate` for `WorkspaceContextLoader` (group `subscribe`
   expressions and filesystem coordinates are typed failures in this slice).
-  Each resolved context retains its activation-relative
-  `WorkspaceContextAddress` and compact target descriptor;
+  Each resolved scenario also retains the exact raw `WorkspacePlan` built from
+  those ordered contexts. The selected `WorkspaceDefinition`, plan, context
+  addresses, and compact target descriptors remain associated in that one
+  resource-free result; constructing a live Workspace from the plan uses the
+  ordinary `InspectionWorkspace(WorkspacePlan)` API;
 - `ProductDemoSourceBinding` is the Workspace-owned target-free static
   method-group binding. It validates exactly one matching scenario record,
   resolves that exact scenario, and enforces `ProductDemoSections`; the
