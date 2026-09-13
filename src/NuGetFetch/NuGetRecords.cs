@@ -30,6 +30,25 @@ public record VersionIndex(
 public record SearchResponse(
     IReadOnlyList<SearchResult> Data);
 
+/// <summary>Why a keyword-search page stopped.</summary>
+public enum SearchPageCompletion
+{
+    /// <summary>The source returned fewer rows than requested.</summary>
+    ShortPage,
+
+    /// <summary>The requested page maximum was reached.</summary>
+    RequestedLimit,
+}
+
+/// <summary>A keyword-search page with explicit completion evidence.</summary>
+public sealed record SearchPageResult(
+    IReadOnlyList<SearchResult> Results,
+    SearchPageCompletion Completion)
+{
+    public bool Truncated =>
+        Completion == SearchPageCompletion.RequestedLimit;
+}
+
 public record SearchResult(
     string Id,
     string Version,

@@ -36,6 +36,47 @@ public class SearchServiceTests
     }
 
     [Fact]
+    public async Task SearchWithStateAsync_ShortPageIsReported()
+    {
+        var handler = new CapturingHandler(
+            """{"data":[{"id":"Contoso.Package","version":"1.0.0"}]}""");
+        using var client = new HttpClient(handler);
+        var service = new SearchService(client, SearchUrl);
+
+        SearchPageResult result = await service.SearchWithStateAsync(
+            "Contoso",
+            take: 2,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(SearchPageCompletion.ShortPage, result.Completion);
+        Assert.False(result.Truncated);
+        Assert.Single(result.Results);
+    }
+
+    [Fact]
+    public async Task SearchWithStateAsync_FullPageRemainsBounded()
+    {
+        var handler = new CapturingHandler(
+            """
+            {"data":[
+              {"id":"Contoso.One","version":"1.0.0"},
+              {"id":"Contoso.Two","version":"1.0.0"}
+            ]}
+            """);
+        using var client = new HttpClient(handler);
+        var service = new SearchService(client, SearchUrl);
+
+        SearchPageResult result = await service.SearchWithStateAsync(
+            "Contoso",
+            take: 2,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(SearchPageCompletion.RequestedLimit, result.Completion);
+        Assert.True(result.Truncated);
+        Assert.Equal(2, result.Results.Count);
+    }
+
+    [Fact]
     public async Task SearchAsync_ReplacesExistingSemVerLevel()
     {
         var handler = new CapturingHandler("""{"data":[]}""");

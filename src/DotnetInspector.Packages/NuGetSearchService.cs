@@ -289,13 +289,16 @@ public static class NuGetSearchService
                         fetchOptions);
                     if (resultFilter is null)
                     {
-                        found = await service.SearchAsync(
-                            query,
-                            take,
-                            prerelease,
-                            auth,
-                            operationCancellation.Token);
-                        if (found.Count >= take)
+                        SearchPageResult page =
+                            await service.SearchWithStateAsync(
+                                query,
+                                take,
+                                prerelease,
+                                auth,
+                                operationCancellation.Token);
+                        found = page.Results;
+                        if (page.Completion
+                            == SearchPageCompletion.RequestedLimit)
                             searchLimitReached = true;
                     }
                     else
