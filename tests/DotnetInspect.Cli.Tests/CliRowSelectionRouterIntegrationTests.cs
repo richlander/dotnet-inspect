@@ -133,6 +133,79 @@ public sealed class CliRowSelectionRouterIntegrationTests
     }
 
     [Fact]
+    public async Task LegacyWindowDeferralPreservesIndependentUnsupportedLimit()
+    {
+        RouteInvocation invocation =
+            await InvokeAsync(
+                "NoSuchRouteTarget",
+                "-n",
+                "1",
+                "--rows",
+                "1..2",
+                "--offline");
+
+        Assert.Equal(1, invocation.ExitCode);
+        Assert.Empty(invocation.Output);
+        Assert.Equal(
+            "Error: -n is not available for this command.",
+            invocation.Error.Trim());
+        Assert.Contains(
+            invocation.Observations,
+            observation =>
+                observation.Stage == "router-row-selection"
+                && observation.Detail == "UnsupportedCapability");
+        Assert.DoesNotContain(
+            invocation.Observations,
+            observation => observation.Stage == "router-rewrite");
+    }
+
+    [Fact]
+    public async Task LegacyWindowDeferralPreservesOriginalRequiredValueOwnership()
+    {
+        RouteInvocation invocation =
+            await InvokeAsync(
+                "NoSuchRouteTarget",
+                "--focus",
+                "--rows=1..2",
+                "-n",
+                "1",
+                "--offline");
+
+        Assert.Equal(1, invocation.ExitCode);
+        Assert.Empty(invocation.Output);
+        Assert.Equal(
+            "Error: -n is not available for this command.",
+            invocation.Error.Trim());
+        Assert.Contains(
+            invocation.Observations,
+            observation =>
+                observation.Stage == "router-row-selection"
+                && observation.Detail == "UnsupportedCapability");
+        Assert.DoesNotContain(
+            invocation.Observations,
+            observation => observation.Stage == "router-rewrite");
+    }
+
+    [Fact]
+    public async Task LegacyWindowAloneStillDefersToAuthoritativeRoute()
+    {
+        RouteInvocation invocation =
+            await InvokeAsync(
+                "NoSuchRouteTarget",
+                "--rows",
+                "1..2",
+                "--offline");
+
+        Assert.Equal(1, invocation.ExitCode);
+        Assert.DoesNotContain(
+            invocation.Observations,
+            observation => observation.Stage == "router-row-selection");
+        Assert.Contains(
+            invocation.Observations,
+            observation => observation.Stage == "router-hit");
+    }
+
+    [Fact]
     public async Task AllLibrariesUnsupportedRequestFailsBeforeStructuralRoute()
     {
         RouteInvocation invocation =

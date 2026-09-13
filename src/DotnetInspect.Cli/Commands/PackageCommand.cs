@@ -3,6 +3,8 @@ using DotnetInspector.Core;
 using ILInspector.Metadata;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using SemanticRowSelection =
+    DotnetInspect.Cli.CommandLine.CliSemanticRowSelection;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
@@ -1559,27 +1561,17 @@ public class PackageCommand
             return true;
         }
 
-        RowsCohortResult<string, T> result =
-            RowsCohortExecutor.ApplyUnordered(
-                [
-                    RowsCohortSequence<string, T>.Create(
-                        "Package versions",
-                        rows)
-                ],
-                options.VersionRowSelection);
-        if (result.IsSuccess)
-        {
-            selected = result.RowSets[0].Values;
-            return true;
-        }
-
-        RowsCohortSemanticFailure<string> failure = result.Failure!;
-        CommandError.Write(
-            $"Version row selection stage {failure.Failure.StageNumber} "
-            + $"requires row {failure.Failure.RequiredPosition}, but "
-            + $"{failure.Failure.AvailableCount} version rows are available.");
-        selected = Array.Empty<T>();
-        return false;
+        return SemanticRowSelection.TrySelect(
+            options.VersionRowSelection,
+            rows,
+            "Package versions",
+            failure =>
+                $"Version row selection stage "
+                + $"{failure.Failure.StageNumber} requires row "
+                + $"{failure.Failure.RequiredPosition}, but "
+                + $"{failure.Failure.AvailableCount} version rows are "
+                + "available.",
+            out selected);
     }
 
     private static bool HasSemanticSingleVersionLimit(

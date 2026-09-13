@@ -148,88 +148,56 @@ public sealed class PackageProfileRow
 {
     public PackageProfileRow(
         string package,
-        string dependency,
         string version,
         string owners,
-        string targetFramework,
-        string dependencyVersion,
         string authors,
         string verified,
         string downloads,
-        string source,
-        string status,
-        string error)
+        string source)
         : this(
             Contain(package),
-            Contain(dependency),
             Contain(version),
             Contain(owners),
-            Contain(targetFramework),
-            Contain(dependencyVersion),
             Contain(authors),
             Contain(verified),
             Contain(downloads),
-            Contain(source),
-            Contain(status),
-            Contain(error))
+            Contain(source))
     {
     }
 
     internal PackageProfileRow(
         InertString package,
-        InertString dependency,
         InertString version,
         InertString owners,
-        InertString targetFramework,
-        InertString dependencyVersion,
         InertString authors,
         InertString verified,
         InertString downloads,
-        InertString source,
-        InertString status,
-        InertString error)
+        InertString source)
     {
         PackageText = package;
-        DependencyText = dependency;
         VersionText = version;
         OwnersText = owners;
-        TargetFrameworkText = targetFramework;
-        DependencyVersionText = dependencyVersion;
         AuthorsText = authors;
         VerifiedText = verified;
         DownloadsText = downloads;
         SourceText = source;
-        StatusText = status;
-        ErrorText = error;
     }
 
     [MarkoutIgnore] public InertString PackageText { get; }
-    [MarkoutIgnore] public InertString DependencyText { get; }
     [MarkoutIgnore] public InertString VersionText { get; }
     [MarkoutIgnore] public InertString OwnersText { get; }
-    [MarkoutIgnore] public InertString TargetFrameworkText { get; }
-    [MarkoutIgnore] public InertString DependencyVersionText { get; }
     [MarkoutIgnore] public InertString AuthorsText { get; }
     [MarkoutIgnore] public InertString VerifiedText { get; }
     [MarkoutIgnore] public InertString DownloadsText { get; }
     [MarkoutIgnore] public InertString SourceText { get; }
-    [MarkoutIgnore] public InertString StatusText { get; }
-    [MarkoutIgnore] public InertString ErrorText { get; }
 
     public string Package => PackageText.ToString();
-    public string Dependency => DependencyText.ToString();
     public string Version => VersionText.ToString();
     public string Owners => OwnersText.ToString();
-    [MarkoutPropertyName("TFM")]
-    public string TargetFramework => TargetFrameworkText.ToString();
-    [MarkoutPropertyName("Dependency Version")]
-    public string DependencyVersion => DependencyVersionText.ToString();
     public string Authors => AuthorsText.ToString();
     public string Verified => VerifiedText.ToString();
     public string Downloads => DownloadsText.ToString();
     public string Source => SourceText.ToString();
-    public string Status => StatusText.ToString();
-    public string Error => ErrorText.ToString();
 
     private static InertString Contain(string value) =>
         new(TextPolicy.Field, value);

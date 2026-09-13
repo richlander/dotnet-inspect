@@ -385,6 +385,22 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void DependencyEvidenceCommand_IsRemovedButReserved()
+    {
+        var rootCommand = CommandLineBuilder.CreateRootCommand();
+        var result = rootCommand.Parse(
+            ["dependency-evidence", "--package", "System.Text.Json"]);
+
+        Assert.DoesNotContain(
+            rootCommand.Subcommands,
+            command => command.Name == "dependency-evidence");
+        Assert.NotEmpty(result.Errors);
+        Assert.Contains(
+            "dependency-evidence",
+            ArgumentPreprocessor.KnownCommands);
+    }
+
+    [Fact]
     public void TypeCommand_WithoutType_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["type", "--package", "System.Text.Json"]);
@@ -831,19 +847,8 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void ParsedLineWindow_UsesActiveCommandOptionArity()
+    public void ParsedLineWindow_RequiredOptionsOwnLimitShapedValues()
     {
-        PreprocessAndApplyLineWindow(
-            ["find", "--platform", "-n1", "JsonSerializer"]);
-        Assert.Equal(1, CommandLineBuilder.HeadLines);
-
-        string[] shorthand = PreprocessAndApplyLineWindow(
-            ["find", "--platform", "-1", "JsonSerializer"]);
-        Assert.Equal(
-            ["find", "--platform", "-n", "1", "JsonSerializer"],
-            shorthand);
-        Assert.Equal(1, CommandLineBuilder.HeadLines);
-
         PreprocessAndApplyLineWindow(
             ["member", "System.String", "--focus", "-n1"]);
         Assert.Null(CommandLineBuilder.HeadLines);
