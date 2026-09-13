@@ -43,6 +43,33 @@ Release. Predicate, baseline-order, and Top adoption remain with the shared
 row-query and CLI owners tracked by #5162, #5414, and #6489; vocabulary does
 not implement a command-local substitute.
 
+Markdown, plain text, table, TSV, JSONL, and projected JSON lower one typed
+`VocabularyView` through `MarkoutSerializer` and
+`VocabularyViewContext`. Runtime-named sections and runtime-column tables keep
+`VocabularyCatalog` authoritative for names, field labels, stable field IDs,
+and row order. Each runtime section carries its summary as an ordinary
+Markout paragraph because unwrapped child sections lower their content rather
+than their `DescriptionProperty` metadata. `VocabularyCommandTests` gates these
+formats in Release, including
+`Command_DefaultRendersTheSelfDescribingSectionIndex`,
+`Command_PlainTextUsesThePlainTextFormatter`, and
+`Command_JsonlUsesProjectedRuntimeColumns`.
+
+Plain unprojected `--json` is an approved CLI-host exception to ordinary
+Markout lowering. Its typed input is the selected owner-issued
+`VocabularySection` sequence plus the catalog schema version, and its lowering
+boundary is `VocabularyWireDocument` through the generated
+`VocabularyWireJsonContext` or `VocabularyWireCompactJsonContext`. This path
+preserves the established schema-versioned document containing section
+metadata, field schemas, operators, accepted-command identities, and typed
+value cells; the lowered Markout table shape cannot represent that contract
+without discarding schema or changing typed values to display strings. The
+exception is limited to unprojected CLI `--json`; every human, tabular, stream,
+and projected-JSON path uses the typed Markout view. The Release gates are
+`JsonSerialization_PreservesWireShapeAcrossIndentationModes`,
+`Command_JsonCarriesTypedSchemaAndValues`, and
+`Command_PartialMachineKeyProjectionKeepsSectionIdentityAcrossFormats`.
+
 The structured document carries a schema version. Every section declares its
 stable ID, accepted query inputs, field schema, legal operators, and typed
 values. A stable value ID can therefore flow from discovery or a website picker
