@@ -2861,7 +2861,7 @@ public static class ResourceEffectResolver
             || !TryOwnershipClaim(
                 right,
                 out OwnershipClaim? rightClaim)
-            || !BoundLocationEquals(
+            || !BoundTransitionLocationEquals(
                 left,
                 leftClaim!.Source,
                 right,
@@ -3400,6 +3400,57 @@ public static class ResourceEffectResolver
             _ => false,
         };
 
+    static bool BoundOptionalTransitionLocationEquals(
+        ResolvedResourceEffect leftEffect,
+        ResourceEffectLocation? left,
+        ResolvedResourceEffect rightEffect,
+        ResourceEffectLocation? right) =>
+        left is null
+            ? right is null
+            : right is not null
+                && BoundTransitionLocationEquals(
+                    leftEffect,
+                    left,
+                    rightEffect,
+                    right);
+
+    static bool BoundTransitionLocationEquals(
+        ResolvedResourceEffect leftEffect,
+        ResourceEffectLocation left,
+        ResolvedResourceEffect rightEffect,
+        ResourceEffectLocation right) =>
+        (left, right) switch
+        {
+            (ResourceEffectLocation.OperationSlot a,
+                ResourceEffectLocation.OperationSlot b) =>
+                BoundTransitionLocationEquals(
+                    leftEffect,
+                    a.Source,
+                    rightEffect,
+                    b.Source),
+            (ResourceEffectLocation.Field a,
+                ResourceEffectLocation.Field b) =>
+                BoundTransitionLocationEquals(
+                    leftEffect,
+                    a.Root,
+                    rightEffect,
+                    b.Root)
+                && a.Selector == b.Selector,
+            (ResourceEffectLocation.StructuralField a,
+                ResourceEffectLocation.StructuralField b) =>
+                BoundTransitionLocationEquals(
+                    leftEffect,
+                    a.Root,
+                    rightEffect,
+                    b.Root)
+                && a.Selector == b.Selector,
+            _ => BoundLocationEquals(
+                leftEffect,
+                left,
+                rightEffect,
+                right),
+        };
+
     static bool BoundGuardEquals(
         ResolvedResourceEffect leftEffect,
         ResourceEffectGuard? left,
@@ -3453,7 +3504,7 @@ public static class ResourceEffectResolver
             return true;
         if (left is ResourceEffectCompletion.OutcomeCase leftOutcome
             && right is ResourceEffectCompletion.OutcomeCase rightOutcome
-            && BoundLocationEquals(
+            && BoundTransitionLocationEquals(
                 leftEffect,
                 leftOutcome.Source,
                 rightEffect,
@@ -3471,6 +3522,36 @@ public static class ResourceEffectResolver
         }
         return true;
     }
+
+    static bool SameTransitionCompletion(
+        ResolvedResourceEffect leftEffect,
+        ResourceEffectCompletion? left,
+        ResolvedResourceEffect rightEffect,
+        ResourceEffectCompletion? right) =>
+        (left, right) switch
+        {
+            (null, null) => true,
+            (ResourceEffectCompletion.Entry,
+                ResourceEffectCompletion.Entry) => true,
+            (ResourceEffectCompletion.NormalReturn,
+                ResourceEffectCompletion.NormalReturn) => true,
+            (ResourceEffectCompletion.ExceptionalExit,
+                ResourceEffectCompletion.ExceptionalExit) => true,
+            (ResourceEffectCompletion.SuccessfulAwait,
+                ResourceEffectCompletion.SuccessfulAwait) => true,
+            (ResourceEffectCompletion.Outcome a,
+                ResourceEffectCompletion.Outcome b) =>
+                a.Identity == b.Identity,
+            (ResourceEffectCompletion.OutcomeCase a,
+                ResourceEffectCompletion.OutcomeCase b) =>
+                BoundTransitionLocationEquals(
+                    leftEffect,
+                    a.Source,
+                    rightEffect,
+                    b.Source)
+                && a.Test == b.Test,
+            _ => false,
+        };
 
     static bool OutcomeTestsAreDisjoint(
         ResourceEffectOutcomeTest left,
@@ -3532,84 +3613,84 @@ public static class ResourceEffectResolver
         (left, right) switch
         {
             (ResourceEffect.Borrow a, ResourceEffect.Borrow b) =>
-                BoundLocationEquals(
+                BoundTransitionLocationEquals(
                     leftEffect,
                     a.Source,
                     rightEffect,
                     b.Source)
-                && BoundLocationEquals(
+                && BoundTransitionLocationEquals(
                     leftEffect,
                     a.Target,
                     rightEffect,
                     b.Target)
                 && a.Access == b.Access
                 && a.Scope == b.Scope
-                && BoundOptionalLocationEquals(
+                && BoundOptionalTransitionLocationEquals(
                     leftEffect,
                     a.Lender,
                     rightEffect,
                     b.Lender)
                 && a.Materialization == b.Materialization,
             (ResourceEffect.Consume a, ResourceEffect.Consume b) =>
-                BoundLocationEquals(
+                BoundTransitionLocationEquals(
                     leftEffect,
                     a.Source,
                     rightEffect,
                     b.Source)
-                && BoundLocationEquals(
+                && BoundTransitionLocationEquals(
                     leftEffect,
                     a.Target,
                     rightEffect,
                     b.Target),
             (ResourceEffect.Move a, ResourceEffect.Move b) =>
-                BoundLocationEquals(
+                BoundTransitionLocationEquals(
                     leftEffect,
                     a.Source,
                     rightEffect,
                     b.Source)
-                && BoundLocationEquals(
+                && BoundTransitionLocationEquals(
                     leftEffect,
                     a.Target,
                     rightEffect,
                     b.Target)
-                && SameCompletion(
+                && SameTransitionCompletion(
                     leftEffect,
                     a.When,
                     rightEffect,
                     b.When),
             (ResourceEffect.Release a, ResourceEffect.Release b) =>
-                BoundLocationEquals(
+                BoundTransitionLocationEquals(
                     leftEffect,
                     a.Source,
                     rightEffect,
                     b.Source)
-                && SameCompletion(
+                && SameTransitionCompletion(
                     leftEffect,
                     a.When,
                     rightEffect,
                     b.When)
-                && BoundOptionalLocationEquals(
+                && BoundOptionalTransitionLocationEquals(
                     leftEffect,
                     a.Correspondence,
                     rightEffect,
                     b.Correspondence)
-                && BoundOptionalLocationEquals(
+                && BoundOptionalTransitionLocationEquals(
                     leftEffect,
                     a.Observation,
                     rightEffect,
                     b.Observation),
             (ResourceEffect.Accept a, ResourceEffect.Accept b) =>
-                BoundLocationEquals(
+                BoundTransitionLocationEquals(
                     leftEffect,
                     a.Source,
                     rightEffect,
                     b.Source)
-                && BoundLocationEquals(
+                && BoundTransitionLocationEquals(
                     leftEffect,
                     a.Target,
                     rightEffect,
                     b.Target)
-                && SameCompletion(
+                && SameTransitionCompletion(
                     leftEffect,
                     a.When,
                     rightEffect,

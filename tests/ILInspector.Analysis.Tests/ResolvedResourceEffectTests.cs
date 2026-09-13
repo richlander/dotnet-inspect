@@ -1296,6 +1296,101 @@ public sealed class ResolvedResourceEffectTests
     }
 
     [Fact]
+    public void OperationSlotKindNarrowsDomainWithoutChangingTransition()
+    {
+        ResourceEffectTargetSelector target =
+            ArrayPoolResourceEffectModel.Definition()
+                .TypedDeclarations[3]
+                .Target;
+        ResourceEffectGenericVariable variable = new(
+            ResourceEffectGenericVariableKind.Type,
+            0);
+        ResourceKindReference kind = new(
+            ArrayPoolResourceEffectModel.BufferKind,
+            [variable]);
+
+        ResourceEffectModelDefinition Model(
+            string name,
+            ResourceEffect effect) =>
+            new(
+                ResourceEffectLanguageIdentity.Version1,
+                new ResourceEffectModelIdentity(name),
+                [
+                    new ResourceKindDefinition(
+                        ArrayPoolResourceEffectModel.BufferKind,
+                        1,
+                        [Provenance(name, 0)]),
+                ],
+                [],
+                [
+                    new ResourceEffectTypedDeclaration(
+                        target,
+                        effect,
+                        [Provenance(name, 1)]),
+                ]);
+
+        ResourceEffectLocation.Parameter parameter =
+            new(0);
+        ResourceEffectResolutionOutcome.Complete complete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
+                Resolve(
+                    Admit(
+                        Model(
+                            "example.operation-slot-all-kinds",
+                            new ResourceEffect.Consume(
+                                parameter,
+                                new ResourceEffectLocation.OperationSlot(
+                                    parameter,
+                                    kind: null),
+                                Kind: null)),
+                        Model(
+                            "example.operation-slot-buffer-kind",
+                            new ResourceEffect.Consume(
+                                parameter,
+                                new ResourceEffectLocation.OperationSlot(
+                                    parameter,
+                                    kind),
+                                kind)))));
+
+        Assert.NotEmpty(complete.Snapshot.Effects);
+        Assert.All(
+            complete.Snapshot.Effects.GroupBy(effect => effect.Occurrence),
+            effects =>
+            {
+                Assert.Equal(2, effects.Count());
+                Assert.Contains(
+                    effects,
+                    effect =>
+                        Assert.IsType<ResourceEffect.Consume>(
+                            effect.Effect).Kind is null);
+                Assert.Contains(
+                    effects,
+                    effect =>
+                        Assert.IsType<ResourceEffect.Consume>(
+                            effect.Effect).Kind is not null);
+            });
+
+        Assert.IsType<ResourceEffectResolutionOutcome.Conflict>(
+            Resolve(
+                Admit(
+                    Model(
+                        "example.operation-slot-move",
+                        new ResourceEffect.Move(
+                            parameter,
+                            parameter,
+                            new ResourceEffectCompletion.Entry(),
+                            Kind: null)),
+                    Model(
+                        "example.operation-slot-release",
+                        new ResourceEffect.Release(
+                            parameter,
+                            new ResourceEffectCompletion.Entry(),
+                            kind,
+                            Correspondence: null,
+                            Observation: null)))));
+    }
+
+    [Fact]
     public void CompatibilityLimitPreservesKnownConflict()
     {
         ResourceEffectTargetSelector target =
