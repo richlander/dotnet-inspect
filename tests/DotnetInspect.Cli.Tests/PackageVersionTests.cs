@@ -1,4 +1,3 @@
-using DotnetInspector.Core;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using System.CommandLine;

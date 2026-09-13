@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 using System.Text.Json.Serialization;
 using InertText;
 
-namespace DotnetInspector.Core;
+namespace DotnetInspector.Sections;
 
 /// <summary>
 /// The host-neutral handoff for one completed inspection operation.

@@ -1,9 +1,7 @@
-#:project ../src/DotnetInspector.Core/DotnetInspector.Core.csproj
 #:project ../src/DotnetInspector.Networking/DotnetInspector.Networking.csproj
 #:project ../src/DotnetInspector.Packages/DotnetInspector.Packages.csproj
 #:project ../src/DotnetInspector.Services/DotnetInspector.Services.csproj
 
-using DotnetInspector.Core;
 using DotnetInspector.Networking;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;

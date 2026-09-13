@@ -290,7 +290,7 @@ The following dispositions close the existing ambiguous names:
 | `Inspector.Artifacts*` | Keep as adopted under [#6333](https://github.com/richlander/dotnet-inspect/issues/6333). | The family is source-neutral and the base artifact contract floor depends only on the lower `Inspector.Resources` declaration floor. `ILInspector.Metadata` consumes its scoped content and identities to construct artifact-to-assembly correspondence without creating an engine-to-tool dependency exception. |
 | `DotnetInspector.Cache` | Keep as adopted by step 3 of [#6334](https://github.com/richlander/dotnet-inspect/issues/6334), tracked by [#6671](https://github.com/richlander/dotnet-inspect/issues/6671). | Persistent cache mechanisms and cache-access telemetry form one focused reusable product subject. The library depends only on the platform, `InertText`, and `DotnetInspector.Networking`; semantic cache identity, authorization, freshness, and validation remain with each consumer. |
 | `UntrustedDocuments` | Keep as adopted by step 4 of [#6334](https://github.com/richlander/dotnet-inspect/issues/6334), tracked by [#6770](https://github.com/richlander/dotnet-inspect/issues/6770). | Duplicate-rejecting JSON and DTD-prohibiting XML entry points form one focused independent parsing subject. The library depends only on the platform; schemas, semantic validation, domain limits, acquisition, and error projection remain with consumers. |
-| `DotnetInspector.Core` | Retire without a replacement assembly under [#6334](https://github.com/richlander/dotnet-inspect/issues/6334). | The original bucket grouped unrelated cache, networking, untrusted-document, CLI telemetry, and single-consumer helpers by dependency depth instead of subject. Extracting focused owners does not give the remaining assembly a coherent subject. |
+| `DotnetInspector.Core` | Retired without a replacement assembly in step 5 of [#6334](https://github.com/richlander/dotnet-inspect/issues/6334), tracked by [#6801](https://github.com/richlander/dotnet-inspect/issues/6801). | The original bucket grouped unrelated cache, networking, untrusted-document, cross-host envelope, CLI telemetry, and single-consumer helpers by dependency depth instead of subject. Their focused owners leave no coherent residual assembly. |
 | `Inspector.Findings` | Keep as adopted under [#6333](https://github.com/richlander/dotnet-inspect/issues/6333). | Its observation, census, matching, transition, comparison, diff, and correlation contracts are a coherent domain-neutral semantic model shared by both inspection families. They do not belong in metadata primitives, which owns mechanical ECMA/SRM operations rather than semantic models. |
 | `Inspector.Text` | Keep as adopted under [#6333](https://github.com/richlander/dotnet-inspect/issues/6333). | Generic text Findings and deterministic LF text construction are host-neutral and Markout-free, but not inherently IL- or C#-specific. The project continues to depend on `Inspector.Findings`. |
 | `DotnetInspector.Services` | Retire without a replacement assembly under [#6335](https://github.com/richlander/dotnet-inspect/issues/6335). | It groups unrelated package, platform, source, assembly-resolution, parser, and corpus components by role. Targeted `*Service` names remain valid, while Houses and helpers move to their subject owners. |
@@ -329,18 +329,21 @@ evaluated project references and compiled assembly references.
 coverage for both graphs; the Release dependency-policy validator checks the
 actual product closure.
 
-`DotnetInspector.Core` continues decomposing by subject. HTTP composition and
-product network telemetry moved to `DotnetInspector.Networking` under
-[#6572](https://github.com/richlander/dotnet-inspect/issues/6572); the
-destination-admission primitive shared with `NuGetFetch` lives in the
-independent `NetworkAccess` root; hardened JSON and XML entry points live in the
-independent `UntrustedDocuments` root; CLI measurement moves to
-`DotnetInspect.Cli`; and remaining single-consumer helpers move beside their
-consumers. Until the final move, Core retains `RequestMermaidDiagram`, which
-composes network, cache, and breadcrumb telemetry; `InfoTracker`, which
-subscribes to cache telemetry for hit/miss counts while excluding stores;
-`InspectionEnvelope`, its JSON converter, `Downloader`, and
-`CountingTextWriter`.
+Step 5 of the `DotnetInspector.Core` decomposition, tracked by
+[#6801](https://github.com/richlander/dotnet-inspect/issues/6801), deletes the
+project after moving its residual responsibilities. `InfoTracker`,
+`CountingTextWriter`, and `RequestMermaidDiagram` are CLI operational
+diagnostics under `DotnetInspect.Cli`. `Downloader<T>` remains beside its sole
+`PlatformPackService` consumer until that separately tracked Services owner
+migrates. `InspectionEnvelope<TContent>`, `InspectionShare`,
+`InspectionDiagnostic`, and their JSON converter move to
+`DotnetInspector.Sections`, which already owns the corresponding cross-host
+section diagnostic construction and is consumed by both hosts.
+
+The operator selected no dedicated dependency-absence gate for the retired
+project or assembly. Release builds, current-reference audits, product closure,
+and required CI establish the submitted tree, but do not permanently forbid a
+future project from reusing the retired name.
 
 `DotnetInspector.Networking` depends only on `InertText`, `NetworkAccess`, and
 the platform. `NuGetFetch` remains an independent root: package composition
@@ -382,9 +385,10 @@ The seven adoption tracks recorded by #6315 are:
    projections, and entry points under `DotnetInspect.Web.Interop`.
 4. Rename the C# member-slicing library under #6332.
 5. Adopt the shared `Inspector.*` family under #6333.
-6. Retire `DotnetInspector.Core` by subject under #6334. Step 3, #6671,
-   extracts `DotnetInspector.Cache` and moves the single-consumer `AsyncCache`
-   helper to Packages.
+6. Retire `DotnetInspector.Core` by subject under #6334. Steps 1-5 move
+   destination admission, networking, cache, hardened document parsing, CLI
+   diagnostics, the cross-host envelope, and single-consumer helpers to their
+   subject owners; #6801 deletes the residual project.
 7. Retire `DotnetInspector.Services` by subject under #6335.
 
 Together, the host migrations prove that reusable `DotnetInspector.*`

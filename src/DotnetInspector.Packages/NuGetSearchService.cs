@@ -4,7 +4,6 @@
 using System.Diagnostics;
 using System.Text.Json;
 using NuGetFetch;
-using DotnetInspector.Core;
 using InertText;
 using NuGet.Versioning;
 using NuGetSource = NuGetFetch.PackageSource;

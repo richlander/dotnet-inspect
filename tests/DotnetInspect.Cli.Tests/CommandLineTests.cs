@@ -252,14 +252,14 @@ public class CommandLineTests
         {
             try
             {
-                DotnetInspector.Core.InfoTracker.Start();
+                DotnetInspect.Cli.InfoTracker.Start();
                 Hints.WriteTips(TipLevel.Minimal, new Tip("package", "Foo", "inspect"));
             }
             finally
             {
                 // Process-global, so it is reset inside the action that owns the
                 // console lock rather than after it, per ConsoleCapture's contract.
-                DotnetInspector.Core.InfoTracker.ResetForTests();
+                DotnetInspect.Cli.InfoTracker.ResetForTests();
             }
         });
 
