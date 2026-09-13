@@ -153,6 +153,277 @@ internal sealed class PackageSourceSettlementGeneration
         }
     }
 
+    internal async Task<PackageAcquisitionPopulation>
+        ResolvePinnedPopulationAsync(
+        IPackageSourceAuthorization sourceAuthorization,
+        IReadOnlyList<PackageSourceCoordinate> coordinates,
+        NuGetOperationContext operationContext)
+    {
+        var candidates = new List<PackageAcquisitionCandidate>(
+            coordinates.Count);
+        var failures = new List<PackageAcquisitionPopulationFailure>();
+        for (int index = 0; index < coordinates.Count; index++)
+        {
+            PackageSourceCoordinate coordinate = coordinates[index];
+            PackageAcquisitionCandidateResult result =
+                await ResolvePinnedCandidateAsync(
+                    sourceAuthorization,
+                    coordinate,
+                    operationContext).ConfigureAwait(false);
+            if (result.Candidate is { } candidate)
+                candidates.Add(candidate);
+            failures.AddRange(result.Failures.Select(failure =>
+                PackageAcquisitionPopulationFailure.ForCandidate(
+                    index + 1,
+                    coordinate.PackageId,
+                    coordinate,
+                    failure)));
+            if (result.Failures.Any(failure =>
+                    IsTerminalOperationTimeout(failure)))
+            {
+                break;
+            }
+        }
+        RetainOperationTimeoutIfExpired(
+            failures,
+            authority: null,
+            operationContext);
+
+        return new PackageAcquisitionPopulation(
+            coordinates.Count,
+            candidates,
+            failures,
+            PackageAcquisitionPopulationCompletionKind.ExactCoordinates);
+    }
+
+    internal async Task<PackageAcquisitionPopulation>
+        ResolveGalleryPrefixPopulationAsync(
+        string prefix,
+        int maximumCandidates,
+        bool includePrerelease,
+        PackageSourceAuthorization authorization,
+        NuGetOperationContext operationContext)
+    {
+        ConfiguredPackageAuthority authority =
+            authorization.Authorities[0];
+        IPackageSourceClient client = GetClient(authority);
+        RequireAuthority(client.Source, authority);
+        if (client.Source.TransportKind
+            != PackageSourceKind.NuGetGallery)
+        {
+            throw new InvalidOperationException(
+                "Package-prefix population selection requires the NuGet Gallery client.");
+        }
+
+        var packageIds = new List<string>(maximumCandidates);
+        var seenPackageIds = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase);
+        var failures = new List<PackageAcquisitionPopulationFailure>();
+        PackageAcquisitionPopulationCompletionKind completion =
+            PackageAcquisitionPopulationCompletionKind.PrefixExhausted;
+        try
+        {
+            await foreach (
+                PackageSourceOperationResult<PackageSearchResult> operation
+                in client.SearchByPrefixPagesAsync(
+                    prefix,
+                    maximumCandidates,
+                    includePrerelease,
+                    operationContext.CancellationToken,
+                    operationContext).ConfigureAwait(false))
+            {
+                if (operation.Failure is { } searchFailure)
+                {
+                    RequireAuthority(
+                        searchFailure.Source,
+                        authority,
+                        client.Source);
+                    failures.Add(
+                        PackageAcquisitionPopulationFailure.ForSource(
+                            PackageAuthorityFailureAdapter
+                                .DescribeSearchFailure(
+                                    authority.Source,
+                                    searchFailure)));
+                    completion =
+                        PackageAcquisitionPopulationCompletionKind.SourceFailed;
+                    break;
+                }
+
+                PackageSearchResult page = operation.Value
+                    ?? throw new InvalidOperationException(
+                        "The package source prefix search returned neither a value nor a failure.");
+                RequireAuthority(page.Source, authority, client.Source);
+                int remaining = maximumCandidates - packageIds.Count;
+                if (page.Matches.Count > remaining)
+                {
+                    failures.Add(
+                        PackageAcquisitionPopulationFailure.ForSource(
+                            InvalidPrefixSearchFailure(
+                                authority,
+                                page.Source,
+                                "The package source returned more prefix matches than requested.")));
+                    packageIds.Clear();
+                    completion =
+                        PackageAcquisitionPopulationCompletionKind.SourceFailed;
+                    break;
+                }
+
+                foreach (PackageSearchMatch match in page.Matches)
+                {
+                    PackageCandidateObservation observation =
+                        match.Candidate;
+                    RequireAuthority(
+                        observation.Source,
+                        authority,
+                        client.Source);
+                    string packageId =
+                        observation.Coordinate.PackageId;
+                    if (observation.DiscoveryContract
+                            != PackageDiscoveryContract.KeywordSearch
+                        || observation.ListingState
+                            != PackageListingState.Listed
+                        || !PackageExtractor.IsValidPackageId(packageId)
+                        || !packageId.StartsWith(
+                            prefix,
+                            StringComparison.OrdinalIgnoreCase)
+                        || !seenPackageIds.Add(packageId))
+                    {
+                        failures.Add(
+                            PackageAcquisitionPopulationFailure.ForSource(
+                                InvalidPrefixSearchFailure(
+                                    authority,
+                                    page.Source,
+                                    "The package source returned invalid or duplicate prefix-search evidence.")));
+                        packageIds.Clear();
+                        completion =
+                            PackageAcquisitionPopulationCompletionKind.SourceFailed;
+                        break;
+                    }
+
+                    packageIds.Add(packageId);
+                }
+
+                if (completion
+                    == PackageAcquisitionPopulationCompletionKind.SourceFailed)
+                {
+                    break;
+                }
+
+                if (page.TruncationReason
+                        == PackageSearchTruncationReason.RequestedLimit
+                    && packageIds.Count != maximumCandidates)
+                {
+                    failures.Add(
+                        PackageAcquisitionPopulationFailure.ForSource(
+                            InvalidPrefixSearchFailure(
+                                authority,
+                                page.Source,
+                                "The package source reported candidate-limit completion before supplying the requested population.")));
+                    packageIds.Clear();
+                    completion =
+                        PackageAcquisitionPopulationCompletionKind.SourceFailed;
+                    break;
+                }
+
+                completion = page.TruncationReason switch
+                {
+                    PackageSearchTruncationReason.None =>
+                        PackageAcquisitionPopulationCompletionKind.PrefixExhausted,
+                    PackageSearchTruncationReason.RequestedLimit =>
+                        PackageAcquisitionPopulationCompletionKind.CandidateLimitReached,
+                    PackageSearchTruncationReason.SourcePageLimit =>
+                        PackageAcquisitionPopulationCompletionKind.SourcePageLimitReached,
+                    PackageSearchTruncationReason.ClientPageLimit =>
+                        PackageAcquisitionPopulationCompletionKind.ClientPageLimitReached,
+                    _ => throw new InvalidOperationException(
+                        "Unknown package-prefix search completion."),
+                };
+                if (page.Truncated)
+                    break;
+            }
+        }
+        catch (NuGetOperationTimeoutException)
+        {
+            failures.Add(
+                PackageAcquisitionPopulationFailure.ForSource(
+                    OperationTimeoutFailure(
+                        authority,
+                        operationContext)));
+            completion =
+                PackageAcquisitionPopulationCompletionKind.SourceFailed;
+        }
+        catch (OperationCanceledException)
+            when (operationContext.CancellationToken.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(
+                operationContext.CancellationToken);
+        }
+
+        var candidates = new List<PackageAcquisitionCandidate>(
+            packageIds.Count);
+        for (int index = 0; index < packageIds.Count; index++)
+        {
+            string packageId = packageIds[index];
+            PackageVersionDiscoveryResult discovery =
+                await DiscoverVersionsAsync(
+                    packageId,
+                    authorization,
+                    PackageVersionDiscoveryContract.CompleteVersionEnumeration,
+                    operationContext).ConfigureAwait(false);
+            PackageVersionSelectionRequest selection = includePrerelease
+                ? new PackageVersionSelectionRequest.LatestPrerelease(packageId)
+                : new PackageVersionSelectionRequest.LatestStable(packageId);
+            PackageVersionResolutionReceipt resolution =
+                PackageVersionSelectionResolver.Resolve(
+                    selection,
+                    discovery,
+                    PackageVersionDiscoveryFreshness.Current);
+            if (resolution is PackageVersionResolutionReceipt.Resolved resolved)
+            {
+                candidates.Add(resolved.Candidate);
+                continue;
+            }
+
+            failures.AddRange(discovery.Failures.Select(failure =>
+                PackageAcquisitionPopulationFailure.ForCandidate(
+                    index + 1,
+                    packageId,
+                    coordinate: null,
+                    failure)));
+            if (discovery.Failures.Count == 0)
+            {
+                failures.Add(
+                    PackageAcquisitionPopulationFailure.ForCandidate(
+                        index + 1,
+                        packageId,
+                        coordinate: null,
+                        new PackageAuthorityFailure(
+                            PackageSourceDisplay.ForDiagnostics(
+                                authority.Source),
+                            PackageAuthorityFailureKind.IncompleteMetadata,
+                            $"Package source {PackageSourceDisplay.ForDiagnostics(authority.Source)} reported '{packageId}' in prefix search but did not provide an eligible listed version.")
+                        {
+                            ResultSource = client.Source,
+                        }));
+            }
+            if (discovery.Failures.Any(failure =>
+                    IsTerminalOperationTimeout(failure)))
+            {
+                break;
+            }
+        }
+        RetainOperationTimeoutIfExpired(
+            failures,
+            authority,
+            operationContext);
+
+        return new PackageAcquisitionPopulation(
+            maximumCandidates,
+            candidates,
+            failures,
+            completion);
+    }
+
     /// <summary>
     /// Authorizes and settles complete dependency-version discovery within one
     /// shared package-source operation.
@@ -438,6 +709,47 @@ internal sealed class PackageSourceSettlementGeneration
         }
 
         return failures;
+    }
+
+    private static PackageAuthorityFailure InvalidPrefixSearchFailure(
+        ConfiguredPackageAuthority authority,
+        PackageSourceResultIdentity resultSource,
+        string message) =>
+        new(
+            PackageSourceDisplay.ForDiagnostics(authority.Source),
+            PackageAuthorityFailureKind.InvalidResponse,
+            message)
+        {
+            ResultSource = resultSource,
+        };
+
+    private static bool IsTerminalOperationTimeout(
+        PackageAuthorityFailure failure) =>
+        failure.Kind == PackageAuthorityFailureKind.Timeout
+        && failure.Timeout?.Kind
+            == PackageSourceTimeoutKind.Operation;
+
+    private static void RetainOperationTimeoutIfExpired(
+        List<PackageAcquisitionPopulationFailure> failures,
+        ConfiguredPackageAuthority? authority,
+        NuGetOperationContext operation)
+    {
+        if (failures.Any(failure =>
+                IsTerminalOperationTimeout(failure.Failure)))
+        {
+            return;
+        }
+
+        try
+        {
+            operation.ThrowIfExpired();
+        }
+        catch (NuGetOperationTimeoutException)
+        {
+            failures.Add(
+                PackageAcquisitionPopulationFailure.ForSource(
+                OperationTimeoutFailure(authority, operation)));
+        }
     }
 
     private static PackageAuthorityFailure OperationTimeoutFailure(
