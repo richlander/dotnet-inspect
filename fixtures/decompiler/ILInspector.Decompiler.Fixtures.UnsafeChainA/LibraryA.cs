@@ -37,8 +37,30 @@ using System.Threading.Tasks;
 /// </summary>
 public static class LibraryA
 {
+    static int s_contractRef;
+
     public static unsafe int ContractField;
     public static int SafeField;
+
+    public static unsafe int ContractProperty
+    {
+        get => 42;
+    }
+
+    public static unsafe event Action ContractEvent
+    {
+        add { }
+        remove { }
+    }
+
+    public static unsafe ref int ContractRef()
+        => ref s_contractRef;
+
+    public static unsafe ref readonly int ContractIn()
+        => ref s_contractRef;
+
+    public static unsafe ref int ContractRefProperty
+        => ref s_contractRef;
 
     public static Task<int> SafePointerTask(int* value)
         => Task.FromResult(1);
@@ -181,4 +203,46 @@ public static class LibraryA
     /// not requires-unsafe at all. The negative control for every specimen above.
     /// </summary>
     public static int Safe(int x) => x + 1;
+}
+
+public class ContractBase
+{
+    public unsafe ContractBase(int value) => _ = value;
+}
+
+public class ImplicitContractBase
+{
+    public unsafe ImplicitContractBase() { }
+}
+
+public class SafeArgumentBase
+{
+    public SafeArgumentBase(int value)
+        => _ = value;
+}
+
+public class SafeRefArgumentBase
+{
+    public SafeRefArgumentBase(ref int value)
+        => _ = value;
+}
+
+public class SafeInArgumentBase
+{
+    public SafeInArgumentBase(int value)
+        => _ = value;
+
+    public SafeInArgumentBase(in int value)
+        => _ = value;
+}
+
+public class SafeInRvalueArgumentBase
+{
+    public SafeInRvalueArgumentBase(in int value)
+        => _ = value;
+}
+
+public sealed class ContractObject
+{
+    public unsafe ContractObject() { }
 }

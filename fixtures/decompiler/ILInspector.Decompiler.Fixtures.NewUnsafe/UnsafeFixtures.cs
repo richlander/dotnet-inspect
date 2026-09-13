@@ -712,9 +712,48 @@ public static class UnsafeFixtures
 
 public sealed class AccessorContractFixtures
 {
+    public unsafe AccessorContractFixtures() { }
+
     public int Property
     {
         unsafe get => 42;
         set { }
+    }
+
+    public unsafe event Action Changed
+    {
+        add { }
+        remove { }
+    }
+
+    public static int ReadProperty(AccessorContractFixtures fixture)
+    {
+        unsafe
+        {
+            return fixture.Property;
+        }
+    }
+
+    public static void WriteProperty(
+        AccessorContractFixtures fixture,
+        int value)
+        => fixture.Property = value;
+
+    public static void SubscribeEvent(
+        AccessorContractFixtures fixture,
+        Action handler)
+    {
+        unsafe
+        {
+            fixture.Changed += handler;
+        }
+    }
+
+    public static AccessorContractFixtures Create()
+    {
+        unsafe
+        {
+            return new AccessorContractFixtures();
+        }
     }
 }

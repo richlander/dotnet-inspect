@@ -1755,7 +1755,7 @@ public class UnsafeEmitterTests
         return path;
     }
 
-    static CSharpCompilation CreateUpdatedRulesCompilation(
+    internal static CSharpCompilation CreateUpdatedRulesCompilation(
         string assemblyName,
         string source,
         OptimizationLevel optimizationLevel = OptimizationLevel.Debug)
@@ -1773,7 +1773,7 @@ public class UnsafeEmitterTests
                 allowUnsafe: true));
     }
 
-    static void AssertNoWarningsOrErrors(ImmutableArray<Diagnostic> diagnostics, string body)
+    internal static void AssertNoWarningsOrErrors(ImmutableArray<Diagnostic> diagnostics, string body)
     {
         var relevant = diagnostics
             .Where(d => d.Severity >= DiagnosticSeverity.Warning)

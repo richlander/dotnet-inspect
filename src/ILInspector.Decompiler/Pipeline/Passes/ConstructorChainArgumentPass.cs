@@ -44,6 +44,7 @@ public sealed class ConstructorChainArgumentPass : IIrPass
             usage,
             context,
             "inline spilled base/this constructor argument",
+            allowInArgumentAddressSpills: true,
             orderSensitiveArguments: orderSensitiveArguments);
     }
 

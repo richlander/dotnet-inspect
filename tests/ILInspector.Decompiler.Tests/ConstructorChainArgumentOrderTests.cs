@@ -36,6 +36,53 @@ public class ConstructorChainArgumentOrderTests
         return new Call(ctor, isVirtual: false, [new LoadArgument(0, "this", Derived), .. args]);
     }
 
+    static Call ByRefChainCall(
+        ArgumentRefKind refKind,
+        IrExpression argument,
+        ParameterRefKindFacts facts = ParameterRefKindFacts.Known)
+    {
+        var ctor = new MethodRef(
+            Base,
+            ".ctor",
+            Void,
+            [TypeRef.ByRef(Int32)],
+            HasThis: true)
+        {
+            ParameterRefKinds = [refKind],
+            ParameterRefKindsFacts = facts,
+        };
+        return new Call(
+            ctor,
+            isVirtual: false,
+            [new LoadArgument(0, "this", Derived), argument]);
+    }
+
+    static IrFunction BuildLocalCtor(Call call)
+    {
+        var block = new Block(0);
+        block.Add(new StoreLocal(
+            0,
+            Int32,
+            new Call(Effect("A"), isVirtual: false, [])));
+        block.Add(new ExpressionStatement(call));
+        block.Add(new Return(null));
+        var container = new BlockContainer();
+        container.Add(block);
+        return new IrFunction(
+            ".ctor",
+            Derived,
+            new MethodSignature(
+                Void,
+                [],
+                HasThis: true,
+                GenericParameterCount: 0),
+            [Int32],
+            container)
+        {
+            BaseType = Base,
+        };
+    }
+
     static void RunPass(IrFunction function) => new ConstructorChainArgumentPass().Run(function, PassContext.None);
 
     static int StackStores(IrFunction function) => function.Descendants.OfType<StoreStackSlot>().Count();
@@ -91,6 +138,84 @@ public class ConstructorChainArgumentOrderTests
         RunPass(function);
 
         Assert.Equal(0, StackStores(function));
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void InRvalueAddressSpill_Inlines()
+    {
+        var call = ByRefChainCall(
+            ArgumentRefKind.In,
+            new LoadLocalAddress(0, Int32));
+        var function = BuildLocalCtor(call);
+
+        RunPass(function);
+
+        Assert.DoesNotContain(function.Descendants, node => node is StoreLocal);
+        Assert.Equal("A", Assert.IsType<Call>(call.Arguments[1]).Callee.Name);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void RefAddressSpill_DoesNotInline()
+    {
+        var call = ByRefChainCall(
+            ArgumentRefKind.Ref,
+            new LoadLocalAddress(0, Int32));
+        var function = BuildLocalCtor(call);
+
+        RunPass(function);
+
+        Assert.Contains(function.Descendants, node => node is StoreLocal);
+        Assert.IsType<LoadLocalAddress>(call.Arguments[1]);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void UnknownInAddressSpill_DoesNotInline()
+    {
+        var call = ByRefChainCall(
+            ArgumentRefKind.In,
+            new LoadLocalAddress(0, Int32),
+            ParameterRefKindFacts.Unknown);
+        var function = BuildLocalCtor(call);
+
+        RunPass(function);
+
+        Assert.Contains(function.Descendants, node => node is StoreLocal);
+        Assert.IsType<LoadLocalAddress>(call.Arguments[1]);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void ReusedInAddressSpill_DoesNotInline()
+    {
+        var ctor = new MethodRef(
+            Base,
+            ".ctor",
+            Void,
+            [TypeRef.ByRef(Int32), TypeRef.ByRef(Int32)],
+            HasThis: true)
+        {
+            ParameterRefKinds = [ArgumentRefKind.In, ArgumentRefKind.In],
+            ParameterRefKindsFacts = ParameterRefKindFacts.Known,
+        };
+        var call = new Call(
+            ctor,
+            isVirtual: false,
+            [
+                new LoadArgument(0, "this", Derived),
+                new LoadLocalAddress(0, Int32),
+                new LoadLocalAddress(0, Int32),
+            ]);
+        var function = BuildLocalCtor(call);
+
+        RunPass(function);
+
+        Assert.Contains(function.Descendants, node => node is StoreLocal);
+        Assert.All(
+            call.Arguments.Skip(1),
+            argument => Assert.IsType<LoadLocalAddress>(argument));
         function.CheckInvariant();
     }
 
