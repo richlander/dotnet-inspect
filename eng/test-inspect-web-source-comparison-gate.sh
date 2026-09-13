@@ -33,7 +33,7 @@ for asset in "$before_package" "$after_package" "$before_source" "$after_source"
   fi
 done
 
-cd "$repo_root/prototypes/inspect-web"
+cd "$repo_root/inspect-web"
 INSPECT_WEB_SOURCE_DIFF_SITE="$site" \
 INSPECT_WEB_SOURCE_DIFF_BEFORE_PACKAGE="$before_package" \
 INSPECT_WEB_SOURCE_DIFF_AFTER_PACKAGE="$after_package" \

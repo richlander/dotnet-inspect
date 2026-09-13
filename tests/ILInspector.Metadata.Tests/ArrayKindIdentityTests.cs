@@ -93,6 +93,32 @@ public sealed class ArrayKindIdentityTests
         };
 
     [Theory]
+    [InlineData("Md1", "M:N.ArrayKinds.Md1(System.Int32[0:])")]
+    [InlineData("Md2", "M:N.ArrayKinds.Md2(System.Int32[0:,0:])")]
+    [InlineData("Pointer", "M:N.ArrayKinds.Pointer(System.Int32[0:]*)")]
+    [InlineData("Generic", "M:N.ArrayKinds.Generic``1(``0[0:])")]
+    public void XmlDocumentationIdentity_UsesRoslynArrayGrammar(
+        string memberName,
+        string expected)
+    {
+        using var peReader = new PEReader(
+            new MemoryStream(SignatureImage, writable: false));
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType type = Assert.Single(
+            surface.Types,
+            candidate => candidate.Name == ArrayKindSignatureFixture.TypeName);
+
+        Assert.True(
+            ApiMemberIdentity.TryGetXmlDocMemberIdentity(
+                type,
+                Member(type, memberName),
+                out CSharpText.XmlDocMemberIdentity identity));
+        Assert.Equal(expected, identity.Value);
+    }
+
+    [Theory]
     [MemberData(nameof(TypeNodeParameterExpectations))]
     public void TypeNodeParameterProjection_MatchesRecordedExpectation(
         string memberName,

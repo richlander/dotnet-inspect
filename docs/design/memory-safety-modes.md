@@ -22,18 +22,48 @@ There are two coherent ways for the decompiler to treat the new rules:
 ## Decision
 
 **Conservative is the default; optimistic is an opt-in mode.** Conservative is
-principled and self-gating: new-rules behavior keys off the module-level
-`MemorySafetyRulesAttribute` (`IrImporter.ModuleUsesUpdatedMemorySafetyRules`),
-so a legacy module's output is byte-identical to what it was before the feature
-existed, and a new-rules module synthesizes only the `unsafe` contexts justified
-by recoverable contracts and reconstructed operations.
+principled and self-gating. Metadata's normalized `MemorySafetyRulesResult`
+feeds one typed language-mode decision shared by rendering and compile-back:
+
+- `Legacy` selects legacy reconstruction and compiler replay.
+- `Updated` selects updated-rules reconstruction and compiler replay.
+- `Unsupported`, `Malformed`, `Conflicting`, or metadata `Unavailable` selects
+  neither language mode. Conservative rendering fails with an explicit
+  unavailable-mode diagnostic before mode-sensitive raising, and compile-back
+  reports the artifact unavailable without invoking the compiler.
+
+Production hosts preserve that diagnostic at their source boundary. An
+explicitly requested CLI source section fails instead of disappearing from a
+successful command, and the browser's source-unavailable result retains the
+decompiler reason instead of replacing it with only a generic acquisition
+failure. Whole-type and member composition admit the module decision before
+type-kind and body-presence branches, so enums, delegates, empty interfaces,
+and abstract members cannot bypass the same refusal. Harness reports admit the
+same decision before mode-sensitive passes instead of silently omitting them or
+measuring them under an invented mode.
+Compile-back and portfolio reports retain unavailable methods as explicit
+coverage. Aggregate harness analyses whose result shapes have no
+unavailable-row contract fail before composing source or running passes when
+an input mode is unavailable.
+
+This distinction is module-wide. An invalid consumed-member contract can keep a
+body visible at Partial fidelity when the caller's own language mode is known;
+an invalid defining-module mode cannot, because every context-placement decision
+would otherwise be made under an invented Legacy or Updated model. A legacy
+module's output remains byte-identical to what it was before the feature
+existed, and an updated-rules module synthesizes only the `unsafe` contexts
+justified by recoverable contracts and reconstructed operations.
 
 Optimistic ("simulate") mode is selected explicitly
 (`MetadataSource.SimulateNewRules`; the decompiler harness exposes it as
 `--simulate-new-rules`). It forces new-rules rendering for *any* input, so a
 legacy module is shown as the new rules *would* require — a migration preview
 that deliberately overlaps a source fixer. It must stay opt-in and clearly
-labeled, because it can invent contexts the original binary never had to satisfy.
+labeled, because it can invent contexts the original binary never had to
+satisfy. The explicit override also permits a preview for an unsupported,
+malformed, conflicting, or unavailable module marker: the result is a simulated
+Updated render, never replay or compile-back evidence for the artifact's unknown
+compiler mode.
 
 ## What forces the split: recoverability
 
@@ -114,10 +144,11 @@ This slice adds neither a host-local policy nor a new adoption stage.
 ## What the optimistic mode adds
 
 Optimistic mode (`MetadataSource.SimulateNewRules`; harness `--simulate-new-rules`)
-forces `IrFunction.UsesUpdatedMemorySafetyRules` true regardless of the module
-attribute, so the printer applies `unsafe` contexts to legacy code wherever the
-new rules *would* require them. What it can recover is bounded by recoverability
-(above): a context is added only where the binary still carries a trace.
+forces the shared mode decision to Updated regardless of the normalized module
+result, so the printer applies `unsafe` contexts to legacy or otherwise
+unreplayable code wherever the new rules *would* require them. What it can
+recover is bounded by recoverability (above): a context is added only where the
+binary still carries a trace.
 
 Recoverable, so simulate wraps them for legacy input (mirroring a source fixer,
 cf. the ILLink `unsafe` evolution codefix, diagnostics IL5005/IL5006):
@@ -133,6 +164,61 @@ cf. the ILLink `unsafe` evolution codefix, diagnostics IL5005/IL5006):
 pointerless `unsafe` method's requires-unsafe-ness. Legacy compilation stamps no
 `RequiresUnsafeAttribute` and the call carries no pointer, so the fact was erased
 — there is nothing to replay or recover. This is the principled limit of the mode.
+
+## Field caller-contract replay
+
+**Owner and claim:** Decompiler preserves Metadata's normalized FieldDef caller
+contract on every exact same-assembly or cross-assembly field reference. Every
+lowered or raised field read, write, or address operation consumes that
+contract when deciding whether the caller body needs an unsafe context.
+Unsupported, malformed, conflicting, or unavailable target evidence lowers
+fidelity visibly instead of becoming a negative fact or a pointer-shape guess.
+This focused #5255 slice is tracked by
+[#6323](https://github.com/richlander/dotnet-inspect/issues/6323).
+
+The target field's model and contract remain separate from the caller's
+rendering mode:
+
+- An updated-target explicit contract requires a context only when the caller
+  renders under updated rules, including optimistic simulation.
+- A legacy-target implicit compatibility contract requires a context under
+  either caller model.
+- A positive no-contract result requires no context, including for a
+  pointer-bearing field in an updated target.
+- When the caller model or a legacy pointer-bearing field shape makes the
+  target contract relevant, an unavailable contract authorizes no inferred
+  context. Independently, a resolved unsupported, malformed, or conflicting
+  target model remains visible invalid evidence rather than becoming a
+  negative fact. Both cases keep the body visible with Partial fidelity and
+  the existing invalid-member-rules diagnostic. A legacy caller consuming a
+  non-pointer field does not require unavailable target contract evidence
+  because neither a legacy implicit contract nor an updated explicit contract
+  can affect that caller.
+
+The field contract is independent of operation shape. It applies to instance
+and static loads and stores, field-address operations, and raised nodes that
+retain the field through `ConsumedMemberEvidence`. A pointer receiver can
+require a context independently; neither fact substitutes for the other.
+Same-assembly FieldDefs consume the current module's
+`MemorySafetyMetadataIndex`. Same-module MemberRefs and cross-assembly
+MemberRefs resolve one exact name-and-signature FieldDef before consuming the
+defining module's normalized index. Ambiguous or unreachable definitions do
+not permit attribute-presence fallback.
+
+The ordinary constructor store retained by
+[#6046](https://github.com/richlander/dotnet-inspect/issues/6046) is a named
+consumer: preserving the explicit field and constructor is useful only when
+the body renderer also preserves that store's caller obligation. CSharp still
+owns the field and constructor declaration modifiers delivered by
+[#6297](https://github.com/richlander/dotnet-inspect/pull/6297). This slice does
+not change primary-constructor source shape or declaration spelling.
+
+The Release `DecompilerFieldMemorySafetyTests` gate uses compiler-produced
+legacy and updated fixtures to cover same- and cross-assembly loads, stores,
+and addresses; explicit, implicit, and no-contract results; raised field
+carriers; await-boundary agreement; invalid target evidence; and the retained
+ordinary-constructor store. Compiler validation consumes the product-rendered
+body without repairing it.
 
 ## Rendering altitude and the runtime oracle
 
@@ -154,13 +240,20 @@ comments or claiming the original source used the same form.
 
 The `unsafe(expr)` compiler gate is met: roslyn #84012 / csharplang #10196
 shipped, and `unsafe(expression)` parses and compiles on the SDK selected by the
-repository. Emission remains gated by the compile-back rail's pinned
-`Microsoft.CodeAnalysis.CSharp`, which does not yet parse the form. Until that
-package advances, the printer uses the same minimal-region policy with
-`unsafe { }` blocks. Once the rail can validate expressions, any legal
-expression position may use the tighter form; it is not limited to return
-statements. Tracked: #2021.
+repository and with the compile-back rail's pinned
+`Microsoft.CodeAnalysis.CSharp` 5.9.0. The printer uses the expression form when
+one rendered value or header expression contains every unsafe-required
+operation. It retains a block when the obligation belongs to a void invocation,
+an implicit statement operation, multiple expressions or statements, or a
+scope/data-flow dependency. Roslyn 5.9.0 also still reports CS9362 when the
+unsafe expression's direct operand is a requires-unsafe property access or
+method-address conversion, and CS8346 when a pointer-targeted stack allocation
+loses its target type inside the wrapper. Those direct operands retain blocks;
+a larger enclosing expression may still use the expression form when the
+compile-back rail demonstrates that exact shape is accepted. Address-form
+`fixed` initializers also retain a block because wrapping their `&place`
+operand makes Roslyn report CS0212. Legal expression positions are not limited
+to returns.
 
 Still future (not built): emit `// SAFETY-TODO` audit comments at introduced
-contexts. Expression emission remains tracked by #2021 until the pinned
-compile-back compiler can validate it.
+contexts.

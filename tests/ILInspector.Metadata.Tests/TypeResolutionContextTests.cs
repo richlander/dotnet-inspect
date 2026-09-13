@@ -2480,7 +2480,9 @@ public class TypeResolutionContextTests
             AssemblyBindingOrigin.FromAssembly(owner),
             AssemblyResolutionScope.Any);
         var policy = new RecordingPolicy(
-            _ => AssemblyBindingSelection.Found(target, [shadow]));
+            _ => AssemblyBindingCandidateDomain.Create(
+                [target, shadow])
+                .Finalize([target]));
         using var catalog = new TypeResolutionCatalog();
 
         using TypeResolutionContext first = catalog.CreateContext(
@@ -2508,6 +2510,56 @@ public class TypeResolutionContextTests
             Assert.Single(
                 Assert.IsType<AssemblyBindingOutcome.Resolved>(
                     second.Bind(binding)).ShadowedAssemblies));
+        Assert.Equal(0, shadowOpens);
+        Assert.Single(policy.Requests);
+    }
+
+    [Fact]
+    public void SharedCatalog_ReusesAmbiguousInactiveEvidenceWithoutOpeningIt()
+    {
+        ResolvedAssemblyReference first =
+            Descriptor(BuildAssembly("First", definesType: true));
+        ResolvedAssemblyReference second =
+            Descriptor(BuildAssembly("Second", definesType: true));
+        int shadowOpens = 0;
+        ResolvedAssemblyReference shadow = Descriptor(
+            BuildAssembly("Shadow", definesType: true),
+            () => shadowOpens++);
+        var binding = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(Identity("Target")),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Any);
+        var policy = new RecordingPolicy(
+            _ => AssemblyBindingCandidateDomain.Create(
+                [first, shadow, second])
+                .Finalize([second, first]));
+        using var catalog = new TypeResolutionCatalog();
+
+        using TypeResolutionContext firstContext =
+            catalog.CreateContext(
+                policy,
+                roots: [],
+                bindingRequests: [binding],
+                requests: []);
+        using TypeResolutionContext secondContext =
+            catalog.CreateContext(
+                policy,
+                roots: [],
+                bindingRequests: [binding],
+                requests: []);
+
+        var firstOutcome =
+            Assert.IsType<AssemblyBindingOutcome.Ambiguous>(
+                firstContext.Bind(binding));
+        var secondOutcome =
+            Assert.IsType<AssemblyBindingOutcome.Ambiguous>(
+                secondContext.Bind(binding));
+        Assert.Equal(
+            [first, second],
+            firstOutcome.Candidates.Select(
+                candidate => candidate.Assembly));
+        Assert.Equal([shadow], firstOutcome.ShadowedAssemblies);
+        Assert.Equal([shadow], secondOutcome.ShadowedAssemblies);
         Assert.Equal(0, shadowOpens);
         Assert.Single(policy.Requests);
     }
@@ -2565,7 +2617,9 @@ public class TypeResolutionContextTests
             AssemblyBindingOrigin.FromAssembly(owner),
             AssemblyResolutionScope.Platform);
         var policy = new RecordingPolicy(
-            _ => AssemblyBindingSelection.Found(selected, [shadow]));
+            _ => AssemblyBindingCandidateDomain.Create(
+                [selected, shadow])
+                .Finalize([selected]));
         using var catalog = new TypeResolutionCatalog();
         using TypeResolutionContext context = catalog.CreateContext(
             policy,

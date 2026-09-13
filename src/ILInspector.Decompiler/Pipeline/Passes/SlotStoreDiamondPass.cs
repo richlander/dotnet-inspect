@@ -655,6 +655,7 @@ public sealed class SlotStoreDiamondPass : IIrPass
         {
             MergedType = shape.ResultType,
         };
+        conditional.InheritSourceOffset(rootChildren[^1]);
         folded.Add(new StoreStackSlot(shape.ResultSlot, conditional));
         if (NextKeptIndex(ordered.Count, shape) is { } next && next != shape.MergeIndex)
             folded.Add(new Branch(ordered[shape.MergeIndex].StartOffset));

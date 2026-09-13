@@ -31,16 +31,32 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Overview](overview.md) | Minimum system and architecture context for humans and agents. |
 | [Architecture](architecture.md) | Current host-neutral composition, logical layers, project regions, currencies, and code-navigation map. |
 | [Library Family Boundaries](design/library-family-boundaries.md) | Meaning of the `Inspector`, `ILInspector`, `DotnetInspector`, independent-domain, and host namespace families, independent of dependency altitude and component role. |
+| [Resource Ownership and Borrowing](design/resource-ownership-and-borrowing.md) | Host-neutral lifecycle semantics for service-issued leases, transfer, direct and snapshot-callback borrowing, release, and current-versus-future enforcement. |
+| [Resource Effect Language](design/resource-effect-language.md) | Portable attribute and JSON language for bounded admission of immutable resource API declarations before concrete metadata resolution and lifecycle Analysis. |
+| [Resolved Resource Effects](design/resolved-resource-effects.md) | Analysis-owned binding of admitted resource declarations to exact metadata definitions and direct-call occurrences, with occurrence-local compatibility and visible incompleteness. |
+| [Artifact Ownership and Borrowing](design/artifact-ownership-and-borrowing.md) | Artifact resource classification, resource-free content references, transferable retained-content child leases, scoped byte borrowing, and child-before-acquisition release. |
 | [CLI Host Architecture](cli-architecture.md) | CLI command-host responsibilities, request lifetime, selection, and presentation composition. |
+| [CLI Workspace Sharing](design/cli-workspace-sharing.md) | Common `--share` projection of an inspection command's effective resolved state to a canonical Workspace packet or Inspect Web URL, without a second Workspace-construction grammar. |
+| [Inspection Plan Projections](design/inspection-plan-projections.md) | Shared resolved inspection basis with distinct typed plans for section execution, effective-section discovery, and portable sharing. |
+| [Inspection Operation Composition](design/inspection-operation-composition.md) | Cross-host sequencing of semantic intent, House and Workspace resolution, terminal purpose, query/section/row/work plans, typed results, and host-specific projection. |
+| [Inspection Envelope](design/inspection-envelope.md) | Shared terminal wrapper that preserves owner-issued primary content while carrying typed cross-host diagnostics and supporting broader host composition. |
 | [Decompiler Architecture](decompiler-architecture.md) | Decompiler project boundaries, import/IR/pass/printer flow, host consumers, and testing/evidence infrastructure. |
 | [CLI Change Classification and Obsolete Inputs](design/cli-change-classification.md) | Published CLI surfaces, observable change classification, disclosure, invalid-input guards, and routing reservations. |
 | [CLI Option-Value Validation](design/cli-option-value-validation.md) | Shared zero-arity diagnostics that preserve positional ownership and command-owned capacity. |
 | [Dependency Inspection Command](design/dependency-inspection-command.md) | Target unification of dependency graph traversal and normalized evidence under one asset-driven `depends` operation. |
+| [Application Dependency Manifest Format](design/application-dependency-manifest-format.md) | Host-neutral bounded interpretation of SDK application compile/runtime asset coordinates for direct RTS consumption. |
 | [Assembly Dependency Candidate Inventory](design/assembly-dependency-candidate-inventory.md) | Services-owned undiscarded discovery evidence, target-input association and typed acquisition outcomes before consumer selection. |
 | [Assembly Reference Resolution Ladder](design/assembly-reference-resolution-ladder.md) | Ordered, revision-bound resolution of one exact `AssemblyRef` through its referencing context, applicable platform, and owner-issued package dependency routes under finite operation work. |
 | [Search Scope Resolution](design/search-scope-resolution.md) | Default activation, explicit-source suppression and composition, and named platform/package scope expansion for search commands. |
 | [Typed Source Intent](design/search-scope-domain.md) | Immutable source declarations, bounded package-prefix requests, and pure search normalization ahead of staged host adoption. |
+| [PackageHouse Composition](design/package-house.md) | Sole product-facing package settlement facade over package input, source authority, version, pruning, payload, asset, dependency-realization, and Workspace handoff contracts. |
+| [Platform Target Currency](design/platform-target-currency.md) | Package-neutral .NET runtime and ASP.NET Core family identities plus exact family/TFM/version targets shared across declarations, sources, pruning, workspaces, and hosts. |
+| [Platform Manifest Formats](design/platform-manifest-formats.md) | Host-neutral bounded interpretation of shared-framework runtime configurations and dependency manifests, independent of installed, package, or Browser/Wasm acquisition. |
+| [PlatformHouse Realization and Reference Processing](design/platform-house-reference-processing.md) | Sole product-facing platform target/version settlement, realization, and reference-processing facade with provenance-retaining bare-library handoff and transparent .NET Standard forwarding through Metadata. |
+| [Installed Reference-Pack Realization](design/installed-reference-pack-realization.md) | Package-free explicit-hive reference target discovery, immutable reference-pack population realization, and PlatformHouse contribution mapping. |
+| [Package-backed Platform Realization](design/package-backed-platform-realization.md) | Source-authorized package-backed Platform target discovery plus reference and RID-specific manifest-defined implementation-pack realization for shared CLI and Browser/Wasm adoption. |
 | [Platform Library Population Declaration](design/platform-library-population-declaration.md) | Resource-free .NET runtime and ASP.NET Core population relevance, distinct from target/view selection, source realization, and support closure. |
+| [Exact Library Source Coordinate](design/exact-library-source-coordinate.md) | Resource-free exact managed Library identity within an exact package coordinate or declared Platform population, preserving source-domain distinction before realization. |
 | [Repository xUnit Test Host](design/xunit-test-host.md) | Microsoft Testing Platform execution and aggregate non-vacuity for repository xUnit executables. |
 | [Repository CI Change Plan](design/ci-change-plan.md) | Typed candidate provenance, exact changed-path interpretation, immutable CI validation selection, scoped evidence, and visible planner refusal. |
 | [Repository Dependency Policy](dependency-policy.md) | Evaluated project and compiled assembly dependency rules, JSON policy semantics, and the Release CI gate. |
@@ -53,6 +69,9 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Signals](assembly-audit.md) | Understanding Signals output and network scope flags. |
 | [SourceLink Exposure](sourcelink-exposure.md) | Where SourceLink appears in package/library/type/member flows and how PDB/network costs are controlled. |
 | [PDB Acquisition](pdb-acquisition.md) | How symbols and SourceLink are resolved. |
+| [SourceHouse Composition](design/source-house.md) | Content-first source settlement over SourceLink-authored and C#-decompiled producers with independent consumer-selected source and PDB policy. |
+| [DocumentationHouse Composition](design/documentation-house.md) | Library-scoped compiled-XML and authored-source documentation settlement with independent channel attempts, field provenance, and conflict preservation. |
+| [Library Ownership and Borrowing](design/library-ownership-and-borrowing.md) | Resource-free realized-Library references, owner-issued async operation authority, synchronous scoped content borrowing, and aggregate content release. |
 | [Local Repository Source Acquisition](design/local-repository-source-acquisition.md) | When caller-supplied Git clones may provide checksum-verified PDB source; local locator meaning, decline/fallback, and execution limits. |
 | [Sample References](sample-references.md) | Extracting code samples from XML docs. |
 | [Reading IR Dumps](decompiler-ir-dumps.md) | How maintainers read DecompilerHarness per-pass IR dumps to diagnose decompiled output. |
@@ -62,23 +81,29 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 
 | Document | Need served |
 | -------- | ----------- |
+| [Building Shared Inspections](building-shared-inspections.md) | Prescriptive path from a real product question through Houses, Workspaces, L1 queries, L2 inspection plans, typed results, and thin CLI/Inspect Web adapters. |
 | [Style Guide](design/style-guide.md) | Output formatting conventions. |
 | [Output Shapes](design/output-shapes.md) | The Document → Table → Vector → Scalar shape ladder, how Markout produces it, and how the output flags select a shape. |
 | [Body Shape Views](design/body-shape-views.md) | Explicit counted summaries and locatable rendered-syntax occurrences. |
 | [Uncertified Scan Results](design/uncertified-scan-results.md) | How a command reports a multi-candidate scan that lost a candidate: exclusions named first, uncertainty carried beside the outcome, exit code `3`. |
 | [Semantic Row Selection](design/semantic-row-selection.md) | Typed ordered Head, Tail, Window, and Top stages over complete logical sequences. |
 | [CLI Row-Selection Grammar](design/cli-row-selection.md) | L3 item, Window, Top, direction, line-unit, shorthand, capability, and lowering rules for command-by-command adoption. |
+| [CLI Execution Bounds](design/cli-execution-bounds.md) | L3 classification, vocabulary, validation, and typed lowering for explicit owner-dimensioned limits on upstream work, separate from semantic row selection. |
 | [Source Delegation](design/source-delegation.md) | Delegated source execution: the effect protocol, closed result algebra, completion-evidence bases, and equivalence gates for row handoff and exact upstream Count. |
 | [Package Input and Dependency Evidence](design/package-dependency-evidence.md) | Common declarations and produced relationships across project, package, assets, and runtime inputs, preserving authorship, requested/resolved evidence, processing observations, equivalence, completion, and `InertString` containment. |
 | [Package Dependency Candidate Resolution](design/package-dependency-candidate-resolution.md) | Host-neutral composition from one normalized declaration to an exact source-authorized package candidate, typed failure, or incomplete source evidence. |
 | [Package Dependency Traversal](design/package-dependency-traversal.md) | Source-authorized exact package-manifest traversal with typed graph identity, root-relative depth, failures, completion, and shared CLI/Browser consumption. |
 | [Dependency Evidence CLI](design/dependency-evidence-cli.md) | CLI command, input binding, sections, count exactness, Markout and JSON lowering, diagnostics, and routing for normalized dependency evidence. |
+| [Authored Project Dependency Facts](design/authored-project-dependency-facts.md) | Host-neutral exact-project-XML target observations, package declarations, condition association, identity, incomplete evidence, failure, and containment. |
 | [Restored Project Dependency Facts](design/restored-project-dependency-facts.md) | Host-neutral `project.assets.json` declarations, resolved package graph, typed identity, completion, failure, and containment. |
+| [Runtime Dependency Facts](design/runtime-dependency-facts.md) | Host-neutral `.deps.json` runtime-target package nodes, package relationships, identity, completion, failure, and containment. |
+| [Restored Project Dependency Traversal](design/restored-project-dependency-traversal.md) | Host-neutral root-relative restored-project traversal: typed project-reference and package relationships, minimum distance, depth boundaries, scoped failures, completion, and topology identity. |
 | [Projected JSON Output](design/projected-json.md) | Typed versus lowered JSON, section-scoped projection, representability, atomic output, and adoption gates. |
 | [Inspection Graph Document](design/inspection-graph-document.md) | Typed multi-subject graph envelope for calls, metadata, integrations, Findings, occurrences, characteristics, and package/type lenses. |
 | [Custom-Attribute Value Decoding](design/custom-attribute-value-decoding.md) | The bounding, fail-closed, and fidelity invariants for a custom-attribute decoder this repository will own, the format's adversarial properties, the two width-resolution paths, bounds, charging, and refusal semantics. Prescriptive ahead of the decoder (#5288 slice 2); SRM is still the production decoder today and becomes a test-time oracle when that lands. Nine known gaps recorded against the contract. |
 | [Bounded Metadata Signature Decoding](design/metadata-signature-decoding.md) | Design-only, unverified node, materialization, and work-ledger bounds for decoding one artifact-authored metadata signature. |
 | [Inspection Graph Modes](design/inspection-graph-modes.md) | Single-seed, peer-seed, and induced-set requests over member, type, assembly, and package subjects. |
+| [Pairwise Library Call-Use](design/pairwise-library-call-use.md) | Exact resolved direct IL call and construction occurrences crossing between two admitted libraries, with physical evidence and explicit completion. |
 | [Call Graph Characteristics](design/call-graph-characteristics.md) | Mapping current call nodes, edges, occurrences, signals, and loop state into the inspection-graph descriptor model. |
 | [Graph Signal Annotations](design/graph-signal-annotations.md) | Projecting analysis signals (alloc/copy/unsafe, and exception-risk follow-ups) onto call-graph nodes via `--fields`. |
 | [Allocation Triage Pre-Filters](design/allocation-triage-prefilters.md) | Which allocation candidates Performance Triage surfaces, why the pre-filters prune cold-by-construction shapes, and what realized cost the static side cannot predict. |
@@ -94,6 +119,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Comparison Document](design/comparison-document.md) | Portable root and subject composition for shared CLI/browser diffs and clone payloads, including referenced rename/move descriptions. |
 | [Clone Candidates Presentation](design/clone-candidate-presentation.md) | Portable globally ranked Workspace clone-search candidates, exact endpoint addresses, coverage, failures, suppression, and receipts. |
 | [Library API Diff Presentation](design/library-api-diff-presentation.md) | Portable Library-root changed-Type composition with complete compatibility changes and distinct changed-member summaries. |
+| [Inspect Web Compare Experience](design/inspect-web-compare-experience.md) | Browser Diff/Clone mode and exact Library-to-Type-to-Member drill-down, with whole-Type Diff and Member detail/Explore boundaries. |
 | [Performance Analysis Baselines](analysis-baselines.md) | Internal baselines of what each analysis type finds over a fixed corpus, with effectiveness ratings for the one-stop-shop Performance Analysis view. |
 | [Dynamic Leak-Watch](design/dynamic-leak-watch.md) | The retention axis: how `runfaster leak-watch` separates a managed leak from a churn storm from native/committed growth, and why static triage and the allocation-tick join cannot. |
 | [Rendering Model](design/rendering-model.md) | Historical/current rendering model notes; prefer [Progressive Disclosure](design/progressive-disclosure.md) for current agent-facing behavior. |
@@ -101,10 +127,10 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [View-Facet Registry](design/view-facet-registry.md) | View-facet identity and discovery: how facets are registered and looked up across CLI and browser hosts. |
 | [Package Set Registry](design/package-set-registry.md) | Front-end-only static application identities, descriptors, and package membership over reusable package-coordinate validation. |
 | [Static Ecosystem Packs](design/ecosystem-packs.md) | Front-end-only application catalog of private static ecosystem registrations composing discovery metadata with optional package-set, prefix-request, and opaque Integration scanner bindings. |
-| [Workspace Ecosystem Registration Handoff](design/workspace-ecosystem-registration-handoff.md) | Explicit projection from one application ecosystem pack to a lower immutable Workspace declaration, including one authored shared-default sequence without a lower catalog dependency. |
+| [Workspace Ecosystem Registration Handoff](design/workspace-ecosystem-registration-handoff.md) | Explicit projection from one application ecosystem pack to a lower immutable Workspace declaration, plus Ecosystems-owned construction of the one curated Workspace over neutral empty Workspace construction. |
 | [Integration Scanner Binding](design/integration-scanner-binding.md) | Integration-owned static scanner handoff over immutable decoded observations, preserving evidence and owner-controlled execution; catalog and host adoption remain staged. |
-| [Workspace Scope and Expansion](design/workspace-scope-and-expansion.md) | Committed logical Root membership and order, closed-by-default selective dependency expansion, revision-bound edits, and complete scope-operation results. |
-| [Workspace Registration and Call-Graph Focal Length](design/workspace-registration-and-call-graph-scope.md) | Proposed, operator-approved replacement: inert exact-library/prefix/ecosystem registration, shared Platform/ASP.NET Core/Extensions defaults, and consumer-selected call-graph focal lengths with a broad default. |
+| [Workspace Scope and Expansion](design/workspace-scope-and-expansion.md) | Committed logical Package membership and order, closed-by-default selective dependency expansion, revision-bound edits, and complete scope-operation results. |
+| [Workspace Registration and Call-Graph Focal Length](design/workspace-registration-and-call-graph-scope.md) | Proposed, operator-approved replacement: empty raw Workspace construction, one Ecosystems-owned curated Platform/ASP.NET Core/Extensions composition, inert registration, and consumer-selected call-graph focal lengths with a broad default. |
 | [Schema Query](design/schema-query.md) | `-D`/`-S` schema/query implementation notes. |
 | [Query Vocabulary](design/vocabulary.md) | Shared static catalogs for legal query values across CLI and browser hosts. |
 | [Hidden-Fact Annotations](design/hidden-fact-annotations.md) | Allocation/unsafety/lifetime annotation model and the static IL pair-agreement oracle strategy. |
@@ -118,15 +144,17 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Method Body Inspection](design/method-body-inspection.md) | Target service seam for shared `member` and `library --il-offset` method-body facts and coordinate inspection. |
 | [Member Body Substrate](design/member-body-substrate.md) | One base for skeleton/full/merged/diff body rendering: `ApiType` shape, `MemberAnchor` address, one scope, and `MemberBody`'s scalar (whole-body) and vector (offset-keyed) shapes. |
 | [NuGet API Selection](design/nuget.md) | Scenario-to-API decisions, endpoint roles, first/last-result performance evidence, and current versus proposed adoption. |
-| [NuGet Gallery Discovery](design/nuget-gallery-discovery.md) | Proposed NuGetFetch termless/type-filtered Gallery search, source orders, search-facet discovery, and bounded row-source delegation, with CLI/browser adoption tracked separately. |
-| [Package Query Input Selection](design/package-query-input-selection.md) | Exact-ID and explicit-prefix selection for Inspect Web, plus retained explicit Gallery input for other shared Query consumers. |
+| [NuGet Catalog Acquisition](design/nuget-catalog-acquisition.md) | Bounded incremental acquisition of advertised Catalog event windows with source identity, horizon, completion, and typed failure. |
+| [NuGet Catalog Package Receipt](design/nuget-catalog-package-receipt.md) | Exact Package Details leaf enrichment for source-issued first-receipt time with event correspondence and typed failure. |
+| [GitHub NuGet Advisory Evidence](design/github-nuget-advisory-evidence.md) | Bounded reviewed-advisory acquisition and exact-coordinate current-affected and explicitly-fixed evidence with honest category availability. |
+| [Package Query Input Selection](design/package-query-input-selection.md) | Exact-ID and explicit-prefix selection shared by Package Query consumers, with blank input remaining idle. |
 | [Package Query Inspection Evidence](design/package-query-inspection-evidence.md) | Inspection-produced item counts and bounded previews, distinct from query-wide context. |
 | [NuGet Feed Authentication](design/nuget-authentication.md) | How feeds are authenticated: `nuget.config` credentials, credential provider discovery and the 401-driven plugin protocol, source-scoped plugin credential isolation, supported credential forms, and hermetic/live test tiers. See [Private NuGet Feeds](private-feeds.md) for setup instructions. |
 | [Local Package Source Identity](design/local-package-source-identity.md) | Canonical config- and command-relative path identity shared by local source consumers. |
 | [Local Folder Package Source](design/local-folder-package-source.md) | General V2/V3 folder-feed recognition, independent capabilities, bounded filesystem and archive observation, typed failures, and payload lifetime. |
 | [Package Source Model](design/package-source-model.md) | Configured package authority, mapping, source-result adoption, aggregation, selection, and cache authorization. |
 | [Package Payload Capacity](design/package-payload-capacity.md) | Awaited host-capacity reservation before response materialization, cancellation, and publication handoff. |
-| [Version Resolution](design/version-resolution.md) | Package/platform version and cache behavior. |
+| [Version Resolution](design/version-resolution.md) | Resource-free package version-selection requests and receipts plus current package/platform version and cache behavior. |
 | [Cache concurrency and publication](design/cache-concurrency.md) | Process-local single-flight, cross-process atomic publication, dependency overlap, and filesystem guarantees. |
 | [Package Index Cache](design/package-index-cache.md) | Persistent filesystem-derived package inspection identity, completeness, freshness, validation, and reuse. |
 | [Package Metadata Persistence](design/package-metadata-persistence.md) | Authority-scoped, time-bounded present and absent metadata observations, production completion, field-state preservation, and reuse. |
@@ -143,7 +171,13 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Workspace Research Target Composition](design/research-workspace-target-composition.md) | Queries-owned association from a workspace facade through Metadata forwarding evidence and the Queries-to-Research population receipt to one exact Research target attempt. |
 | [Direct-member Comparison](design/direct-member-comparison.md) | Queries-owned designated local C#/IL comparison, explicit Research/publication prerequisites, and production adoption and legacy-retirement ledger. |
 | [Local Comparison Publication](design/local-comparison-publication.md) | Queries-owned result association and terminal evidence for the first borrowed-input, two-host method-comparison route. |
-| [Inspect Web Method Body Comparison](design/inspect-web-method-body-comparison.md) | Explicit same-assembly pair interaction, managed feature projection, and typed Browser Method Body Diff presentation. |
+| [Inspect Web Method Body Comparison](design/inspect-web-method-body-comparison.md) | Retained same-assembly method-pair projection and generated-facade evidence; the former contextual dialog is retired. |
+| [Inspect Web Package Reference Result](design/inspect-web-package-reference-result.md) | Native C# reference-list or failure results, generated TypeScript consumption, and settled reference-view diagnostics. |
+| [Inspect Web Graph Source State](design/inspect-web-graph-source-state.md) | One feature-owned Graph Source modal state with distinct pending, available, failed, and cancelled outcomes. |
+| [Inspect Web Document Viewer State](design/inspect-web-document-viewer-state.md) | One feature-owned package document modal state with distinct pending, available, and failed outcomes. |
+| [Inspect Web Spotlight Package Search State](design/inspect-web-spotlight-package-search-state.md) | One feature-owned Spotlight package-search result state with typed cache retention and snapshot settlement. |
+| [Inspect Web Spotlight Destination Activation](design/inspect-web-spotlight-destination-activation.md) | Proposed Browser classification and settlement for admitted, registration-covered, Platform-local, and uncovered-package Spotlight destinations. |
+| [Inspect Web Type and Member Source State](design/inspect-web-type-member-source-state.md) | Independent Type and Member Source result states with shared cancellation, exact publication ownership, and snapshot settlement. |
 | [Inspect Web Source Comparison](design/inspect-web-source-comparison.md) | Explicit package-version/member pair interaction, paired Source query adoption, and authored-source changes, moves, provenance, and non-success in the browser. |
 | [Analysis Universe Realization](design/analysis-universe-realization.md) | Operation-scoped binding from one exact finite analysis universe and validated plan to owner-issued executable capabilities, deterministic access, retained lifetimes, and visible failure. |
 | [Analysis String-Literal-Use Pattern](design/analysis-string-literal-use-pattern.md) | Bounded ordinal matching over decoded `ldstr` occurrences with durable instruction identity, contained literal evidence, and typed incomplete outcomes. |
@@ -168,16 +202,19 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Inspect Web Workspace Add package](design/inspect-web-workspace-add-package.md) | Focused package-search picker appending a resolved coordinate without replacing or evicting current members. |
 | [Inspect Web Navigation Consumer](design/inspect-web-navigation-consumer.md) | Browser-side navigation-result consumer model: canonical location, browser history, transition lifecycle, effect authority, synchronization debt, and renderer/destination lifetimes. |
 | [Inspect Web Shell Interaction](design/inspect-web-shell-interaction.md) | Persistent shell and shared transient/routed surface interaction: shell actions, menu/modal semantics, Spotlight Search, Open, Settings entry, and the command palette. |
-| [Inspect Web Surface Composition](design/inspect-web-surface-composition.md) | Browser host page-level composition and placement: working surfaces, Unified Settings, package-source presentation, responsive composition, and the data bar and Diagnostics. |
+| [Inspect Web Surface Composition](design/inspect-web-surface-composition.md) | Browser host page-level composition and placement: full-area working surfaces including Member Diff, Unified Settings, package-source presentation, responsive composition, and the data bar and Diagnostics. |
 | [Platform Composition and Overlays](design/platform-composition-and-overlays.md) | Platform library composition, overlays, and core-library entitlement. |
 | [Platform/Package Pruning](design/platform-package-pruning.md) | Which package identities a platform target subsumes, the subsumption comparison, and the staleness contract for the shipped prune inventory. |
 | [Platform Package Supply Policy](design/platform-package-supply-policy.md) | Host-neutral decision from a package coordinate and target-bound prune inventory to preserved supply evidence and conservative platform delegation. |
+| [Package Asset-selection Correspondence](design/package-asset-selection-correspondence.md) | Resource-free generation and request correspondence for runtime and compile asset-selection outcomes. |
 | [Type, Member, and API Representation](design/type-member-api-representation.md) | Canonical type, member, and API identity model. |
 | [Member Signature Shape and Transport](design/member-signature-shape.md) | Non-authoritative signature correspondence: loss-policy rationale, caller obligations, alternatives, canonical `mss1` grammar, and evolution. |
 | [C# Type-Declaration Identifier Admission](design/csharp-type-declaration-identifier-admission.md) | Compiler-characterized model-free admission from exact identity text to a legal C# declared-type identifier spelling or typed refusal. |
 | [C# Declared-Type Self-Name Admission](design/csharp-declared-type-self-name.md) | Proposed typed admission from one exact Metadata leaf to the identifier shared by a type header, constructors, and finalizers. |
 | [C# Memory-Safety Declaration Spelling](design/csharp-memory-safety-spelling.md) | Proposed CSharp-owned spelling of caller contracts independently from pointer syntax and body-context requirements. |
 | [Source Finding Producers](design/source-finding-producers.md) | How source-derived Findings are produced. |
+| [Source Availability Audit](design/source-availability-audit.md) | Operation-scoped source reachability and origin-validated positive reuse. |
+| [Source Integrity Audit](design/source-integrity-audit.md) | Operation-scoped SourceLink body verification and immutable positive reuse. |
 | [Untrusted Data Threat Model](design/untrusted-data-threat-model.md) | Trust boundaries, existing controls, and the security-scope rationale for untrusted internet-origin data. |
 | [Finding Adoption](design/finding-adoption.md) | How Analysis, Findings, and Research compose. |
 | [Call Graph Projection](design/call-graph-projection.md) | Projecting the inspection graph into a call graph. |

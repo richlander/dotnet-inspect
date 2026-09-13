@@ -4,7 +4,8 @@ using ILInspector.Research;
 
 namespace DotnetInspector.Queries;
 
-internal enum QueryPopulationProjectionRejection
+/// <summary>Why a sealed Queries population could not be associated with Research admission.</summary>
+public enum QueryPopulationProjectionRejection
 {
     ProfileMismatch,
     OperationMismatch,

@@ -37,6 +37,9 @@ using System.Threading.Tasks;
 /// </summary>
 public static class LibraryA
 {
+    public static unsafe int ContractField;
+    public static int SafeField;
+
     public static Task<int> SafePointerTask(int* value)
         => Task.FromResult(1);
 

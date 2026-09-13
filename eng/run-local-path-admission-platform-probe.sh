@@ -2,7 +2,7 @@
 set -euo pipefail
 
 readonly root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-readonly probe="$root/tests/DotnetInspector.Artifacts.Local.PlatformProbe"
+readonly probe="$root/tests/Inspector.Artifacts.Local.PlatformProbe"
 readonly expected="local-path-admission-platform-probe: supported"
 
 case "${1:-}" in

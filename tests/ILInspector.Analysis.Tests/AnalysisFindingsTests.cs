@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
 
 using DotnetInspector.Fixtures;
-using ILInspector.Findings;
+using Inspector.Findings;
 
 namespace ILInspector.Analysis.Tests;
 
@@ -285,6 +285,7 @@ public class AnalysisFindingsTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void InspectCallSites_DecodesCallIndirectSignatureStructurally()
     {
         var index = LibraryBodyIndex.Open(typeof(AnalysisFindingsTests).Assembly.Location);

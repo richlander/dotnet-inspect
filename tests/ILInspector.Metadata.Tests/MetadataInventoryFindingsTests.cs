@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.PortableExecutable;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Metadata;
 
 namespace ILInspector.Metadata.Tests;

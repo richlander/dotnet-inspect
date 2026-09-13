@@ -12,10 +12,13 @@ package-prefix admission, and failure core is implemented under #5533 as
 `PackageDependencyEvidenceQuery`. The current query also implements the larger
 input-kind, declaration-basis, authorship, produced-relationship, positive
 processing, and independent phase-count vocabulary for package-manifest and
-restored-project inputs. Authored-project and runtime-dependency providers,
-policy composition, and host adoption remain staged work. Restored-project
-inputs now consume typed pruning-processing evidence from their artifact
-owner. Optional owner observations remain dependent on #5315.
+restored-project inputs. The authored-project facts provider and normalized
+adapter are implemented by `AuthoredProjectDependencyFactsQuery` and this
+query. The runtime provider and normalized adapter are implemented by
+`RuntimeDependencyFactsQuery` and this query. Policy composition and host
+adoption remain staged work. Restored-project inputs consume typed
+pruning-processing evidence from their artifact owner. Optional owner
+observations remain dependent on issue #5315.
 
 ## Owner
 
@@ -76,8 +79,9 @@ steps are:
    immutable result (implemented by the current query).
 3. Add typed pruning-processing evidence to restored-project facts
    (implemented by the current query).
-4. Add a typed authored-project declaration provider.
-5. Add a typed runtime-dependency provider for `.deps.json`.
+4. Add typed authored-project facts and their normalized adapter.
+5. Add a typed runtime-dependency provider for `.deps.json` and adapt its
+   facts into this owner.
 6. Adopt the shape in package-pruning policy.
 7. Adopt the composed policy result in the CLI dependency experience.
 8. Adopt the same result in inspect-web Browser/Wasm.
@@ -292,23 +296,99 @@ Project Dependency Facts Query in #5314.
 
 ### Authored project
 
-The future authored-project adapter supplies provider-issued project identity,
-target partitions, package declarations, declaration basis, provenance,
-completion, and failures. Its owner states whether the facts are authored
-syntax or evaluated project output.
+The authored-project adapter consumes one complete
+`AuthoredProjectDependencyFactsResult`, not project XML or a path. Its sole
+acquisition form is `ProjectXml`, meaning already-acquired XML content was
+projected by the authored-project owner. `ProjectLocator` remains exclusive to
+the convenience path that locates `project.assets.json` and therefore produces
+a restored-project input.
 
-The provider must retain target conditions it can establish and mark
-unsupported imports, property indirection, central package management, or
-other unevaluated constructs incomplete rather than treating them as absent.
-This query does not evaluate MSBuild, initiate restore, or upgrade a syntax
-projection to evaluated evidence.
+An available or incomplete provider result becomes one admitted root:
+
+- root identity is the provider-issued `AuthoredProjectIdentity`;
+- content provenance is the provider-issued
+  `AuthoredProjectContentProvenance`;
+- input kind is `AuthoredProject`;
+- declaration basis is `AuthoredProjectSyntax`;
+- selection is unavailable because this adapter performs no target selection;
+- produced relationships are not applicable; and
+- processing is not applicable because authored syntax is pre-processing
+  evidence.
+
+A failed provider result has no established project identity or provenance. It
+therefore becomes one typed failed root and never a successful empty,
+unavailable, or anonymous admitted root.
+
+The adapter forms logical declaration groups from owner-issued target
+observations and declaration conditions:
+
+- unconditional declarations occupy one any-framework group;
+- exact literal targets and exact target conditions occupy their canonical
+  exact-framework group;
+- unrecognized literal targets occupy an opaque unrecognized-framework group;
+- expression-bearing targets and unresolved conditions occupy an opaque
+  unresolved-framework group; and
+- every target observation contributes its source occurrence even when its
+  group has zero declarations.
+
+Groups with equal semantic scope coalesce while retaining every owner-issued
+target or declaration occurrence. Unconditional declarations are not copied
+into observed target groups: doing so would infer evaluated MSBuild
+applicability. No requested target is selected.
+
+Only declarations for which the provider established both canonical package
+identity and canonical requested version constraint become normalized rows.
+They retain provider source spellings and occurrence counts and are
+`ApplicationAuthored`. The adapter does not reparse package IDs, version
+constraints, target expressions, or conditions. Provider limitations become
+typed declaration failures, and opaque unresolved dependency-syntax
+identities remain typed failure evidence. Independently usable rows therefore
+survive while the declaration phase remains incomplete. A complete provider
+result produces a complete declaration phase, including valid complete-empty
+evidence.
+
+This adapter implements authored **syntax** only. `EvaluatedProject` remains a
+distinct declaration basis for a future owner-issued evaluated-project
+provider. This query does not evaluate MSBuild, initiate restore, or upgrade a
+syntax projection to evaluated evidence.
 
 ### Runtime dependency manifest
 
-The future runtime-dependency adapter supplies provider-issued runtime target,
-package nodes, package relationships, provenance, completion, and failures from
-one already-acquired `.deps.json` document. It does not invent project-authored
-constraints that the artifact does not retain.
+The runtime-dependency adapter consumes one complete
+`RuntimeDependencyFactsResult`, not bytes or a path. Its sole acquisition form
+is `RuntimeDependencyManifest`, meaning already-acquired `.deps.json` bytes
+were projected by the runtime-dependency owner.
+
+An available provider result becomes one admitted root:
+
+- root identity is the provider-issued `RuntimeDependencyRootIdentity`;
+- content provenance is the provider-issued
+  `RuntimeDependencyContentProvenance`;
+- the exact provider-issued `RuntimeDependencyTarget` remains associated with
+  the root, is mutually exclusive with restored-target evidence, and must agree
+  with the target identity carried by the runtime-manifest identity;
+- input kind is `RuntimeDependencyManifest`;
+- declaration basis is `NotApplicable`;
+- declaration-group selection is unavailable;
+- package nodes and package-resolving relationships retain provider-issued
+  identities and exact resolved coordinates;
+- requested constraints, direct/transitive roles, and declaration
+  associations remain absent;
+- a package parent is `LibraryDeclared`, while an opaque non-package parent is
+  `Unattributed`;
+- graph failures remain typed relationship failures and independently make the
+  relationship phase incomplete; and
+- processing is complete positive evidence of
+  `RuntimeDependencyProjection`, independently of relationship completion.
+
+A failed provider result has no established runtime-manifest identity, target,
+or provenance. It therefore becomes one typed failed root and never a
+successful empty, unavailable, or anonymous admitted root.
+
+The adapter does not reparse package IDs, versions, runtime targets, parent
+identities, or failure evidence. A valid empty provider graph remains a
+complete-empty relationship phase, distinct from provider failure or
+incomplete usable graph evidence.
 
 Framework assemblies absent from a framework-dependent application's runtime
 manifest are outside that manifest's package-library set. Their absence is not
@@ -434,7 +514,10 @@ Declaration scope is one of:
 - **Exact framework** — a parseable full target framework, including platform
   and platform version when present;
 - **Unrecognized framework** — a retained owner-issued token that cannot be
-  assigned NuGet framework semantics.
+  assigned NuGet framework semantics; or
+- **Unresolved framework** — an owner-issued target expression or declaration
+  condition whose framework applicability cannot be established without
+  evaluation.
 
 An explicit manifest group whose target-framework attribute is present but
 empty has `Any framework` semantics, matching NuGet's universal dependency-
@@ -451,17 +534,19 @@ empty explicit group before framework parsing. All other exact-framework
 construction reuses the restored-facts owner's
 `NuGetTargetFrameworkIdentity` admission boundary; the composition query does
 not repair a second framework identity from display text.
-Unrecognized tokens retain opaque identity and inert display evidence but are
-comparable only within one evidence family: matching opaque identities compare
-equal under same-owner parity, while no unrecognized identity is comparable
-across declaration-facts owners. Whether a universal group was implicit or
-explicit is retained as group provenance, not framework identity. This
-contract names semantics, not a package dependency; implementation remains
-NativeAOT- and Browser-Wasm-compatible.
+Unrecognized and unresolved scopes retain distinct opaque identity and inert
+display evidence but are comparable only within one evidence family: matching
+kind and opaque identity compare equal under same-owner parity, while neither
+opaque identity is comparable across declaration-facts owners. Whether a
+universal group was implicit or explicit is retained as group provenance, not
+framework identity. This contract names semantics, not a package dependency;
+implementation remains NativeAOT- and Browser-Wasm-compatible.
 
-An unrecognized scope's opaque identity is internal comparison state, not
-renderable artifact text. Sinks receive its kind and `InertString` display
-evidence; they do not serialize or render the raw identity token.
+An unrecognized or unresolved scope's opaque identity is internal comparison
+state, not renderable artifact text. Sinks receive its kind and `InertString`
+display evidence; they do not serialize or render the raw identity token.
+Presentation projections replace an order key containing opaque identity with
+a document-stable ordinal key while retaining normalized ordering internally.
 
 The selected restored target framework is resolution context, not a substitute
 for an authored declaration scope the input owner did not supply. Such an input
@@ -486,9 +571,11 @@ Declaration projection is complete when every owner-issued logical group,
 including an empty group, is represented; every owner-issued declaration
 contributes a normalized row; and no typed declaration failure occurs.
 Unrecognized framework scope is a complete declaration projection with
-context-dependent scope comparison; it does not prevent core comparison. An
-input that cannot associate a declaration with any logical group has incomplete
-declaration projection instead of an unavailable scope.
+context-dependent scope comparison; it does not prevent core comparison.
+Unresolved framework scope appears only with provider-issued incompleteness,
+so the declaration comparison is already not comparable. An input that cannot
+associate a declaration with any logical group has incomplete declaration
+projection instead of an unavailable scope.
 
 Otherwise, core comparison retains logical-group multiplicity and returns
 equal or unequal. Scoped comparison returns:
@@ -718,6 +805,11 @@ scoped signature rules. Package/nuspec pairs carry that status.
 Restored-project roots currently do not, so package/restored selected-group
 comparison is not comparable even when their full core or scoped declarations
 are equal.
+
+A runtime-dependency root has declaration basis `NotApplicable`. Comparing it
+through the declaration-equivalence operation is therefore not comparable with
+reason `DeclarationNotApplicable`, distinct from an applicable but incomplete
+declaration projection.
 
 Input-specific evidence is asserted separately. A restored graph may therefore
 be equal under the declared projection while also reporting resolved versions
@@ -1044,6 +1136,16 @@ Implementation must establish:
   declaration association;
 - authored-project syntax and evaluated-project declaration bases remaining
   distinct, with completeness interpreted relative to the stated basis;
+- authored-project available, valid complete-empty, incomplete, and failed
+  provider outcomes remaining distinct;
+- authored target-only groups, declaration conditions, source occurrence
+  counts, application authorship, and requested constraints remaining visible;
+- unconditional authored declarations remaining in their any-framework group
+  rather than being copied into observed targets;
+- unresolved authored targets and conditions remaining opaque and incomplete
+  rather than becoming literal framework or evaluated applicability claims;
+- authored exact-framework declarations comparing with equivalent package
+  manifest declarations without manufacturing selected-group evidence;
 - package-pruning evaluation emitted only from typed `packagesToPrune`
   evidence, with evidence absence remaining unknown;
 - `.deps.json` framework-assembly absence never becoming package-pruning
@@ -1069,14 +1171,31 @@ and current larger-shape properties are gated in Release by
 - `PackageInput_PackageManifestDeclarationsAreLibraryDeclared`;
 - `PackageInput_RestoredRelationshipOriginRequiresOwnerAssociation`;
 - `PackageInput_ProjectNodeRelationshipRemainsUnattributedWithoutAssociation`;
-- `PackageInput_NotApplicableIsNotUnavailableOrCompleteEmpty`.
+- `PackageInput_NotApplicableIsNotUnavailableOrCompleteEmpty`;
+- `Execute_AuthoredSyntaxRetainsTargetsDeclarationsAndProvenance`;
+- `Execute_AuthoredCompleteEmptyProjectIsNotUnavailable`;
+- `Execute_AuthoredDuplicateSyntaxRetainsSourceOccurrenceCount`;
+- `Execute_AuthoredIncompleteFactsRetainUsableAndOpaqueEvidence`;
+- `Execute_AuthoredUnprojectedSyntaxRetainsOpaqueIdentity`;
+- `Execute_AuthoredProviderFailureBecomesFailedRoot`;
+- `Compare_AuthoredExactScopeMatchesEquivalentPackageManifest`; and
+- `CreateAuthoredProjectInput_RequiresProjectXmlAcquisition`;
+- `Create_RetainsAuthoredIdentityProvenanceOccurrencesAndFailures`; and
+- `Create_OpaqueAuthoredScopesExposeOnlyInertDisplayEvidence`;
+- `Execute_CurrentRuntimeManifestRetainsProviderIdentityTargetAndProvenance`;
+- `PackageInput_RuntimeRelationshipsDoNotInventConstraintsRolesOrPruning`;
+- `Execute_RuntimeIncompleteFactsRetainUsableGraphAndFailures`;
+- `Execute_RuntimeCompleteEmptyGraphIsNotUnavailable`;
+- `Compare_RuntimeDeclarationNotApplicableIsDistinctFromIncomplete`;
+- `Execute_RuntimeProviderFailureBecomesFailedRoot`; and
+- `CreateRuntimeDependencyManifestInput_RequiresRuntimeManifestAcquisition`;
+  and
+- `RuntimeRoot_RequiresExclusiveMatchingTargetEvidence`.
 
 Owner-enrichment behavior remains `unverified` until #5315 supplies its typed
-input and focused gates. The remaining authored-project, runtime-dependency,
-and cross-host properties remain `unverified` until these Release gates land:
+input and focused gates. Cross-host retention remains `unverified` until this
+Release gate lands:
 
-- `PackageInput_AuthoredSyntaxAndEvaluatedBasisRemainDistinct`;
-- `PackageInput_DepsAbsenceNeverBecomesPruningEvidence`;
 - `PackageInput_CliAndBrowserConsumeTheSameTypedSnapshot`.
 
 ## Existing dependency-evidence adoption sequence

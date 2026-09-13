@@ -17,7 +17,7 @@ public record AssemblyAttributeInfo(
 /// <summary>
 /// Information about a type forwarder.
 /// </summary>
-public record TypeForwarderInfo(
+public sealed record TypeForwarderInfo(
     string TypeName,
     string TargetAssembly);
 
@@ -219,26 +219,39 @@ public static class AssemblyDetailScanner
 
         foreach (var handle in reader.ExportedTypes)
         {
-            var exportedType = reader.GetExportedType(handle);
-
-            if (!exportedType.IsForwarder)
-                continue;
-
-            var ns = reader.GetString(exportedType.Namespace);
-            var name = reader.GetString(exportedType.Name);
-            var fullName = TypeResolver.FormatDisplayName(string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}");
-
-            string targetAssembly = "";
-            if (exportedType.Implementation.Kind == HandleKind.AssemblyReference)
-            {
-                var assemblyRef = reader.GetAssemblyReference((AssemblyReferenceHandle)exportedType.Implementation);
-                targetAssembly = reader.GetString(assemblyRef.Name);
-            }
-
-            results.Add(new TypeForwarderInfo(fullName, targetAssembly));
+            if (ScanTypeForwarder(reader, handle) is { } forwarder)
+                results.Add(forwarder);
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// Projects one ExportedType row using the native type-forwarder inventory
+    /// name and target semantics.
+    /// </summary>
+    public static TypeForwarderInfo? ScanTypeForwarder(
+        MetadataReader reader,
+        ExportedTypeHandle handle)
+    {
+        var exportedType = reader.GetExportedType(handle);
+        if (!exportedType.IsForwarder)
+            return null;
+
+        var ns = reader.GetString(exportedType.Namespace);
+        var name = reader.GetString(exportedType.Name);
+        var fullName = TypeResolver.FormatDisplayName(
+            string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}");
+
+        string targetAssembly = "";
+        if (exportedType.Implementation.Kind == HandleKind.AssemblyReference)
+        {
+            var assemblyRef = reader.GetAssemblyReference(
+                (AssemblyReferenceHandle)exportedType.Implementation);
+            targetAssembly = reader.GetString(assemblyRef.Name);
+        }
+
+        return new TypeForwarderInfo(fullName, targetAssembly);
     }
 
     /// <summary>

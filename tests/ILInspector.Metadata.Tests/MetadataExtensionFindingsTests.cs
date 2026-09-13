@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata.Tests;

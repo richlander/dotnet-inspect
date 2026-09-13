@@ -68,13 +68,13 @@ public sealed class PolicyEvaluatorTests
                     "ILInspector.Metadata",
                     projectReferences:
                     [
-                        "DotnetInspector.Artifacts",
+                        "DotnetInspector.Contracts",
                         "DotnetInspector.Services",
                     ]),
                 Node(
                     "ILInspector.Metadata.Tests",
                     projectReferences: ["DotnetInspector.Services"]),
-                Node("DotnetInspector.Artifacts"),
+                Node("DotnetInspector.Contracts"),
                 Node("DotnetInspector.Services"),
             ]);
         DependencyPolicyDocument policy = Policy(
@@ -86,7 +86,7 @@ public sealed class PolicyEvaluatorTests
                 Targets = ["ILInspector.*"],
                 ExcludeTargets = ["*.Tests"],
                 Deny = ["DotnetInspector.*"],
-                Except = ["DotnetInspector.Artifacts"],
+                Except = ["DotnetInspector.Contracts"],
             });
 
         DependencyViolation violation = Assert.Single(
@@ -630,8 +630,11 @@ public sealed class PolicyEvaluatorTests
             exception.Message);
     }
 
-    [Fact]
-    public void CheckedInPolicyTreatsTsJsExportContractsAsDependencyFree()
+    [Theory]
+    [InlineData("Inspector.Resources")]
+    [InlineData("TsJsExport.Contracts")]
+    public void CheckedInPolicyTreatsContractFloorAsDependencyFree(
+        string contractFloor)
     {
         string repository = FindRepositoryRoot();
         DependencyPolicyDocument policy = PolicyLoader.Load(
@@ -639,11 +642,11 @@ public sealed class PolicyEvaluatorTests
         DependencyRule rule = Assert.Single(
             policy.Rules,
             candidate => candidate.Id == "dependency-free-contract-floors");
-        Assert.Contains("TsJsExport.Contracts", rule.Targets);
+        Assert.Contains(contractFloor, rule.Targets);
         RepositoryDependencyGraph graph = RepositoryDependencyGraph.Create(
             [
                 Node(
-                    "TsJsExport.Contracts",
+                    contractFloor,
                     projectReferences: ["Repository.Dependency"],
                     assemblyReferences: ["Repository.Dependency"]),
                 Node("Repository.Dependency"),
@@ -663,7 +666,7 @@ public sealed class PolicyEvaluatorTests
                             Id = rule.Id,
                             Source = rule.Source,
                             Graphs = rule.Graphs,
-                            Targets = ["TsJsExport.Contracts"],
+                            Targets = [contractFloor],
                             AllowOnly = rule.AllowOnly,
                         },
                     ],
@@ -678,6 +681,93 @@ public sealed class PolicyEvaluatorTests
         Assert.Contains(
             violations,
             violation => violation.Graph == DependencyGraphKind.Assembly);
+    }
+
+    [Fact]
+    public void CheckedInPolicyKeepsNetworkAccessIndependent()
+    {
+        string repository = FindRepositoryRoot();
+        DependencyPolicyDocument policy = PolicyLoader.Load(
+            Path.Combine(repository, "eng", "dependency-policy.json"));
+        DependencyRule rule = Assert.Single(
+            policy.Rules,
+            candidate => candidate.Id == "network-access-stays-independent");
+        RepositoryDependencyGraph graph = RepositoryDependencyGraph.Create(
+            [
+                Node(
+                    "NetworkAccess",
+                    projectReferences: ["Repository.Dependency"],
+                    assemblyReferences: ["Repository.Dependency"]),
+                Node("Repository.Dependency"),
+            ]);
+
+        DependencyViolation[] violations = PolicyEvaluator
+            .Evaluate(
+                new DependencyPolicyDocument
+                {
+                    SchemaVersion = policy.SchemaVersion,
+                    Solution = policy.Solution,
+                    Configuration = policy.Configuration,
+                    Rules = [rule],
+                },
+                graph)
+            .ToArray();
+
+        Assert.Equal(2, violations.Length);
+        Assert.Contains(
+            violations,
+            violation => violation.Graph == DependencyGraphKind.Project);
+        Assert.Contains(
+            violations,
+            violation => violation.Graph == DependencyGraphKind.Assembly);
+    }
+
+    [Fact]
+    public void CheckedInPolicyKeepsNetworkingBelowCoreAndHosts()
+    {
+        AssertCheckedInRuleRejectsRepositoryDependency(
+            "networking-stays-below-core-and-hosts",
+            "DotnetInspector.Networking",
+            "DotnetInspector.Core");
+    }
+
+    [Fact]
+    public void CheckedInPolicyKeepsCacheWithinOwnerBoundary()
+    {
+        string repository = FindRepositoryRoot();
+        DependencyPolicyDocument policy = PolicyLoader.Load(
+            Path.Combine(repository, "eng", "dependency-policy.json"));
+        DependencyRule rule = Assert.Single(
+            policy.Rules,
+            candidate => candidate.Id == "cache-stays-within-owner-boundary");
+        Assert.Equal(
+            [
+                DependencyGraphKind.Project,
+                DependencyGraphKind.Assembly,
+            ],
+            rule.Graphs);
+        Assert.NotNull(rule.AllowOnly);
+        Assert.Equal(
+            [
+                "$platform",
+                "InertText",
+                "DotnetInspector.Networking",
+            ],
+            rule.AllowOnly);
+
+        AssertCheckedInRuleRejectsRepositoryDependency(
+            "cache-stays-within-owner-boundary",
+            "DotnetInspector.Cache",
+            "DotnetInspector.Core");
+    }
+
+    [Fact]
+    public void CheckedInPolicyKeepsNuGetFetchIndependent()
+    {
+        AssertCheckedInRuleRejectsRepositoryDependency(
+            "nuget-fetch-stays-independent",
+            "NuGetFetch",
+            "DotnetInspector.Packages");
     }
 
     [Fact]
@@ -717,6 +807,42 @@ public sealed class PolicyEvaluatorTests
     }
 
     [Fact]
+    public void CheckedInExternalDependencyRuleCoversInspectorFamily()
+    {
+        string repository = FindRepositoryRoot();
+        DependencyPolicyDocument policy = PolicyLoader.Load(
+            Path.Combine(repository, "eng", "dependency-policy.json"));
+        DependencyRule rule = Assert.Single(
+            policy.Rules,
+            candidate => candidate.Id
+                == "product-libraries-use-repository-and-platform-assemblies");
+        string[] inspectorProjects = Directory
+            .EnumerateFiles(
+                Path.Combine(repository, "src"),
+                "Inspector.*.csproj",
+                SearchOption.AllDirectories)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.NotEmpty(inspectorProjects);
+        Assert.All(
+            inspectorProjects,
+            path =>
+            {
+                string projectName = Path.GetFileNameWithoutExtension(path);
+                string projectPath = Path
+                    .GetRelativePath(repository, path)
+                    .Replace('\\', '/');
+                Assert.True(
+                    DependencyPattern.Selects(
+                        rule,
+                        projectName,
+                        projectPath),
+                    $"{rule.Id} does not select {projectName}.");
+            });
+    }
+
+    [Fact]
     public void CheckedInEcosystemRuleCoversEverySourceProductExceptTheCli()
     {
         string repository = FindRepositoryRoot();
@@ -746,7 +872,7 @@ public sealed class PolicyEvaluatorTests
         Assert.NotEmpty(productProjects);
         Assert.All(
             productProjects.Where(path =>
-                Path.GetFileNameWithoutExtension(path) != "dotnet-inspect"),
+                Path.GetFileNameWithoutExtension(path) != "DotnetInspect.Cli"),
             path =>
             {
                 string name = Path.GetFileNameWithoutExtension(path);
@@ -759,8 +885,8 @@ public sealed class PolicyEvaluatorTests
         Assert.False(
             DependencyPattern.Selects(
                 rule,
-                "dotnet-inspect",
-                "src/dotnet-inspect/dotnet-inspect.csproj"));
+                "DotnetInspect.Cli",
+                "src/DotnetInspect.Cli/DotnetInspect.Cli.csproj"));
     }
 
     private static ProjectDependencyNode Node(
@@ -784,6 +910,47 @@ public sealed class PolicyEvaluatorTests
             Configuration = "Release",
             Rules = rules,
         };
+
+    private static void AssertCheckedInRuleRejectsRepositoryDependency(
+        string ruleId,
+        string target,
+        string dependency)
+    {
+        string repository = FindRepositoryRoot();
+        DependencyPolicyDocument policy = PolicyLoader.Load(
+            Path.Combine(repository, "eng", "dependency-policy.json"));
+        DependencyRule rule = Assert.Single(
+            policy.Rules,
+            candidate => candidate.Id == ruleId);
+        RepositoryDependencyGraph graph = RepositoryDependencyGraph.Create(
+            [
+                Node(
+                    target,
+                    projectReferences: [dependency],
+                    assemblyReferences: [dependency]),
+                Node(dependency),
+            ]);
+
+        DependencyViolation[] violations = PolicyEvaluator
+            .Evaluate(
+                new DependencyPolicyDocument
+                {
+                    SchemaVersion = policy.SchemaVersion,
+                    Solution = policy.Solution,
+                    Configuration = policy.Configuration,
+                    Rules = [rule],
+                },
+                graph)
+            .ToArray();
+
+        Assert.Equal(2, violations.Length);
+        Assert.Contains(
+            violations,
+            violation => violation.Graph == DependencyGraphKind.Project);
+        Assert.Contains(
+            violations,
+            violation => violation.Graph == DependencyGraphKind.Assembly);
+    }
 
     private static string FindRepositoryRoot()
     {

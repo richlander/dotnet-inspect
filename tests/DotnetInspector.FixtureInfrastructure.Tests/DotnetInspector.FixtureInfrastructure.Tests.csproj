@@ -9,6 +9,7 @@
     <IsTestProject>true</IsTestProject>
     <IsAotCompatible>false</IsAotCompatible>
     <OutputType>Exe</OutputType>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
   </PropertyGroup>
 
   <ItemGroup>

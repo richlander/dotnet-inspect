@@ -50,22 +50,20 @@ public sealed class DesktopPackageDependencyTraversalManifestSource(
 }
 
 /// <summary>
-/// Host-neutral candidate-authorized exact manifest capability over explicit caller-
-/// owned source clients, mirroring
-/// <see cref="AuthorizedPackageDependencyCandidateSource"/>. This is the Browser/Wasm
-/// host's thin path: the caller supplies the source client for each configured
-/// authority instead of a desktop transport composition.
+/// Host-neutral candidate-authorized exact manifest adapter over the same
+/// caller-owned package-source settlement lease as
+/// <see cref="AuthorizedPackageDependencyCandidateSource"/>. This is the
+/// Browser/Wasm host's thin path: the host supplies source capabilities
+/// instead of a desktop transport composition.
 /// </summary>
 public sealed class AuthorizedPackageDependencyManifestSource(
     AuthorizedPackageDependencyCandidateSource candidateSource) :
     IPackageDependencyTraversalManifestAcquirer
 {
-    private readonly PackageAcquisitionCandidateManifestAcquirer _acquirer =
+    private readonly PackageSourceSettlementLease _sourceLease =
         candidateSource is null
             ? throw new ArgumentNullException(nameof(candidateSource))
-            : new(
-                candidateSource.CandidateIssuer,
-                candidateSource.GetClient);
+            : candidateSource.SourceLease;
 
     public async Task<PackageDependencyTraversalManifestResult> AcquireAsync(
         PackageAcquisitionCandidate candidate,
@@ -73,7 +71,7 @@ public sealed class AuthorizedPackageDependencyManifestSource(
         NuGetOperationContext? operationContext = null)
     {
         ConfiguredPackageManifestResult result =
-            await _acquirer.AcquireAsync(
+            await _sourceLease.AcquireCandidateManifestAsync(
                 candidate,
                 cancellationToken,
                 operationContext).ConfigureAwait(false);

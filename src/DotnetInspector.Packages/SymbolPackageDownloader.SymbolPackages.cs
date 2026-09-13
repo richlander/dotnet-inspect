@@ -127,7 +127,7 @@ public partial class SymbolPackageDownloader
             }
             catch (Exception ex)
             {
-                FeedFailureTelemetry.Record(snupkgUrl, status: null);
+                FeedFailureRecorder.Record(snupkgUrl, status: null);
                 log?.Invoke(
                     "Error downloading symbol package: "
                     + UrlRedaction.DescribeRequestFailure(snupkgUrl, ex));
@@ -144,7 +144,7 @@ public partial class SymbolPackageDownloader
                 if (httpResult.Status
                     == HttpRetryHelper.HttpBodyFetchStatus.TooLarge)
                 {
-                    FeedFailureTelemetry.Record(
+                    FeedFailureRecorder.Record(
                         snupkgUrl,
                         HttpStatusCode.OK);
                     log?.Invoke(
@@ -179,7 +179,7 @@ public partial class SymbolPackageDownloader
             }
             catch (Exception ex)
             {
-                FeedFailureTelemetry.Record(
+                FeedFailureRecorder.Record(
                     snupkgUrl,
                     HttpStatusCode.OK);
                 log?.Invoke(
@@ -195,7 +195,7 @@ public partial class SymbolPackageDownloader
             {
                 if (extracted.InvalidPdbDetected)
                 {
-                    FeedFailureTelemetry.Record(
+                    FeedFailureRecorder.Record(
                         snupkgUrl,
                         HttpStatusCode.OK);
                 }

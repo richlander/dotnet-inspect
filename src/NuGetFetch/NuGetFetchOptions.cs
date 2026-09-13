@@ -5,9 +5,6 @@ namespace NuGetFetch;
 /// </summary>
 public sealed record NuGetFetchOptions
 {
-    private static readonly TimeSpan MaximumCancellationTimeout =
-        TimeSpan.FromMilliseconds(uint.MaxValue - 1d);
-
     /// <summary>
     /// Default maximum size of a service-index, version-index, or search-response body.
     /// </summary>
@@ -29,6 +26,22 @@ public sealed record NuGetFetchOptions
     /// </summary>
     public const long DefaultMaxRegistrationPageBatchBytes =
         64 * 1024 * 1024;
+
+    /// <summary>
+    /// Default maximum number of Catalog page documents acquired after the index.
+    /// </summary>
+    public const int DefaultMaxCatalogPages = 512;
+
+    /// <summary>
+    /// Default maximum HTTP attempts across one Catalog acquisition.
+    /// </summary>
+    public const int DefaultMaxCatalogHttpAttempts = 1024;
+
+    /// <summary>
+    /// Default maximum decoded metadata bytes across one Catalog acquisition.
+    /// </summary>
+    public const long DefaultMaxCatalogDecodedBytes =
+        512L * 1024 * 1024;
 
     /// <summary>
     /// Default deadline for one HTTP request, including response-body consumption.
@@ -75,6 +88,26 @@ public sealed record NuGetFetchOptions
         DefaultMaxRegistrationPageBatchBytes;
 
     /// <summary>
+    /// Gets the maximum Catalog page documents acquired after the index.
+    /// </summary>
+    public int MaxCatalogPages { get; init; } =
+        DefaultMaxCatalogPages;
+
+    /// <summary>
+    /// Gets the maximum HTTP attempts across service-index, Catalog-index,
+    /// page, and retry requests in one Catalog acquisition.
+    /// </summary>
+    public int MaxCatalogHttpAttempts { get; init; } =
+        DefaultMaxCatalogHttpAttempts;
+
+    /// <summary>
+    /// Gets the maximum decoded metadata bytes across every Catalog document
+    /// and retry attempt in one Catalog acquisition.
+    /// </summary>
+    public long MaxCatalogDecodedBytes { get; init; } =
+        DefaultMaxCatalogDecodedBytes;
+
+    /// <summary>
     /// Gets the deadline for one HTTP request, including response-body consumption.
     /// </summary>
     public TimeSpan RequestTimeout { get; init; } = DefaultRequestTimeout;
@@ -100,7 +133,7 @@ public sealed record NuGetFetchOptions
         TimeSpan requestTimeout)
     {
         ValidateTimeout(requestTimeout, nameof(requestTimeout));
-        if (requestTimeout > MaximumCancellationTimeout / 4)
+        if (requestTimeout > NuGetOperationContext.MaximumTimeout / 4)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(requestTimeout),
@@ -126,6 +159,12 @@ public sealed record NuGetFetchOptions
             options.MaxRegistrationMetadataBytes);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
             options.MaxRegistrationPageBatchBytes);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            options.MaxCatalogPages);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            options.MaxCatalogHttpAttempts);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            options.MaxCatalogDecodedBytes);
         ValidateTimeout(options.RequestTimeout, nameof(RequestTimeout));
         ValidateTimeout(options.OperationTimeout, nameof(OperationTimeout));
         if (options.MetadataBodyTimeout != Timeout.InfiniteTimeSpan)
@@ -201,12 +240,12 @@ public sealed record NuGetFetchOptions
                 "The timeout must be positive.");
         }
 
-        if (timeout > MaximumCancellationTimeout)
+        if (timeout > NuGetOperationContext.MaximumTimeout)
         {
             throw new ArgumentOutOfRangeException(
                 parameterName,
                 timeout,
-                $"The timeout cannot exceed {MaximumCancellationTimeout}.");
+                $"The timeout cannot exceed {NuGetOperationContext.MaximumTimeout}.");
         }
     }
 }

@@ -11,6 +11,7 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
     const string IdentityPropertyName = "Identity";
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void LegacyPackageSourceIdentitySurfaceMatchesMigrationSet()
     {
         DirectoryInfo root = FindRepositoryRoot();
@@ -54,12 +55,12 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
                 ImplicitReferences: 0),
             new(
                 "#4805",
-                "prototypes/inspect-web/engine.Core/BrowserPackageWorkspace.cs",
+                "inspect-web/DotnetInspect.Web.Core/BrowserPackageWorkspace.cs",
                 ExplicitReferences: 12,
                 ImplicitReferences: 0),
             new(
                 "#4805",
-                "prototypes/inspect-web/engine.Tests/BrowserEngineBoundaryTests.cs",
+                "inspect-web/DotnetInspect.Web.Tests/BrowserEngineBoundaryTests.cs",
                 ExplicitReferences: 20,
                 ImplicitReferences: 0),
         ];
@@ -159,6 +160,7 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void LegacyReferenceDiscoveryIncludesAliasesAndInactiveBranches()
     {
         string root = Path.Combine(

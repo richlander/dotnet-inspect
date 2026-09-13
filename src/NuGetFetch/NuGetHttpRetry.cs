@@ -4,7 +4,7 @@ namespace NuGetFetch;
 
 internal static class NuGetHttpRetry
 {
-    private const int MaximumRetries = 3;
+    internal const int MaximumRetries = 3;
 
     public static async Task<T> RunRequestAsync<T>(
         NuGetOperationDeadline operation,
@@ -50,19 +50,23 @@ internal static class NuGetHttpRetry
         }
     }
 
-    private static Task DelayAsync(
+    internal static Task DelayAsync(
         NuGetOperationDeadline operation,
         int retry) =>
         operation.DelayAsync(
             TimeSpan.FromMilliseconds(100 * (1 << retry)));
 
-    private static bool IsTransient(Exception exception) =>
+    internal static bool IsTransient(Exception exception) =>
         exception is NuGetRequestTimeoutException
             or NuGetMetadataBodyTimeoutException
         || exception is IOException
             and not NuGetMetadataResponseTooLargeException
             and not NuGetRedirectLimitExceededException
             and not NuGetRegistrationResourceLimitExceededException
+            and not NuGetCatalogResourceLimitExceededException
+            and not NuGetCatalogRequestLimitExceededException
+            and not NuGetCatalogDecodedByteLimitExceededException
+        || exception is NuGetCatalogStalePageException
         || exception is HttpRequestException request
             && (request.StatusCode is null
                 || request.StatusCode is

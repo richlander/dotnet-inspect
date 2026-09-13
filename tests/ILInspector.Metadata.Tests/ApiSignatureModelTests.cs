@@ -1,6 +1,10 @@
 using System.Reflection.PortableExecutable;
+using System.Text.Json;
+using CSharpText;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace ILInspector.Metadata.Tests;
 
@@ -426,10 +430,10 @@ public sealed class ApiSignatureModelTests
 
         Assert.True(ApiMemberIdentity.TryGetXmlDocMemberIdentity(type, source, out var identity));
 
-        Assert.Equal("M:ILInspector.Metadata.Tests.ApiSignatureFixtures.MethodWithRefKinds", identity.LookupKey);
         Assert.Equal(
-            ["System.Int32@", "System.String@", "System.Int64@", "System.Int32", "System.Byte[]"],
-            identity.NormalizedParameters);
+            "M:ILInspector.Metadata.Tests.ApiSignatureFixtures.MethodWithRefKinds"
+                + "(System.Int32@,System.String@,System.Int64@,System.Int32,System.Byte[])",
+            identity.Value);
     }
 
     [Fact]
@@ -440,8 +444,214 @@ public sealed class ApiSignatureModelTests
 
         Assert.True(ApiMemberIdentity.TryGetXmlDocMemberIdentity(type, source, out var identity));
 
-        Assert.Equal("M:ILInspector.Metadata.Tests.ApiSignatureFixtures.PairGenericMethod", identity.LookupKey);
-        Assert.Equal(["M0", "M1"], identity.NormalizedParameters);
+        Assert.Equal(
+            "M:ILInspector.Metadata.Tests.ApiSignatureFixtures.PairGenericMethod"
+                + "``2(``0,``1)",
+            identity.Value);
+    }
+
+    [Fact]
+    public void XmlDocIdentity_UsesDeclaringSegmentAritiesAndPositionalGenerics()
+    {
+        ApiType type = Surface.Types.Single(candidate =>
+            candidate.DefinitionName?.Segments.SequenceEqual(
+                ["XmlDocOuter`1", "Inner`1"]) == true);
+        ApiMember member = type.Members.Single(candidate =>
+            candidate.Name == nameof(XmlDocOuter<int>.Inner<int>.Pair));
+
+        Assert.True(
+            ApiMemberIdentity.TryGetXmlDocMemberIdentity(
+                type,
+                member,
+                out XmlDocMemberIdentity identity));
+
+        Assert.Equal(
+            "M:ILInspector.Metadata.Tests.XmlDocOuter`1.Inner`1.Pair"
+                + "``1(`0,`1,``0)",
+            identity.Value);
+        Assert.True(
+            ApiMemberIdentity.TryGetXmlDocTypeIdentity(
+                type,
+                out XmlDocMemberIdentity typeIdentity));
+        Assert.Equal(
+            "T:ILInspector.Metadata.Tests.XmlDocOuter`1.Inner`1",
+            typeIdentity.Value);
+        Assert.True(
+            ApiMemberIdentity.TryGetXmlDocMemberIdentity(
+                ApiMemberIdentity.CreateHandle(type, member),
+                out XmlDocMemberIdentity handleIdentity));
+        Assert.Equal(identity, handleIdentity);
+
+        MemberTargetResolution resolution = MemberTargetResolver.Resolve(
+            type,
+            MemberTargetSelector.Parse(nameof(XmlDocOuter<int>.Inner<int>.Pair)));
+        ResolvedMemberTarget target = Assert.IsType<ResolvedMemberTarget>(
+            resolution.Target);
+        Assert.True(
+            ApiMemberIdentity.TryGetXmlDocMemberIdentity(
+                target,
+                out XmlDocMemberIdentity targetIdentity));
+        Assert.Equal(identity, targetIdentity);
+    }
+
+    [Fact]
+    public void XmlDocIdentity_UsesCompilerArrayAndParameterlessGenericGrammar()
+    {
+        ApiType type = GetType(nameof(ApiSignatureFixtures));
+        ApiMember matrix = GetMember(
+            nameof(ApiSignatureFixtures),
+            nameof(ApiSignatureFixtures.Matrix));
+        ApiMember parameterless = GetMember(
+            nameof(ApiSignatureFixtures),
+            nameof(ApiSignatureFixtures.Parameterless));
+
+        Assert.True(
+            ApiMemberIdentity.TryGetXmlDocMemberIdentity(
+                type,
+                matrix,
+                out XmlDocMemberIdentity matrixIdentity));
+        Assert.Equal(
+            "M:ILInspector.Metadata.Tests.ApiSignatureFixtures.Matrix"
+                + "(System.Int32[0:,0:])",
+            matrixIdentity.Value);
+
+        Assert.True(
+            ApiMemberIdentity.TryGetXmlDocMemberIdentity(
+                type,
+                parameterless,
+                out XmlDocMemberIdentity parameterlessIdentity));
+        Assert.Equal(
+            "M:ILInspector.Metadata.Tests.ApiSignatureFixtures.Parameterless``1",
+            parameterlessIdentity.Value);
+    }
+
+    [Fact]
+    public void XmlDocIdentity_MatchesRoslynFunctionPointerErasure()
+    {
+        ApiType type = GetType(nameof(FunctionPointerShapeFixture));
+        ApiMember member = GetMember(
+            nameof(FunctionPointerShapeFixture),
+            nameof(FunctionPointerShapeFixture.Ret));
+
+        Assert.True(
+            ApiMemberIdentity.TryGetXmlDocMemberIdentity(
+                type,
+                member,
+                out XmlDocMemberIdentity identity));
+
+        CSharpCompilation compilation = CSharpCompilation.Create(
+            "XmlDocumentationOracle",
+            references:
+            [
+                MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
+                MetadataReference.CreateFromFile(
+                    typeof(FunctionPointerShapeFixture).Assembly.Location),
+            ]);
+        INamedTypeSymbol symbol = Assert.IsAssignableFrom<INamedTypeSymbol>(
+            compilation.GetTypeByMetadataName(
+                typeof(FunctionPointerShapeFixture).FullName!));
+        IMethodSymbol method = Assert.Single(
+            symbol.GetMembers(nameof(FunctionPointerShapeFixture.Ret))
+                .OfType<IMethodSymbol>());
+
+        Assert.Equal(method.GetDocumentationCommentId(), identity.Value);
+        Assert.EndsWith(".Ret()", identity.Value, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void XmlDocIdentity_UsesProjectedMembersDeclaringType()
+    {
+        var receiver = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Target",
+            DefinitionName = DefinitionName("Samples", "Target"),
+        };
+        var member = new ApiMember
+        {
+            Name = "Extend",
+            Kind = "extension-method",
+            DeclaringTypeDefinitionName =
+                DefinitionName("Samples", "Extensions"),
+            SignatureModel = new ApiSignature
+            {
+                MemberName = "Extend",
+                XmlDocumentationParameterTypes = ["Samples.Target"],
+            },
+        };
+
+        Assert.True(
+            ApiMemberIdentity.TryGetXmlDocMemberIdentity(
+                receiver,
+                member,
+                out XmlDocMemberIdentity identity));
+        Assert.Equal(
+            "M:Samples.Extensions.Extend(Samples.Target)",
+            identity.Value);
+    }
+
+    [Fact]
+    public void XmlDocIdentity_SystemTextJsonGenericDeserializeMatchesCompilerId()
+    {
+        using var stream = File.OpenRead(typeof(JsonSerializer).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType type = Assert.Single(
+            surface.Types,
+            candidate => candidate.FullName
+                == "System.Text.Json.JsonSerializer");
+        ApiMember member = Assert.Single(
+            type.Members,
+            candidate => candidate.Name == "Deserialize"
+                && candidate.GenericArity == 1
+                && candidate.SignatureModel?.Parameters.Count == 2
+                && candidate.SignatureModel.Parameters[0].Type
+                    == "System.Text.Json.JsonDocument"
+                && candidate.SignatureModel.Parameters[1].Type
+                    .StartsWith(
+                        "System.Text.Json.JsonSerializerOptions",
+                        StringComparison.Ordinal));
+
+        Assert.True(
+            ApiMemberIdentity.TryGetXmlDocMemberIdentity(
+                type,
+                member,
+                out XmlDocMemberIdentity identity));
+
+        Assert.Equal(
+            "M:System.Text.Json.JsonSerializer.Deserialize``1"
+                + "(System.Text.Json.JsonDocument,"
+                + "System.Text.Json.JsonSerializerOptions)",
+            identity.Value);
+    }
+
+    [Fact]
+    public void XmlDocIdentity_UsesClrNameForTypedReference()
+    {
+        using var stream = File.OpenRead(typeof(System.Reflection.FieldInfo).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType type = Assert.Single(
+            surface.Types,
+            candidate => candidate.FullName == "System.Reflection.FieldInfo");
+        ApiMember member = Assert.Single(
+            type.Members,
+            candidate => candidate.Name == "GetValueDirect"
+                && candidate.SignatureModel?.Parameters.Count == 1);
+
+        Assert.True(
+            ApiMemberIdentity.TryGetXmlDocMemberIdentity(
+                type,
+                member,
+                out XmlDocMemberIdentity identity));
+
+        Assert.Equal(
+            "M:System.Reflection.FieldInfo.GetValueDirect(System.TypedReference)",
+            identity.Value);
     }
 
     [Fact]
@@ -452,30 +662,45 @@ public sealed class ApiSignatureModelTests
 
         Assert.True(ApiMemberIdentity.TryGetXmlDocMemberIdentity(type, source, out var identity));
 
-        Assert.Equal("P:ILInspector.Metadata.Tests.ApiSignatureFixtures.Item", identity.LookupKey);
-        Assert.Equal(["System.Int32"], identity.NormalizedParameters);
+        Assert.Equal(
+            "P:ILInspector.Metadata.Tests.ApiSignatureFixtures.Item(System.Int32)",
+            identity.Value);
     }
 
     [Fact]
     public void XmlDocIdentity_UsesHashForExplicitInterfaceMembers()
     {
-        var type = new ApiType { Namespace = "Samples", Name = "Impl" };
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Impl",
+            DefinitionName = DefinitionName("Samples", "Impl"),
+        };
         var member = new ApiMember
         {
             Name = "IFoo.Bar",
             Kind = "explicit-interface-implementation",
-            SignatureModel = new ApiSignature { MemberName = "IFoo.Bar" }
+            SignatureModel = new ApiSignature
+            {
+                MemberName = "IFoo.Bar",
+                XmlDocumentationParameterTypes = [],
+            }
         };
 
         Assert.True(ApiMemberIdentity.TryGetXmlDocMemberIdentity(type, member, out var identity));
 
-        Assert.Equal("M:Samples.Impl.IFoo#Bar", identity.LookupKey);
+        Assert.Equal("M:Samples.Impl.IFoo#Bar", identity.Value);
     }
 
     [Fact]
     public void XmlDocIdentity_UsesBracesForGenericExplicitInterfaceMembers()
     {
-        var type = new ApiType { Namespace = "Samples", Name = "Impl" };
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Impl",
+            DefinitionName = DefinitionName("Samples", "Impl"),
+        };
         var member = new ApiMember
         {
             Name = "System.IEquatable<System.String>.Equals",
@@ -483,20 +708,27 @@ public sealed class ApiSignatureModelTests
             SignatureModel = new ApiSignature
             {
                 MemberName = "System.IEquatable<System.String>.Equals",
-                Parameters = [new ApiParameter { Name = "other", Type = "System.String" }]
+                Parameters = [new ApiParameter { Name = "other", Type = "System.String" }],
+                XmlDocumentationParameterTypes = ["System.String"],
             }
         };
 
         Assert.True(ApiMemberIdentity.TryGetXmlDocMemberIdentity(type, member, out var identity));
 
-        Assert.Equal("M:Samples.Impl.System#IEquatable{System#String}#Equals", identity.LookupKey);
-        Assert.Equal(["System.String"], identity.NormalizedParameters);
+        Assert.Equal(
+            "M:Samples.Impl.System#IEquatable{System#String}#Equals(System.String)",
+            identity.Value);
     }
 
     [Fact]
     public void XmlDocIdentity_IncludesConversionOperatorReturnType()
     {
-        var type = new ApiType { Namespace = "Samples", Name = "Number" };
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Number",
+            DefinitionName = DefinitionName("Samples", "Number"),
+        };
         var member = new ApiMember
         {
             Name = "op_Implicit",
@@ -505,18 +737,21 @@ public sealed class ApiSignatureModelTests
             {
                 MemberName = "op_Implicit",
                 ReturnType = "int",
-                Parameters = [new ApiParameter { Name = "value", Type = "Samples.Number" }]
+                Parameters = [new ApiParameter { Name = "value", Type = "Samples.Number" }],
+                XmlDocumentationParameterTypes = ["Samples.Number"],
+                XmlDocumentationReturnType = "System.Int32",
             }
         };
 
         Assert.True(ApiMemberIdentity.TryGetXmlDocMemberIdentity(type, member, out var identity));
 
-        Assert.Equal("System.Int32", identity.NormalizedReturnType);
-        Assert.Equal(["Samples.Number"], identity.NormalizedParameters);
+        Assert.Equal(
+            "M:Samples.Number.op_Implicit(Samples.Number)~System.Int32",
+            identity.Value);
     }
 
     [Fact]
-    public void XmlDocIdentity_FallsBackWhenSignatureModelIsMissing()
+    public void XmlDocIdentity_DeclinesWhenStructuralSignatureIsMissing()
     {
         var type = GetType(nameof(ApiSignatureFixtures));
         var source = GetMember(nameof(ApiSignatureFixtures), "Item");
@@ -532,6 +767,13 @@ public sealed class ApiSignatureModelTests
 
     static ApiType GetType(string typeName)
         => Surface.Types.First(type => type.Name == typeName);
+
+    static MetadataTypeDefinitionName DefinitionName(
+        string @namespace,
+        params string[] segments) =>
+        Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(@namespace, [.. segments]))
+        .Name;
 
     static ApiMember GetMember(string typeName, string memberName)
         => GetType(typeName)
@@ -618,6 +860,14 @@ public sealed class ApiSignatureFixtures
     }
 
     public int InitValue { get; init; }
+
+    public void Matrix(int[,] values)
+    {
+    }
+
+    public void Parameterless<T>()
+    {
+    }
 }
 
 public struct ReadOnlyMethodFixtures
@@ -661,6 +911,19 @@ public class Outer<TOuter>
 
 public class Flat<T1, T2>
 {
+}
+
+public class XmlDocOuter<TOuter>
+{
+    public class Inner<TInner>
+    {
+        public void Pair<TMethod>(
+            TOuter outer,
+            TInner inner,
+            TMethod method)
+        {
+        }
+    }
 }
 
 [AttributeUsage(AttributeTargets.Parameter)]

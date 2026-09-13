@@ -1,0 +1,1050 @@
+using ILInspector.CSharp;
+using DotnetInspector.Core;
+using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Output;
+using DotnetInspector.Packages;
+using DotnetInspector.Queries;
+using DotnetInspector.Sections;
+using DotnetInspector.Services;
+using DotnetInspect.Cli.Services;
+using ILInspector.Metadata;
+using InertText;
+using NuGetFetch;
+using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
+
+namespace DotnetInspect.Cli.Inspectors;
+
+internal sealed record TypeDependencyScanDiagnostic(
+    string Subject,
+    CandidateOpenFailure Failure);
+
+internal sealed record TypeDependencyExecutionResult(
+    InspectionEnvelope<TypeDependencySectionResult>? Envelope,
+    InspectionShare Share,
+    IReadOnlyList<TypeDependencyScanDiagnostic> Diagnostics,
+    bool IsAvailable)
+{
+    internal TypeDependencyResult Dependency =>
+        Envelope!.Content.QueryResult.Dependency;
+
+    internal IReadOnlyList<TypeDependencyRelationship> Relationships =>
+        Envelope!.Content.RowSelection.Relationships;
+
+    internal RowsCohortSemanticFailure<TypeDependencyRowSet>? RowSelectionFailure =>
+        Envelope!.Content.RowSelection.Failure;
+
+    internal static TypeDependencyExecutionResult Unavailable(
+        InspectionShare share) =>
+        new(
+            Envelope: null,
+            share,
+            Diagnostics: [],
+            IsAvailable: false);
+
+    internal static TypeDependencyExecutionResult FromLegacy(
+        TypeDependencyResult dependency,
+        TypeDependencySectionPlan plan,
+        InspectionShare share)
+    {
+        TypeDependencyRowSelectionResult selection =
+            TypeDependencySectionExecutor.Select(
+                dependency,
+                plan);
+        return Create(
+            new TypeDependencySectionResult(
+                new AssemblyContextTypeDependencyResult(dependency, []),
+                selection),
+            dependency.Rejections.Select(
+                static rejection =>
+                    new TypeDependencyScanDiagnostic(
+                        Path.GetFileName(rejection.AssemblyPath),
+                        new CandidateOpenFailure(
+                            rejection.Kind
+                                is TypeDependencyRejectionKind
+                                    .UnsupportedMetadataFormat
+                                ? CandidateOpenFailureKind
+                                    .UnsupportedMetadataFormat
+                                : CandidateOpenFailureKind.InvalidImage,
+                            rejection.Kind switch
+                            {
+                                TypeDependencyRejectionKind
+                                    .UnsupportedMetadataFormat =>
+                                    "unsupported metadata format (Windows Metadata)",
+                                TypeDependencyRejectionKind
+                                    .MalformedMetadataRoot =>
+                                    "malformed metadata root",
+                                _ => "invalid image",
+                            })
+                        {
+                            MetadataRootReason =
+                                rejection.MetadataRootReason,
+                        }))
+                .ToArray(),
+            isAvailable: true,
+            share);
+    }
+
+    internal static TypeDependencyExecutionResult FromContent(
+        TypeDependencySectionResult content,
+        IReadOnlyList<TypeDependencyScanDiagnostic> diagnostics,
+        bool isAvailable,
+        InspectionShare share) =>
+        Create(content, diagnostics, isAvailable, share);
+
+    private static TypeDependencyExecutionResult Create(
+        TypeDependencySectionResult content,
+        IReadOnlyList<TypeDependencyScanDiagnostic> scanDiagnostics,
+        bool isAvailable,
+        InspectionShare share)
+    {
+        List<InspectionDiagnostic> diagnostics =
+        [
+            .. scanDiagnostics.Select(
+                static diagnostic =>
+                    TypeDependencyInspectionDiagnostics.ParticipantRejected(
+                        diagnostic.Subject)),
+        ];
+        if (content.RowSelection.Failure is { } rowFailure)
+        {
+            diagnostics.Add(
+                TypeDependencyInspectionDiagnostics.RowSelectionFailed(
+                    rowFailure));
+        }
+        if (!isAvailable)
+        {
+            diagnostics.Add(TypeDependencyInspectionDiagnostics.Unavailable());
+        }
+
+        return new(
+            new InspectionEnvelope<TypeDependencySectionResult>(
+                content,
+                share,
+                diagnostics),
+            share,
+            scanDiagnostics,
+            isAvailable);
+    }
+}
+
+/// <summary>
+/// Builds dependency graph data for the depends command.
+/// </summary>
+internal static class DependencyGraphService
+{
+    private const string TempDirPrefix = "inspect-depends";
+    private static readonly TimeSpan CachedVersionResolutionTimeout =
+        TimeSpan.FromSeconds(1);
+
+    public static async Task<TypeDependencyExecutionResult>
+        BuildTypeDependencyTreeAsync(
+        HttpClient httpClient,
+        DependsOptions options,
+        VerboseLogger logger,
+        CancellationToken cancellationToken = default,
+        Func<string, InspectionShare>? shareProjection = null)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        InspectionShare ShareFor(string typeName) =>
+            shareProjection is null
+                ? new InspectionShare.NonProjectable(
+                    "share",
+                    "Share projection was not requested.")
+                : shareProjection(typeName);
+        TypeDependencySectionPlan plan =
+            new(
+                options.TargetType,
+                options.TypeDependencyRows
+                    ?? RowSelectionIntent<
+                        TypeDependencyRowOrder>.Empty,
+                options.Depth);
+        AssemblySetRequest request =
+            options.ToAssemblySetRequest(TempDirPrefix);
+        if (ConfiguredPackageSearchWorkspace.IsEligible(
+                options.SourceSelection,
+                request,
+                options.Tfm))
+        {
+            await using ConfiguredPackageSearchWorkspace? workspace =
+                await ConfiguredPackageSearchWorkspace.OpenAsync(
+                    httpClient,
+                    request,
+                    options.Tfm!,
+                    logger.Log,
+                    cancellationToken).ConfigureAwait(false);
+            if (workspace is null)
+                return TypeDependencyExecutionResult.Unavailable(
+                    ShareFor(options.TargetType));
+
+            ConfiguredPackageSearchQueryResult<
+                TypeDependencySectionResult>? execution =
+                    await workspace.QuerySurfaceAsync(
+                        context =>
+                            TypeDependencySectionExecutor.Execute(
+                                context.Group,
+                                plan),
+                        cancellationToken).ConfigureAwait(false);
+            if (execution is null)
+                return TypeDependencyExecutionResult.Unavailable(
+                    ShareFor(options.TargetType));
+            if (execution.Result is null)
+            {
+                return TypeDependencyExecutionResult.FromContent(
+                    TypeDependencySectionResult.NotFound(),
+                    [],
+                    isAvailable: true,
+                    ShareFor(options.TargetType));
+            }
+
+            PackageSearchQuerySources sources =
+                execution.Sources
+                ?? throw new InvalidOperationException(
+                    "A package Root dependency result requires source correspondence.");
+            IReadOnlyList<TypeDependencyScanDiagnostic> diagnostics =
+                execution.Result.QueryResult.Participants
+                    .OfType<
+                        AssemblyContextTypeDependencyEntry.Rejected>()
+                    .Select(
+                        rejected =>
+                            new TypeDependencyScanDiagnostic(
+                                sources.SourceFor(
+                                    rejected.Subject)
+                                    .DiagnosticSubject,
+                                rejected.Failure))
+                    .ToArray();
+            return TypeDependencyExecutionResult.FromContent(
+                execution.Result,
+                diagnostics,
+                execution.Result.QueryResult.HasSurvivingParticipant,
+                ShareFor(
+                    execution.Result.QueryResult.Dependency.MatchedType
+                        ?? options.TargetType));
+        }
+
+        return await WithAssemblySetAsync(
+            httpClient,
+            request,
+            logger,
+            assemblySet =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                logger.Log($"Scanning {assemblySet.Assemblies.Count} libraries for type {options.TargetType}");
+                var assemblyPaths = assemblySet.Assemblies.Select(a => a.Path).ToList();
+                TypeDependencyResult dependency =
+                    TypeDependencyScanner.BuildDependencyTree(
+                        options.TargetType,
+                        assemblyPaths,
+                        options.Depth);
+                cancellationToken.ThrowIfCancellationRequested();
+                return TypeDependencyExecutionResult.FromLegacy(
+                    dependency,
+                    plan,
+                    ShareFor(dependency.MatchedType ?? options.TargetType));
+            }).ConfigureAwait(false);
+    }
+
+    public static Task<LibraryDependencyGraphResult> BuildLibraryDependencyTreeAsync(
+        HttpClient httpClient,
+        string libraryName,
+        NuGetSourceOptions? sourceOptions,
+        VerboseLogger logger,
+        int? maxDepth = null,
+        string? requestedTfm = null) =>
+        BuildLibraryDependencyTreeAsync(
+            httpClient,
+            libraryName,
+            sourceOptions,
+            logger,
+            maxDepth,
+            CancellationToken.None,
+            requestedTfm: requestedTfm);
+
+    public static async Task<LibraryDependencyGraphResult> BuildLibraryDependencyTreeAsync(
+        HttpClient httpClient,
+        string libraryName,
+        NuGetSourceOptions? sourceOptions,
+        VerboseLogger logger,
+        int? maxDepth,
+        CancellationToken cancellationToken,
+        bool traverseReferences = true,
+        string? requestedTfm = null)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        string? assemblyPath = null;
+        AssemblySetEntry? selectedAssembly = null;
+        AssemblySet? ownedAssemblySet = null;
+
+        try
+        {
+            if (File.Exists(libraryName)
+                && !libraryName.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))
+            {
+                ownedAssemblySet = await AssemblySetResolver.CollectAsync(
+                    httpClient,
+                    new AssemblySetRequest
+                    {
+                        Assemblies = [libraryName],
+                        TempDirPrefix = TempDirPrefix,
+                        CancellationToken = cancellationToken,
+                    },
+                    logger.Log);
+                AssemblySetDiagnosticWriter.Write(ownedAssemblySet);
+                selectedAssembly =
+                    ownedAssemblySet.Assemblies.FirstOrDefault();
+                assemblyPath = selectedAssembly?.Path;
+            }
+            else if (PlatformResolver.IsPlatformCandidate(libraryName))
+            {
+                if (requestedTfm is not null
+                    && !PlatformResolver
+                        .TryGetFrameworkSpecsForTargetFramework(
+                            requestedTfm,
+                            out _))
+                {
+                    return new LibraryDependencyGraphResult.Error(
+                        $"Target framework '{requestedTfm}' cannot select an installed platform library.",
+                        libraryName);
+                }
+
+                ownedAssemblySet = await AssemblySetResolver.CollectAsync(
+                    httpClient,
+                    new AssemblySetRequest
+                    {
+                        PlatformAssemblies = [libraryName],
+                        Tfm = requestedTfm,
+                        TempDirPrefix = TempDirPrefix,
+                        CancellationToken = cancellationToken,
+                    },
+                    logger.Log);
+                if (ownedAssemblySet.Assemblies.Count > 0)
+                {
+                    AssemblySetDiagnosticWriter.Write(ownedAssemblySet);
+                    selectedAssembly = ownedAssemblySet.Assemblies[0];
+                    assemblyPath = selectedAssembly.Path;
+                }
+                else
+                {
+                    ownedAssemblySet.Dispose();
+                    ownedAssemblySet = null;
+                }
+            }
+
+            if (assemblyPath == null)
+            {
+                logger.Log($"Resolving package: {libraryName}");
+                ownedAssemblySet = await AssemblySetResolver.CollectAsync(
+                    httpClient,
+                    new AssemblySetRequest
+                    {
+                        Packages = [libraryName],
+                        SourceOptions = sourceOptions,
+                        Tfm = requestedTfm,
+                        TempDirPrefix = TempDirPrefix,
+                        PackageSelectionMode = requestedTfm is null
+                            ? AssemblySetPackageSelectionMode
+                                .LibAssembliesDescending
+                            : AssemblySetPackageSelectionMode
+                                .TargetFramework,
+                        CancellationToken = cancellationToken,
+                    },
+                    logger.Log);
+
+                selectedAssembly =
+                    ownedAssemblySet.Assemblies.FirstOrDefault();
+                assemblyPath = selectedAssembly?.Path;
+                if (assemblyPath == null)
+                {
+                    AssemblySetDiagnosticWriter.Write(ownedAssemblySet, includeErrors: false);
+                    var errorDiagnostic = ownedAssemblySet.Diagnostics
+                        .FirstOrDefault(static d => d.Severity == AssemblySetDiagnosticSeverity.Error);
+                    return new LibraryDependencyGraphResult.Error(
+                        errorDiagnostic?.Message
+                            ?? $"Could not resolve '{libraryName}' as a file, platform library, or NuGet package.",
+                        libraryName);
+                }
+
+                AssemblySetDiagnosticWriter.Write(ownedAssemblySet);
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            ManagedMetadataIdentity? rootIdentity =
+                AssemblyInspector.ExtractManagedMetadataIdentity(assemblyPath);
+            var assemblyName = rootIdentity switch
+            {
+                ManagedMetadataIdentity.Assembly assembly =>
+                    assembly.Identity.Name,
+                ManagedMetadataIdentity.Module module =>
+                    module.Name,
+                _ => Path.GetFileNameWithoutExtension(assemblyPath),
+            };
+
+            if (!traverseReferences)
+            {
+                return rootIdentity is null
+                    ? new LibraryDependencyGraphResult.NoMetadata(
+                        assemblyName,
+                        selectedAssembly?.SourceKind
+                            ?? AssemblySetSourceKind.Assembly)
+                    : new LibraryDependencyGraphResult.Empty(
+                        assemblyName,
+                        rootIdentity,
+                        selectedAssembly?.SourceKind
+                            ?? AssemblySetSourceKind.Assembly);
+            }
+
+            var (refs, _) =
+                AssemblyInspector.ExtractReferenceIdentitiesAndCompany(
+                    assemblyPath);
+            if (refs.Count == 0)
+            {
+                if (rootIdentity is null)
+                {
+                    return new LibraryDependencyGraphResult.NoMetadata(
+                        assemblyName,
+                        selectedAssembly?.SourceKind
+                            ?? AssemblySetSourceKind.Assembly);
+                }
+
+                return new LibraryDependencyGraphResult.Empty(
+                    assemblyName,
+                    rootIdentity,
+                    selectedAssembly?.SourceKind
+                        ?? AssemblySetSourceKind.Assembly);
+            }
+            if (rootIdentity is null)
+            {
+                throw new InvalidOperationException(
+                    "An image without managed metadata cannot declare assembly references.");
+            }
+            LibraryMetadataService.AssemblyReferenceGraph referenceGraph =
+                LibraryMetadataService.BuildTransitiveReferenceGraph(
+                    refs,
+                    assemblyPath,
+                    rootIdentity,
+                    logger,
+                    maxDepth,
+                    failOnReadError: false,
+                    cancellationToken: cancellationToken);
+
+            return new LibraryDependencyGraphResult.Graph(
+                assemblyName,
+                referenceGraph,
+                selectedAssembly?.SourceKind
+                    ?? AssemblySetSourceKind.Assembly);
+        }
+        finally
+        {
+            ownedAssemblySet?.Dispose();
+        }
+    }
+
+    public static Task<PackageDependencyGraphResult>
+        BuildPackageDependencyTreeAsync(
+        HttpClient httpClient,
+        string packageRef,
+        string? requestedTfm,
+        NuGetSourceOptions? sourceOptions,
+        VerboseLogger logger,
+        bool includePrerelease = false,
+        bool allowCompatibleFallbackForRequestedTfm = true)
+        => BuildPackageDependenciesAsync(
+            httpClient,
+            packageRef,
+            requestedTfm,
+            sourceOptions,
+            logger,
+            includePrerelease,
+            allowCompatibleFallbackForRequestedTfm,
+            buildGraph: false);
+
+    public static Task<PackageDependencyGraphResult>
+        BuildPackageDependencyGraphAsync(
+        HttpClient httpClient,
+        string packageRef,
+        string? requestedTfm,
+        NuGetSourceOptions? sourceOptions,
+        VerboseLogger logger,
+        bool includePrerelease = false,
+        bool allowCompatibleFallbackForRequestedTfm = true)
+        => BuildPackageDependenciesAsync(
+            httpClient,
+            packageRef,
+            requestedTfm,
+            sourceOptions,
+            logger,
+            includePrerelease,
+            allowCompatibleFallbackForRequestedTfm,
+            buildGraph: true);
+
+    private static async Task<PackageDependencyGraphResult>
+        BuildPackageDependenciesAsync(
+        HttpClient httpClient,
+        string packageRef,
+        string? requestedTfm,
+        NuGetSourceOptions? sourceOptions,
+        VerboseLogger logger,
+        bool includePrerelease,
+        bool allowCompatibleFallbackForRequestedTfm,
+        bool buildGraph)
+    {
+        PackageNuspecResolution resolution =
+            await ResolvePackageNuspecAsync(
+                httpClient,
+                packageRef,
+                sourceOptions,
+                logger,
+                includePrerelease).ConfigureAwait(false);
+        if (resolution.ErrorMessage is { } error)
+            return new PackageDependencyGraphResult.Error(error);
+
+        NuspecData? nuspec = resolution.Nuspec;
+        if (nuspec == null)
+        {
+            return new PackageDependencyGraphResult.Empty(
+                resolution.PackageName,
+                resolution.Version,
+                resolution.ManifestPackageName,
+                resolution.ManifestVersion,
+                "No dependencies declared in package.",
+                PackageDependencyGraphResult.EmptyKind.NoDependencyGroups);
+        }
+
+        var selection = DependencyResolutionService.SelectDependencyGroup(
+            nuspec.DependencyGroups,
+            requestedTfm,
+            allowCompatibleFallbackForRequestedTfm);
+        if (selection.Status == DependencyResolutionService.DependencyGroupSelectionStatus.NoDependencyGroups)
+        {
+            return new PackageDependencyGraphResult.Empty(
+                resolution.PackageName,
+                resolution.Version,
+                resolution.ManifestPackageName,
+                resolution.ManifestVersion,
+                "No dependencies declared in package.",
+                PackageDependencyGraphResult.EmptyKind.NoDependencyGroups);
+        }
+        if (selection.Status == DependencyResolutionService.DependencyGroupSelectionStatus.NoMatchingTargetFramework)
+        {
+            return new PackageDependencyGraphResult.Error(
+                $"No dependencies found for TFM '{selection.TargetFramework}'.",
+                "Available TFMs: " + string.Join(", ", selection.AvailableTargetFrameworks));
+        }
+
+        var group = selection.Group!;
+        var tfm = selection.TargetFramework ?? group.TargetFramework;
+        if (group.Dependencies.Count == 0)
+        {
+            return new PackageDependencyGraphResult.Empty(
+                resolution.PackageName,
+                resolution.Version,
+                resolution.ManifestPackageName,
+                resolution.ManifestVersion,
+                $"No additional dependencies for {tfm}.",
+                PackageDependencyGraphResult.EmptyKind.SelectedGroup);
+        }
+
+        var globalSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        PackageDependencyGraph dependencyGraph;
+        if (buildGraph)
+        {
+            dependencyGraph =
+                await DependencyResolutionService
+                    .ResolveDependencyGraphAsync(
+                        httpClient,
+                        new PackageDependencyIdentity(
+                            resolution.ManifestPackageName,
+                            resolution.ManifestVersion),
+                        nuspec.Authors,
+                        group.Dependencies,
+                        tfm,
+                        globalSeen,
+                        logger.Log,
+                        sourceOptions);
+        }
+        else
+        {
+            List<DependencyNode> tree =
+                await DependencyResolutionService
+                    .ResolveDependencyTreeAsync(
+                        httpClient,
+                        group.Dependencies,
+                        tfm,
+                        globalSeen,
+                        logger.Log,
+                        sourceOptions);
+            dependencyGraph = new PackageDependencyGraph(
+                Nodes: [],
+                Relationships: [],
+                tree);
+        }
+
+        return new PackageDependencyGraphResult.Graph(
+            resolution.PackageName,
+            resolution.Version,
+            resolution.ManifestPackageName,
+            resolution.ManifestVersion,
+            dependencyGraph);
+    }
+
+    private static async Task<PackageNuspecResolution> ResolvePackageNuspecAsync(
+        HttpClient httpClient,
+        string packageRef,
+        NuGetSourceOptions? sourceOptions,
+        VerboseLogger logger,
+        bool includePrerelease)
+    {
+        // Package dependency mode inspects nuspec dependency groups, not assembly sets.
+        var (packageName, version) =
+            PackageExtractor.ParsePackageReference(packageRef);
+        logger.Log($"Resolving package: {packageRef}");
+
+        bool floatingSelector =
+            version is null
+            || string.Equals(
+                version,
+                "latest",
+                StringComparison.OrdinalIgnoreCase);
+        bool requiresArchive =
+            packageRef.EndsWith(
+                ".nupkg",
+                StringComparison.OrdinalIgnoreCase)
+            || version?.Contains('*', StringComparison.Ordinal) == true;
+        if (requiresArchive)
+        {
+            return await ResolvePackageNuspecFromArchiveAsync(
+                httpClient,
+                packageRef,
+                packageName,
+                sourceOptions,
+                logger).ConfigureAwait(false);
+        }
+
+        using var feedFailureScope = FeedFailureTelemetry.Scope();
+        IReadOnlyList<string> cachedVersions = floatingSelector
+            ? GetCachedPackageVersions(
+                packageName,
+                sourceOptions,
+                includePrerelease)
+            : [];
+        bool forceLatest = string.Equals(
+            version,
+            "latest",
+            StringComparison.OrdinalIgnoreCase);
+        CancellationTokenSource? latestTimeout = null;
+        if (!forceLatest
+            && floatingSelector
+            && !DotnetInspector.Networking.HttpClientFactory.IsOffline
+            && cachedVersions.Count > 0)
+        {
+            latestTimeout = new CancellationTokenSource(
+                CachedVersionResolutionTimeout);
+        }
+
+        PackageCoordinateResolution coordinateResolution;
+        try
+        {
+            coordinateResolution =
+                await PackageCoordinateResolver.ResolveUsingSourcePolicyAsync(
+                    httpClient,
+                    new PackageCoordinate(
+                        packageName,
+                        floatingSelector ? null : version),
+                    sourceOptions,
+                    logger.Log,
+                    includePrerelease,
+                    useVersionCache: !forceLatest,
+                    cancellationToken: latestTimeout?.Token ?? default)
+                    .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+            when (latestTimeout?.IsCancellationRequested == true)
+        {
+            if (DescribeFeedFailure(packageName)
+                is { } feedFailure)
+            {
+                return PackageNuspecResolution.Error(
+                    packageName,
+                    feedFailure);
+            }
+
+            return PackageNuspecResolution.Error(
+                packageName,
+                DescribeCachedVersionFallback(
+                    packageName,
+                    cachedVersions,
+                    offline: false));
+        }
+        finally
+        {
+            latestTimeout?.Dispose();
+        }
+
+        if (coordinateResolution
+            is not PackageCoordinateResolution.Resolved resolved)
+        {
+            if (floatingSelector && DotnetInspector.Networking.HttpClientFactory.IsOffline)
+            {
+                string offlineMessage = cachedVersions.Count > 0
+                    ? DescribeCachedVersionFallback(
+                        packageName,
+                        cachedVersions,
+                        offline: true)
+                    : $"Package '{packageName}' is not available offline; "
+                        + "no cached version was found.";
+                return PackageNuspecResolution.Error(
+                    packageName,
+                    offlineMessage);
+            }
+
+            string? feedFailure =
+                DescribeFeedFailure(packageName);
+            string message = coordinateResolution switch
+            {
+                PackageCoordinateResolution.Invalid invalid =>
+                    invalid.Message,
+                PackageCoordinateResolution.Unavailable
+                    when feedFailure is not null =>
+                    feedFailure,
+                PackageCoordinateResolution.Unavailable unavailable =>
+                    unavailable.Message,
+                _ => $"Package '{packageRef}' could not be resolved.",
+            };
+            return PackageNuspecResolution.Error(packageName, message);
+        }
+
+        ResolvedPackageCoordinate coordinate = resolved.Coordinate;
+        NuGetSourceOptions reportingSources =
+            NuGetSourceResolver.RestrictToResolvedSources(
+                sourceOptions,
+                coordinate.Sources);
+        string? nuspecXml = await PackageExtractor.TryGetNuspecXmlAsync(
+            httpClient,
+            coordinate.PackageId,
+            coordinate.Version,
+            logger.Log,
+            reportingSources).ConfigureAwait(false);
+        if (nuspecXml is null)
+        {
+            return PackageNuspecResolution.Error(
+                packageName,
+                await DescribeUnavailableNuspecAsync(
+                    httpClient,
+                    packageName,
+                    coordinate.Version,
+                    coordinate.WasFloating,
+                    reportingSources).ConfigureAwait(false));
+        }
+
+        NuspecData nuspec = NuspecParser.ParseContent(nuspecXml);
+        if (nuspec.IsToolPackage)
+        {
+            return await ResolvePackageNuspecFromArchiveAsync(
+                httpClient,
+                $"{coordinate.PackageId}@{coordinate.Version}",
+                packageName,
+                reportingSources,
+                logger).ConfigureAwait(false);
+        }
+
+        return new PackageNuspecResolution(
+            packageName,
+            coordinate.Version,
+            nuspec.PackageName ?? packageName,
+            nuspec.Version ?? coordinate.Version,
+            nuspec,
+            ErrorMessage: null);
+    }
+
+    private static async Task<PackageNuspecResolution>
+        ResolvePackageNuspecFromArchiveAsync(
+            HttpClient httpClient,
+            string packageRef,
+            string packageName,
+            NuGetSourceOptions? sourceOptions,
+            VerboseLogger logger)
+    {
+        PackageExtractionOutcome outcome =
+            await PackageExtractor.ExtractPackageAsync(
+                httpClient,
+                packageRef,
+                logger.Log,
+                sourceOptions: sourceOptions).ConfigureAwait(false);
+        if (!outcome.IsSuccess)
+        {
+            return PackageNuspecResolution.Error(
+                packageName,
+                outcome.ErrorMessage
+                ?? $"Package '{packageRef}' could not be resolved.");
+        }
+
+        PackageExtractionResult extracted = outcome.Result!;
+        try
+        {
+            NuspecData? nuspec =
+                NuspecParser.FindAndParse(extracted.ExtractPath);
+            string resolvedPackageName =
+                extracted.PackageName
+                ?? packageName;
+            string resolvedVersion =
+                extracted.Version
+                ?? "";
+            return new PackageNuspecResolution(
+                packageName,
+                resolvedVersion,
+                nuspec?.PackageName
+                    ?? resolvedPackageName,
+                nuspec?.Version
+                    ?? resolvedVersion,
+                nuspec,
+                ErrorMessage: null);
+        }
+        finally
+        {
+            CleanupTempDir(extracted.TempDir);
+        }
+    }
+
+    private static IReadOnlyList<string> GetCachedPackageVersions(
+        string packageName,
+        NuGetSourceOptions? sourceOptions,
+        bool includePrerelease)
+    {
+        try
+        {
+            return NuGetCache.GetCachedVersions(
+                packageName,
+                NuGetSourceResolver.ResolveSourceKeysForPackage(
+                    sourceOptions,
+                    packageName),
+                includePrerelease);
+        }
+        catch (PackageSourceMappingException)
+        {
+            return [];
+        }
+    }
+
+    private static async Task<string> DescribeUnavailableNuspecAsync(
+        HttpClient httpClient,
+        string packageName,
+        string version,
+        bool versionExistenceKnown,
+        NuGetSourceOptions sourceOptions)
+    {
+        if (DotnetInspector.Networking.HttpClientFactory.IsOffline)
+        {
+            return InertString.Format(
+                TextPolicy.Field,
+                $"Package '{packageName}' version '{version}' is not available offline; no cached package was found.")
+                .ToString();
+        }
+
+        if (DescribeFeedFailure(packageName)
+            is { } acquisitionFailure)
+        {
+            return acquisitionFailure;
+        }
+
+        if (versionExistenceKnown)
+        {
+            return InertString.Format(
+                TextPolicy.Field,
+                $"Nuspec for package '{packageName}' version '{version}' could not be resolved.")
+                .ToString();
+        }
+
+        List<PackageVersionInfo>? knownVersions =
+            await PackageExtractor.GetVersionListingsAsync(
+                httpClient,
+                packageName,
+                includePrerelease: true,
+                includeUnlisted: true,
+                limit: null,
+                log: null,
+                sourceOptions: sourceOptions,
+                useVersionCache: false).ConfigureAwait(false);
+
+        if (DescribeFeedFailure(packageName)
+            is { } listingFailure)
+        {
+            return listingFailure;
+        }
+
+        if (knownVersions is not { Count: > 0 })
+        {
+            return InertString.Format(
+                TextPolicy.Field,
+                $"Package '{packageName}' not found.")
+                .ToString();
+        }
+
+        if (!knownVersions.Any(candidate =>
+                string.Equals(
+                    candidate.Version,
+                    version,
+                    StringComparison.OrdinalIgnoreCase)))
+        {
+            return InertString.Format(
+                TextPolicy.Field,
+                $"Version '{version}' of package '{packageName}' not found. Use --versions to see available versions.")
+                .ToString();
+        }
+
+        return InertString.Format(
+            TextPolicy.Field,
+            $"Nuspec for package '{packageName}' version '{version}' could not be resolved.")
+            .ToString();
+    }
+
+    private static string? DescribeFeedFailure(
+        string packageName)
+    {
+        if (FeedFailureTelemetry.Current
+            is not { HasFailures: true } failures)
+        {
+            return null;
+        }
+
+        return (failures.DescribeFailure(packageName)
+            ?? InertString.Format(
+                TextPolicy.Field,
+                $"Package '{packageName}' could not be fully resolved from every authorized source."))
+            .ToString();
+    }
+
+    private static string DescribeCachedVersionFallback(
+        string packageName,
+        IReadOnlyList<string> cachedVersions,
+        bool offline)
+    {
+        const int DisplayLimit = 5;
+        string displayed =
+            string.Join(", ", cachedVersions.Take(DisplayLimit));
+        string remainder = cachedVersions.Count > DisplayLimit
+            ? $" (+{cachedVersions.Count - DisplayLimit} more)"
+            : "";
+        string reason = offline
+            ? $"Package '{packageName}' cannot resolve its latest version "
+                + "while offline."
+            : $"Package '{packageName}' could not resolve its latest version "
+                + "before the online lookup timed out.";
+
+        return $"{reason}{Environment.NewLine}"
+            + $"Locally cached versions: {displayed}{remainder}"
+            + Environment.NewLine
+            + "Use an exact version to skip version discovery, for example: "
+            + $"dotnet-inspect package {packageName}@{cachedVersions[0]}";
+    }
+
+    private static async Task<TResult> WithAssemblySetAsync<TResult>(
+        HttpClient httpClient,
+        AssemblySetRequest request,
+        VerboseLogger logger,
+        Func<AssemblySet, TResult> operation)
+    {
+        using var assemblySet = await AssemblySetResolver.CollectAsync(httpClient, request, logger.Log);
+        AssemblySetDiagnosticWriter.Write(assemblySet);
+        return operation(assemblySet);
+    }
+
+    private static void CleanupTempDir(string? tempDir)
+    {
+        if (tempDir is null)
+            return;
+
+        try { Directory.Delete(tempDir, recursive: true); } catch { }
+    }
+
+    private sealed record PackageNuspecResolution(
+        string PackageName,
+        string Version,
+        string ManifestPackageName,
+        string ManifestVersion,
+        NuspecData? Nuspec,
+        string? ErrorMessage)
+    {
+        public static PackageNuspecResolution Error(
+            string packageName,
+            string message) =>
+            new(
+                packageName,
+                "",
+                packageName,
+                "",
+                Nuspec: null,
+                ErrorMessage: message);
+    }
+}
+
+internal abstract record LibraryDependencyGraphResult
+{
+    public sealed record Graph(
+        string AssemblyName,
+        LibraryMetadataService.AssemblyReferenceGraph ReferenceGraph,
+        AssemblySetSourceKind SourceKind = AssemblySetSourceKind.Assembly) :
+        LibraryDependencyGraphResult
+    {
+        public IReadOnlyList<AssemblyReferenceNode> References =>
+            ReferenceGraph.Nodes;
+    }
+
+    public sealed record Empty(
+        string AssemblyName,
+        ManagedMetadataIdentity Identity,
+        AssemblySetSourceKind SourceKind = AssemblySetSourceKind.Assembly) :
+        LibraryDependencyGraphResult;
+
+    public sealed record NoMetadata(
+        string AssemblyName,
+        AssemblySetSourceKind SourceKind = AssemblySetSourceKind.Assembly) :
+        LibraryDependencyGraphResult;
+    /// <summary>
+    /// A resolution failure whose message embeds the caller's subject.
+    /// </summary>
+    /// <remarks>
+    /// The subject is untrusted: an agent composes a <c>depends</c> invocation
+    /// from a type or package name it read out of metadata, so a name carrying
+    /// a bidi override or line separator reaches this message and then stderr.
+    /// Containment lives on the record rather than at each writer, so a new
+    /// call site cannot reopen it. <see cref="HintInput"/> stays raw: it is
+    /// matched against namespace prefixes, not rendered (issue #3319).
+    /// </remarks>
+    public sealed record Error(string Message, string? HintInput = null) : LibraryDependencyGraphResult
+    {
+        public string Message { get; init; } = CSharpIdentifier.ContainRenderedText(Message);
+
+        /// <inheritdoc cref="Error"/>
+        public string? HintInput { get; init; } = HintInput;
+    }
+}
+
+internal abstract record PackageDependencyGraphResult
+{
+    public enum EmptyKind
+    {
+        NoDependencyGroups,
+        SelectedGroup,
+    }
+
+    public sealed record Graph(
+        string PackageName,
+        string Version,
+        string ManifestPackageName,
+        string ManifestVersion,
+        PackageDependencyGraph DependencyGraph) : PackageDependencyGraphResult
+    {
+        public string Title => $"{PackageName} ({Version})";
+
+        public List<DependencyNode> Dependencies =>
+            DependencyGraph.Tree;
+    }
+
+    public sealed record Empty(
+        string PackageName,
+        string Version,
+        string ManifestPackageName,
+        string ManifestVersion,
+        string Message,
+        EmptyKind Kind) : PackageDependencyGraphResult;
+
+    public sealed record Error(string Message, string? Detail = null) : PackageDependencyGraphResult;
+}

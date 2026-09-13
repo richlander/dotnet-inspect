@@ -1,0 +1,7 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["./**/*.ts", "../browser/**/*.ts", "../playwright.config.ts", "../playwright.worker.config.ts", "../playwright.worker-cpu.config.ts", "../playwright.package-adoption.config.ts", "../playwright.published-benchmark.config.ts", "../playwright.source-comparison.config.ts"]
+}

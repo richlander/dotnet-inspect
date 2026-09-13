@@ -373,7 +373,7 @@ public sealed class StackAllocSpanPass : IIrPass
     /// effectful operand across the moved allocation, or move the allocation
     /// into a conditionally-evaluated branch.
     /// </summary>
-    static bool ReachesAsOnlyPrecedingEffect(IrExpression expression, NewObject newObject)
+    internal static bool ReachesAsOnlyPrecedingEffect(IrExpression expression, NewObject newObject)
     {
         if (ReferenceEquals(expression, newObject))
             return true;
@@ -461,7 +461,7 @@ public sealed class StackAllocSpanPass : IIrPass
     /// count is already an element count, not a byte size, so no arithmetic
     /// proof is needed there.</para>
     /// </summary>
-    static bool IsProvenByteSize(IrExpression size, IrExpression count, TypeRef element)
+    internal static bool IsProvenByteSize(IrExpression size, IrExpression count, TypeRef element)
     {
         var unwrappedSize = Unconvert(size);
         var unwrappedCount = Unconvert(count);

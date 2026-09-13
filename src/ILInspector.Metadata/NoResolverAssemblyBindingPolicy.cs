@@ -4,7 +4,7 @@ namespace ILInspector.Metadata;
 /// Binding policy for inspection contexts that have no reference resolver.
 /// It performs no acquisition and never selects an assembly.
 /// </summary>
-public sealed class NoResolverAssemblyBindingPolicy : IAssemblyBindingPolicy
+public sealed class NoResolverAssemblyBindingPolicy : IAcquisitionFreeAssemblyBindingPolicy
 {
     public static NoResolverAssemblyBindingPolicy Instance { get; } = new();
 

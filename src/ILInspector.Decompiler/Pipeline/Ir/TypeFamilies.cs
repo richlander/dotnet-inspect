@@ -56,7 +56,7 @@ internal static class SwitchTypeFacts
         };
         if (type is null)
             return null;
-        if (function.TypeShapes.GetValueOrDefault(type) == TypeShape.Enum)
+        if (CoercionRendering.IsEnum(type, function.TypeShapes))
             return type;
         return type is { Kind: TypeRefKind.Definition, Name: not ("Boolean" or "String") }
             && function.TypeShapes.GetValueOrDefault(type) == TypeShape.Unknown
@@ -152,19 +152,19 @@ public static class TypeFamilies
     {
         var leftFamily = Of(left);
         var rightFamily = Of(right);
-        // A binary op mixing a resolved primitive with an unresolved Definition
+        // A binary op mixing a resolved primitive with an unresolved named type
         // is the flags-enum idiom: the enum's underlying integer drives the IL
         // `or`/`and`/`add`, but the C# result type is the enum, on whichever side
-        // it sits. `flags | 0x20` and `0x20 | flags` are both `flags`-typed. Only
-        // an enum reaches a Binary opcode as a Definition operand — a struct or
-        // decimal `|`/`+` lowers to an operator-overload call, not this node — so
-        // preferring the Definition keeps a flags-enum OR/AND accumulation
-        // enum-typed instead of collapsing to the underlying integer, which would
-        // then need a cast on every arm and break at the next bare-integer arm
-        // (CS0019, #2990). Symmetric to the both-null fallthrough below.
-        if (left is { Kind: TypeRefKind.Definition } && leftFamily is null && rightFamily is not null)
+        // it sits. Nested enums inside generic owners are GenericInstance values;
+        // ordinary structs and generic classes reach operators as calls, not
+        // Binary nodes. Prefer the named operand so the chain stays enum-typed.
+        if (left is { Kind: TypeRefKind.Definition or TypeRefKind.GenericInstance }
+            && leftFamily is null
+            && rightFamily is not null)
             return left;
-        if (right is { Kind: TypeRefKind.Definition } && rightFamily is null && leftFamily is not null)
+        if (right is { Kind: TypeRefKind.Definition or TypeRefKind.GenericInstance }
+            && rightFamily is null
+            && leftFamily is not null)
             return right;
         if (leftFamily is not { } lf || rightFamily is not { } rf)
             return left;
@@ -209,7 +209,8 @@ public static class TypeFamilies
             return true;
         if (type.DeclaredValueTypeHint == ValueTypeHint.ValueType)
             return true;
-        if (shapes is not null && shapes.TryGetValue(type, out var shape))
+        var factType = type.Kind == TypeRefKind.GenericInstance ? type.ElementType! : type;
+        if (shapes is not null && shapes.TryGetValue(factType, out var shape))
             return shape is TypeShape.ValueType or TypeShape.Enum;
         return type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" }
             && type.Name is "DateTime" or "DateOnly" or "TimeOnly" or "TimeSpan" or "Guid" or "Decimal"

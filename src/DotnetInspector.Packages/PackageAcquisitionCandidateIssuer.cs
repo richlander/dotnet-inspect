@@ -12,6 +12,8 @@ public sealed class PackageAcquisitionCandidateIssuer
 {
     private readonly object _issuer = new();
 
+    internal object Identity => _issuer;
+
     internal bool OwnsCandidate(
         PackageAcquisitionCandidate candidate)
     {
@@ -81,10 +83,25 @@ public sealed class PackageAcquisitionCandidateIssuer
         PackageSourceAuthorization authorization,
         IReadOnlyList<PackageSourceOperationResult<PackageVersionResult>>
             outcomes) =>
-        CreateDependencyVersionDiscoveryCore(
+        CreateVersionDiscoveryCore(
             packageId,
             authorization,
             outcomes,
+            PackageVersionDiscoveryContract.DependencyRangeResolution,
+            terminalFailures: [],
+            requireEveryAuthority: true);
+
+    internal PackageVersionDiscoveryResult CreateVersionDiscovery(
+        string packageId,
+        PackageSourceAuthorization authorization,
+        IReadOnlyList<PackageSourceOperationResult<PackageVersionResult>>
+            outcomes,
+        PackageVersionDiscoveryContract contract) =>
+        CreateVersionDiscoveryCore(
+            packageId,
+            authorization,
+            outcomes,
+            contract,
             terminalFailures: [],
             requireEveryAuthority: true);
 
@@ -108,10 +125,37 @@ public sealed class PackageAcquisitionCandidateIssuer
                 nameof(terminalFailures));
         }
 
-        return CreateDependencyVersionDiscoveryCore(
+        return CreateVersionDiscoveryCore(
             packageId,
             authorization,
             completedOutcomes,
+            PackageVersionDiscoveryContract.DependencyRangeResolution,
+            terminalFailures,
+            requireEveryAuthority: false);
+    }
+
+    internal PackageVersionDiscoveryResult
+        CreateIncompleteVersionDiscovery(
+        string packageId,
+        PackageSourceAuthorization authorization,
+        IReadOnlyList<PackageSourceOperationResult<PackageVersionResult>>
+            completedOutcomes,
+        PackageVersionDiscoveryContract contract,
+        IReadOnlyList<PackageAuthorityFailure> terminalFailures)
+    {
+        ArgumentNullException.ThrowIfNull(terminalFailures);
+        if (terminalFailures.Count == 0)
+        {
+            throw new ArgumentException(
+                "Incomplete version discovery requires terminal failure evidence.",
+                nameof(terminalFailures));
+        }
+
+        return CreateVersionDiscoveryCore(
+            packageId,
+            authorization,
+            completedOutcomes,
+            contract,
             terminalFailures,
             requireEveryAuthority: false);
     }
@@ -120,8 +164,8 @@ public sealed class PackageAcquisitionCandidateIssuer
     /// Prevents publication of an otherwise complete discovery result when
     /// its shared operation expires during package-owned aggregation.
     /// </summary>
-    public PackageVersionDiscoveryResult
-        CreateIncompleteDependencyVersionDiscovery(
+    internal PackageVersionDiscoveryResult
+            CreateIncompleteVersionDiscovery(
             PackageVersionDiscoveryResult discovery,
             IReadOnlyList<PackageAuthorityFailure> terminalFailures)
     {
@@ -135,11 +179,12 @@ public sealed class PackageAcquisitionCandidateIssuer
         if (terminalFailures.Count == 0)
         {
             throw new ArgumentException(
-                "Incomplete dependency discovery requires terminal failure evidence.",
+                "Incomplete version discovery requires terminal failure evidence.",
                 nameof(terminalFailures));
         }
 
         return new PackageVersionDiscoveryResult(
+            discovery.PackageId,
             PackageVersionDiscoveryState.Failed,
             discovery.SourceListings,
             [.. discovery.Failures, .. terminalFailures],
@@ -150,23 +195,25 @@ public sealed class PackageAcquisitionCandidateIssuer
     }
 
     private PackageVersionDiscoveryResult
-        CreateDependencyVersionDiscoveryCore(
+        CreateVersionDiscoveryCore(
             string packageId,
             PackageSourceAuthorization authorization,
             IReadOnlyList<PackageSourceOperationResult<PackageVersionResult>>
                 outcomes,
+            PackageVersionDiscoveryContract contract,
             IReadOnlyList<PackageAuthorityFailure> terminalFailures,
             bool requireEveryAuthority)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         ArgumentNullException.ThrowIfNull(authorization);
         ArgumentNullException.ThrowIfNull(outcomes);
+        ArgumentNullException.ThrowIfNull(contract);
         if (outcomes.Count > authorization.Authorities.Count
             || (requireEveryAuthority
                 && authorization.Authorities.Count != outcomes.Count))
         {
             throw new ArgumentException(
-                "Dependency version discovery requires one source outcome for every authorized authority.",
+                "Complete version discovery requires one source outcome for every authorized authority.",
                 nameof(outcomes));
         }
 
@@ -183,13 +230,13 @@ public sealed class PackageAcquisitionCandidateIssuer
                     ]
                     : terminalFailures;
             return new PackageVersionDiscoveryResult(
+                packageId,
                 PackageVersionDiscoveryState.Failed,
                 [],
                 emptyFailures,
                 hasAnyCandidate: false,
-                contract:
-                    PackageVersionDiscoveryContract
-                        .DependencyRangeResolution,
+                candidates: [],
+                contract: contract,
                 candidateIssuer: _issuer);
         }
 
@@ -213,7 +260,7 @@ public sealed class PackageAcquisitionCandidateIssuer
             {
                 RequireAuthority(failure.Source, authority);
                 failures.Add(
-                    DesktopPackageSourceComposition.DescribeFailure(
+                    PackageAuthorityFailureAdapter.DescribeVersionFailure(
                         authority.Source,
                         failure));
                 continue;
@@ -244,7 +291,7 @@ public sealed class PackageAcquisitionCandidateIssuer
                         .CompleteVersionEnumeration)
                 {
                     throw new InvalidOperationException(
-                        "Dependency version discovery requires complete version-enumeration observations.");
+                        "Package version discovery requires complete version-enumeration observations.");
                 }
 
                 incompleteGalleryListingState |=
@@ -254,10 +301,14 @@ public sealed class PackageAcquisitionCandidateIssuer
                         PackageListingState.Unknown
                         or PackageListingState.NotApplicable;
                 hasAnyCandidate = true;
+                NuGetVersion version =
+                    NuGetVersion.Parse(candidate.Coordinate.Version);
                 bool listed = !result.HasAuthoritativeListingState
                     || candidate.ListingState
                         != PackageListingState.Unlisted;
-                if (!listed)
+                if ((!listed && !contract.IncludeUnlisted)
+                    || (version.IsPrerelease
+                        && !contract.IncludePrerelease))
                     continue;
 
                 candidates.Add(new(authority, candidate));
@@ -279,8 +330,23 @@ public sealed class PackageAcquisitionCandidateIssuer
         List<PackageVersionSourceInfo> orderedListings =
         [
             .. listings
+                .GroupBy(
+                    listing => listing.Version,
+                    StringComparer.OrdinalIgnoreCase)
                 .OrderByDescending(
-                    listing => NuGetVersion.Parse(listing.Version)),
+                    group => NuGetVersion.Parse(group.Key))
+                .Take(contract.Limit ?? int.MaxValue)
+                .SelectMany(group => group),
+        ];
+        HashSet<string> retainedVersions =
+            orderedListings
+                .Select(listing => listing.Version)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        List<ConfiguredPackageCandidateObservation> retainedCandidates =
+        [
+            .. candidates.Where(candidate =>
+                retainedVersions.Contains(
+                    candidate.Observation.Coordinate.Version)),
         ];
         PackageVersionDiscoveryState state = !requireEveryAuthority
             ? PackageVersionDiscoveryState.Failed
@@ -292,12 +358,13 @@ public sealed class PackageAcquisitionCandidateIssuer
             _ => PackageVersionDiscoveryState.Failed,
         };
         return new PackageVersionDiscoveryResult(
+            packageId,
             state,
             orderedListings,
             failures,
             hasAnyCandidate,
-            candidates,
-            PackageVersionDiscoveryContract.DependencyRangeResolution,
+            retainedCandidates,
+            contract,
             _issuer);
     }
 

@@ -32,7 +32,7 @@ public static class CoercionRendering
         return valueFamily is not null && targetFamily is not null
             && (valueFamily == targetFamily
                 || (valueFamily == StackFamily.I4 && targetFamily == StackFamily.I8
-                    && enumUnderlyingTypes.ContainsKey(valueType)));
+                    && enumUnderlyingTypes.ContainsKey(NamedDefinition(valueType))));
     }
 
     /// <summary>
@@ -57,10 +57,16 @@ public static class CoercionRendering
         TypeRef? valueType,
         TypeRef target,
         IReadOnlyDictionary<TypeRef, TypeShape> shapes)
-        => shapes.GetValueOrDefault(target) == TypeShape.Enum
+        => IsEnum(target, shapes)
             && valueType is not null
             && !target.Equals(valueType)
             && TypeFamilies.IsIntegerLike(valueType);
+
+    internal static bool IsEnum(
+        TypeRef? type,
+        IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+        => type is not null
+            && shapes.GetValueOrDefault(NamedDefinition(type)) == TypeShape.Enum;
 
     public static bool CanSpellEnumToInteger(
         TypeRef? valueType,
@@ -122,8 +128,12 @@ public static class CoercionRendering
     {
         if (type is null || TypeFamilies.Of(type) is not null)
             return null;
-        if (enumUnderlyingTypes.GetValueOrDefault(type) is { } underlying)
+        var definition = NamedDefinition(type);
+        if (enumUnderlyingTypes.GetValueOrDefault(definition) is { } underlying)
             return TypeFamilies.Of(underlying);
-        return shapes.GetValueOrDefault(type) == TypeShape.Enum ? StackFamily.I4 : null;
+        return IsEnum(definition, shapes) ? StackFamily.I4 : null;
     }
+
+    internal static TypeRef NamedDefinition(TypeRef type)
+        => type.Kind == TypeRefKind.GenericInstance ? type.ElementType! : type;
 }

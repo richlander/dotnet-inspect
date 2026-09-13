@@ -455,6 +455,66 @@ public sealed class AssemblyContextResearchProjectionQueryTests
             available.Value.Projection.SourceDocument);
     }
 
+    [Fact]
+    public void TypeProjection_DoesNotPublishAfterBindingVersionChanges()
+    {
+        using var policy = new ResearchPublicationBindingPolicy(
+            changeOnVersionRead: 4);
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = ContentGroup(workspace, policy);
+
+        var failed = Assert.IsType<
+            AssemblyContextEntry<ResearchViews.TypeProjectionResult>.Failed>(
+            Assert.Single(
+                AssemblyContextTypeProjectionQuery.Execute(
+                    group,
+                    new AssemblyContextTypeProjectionRequest(
+                        typeof(ResearchProjectionProbe).FullName!))
+                    .Assemblies));
+        Assert.IsType<InvalidOperationException>(failed.Error);
+    }
+
+    [Fact]
+    public async Task MemberProjection_DoesNotPublishAfterBindingVersionChanges()
+    {
+        var request = new AssemblyContextMemberProjectionRequest(
+            typeof(ResearchProjectionProbe).FullName!,
+            nameof(ResearchProjectionProbe.BoxInt),
+            AnalysisFeatures: LibraryBodyAnalysisFeatures.None);
+        int selectionCount;
+        using (var stablePolicy = new ResearchPublicationBindingPolicy())
+        using (var stableWorkspace = new InspectionWorkspace())
+        using (AssemblyContextGroup stable =
+            ContentGroup(stableWorkspace, stablePolicy))
+        {
+            Available(
+                AssemblyContextMemberProjectionQuery.Execute(
+                    stable,
+                    request));
+            selectionCount = stablePolicy.SelectionCount;
+        }
+        Assert.True(selectionCount > 0);
+
+        using var policy = new ResearchPublicationBindingPolicy(selectionCount);
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = ContentGroup(workspace, policy);
+        Task<AssemblyContextResult<AssemblyMemberProjection>> execution =
+            Task.Run(
+                () => AssemblyContextMemberProjectionQuery.Execute(
+                    group,
+                    request));
+        bool reachedPublicationBoundary = policy.WaitForVersionRead();
+        if (reachedPublicationBoundary)
+            policy.ReplaceVersion();
+        policy.ContinueVersionRead();
+        Assert.True(reachedPublicationBoundary);
+
+        var failed = Assert.IsType<
+            AssemblyContextEntry<AssemblyMemberProjection>.Failed>(
+            Assert.Single((await execution).Assemblies));
+        Assert.IsType<InvalidOperationException>(failed.Error);
+    }
+
     static AssemblyContextMemberProjectionRequest Request(string member) =>
         new(
             typeof(ResearchProjectionProbe).FullName!,

@@ -66,8 +66,9 @@ production activation waits for milestone 3. Starting a second managed runtime
 for Diff beside the existing page runtime is not an alternative.
 Source and Annotated Source remain separate artifacts; this is an additive
 comparison operation, not their migration or replacement.
-The separate Method Body Diff compares explicit IL/research subjects and is
-not an alternative implementation of this source comparison.
+The retained method-body comparison facade operation compares explicit
+IL/research subjects and is not an alternative implementation of this source
+comparison. Its former contextual dialog is retired under #6491.
 
 The shared Presentation adapter has already retired the CLI comparison-only
 projection. Transport must carry its Markout shape rather than introduce a

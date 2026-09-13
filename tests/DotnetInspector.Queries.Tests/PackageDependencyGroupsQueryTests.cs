@@ -142,8 +142,11 @@ public sealed class PackageDependencyGroupsQueryTests
         Assert.Equal("2.*", dependency.VersionRange);
     }
 
-    [Fact]
-    public async Task ExecuteAsync_SelectsUngroupedDependenciesForAnyFramework()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExecuteAsync_SelectsUngroupedDependenciesForAnyFramework(
+        bool allowCompatibleFallback)
     {
         InMemoryPackageContent content = Content(
             ("Example.Package.nuspec", Manifest(
@@ -155,10 +158,13 @@ public sealed class PackageDependencyGroupsQueryTests
             await ExecuteAsync(
                 content,
                 "Example.Package",
-                "net9.0"));
+                "net9.0",
+                allowCompatibleFallbackForRequestedTfm:
+                    allowCompatibleFallback));
 
         Assert.Equal(PackageDependencyGroupSelectionStatus.Selected, result.SelectionStatus);
         Assert.Equal("any", result.SelectedTargetFramework);
+        Assert.Equal(0, result.SelectedGroupIndex);
         DeclaredPackageDependencyGroup group = Assert.Single(result.Groups);
         Assert.Equal("Universal.Dependency", Assert.Single(group.Dependencies).Id);
     }
@@ -240,6 +246,32 @@ public sealed class PackageDependencyGroupsQueryTests
         Assert.Null(result.SelectedTargetFramework);
         Assert.Null(result.SelectedGroupIndex);
         Assert.Single(result.Groups);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_CanSelectACompatibleFramework()
+    {
+        InMemoryPackageContent content = Content(
+            ("Example.Package.nuspec", Manifest(
+                """
+                <group targetFramework="net8.0">
+                  <dependency id="Dependency" version="1.0.0" />
+                </group>
+                """)));
+
+        PackageDependencyGroups result = Available(
+            await ExecuteAsync(
+                content,
+                "Example.Package",
+                "net9.0",
+                allowCompatibleFallbackForRequestedTfm: true));
+
+        Assert.Equal(
+            PackageDependencyGroupSelectionStatus.Selected,
+            result.SelectionStatus);
+        Assert.Equal("net9.0", result.RequestedTargetFramework);
+        Assert.Equal("net8.0", result.SelectedTargetFramework);
+        Assert.Equal(0, result.SelectedGroupIndex);
     }
 
     [Fact]
@@ -462,13 +494,15 @@ public sealed class PackageDependencyGroupsQueryTests
         IPackageContent content,
         string packageId,
         string? requestedTargetFramework = null,
-        string packageVersion = "1.0.0")
+        string packageVersion = "1.0.0",
+        bool allowCompatibleFallbackForRequestedTfm = false)
         => PackageDependencyGroupsQuery.ExecuteAsync(
             content,
             packageId,
             packageVersion,
             requestedTargetFramework,
-            TestContext.Current.CancellationToken);
+            TestContext.Current.CancellationToken,
+            allowCompatibleFallbackForRequestedTfm);
 
     static Exception Failed(PackageDependencyGroupsResult result) =>
         FailedResult(result).Error;

@@ -15,7 +15,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="ILInspector.Metadata.Tests" />
-    <ProjectReference Include="..\ILInspector.Findings\ILInspector.Findings.csproj" />
+    <ProjectReference Include="..\Inspector.Findings\Inspector.Findings.csproj" />
     <ProjectReference Include="..\ILInspector.Metadata\ILInspector.Metadata.csproj" />
     <ProjectReference Include="..\ILInspector.MetadataPrimitives\ILInspector.MetadataPrimitives.csproj" />
   </ItemGroup>

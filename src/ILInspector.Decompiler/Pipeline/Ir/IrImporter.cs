@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using ILInspector.Metadata;
-using ILInspector.Text;
+using Inspector.Text;
 using ILReader = ILInspector.Instructions.ILReader;
 
 namespace ILInspector.Decompiler.Pipeline;
@@ -88,7 +88,8 @@ public static class IrImporter
                 return CrashFunction(
                     method.Name,
                     method.DeclaringType.Name,
-                    ex);
+                    ex,
+                    SafeMemorySafetyMode(source));
             }
         }
 
@@ -111,7 +112,8 @@ public static class IrImporter
             return CrashFunction(
                 method.Name,
                 exactName.ToEscapedFullName(),
-                ex);
+                ex,
+                SafeMemorySafetyMode(source));
         }
     }
 
@@ -191,7 +193,11 @@ public static class IrImporter
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            return CrashFunction(methodName, typeFullName, ex);
+            return CrashFunction(
+                methodName,
+                typeFullName,
+                ex,
+                SafeMemorySafetyMode(source));
         }
     }
 
@@ -328,8 +334,16 @@ public static class IrImporter
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             return reader is null
-                ? CrashFunction("<method>", "<type>", ex)
-                : CrashFunction(SafeName(reader, methodHandle), SafeTypeName(reader, methodHandle), ex);
+                ? CrashFunction(
+                    "<method>",
+                    "<type>",
+                    ex,
+                    SafeMemorySafetyMode(source))
+                : CrashFunction(
+                    SafeName(reader, methodHandle),
+                    SafeTypeName(reader, methodHandle),
+                    ex,
+                    SafeMemorySafetyMode(source));
         }
     }
 
@@ -425,7 +439,11 @@ public static class IrImporter
                 }
                 catch (Exception ex) when (ex is not OutOfMemoryException)
                 {
-                    function = CrashFunction(memberName, typeName, ex);
+                    function = CrashFunction(
+                        memberName,
+                        typeName,
+                        ex,
+                        SafeMemorySafetyMode(source));
                 }
                 yield return (typeName, memberName, function);
             }
@@ -453,7 +471,11 @@ public static class IrImporter
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
-                return IrImporter.CrashFunction(MethodName, TypeName, ex);
+                return IrImporter.CrashFunction(
+                    MethodName,
+                    TypeName,
+                    ex,
+                    SafeMemorySafetyMode(source));
             }
         }
     }
@@ -564,7 +586,11 @@ public static class IrImporter
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
-                function = CrashFunction(candidate.MethodName, candidate.TypeName, ex);
+                function = CrashFunction(
+                    candidate.MethodName,
+                    candidate.TypeName,
+                    ex,
+                    SafeMemorySafetyMode(source));
             }
             yield return (candidate.TypeName, candidate.MethodName, function);
         }
@@ -606,7 +632,11 @@ public static class IrImporter
         string Key,
         int OverloadIndex = 0);
 
-    static IrFunction CrashFunction(string methodName, string typeName, Exception ex)
+    static IrFunction CrashFunction(
+        string methodName,
+        string typeName,
+        Exception ex,
+        MemorySafetyModeDecision memorySafetyMode)
     {
         var block = new Block(0);
         var container = new BlockContainer();
@@ -615,11 +645,36 @@ public static class IrImporter
         var function = new IrFunction(methodName, TypeRef.Definition("", "", typeName), signature, [], container)
         {
             MethodKind = ClassifyMethodKind(methodName),
+            MemorySafetyMode = memorySafetyMode,
         };
         block.Add(new ExpressionStatement(new UnsupportedNode(0, "(importer crash)", $"{ex.GetType().Name}: {ex.Message}")));
         function.Diagnostics.Add(new DecompilerDiagnostic(
             DiagnosticIds.InternalError, $"importer crash: {ex.GetType().Name}: {ex.Message}"));
         return function;
+    }
+
+    static MemorySafetyModeDecision SafeMemorySafetyMode(
+        MetadataSource? source)
+    {
+        try
+        {
+            return source?.MemorySafetyMode
+                ?? Unavailable("metadata source is unavailable");
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return Unavailable(
+                $"memory-safety metadata acquisition failed: "
+                    + $"{ex.GetType().Name}: {ex.Message}");
+        }
+
+        static MemorySafetyModeDecision Unavailable(string detail)
+            => new MemorySafetyModeDecision.Unavailable(
+                new MemorySafetyRulesResult.Unavailable(
+                    new MemorySafetyMetadataFailure(
+                        MemorySafetyMetadataFailureKind.Malformed,
+                        detail),
+                    []));
     }
 
     internal static GenericScope CallerScope(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
@@ -634,6 +689,7 @@ public static class IrImporter
         {
             AssemblyPath = source.FilePath,
             MetadataToken = method.MetadataToken,
+            DeclaringTypeParameters = method.DeclaringTypeParameters,
             DeclaringTypeGenericParameterNames =
                 method.DeclaringTypeGenericParameterNames.IsDefault
                     ? []
@@ -643,11 +699,7 @@ public static class IrImporter
             Regions = method.Body.Handlers,
             LocalNames = method.Body.LocalNames,
             LocalDeclaredInNestedScope = method.Body.LocalDeclaredInNestedScope,
-            UsesUpdatedMemorySafetyRules = source.SimulateNewRules
-                || source.MemorySafety.Rules is MemorySafetyRulesResult.Available
-                {
-                    State: MemorySafetyRulesState.Updated,
-                },
+            MemorySafetyMode = source.MemorySafetyMode,
             SkipLocalsInit = method.Body.SkipLocalsInit,
             CompilerGenerated = method.CompilerGenerated,
             DeclaringTypeCompilerGenerated = method.DeclaringTypeCompilerGenerated,
@@ -2979,7 +3031,11 @@ public static class IrImporter
         }
     }
 
-    internal static FieldRef ResolveField(MetadataReader reader, EntityHandle handle, GenericScope callerScope)
+    internal static FieldRef ResolveField(
+        MetadataReader reader,
+        EntityHandle handle,
+        GenericScope callerScope,
+        MemorySafetyMetadataIndex? memorySafety = null)
     {
         switch (handle.Kind)
         {
@@ -3000,8 +3056,21 @@ public static class IrImporter
                         field,
                         fieldType,
                         fieldType);
+                RequiresUnsafeContractResult contract =
+                    MethodDefinitionFacts.RequiresUnsafeContract(
+                        memorySafety,
+                        fieldHandle);
                 return new FieldRef(declaring, name, fieldType)
                 {
+                    HasNormalizedMemorySafetyContract =
+                        contract.HasNormalizedContract,
+                    RequiresUnsafe = contract.IsExplicit,
+                    RequiresUnsafeFact = contract.State,
+                    MemorySafetyRulesState = contract.RulesState,
+                    MemorySafetyRulesUnavailable =
+                        contract.RulesUnavailable,
+                    MemorySafetyContractUnavailable =
+                        contract.ContractUnavailable,
                     BackingPropertyName = BackingPropertyName(reader, declaringType, name),
                     DeclaringTypeCompilerGenerated = FactState(MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, declaringType.GetCustomAttributes())),
                     FixedBuffer = FixedBufferFieldInfo(reader, field.GetCustomAttributes()),
@@ -3031,8 +3100,28 @@ public static class IrImporter
                     name,
                     declaredFieldType,
                     fieldType);
+                RequiresUnsafeContractResult? contract =
+                    MemberReferenceFieldMemorySafetyContract(
+                        reader,
+                        member,
+                        name,
+                        memorySafety);
                 return new FieldRef(declaring, name, fieldType)
                 {
+                    DefinitionType = declaring.Kind
+                        == TypeRefKind.GenericInstance
+                            ? declaredFieldType
+                            : null,
+                    HasNormalizedMemorySafetyContract =
+                        contract?.HasNormalizedContract == true,
+                    RequiresUnsafe = contract?.IsExplicit == true,
+                    RequiresUnsafeFact =
+                        contract?.State ?? MetadataFactState.Unknown,
+                    MemorySafetyRulesState = contract?.RulesState,
+                    MemorySafetyRulesUnavailable =
+                        contract?.RulesUnavailable == true,
+                    MemorySafetyContractUnavailable =
+                        contract?.ContractUnavailable == true,
                     BackingPropertyName = MemberReferenceBackingPropertyName(reader, member, name),
                     DeclaringTypeCompilerGenerated = MemberReferenceDefinitionFacts(
                         reader,
@@ -3053,7 +3142,35 @@ public static class IrImporter
     }
 
     static FieldRef ResolveField(MetadataSource source, EntityHandle handle, GenericScope callerScope)
-        => source.CrossAssembly.Upgrade(ResolveField(source.Reader, handle, callerScope));
+    {
+        FieldRef field = source.CrossAssembly.Upgrade(
+            ResolveField(
+                source.Reader,
+                handle,
+                callerScope,
+                source.MemorySafety),
+            resolveMemorySafety: true);
+        bool callerUsesUpdatedRules = source.MemorySafetyMode
+            is MemorySafetyModeDecision.Available
+            {
+                Mode: MemorySafetyMode.Updated,
+            };
+        bool legacyShapeRequiresUnsafe = field.FixedBuffer is null
+            && UnsafeAwaitOperand.ContainsPointer(field.Type);
+        if (FieldMemorySafetyContract.EvidenceRequired(
+                callerUsesUpdatedRules,
+                legacyShapeRequiresUnsafe)
+            && !field.HasNormalizedMemorySafetyContract)
+        {
+            field = field with
+            {
+                MemorySafetyRulesUnavailable =
+                    field.MemorySafetyRulesState is null,
+                MemorySafetyContractUnavailable = true,
+            };
+        }
+        return field;
+    }
 
     static FixedBufferFieldInfo? FixedBufferFieldInfo(MetadataReader reader, CustomAttributeHandleCollection attributes)
         => FixedBufferMetadata.Read(reader, attributes) is { } metadata
@@ -3179,6 +3296,47 @@ public static class IrImporter
             }
         }
         return MetadataFactState.Unknown;
+    }
+
+    static RequiresUnsafeContractResult? MemberReferenceFieldMemorySafetyContract(
+        MetadataReader reader,
+        MemberReference member,
+        string fieldName,
+        MemorySafetyMetadataIndex? memorySafety)
+    {
+        if (memorySafety is null
+            || DeclaringTypeDefinition(reader, member.Parent) is not { } typeHandle)
+        {
+            return null;
+        }
+
+        var declaringType = reader.GetTypeDefinition(typeHandle);
+        var memberSignature = reader.GetBlobBytes(member.Signature);
+        FieldDefinitionHandle match = default;
+        foreach (var fieldHandle in declaringType.GetFields())
+        {
+            var field = reader.GetFieldDefinition(fieldHandle);
+            if (!string.Equals(
+                    reader.GetString(field.Name),
+                    fieldName,
+                    StringComparison.Ordinal)
+                || !reader.GetBlobBytes(field.Signature)
+                    .AsSpan()
+                    .SequenceEqual(memberSignature))
+            {
+                continue;
+            }
+
+            if (!match.IsNil)
+                return null;
+            match = fieldHandle;
+        }
+
+        return match.IsNil
+            ? null
+            : MethodDefinitionFacts.RequiresUnsafeContract(
+                memorySafety,
+                match);
     }
 
     static bool IsSystemObject(TypeRef type)

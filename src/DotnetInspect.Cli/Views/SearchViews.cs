@@ -1,0 +1,24 @@
+using Markout;
+
+namespace DotnetInspect.Cli.Views;
+
+/// <summary>
+/// View model for NuGet package search results.
+/// </summary>
+[MarkoutSerializable(TitleProperty = nameof(Title))]
+public class PackageSearchResultView
+{
+    [MarkoutIgnore] public string Title { get; set; } = "";
+
+    [MarkoutSection(Headless = true)]
+    [MarkoutIgnoreInTable]
+    public List<PackageSearchRow>? Results { get; set; }
+}
+
+[MarkoutSerializable]
+public record PackageSearchRow(string Package, string Version, string Downloads, string Description);
+
+[MarkoutContext(typeof(PackageSearchResultView))]
+public partial class PackageSearchResultContext : MarkoutSerializerContext
+{
+}

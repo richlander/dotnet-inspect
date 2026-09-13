@@ -48,6 +48,45 @@ The CLI consumes owner-issued facts. It must not reopen inspected content to
 recompute Metadata or Analysis truth, reconstruct typed identity from display
 text, or hide a failed producer behind an empty section.
 
+### Stateless Workspace navigation
+
+The `workspace` command is the first production consumer of
+`NavigationWorkspaceSnapshotEvaluation`. The default path preserves the
+ordered Package inventory without choosing an active occurrence. An explicit
+`--active-package` request borrows the exact committed Package Root generation,
+materializes bounded API-surface evidence, and retains each realization-issued
+Package asset/participant association through Navigation classification. It
+does not rejoin assets to assemblies by file or assembly name.
+
+Exact Type and Member destinations are selected only from the returned
+scoped inventory and submitted through `DescendantSubjectLensRequest`.
+Projected Member rows retain separate containing and declaring Types, so a
+Type-to-Member selector resolves within its selected source Type rather than a
+flattened global Member list. Selector failure retains the complete snapshot;
+absence is claimed only from complete scoped evidence.
+
+After Navigation validates an exact admitted subject, this CLI supplies
+`Available` facts for the Registry's current active entries. Those entries
+execute on demand, so query or result non-success remains inside the selected
+entry rather than making the entry unavailable. The Navigation evaluator still
+accepts per-subject facts carrying explicit unavailable or failed owner
+evidence; the CLI assumption is narrow to the current catalog and is not a
+permanent availability rule. The CLI does not inspect Registry-private
+execution targets, construct an ID-based availability policy, infer structural
+identity from display text, recommend an intermediate destination lens, or
+install one requested half after a non-applied result.
+
+Markdown, plain text, table, and TSV are Markout lowerings; JSON and JSONL omit
+process-local Workspace, occurrence, generation, action, and authority
+identity while retaining portable Library asset, containing-Type, and
+declaring-Type joins. Portable Library, Type, and Member selector fields use a
+reversible backslash transport spelling before display containment and
+tabular lowering. It escapes line separators, tabs, rendering hazards, literal
+backslashes, and the `&`, `<`, `>`, backtick, and `|` characters rewritten by
+Markdown table lowering; copied values are decoded before exact ordinal
+selector resolution. A nonempty selector remains an identity even when its
+decoded metadata spelling consists only of whitespace or line separators.
+
 ## Runtime identity
 
 `--flavor` identifies the executing CLI runtime as `CoreCLR` or `NativeAOT`,
@@ -102,6 +141,47 @@ stdout / stderr / exit code
 Commands may have specialized acquisition and projection steps, but those
 steps retain the same ownership boundary: the host composes the request;
 reusable owners produce the facts.
+
+### Configured package search Roots
+
+The first production adoption in
+[#6170](https://github.com/richlander/dotnet-inspect/issues/6170) routes the
+existing `find`, member-find, `implements`, `extensions`, and reachable
+extension implementations, plus type-mode `depends`, through one
+invocation-owned asynchronous
+`InspectionWorkspace` for a deliberately bounded source shape:
+
+- normalized source intent contains exactly one explicitly versioned package
+  reference whose version is an exact NuGet version;
+- the resolved request contains that package and no assembly, platform,
+  project, or directory sources;
+- the request has one explicit target framework other than `all`; and
+- `find` and member-find have no numeric result limit.
+
+The host acquires one package Root, commits it with `ReplaceScopeAsync`, retains
+the committed correspondence and generation, and executes the existing typed
+group queries through `ExecutePackageRootQueryAsync`. Type search reuses that
+same committed Root for its direct and fallback census passes. Type-mode
+`depends` runs one group-scoped dependency query over the committed surface
+population; `--rows` windows only the emitted edges and does not limit
+acquisition. Package results project library and source provenance from
+`PackageRootIdentity` and `PackageCompileAsset`; the CLI does not manufacture
+host filesystem paths for package-relative assets.
+
+Floating, `@latest`, and wildcard package versions; package archives, package
+groups and prefixes; multiple or mixed sources; implicit and `all` target
+frameworks; and limited searches retain the `AssemblySetResolver` and
+`AssemblySetInspectionWorkspace` path. That boundary preserves the CLI's
+existing version-selection and streaming-limit behavior rather than making
+Workspace acquisition redefine either contract. Type-mode `depends` preserves
+the same legacy route for those ineligible source shapes, while exact-pinned
+package scans carry participant rejection beside any partial graph or miss so
+the command never presents an incomplete result as certified.
+
+This cutover consumes the package Root's reference-preferred compile surface.
+An explicit empty compile group therefore remains an empty configured Root and
+does not reactivate platform defaults, package fallback, or an implementation
+assembly.
 
 ### Library inspection subject
 
@@ -310,8 +390,88 @@ path is still supplied to the body source.
 
 Descriptorless and standalone-member callers keep their existing path route.
 This does not select another runtime image or establish API/runtime
-correspondence. Whole-type decompilation, further acquired-PDB propagation and
-other-host adoption remain separate work; this adds no shared substrate.
+correspondence. Whole-type decompilation, remaining acquired-PDB propagation
+and other-host adoption remain separate work; this adds no shared substrate.
+
+### Type whole-type decompiler acquisition
+
+When type whole-type `Decompiled Source` receives a selected root or forwarded
+API supplier, `MemberBodyProducer` opens that descriptor rather than
+reconstructing an acquisition from its path projection. The already acquired
+external portable-PDB path is carried with the descriptor into Decompiler's
+metadata source, preserving local-name evidence. The descriptor path remains
+the dependency resolver's configuration root; it is not an alternative opener.
+
+A selected descriptor composition failure reaches the command error boundary
+rather than retrying through the readable path or becoming successful
+decompiler output. Genuine no-source results retain their existing empty
+section behavior. Descriptorless and standalone-member callers keep their
+existing path routes.
+
+`TypeWholeTypeDecompilerAcquisition_UsesSelectedSupplier`,
+`TypeWholeTypeDecompilerAcquisition_ReportsSelectedOpenFailure`,
+`TypeWholeTypeDecompilerAcquisition_CarriesExternalPdb`, and
+`TypeWholeTypeDecompilerAcquisition_SkipsOrdinaryOutput` gate this composition.
+`TypeWholeTypeDecompilerAcquisition_DiscoveryStaysLazy` gates effective
+discovery without decompiler acquisition.
+Existing whole-type decompiler and render-style cases gate source composition,
+member filtering, style and diagnostics. Effective discovery continues to
+report section applicability from the selected API model without opening the
+decompiler.
+
+This is [#6256](https://github.com/richlander/dotnet-inspect/issues/6256)'s
+three-step production adoption under #4867: TypeCommand retains the selected
+supplier; the CLI chooses Decompiler's descriptor producer route; existing
+typed output and Markout rendering, or command error reporting, publish the
+result. The producer's descriptor overload carries the optional PDB path into
+Decompiler's existing descriptor-plus-PDB metadata-source contract; it adds no
+new acquisition substrate.
+
+Decompiler continues to own type composition, metadata-source opening, symbol
+probing, raising and C# rendering. The CLI continues to own section
+authorization, supplier selection, dependency-resolver configuration and
+failure publication. This slice does not change PDB acquisition, select a
+runtime implementation, establish API/runtime correspondence, or migrate
+standalone `member`, comparison commands or Browser hosts.
+
+### Standalone member code acquisition
+
+When standalone `member` code projection receives a selected root or forwarded
+API supplier, `MemberCodeProvider` opens that descriptor for both its
+metadata/body session and Decompiler metadata source rather than reopening the
+descriptor's path projection. The resolved external portable-PDB path is
+carried into the Decompiler open. The descriptor path remains the
+dependency resolver's configuration root; it is not an alternative opener.
+
+A selected descriptor opening failure reaches the command error boundary
+rather than retrying through the readable path or becoming successful empty
+member-code output. Descriptorless callers retain the existing path route,
+including its established partial-output behavior when only the Decompiler
+metadata source cannot be opened.
+
+`MemberCodeAcquisition_UsesSelectedSupplier`,
+`MemberCodeAcquisition_ReportsSelectedMetadataOpenFailure`,
+`MemberCodeAcquisition_ReportsSelectedDecompilerOpenFailure`,
+`MemberCodeAcquisition_CarriesExternalPdb`, and
+`MemberCodeAcquisition_SkipsOrdinaryOutput` gate this composition.
+`MemberCodeAcquisition_LeavesAnalysisRoutePathBased` and
+`MemberCodeAcquisition_LeavesExceptionRegionsRoutePathBased` gate the adjacent
+non-adoption boundary. Existing member-code, source, rendering, and
+descriptorless cases remain neighboring regression evidence.
+
+This is [#6480](https://github.com/richlander/dotnet-inspect/issues/6480)'s
+three-step production adoption under #4867: `MemberCommand` retains the
+supplier; `ApiCommand` and `ApiOutputFormatter` pass it into
+`MemberCodeProvider`; existing typed member-code views and Markout rendering,
+or command error reporting, publish the result. Metadata and Decompiler
+continue to own their existing descriptor openers; this adds no shared
+acquisition substrate or rendering shape.
+
+This slice covers sections produced by `MemberCodeProvider`. The separately
+composed Analysis-backed sections, Exception Regions and Body Shapes retain
+their current routes. PDB acquisition policy, runtime-image selection,
+API/runtime correspondence, `diff`, `match` and Browser hosts remain separate
+work.
 
 ## Command families
 
@@ -320,7 +480,7 @@ architectural subsystem:
 
 | Family | Examples | Host role |
 | ------ | -------- | --------- |
-| Unary subject inspection | `package`, `project`, `library`, `type`, `member` | Resolve one subject and choose inspection lenses. |
+| Unary subject inspection | `package`, `project`, `library`, `type`, `member`, `ecosystem` | Resolve one subject and choose inspection lenses; ecosystem focus reads the product-owned static catalog without acquisition. |
 | Comparison and correlation | `diff`, `timeline`, `match` | Resolve ordered or paired subjects and choose comparison, correlation, or correspondence producers. |
 | Search and relationships | `find`, `depends`, `extensions`, `implements`, `graph` | Resolve a bounded search/workspace scope and project typed relationships. |
 | Product metadata and utilities | `vocabulary`, `workspace-state`, `cache`, `skill`, `demo` | Expose product-owned vocabularies, portable host state, CLI runtime state, embedded guidance, or closed demonstrations. |
@@ -350,6 +510,69 @@ The CLI does not reproduce query prerequisites, execution order, or cost. Those
 remain with `InspectionQueryCatalog<TContext>`. It does not derive section
 demand by inspecting rendered rows; those declarations remain with the
 section pipeline.
+
+### Targeted package implementation comparison
+
+`diff --package` is the first CLI consumer of workspace implementation
+comparison. The focused route applies only when Implementation Diff is
+selected with one explicit `--type`, one explicit `--member`, no PDB Source
+request, and exactly one package-root assembly on each side. The CLI removes
+the legacy path-based `ImplementationComparisonQuery` demand for that route;
+all broader, library, platform, PDB Source, and untargeted comparisons retain
+their existing behavior.
+
+The host precomposes each selected package root before invoking
+`WorkspaceImplementationComparisonQuery`. A direct definition needs no
+additional package. When root metadata identifies one forwarded assembly and
+the root package's selected TFM dependency group declares exactly one
+same-named dependency minimum, the host acquires that exact package coordinate
+through the existing configured-authority composition and selects its matching
+package asset. This is target-specific realization of an already observed
+forwarding edge, not generalized package-role inference: an absent, ambiguous,
+or differently named dependency is not searched or guessed. The declared
+coordinate remains authoritative when ordinary resolution has already found a
+same-identity terminal through a sibling or cache: the host replays the
+observed forwarding reference through a closed policy exposing only the exact
+acquired asset.
+
+The host then retains only the observed root-to-terminal occurrences and
+replays them through an acquisition-free closed-world policy. The query owns
+composition, correspondence, and C#/IL producer execution. The CLI lowers its
+native Type Forwarder Findings, exact effective assembly/MVID/token endpoints,
+and producer evidence into the existing Implementation Diff view. A
+composition or producer non-success remains typed, is rendered as a Query or
+producer row, and causes a nonzero command result; the host neither falls back
+to the legacy comparison nor turns it into an empty success.
+
+The selected type's structured metadata definition name remains authoritative
+through workspace execution, including nested definitions; display spelling is
+not reparsed as identity. Type-qualified member lowering applies the existing
+generic- and nested-aware type selector semantics to that selected identity, so
+canonical, short, C# generic, and innermost nested qualifiers select the same
+member. When a composed Changes or Analysis Diff section cannot apply its
+legacy member selection to a forwarded facade, the CLI renders that peer
+section as incomplete while preserving the workspace section and returns
+nonzero. This isolates peer failure without migrating either peer section to
+workspace execution. Allocation-focused output consumes that separately
+computed Analysis result rather than requesting the legacy comparison that the
+adopted plan removed.
+
+The Release `WorkspaceImplementationComparisonRunnerTests` gate covers
+forwarded and direct local-package targets, exact terminal versions and MVIDs,
+native forwarder rows, C#/IL evidence, configured local-authority acquisition,
+typed missing-terminal failure, a pre-resolved same-identity terminal that must
+not override the declared package coordinate, and allocation-focused
+single-section rendering without a removed-query lookup.
+`SectionPipelineTests.DiffCommand_AllocRegressionsRequestsAnalysisWithoutUnusedChanges`
+proves that the adopted plan omits the legacy comparison query. The Queries
+owner's Release `WorkspaceImplementationComparisonQueryTests` gate enforces
+root-to-terminal identity, closed-world execution, correspondence, and typed
+composition and producer outcomes. Facade-shaped command cases in
+`WorkspaceImplementationComparisonRunnerTests` additionally gate short
+forwarded and direct nested type selection, type-qualified member lowering,
+and preservation of workspace evidence beside incomplete composed sections in
+JSON output. Selector cases additionally gate C# generic and innermost nested
+member qualifiers; real-package probes cover both spellings.
 
 ### Integration ecosystem queries
 
@@ -462,7 +685,7 @@ commands and output modes.
 ## Implementation map
 
 ```text
-src/dotnet-inspect/
+src/DotnetInspect.Cli/
 ├── CommandLine/    command definitions, option binding, and help
 ├── Commands/       command orchestration and host policy
 ├── Options/        parsed command option records

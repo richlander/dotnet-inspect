@@ -165,7 +165,11 @@ static class EnumUnderlyingPrimitive
         if (handle.Kind == HandleKind.TypeDefinition)
             return FromDefinition(reader, (TypeDefinitionHandle)handle);
         if (handle.Kind == HandleKind.TypeReference
-            && TryFindDefinition(reader, (TypeReferenceHandle)handle, out var definition))
+            && TryFindDefinition(
+                reader,
+                (TypeReferenceHandle)handle,
+                work: null,
+                out var definition))
             return FromDefinition(reader, definition);
         return PrimitiveTypeCode.Int32;
     }
@@ -184,6 +188,13 @@ static class EnumUnderlyingPrimitive
         MetadataReader reader,
         EntityHandle handle,
         out TypeDefinitionHandle definition)
+        => TryResolveDefinition(reader, handle, work: null, out definition);
+
+    internal static bool TryResolveDefinition(
+        MetadataReader reader,
+        EntityHandle handle,
+        CustomAttributeValueDecoder.EnumResolutionWork? work,
+        out TypeDefinitionHandle definition)
     {
         if (handle.Kind == HandleKind.TypeDefinition)
         {
@@ -192,7 +203,13 @@ static class EnumUnderlyingPrimitive
         }
 
         if (handle.Kind == HandleKind.TypeReference)
-            return TryFindDefinition(reader, (TypeReferenceHandle)handle, out definition);
+        {
+            return TryFindDefinition(
+                reader,
+                (TypeReferenceHandle)handle,
+                work,
+                out definition);
+        }
 
         definition = default;
         return false;
@@ -309,11 +326,14 @@ static class EnumUnderlyingPrimitive
     static bool TryFindDefinition(
         MetadataReader reader,
         TypeReferenceHandle handle,
+        CustomAttributeValueDecoder.EnumResolutionWork? work,
         out TypeDefinitionHandle definition)
     {
         foreach (var candidate in reader.TypeDefinitions)
         {
-            if (Matches(reader, handle, candidate))
+            if (work is not null)
+                work.VisitTypeDefinitionCandidate();
+            if (Matches(reader, handle, candidate, work))
             {
                 definition = candidate;
                 return true;
@@ -363,15 +383,25 @@ static class EnumUnderlyingPrimitive
         MetadataReader reader,
         TypeReferenceHandle referenceHandle,
         TypeDefinitionHandle definitionHandle,
+        CustomAttributeValueDecoder.EnumResolutionWork? work = null,
         int depth = 0)
     {
+        if (work is not null)
+            work.VisitStructuralMatchFrame();
         if (depth > MaxNestingDepth)
             return false;
 
         var comparer = reader.StringComparer;
         var reference = reader.GetTypeReference(referenceHandle);
         var definition = reader.GetTypeDefinition(definitionHandle);
-        if (!comparer.Equals(definition.Name, reader.GetString(reference.Name)))
+        if (work is not null)
+        {
+            work.VisitTypeReferenceMatchNameBytes(
+                reader.GetBlobReader(reference.Name).Length);
+        }
+        if (!comparer.Equals(
+                definition.Name,
+                reader.GetString(reference.Name)))
             return false;
 
         if (reference.ResolutionScope.Kind == HandleKind.TypeReference)
@@ -382,13 +412,20 @@ static class EnumUnderlyingPrimitive
                     reader,
                     (TypeReferenceHandle)reference.ResolutionScope,
                     enclosing,
+                    work,
                     depth + 1);
         }
 
-        return definition.GetDeclaringType().IsNil
-            && comparer.Equals(
-                definition.Namespace,
-                reader.GetString(reference.Namespace));
+        if (!definition.GetDeclaringType().IsNil)
+            return false;
+        if (work is not null)
+        {
+            work.VisitTypeReferenceMatchNameBytes(
+                reader.GetBlobReader(reference.Namespace).Length);
+        }
+        return comparer.Equals(
+            definition.Namespace,
+            reader.GetString(reference.Namespace));
     }
 
     static ReadOnlySpan<char> LeafName(ReadOnlySpan<char> name)

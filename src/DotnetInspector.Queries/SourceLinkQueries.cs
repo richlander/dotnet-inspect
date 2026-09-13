@@ -1,6 +1,6 @@
 using DotnetInspector.Services;
 using DotnetInspector.Packages;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.SourceLink;
 
 namespace DotnetInspector.Queries;

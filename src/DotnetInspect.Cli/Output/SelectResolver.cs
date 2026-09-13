@@ -1,0 +1,418 @@
+namespace DotnetInspect.Cli.Output;
+
+using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
+using DotnetInspector.Sections;
+using DotnetInspect.Cli.Sections;
+
+/// <summary>
+/// An unresolved -S/--select value with suggestions for what the user may have meant.
+/// </summary>
+/// <param name="ListsAllSections">
+/// When true, <see cref="Suggestions"/> is the full list of available sections (a dead-end
+/// value with no close fuzzy match), so callers print it under "Available sections:" rather
+/// than "Did you mean:".
+/// </param>
+public record SelectMiss(string Value, IReadOnlyList<string> Suggestions, bool IsGlob = false, bool ListsAllSections = false);
+
+/// <summary>
+/// Result of resolving -S/--select values against known section names.
+/// </summary>
+public record SelectResult(HashSet<string>? Sections, IReadOnlyList<SelectMiss> Unresolved)
+{
+    public bool HasError => Unresolved.Count > 0;
+
+    /// <summary>
+    /// Canonical section names reached through an exact name or compatible legacy alias.
+    /// Category and glob expansions are intentionally excluded.
+    /// </summary>
+    public HashSet<string> ExactSections { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+}
+
+/// <summary>
+/// Handles selection for --select, --columns, and --fields.
+/// All methods return data — no Console usage.
+/// </summary>
+public static class SelectResolver
+{
+    public const string AllSelector = SectionPipeline<object>.AllCategory;
+
+    /// <summary>
+    /// Legacy section names that keep resolving after a rename, so existing selectors and
+    /// scripts do not break. Maps an old display name to its current canonical name.
+    /// </summary>
+    static readonly Dictionary<string, string> LegacySectionAliases = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Optimization Opportunities"] = SectionNames.PerformanceTriage,
+        ["IL Offset"] = SectionNames.ILOffset,
+        ["Source Location"] = SectionNames.ILOffset,
+        ["Member Context"] = SectionNames.MemberContext,
+        ["Instruction Context"] = SectionNames.InstructionContext,
+        ["Exception Context"] = SectionNames.ExceptionContext,
+        ["Callsite Context"] = SectionNames.CallsiteContext,
+        ["Return Address Context"] = SectionNames.ReturnAddressContext,
+        ["Allocation Context"] = SectionNames.AllocationContext,
+        ["Safety Context"] = SectionNames.SafetyContext,
+        ["Cost Context"] = SectionNames.CostContext,
+        ["Package README"] = DotnetInspect.Cli.Views.PackageSections.FilesReadme,
+        // "Grounding" was this section's canonical name, not a nickname, so scripts
+        // spelling it must keep resolving even though the term is gone from the surface.
+        ["Grounding"] = DotnetInspect.Cli.Views.PackageSections.FilesReadme,
+        ["Resource Triage"] = SectionNames.ArrayPoolEscapes,
+        ["Resource Escape Triage"] = SectionNames.ArrayPoolEscapes,
+        ["Escape"] = SectionNames.ArrayPoolEscapes,
+        ["Original Source"] = SectionNames.PdbSource,
+        ["Dependencies"] = SectionNames.References,
+        ["Source Files"] = SectionNames.SourceLinkFiles,
+        ["SourceLink Availability"] = SectionNames.SourceLinkAvailability,
+        ["SourceLink Missing Files"] = SectionNames.SourceLinkMissingFiles,
+        ["SourceLink Integrity"] = SectionNames.SourceLinkIntegrity,
+        ["Escape: Array Pool"] = SectionNames.ArrayPoolEscapes,
+        ["Source Link: Files"] = SectionNames.SourceLinkFiles,
+        ["Source Link: Availability"] = SectionNames.SourceLinkAvailability,
+        ["Source Link: Missing Files"] = SectionNames.SourceLinkMissingFiles,
+        ["Source Link: Integrity"] = SectionNames.SourceLinkIntegrity,
+        ["Performance: Closures and delegates"] = SectionNames.PerformanceClosures,
+        ["Performance: Loop hot paths"] = SectionNames.PerformanceLoops,
+        ["Performance: Allocation hotspots"] = SectionNames.PerformanceHotspots,
+        // Package file family: both the original names and the interim "Files:" spellings.
+        ["Files: Nuspec"] = DotnetInspect.Cli.Views.PackageSections.FilesNuspec,
+        ["Files"] = DotnetInspect.Cli.Views.PackageSections.Files,
+        // file". The agent-grounding intent the name carried is served by "Package skill
+        // files", which is a different section, so this alias follows the behavior.
+    };
+
+    /// <summary>
+    /// Bare names that expand to a whole category. Used so retired library rollup sections — the
+    /// "Performance Triage" monolith and the "Integrations" rollup — and the ergonomic bare
+    /// "Performance" resolve to their curated group. Only applied when the category exists in the
+    /// current command's section set and the value is not itself an exact section name (so the
+    /// type/member "Performance Triage" section still resolves directly).
+    /// </summary>
+    static readonly Dictionary<string, string> CategoryAliases = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Performance"] = SectionCategoryNames.Performance,
+        ["Performance Triage"] = SectionCategoryNames.Performance,
+        ["Optimization Opportunities"] = SectionCategoryNames.Performance,
+        ["SourceLink"] = SectionCategoryNames.SourceLink,
+        ["Source Link"] = SectionCategoryNames.SourceLink,
+        [EcosystemIntegrationNames.Integrations] = SectionCategoryNames.Integrations,
+    };
+
+    public static bool IsAllSelector(string[]? select)
+        => select?.Any(value => value.Equals(AllSelector, StringComparison.OrdinalIgnoreCase)) == true;
+
+    public static bool IsActiveAllSelector(string[]? select, HashSet<string>? includeSections)
+        => IsAllSelector(select) && includeSections is { Count: > 1 };
+
+    public static bool IsActiveAllSelector(
+        string[]? select,
+        HashSet<string>? includeSections,
+        bool sectionsPreResolved)
+        => !sectionsPreResolved && IsActiveAllSelector(select, includeSections);
+
+    /// <summary>
+    /// Whether the default preset is in effect and actually resolved to something. The preset is
+    /// reached only through bare <c>-S</c>; it has no selector spelling.
+    /// </summary>
+    public static bool IsActiveInfoSelector(bool selectDefault, HashSet<string>? includeSections)
+        => selectDefault && includeSections is { Count: > 0 };
+
+    public static bool IsActiveInfoSelector(
+        bool selectDefault,
+        HashSet<string>? includeSections,
+        bool sectionsPreResolved)
+        => !sectionsPreResolved && IsActiveInfoSelector(selectDefault, includeSections);
+
+    public static (HashSet<string>? Sections, string? Error) NormalizeExactOnlySection(
+        string[]? select,
+        HashSet<string>? sections,
+        IReadOnlySet<string>? exactSections,
+        IReadOnlyList<string> knownSections,
+        string exactOnlySection)
+    {
+        if (sections?.Contains(exactOnlySection) != true
+            || exactSections?.Contains(exactOnlySection) == true)
+        {
+            return (sections, null);
+        }
+
+        bool hasNonExactSectionSelector =
+            select?.Any(selector =>
+            {
+                if (selector.StartsWith('@'))
+                    return false;
+                var (matches, _) = ResolveSingle(selector, knownSections);
+                return matches.Count == 1
+                       && matches[0].Equals(
+                           exactOnlySection,
+                           StringComparison.OrdinalIgnoreCase);
+            }) == true;
+        if (hasNonExactSectionSelector)
+        {
+            return (
+                sections,
+                $"section '{exactOnlySection}' requires an exact -S selector.");
+        }
+
+        bool hasBroadSectionSelector =
+            select?.Any(selector =>
+            {
+                if (selector.StartsWith('@'))
+                    return false;
+                var (matches, _) = ResolveSingle(selector, knownSections);
+                return matches.Count > 1
+                       && matches.Contains(
+                           exactOnlySection,
+                           StringComparer.OrdinalIgnoreCase);
+            }) == true;
+        if (!IsAllSelector(select) && !hasBroadSectionSelector)
+        {
+            return (
+                sections,
+                $"section '{exactOnlySection}' cannot be selected through a category.");
+        }
+
+        var normalized = new HashSet<string>(
+            sections,
+            StringComparer.OrdinalIgnoreCase);
+        normalized.Remove(exactOnlySection);
+        return (normalized, null);
+    }
+
+    internal static bool TryResolveCategory(
+        string value,
+        IReadOnlyDictionary<string, string[]>? categories,
+        IReadOnlyCollection<string> knownSections,
+        out string category,
+        out string[] sections)
+    {
+        category = "";
+        sections = [];
+        if (categories == null)
+            return false;
+
+        var exactCategory = categories.Keys.FirstOrDefault(candidate =>
+            candidate.Equals(value, StringComparison.OrdinalIgnoreCase));
+        if (exactCategory != null)
+        {
+            category = exactCategory;
+            sections = categories[exactCategory];
+            return true;
+        }
+
+        if (knownSections.Any(section =>
+                section.Equals(value, StringComparison.OrdinalIgnoreCase)))
+            return false;
+
+        if (!CategoryAliases.TryGetValue(value, out var alias))
+            return false;
+
+        var aliasedCategory = categories.Keys.FirstOrDefault(candidate =>
+            candidate.Equals(alias, StringComparison.OrdinalIgnoreCase));
+        if (aliasedCategory == null)
+            return false;
+
+        category = aliasedCategory;
+        sections = categories[aliasedCategory];
+        return true;
+    }
+
+    /// <summary>
+    /// Resolves a single name against known sections: exact (case-insensitive), then glob.
+    /// When <paramref name="singleGlob"/> is true, a glob must match exactly one section
+    /// (discover semantics); otherwise all glob matches are returned.
+    /// </summary>
+    public static (List<string> Matches, SelectMiss? Miss) ResolveSingle(
+        string name, IReadOnlyList<string> knownSections, bool singleGlob = false)
+    {
+        var (matches, miss, _) = ResolveSingleWithProvenance(name, knownSections, singleGlob);
+        return (matches, miss);
+    }
+
+    private static (List<string> Matches, SelectMiss? Miss, bool IsExact)
+        ResolveSingleWithProvenance(
+            string name, IReadOnlyList<string> knownSections, bool singleGlob = false)
+    {
+        // Exact match (case-insensitive)
+        var exact = knownSections.FirstOrDefault(s =>
+            s.Equals(name, StringComparison.OrdinalIgnoreCase));
+        if (exact != null)
+            return ([exact], null, true);
+
+        // Legacy alias for a renamed section (keeps old selectors working).
+        if (LegacySectionAliases.TryGetValue(name, out var canonical))
+        {
+            var aliased = knownSections.FirstOrDefault(s =>
+                s.Equals(canonical, StringComparison.OrdinalIgnoreCase));
+            if (aliased != null)
+                return ([aliased], null, true);
+        }
+
+        // Glob match
+        if (name.Contains('*') || name.Contains('?'))
+        {
+            var globMatches = knownSections
+                .Where(s => TypeMatcher.MatchesGlob(s, name))
+                .ToList();
+
+            if (globMatches.Count > 0)
+            {
+                if (singleGlob && globMatches.Count > 1)
+                    return (globMatches, new SelectMiss(name, globMatches, IsGlob: true), false);
+
+                return (globMatches, null, false);
+            }
+
+            return ([], new SelectMiss(name, knownSections.ToList(), IsGlob: true), false);
+        }
+
+        // No match. Offer close fuzzy matches, or the full section list when none is close
+        // so the user is never left at a dead-end error.
+        var suggestions = GetSuggestions(name, knownSections);
+        if (suggestions.Count == 0)
+            return ([], new SelectMiss(
+                name,
+                [.. knownSections.OrderBy(s => s, StringComparer.OrdinalIgnoreCase)],
+                ListsAllSections: true), false);
+        return ([], new SelectMiss(name, suggestions), false);
+    }
+
+    /// <summary>
+    /// Resolves -S/--select values as section names for backpressure.
+    /// Matching: exact (case-insensitive) or glob (* / ?). No prefix or fuzzy guessing.
+    /// Returns matched sections and any unresolved values with suggestions.
+    /// </summary>
+    /// <param name="selectDefault">
+    /// Bare <c>-S</c>: contributes <paramref name="infoSections"/> to the match set without any
+    /// selector value standing for it. Kept out of <paramref name="select"/> so the marker is not
+    /// spellable, and resolved here rather than through a <c>@Default</c> category entry so it
+    /// works the same on pipelines that publish no poles. See #3547.
+    /// </param>
+    public static SelectResult ResolveSelectAsSections(
+        string[]? select,
+        IReadOnlyList<string> knownSections,
+        IReadOnlyList<string>? infoSections = null,
+        IReadOnlyDictionary<string, string[]>? categories = null,
+        bool selectDefault = false)
+    {
+        if (!selectDefault && select is not { Length: > 0 })
+            return new(null, []);
+
+        categories ??= BuildFallbackCategories(knownSections);
+        var matched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var exact = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var unresolved = new List<SelectMiss>();
+
+        if (selectDefault)
+            foreach (var section in infoSections ?? [])
+                matched.Add(section);
+
+        foreach (var value in select ?? [])
+        {
+            if (value.StartsWith('@'))
+            {
+                if (categories.TryGetValue(value, out var categorySections))
+                {
+                    foreach (var section in categorySections)
+                        matched.Add(section);
+                    continue;
+                }
+
+                unresolved.Add(new SelectMiss(value, GetSuggestions(value, [.. knownSections, .. categories.Keys])));
+                continue;
+            }
+
+            var (matches, miss, isExactSection) = ResolveSingleWithProvenance(value, knownSections);
+            foreach (var m in matches)
+            {
+                matched.Add(m);
+                if (isExactSection)
+                    exact.Add(m);
+            }
+            if (miss != null)
+            {
+                // Fall back to a category alias (e.g. retired "Performance Triage" / bare
+                // "Performance" -> @Performance) when the value is not an exact section here.
+                var isExact = knownSections.Any(s => s.Equals(value, StringComparison.OrdinalIgnoreCase));
+                if (!isExact
+                    && CategoryAliases.TryGetValue(value, out var aliasCategory)
+                    && categories.TryGetValue(aliasCategory, out var aliasSections))
+                {
+                    foreach (var section in aliasSections)
+                        matched.Add(section);
+                    continue;
+                }
+
+                if (!miss.IsGlob)
+                {
+                    var suggestions = GetSuggestions(
+                        value,
+                        [.. knownSections, .. categories.Keys]);
+                    if (suggestions.Count > 0)
+                    {
+                        unresolved.Add(miss with
+                        {
+                            Suggestions = suggestions,
+                            ListsAllSections = false
+                        });
+                        continue;
+                    }
+                }
+
+                unresolved.Add(miss);
+            }
+        }
+
+        return new(matched.Count > 0 ? matched : null, unresolved)
+        {
+            ExactSections = exact
+        };
+    }
+
+    private static IReadOnlyDictionary<string, string[]> BuildFallbackCategories(
+        IReadOnlyList<string> knownSections)
+    {
+        Dictionary<string, string[]> categories = new(StringComparer.OrdinalIgnoreCase)
+        {
+            [AllSelector] = [.. knownSections]
+        };
+        return categories;
+    }
+
+    /// <summary>
+    /// Generates suggestions using prefix + fuzzy matching, ranked by similarity.
+    /// Same strategy as TypeMatcher.LookupMembers.
+    /// </summary>
+    private static List<string> GetSuggestions(
+        string value,
+        IReadOnlyList<string> allNames,
+        int maxResults = 6)
+    {
+        var suggestions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var valueKey = SuggestionKey(value);
+
+        foreach (var name in allNames)
+            if (SuggestionKey(name).StartsWith(valueKey, StringComparison.OrdinalIgnoreCase))
+                suggestions.Add(name);
+
+        var valueLower = valueKey.ToLowerInvariant();
+        foreach (var name in allNames)
+        {
+            var score = StringDistance.Similarity(
+                valueLower,
+                SuggestionKey(name).ToLowerInvariant());
+            if (score >= 0.5)
+                suggestions.Add(name);
+        }
+
+        return suggestions
+            .OrderByDescending(s => StringDistance.Similarity(
+                valueLower, SuggestionKey(s).ToLowerInvariant()))
+            .Take(maxResults)
+            .ToList();
+    }
+
+    private static string SuggestionKey(string value)
+        => value.StartsWith('@') ? value[1..] : value;
+}

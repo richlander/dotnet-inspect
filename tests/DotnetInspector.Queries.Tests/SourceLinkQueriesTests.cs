@@ -2,7 +2,7 @@ using System.Text;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.SourceLink;
 

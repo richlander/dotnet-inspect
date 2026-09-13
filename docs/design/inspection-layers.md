@@ -88,9 +88,11 @@ evaluation, inert evidence, distinct candidate and match bounds, and typed
 completion without choosing a renderer. This contract is gated by
 `PackageQueryTests` and the
 `PackageQueryPlanner_IsReachableFromBrowserConsumer` consumer canary. The
-profile's L2 `Packages` section owns package/dependency row grain, schema,
-projection, and visible failure or truncation evidence; `find` retains only
-request binding, acquisition authorization, diagnostics, and format selection.
+profile's L2 `Packages` section owns one-row-per-package grain, schema,
+projection, and visible failure or truncation evidence. Dependency-group
+projection remains a separate consumer of `PackageDependencyGroupsQuery`;
+`find` retains only request binding, acquisition authorization, diagnostics,
+and format selection.
 The
 API-comparison seam
 retains Metadata-owned Finding correspondence and compatibility classification
@@ -188,17 +190,15 @@ query's required closure, transitive cost, and single-query execution plan, and
 passes that cost into the host execution scope. Commands compile multi-query
 plans once and may reuse them across assembly contexts.
 
-`DotnetInspector.Artifacts` provides the source-neutral floor below these
+`Inspector.Artifacts` provides the source-neutral floor below these
 layers: generation-scoped identity and registration, adapter-owned typed
 provenance and diagnostics, acquisition outcomes, and owner-issued guarded
 admission/query access. It references no project.
-Despite its historical `DotnetInspector.*` project-name prefix, this contract
-floor is not tool-tier composition: `ILInspector.Metadata` may reference this
-project, and no other `DotnetInspector.*` project. The
-`EngineProjectsReferenceOnlyTheSourceNeutralArtifactFloor` architecture gate
-enforces that exception and rejects every wider engine-to-tool edge.
-`DotnetInspector.Artifacts.Workspaces` composes bounded immutable contributions
-into a sealed `ArtifactSetSession`, and `DotnetInspector.Artifacts.Local`
+`ILInspector.Metadata` consumes this subject-neutral contract without crossing
+into tool-tier composition. The `EngineProjectsDoNotReferenceToolProjects`
+architecture gate rejects every production engine-to-tool edge.
+`Inspector.Artifacts.Workspaces` composes bounded immutable contributions
+into a sealed `ArtifactSetSession`, and `Inspector.Artifacts.Local`
 snapshots explicit files before registration. The package-free host fixture
 passes a guarded session snapshot to Metadata. Core Queries, retained workspaces,
 directory acquisition, and Metadata trust-role consumption remain later
@@ -276,7 +276,7 @@ coordinate, no package archive requests, one registry materialization reused by
 subsequent reads, and exactly 25 projected rows. Run it with:
 
 ```bash
-dotnet run --project src/dotnet-inspect.Tests -c Release -- \
+dotnet run --project tests/DotnetInspect.Cli.Tests -c Release -- \
   --filter-method '*PackageProfileDefaultScale*'
 ```
 
@@ -294,6 +294,18 @@ incomplete)/`Unavailable`/`Failed` outcome with a typed, content-free failure
 reason. This query has no CLI or section adoption yet; it is gated by
 `RestoredProjectDependencyFactsQueryTests` and the
 `restored-project.dependency-facts` fixture in `DotnetInspector.Fixtures`.
+
+`RestoredProjectDependencyTraversalQuery` implements the contract in
+[`restored-project-dependency-traversal.md`](restored-project-dependency-traversal.md)
+over the same bytes and target request. It consumes one internal projection
+issued by the facts query — there is no second assets parse or target-selection
+rule — and projects the root, project-reference, and package relationship set
+with minimum root-relative distance, explicit depth boundaries, depth-scoped
+typed failures, stated completion, and a topology identity scoped to the facts
+owner's unchanged selection identity. Package relationships carry the facts
+owner's exact graph edges rather than reminted evidence. This query also has no
+CLI or section adoption yet; it is gated by
+`RestoredProjectDependencyTraversalQueryTests`.
 
 L1 does not reference Markout.
 
@@ -374,7 +386,7 @@ Markout renders markdown, tsv, and jsonl, so most of the format axis is
 implemented below L3 even though L3 names the value. Read the owner column as
 "who chooses", not "who writes the characters" — the same distinction the Shape
 row makes by crediting Markout with defining the ladder that L2 selects a rung
-from. A renderer that lives in `src/dotnet-inspect/Output/` is not evidence that
+from. A renderer that lives in `src/DotnetInspect.Cli/Output/` is not evidence that
 rendering is an L3 responsibility; it is either genuinely
 dotnet-inspect-specific or a candidate to move.
 
@@ -412,7 +424,7 @@ scanning and is not called a scanner.
 
 **Result** names what a query returns (`XxxQuery` -> `XxxResult`).
 "Inspection" stays reserved for composed aggregates and "Finding" for the
-[`ILInspector.Findings`](../../src/ILInspector.Findings) spine, so the three
+[`Inspector.Findings`](../../src/Inspector.Findings) spine, so the three
 nouns remain distinguishable.
 
 ## Seam rules
@@ -445,10 +457,11 @@ consumer's convenience.
 projection, with the named Release gates in
 [Migration and gates](#migration-and-gates). The implementation profile is
 consumed by `DirectMemberComparisonQuery`, CLI `match --body` (#5967), and
-Browser Method Body Diff (#5990). Whole-assembly and body-signal query execution
-remain separate step-7 migrations in #4706. The unconsumed Queries body-signal
-population profile is retired in #6044; its target-evidence migration still
-requires #4777 and an actual execution adopter.
+the retained Browser method-body comparison facade projection from #5990.
+Whole-assembly and body-signal query execution remain separate step-7
+migrations in #4706. The unconsumed Queries body-signal population profile is
+retired in #6044; its target-evidence migration still requires #4777 and an
+actual execution adopter.
 
 This boundary is owned by the L1 `DotnetInspector.Queries` component and this
 document. The component spans the core query assembly and the optional
@@ -462,7 +475,7 @@ semantics under [Implementation Diff](implementation-diff.md). L1 may require
 Research-issued identities and retain their correspondence to query identities;
 it must not mint, infer, or reinterpret them.
 
-The later
+The implemented
 [workspace Research target composition](research-workspace-target-composition.md)
 consumes this receipt to associate Metadata's terminal forwarding definition
 with one exact existing Research attempt. That composition remains
@@ -665,8 +678,8 @@ closure and remains the dependency-direction proof.
 `ComparisonPopulation_Demo` exercises the product sealer, owner-issued Research
 admission, and receipt validator over an existing compiled fixture. Repeated
 borrowed values remain three distinct input occurrences; an incomplete map is
-rejected without a partial receipt. This internal-projection demo does not
-replace #5676's public workspace file-based demo or claim host adoption.
+rejected without a partial receipt. This internal-projection demo is distinct
+from #5676's public workspace file-based demo and does not claim host adoption.
 
 ### Population-boundary non-goals
 
@@ -694,7 +707,7 @@ companion so core assembly Queries can reach its source-neutral inputs without
 retaining a package implementation dependency. That physical split does not
 create a second architectural owner.
 
-`DotnetInspector.Artifacts` remains the adjacent source-neutral owner. It owns
+`Inspector.Artifacts` remains the adjacent source-neutral owner. It owns
 artifact generations, identities, acquisition registrations and outcomes,
 diagnostics, guarded content access, and acquisition leases under
 [Artifact acquisition and workspaces](artifact-acquisition-and-workspaces.md).
@@ -1173,7 +1186,7 @@ a workspace-local admission hit reachable. Implementing this contract before a
 retained multi-call product workspace adopts it would add unreachable
 infrastructure rather than product value. The workspace owner records the
 [retained-caller decision](../inspection-space.md#retained-package-realization-caller):
-the current prototype registry answers repeated exact requests before its
+the current Inspect Web registry answers repeated exact requests before its
 workspace sees them, while replacing that registry with a session-wide
 projection-backed workspace would be a separately approved product-topology
 migration rather than a narrow admission caller.
@@ -1571,6 +1584,49 @@ canaries:
   from an empty dependency set.
   Browser-Wasm composes those two typed results without parsing XML or opening
   an assembly session.
+- `AssemblyContextTypeDependencyQuery` retains the admitted descriptors for one
+  binding-consistent group and invokes the Metadata-owned population scan once.
+  Ordinary population lookup scans the committed participant order. Its
+  participant-qualified entry point stages the selected participant first so a
+  same-named type in another participant cannot become the root, and verifies
+  the exact normalized root name and Metadata-issued registration that
+  contributed the match rather than borrowing another definition or a fuzzy
+  same-participant match when the selected participant contributed no public
+  dependency root. Published outcomes retain committed participant order. The
+  query returns resource-free subjects, graph facts, and typed per-participant
+  failures. The L2 `TypeDependencySectionPlan` binds the exact target and
+  semantic relationship-row intent, then applies the shared row contract after
+  complete query execution. The CLI `depends` host and Inspect Web Type
+  Relationships both consume that plan. The CLI projects package diagnostics
+  without inventing filesystem paths; Inspect Web executes over its retained
+  active package Workspace while keeping selected-participant shape and derived
+  types separate. [Inspection operation composition](inspection-operation-composition.md)
+  owns the cross-host sequencing and explicit host divergences.
+
+The motivating real asset is
+`Npgsql.EntityFrameworkCore.PostgreSQL@8.0.4`. Its
+`Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure.Internal.NpgsqlOptionsExtension`
+type exposes
+`Microsoft.EntityFrameworkCore.Infrastructure.RelationalOptionsExtension` as
+its root-package base type. Adding
+`Microsoft.EntityFrameworkCore.Relational@8.0.4` to the same population reveals
+the next
+`Microsoft.EntityFrameworkCore.Infrastructure.IDbContextOptionsExtension`
+interface relationship. Reproduce the observation with:
+
+```bash
+dnx dotnet-inspect -y -- depends \
+  Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure.Internal.NpgsqlOptionsExtension \
+  --package Npgsql.EntityFrameworkCore.PostgreSQL@8.0.4 \
+  --package Microsoft.EntityFrameworkCore.Relational@8.0.4 \
+  --tfm net8.0
+```
+
+The Browser consumer gates the same cross-package expansion with generated
+managed assemblies so ordinary CI remains deterministic and offline; vendoring
+the two third-party package archives solely for this facade seam would add
+disproportionate repository weight. The exact nuget.org coordinates and command
+above preserve the real-asset observation.
 - `ExtensionMethodsQuery` returns one immutable result shared by `Library Info`
   and `Extension Methods`. The CLI adds path-based Finding provenance and
   compatibility projections after query execution.

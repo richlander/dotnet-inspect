@@ -80,7 +80,7 @@ same retained participant images. That group retains the workspace's bounded
 image budget; participants rejected by acquisition or the budget remain visible
 as extension and reachability warnings rather than silently shortening the
 search. Other foundations include shared image and inspection session ownership,
-catalog generations, `CoreCache`, typed provenance and resolution currencies,
+catalog generations, `PersistentCache`, typed provenance and resolution currencies,
 and `InertString`; the remaining workspace model describes how those pieces
 will be composed.
 
@@ -373,7 +373,7 @@ decide whether a query may use their content. Authorization remains a decision
 for the current query plan, not a permanent property of the group.
 
 [Workspace Scope and Expansion](design/workspace-scope-and-expansion.md) owns
-the committed logical Root occurrences above those physical contexts,
+the committed logical Package occurrences above those physical contexts,
 closed-by-default selective dependency expansion, revision-bound scope edits,
 and closure completeness. Artifact Acquisition retains realization, admission,
 binding-context publication, query authorization, and physical lifetime.
@@ -627,10 +627,10 @@ the implementation of
 
 **Status:** no approved product caller.
 
-The `inspect-web` prototype is the only current multi-operation consumer of
+Inspect Web is the only current multi-operation consumer of
 package roles. Its `BrowserPackageWorkspace` retains a bounded registry of
 complete `BrowserInspectionScope` instances keyed by an exact
-package-coordinate set; the prototype's README owns that retention and eviction
+package-coordinate set; the workspace README owns that retention and eviction
 policy. Each scope owns one `InspectionWorkspace` and one package-role
 realization. The registry returns the already-open scope for a later exact
 request, so the workspace never receives a second independent package-role
@@ -1610,10 +1610,17 @@ A plan-expansion request is a typed orchestration outcome, not absence or an
 empty result. The coordinator advances the owning domain's generation and
 restarts affected work before presentation.
 
-### `CoreCache`
+### `PersistentCache`
 
-`CoreCache` is shared infrastructure for category roots, path-safe hashed keys,
-maintenance, and cache telemetry. It is a mechanism, not a semantic authority.
+`DotnetInspector.Cache.PersistentCache`
+(`src/DotnetInspector.Cache/PersistentCache.cs`) is shared infrastructure for
+category roots, path-safe hashed keys, maintenance, and atomic file
+publication. `DotnetInspector.Cache.CacheTelemetry`
+(`src/DotnetInspector.Cache/CacheTelemetry.cs`) records cache access with
+inert, redacted keys and current request/network context. The project
+dependencies are limited to the platform, `InertText`, and
+`DotnetInspector.Networking`. The cache library supplies mechanisms, not
+semantic authority.
 
 The cache owner for each result must still define:
 

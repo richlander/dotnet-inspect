@@ -300,7 +300,7 @@ non-normative end-to-end tracker. This scanner track has **six steps**:
    scanner operation or retire its compatibility path; that producer adoption
    remains distinct from the delivered query/disclosure UX.
 5. **Browser adoption:** wire the same selection through
-   `InspectWeb.Engine.CatalogExports`; browser infrastructure carries the
+   `DotnetInspect.Web.Interop.Catalog`; browser infrastructure carries the
    Integration-owned value and results, not the application catalog. Its
    existing typed DTO/presentation path owns final UI lowering.
 6. **Retirement:** move Aspire interpretation fully into application source

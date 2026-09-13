@@ -104,7 +104,7 @@ public static class DirectMemberComparisonQuery
                 group.UseSnapshot(endpoint.Participant, cancellationToken, snapshot =>
                 {
                     var subject = new AssemblyContextSubject(endpoint.Participant.Assembly);
-                    IAssemblyReferenceResolver resolver =
+                    AssemblyContextAnalysisSource.BindingPolicyResolver resolver =
                         AssemblyContextAnalysisSource.Resolver(group, subject);
                     LibraryBodyIndex? index = null;
                     try
@@ -115,9 +115,11 @@ public static class DirectMemberComparisonQuery
                             LibraryBodyAnalysisFeatures.MethodEvidence,
                             resolver,
                             bodyScope: new HashSet<int> { endpoint.Address!.Value.Token });
-                        return compare(new(
+                        LocalComparisonQueryResult result = compare(new(
                             snapshot.RetainAssemblyReference(endpoint.Participant.Assembly),
                             resolver, index));
+                        resolver.ValidateForPublication();
+                        return result;
                     }
                     finally
                     {
@@ -251,8 +253,18 @@ public static class DirectMemberComparisonQuery
                             tokens.Where(token => token is not null).ToArray(), address.Token) + 1;
                         selector += $":{ordinal}";
                     }
+                    if (type.DefinitionName is not { } definitionName)
+                    {
+                        failure = Failure(
+                            new LocalComparisonQueryFailure.InvalidDesignation(
+                                DirectMemberDesignationFailureKind
+                                    .MetadataSelectionUnavailable,
+                                [.. surface.InspectionFailures]),
+                            side);
+                        return null;
+                    }
                     failure = null;
-                    return new(type.DefinitionName?.ToMetadataFullName() ?? type.FullName,
+                    return new(definitionName,
                         MemberTargetSelector.Parse(selector), role.Value);
                 }
             }
@@ -274,7 +286,7 @@ public static class DirectMemberComparisonQuery
     }
 
     sealed record Selection(
-        string Type,
+        MetadataTypeDefinitionName Type,
         MemberTargetSelector Selector,
         ResearchTargetRelationshipRole Role)
     {

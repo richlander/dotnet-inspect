@@ -283,6 +283,13 @@ public static class DiagnosticIds
     /// unsafe-context rules can be applied.
     /// </summary>
     public const string InvalidCalleeMemorySafetyRules = "DEC0015";
+
+    /// <summary>
+    /// The defining module's normalized memory-safety rules do not select a
+    /// recognized Legacy or Updated C# language mode. Rendering cannot choose
+    /// context-placement semantics without inventing compiler behavior.
+    /// </summary>
+    public const string MemorySafetyModeUnavailable = "DEC0016";
 }
 
 /// <summary>

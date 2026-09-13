@@ -127,4 +127,61 @@ public class PlatformPrunePolicyTests
             Net11(), new PackageCoordinate("System.Text.Json", "9.0.0", null, "linux-x64"));
         Assert.Equal(plain, rid);
     }
+
+    [Fact]
+    public void ReceiptRetainsTheExactComparisonInputs()
+    {
+        PlatformPruneInventory inventory = Net11();
+        PackageCoordinate coordinate =
+            At("System.Text.Json", "9.0.0", "net11.0");
+        var supply = new PlatformSupply(
+            PlatformSubsumption.Subsumed,
+            "Microsoft.NETCore.App",
+            Net11Pack);
+
+        var receipt = new PlatformSupplyReceipt(
+            inventory,
+            coordinate,
+            supply);
+
+        Assert.Same(inventory, receipt.Inventory);
+        Assert.Same(coordinate, receipt.Coordinate);
+        Assert.Same(supply, receipt.Supply);
+        Assert.True(receipt.Supply.DelegatesToPlatform);
+    }
+
+    [Fact]
+    public void EqualSupplyDoesNotCollapseComparisonCorrespondence()
+    {
+        PlatformPruneInventory firstInventory = Net11();
+        PlatformPruneInventory secondInventory = Net11();
+        PackageCoordinate firstCoordinate =
+            At("System.Text.Json", "9.0.0", "net11.0");
+        PackageCoordinate secondCoordinate =
+            At("System.Text.Json", "9.0.0", "net11.0");
+
+        PlatformSupplyReceipt first =
+            PlatformPrunePolicy.Evaluate(firstInventory, firstCoordinate);
+        PlatformSupplyReceipt second =
+            PlatformPrunePolicy.Evaluate(secondInventory, secondCoordinate);
+
+        Assert.Equal(first.Supply, second.Supply);
+        Assert.NotSame(first.Inventory, second.Inventory);
+        Assert.NotSame(first.Coordinate, second.Coordinate);
+    }
+
+    [Fact]
+    public void AbsentEntryReceiptRetainsInputsAndCanonicalNoSupply()
+    {
+        PlatformPruneInventory inventory = Net11();
+        PackageCoordinate coordinate =
+            At("Newtonsoft.Json", "13.0.3", "net11.0");
+
+        PlatformSupplyReceipt receipt =
+            PlatformPrunePolicy.Evaluate(inventory, coordinate);
+
+        Assert.Same(inventory, receipt.Inventory);
+        Assert.Same(coordinate, receipt.Coordinate);
+        Assert.Same(PlatformSupply.None, receipt.Supply);
+    }
 }

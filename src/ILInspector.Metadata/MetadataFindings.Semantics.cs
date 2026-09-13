@@ -1,4 +1,4 @@
-using ILInspector.Findings;
+using Inspector.Findings;
 
 namespace ILInspector.Metadata;
 

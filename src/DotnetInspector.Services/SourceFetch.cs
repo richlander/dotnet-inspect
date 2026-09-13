@@ -1,6 +1,6 @@
+using DotnetInspector.Cache;
 using System.Collections.Concurrent;
 
-using DotnetInspector.Core;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.Services;
@@ -11,7 +11,6 @@ internal enum SourceFetchFailureKind
     RequestNotAuthorized,
     NotFound,
     Unavailable,
-    AttributedOriginUnverified,
     ValidationFailed,
     StorageFailed,
 }
@@ -35,7 +34,7 @@ public class SourceFetch
     internal const long MaxSourceDownloadSize = 16_000_000;
 
     public SourceFetch(HttpClient httpClient)
-        : this(httpClient, CoreCacheSourceContentStore.Instance)
+        : this(httpClient, PersistentCacheSourceContentStore.Instance)
     {
     }
 
@@ -140,22 +139,12 @@ public class SourceFetch
                 await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
                 _httpClient,
                 url,
-                response => SourceFetchOriginValidator.Validate(
-                    url,
-                    response.RequestMessage?.RequestUri?.AbsoluteUri,
-                    _fetchPolicy?.FinalResponseUriIsReliable
-                        ?? !OperatingSystem.IsBrowser()).IsAllowed,
+                static _ => true,
                 cancellationToken: cancellationToken,
                 trafficKind: NetworkTrafficKind.SourceFetch,
                 maxDownloadSize: MaxSourceDownloadSize,
                 configureRequest: configureRequest)
                 .ConfigureAwait(false);
-            if (fetch.Status == HttpRetryHelper.HttpBodyFetchStatus.ResponseRejected)
-            {
-                return new SourceFetchBytesResult(
-                    null,
-                    SourceFetchFailureKind.AttributedOriginUnverified);
-            }
             if (fetch.StatusCode == System.Net.HttpStatusCode.NotFound)
                 return new SourceFetchBytesResult(null, SourceFetchFailureKind.NotFound);
             if (fetch.Bytes is not { } bytes)
@@ -289,10 +278,10 @@ public class SourceFetch
         return string.Join('\n', result).TrimEnd();
     }
 
-    sealed class CoreCacheSourceContentStore
+    sealed class PersistentCacheSourceContentStore
         : ISourceContentStore
     {
-        internal static CoreCacheSourceContentStore Instance { get; } =
+        internal static PersistentCacheSourceContentStore Instance { get; } =
             new();
 
         public ValueTask<byte[]?> TryOpenAsync(
@@ -300,7 +289,7 @@ public class SourceFetch
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            string? encoded = CoreCache.TryGet(
+            string? encoded = PersistentCache.TryGet(
                 ByteCacheCategory,
                 key,
                 extension: "base64");
@@ -324,7 +313,7 @@ public class SourceFetch
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            CoreCache.Set(
+            PersistentCache.Set(
                 ByteCacheCategory,
                 key,
                 Convert.ToBase64String(content.Span),

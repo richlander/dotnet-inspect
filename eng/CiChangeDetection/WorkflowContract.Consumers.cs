@@ -39,7 +39,30 @@ internal static partial class WorkflowContract
         ValidateConsumerStepGuards(jobs, jobNames);
         ValidateRepositoryGuardsJob(jobs);
         ValidateDependencyPolicyJob(jobs);
-        ValidateIlDiffTestStep(jobs);
+        ValidateRequiredTestStep(
+            jobs,
+            "Run IL diff tests",
+            "dotnet run --project tests/ILInspector.ILDiff.Tests -c Release");
+        ValidateRequiredTestStep(
+            jobs,
+            "Run NetworkAccess tests",
+            "dotnet run --project tests/NetworkAccess.Tests -c Release");
+        ValidateRequiredTestStep(
+            jobs,
+            "Run DotnetInspector.Networking tests",
+            "dotnet run --project tests/DotnetInspector.Networking.Tests -c Release");
+        ValidateRequiredTestStep(
+            jobs,
+            "Run DecompilerHarness tests",
+            "dotnet run --project tests/DecompilerHarness.Tests -c Release");
+        ValidateRequiredTestStep(
+            jobs,
+            "Run DotnetInspector.Cache tests",
+            "dotnet run --project tests/DotnetInspector.Cache.Tests -c Release");
+        ValidateRequiredTestStep(
+            jobs,
+            "Run DotnetInspector.Packages tests",
+            "dotnet run --project tests/DotnetInspector.Packages.Tests -c Release");
     }
 
     private static void ValidateRepositoryGuardsJob(YamlMappingNode jobs)
@@ -77,10 +100,10 @@ internal static partial class WorkflowContract
             job,
             "steps",
             "jobs.repository-guards");
-        if (steps.Children.Count != 5)
+        if (steps.Children.Count != 4)
         {
             throw new InvalidOperationException(
-                "jobs.repository-guards must contain exactly five steps.");
+                "jobs.repository-guards must contain exactly four steps.");
         }
 
         YamlMappingNode checkout = RequireMapping(
@@ -160,13 +183,6 @@ internal static partial class WorkflowContract
 
         RequireNamedRunStep(
             steps.Children[3],
-            "Run repository line-ending guard",
-            "dotnet run --project src/dotnet-inspect.Tests -c Release -- " +
-                "--filter-class \"DotnetInspector.Tests.RepositoryLineEndingTests\" " +
-                "--minimum-expected-tests 2\n",
-            "jobs.repository-guards line-ending step");
-        RequireNamedRunStep(
-            steps.Children[4],
             "Run legacy source-identity guard",
             "dotnet run --project tests/NuGetFetch.Tests -c Release -- " +
                 "--filter-method \"*LegacyPackageSourceIdentitySurfaceMatchesMigrationSet\" " +
@@ -256,41 +272,44 @@ internal static partial class WorkflowContract
             "jobs.dependency-policy Validate dependency policy step");
     }
 
-    private static void ValidateIlDiffTestStep(YamlMappingNode jobs)
+    private static void ValidateRequiredTestStep(
+        YamlMappingNode jobs,
+        string stepName,
+        string command)
     {
         YamlSequenceNode testSteps = GetRequiredSequence(
             GetRequiredMapping(jobs, "test", "jobs"),
             "steps",
             "jobs.test");
-        YamlMappingNode? ilDiffTestStep = null;
+        YamlMappingNode? requiredTestStep = null;
         foreach (YamlNode stepNode in testSteps.Children)
         {
             YamlMappingNode step = RequireMapping(
                 stepNode,
                 "jobs.test step");
-            if (GetOptionalScalar(step, "name") != "Run IL diff tests")
+            if (GetOptionalScalar(step, "name") != stepName)
             {
                 continue;
             }
 
-            if (ilDiffTestStep is not null)
+            if (requiredTestStep is not null)
             {
                 throw new InvalidOperationException(
-                    "jobs.test contains duplicate step: Run IL diff tests.");
+                    $"jobs.test contains duplicate step: {stepName}.");
             }
-            ilDiffTestStep = step;
+            requiredTestStep = step;
         }
 
-        if (ilDiffTestStep is null)
+        if (requiredTestStep is null)
         {
             throw new InvalidOperationException(
-                "jobs.test is missing step: Run IL diff tests.");
+                $"jobs.test is missing step: {stepName}.");
         }
         RequireScalarValue(
-            ilDiffTestStep,
+            requiredTestStep,
             "run",
-            "dotnet run --project tests/ILInspector.ILDiff.Tests -c Release",
-            "jobs.test Run IL diff tests");
+            command,
+            $"jobs.test {stepName}");
     }
 
     private static void ValidateConsumerStepGuards(
@@ -316,6 +335,7 @@ internal static partial class WorkflowContract
             "test/Restore vendored ILAssembler",
             "test/Run IL round-trip tests (fast)",
             "test/Run decompiler unit tests (fast)",
+            "test/Run DecompilerHarness tests",
         };
         var allowedContinueOnError = new HashSet<string>(
             StringComparer.Ordinal)

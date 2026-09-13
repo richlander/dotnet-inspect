@@ -55,6 +55,7 @@ public sealed class IndexFromEndPass : IIrPass
 
         var offsetNode = (IrExpression)subtract.DetachChildren()[1];
         var raised = new IndexFromEnd(offsetNode);
+        raised.InheritSourceOffset(subtract);
         stepper.StepOver("raise receiver.Length - n to ^n index", subtract);
         subtract.ReplaceWith(raised);
         return true;

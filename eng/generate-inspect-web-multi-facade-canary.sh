@@ -2,13 +2,13 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-canary="$repo_root/prototypes/inspect-web/multi-facade-canary"
+canary="$repo_root/inspect-web/multi-facade-canary"
 host="$canary/Host/TsJsExport.MultiFacade.BrowserCanary.csproj"
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
 dotnet=${DOTNET:-dotnet}
 node=${NODE:-node}
-tsc=${TSC:-"$repo_root/prototypes/inspect-web/node_modules/.bin/tsc"}
+tsc=${TSC:-"$repo_root/inspect-web/node_modules/.bin/tsc"}
 facade_output_dir=${CANARY_FACADE_OUTPUT_DIR:-"$canary/facades"}
 
 mode=write
@@ -29,7 +29,7 @@ case "${1:-}" in
 esac
 
 if [[ ! -x "$tsc" ]]; then
-  echo "TypeScript compiler not found at $tsc; run npm ci in prototypes/inspect-web." >&2
+  echo "TypeScript compiler not found at $tsc; run npm ci in inspect-web." >&2
   exit 1
 fi
 

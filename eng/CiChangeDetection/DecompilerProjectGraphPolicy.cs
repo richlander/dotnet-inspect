@@ -5,7 +5,7 @@ namespace CiChangeDetection;
 internal static class DecompilerProjectGraphPolicy
 {
     private const string RootProjectDirectory =
-        "src/ILInspector.Decompiler.Tests";
+        "tests/ILInspector.Decompiler.Tests";
 
     internal static void Validate(string repository)
     {
@@ -18,11 +18,11 @@ internal static class DecompilerProjectGraphPolicy
             || IsAtOrBelowProject(right, left);
 
         if (!ProjectTreesOverlap(
-                "src/dotnet-inspect/Nested",
-                "src/dotnet-inspect")
+                "src/DotnetInspect.Cli/Nested",
+                "src/DotnetInspect.Cli")
             || ProjectTreesOverlap(
-                "src/dotnet-inspect.TestsExtra",
-                "src/dotnet-inspect.Tests"))
+                "tests/DotnetInspect.Cli.TestsExtra",
+                "tests/DotnetInspect.Cli.Tests"))
         {
             throw new InvalidOperationException(
                 "Decompiler skip-list project boundary check is not non-vacuous.");

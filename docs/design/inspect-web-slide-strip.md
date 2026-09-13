@@ -347,7 +347,7 @@ This design does not claim:
 - draggable allocation between adjacent strips; or
 - current implementation support before the named gates exist and pass.
 
-The first implementation remains inside `prototypes/inspect-web` and must stay
+The first implementation remains inside `inspect-web` and must stay
 Browser/Wasm-compatible. A reusable package or broader product-host boundary
 requires a later focused design based on a second proven adopter.
 

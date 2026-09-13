@@ -105,8 +105,8 @@ The checked-in rules provide full gate coverage for these dependency claims:
 1. The documented contract floors remain free of repository and external
    dependencies.
 2. IL and other engine libraries do not acquire tool-layer
-   `DotnetInspector.*` dependencies. `ILInspector.Metadata` retains only the
-   documented source-neutral `DotnetInspector.Artifacts` exception.
+   `DotnetInspector.*` dependencies. Source-neutral `Inspector.*` contracts
+   remain outside that tool family.
 3. Product libraries use only repository and platform assemblies unless an
    owner-specific rule names an external assembly. Markout is admitted only at
    the metadata-rendering and shared-presentation boundaries; package, query,

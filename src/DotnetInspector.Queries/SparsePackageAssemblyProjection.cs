@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
 
-using DotnetInspector.Artifacts;
-using DotnetInspector.Artifacts.Workspaces;
+using Inspector.Artifacts;
+using Inspector.Artifacts.Workspaces;
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
 
@@ -507,6 +507,8 @@ public sealed partial class InspectionWorkspace
                     contribution.Descriptor.Identity,
                     queryLease);
             ResolvedAssemblyReference assembly = SparseAssembly(
+                session,
+                queryLease,
                 reference,
                 package,
                 selectedAsset,
@@ -629,6 +631,8 @@ public sealed partial class InspectionWorkspace
     }
 
     ResolvedAssemblyReference SparseAssembly(
+        ArtifactSetSession session,
+        ArtifactQueryLease queryLease,
         ArtifactContentReference reference,
         PackageRootBinding package,
         PackageCompileAsset selectedAsset,
@@ -648,7 +652,7 @@ public sealed partial class InspectionWorkspace
             return ResolvedAssemblyReference.CreateFromArtifactProjection(
                 reference.Registration,
                 projected.Value,
-                reference.OpenRead,
+                () => session.OpenRead(reference, queryLease),
                 provenance);
         }
 
@@ -658,7 +662,7 @@ public sealed partial class InspectionWorkspace
         ResolvedAssemblyReference carrier = ResolvedAssemblyReference
             .CreateFromArtifactWithFallbackIdentity(
                 reference.Registration,
-                reference.OpenRead,
+                () => session.OpenRead(reference, queryLease),
                 new AssemblyReferenceIdentity(
                     SparseRejectionCarrierName,
                     Version: null,

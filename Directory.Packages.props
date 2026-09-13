@@ -19,6 +19,7 @@
     <PackageVersion Include="System.CommandLine" Version="3.0.0-preview.5.26302.115" />
     <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.5" />
     <PackageVersion Include="System.Security.Cryptography.ProtectedData" Version="10.0.5" />
+    <PackageVersion Include="YamlDotNet" Version="18.1.0" />
     <PackageVersion Include="xunit.v3" Version="3.2.2" />
   </ItemGroup>
 </Project>

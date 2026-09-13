@@ -1,0 +1,1447 @@
+using System.Collections.Immutable;
+using ILInspector.Decompiler.Pipeline;
+
+namespace ILInspector.Decompiler.Tests;
+
+[Trait("Area", "Pass")]
+public class ExpressionInliningPassTests
+{
+    static readonly TypeRef Holder = TypeRef.CoreLib("Synthetic", "Holder");
+    static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
+    static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef ExceptionType = TypeRef.CoreLib("System", "Exception");
+    static readonly TypeRef Object = TypeRef.CoreLib("System", "Object");
+    static readonly TypeRef Action = TypeRef.CoreLib("System", "Action");
+    static readonly TypeRef String = TypeRef.CoreLib("System", "String");
+    static readonly TypeRef Bool = TypeRef.CoreLib("System", "Boolean");
+
+    static string PrintRaised(string methodName)
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, methodName);
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(function!, method => IrImporter.Import(source, method));
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        Assert.NotNull(result.Output);
+        return result.Output!.ReplaceLineEndings("\n").Trim();
+    }
+
+    // The collapsed cache leaves the chain spilled across reused stack slots
+    // (`S_0 = xs; S_1 = x => ...; S_0 = Where(S_0, S_1); ...`). Live-range
+    // inlining folds those temps into the call arguments, leaving one statement.
+    // A pure composite (a comparison) spilled across a post-increment must not
+    // be deferred past the `x++`: doing so would evaluate `x > 0` on the mutated
+    // value. ExpressionInliningPass records the increment's target as a mutation,
+    // so the comparison keeps its position and evaluates before the increment
+    // (issue #3133 adversarial review of the #3009 purity broadening).
+    [Fact]
+    public void CompositeReadingIncrementedArgument_DoesNotReorderPastIncrement()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.IncrementReorderGuard));
+
+        int comparison = output.IndexOf("x > 0", StringComparison.Ordinal);
+        int increment = output.IndexOf("x++", StringComparison.Ordinal);
+        Assert.True(comparison >= 0, $"expected `x > 0` in output, got: {output}");
+        Assert.True(increment >= 0, $"expected `x++` in output, got: {output}");
+        Assert.True(comparison < increment,
+            $"`x > 0` must evaluate before `x++`; the comparison was reordered past the increment: {output}");
+    }
+
+    // Direct-IR proof for the late slots-only path the compiled fixture above
+    // cannot reach (csc spills the reordered argument to a local, which the early
+    // full run protects by pass ordering). A slot holds the pure comparison
+    // `x > 0`; a post-increment of `x` sits before the slot's single load, which
+    // is not the first-evaluated leaf. Without tracking the increment as a
+    // mutation the pass would deem the comparison pure and defer it past `x++`,
+    // reading the incremented value. The slot must survive (issue #3133).
+    [Fact]
+    public void SlotCompositeReadingIncrementedArgument_IsNotInlinedPastIncrement()
+    {
+        var use = new MethodRef(Holder, "Use", Void, [Int32, Bool], HasThis: false);
+
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new Comparison(
+            ComparisonKind.GreaterThan,
+            isUnsigned: false,
+            new LoadArgument(0, "x", Int32),
+            new Constant(0, Int32))));
+        block.Add(new ExpressionStatement(new Call(
+            use,
+            isVirtual: false,
+            [
+                new IncrementDecrement(new LoadArgument(0, "x", Int32), isIncrement: true, isPrefix: false),
+                new LoadStackSlot(0, Bool),
+            ])));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [new Parameter("x", Int32)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Contains(block.Children.OfType<StoreStackSlot>(), store => store.Slot == 0);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void UnsafeEvaluation_IsNotInlinedIntoAwait()
+    {
+        var taskOfInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Threading.Tasks", "Task`1"),
+            [Int32]);
+        var getter = new MethodRef(Holder, "get_Risky", Int32, [], HasThis: true)
+        {
+            RequiresUnsafe = true,
+        };
+        var fromResult = new MethodRef(
+            TypeRef.CoreLib("System.Threading.Tasks", "Task"),
+            "FromResult",
+            taskOfInt,
+            [Int32],
+            HasThis: false);
+        var block = new Block();
+        block.Add(new StoreLocal(
+            0,
+            Int32,
+            new LoadProperty(
+                getter,
+                new LoadArgument(0, "holder", Holder),
+                [])));
+        block.Add(new Return(new AwaitExpression(
+            new Call(
+                fromResult,
+                isVirtual: false,
+                [new LoadLocal(0, Int32)]),
+            Int32)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(
+                taskOfInt,
+                [new Parameter("holder", Holder)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [Int32],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+            RequiresAsyncBodyModifier = true,
+        };
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<StoreLocal>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("unsafe\n{\n    V_0 = holder.Risky;", output);
+        Assert.Contains("return await", output);
+        Assert.Contains("FromResult(V_0);", output);
+        Assert.DoesNotContain("unsafe\n{\n    return await", output);
+    }
+
+    [Fact]
+    public void AwaitEvaluation_IsNotInlinedIntoUnsafeConsumer()
+    {
+        var taskOfInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Threading.Tasks", "Task`1"),
+            [Int32]);
+        var risky = new MethodRef(Holder, "Risky", Int32, [Int32], HasThis: false)
+        {
+            RequiresUnsafe = true,
+        };
+        var block = new Block();
+        block.Add(new StoreLocal(
+            0,
+            Int32,
+            new AwaitExpression(
+                new LoadArgument(0, "task", taskOfInt),
+                Int32)));
+        block.Add(new Return(new Call(
+            risky,
+            isVirtual: false,
+            [new LoadLocal(0, Int32)])));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(
+                taskOfInt,
+                [new Parameter("task", taskOfInt)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [Int32],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+            RequiresAsyncBodyModifier = true,
+        };
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<StoreLocal>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("int V_0 = await task;", output);
+        Assert.Contains("return unsafe(Risky(V_0));", output);
+        Assert.DoesNotContain("Risky(await", output);
+        Assert.DoesNotContain("unsafe\n{\n    return Holder.Risky(await", output);
+    }
+
+    [Fact]
+    public void UnsafeEvaluation_IsNotInlinedIntoHeaderWhoseBodyAwaits()
+    {
+        var taskOfInt = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Threading.Tasks", "Task`1"),
+            [Int32]);
+        var getter = new MethodRef(Holder, "get_Risky", Bool, [], HasThis: true)
+        {
+            RequiresUnsafe = true,
+        };
+        var fromResult = new MethodRef(
+            TypeRef.CoreLib("System.Threading.Tasks", "Task"),
+            "FromResult",
+            taskOfInt,
+            [Int32],
+            HasThis: false);
+        var thenArm = new Block();
+        thenArm.Add(new ExpressionStatement(new AwaitExpression(
+            new Call(
+                fromResult,
+                isVirtual: false,
+                [new Constant(1, Int32)]),
+            Int32)));
+        var block = new Block();
+        block.Add(new StoreLocal(
+            0,
+            Bool,
+            new LoadProperty(
+                getter,
+                new LoadArgument(0, "holder", Holder),
+                [])));
+        block.Add(new IfStatement(
+            new LoadLocal(0, Bool),
+            thenArm,
+            elseArm: null));
+        block.Add(new Return(new AwaitExpression(
+            new Call(
+                fromResult,
+                isVirtual: false,
+                [new Constant(2, Int32)]),
+            Int32)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(
+                taskOfInt,
+                [new Parameter("holder", Holder)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [Bool],
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = true,
+            RequiresAsyncBodyModifier = true,
+        };
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<StoreLocal>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("V_0 = holder.Risky;", output);
+        Assert.Contains("if (V_0)", output);
+        Assert.DoesNotContain("if (holder.Risky)", output);
+        Assert.DoesNotContain("unsafe\n{\n    if", output);
+    }
+
+    [Fact]
+    public void UpdatedSafePointerComparison_IsNotAnUnsafeAwaitOperand()
+    {
+        var pointer = TypeRef.Pointer(Int32);
+        var comparison = new Comparison(
+            ComparisonKind.Equal,
+            isUnsigned: false,
+            new LoadLocal(0, pointer),
+            new Constant(null, pointer));
+
+        Assert.False(UnsafeAwaitOperand.RequiresUnsafeContext(
+            comparison,
+            usesUpdatedMemorySafetyRules: true));
+    }
+
+    [Fact]
+    public void CallerModel_EnforcesNormalizedPointerContracts()
+    {
+        var pointer = TypeRef.Pointer(Int32);
+        var unresolved = new MethodRef(
+            Holder,
+            "External",
+            Int32,
+            [pointer],
+            HasThis: false);
+        var knownSafe = unresolved with
+        {
+            RequiresUnsafeFact = MetadataFactState.No,
+        };
+        var implicitContract = unresolved with
+        {
+            RequiresUnsafeFact = MetadataFactState.Yes,
+        };
+        var explicitContract = unresolved with
+        {
+            RequiresUnsafe = true,
+            RequiresUnsafeFact = MetadataFactState.Yes,
+        };
+
+        Assert.True(UnsafeAwaitOperand.MethodRequiresUnsafe(
+            unresolved,
+            usesUpdatedMemorySafetyRules: true));
+        Assert.False(UnsafeAwaitOperand.MethodRequiresUnsafe(
+            knownSafe,
+            usesUpdatedMemorySafetyRules: true));
+        Assert.False(UnsafeAwaitOperand.MethodRequiresUnsafe(
+            knownSafe,
+            usesUpdatedMemorySafetyRules: false));
+        Assert.True(UnsafeAwaitOperand.MethodRequiresUnsafe(
+            implicitContract,
+            usesUpdatedMemorySafetyRules: true));
+        Assert.True(UnsafeAwaitOperand.MethodRequiresUnsafe(
+            implicitContract,
+            usesUpdatedMemorySafetyRules: false));
+        Assert.True(UnsafeAwaitOperand.MethodRequiresUnsafe(
+            explicitContract,
+            usesUpdatedMemorySafetyRules: true));
+        Assert.False(UnsafeAwaitOperand.MethodRequiresUnsafe(
+            explicitContract,
+            usesUpdatedMemorySafetyRules: false));
+    }
+
+    // A pure value (no effect, cannot throw) is still unsound to defer past a
+    // write to a place it READS. A slot holds `x + 1`; a for-loop follows whose
+    // initializer assigns `x = 10`. The slot's single load sits in the loop
+    // condition, which is not the first-evaluated leaf (the initializer runs
+    // first), so purity alone would inline `x + 1` into the condition and read
+    // the overwritten `x`. The interference check keeps the slot alive
+    // (issue #3133 adversarial review — GPT for-loop-initializer case).
+    [Fact]
+    public void PureCompositeReadingReassignedLocal_IsNotInlinedPastForLoopInitializer()
+    {
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadLocal(0, Int32),
+            new Constant(1, Int32))));
+        block.Add(new ForLoop(
+            new StoreLocal(0, Int32, new Constant(10, Int32)),
+            new Comparison(
+                ComparisonKind.LessThan,
+                isUnsigned: false,
+                new LoadStackSlot(0, Int32),
+                new Constant(5, Int32)),
+            new IncrementDecrement(new LoadLocal(0, Int32), isIncrement: true, isPrefix: false),
+            new Block(1)));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [Int32],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Contains(block.Children.OfType<StoreStackSlot>(), store => store.Slot == 0);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+        function.CheckInvariant();
+    }
+
+    // Counterpart to the reorder guards: the interference check is precise, not a
+    // blanket ban. A slot holds `x > 0`; the increment `x++` happens strictly
+    // AFTER the slot's single load, so deferring the comparison into the call is
+    // safe. The value must still inline — a coarse function-wide mutation scan
+    // would drop it (issue #3133 adversarial review — Gemini over-blocking case).
+    [Fact]
+    public void PureCompositeReadingArgument_InlinesWhenIncrementFollowsTheLoad()
+    {
+        var use = new MethodRef(Holder, "Use", Void, [Int32, Bool], HasThis: false);
+
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new Comparison(
+            ComparisonKind.GreaterThan,
+            isUnsigned: false,
+            new LoadArgument(0, "x", Int32),
+            new Constant(0, Int32))));
+        block.Add(new ExpressionStatement(new Call(
+            use,
+            isVirtual: false,
+            [
+                new LoadArgument(1, "y", Int32),
+                new LoadStackSlot(0, Bool),
+            ])));
+        block.Add(new ExpressionStatement(
+            new IncrementDecrement(new LoadArgument(0, "x", Int32), isIncrement: true, isPrefix: false)));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [new Parameter("x", Int32), new Parameter("y", Int32)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.DoesNotContain(block.Children.OfType<StoreStackSlot>(), store => store.Slot == 0);
+        Assert.DoesNotContain(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+        function.CheckInvariant();
+    }
+
+    // The interference check must recognize compound assignments, not just plain
+    // stores and increments. A `??=` (`NullCoalescingAssignment`) reconstructed
+    // before the late inlining run mutates its local; a pure composite reading
+    // that local must not be deferred past it. Here the slot holds `x + 1` and
+    // the for-loop initializer is `x ??= 5`, whose write sits before the slot's
+    // load in the condition (issue #3133 adversarial review — GPT/Gemini `??=`).
+    [Fact]
+    public void PureCompositeReadingLocal_IsNotInlinedPastNullCoalescingAssignment()
+    {
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadLocal(0, Int32),
+            new Constant(1, Int32))));
+        block.Add(new ForLoop(
+            new NullCoalescingAssignment(0, Int32, new Constant(5, Int32)),
+            new Comparison(
+                ComparisonKind.LessThan,
+                isUnsigned: false,
+                new LoadStackSlot(0, Int32),
+                new Constant(10, Int32)),
+            new IncrementDecrement(new LoadLocal(1, Int32), isIncrement: true, isPrefix: false),
+            new Block(1)));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [Int32, Int32],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Contains(block.Children.OfType<StoreStackSlot>(), store => store.Slot == 0);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+        function.CheckInvariant();
+    }
+
+    // Same hazard via a tuple deconstruction that reassigns an existing local
+    // (`IsDeclared: false`). The slot holds `x + 1`; the for-loop initializer
+    // deconstructs into `x`, so the deferred composite would read the mutated
+    // value. `DeconstructionAssignment` local targets must count as writes
+    // (issue #3133 adversarial review — Gemini deconstruction case).
+    [Fact]
+    public void PureCompositeReadingLocal_IsNotInlinedPastDeconstructionAssignment()
+    {
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadLocal(0, Int32),
+            new Constant(1, Int32))));
+        block.Add(new ForLoop(
+            new DeconstructionAssignment(
+                [0],
+                [Int32],
+                new Constant(0, Int32),
+                [false]),
+            new Comparison(
+                ComparisonKind.LessThan,
+                isUnsigned: false,
+                new LoadStackSlot(0, Int32),
+                new Constant(10, Int32)),
+            new IncrementDecrement(new LoadLocal(1, Int32), isIncrement: true, isPrefix: false),
+            new Block(1)));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [Int32, Int32],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Contains(block.Children.OfType<StoreStackSlot>(), store => store.Slot == 0);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+        function.CheckInvariant();
+    }
+
+    // A catch clause binds the caught exception into a local (folded into the
+    // header as `VariableIndex`), which csc can place in a slot a prior value
+    // read. The slot holds `x + 1` reading local 0; the following try's catch
+    // rebinds local 0. The slot's single load sits in the catch body — not the
+    // first-evaluated leaf (the try body runs first) — so purity alone would
+    // inline `x + 1` into the handler and read the caught exception. The catch
+    // binding must count as a write (issue #3133 adversarial review — GPT catch
+    // case).
+    [Fact]
+    public void PureCompositeReadingLocal_IsNotInlinedPastCatchBinding()
+    {
+        var use = new MethodRef(Holder, "Use", Void, [Int32], HasThis: false);
+
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadLocal(0, Int32),
+            new Constant(1, Int32))));
+
+        var tryBody = new BlockContainer();
+        var tryBlock = new Block(1);
+        tryBlock.Add(new ExpressionStatement(new Call(use, isVirtual: false, [new Constant(0, Int32)])));
+        tryBody.Add(tryBlock);
+
+        var catchBody = new BlockContainer();
+        var catchBlock = new Block(2);
+        catchBlock.Add(new ExpressionStatement(new Call(use, isVirtual: false, [new LoadStackSlot(0, Int32)])));
+        catchBody.Add(catchBlock);
+        var clause = new CatchClause(ExceptionType, catchBody) { VariableIndex = 0 };
+
+        block.Add(new TryCatch(tryBody, [clause]));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [Int32],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Contains(block.Children.OfType<StoreStackSlot>(), store => store.Slot == 0);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+        function.CheckInvariant();
+    }
+
+    // A foreach header rebinds its iteration local each pass; csc can reuse a
+    // slot for it that a prior value read. The slot holds `x + 1` reading local
+    // 0; the following foreach iterates into local 0. The slot's single load
+    // sits in the loop body — not the first-evaluated leaf (the collection runs
+    // first) — so purity alone would inline `x + 1` into the body and read the
+    // iteration value. The foreach binding must count as a write (issue #3133
+    // adversarial review — Gemini foreach case).
+    [Fact]
+    public void PureCompositeReadingLocal_IsNotInlinedPastForeachBinding()
+    {
+        var use = new MethodRef(Holder, "Use", Void, [Int32], HasThis: false);
+
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadLocal(0, Int32),
+            new Constant(1, Int32))));
+
+        var foreachBody = new Block(1);
+        foreachBody.Add(new ExpressionStatement(new Call(use, isVirtual: false, [new LoadStackSlot(0, Int32)])));
+        block.Add(new ForeachStatement(0, Int32, new LoadArgument(0, "xs", Object), foreachBody));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [new Parameter("xs", Object)], HasThis: false, GenericParameterCount: 0),
+            [Int32],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Contains(block.Children.OfType<StoreStackSlot>(), store => store.Slot == 0);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+        function.CheckInvariant();
+    }
+
+    // Correct-by-construction guard for the interference check. Every IR node
+    // that binds a local or argument names its place through a `LocalIndex` /
+    // `VariableIndex` property; ExpressionInliningPass.Writes must recognize each
+    // so a deferred pure value is never moved past a binding of a place it reads.
+    // A newly added binding node fails this pin until it is handled in Writes
+    // (issue #3133 adversarial review kept surfacing missing writers).
+    [Fact]
+    public void Writes_CoversEveryLocalOrArgumentBindingNode()
+    {
+        string[] bindingIndexNames = ["LocalIndex", "VariableIndex"];
+        var discovered = typeof(IrNode).Assembly.GetTypes()
+            .Where(t => t.IsPublic
+                && t.Namespace == typeof(IrNode).Namespace
+                && t.GetProperties().Any(p => bindingIndexNames.Contains(p.Name)
+                    && (p.PropertyType == typeof(int) || p.PropertyType == typeof(int?))))
+            .Select(t => t.Name)
+            .OrderBy(n => n, StringComparer.Ordinal)
+            .ToArray();
+
+        string[] expected =
+        [
+            "CatchClause",
+            "DeconstructionTarget",
+            "Fixed",
+            "ForeachStatement",
+            "IsPattern",
+            "NullCoalescingAssignment",
+            "PatternSwitchExpressionArm",
+            "PropertySubpattern",
+            "RecursivePropertyDeclarationPattern",
+            "UnionSwitchExpressionArm",
+            "UsingStatement",
+        ];
+
+        Assert.Equal(expected, discovered);
+    }
+
+    [Fact]
+    public void CachedDelegateArgument_InlinesToSingleCall()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.CachedDelegateArgument));
+
+        Assert.Equal(1, output.Count(c => c == ';'));
+        Assert.StartsWith("return ", output);
+        Assert.Contains("Where", output);
+        Assert.Contains("x => x > 0", output);
+    }
+
+    [Fact]
+    public void CachedDelegateChain_InlinesToSingleNestedExpression()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.CachedDelegateChain));
+
+        Assert.Equal(1, output.Count(c => c == ';'));
+        Assert.StartsWith("return ", output);
+        // The first call's result feeds the second as its receiver argument.
+        int where = output.IndexOf("Where", StringComparison.Ordinal);
+        int select = output.IndexOf("Select", StringComparison.Ordinal);
+        Assert.True(where >= 0 && select >= 0 && select < where,
+            $"expected Select(Where(...), ...) nesting, got: {output}");
+        Assert.Contains("x => x > 0", output);
+        Assert.Contains("x => x * 2", output);
+    }
+
+    [Fact]
+    public void StoreBeforeTry_DoesNotInlineIntoCatchFilter()
+    {
+        var body = new BlockContainer();
+        var block = new Block(0);
+        var filter = new Comparison(
+            ComparisonKind.Equal,
+            isUnsigned: false,
+            new LoadLocal(0, Int32),
+            new Constant(0, Int32));
+        block.Add(new StoreLocal(0, Int32, new LoadLocal(1, Int32)));
+        var tryBody = new BlockContainer();
+        tryBody.Add(new Block(1));
+        var catchBody = new BlockContainer();
+        catchBody.Add(new Block(2));
+        block.Add(new TryCatch(
+            tryBody,
+            [new CatchClause(ExceptionType, catchBody, filter)]));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [Int32, Int32],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Contains(block.Children.OfType<StoreLocal>(), store => store.Index == 0);
+        var clause = Assert.Single(function.Descendants.OfType<CatchClause>());
+        Assert.NotNull(clause.Filter);
+        Assert.Contains(clause.Filter.Descendants.OfType<LoadLocal>(), load => load.Index == 0);
+        Assert.DoesNotContain(clause.Filter.Descendants.OfType<LoadLocal>(), load => load.Index == 1);
+    }
+
+    [Fact]
+    public void StoreBeforeTry_FilterReadBlocksInliningIntoOtherUse()
+    {
+        var body = new BlockContainer();
+        var block = new Block(0);
+        var filter = new Comparison(
+            ComparisonKind.Equal,
+            isUnsigned: false,
+            new LoadLocal(0, Int32),
+            new Constant(0, Int32));
+        block.Add(new StoreLocal(0, Int32, new LoadLocal(1, Int32)));
+        block.Add(new ExpressionStatement(new LoadLocal(0, Int32)));
+        var tryBody = new BlockContainer();
+        tryBody.Add(new Block(1));
+        var catchBody = new BlockContainer();
+        catchBody.Add(new Block(2));
+        block.Add(new TryCatch(
+            tryBody,
+            [new CatchClause(ExceptionType, catchBody, filter)]));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [Int32, Int32],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Contains(block.Children.OfType<StoreLocal>(), store => store.Index == 0);
+        Assert.Contains(block.Children.OfType<ExpressionStatement>(), statement =>
+            statement.Expression is LoadLocal { Index: 0 });
+    }
+
+    [Fact]
+    public void DelegateCreationTargetFieldWrite_BlocksLiveRangeInlining()
+    {
+        var receiverField = new FieldRef(Holder, "Receiver", Object);
+        var target = new MethodRef(Holder, "M", Void, [], HasThis: true);
+        var use = new MethodRef(Holder, "Use", Void, [Action], HasThis: false);
+
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new DelegateCreation(
+            Action,
+            target,
+            isVirtual: false,
+            new LoadField(receiverField, instance: null))));
+        block.Add(new StoreField(receiverField, instance: null, new LoadArgument(0, "newReceiver", Object)));
+        block.Add(new ExpressionStatement(new Call(use, isVirtual: false, [new LoadStackSlot(0, Action)])));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [new Parameter("newReceiver", Object)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Contains(block.Children.OfType<StoreStackSlot>(), store => store.Slot == 0);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void StaticFieldDelegateCreation_EffectBetweenStoreAndUse_BlocksLiveRangeInlining()
+    {
+        var receiverField = new FieldRef(Holder, "Receiver", Object);
+        var target = new MethodRef(Holder, "M", Void, [], HasThis: true);
+        var sideEffect = new MethodRef(Holder, "SideEffect", Void, [], HasThis: false);
+        var use = new MethodRef(Holder, "Use", Void, [Action], HasThis: false);
+
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new DelegateCreation(
+            Action,
+            target,
+            isVirtual: false,
+            new LoadField(receiverField, instance: null))));
+        block.Add(new ExpressionStatement(new Call(sideEffect, isVirtual: false, [])));
+        block.Add(new ExpressionStatement(new Call(use, isVirtual: false, [new LoadStackSlot(0, Action)])));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Contains(block.Children.OfType<StoreStackSlot>(), store => store.Slot == 0);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void StaticFieldDelegateCreation_PriorEffectInUseStatement_BlocksLiveRangeInlining()
+    {
+        var receiverField = new FieldRef(Holder, "Receiver", Object);
+        var target = new MethodRef(Holder, "M", Void, [], HasThis: true);
+        var sideEffect = new MethodRef(Holder, "SideEffect", Int32, [], HasThis: false);
+        var use = new MethodRef(Holder, "Use", Void, [Int32, Action], HasThis: false);
+
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new DelegateCreation(
+            Action,
+            target,
+            isVirtual: false,
+            new LoadField(receiverField, instance: null))));
+        block.Add(new ExpressionStatement(new Call(
+            use,
+            isVirtual: false,
+            [new Call(sideEffect, isVirtual: false, []), new LoadStackSlot(0, Action)])));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Contains(block.Children.OfType<StoreStackSlot>(), store => store.Slot == 0);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void StaticFieldDelegateCreation_AdjacentUse_StillInlines()
+    {
+        var receiverField = new FieldRef(Holder, "Receiver", Object);
+        var target = new MethodRef(Holder, "M", Void, [], HasThis: true);
+        var use = new MethodRef(Holder, "Use", Void, [Action], HasThis: false);
+
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new DelegateCreation(
+            Action,
+            target,
+            isVirtual: false,
+            new LoadField(receiverField, instance: null))));
+        block.Add(new ExpressionStatement(new Call(use, isVirtual: false, [new LoadStackSlot(0, Action)])));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
+        Assert.Single(function.Descendants.OfType<DelegateCreation>());
+        function.CheckInvariant();
+    }
+
+    // ---------------------------------------------------------------------
+    // Pass-audit packet (#1288): named proof modes for ExpressionInliningPass.
+    //
+    // Each mode below pairs a positive (the pass must inline) with a near-miss
+    // negative (the pass must decline) so the proof contract for each hazard is
+    // visible as an executable fixture, not only as a pass-local helper. Modes:
+    //   - evaluation-order : impure value may only move when it still evaluates
+    //                        first; a pure value may move anywhere.
+    //   - lock-object      : a static-field receiver copied for `lock` stays
+    //                        copied (inlining can fail to bind in a shell).
+    //   - typed-local      : a local whose declared type differs from its value
+    //                        carries a cast/type witness and must stay.
+    //   - address-escape   : an addressed local is never single-use-inlined.
+    //   - live-range       : a movable read inlines into its one reached load
+    //                        only when nothing in between writes what it reads
+    //                        and the definition is dead after that single use.
+    //   - fallthrough EH   : a store ending its block inlines into the next
+    //                        block only across a pure fallthrough edge.
+    // Real-importer positives for the headline live-range collapse already exist
+    // (CachedDelegate* via CfgSampleClass); these synthetic fixtures pin the
+    // per-hazard boundaries the importer corpus does not isolate.
+    // ---------------------------------------------------------------------
+
+    static IrFunction StraightLine(ImmutableArray<TypeRef> locals, params IrNode[] statements)
+    {
+        var body = new BlockContainer();
+        var block = new Block(0);
+        foreach (var statement in statements)
+            block.Add(statement);
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            locals,
+            body);
+    }
+
+    static IrFunction ReturningInt32(params IrNode[] statements)
+        => ReturningInt32([], statements);
+
+    static IrFunction ReturningInt32(ImmutableArray<TypeRef> locals, params IrNode[] statements)
+    {
+        var body = new BlockContainer();
+        var block = new Block(0);
+        foreach (var statement in statements)
+            block.Add(statement);
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Int32, [], HasThis: false, GenericParameterCount: 0),
+            locals,
+            body);
+    }
+
+    static bool HasStoreLocal(IrFunction function, int index)
+        => function.Descendants.OfType<StoreLocal>().Any(store => store.Index == index);
+
+    static bool HasStoreStackSlot(IrFunction function, int slot)
+        => function.Descendants.OfType<StoreStackSlot>().Any(store => store.Slot == slot);
+
+    // evaluation-order: a pure stored value (a constant) may move past whatever
+    // evaluates before its load, because reordering it is invisible.
+    [Fact]
+    public void EvaluationOrder_PureValueNotFirstLeaf_StillInlines()
+    {
+        var other = new MethodRef(Holder, "Other", Int32, [], HasThis: false);
+        var use = new MethodRef(Holder, "Use", Void, [Int32, Int32], HasThis: false);
+        var function = StraightLine(
+            [Int32],
+            new StoreLocal(0, Int32, new Constant(5, Int32)),
+            new ExpressionStatement(new Call(use, isVirtual: false,
+                [new Call(other, isVirtual: false, []), new LoadLocal(0, Int32)])));
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.False(HasStoreLocal(function, 0));
+        Assert.Empty(function.Descendants.OfType<LoadLocal>());
+        function.CheckInvariant();
+    }
+
+    // evaluation-order near miss: an impure value whose load is not evaluated
+    // first must stay, or inlining would move the call past `Other()`.
+    [Fact]
+    public void EvaluationOrder_ImpureValueNotFirstLeaf_StaysToPreserveOrder()
+    {
+        var produce = new MethodRef(Holder, "Produce", Int32, [], HasThis: false);
+        var other = new MethodRef(Holder, "Other", Int32, [], HasThis: false);
+        var use = new MethodRef(Holder, "Use", Void, [Int32, Int32], HasThis: false);
+        var function = StraightLine(
+            [Int32],
+            new StoreLocal(0, Int32, new Call(produce, isVirtual: false, [])),
+            new ExpressionStatement(new Call(use, isVirtual: false,
+                [new Call(other, isVirtual: false, []), new LoadLocal(0, Int32)])));
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.True(HasStoreLocal(function, 0));
+        Assert.Contains(function.Descendants.OfType<LoadLocal>(), load => load.Index == 0);
+    }
+
+    // evaluation-order: the same impure value inlines when its load is the
+    // first-evaluated leaf, so the stored value still evaluates first.
+    [Fact]
+    public void EvaluationOrder_ImpureValueFirstLeaf_Inlines()
+    {
+        var produce = new MethodRef(Holder, "Produce", Int32, [], HasThis: false);
+        var other = new MethodRef(Holder, "Other", Int32, [], HasThis: false);
+        var use = new MethodRef(Holder, "Use", Void, [Int32, Int32], HasThis: false);
+        var function = StraightLine(
+            [Int32],
+            new StoreLocal(0, Int32, new Call(produce, isVirtual: false, [])),
+            new ExpressionStatement(new Call(use, isVirtual: false,
+                [new LoadLocal(0, Int32), new Call(other, isVirtual: false, [])])));
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.False(HasStoreLocal(function, 0));
+        function.CheckInvariant();
+    }
+
+    // ordered argument run: csc can evaluate multiple effectful call arguments
+    // onto the stack, then spill each into a synthetic slot while a later
+    // argument is reconstructed. Folding the whole run into the returned call in
+    // store order restores the original left-to-right evaluation.
+    [Fact]
+    public void ReturnedCall_OrderedEffectfulStackSlotRun_InlinesAsUnit()
+    {
+        var first = new MethodRef(Holder, "First", Int32, [], HasThis: false);
+        var second = new MethodRef(Holder, "Second", Int32, [], HasThis: false);
+        var combine = new MethodRef(Holder, "Combine", Int32, [Int32, Int32], HasThis: false);
+        var function = ReturningInt32(
+            new StoreStackSlot(0, new Call(first, isVirtual: false, [])),
+            new StoreStackSlot(1, new Call(second, isVirtual: false, [])),
+            new Return(new Call(combine, isVirtual: false,
+                [new LoadStackSlot(0, Int32), new LoadStackSlot(1, Int32)])));
+
+        new ExpressionInliningPass(slotsOnly: true).Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
+        var call = Assert.IsType<Call>(Assert.Single(function.Descendants.OfType<Return>()).Value);
+        Assert.Equal(["First", "Second"], call.Arguments.Cast<Call>().Select(argument => argument.Callee.Name));
+        function.CheckInvariant();
+    }
+
+    // evaluation-order near miss: the same stores cannot fold when an effectful
+    // inline argument runs before their loads. Moving First()/Second() after
+    // Prefix() would change call and exception order.
+    [Fact]
+    public void ReturnedCall_EffectfulPrefixBeforeStackSlotRun_StaysSpilled()
+    {
+        var first = new MethodRef(Holder, "First", Int32, [], HasThis: false);
+        var second = new MethodRef(Holder, "Second", Int32, [], HasThis: false);
+        var prefix = new MethodRef(Holder, "Prefix", Int32, [], HasThis: false);
+        var combine = new MethodRef(Holder, "Combine", Int32, [Int32, Int32, Int32], HasThis: false);
+        var function = ReturningInt32(
+            new StoreStackSlot(0, new Call(first, isVirtual: false, [])),
+            new StoreStackSlot(1, new Call(second, isVirtual: false, [])),
+            new Return(new Call(combine, isVirtual: false,
+                [new Call(prefix, isVirtual: false, []), new LoadStackSlot(0, Int32), new LoadStackSlot(1, Int32)])));
+
+        new ExpressionInliningPass(slotsOnly: true).Run(function, PassContext.None);
+
+        Assert.True(HasStoreStackSlot(function, 0));
+        Assert.True(HasStoreStackSlot(function, 1));
+        Assert.Equal(2, function.Descendants.OfType<LoadStackSlot>().Count());
+        function.CheckInvariant();
+    }
+
+    // hidden-operation near miss: the second load is nested under an array
+    // literal, whose allocation runs before its elements. It is not a direct call
+    // argument, so folding Second() into that element would move it after the
+    // allocation and change exception/allocation order.
+    [Fact]
+    public void ReturnedCall_StackSlotRunNestedUnderArrayLiteral_StaysSpilled()
+    {
+        var intArray = TypeRef.SzArray(Int32);
+        var first = new MethodRef(Holder, "First", Int32, [], HasThis: false);
+        var second = new MethodRef(Holder, "Second", Int32, [], HasThis: false);
+        var combine = new MethodRef(Holder, "Combine", Int32, [Int32, intArray], HasThis: false);
+        var function = ReturningInt32(
+            new StoreStackSlot(0, new Call(first, isVirtual: false, [])),
+            new StoreStackSlot(1, new Call(second, isVirtual: false, [])),
+            new Return(new Call(combine, isVirtual: false,
+                [
+                    new LoadStackSlot(0, Int32),
+                    new ArrayLiteral(Int32, intArray, [new LoadStackSlot(1, Int32)]),
+                ])));
+
+        new ExpressionInliningPass(slotsOnly: true).Run(function, PassContext.None);
+
+        Assert.True(HasStoreStackSlot(function, 0));
+        Assert.True(HasStoreStackSlot(function, 1));
+        Assert.Equal(2, function.Descendants.OfType<LoadStackSlot>().Count());
+        function.CheckInvariant();
+    }
+
+    // argument-stability near miss: Mutate(ref x) runs before the returned call
+    // loads x. Folding it into a later argument would load x first and pass the
+    // pre-mutation value. An addressed parameter is therefore an order barrier.
+    [Fact]
+    public void ReturnedCall_RunMutatingEarlierArgument_StaysSpilled()
+    {
+        var mutate = new MethodRef(Holder, "Mutate", Int32, [TypeRef.ByRef(Int32)], HasThis: false);
+        var second = new MethodRef(Holder, "Second", Int32, [], HasThis: false);
+        var combine = new MethodRef(Holder, "Combine", Int32, [Int32, Int32, Int32], HasThis: false);
+        var body = new BlockContainer();
+        var block = new Block(0);
+        body.Add(block);
+        block.Add(new StoreStackSlot(0, new Call(mutate, isVirtual: false,
+            [new LoadArgumentAddress(0, "x", Int32)])));
+        block.Add(new StoreStackSlot(1, new Call(second, isVirtual: false, [])));
+        block.Add(new Return(new Call(combine, isVirtual: false,
+            [new LoadArgument(0, "x", Int32), new LoadStackSlot(0, Int32), new LoadStackSlot(1, Int32)])));
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Int32, [new Parameter("x", Int32)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        new ExpressionInliningPass(slotsOnly: true).Run(function, PassContext.None);
+
+        Assert.True(HasStoreStackSlot(function, 0));
+        Assert.True(HasStoreStackSlot(function, 1));
+        Assert.Equal(2, function.Descendants.OfType<LoadStackSlot>().Count());
+        function.CheckInvariant();
+    }
+
+    // raised-mutation sibling: IncrementDecrementPass can consume a
+    // StoreArgument and leave x++ as the only writer witness. The shared
+    // inventory must still keep the earlier inline x read as a barrier.
+    [Fact]
+    public void ReturnedCall_RunIncrementingEarlierArgument_StaysSpilled()
+    {
+        var second = new MethodRef(Holder, "Second", Int32, [], HasThis: false);
+        var combine = new MethodRef(Holder, "Combine", Int32, [Int32, Int32, Int32], HasThis: false);
+        var body = new BlockContainer();
+        var block = new Block(0);
+        body.Add(block);
+        block.Add(new StoreStackSlot(0, new IncrementDecrement(
+            new LoadArgument(0, "x", Int32),
+            isIncrement: true,
+            isPrefix: false)));
+        block.Add(new StoreStackSlot(1, new Call(second, isVirtual: false, [])));
+        block.Add(new Return(new Call(combine, isVirtual: false,
+            [new LoadArgument(0, "x", Int32), new LoadStackSlot(0, Int32), new LoadStackSlot(1, Int32)])));
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Int32, [new Parameter("x", Int32)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        new ExpressionInliningPass(slotsOnly: true).Run(function, PassContext.None);
+
+        Assert.True(HasStoreStackSlot(function, 0));
+        Assert.True(HasStoreStackSlot(function, 1));
+        Assert.Equal(2, function.Descendants.OfType<LoadStackSlot>().Count());
+        function.CheckInvariant();
+    }
+
+    // type-witness near miss: the slot load's object type carries a required
+    // reconciliation for the int-producing store. Folding would erase it.
+    [Fact]
+    public void ReturnedCall_StackSlotTypeMismatch_StaysSpilled()
+    {
+        var first = new MethodRef(Holder, "First", Int32, [], HasThis: false);
+        var second = new MethodRef(Holder, "Second", Int32, [], HasThis: false);
+        var combine = new MethodRef(Holder, "Combine", Int32, [Object, Int32], HasThis: false);
+        var function = ReturningInt32(
+            new StoreStackSlot(0, new Call(first, isVirtual: false, [])),
+            new StoreStackSlot(1, new Call(second, isVirtual: false, [])),
+            new Return(new Call(combine, isVirtual: false,
+                [new LoadStackSlot(0, Object), new LoadStackSlot(1, Int32)])));
+
+        new ExpressionInliningPass(slotsOnly: true).Run(function, PassContext.None);
+
+        Assert.True(HasStoreStackSlot(function, 0));
+        Assert.True(HasStoreStackSlot(function, 1));
+        Assert.Equal(2, function.Descendants.OfType<LoadStackSlot>().Count());
+        function.CheckInvariant();
+    }
+
+    // slots-only boundary: an adjacent user local may feed the same returned
+    // call, but the ordered-run mode owns only compiler spill slots. The local
+    // load is an order barrier, so the all-or-nothing fold must preserve both the
+    // source-carrying local and the slot run after it.
+    [Fact]
+    public void ReturnedCall_OrderedStackSlotRun_DoesNotConsumePrecedingUserLocal()
+    {
+        var first = new MethodRef(Holder, "First", Int32, [], HasThis: false);
+        var second = new MethodRef(Holder, "Second", Int32, [], HasThis: false);
+        var third = new MethodRef(Holder, "Third", Int32, [], HasThis: false);
+        var combine = new MethodRef(Holder, "Combine", Int32, [Int32, Int32, Int32], HasThis: false);
+        var function = ReturningInt32(
+            [Int32],
+            new StoreLocal(0, Int32, new Call(first, isVirtual: false, [])),
+            new StoreStackSlot(0, new Call(second, isVirtual: false, [])),
+            new StoreStackSlot(1, new Call(third, isVirtual: false, [])),
+            new Return(new Call(combine, isVirtual: false,
+                [new LoadLocal(0, Int32), new LoadStackSlot(0, Int32), new LoadStackSlot(1, Int32)])));
+
+        new ExpressionInliningPass(slotsOnly: true).Run(function, PassContext.None);
+
+        Assert.True(HasStoreLocal(function, 0));
+        Assert.True(HasStoreStackSlot(function, 0));
+        Assert.True(HasStoreStackSlot(function, 1));
+        Assert.Equal(2, function.Descendants.OfType<LoadStackSlot>().Count());
+        function.CheckInvariant();
+    }
+
+    // lock-object near miss: a static-field receiver copied into a local that is
+    // used as a `lock` object must stay copied.
+    [Fact]
+    public void LockObject_StaticFieldReceiver_StaysCopied()
+    {
+        var gate = new FieldRef(Holder, "Gate", Object);
+        var lockBody = new BlockContainer();
+        lockBody.Add(new Block(1));
+        var lockNode = new ILInspector.Decompiler.Pipeline.Lock(new LoadLocal(0, Object), lockBody);
+        var function = StraightLine(
+            [Object],
+            new StoreLocal(0, Object, new LoadField(gate, instance: null)),
+            lockNode);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.True(HasStoreLocal(function, 0));
+        Assert.IsType<LoadLocal>(lockNode.LockObject);
+    }
+
+    // lock-object: the same static-field copy inlines when it is not a lock
+    // object — the guard is specific to `lock` receivers.
+    [Fact]
+    public void LockObject_StaticFieldCopyNotLocked_Inlines()
+    {
+        var gate = new FieldRef(Holder, "Gate", Object);
+        var use = new MethodRef(Holder, "Use", Void, [Object], HasThis: false);
+        var function = StraightLine(
+            [Object],
+            new StoreLocal(0, Object, new LoadField(gate, instance: null)),
+            new ExpressionStatement(new Call(use, isVirtual: false, [new LoadLocal(0, Object)])));
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.False(HasStoreLocal(function, 0));
+        Assert.Single(function.Descendants.OfType<LoadField>());
+        function.CheckInvariant();
+    }
+
+    // typed-local near miss: an `object` local holding a `string`-typed value
+    // (a widening reference conversion, valid IL with no box) carries the wider
+    // declared type as a witness and must stay — importer-realistic via ldstr.
+    [Fact]
+    public void TypedLocalWitness_CastCarryingLocal_Stays()
+    {
+        var use = new MethodRef(Holder, "Use", Void, [Object], HasThis: false);
+        var function = StraightLine(
+            [Object],
+            new StoreLocal(0, Object, new Constant("hello", String)),
+            new ExpressionStatement(new Call(use, isVirtual: false, [new LoadLocal(0, Object)])));
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.True(HasStoreLocal(function, 0));
+        Assert.Contains(function.Descendants.OfType<LoadLocal>(), load => load.Index == 0);
+    }
+
+    // typed-local: a local whose declared type matches its value carries no
+    // witness, so the single use inlines.
+    [Fact]
+    public void TypedLocalWitness_MatchingType_Inlines()
+    {
+        var use = new MethodRef(Holder, "Use", Void, [Int32], HasThis: false);
+        var function = StraightLine(
+            [Int32, Int32],
+            new StoreLocal(0, Int32, new LoadLocal(1, Int32)),
+            new ExpressionStatement(new Call(use, isVirtual: false, [new LoadLocal(0, Int32)])));
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.False(HasStoreLocal(function, 0));
+        function.CheckInvariant();
+    }
+
+    // address-escape near miss: a local whose address is taken anywhere is never
+    // single-use-inlined — an escaped pointer can observe or mutate it.
+    [Fact]
+    public void AddressEscape_AddressedLocal_StaysInline()
+    {
+        var use = new MethodRef(Holder, "Use", Void, [Int32], HasThis: false);
+        var consume = new MethodRef(Holder, "Consume", Void, [TypeRef.Pointer(Int32)], HasThis: false);
+        var function = StraightLine(
+            [Int32],
+            new StoreLocal(0, Int32, new Constant(5, Int32)),
+            new ExpressionStatement(new Call(use, isVirtual: false, [new LoadLocal(0, Int32)])),
+            new ExpressionStatement(new Call(consume, isVirtual: false, [new LoadLocalAddress(0, Int32)])));
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.True(HasStoreLocal(function, 0));
+    }
+
+    // live-range: an effect-free read inlines into its one reached load even
+    // across an independent interleaved statement (which defeats the simple
+    // adjacency mode), because the read reorders freely.
+    [Fact]
+    public void LiveRange_EffectFreeReadAcrossIndependentStatement_Inlines()
+    {
+        var other = new MethodRef(Holder, "Other", Void, [], HasThis: false);
+        var use = new MethodRef(Holder, "Use", Void, [Int32], HasThis: false);
+        var function = StraightLine(
+            [Int32, Int32],
+            new StoreStackSlot(0, new LoadLocal(1, Int32)),
+            new ExpressionStatement(new Call(other, isVirtual: false, [])),
+            new ExpressionStatement(new Call(use, isVirtual: false, [new LoadStackSlot(0, Int32)])));
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.False(HasStoreStackSlot(function, 0));
+        Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
+        Assert.Contains(function.Descendants.OfType<LoadLocal>(), load => load.Index == 1);
+        function.CheckInvariant();
+    }
+
+    // live-range near miss: a read crossing a write to the place it reads must
+    // stay — moving it past the write would read the wrong value.
+    [Fact]
+    public void LiveRange_MovableReadCrossingWriteToReadPlace_Stays()
+    {
+        var use = new MethodRef(Holder, "Use", Void, [Int32], HasThis: false);
+        var function = StraightLine(
+            [Int32, Int32],
+            new StoreStackSlot(0, new LoadLocal(1, Int32)),
+            new StoreLocal(1, Int32, new Constant(0, Int32)),
+            new ExpressionStatement(new Call(use, isVirtual: false, [new LoadStackSlot(0, Int32)])));
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.True(HasStoreStackSlot(function, 0));
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+    }
+
+    // live-range near miss: a definition that is read twice before being
+    // rewritten is not dead after a single use, so it must stay.
+    [Fact]
+    public void LiveRange_SecondUseOfDefinition_Stays()
+    {
+        var use = new MethodRef(Holder, "Use", Void, [Int32], HasThis: false);
+        var function = StraightLine(
+            [Int32, Int32],
+            new StoreStackSlot(0, new LoadLocal(1, Int32)),
+            new ExpressionStatement(new Call(use, isVirtual: false, [new LoadStackSlot(0, Int32)])),
+            new ExpressionStatement(new Call(use, isVirtual: false, [new LoadStackSlot(0, Int32)])));
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.True(HasStoreStackSlot(function, 0));
+        Assert.Equal(2, function.Descendants.OfType<LoadStackSlot>().Count(load => load.Slot == 0));
+    }
+
+    // fallthrough EH: a store that ends its block inlines into the first
+    // statement of the next block when fallthrough is the only incoming edge.
+    [Fact]
+    public void Fallthrough_PureFallthroughEdge_InlinesIntoNextBlock()
+    {
+        var use = new MethodRef(Holder, "Use", Void, [Int32], HasThis: false);
+        var body = new BlockContainer();
+        var first = new Block(0);
+        first.Add(new StoreLocal(0, Int32, new Constant(7, Int32)));
+        var second = new Block(1);
+        second.Add(new ExpressionStatement(new Call(use, isVirtual: false, [new LoadLocal(0, Int32)])));
+        body.Add(first);
+        body.Add(second);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [Int32],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.False(HasStoreLocal(function, 0));
+        Assert.Empty(function.Descendants.OfType<LoadLocal>());
+        Assert.Single(function.Descendants.OfType<Constant>());
+        function.CheckInvariant();
+    }
+
+    // fallthrough EH near miss: the store ends its block and the load opens the
+    // next block, but the two blocks sit in different exception-region
+    // membership, so the fallthrough edge crosses a region boundary and the
+    // store must stay (moving a computation across a region changes what is
+    // protected). Exercises the SameRegions guard in FallthroughFirstStatement.
+    [Fact]
+    public void Fallthrough_AcrossExceptionRegionBoundary_DoesNotInline()
+    {
+        var use = new MethodRef(Holder, "Use", Void, [Int32], HasThis: false);
+        var body = new BlockContainer();
+        var first = new Block(0);
+        first.Add(new StoreLocal(0, Int32, new Constant(7, Int32)));
+        var second = new Block(10);
+        second.Add(new ExpressionStatement(new Call(use, isVirtual: false, [new LoadLocal(0, Int32)])));
+        body.Add(first);
+        body.Add(second);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [Int32],
+            body)
+        {
+            // try covers offsets 0..9 (first block), handler covers 10..19
+            // (second block): the two block offsets differ in try membership.
+            Regions = [new HandlerRegion(HandlerKind.Finally, TryOffset: 0, TryLength: 10, HandlerOffset: 10, HandlerLength: 10, FilterOffset: 0, CatchType: null)],
+        };
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.True(HasStoreLocal(function, 0));
+        Assert.Contains(function.Descendants.OfType<LoadLocal>(), load => load.Index == 0);
+    }
+
+    // ---------------------------------------------------------------------
+    // slots-only (F2, #2386): the late pipeline run inlines single-use spill
+    // slots but must never touch user locals — by that point
+    // IncrementDecrementPass has folded `x = x + 1` into `x++`, whose hidden
+    // store makes a multiply-assigned local look single-use; inlining a
+    // constant into it would emit an invalid `1++`. These pin the gate: a
+    // stack slot inlines under slotsOnly, an identical user local does not
+    // (while the default full run still inlines it — proving the mode is the
+    // only difference).
+    // ---------------------------------------------------------------------
+
+    // slots-only positive: a single-store single-use synthetic stack slot with
+    // a pure value inlines into its consumer.
+    [Fact]
+    public void SlotsOnly_SingleUseStackSlot_Inlines()
+    {
+        var use = new MethodRef(Holder, "Use", Void, [Int32], HasThis: false);
+        var function = StraightLine(
+            [],
+            new StoreStackSlot(0, new Constant(5, Int32)),
+            new ExpressionStatement(new Call(use, isVirtual: false, [new LoadStackSlot(0, Int32)])));
+
+        new ExpressionInliningPass(slotsOnly: true).Run(function, PassContext.None);
+
+        Assert.False(HasStoreStackSlot(function, 0));
+        Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
+        function.CheckInvariant();
+    }
+
+    // slots-only refuting negative: the identical shape on a user local is
+    // declined by slotsOnly (the local stays) yet still inlined by the default
+    // run — so a reconstructed `x++` can never be fed a constant late.
+    [Fact]
+    public void SlotsOnly_SingleUseUserLocal_StaysWhileDefaultInlines()
+    {
+        var use = new MethodRef(Holder, "Use", Void, [Int32], HasThis: false);
+
+        IrFunction Make() => StraightLine(
+            [Int32],
+            new StoreLocal(0, Int32, new Constant(5, Int32)),
+            new ExpressionStatement(new Call(use, isVirtual: false, [new LoadLocal(0, Int32)])));
+
+        var gated = Make();
+        new ExpressionInliningPass(slotsOnly: true).Run(gated, PassContext.None);
+        Assert.True(HasStoreLocal(gated, 0));
+        Assert.Contains(gated.Descendants.OfType<LoadLocal>(), load => load.Index == 0);
+        gated.CheckInvariant();
+
+        var full = Make();
+        new ExpressionInliningPass().Run(full, PassContext.None);
+        Assert.False(HasStoreLocal(full, 0));
+    }
+
+    // increment-target guard (#2386 adversarial review): a stack slot whose only
+    // load is the operand of an increment is an lvalue — inlining it would emit
+    // an invalid `1++`. The gate declines it in both modes. This shape is
+    // unreachable from real IL (increment operands are local/argument places),
+    // but the guard keeps the pass correct by construction.
+    [Fact]
+    public void SlotFeedingIncrement_IsNotInlined()
+    {
+        IrFunction Make() => StraightLine(
+            [],
+            new StoreStackSlot(0, new Constant(1, Int32)),
+            new ExpressionStatement(new IncrementDecrement(
+                new LoadStackSlot(0, Int32), isIncrement: true, isPrefix: false)));
+
+        var gated = Make();
+        new ExpressionInliningPass(slotsOnly: true).Run(gated, PassContext.None);
+        Assert.True(HasStoreStackSlot(gated, 0));
+        Assert.Contains(gated.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+        gated.CheckInvariant();
+
+        var full = Make();
+        new ExpressionInliningPass().Run(full, PassContext.None);
+        Assert.True(HasStoreStackSlot(full, 0));
+    }
+}

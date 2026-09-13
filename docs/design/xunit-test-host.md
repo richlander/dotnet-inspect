@@ -149,7 +149,7 @@ repository evidence profile rather than motivating a second command-line
 parser.
 
 `MtpTestHostTests` is the outcome-level gate for the first adopter,
-`dotnet-inspect.Tests`. It starts the built test apphost and covers the
+`DotnetInspect.Cli.Tests`. It starts the built test apphost and covers the
 unmatched, valid, and mixed valid/stale filter outcomes. The suite's workflow
 contract tests pin its MTP call sites and preserve the authenticated package
 fixture's stronger not-skipped receipt.
@@ -213,6 +213,61 @@ PR, Windows, Deep Inspect platform, and developer commands remain unfiltered.
 These paths reuse the pinned outcome-level host gate without changing the
 suite's friend-only registry and catalog evidence or the separately compiled
 public-consumer evidence in `DotnetInspector.Ecosystems.Consumer.Tests`.
+
+`DotnetInspector.Ecosystems.Consumer.Tests` is the eleventh migrated adopter.
+Its required PR, Windows, Deep Inspect platform, and developer commands remain
+unfiltered. These paths reuse the pinned outcome-level host gate without
+changing the suite's separately compiled non-friend evidence or combining it
+with the dedicated catalog suite.
+
+`Inspector.Artifacts.Tests` is the twelfth migrated adopter. Its required PR,
+Deep Inspect platform, and developer commands remain unfiltered. These paths
+reuse the pinned outcome-level host gate without changing the suite's artifact
+access, local admission, workspace-session, digest, or cleanup evidence.
+
+`CSharpText.Tests` is the thirteenth migrated adopter. Its required PR, Deep
+Inspect platform, and developer commands remain unfiltered. These paths reuse
+the pinned outcome-level host gate without changing the suite's identifier,
+signature, declaration, conditional-recovery, or layout evidence. Manual
+decompiler fixture probes continue to inspect the built test assembly rather
+than invoke its test host.
+
+`DotnetInspector.RowSelection.Tests` is the fourteenth migrated adopter. Its
+required PR and developer commands remain unfiltered. These paths reuse the
+pinned outcome-level host gate without changing the suite's typed-language,
+reference-evaluator, failure, or separately compiled non-friend consumer
+evidence.
+
+`DotnetInspector.Sections.Tests` is the fifteenth migrated adopter. Its
+required PR and developer commands remain unfiltered. These paths reuse the
+pinned outcome-level host gate without changing the suite's unresolved-intent,
+cohort-binding, owner-identity, selection, or structured-failure evidence.
+
+`ILInspector.Instructions.Tests` is the sixteenth migrated adopter. Its
+required PR and developer commands remain unfiltered. These paths reuse the
+pinned outcome-level host gate without changing the suite's instruction
+decoding, block graph, typed-stack, metadata resolution, fidelity, comparison,
+analysis-diff, Finding value-equality, or review-fix evidence.
+
+`ILInspector.ILDiff.Tests` is the seventeenth migrated adopter. Its required PR
+and developer commands remain unfiltered, while process-isolated signature and
+metadata-graph safety workers select their child methods through MTP filters.
+These paths reuse the pinned outcome-level host gate without changing the
+suite's IL body and assembly comparison, normalization, member alignment,
+Finding census and matching, compiler-generated ordinal, metadata-graph
+safety, or diff presentation evidence.
+
+`DotnetInspector.FixtureInfrastructure.Tests` is the eighteenth migrated
+adopter. Its required PR command remains unfiltered. This path reuses the
+pinned outcome-level host gate without changing the suite's fixture identity,
+registration, grouping, artifact resolution, source and sidecar paths,
+boundary-axis, or cross-assembly relationship evidence.
+
+`InertText.Tests` is the nineteenth migrated adopter. Its required PR and
+developer commands remain unfiltered. These paths reuse the pinned
+outcome-level host gate without changing the suite's text-policy, containment,
+lossless and injective encoding, visual-form, truncation, composition, URL
+redaction, or public-surface evidence.
 
 If the selected MTP version cannot produce the independent discovery and
 execution identities required by the decompiler completeness receipt, that

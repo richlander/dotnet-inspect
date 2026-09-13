@@ -69,23 +69,29 @@ internal static class ChangePlanTestSuite
     {
         (string Path, string Selected)[] canaries =
         [
-            ("src/NetworkDestinationPolicy.cs",
+            ("src/NetworkAccess/NetworkDestinationPolicy.cs",
                 "code,decompiler,shipped,web"),
             ("src/UnionPolyfill.cs",
                 "code,decompiler,shipped,web"),
-            ("src/dotnet-inspect/Program.cs", "code,shipped"),
+            ("src/DotnetInspect.Cli/Program.cs", "code,shipped"),
             ("src/ILInspector.Decompiler/Raise.cs",
                 "code,csharpdiff,decompiler,shipped,web"),
             ("src/ILInspector.Metadata/Reader.cs",
                 "code,decompiler,ilroundtrip,shipped,web"),
+            ("src/DotnetInspector.Cache/PersistentCache.cs",
+                "code,decompiler,ilroundtrip,shipped,web"),
             ("src/DotnetInspector.Core/Core.cs",
                 "code,decompiler,ilroundtrip,shipped,web"),
-            ("src/dotnet-inspect/dotnet-inspect.csproj",
+            ("src/DotnetInspect.Cli/DotnetInspect.Cli.csproj",
                 "code,packaging,shipped"),
             ("src/Directory.Build.props",
                 "code,csharpdiff,decompiler,ildiff,ilroundtrip,packaging,"
                 + "shipped"),
             ("tests/DotnetInspector.Queries.Tests/Q.cs",
+                "code"),
+            ("tests/DotnetInspector.Cache.Tests/C.cs",
+                "code"),
+            ("tests/DotnetInspector.Packages.Tests/P.cs",
                 "code"),
             ("fixtures/diff/DiffFixtures.V1/F.cs",
                 "code,csharpdiff,decompiler,ildiff"),
@@ -95,7 +101,7 @@ internal static class ChangePlanTestSuite
                 "code"),
             ("tests/ILInspector.MetadataPrimitives.PlatformProbe/P.cs",
                 "code,web"),
-            ("tests/DotnetInspector.Artifacts.Local.PlatformProbe/P.cs",
+            ("tests/Inspector.Artifacts.Local.PlatformProbe/P.cs",
                 "code,web"),
             ("fixtures/js-export/ILInspector.JsExportSurface.TypeScriptFixtures/F.ts",
                 "code,web"),
@@ -105,6 +111,8 @@ internal static class ChangePlanTestSuite
                 + "ts-jsexport-runtime/R.ts", "code,web"),
             ("tests/DotnetInspector.ILRoundtrip.Tests/T.cs",
                 "code,ilroundtrip"),
+            ("tests/DecompilerHarness.Tests/Closure.cs",
+                "code,decompiler"),
             ("tests/Other/T.cs", "code,decompiler"),
             ("tools/DecompilerHarness/Notes.md", "docs"),
             ("tools/DecompilerHarness/Baseline.txt", "decompiler,docs"),
@@ -174,8 +182,8 @@ internal static class ChangePlanTestSuite
             ("eng/decompiler-gate-known-red.txt", "decompiler,docs"),
             ("eng/decompiler-gate-skip-projects.txt", "decompiler,docs"),
             ("eng/restore-ilassembler.sh", "code,ilroundtrip"),
-            ("prototypes/inspect-web/README.md", "docs"),
-            ("prototypes/inspect-web/index.html", "web"),
+            ("inspect-web/README.md", "docs"),
+            ("inspect-web/index.html", "web"),
             ("prototypes/annotated-source-viewer/app.js",
                 "web"),
             ("Directory.Build.props",
@@ -240,15 +248,15 @@ internal static class ChangePlanTestSuite
             "src/ts-jsexport/Program.cs",
             "src/ILInspector.JsExportSurface/JsExportSurface.cs",
             "src/ILInspector.TypeScriptGeneration/TypeScriptGeneration.cs",
-            "prototypes/inspect-web/multi-facade-canary/Alpha/Exports.cs",
-            "prototypes/inspect-web/managed-operation-bridge-canary/Bridge/Exports.cs",
-            "prototypes/inspect-web/scripts/verify-multi-facade-canary.ts",
-            "prototypes/inspect-web/scripts/verify-managed-operation-bridge-canary.ts",
-            "prototypes/inspect-web/engine/InspectWebJsExportContext.cs",
-            "prototypes/inspect-web/engine.Core/BrowserManagedOperationBridge.cs",
-            "prototypes/inspect-web/engine.Core/BrowserManagedSharedProducer.cs",
-            "prototypes/inspect-web/engine.Core/BrowserManagedEpochWorkReporter.cs",
-            "prototypes/inspect-web/engine.Core/BrowserManagedEpochWorkRegistration.cs",
+            "inspect-web/multi-facade-canary/Alpha/Exports.cs",
+            "inspect-web/managed-operation-bridge-canary/Bridge/Exports.cs",
+            "inspect-web/scripts/verify-multi-facade-canary.ts",
+            "inspect-web/scripts/verify-managed-operation-bridge-canary.ts",
+            "inspect-web/DotnetInspect.Web/InspectWebJsExportContext.cs",
+            "inspect-web/DotnetInspect.Web.Core/BrowserManagedOperationBridge.cs",
+            "inspect-web/DotnetInspect.Web.Core/BrowserManagedSharedProducer.cs",
+            "inspect-web/DotnetInspect.Web.Core/BrowserManagedEpochWorkReporter.cs",
+            "inspect-web/DotnetInspect.Web.Core/BrowserManagedEpochWorkRegistration.cs",
         })
         {
             RoutingSelections actual = policy.Route(Evidence(path));
@@ -295,7 +303,7 @@ internal static class ChangePlanTestSuite
 
             // A missing inspect-web inventory broadens `web` to every src
             // change rather than narrowing it.
-            if (Render(policy.Route(Evidence("src/dotnet-inspect/Program.cs")))
+            if (Render(policy.Route(Evidence("src/DotnetInspect.Cli/Program.cs")))
                 != "code,decompiler,shipped,web")
             {
                 throw new InvalidOperationException(
@@ -304,7 +312,7 @@ internal static class ChangePlanTestSuite
             }
 
             // A missing decompiler skip inventory exempts nothing.
-            if (!policy.Route(Evidence("src/dotnet-inspect/Program.cs"))
+            if (!policy.Route(Evidence("src/DotnetInspect.Cli/Program.cs"))
                 .Decompiler)
             {
                 throw new InvalidOperationException(
@@ -313,7 +321,7 @@ internal static class ChangePlanTestSuite
 
             PlanningResult result = ChangePlanner.Compose(
                 Provenance(PlanEventKind.PullRequestSyntheticCandidate),
-                Evidence("src/dotnet-inspect/Program.cs"),
+                Evidence("src/DotnetInspect.Cli/Program.cs"),
                 policy);
             if (result.Plan.Diagnostics.Count != 2
                 || !result.Plan.Validations.Test)
@@ -420,7 +428,7 @@ internal static class ChangePlanTestSuite
         }
 
         RoutingSelections directOwner = policy.Route(Evidence(
-            "prototypes/inspect-web/scripts/verify-managed-operation-bridge-canary.ts"));
+            "inspect-web/scripts/verify-managed-operation-bridge-canary.ts"));
         foreach (PlanEventKind kind in new[]
         {
             PlanEventKind.PullRequestSyntheticCandidate,
@@ -445,13 +453,14 @@ internal static class ChangePlanTestSuite
                 "Direct inspect-web owner push did not retain only the fast backstop.");
         }
 
-        // A neighbouring documentation-only candidate selects documentation
-        // validation and the repository-wide guards, but no content gate.
+        // A neighbouring documentation-only candidate selects only
+        // documentation validation. The always-run changes job owns the
+        // repository-wide line-ending guard.
         ValidationSelections docsOnly = ValidationSelections.FromRouting(
             policy.Route(Evidence("docs/design/ci-change-plan.md")),
             PlanEventKind.PullRequestSyntheticCandidate);
         if (!docsOnly.Markdownlint
-            || !docsOnly.RepositoryGuards
+            || docsOnly.RepositoryGuards
             || docsOnly.Test
             || docsOnly.DecompilerGates
             || docsOnly.InspectWeb
@@ -461,15 +470,24 @@ internal static class ChangePlanTestSuite
                 "A documentation-only candidate selected a content gate.");
         }
 
+        ValidationSelections csharpSource =
+            ValidationSelections.FromRouting(
+                policy.Route(Evidence("src/NuGetFetch/PackageSource.cs")),
+                PlanEventKind.PullRequestSyntheticCandidate);
+        if (!csharpSource.RepositoryGuards || !csharpSource.Test)
+        {
+            throw new InvalidOperationException(
+                "A C# source candidate did not select the repository guards.");
+        }
+
         ValidationSelections emptyPreMerge =
             ValidationSelections.FromRouting(
                 policy.Route(ChangeEvidence.Create([])),
                 PlanEventKind.MergeGroup);
-        if (!emptyPreMerge.RepositoryGuards || emptyPreMerge.Test)
+        if (emptyPreMerge.RepositoryGuards || emptyPreMerge.Test)
         {
             throw new InvalidOperationException(
-                "An empty pre-merge candidate did not select only the "
-                + "repository-wide guards.");
+                "An empty pre-merge candidate selected a content gate.");
         }
     }
 
@@ -486,6 +504,7 @@ internal static class ChangePlanTestSuite
             "eng/restore-ilassembler.sh",
             "src/ILInspector.Metadata/Reader.cs",
             "src/ILInspector.MetadataPrimitives/P.cs",
+            "src/DotnetInspector.Cache/PersistentCache.cs",
             "src/DotnetInspector.Core/Core.cs",
             "Directory.Build.props",
             "Directory.Build.targets",
@@ -623,7 +642,7 @@ internal static class ChangePlanTestSuite
             + "{\"recordCount\":2,\"sha256\":"
             + "\"e2942177c268e91967eeb66ed6c48b8e8e426158f30a8f3371de8322"
             + "439a2a05\"},\"validations\":{\"test\":false,"
-            + "\"repositoryGuards\":true,"
+            + "\"repositoryGuards\":false,"
             + "\"dependencyPolicy\":false,"
             + "\"csharpDiffSmoke\":false,\"decompilerGates\":false,"
             + "\"markdownlint\":true,\"ilDiffSmoke\":false,"

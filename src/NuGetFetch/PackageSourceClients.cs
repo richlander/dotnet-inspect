@@ -6,8 +6,8 @@ using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using DotnetInspector.Networking;
 using InertText;
+using NetworkAccess;
 using NuGetFetch.Plugins;
 using NuGet.Versioning;
 
@@ -51,6 +51,9 @@ public enum PackageSourceCapabilities
 
     /// <summary>Exact bounded package-manifest acquisition.</summary>
     Manifest = 1 << 4,
+
+    /// <summary>Bounded NuGet V3 Catalog acquisition.</summary>
+    Catalog = 1 << 5,
 }
 
 /// <summary>
@@ -565,7 +568,7 @@ public static partial class PackageSourceClientFactory
     /// Creates the built-in Gallery client with an isolated, credential-free
     /// transport owned by the returned client.
     /// </summary>
-    public static INuGetGalleryPackageSourceClient CreateGallery(
+    public static IPackageSourceClient CreateGallery(
         PackageSourceAssociation association,
         NuGetFetchOptions? options = null) =>
         new NuGetGalleryPackageSourceClient(
@@ -580,7 +583,7 @@ public static partial class PackageSourceClientFactory
     /// Creates the built-in Gallery client over a caller-created,
     /// credential-free transport owned by the returned client.
     /// </summary>
-    public static INuGetGalleryPackageSourceClient CreateGallery(
+    public static IPackageSourceClient CreateGallery(
         PackageSourceAssociation association,
         HttpMessageHandler ownedCredentialFreeTransport,
         NuGetFetchOptions? options = null)
@@ -713,6 +716,13 @@ public static partial class PackageSourceClientFactory
                 throw new InvalidOperationException(
                     "The custom package source client did not expose the bound source identity.");
             }
+
+            if (client.Capabilities.HasFlag(
+                    PackageSourceCapabilities.Catalog))
+            {
+                throw new InvalidOperationException(
+                    "Custom package source clients cannot advertise the Catalog capability.");
+            }
         }
         catch (Exception validationFailure)
         {
@@ -750,6 +760,7 @@ public static partial class PackageSourceClientFactory
 
         HttpMessageHandler handler = transport
             ?? CreateV3TransportHandler(source, isBrowser);
+        handler = new NuGetCatalogAttemptHandler(handler);
         if (authenticationContext is not null)
         {
             handler = authenticationContext.Bind(handler);
@@ -1230,7 +1241,8 @@ internal sealed class CustomPackageSourceClientAdapter
     }
 }
 
-internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
+internal sealed partial class NuGetV3PackageSourceClient
+    : INuGetCatalogPackageSourceClient
 {
     private readonly PackageSourceResultFactory _results;
     private readonly Uri _endpoint;
@@ -1262,7 +1274,8 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
         PackageSourceCapabilities.Search
         | PackageSourceCapabilities.VersionEnumeration
         | PackageSourceCapabilities.Manifest
-        | PackageSourceCapabilities.PackagePayload;
+        | PackageSourceCapabilities.PackagePayload
+        | PackageSourceCapabilities.Catalog;
 
     public async Task<PackageSourceOperationResult<PackageSearchResult>> SearchAsync(
         string query,

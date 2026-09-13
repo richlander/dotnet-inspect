@@ -9,7 +9,7 @@ namespace CiChangeDetection;
 internal static class DecompilerSkipProjectsGenerator
 {
     private const string RootProject =
-        "src/ILInspector.Decompiler.Tests/ILInspector.Decompiler.Tests.csproj";
+        "tests/ILInspector.Decompiler.Tests/ILInspector.Decompiler.Tests.csproj";
     private const string ManifestRelativePath =
         "eng/decompiler-gate-skip-projects.txt";
     private static readonly string[] ScannedTopLevelDirectories =

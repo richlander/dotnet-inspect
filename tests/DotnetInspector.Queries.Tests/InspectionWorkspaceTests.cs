@@ -1,5 +1,5 @@
-using DotnetInspector.Artifacts;
-using DotnetInspector.Artifacts.Workspaces;
+using Inspector.Artifacts;
+using Inspector.Artifacts.Workspaces;
 using ILInspector.Metadata;
 using System.Collections.Immutable;
 using System.Reflection;
@@ -1804,7 +1804,7 @@ public sealed class InspectionWorkspaceTests
         ResolvedAssemblyReference assembly =
             ResolvedAssemblyReference.CreateFromArtifactIfManaged(
                 content.Registration,
-                content.OpenRead,
+                () => session.OpenRead(content, queryLease),
                 AssemblyResolutionProvenance.Local(
                     "artifact workspace test"))
             ?? throw new InvalidOperationException(

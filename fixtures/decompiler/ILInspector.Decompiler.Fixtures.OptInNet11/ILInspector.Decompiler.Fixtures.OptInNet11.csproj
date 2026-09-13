@@ -2,10 +2,11 @@
 
   <!--
     Compiler-produced inputs for the net11 opt-in feature corpus. Runtime async
-    is enabled by Directory.Build.targets for net11.0 projects.
+    is explicit here because ordinary repository builds use classic async.
   -->
   <PropertyGroup>
     <TargetFramework>net11.0</TargetFramework>
+    <Features>$(Features);runtime-async=on</Features>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>preview</LangVersion>

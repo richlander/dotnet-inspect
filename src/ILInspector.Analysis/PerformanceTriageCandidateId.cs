@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 
-using ILInspector.Findings;
+using Inspector.Findings;
 
 namespace ILInspector.Analysis;
 

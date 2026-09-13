@@ -48,36 +48,54 @@ public static class FidelityRemarks
     {
         var consumedMembers = new List<ConsumedMemberEvidence>();
         var reportedMethods = new HashSet<MethodRef>();
+        var reportedFields = new HashSet<FieldRef>();
         foreach (var node in function.Descendants.Prepend(function))
         {
             consumedMembers.Clear();
             reportedMethods.Clear();
+            reportedFields.Clear();
             ConsumedMemberEvidence.AddFrom(node, consumedMembers);
             foreach (ConsumedMemberEvidence evidence in consumedMembers)
             {
-                if (evidence.Method is not MethodRef method
-                    || !reportedMethods.Add(method)
-                    || method.MemorySafetyRulesState is not
-                        (MemorySafetyRulesState.Unsupported
-                            or MemorySafetyRulesState.Malformed
-                            or MemorySafetyRulesState.Conflicting)
-                        && !method.MemorySafetyRulesUnavailable
-                        && !method.MemorySafetyContractUnavailable)
+                if (evidence.Method is MethodRef method
+                    && reportedMethods.Add(method)
+                    && HasInvalidMemorySafetyEvidence(method))
                 {
-                    continue;
+                    string contractState = method.MemorySafetyRulesUnavailable
+                        ? "unavailable module rules"
+                        : method.MemorySafetyContractUnavailable
+                            ? "an unavailable member contract"
+                            : $"{method.MemorySafetyRulesState!.Value} module rules";
+                    yield return Cause(
+                        DiagnosticIds.InvalidCalleeMemorySafetyRules,
+                        LocationOf(node),
+                        node,
+                        $"consumes {method.DeclaringType.ToDisplayString()}.{method.Name} with {contractState}",
+                        DecompilerFidelityDiscriminators.InvalidCalleeMemorySafetyRules);
                 }
-
-                string contractState = method.MemorySafetyRulesUnavailable
-                    ? "unavailable module rules"
-                    : method.MemorySafetyContractUnavailable
-                        ? "an unavailable member contract"
-                        : $"{method.MemorySafetyRulesState!.Value} module rules";
-                yield return Cause(
-                    DiagnosticIds.InvalidCalleeMemorySafetyRules,
-                    LocationOf(node),
-                    node,
-                    $"consumes {method.DeclaringType.ToDisplayString()}.{method.Name} with {contractState}",
-                    DecompilerFidelityDiscriminators.InvalidCalleeMemorySafetyRules);
+                if (evidence.Field is FieldRef field
+                    && reportedFields.Add(field)
+                    && FieldMemorySafetyContract.HasInvalidEvidence(field)
+                    && (field.HasNormalizedMemorySafetyContract
+                        || FieldMemorySafetyContract.EvidenceRequired(
+                            function.UsesUpdatedMemorySafetyRules,
+                            legacyShapeRequiresUnsafe:
+                                field.FixedBuffer is null
+                                && UnsafeAwaitOperand.ContainsPointer(
+                                    field.Type))))
+                {
+                    string contractState = field.MemorySafetyRulesUnavailable
+                        ? "unavailable module rules"
+                        : field.MemorySafetyContractUnavailable
+                            ? "an unavailable member contract"
+                            : $"{field.MemorySafetyRulesState!.Value} module rules";
+                    yield return Cause(
+                        DiagnosticIds.InvalidCalleeMemorySafetyRules,
+                        LocationOf(node),
+                        node,
+                        $"consumes field {field.DeclaringType.ToDisplayString()}.{field.Name} with {contractState}",
+                        DecompilerFidelityDiscriminators.InvalidCalleeMemorySafetyRules);
+                }
             }
 
             switch (node)
@@ -154,6 +172,7 @@ public static class FidelityRemarks
                     (unsupportedTypes ??= []).Add(type);
                 }
             }
+
             if ((node as IrExpression)?.ResultType is { ContainsUnsupported: true } resultType
                 && (unsupportedTypes is null || !unsupportedTypes.Contains(resultType)))
             {
@@ -217,6 +236,14 @@ public static class FidelityRemarks
                 DecompilerFidelityDiscriminators.PinnedLocal);
         }
     }
+
+    static bool HasInvalidMemorySafetyEvidence(MethodRef method)
+        => method.MemorySafetyRulesState is
+                MemorySafetyRulesState.Unsupported
+                    or MemorySafetyRulesState.Malformed
+                    or MemorySafetyRulesState.Conflicting
+            || method.MemorySafetyRulesUnavailable
+            || method.MemorySafetyContractUnavailable;
 
     static DecompilerFidelityCause Cause(
         string code,

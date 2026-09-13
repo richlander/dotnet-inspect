@@ -25,6 +25,17 @@ The model answers these focused questions:
 
 ## Relationship to the product
 
+The product correspondence is implemented by
+`AssemblyBindingCandidateDomain` and its Metadata freeze boundary.
+`AssemblyBindingCandidateDomainTests` covers exact construction, ordered
+finalization, malformed decisions, terminal closure, and unconsumed handoff
+rejection. The focused `TypeResolutionContextTests`,
+`AssemblyDependencyResolverTests`, and
+`SourceRelativeAssemblyGroupBindingPolicyTests` cases named in the owning
+design cover inactive-evidence freezing, one existing adjacent arbitration
+owner, and foreign-snapshot exclusion. The named closed-world and Queries
+facade tests cover exact domain-descriptor transformation.
+
 Each initial state chooses three acquisition registrations, every enumeration
 order, one source result, an identity-eligible set, and a proposed contender
 set. `CompositionRequired` sources issue a canonical sequence containing the
@@ -85,10 +96,10 @@ candidates. Candidate symbols represent distinct
 preserved abstractly. The canonical model order represents the issuing owner's
 stable order for an equal request and version; it does not prescribe a product
 sort key. Candidate decisions are sets in the model, so duplicate array entries
-and descriptor substitution under one registration cannot be expressed; those
-target-contract checks remain unverified pending product gates. Empty and
-foreign decisions are model-checked. The issued domain remains an ordered
-sequence, so a separate mutation checks duplicate registration issuance.
+and descriptor substitution under one registration cannot be expressed; the
+product domain tests cover both target-contract checks. Empty and foreign
+decisions are model-checked. The issued domain remains an ordered sequence, so
+a separate mutation checks duplicate registration issuance.
 
 Identity matching and nonempty domain construction are model inputs. The
 product factory is the proposed nonempty-domain gate; the model cannot reach an
@@ -97,7 +108,8 @@ name ownership, policy-tier routing, designated/platform role assignment and
 precedence, workspace construction, cache implementation, live-version
 replacement after a matching snapshot, and retry timing are outside the model.
 TLC results establish properties of this state machine, not of the shipped
-implementation. Formal model-to-product correspondence is unverified.
+implementation. The owning design names the focused Release gates that
+establish the corresponding product properties.
 
 ## Checked configurations
 

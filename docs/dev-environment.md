@@ -19,7 +19,7 @@ libraries, local artifacts, and existing product behavior while developing.
 Use the source version primarily to test behavior from the current worktree:
 
 ```bash
-dotnet run --project src/dotnet-inspect -c Release -- <command>
+dotnet run --project src/DotnetInspect.Cli -c Release -- <command>
 ```
 
 The source command is required when the evidence depends on an unmerged change,
@@ -45,7 +45,7 @@ change. It is off for ordinary local, PR, and release builds. The separate
 reruns. It audits direct and transitive dependencies at every severity; findings
 fail that workflow rather than `ci-required`.
 
-The audit restores the solution and the separately hosted inspect-web engine
+The audit restores the solution and the separately hosted Inspect Web
 tests, MSDL proxy tests, and IL round-trip tests, including each root's project
 references. It audits the tooling's restored dependencies, not the package
 contents acquired as inspection or corpus inputs. Standalone projects outside
@@ -83,13 +83,92 @@ dnx dotnet-inspect --source https://api.nuget.org/v3/index.json
 
 ## Additional library suites
 
+### CLI and product-output tests
+
+Build the solution before running the CLI suite so its cataloged fixtures and
+out-of-process apphosts are current:
+
+```bash
+dotnet build dotnet-inspect.slnx -c Release
+dotnet run --project tests/DotnetInspect.Cli.Tests -c Release
+```
+
+This is a Microsoft Testing Platform executable. Use `--filter-class` and
+`--filter-method` after `--` for focused selections; PR CI excludes
+`Speed=Slow`, while Deep Inspect runs the complete suite. Compiler-produced
+sample types and self-host tests remain with the executable under `tests/`;
+independently compiled inspected inputs remain under `fixtures/`. See
+[repository layout](fixture-governance.md#repository-layout).
+
+### Inspect Web host tests
+
+Run the managed Browser/Wasm host suite and the frontend suite from their
+respective repository roots:
+
+```bash
+dotnet run --project inspect-web/DotnetInspect.Web.Tests -c Release
+cd inspect-web
+npm test
+npm run lint
+```
+
+The managed suite is an xUnit in-process executable. It covers the
+`DotnetInspect.Web` host, Core and Networking implementation, and domain-specific
+`DotnetInspect.Web.Interop.*` export assemblies. The frontend gates cover the
+generated public facade contracts and browser application without renaming the
+published `inspect-web-*` modules.
+
+### Network tests
+
+Run the owner suites from the repository root:
+
+```bash
+dotnet run --project tests/NetworkAccess.Tests -c Release
+dotnet run --project tests/DotnetInspector.Networking.Tests -c Release
+```
+
+`NetworkAccess.Tests` pins the shared IPv4 and IPv6 destination classification
+used by independent desktop transports. `DotnetInspector.Networking.Tests`
+pins product HTTP composition, Browser/Wasm-safe handler setup, network policy,
+and request telemetry. The Cache suite pins cache behavior; Core retains
+combined request-diagram integration tests, and NuGetFetch retains NuGet
+transport and feed-failure tests.
+
+### Persistent-cache tests
+
+Run the cache-owner suite from the repository root:
+
+```bash
+dotnet run --project tests/DotnetInspector.Cache.Tests -c Release
+```
+
+This Microsoft Testing Platform executable owns `PersistentCacheTests` for
+hashing, cache roots, expiry, and cleanup; `CacheTelemetryTests` for redaction
+and request/network context; and the moved
+`CacheMaintenanceProgressTests`, formerly in the Services suite.
+
+### Package coordination tests
+
+Run the package-owner suite from the repository root:
+
+```bash
+dotnet run --project tests/DotnetInspector.Packages.Tests -c Release
+```
+
+This Microsoft Testing Platform executable owns `AsyncCacheTests`, formerly in
+the Services suite.
+`AsyncCache` is internal to `DotnetInspector.Packages`, and
+`PackageExtractor` is its sole production consumer. Broader integration tests
+remain with their existing CLI, `DotnetInspector.Services`,
+`ILInspector.Metadata`, and `NuGetFetch` owner suites.
+
 ### Text-library tests
 
 Run the complete text-library suites from the repository root:
 
 ```bash
 dotnet run --project tests/InertText.Tests -c Release
-dotnet run --project tests/ILInspector.Text.Tests -c Release
+dotnet run --project tests/Inspector.Text.Tests -c Release
 ```
 
 Both are xUnit in-process executables. Their source lives under `tests/`, while
@@ -155,6 +234,43 @@ This is a Microsoft Testing Platform executable. Required PR lanes exclude
 `Speed=Slow` after `--`; Deep Inspect runs the complete suite. Compiler-produced
 runtime-async specimens remain inside the test assembly, while independently
 compiled analysis inputs remain under `fixtures/analysis/`. See
+[repository layout](fixture-governance.md#repository-layout).
+
+### Research tests
+
+Build the solution before running the Research suite so every FixtureCatalog
+binary is available:
+
+```bash
+dotnet build dotnet-inspect.slnx -c Release
+dotnet run --project tests/ILInspector.Research.Tests -c Release
+```
+
+This is a Microsoft Testing Platform executable. Use `--filter-class` and
+`--filter-method` after `--` for focused selections. Its compiler-produced
+sample types stay with the host under `tests/`; independently compiled Research,
+analysis, and diff inputs remain under `fixtures/`. Deep Inspect adds
+`--fail-skips on` so platform certification cannot silently lose coverage. See
+[repository layout](fixture-governance.md#repository-layout).
+
+### Decompiler tests
+
+Build the solution before running the decompiler suite so its cataloged fixture
+binaries and tool harness are current, and always use Release because the
+compiler-produced IL is test evidence:
+
+```bash
+dotnet build dotnet-inspect.slnx -c Release
+source eng/activate-iltools.sh --mdv
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- --gate no-corpus
+```
+
+The custom xUnit executable retains its native selectors and `--gate` presets.
+Its compiler-produced specimens stay with the host under `tests/`; independent
+inputs remain under `fixtures/`, and linked harness sources remain owned by
+`tools/DecompilerHarness`. Run the separate `--gate corpus` lane only when the
+multi-hour corpus sweep is required. See
+[decompiler correctness](decompiler-correctness-pipeline.md) and
 [repository layout](fixture-governance.md#repository-layout).
 
 ### Inspection query tests

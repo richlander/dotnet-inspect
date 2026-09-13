@@ -1,19 +1,19 @@
+using DotnetInspector.Cache;
 using System.Security.Cryptography;
 using System.Text;
 using System.Net;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
-using DotnetInspector.Core;
 
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using ILInspector.SourceLink;
 
 namespace DotnetInspector.Services.Tests;
 
-[Collection(CoreCacheCollection.Name)]
+[Collection(PersistentCacheCollection.Name)]
 public class PdbSourceHouseTests
 {
     static readonly FindingSubject Subject = new("M~source", "Sample.M");
@@ -419,10 +419,10 @@ public class PdbSourceHouseTests
         string cachePath = Path.Combine(
             Path.GetTempPath(),
             $"dotnet-inspect-source-cache-{Guid.NewGuid():N}");
-        CoreCache.Initialize("dotnet-inspect-test", cachePath);
+        PersistentCache.Initialize("dotnet-inspect-test", cachePath);
         byte[] invalid = Encoding.UTF8.GetBytes("invalid");
         byte[] expected = Encoding.UTF8.GetBytes(Source);
-        CoreCache.Set(
+        PersistentCache.Set(
             "source-bytes-v2",
             "https://example.test/Sample.cs",
             Convert.ToBase64String(invalid),
@@ -459,12 +459,12 @@ public class PdbSourceHouseTests
     }
 
     [Fact]
-    public async Task FetchSourceBytes_RejectsRedirectOutsideAttributedOrigin()
+    public async Task FetchSourceBytes_AcceptsChecksumVerifiedBodyAfterRedirect()
     {
         string cachePath = Path.Combine(
             Path.GetTempPath(),
             $"dotnet-inspect-source-cache-{Guid.NewGuid():N}");
-        CoreCache.Initialize("dotnet-inspect-test", cachePath);
+        PersistentCache.Initialize("dotnet-inspect-test", cachePath);
         byte[] source = Encoding.UTF8.GetBytes(Source);
         var content = new TrackingContent(source);
         var handler = new RedirectHandler(
@@ -484,9 +484,9 @@ public class PdbSourceHouseTests
                 bytes => bytes.Span.SequenceEqual(source),
                 TestContext.Current.CancellationToken);
 
-            Assert.Null(result);
+            Assert.Equal(source, result);
             Assert.Equal(1, handler.RequestCount);
-            Assert.Equal(0, content.ReadCount);
+            Assert.Equal(1, content.ReadCount);
         }
         finally
         {
@@ -522,11 +522,11 @@ public class PdbSourceHouseTests
         string cachePath = Path.Combine(
             Path.GetTempPath(),
             $"dotnet-inspect-source-cache-{Guid.NewGuid():N}");
-        CoreCache.Initialize("dotnet-inspect-test", cachePath);
+        PersistentCache.Initialize("dotnet-inspect-test", cachePath);
         byte[] stale = "stale redirected body"u8.ToArray();
         byte[] expected = Encoding.UTF8.GetBytes(Source);
         const string Url = "https://example.test/A.cs";
-        CoreCache.Set(
+        PersistentCache.Set(
             "source-bytes-v1",
             Url,
             Convert.ToBase64String(stale),
@@ -785,7 +785,6 @@ public class PdbSourceHouseTests
     sealed class RejectingSourceFetchPolicy : ISourceFetchPolicy
     {
         public int ConfiguredRequests { get; private set; }
-        public bool FinalResponseUriIsReliable => true;
         public bool IsRequestAllowed(Uri requestUri) => false;
         public void ConfigureRequest(HttpRequestMessage request) =>
             ConfiguredRequests++;

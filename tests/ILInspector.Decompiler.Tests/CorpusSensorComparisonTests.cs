@@ -1,0 +1,3209 @@
+using System.Collections.Immutable;
+using System.Text.Json;
+
+using DotnetInspector.Fixtures;
+using ILInspector.Decompiler;
+using ILInspector.Decompiler.Pipeline;
+using ILInspector.DecompilerHarness;
+using ILInspector.Instructions;
+using ILInspector.Metadata;
+
+namespace ILInspector.Decompiler.Tests;
+
+[Trait("Area", "Corpus")]
+public class CorpusSensorComparisonTests
+{
+    [Fact]
+    public void GitBaselineReference_ReadsTrackedBlob()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null
+            && !File.Exists(Path.Combine(directory.FullName, "dotnet-inspect.slnx")))
+        {
+            directory = directory.Parent;
+        }
+        Assert.NotNull(directory);
+        string path = Path.Combine(
+            directory.FullName,
+            "tools/DecompilerHarness/corpus/pr-quick-baseline.json");
+
+        string baseline = CorpusSensor.ReadBaselineTextForTesting(path, "HEAD");
+
+        Assert.Contains("\"schemaVersion\"", baseline);
+        Assert.Contains("\"description\"", baseline);
+    }
+
+    [Theory]
+    [InlineData("pr-quick-baseline.json")]
+    [InlineData("real-world-baseline.json")]
+    [InlineData("opt-in-net11-baseline.json")]
+    public void CommittedCorpusBaseline_Deserializes(string fileName)
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null
+            && !File.Exists(Path.Combine(directory.FullName, "dotnet-inspect.slnx")))
+        {
+            directory = directory.Parent;
+        }
+        Assert.NotNull(directory);
+        string path = Path.Combine(
+            directory.FullName,
+            "tools/DecompilerHarness/corpus",
+            fileName);
+
+        var baseline = CorpusSensor.ReadBaselineForTesting(path);
+
+        Assert.True(baseline.SchemaVersion > 0);
+    }
+
+    [Fact]
+    public void OptInNet11Profile_UsesDistinctDescriptionAndCardHeading()
+    {
+        Assert.Contains(
+            "net11 opt-in compiler-feature corpus",
+            CorpusSensor.DescriptionForProfile(CorpusProfile.OptInNet11),
+            StringComparison.Ordinal);
+        Assert.Equal(
+            "### Decompiler net11 opt-in feature diff",
+            CorpusSensor.QualityCardHeadingForProfile(CorpusProfile.OptInNet11));
+        Assert.True(
+            CorpusSensor.ShouldGateAggregateRates(
+                CorpusProfile.OptInNet11,
+                qualityDiffCard: true,
+                qualityCardRisky: false));
+        Assert.False(
+            CorpusSensor.ShouldGateAggregateRates(
+                CorpusProfile.RealWorld,
+                qualityDiffCard: true,
+                qualityCardRisky: false));
+    }
+
+    [Fact]
+    public void FidelityResidualPolicy_UsesExactProducerFacets()
+    {
+        Assert.Equal(
+            FidelityResidualDisposition.RecoverableRoadmap,
+            FidelityResidualPolicy.Classify(new CorpusFidelityCauseSnapshot(
+                DiagnosticIds.UnrepresentableMetadataName,
+                DecompilerFidelityDiscriminators.DisplayClassTypeName)).Disposition);
+        Assert.Equal(
+            FidelityResidualDisposition.PolicyFloor,
+            FidelityResidualPolicy.Classify(new CorpusFidelityCauseSnapshot(
+                DiagnosticIds.UnrepresentableMetadataName,
+                DecompilerFidelityDiscriminators.UnspellableTypeName)).Disposition);
+        Assert.Equal(
+            FidelityResidualDisposition.Unclassified,
+            FidelityResidualPolicy.Classify(new CorpusFidelityCauseSnapshot(
+                DiagnosticIds.UnrepresentableMetadataName,
+                "new-name-shape")).Disposition);
+        Assert.Equal(
+            FidelityResidualDisposition.RecoverableRoadmap,
+            FidelityResidualPolicy.Classify(new CorpusFidelityCauseSnapshot(
+                DiagnosticIds.UnsupportedConstruct,
+                "iterator")).Disposition);
+        Assert.Equal(
+            FidelityResidualDisposition.Unclassified,
+            FidelityResidualPolicy.Classify(new CorpusFidelityCauseSnapshot(
+                DiagnosticIds.UnsupportedConstruct,
+                "calli")).Disposition);
+        Assert.Equal(
+            FidelityResidualDisposition.Unclassified,
+            FidelityResidualPolicy.Classify(new CorpusFidelityCauseSnapshot(
+                DiagnosticIds.UnsupportedExceptionFilter,
+                null)).Disposition);
+    }
+
+    [Fact]
+    public void FidelityResidualPortfolio_SeparatesSitesMethodsAndStructuralPrimary()
+    {
+        var displayClass = new CorpusFidelityCauseSnapshot(
+            DiagnosticIds.UnrepresentableMetadataName,
+            DecompilerFidelityDiscriminators.DisplayClassTypeName,
+            Sites: 2);
+        var unspellable = new CorpusFidelityCauseSnapshot(
+            DiagnosticIds.UnrepresentableMetadataName,
+            DecompilerFidelityDiscriminators.UnspellableTypeName);
+        var unknownType = new CorpusFidelityCauseSnapshot(
+            DiagnosticIds.UnknownResultType,
+            null);
+        var unsupportedFunctionPointer = new CorpusFidelityCauseSnapshot(
+            DiagnosticIds.UnsupportedFunctionPointer,
+            null);
+
+        CorpusMethodSnapshot[] methods =
+        [
+            SnapshotMethod("Full"),
+            ResidualMethod(
+                "Recoverable",
+                "fidelity: DEC0009",
+                displayClass,
+                unknownType),
+            ResidualMethod("Floor", "fidelity: DEC0009", displayClass, unspellable),
+            ResidualMethod("Unknown", "fidelity: DEC0006", unsupportedFunctionPointer),
+            ResidualMethod("Missing", "fidelity: DEC0009"),
+            ResidualMethod("Structural", "structuring: conditional-branch", displayClass),
+            ResidualMethod("EhStructural", "eh: leave/endfinally", displayClass),
+        ];
+
+        var portfolio = FidelityResidualPortfolioBuilder.Build(
+            methods,
+            totalMethods: methods.Length,
+            fullyRaisedMethods: 1);
+
+        Assert.Equal(4, portfolio.FidelityPrimaryMethods);
+        Assert.Equal(7, portfolio.FidelityCauseSites);
+        Assert.Equal(1, portfolio.RecoverableMethods);
+        Assert.Equal(1, portfolio.PolicyFloorMethods);
+        Assert.Equal(2, portfolio.UnclassifiedMethods);
+        Assert.Equal(1, portfolio.MissingCauseMethods);
+        Assert.Equal(2, portfolio.StructuralPrimaryMethodsWithFidelityCauses);
+        Assert.Equal(4, portfolio.StructuralPrimaryFidelityCauseSites);
+        Assert.Equal(2, portfolio.RoadmapTargetLowerMethods);
+        Assert.Equal(4, portfolio.RoadmapTargetUpperMethods);
+
+        var facet = Assert.Single(
+            portfolio.Facets,
+            summary => summary.Discriminator
+                == DecompilerFidelityDiscriminators.DisplayClassTypeName);
+        Assert.Equal(4, facet.CauseSites);
+        Assert.Equal(2, facet.Methods);
+        Assert.Equal(
+            ["nuget:pinned/lib.dll!T::Floor()", "nuget:pinned/lib.dll!T::Recoverable()"],
+            facet.Examples);
+    }
+
+    [Fact]
+    public void CorpusMethodSnapshot_PreV4JsonLeavesFidelityCausesAbsent()
+    {
+        const string json =
+            """
+            {
+              "assembly": "Pinned",
+              "assemblyPath": "pinned.dll",
+              "type": "T",
+              "method": "M",
+              "overload": 0,
+              "signature": "()",
+              "fidelity": "Partial",
+              "fullyRaised": false,
+              "residual": "fidelity: DEC0009",
+              "passBug": null,
+              "validity": "not-sampled",
+              "fidelityCheck": "not-sampled"
+            }
+            """;
+
+        var options = new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        };
+        var method = JsonSerializer.Deserialize<CorpusMethodSnapshot>(json, options);
+
+        Assert.NotNull(method);
+        Assert.Null(method.FidelityCauses);
+        Assert.DoesNotContain(
+            "stableKey",
+            JsonSerializer.Serialize(method, options),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CorpusFidelityCauseSnapshot_RejectsInvalidSiteMultiplicity()
+    {
+        var cause = new CorpusFidelityCauseSnapshot(
+            DiagnosticIds.UnrepresentableMetadataName,
+            DecompilerFidelityDiscriminators.DisplayClassTypeName,
+            Sites: 0);
+
+        Assert.Throws<InvalidDataException>(() => cause.SiteCount);
+    }
+
+    [Fact]
+    public void ExactReferenceRecompileRegressions_FlagsExactToRecompileAndContextFail()
+    {
+        var snapshot = ReturnToSenderSnapshot(
+            RtsMethod("Recompile", fidelityReference: "Exact", fidelityCheck: "RecompileFail"),
+            RtsMethod("Context", fidelityReference: "Exact", fidelityCheck: "ContextFail"));
+
+        var offenders = CorpusSensor.ExactReferenceRecompileRegressions(snapshot);
+
+        Assert.Equal(2, offenders.Length);
+        Assert.Contains(offenders, m => m.Method == "Recompile");
+        Assert.Contains(offenders, m => m.Method == "Context");
+    }
+
+    [Fact]
+    public void ExactReferenceRecompileRegressions_IgnoresRescuedSameAndUnpaired()
+    {
+        var snapshot = ReturnToSenderSnapshot(
+            RtsMethod("Rescued", fidelityReference: "OpcodeDiff", fidelityCheck: "Exact"),
+            RtsMethod("Same", fidelityReference: "Exact", fidelityCheck: "Exact"),
+            RtsMethod("OpcodeDrift", fidelityReference: "Exact", fidelityCheck: "OpcodeDiff"),
+            RtsMethod("NoReference", fidelityReference: null, fidelityCheck: "RecompileFail"));
+
+        Assert.Empty(CorpusSensor.ExactReferenceRecompileRegressions(snapshot));
+    }
+
+    [Fact]
+    public void ExactReferenceRecompileRegressions_OnlyAppliesToReturnToSenderOracle()
+    {
+        var snapshot = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: [RtsMethod("Recompile", fidelityReference: "Exact", fidelityCheck: "RecompileFail")],
+            fidelityOracle: CorpusFidelityOracle.CompileBack);
+
+        Assert.Empty(CorpusSensor.ExactReferenceRecompileRegressions(snapshot));
+    }
+
+    [Fact]
+    public void EvaluateRtsParityKnownGaps_FlagsNewRegressionNotInManifest()
+    {
+        var snapshot = ReturnToSenderSnapshot(
+            RtsMethod("Known", fidelityReference: "Exact", fidelityCheck: "RecompileFail"),
+            RtsMethod("New", fidelityReference: "Exact", fidelityCheck: "RecompileFail"));
+
+        var evaluation = CorpusSensor.EvaluateRtsParityKnownGaps(
+            snapshot,
+            ["Pinned!T::Known#0"]);
+
+        Assert.Equal(2, evaluation.KnownGaps.Length);
+        var offender = Assert.Single(evaluation.NewRegressions);
+        Assert.Equal("New", offender.Method);
+        Assert.Empty(evaluation.ResolvedRows);
+    }
+
+    [Fact]
+    public void EvaluateRtsParityKnownGaps_PassesWhenAllGapsAreInManifest()
+    {
+        var snapshot = ReturnToSenderSnapshot(
+            RtsMethod("Known", fidelityReference: "Exact", fidelityCheck: "ContextFail"));
+
+        var evaluation = CorpusSensor.EvaluateRtsParityKnownGaps(
+            snapshot,
+            ["Pinned!T::Known#0"]);
+
+        Assert.Empty(evaluation.NewRegressions);
+        Assert.Single(evaluation.KnownGaps);
+        Assert.Empty(evaluation.ResolvedRows);
+    }
+
+    [Fact]
+    public void EvaluateRtsParityKnownGaps_ReportsResolvedRowsNoLongerFailing()
+    {
+        var snapshot = ReturnToSenderSnapshot(
+            RtsMethod("StillExact", fidelityReference: "Exact", fidelityCheck: "Exact"));
+
+        var evaluation = CorpusSensor.EvaluateRtsParityKnownGaps(
+            snapshot,
+            ["Pinned!T::Fixed#0"]);
+
+        Assert.Empty(evaluation.NewRegressions);
+        Assert.Empty(evaluation.KnownGaps);
+        Assert.Equal("Pinned!T::Fixed#0", Assert.Single(evaluation.ResolvedRows));
+    }
+
+    [Fact]
+    public void EvaluateRtsParityKnownGaps_WithEmptyManifestTreatsEveryGapAsNew()
+    {
+        var snapshot = ReturnToSenderSnapshot(
+            RtsMethod("A", fidelityReference: "Exact", fidelityCheck: "RecompileFail"),
+            RtsMethod("B", fidelityReference: "Exact", fidelityCheck: "ContextFail"));
+
+        var evaluation = CorpusSensor.EvaluateRtsParityKnownGaps(snapshot, []);
+
+        Assert.Equal(2, evaluation.NewRegressions.Length);
+    }
+
+    [Fact]
+    public void ValidateRtsParityKnownGapFlags_RejectsNonReturnToSenderOracle()
+    {
+        var error = CorpusSensor.ValidateRtsParityKnownGapFlags(
+            CorpusFidelityOracle.CompileBack, [3], "known-gaps.json", null);
+
+        Assert.NotNull(error);
+        Assert.Contains("rts-parity", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ValidateRtsParityKnownGapFlags_RejectsMissingPositiveFidelityCap()
+    {
+        var error = CorpusSensor.ValidateRtsParityKnownGapFlags(
+            CorpusFidelityOracle.ReturnToSender, [0], "known-gaps.json", null);
+
+        Assert.NotNull(error);
+        Assert.Contains("--corpus-fidelity-cap", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ValidateRtsParityKnownGapFlags_RejectsEmitAndEnforceSamePath()
+    {
+        var error = CorpusSensor.ValidateRtsParityKnownGapFlags(
+            CorpusFidelityOracle.ReturnToSender, [3], "known-gaps.json", "known-gaps.json");
+
+        Assert.NotNull(error);
+        Assert.Contains("same file", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ValidateRtsParityKnownGapFlags_AllowsWellFormedGateRun()
+    {
+        Assert.Null(CorpusSensor.ValidateRtsParityKnownGapFlags(
+            CorpusFidelityOracle.ReturnToSender, [3], "known-gaps.json", null));
+        Assert.Null(CorpusSensor.ValidateRtsParityKnownGapFlags(
+            CorpusFidelityOracle.CompileBack, [0], null, null));
+    }
+
+    [Fact]
+    public void ValidateReturnToSenderCutoverCaps_RejectsMultipleDistinctPositiveCaps()
+    {
+        var error = CorpusSensor.ValidateReturnToSenderCutoverCaps(
+            CorpusFidelityOracle.ReturnToSenderCutover,
+            [0, 1, 2, 2]);
+
+        Assert.NotNull(error);
+        Assert.Contains("only one distinct positive", error, StringComparison.Ordinal);
+        Assert.Null(CorpusSensor.ValidateReturnToSenderCutoverCaps(
+            CorpusFidelityOracle.ReturnToSenderCutover,
+            [0, 2, 2]));
+        Assert.Null(CorpusSensor.ValidateReturnToSenderCutoverCaps(
+            CorpusFidelityOracle.CompileBack,
+            [1, 2]));
+    }
+
+    [Fact]
+    public void ReadRtsParityKnownGapManifest_WithoutRowsArray_ReadsAsEmptyWithoutThrowing()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"rts-known-gaps-{Guid.NewGuid():N}.json");
+        File.WriteAllText(path, "{}");
+        try
+        {
+            var manifest = CorpusSensor.ReadRtsParityKnownGapManifest(path);
+            Assert.False(manifest.Rows.IsDefault);
+            Assert.Empty(manifest.Rows);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Compare_RejectsCorpusProfileMismatch()
+    {
+        var baseline = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: null,
+            profile: CorpusProfile.OptInNet11);
+        var current = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: null);
+
+        var regressions = CorpusSensor.Compare(baseline, current, []);
+
+        Assert.Contains(
+            "corpus profile differs (baseline opt-in-net11, current real-world)",
+            regressions);
+    }
+
+    [Fact]
+    public void Compare_ControlFlowGateFailsClosedOnPinnedMethodSampleChange()
+    {
+        var baseline = Snapshot(
+            1,
+            0,
+            0,
+            [ControlFlowMethod("Before", raised: true)],
+            schemaVersion: 6);
+        var current = Snapshot(
+            1,
+            0,
+            0,
+            [ControlFlowMethod("After", raised: true)],
+            schemaVersion: 6);
+
+        var regressions = CorpusSensor.Compare(
+            baseline,
+            current,
+            [],
+            gateAggregateRates: false);
+
+        Assert.Contains(
+            "control-flow site pinned method sample differs (missing 1, added 1)",
+            regressions);
+    }
+
+    [Fact]
+    public void Compare_PreV6BaselineFailsClosedControlFlowGate()
+    {
+        var baseline = Snapshot(
+            1,
+            0,
+            0,
+            [ControlFlowMethod("Stable", raised: true)],
+            schemaVersion: 5);
+        var current = Snapshot(
+            1,
+            0,
+            0,
+            [ControlFlowMethod("Stable", raised: false)],
+            schemaVersion: 6);
+
+        var transitions = CorpusSensor.PinnedControlFlowTransitions(baseline, current);
+        var regressions = CorpusSensor.Compare(
+            baseline,
+            current,
+            [],
+            gateAggregateRates: false);
+        string card = CorpusSensor.QualityDiffCardForTesting(
+            baseline,
+            current,
+            regressions);
+
+        Assert.True(transitions.Available);
+        Assert.Contains(
+            "control-flow site baseline schema is v5; expected v6 or later",
+            regressions);
+        Assert.Contains(
+            "Pinned control-flow raise gate: 1 comparison input mismatch(es); review required.",
+            card);
+    }
+
+    [Fact]
+    public void Compare_ProfileMismatchExplainsUnavailableControlFlowGate()
+    {
+        var baseline = Snapshot(
+            1,
+            0,
+            0,
+            pinnedMethods: null,
+            profile: CorpusProfile.OptInNet11);
+        var current = Snapshot(
+            1,
+            0,
+            0,
+            [ControlFlowMethod("Stable", raised: true)],
+            schemaVersion: 6);
+
+        var transitions = CorpusSensor.PinnedControlFlowTransitions(baseline, current);
+        string card = CorpusSensor.QualityDiffCardForTesting(
+            baseline,
+            current,
+            regressions: []);
+
+        Assert.False(transitions.Available);
+        Assert.Contains(
+            "Pinned control-flow raise gate: unavailable "
+                + "(requires matching real-world corpus profiles).",
+            card);
+    }
+
+    [Fact]
+    public void Compare_SchemaV6BaselineWithoutMethodLedgerFailsClosed()
+    {
+        var baseline = Snapshot(1, 0, 0, pinnedMethods: null, schemaVersion: 6);
+        var current = Snapshot(
+            1,
+            0,
+            0,
+            [ControlFlowMethod("Stable", raised: true)],
+            schemaVersion: 6);
+
+        var regressions = CorpusSensor.Compare(
+            baseline,
+            current,
+            [],
+            gateAggregateRates: false);
+
+        Assert.Contains(
+            "control-flow site baseline is schema v6 or later but has no method ledger",
+            regressions);
+    }
+
+    [Fact]
+    public void Compare_CurrentSnapshotBeforeSchemaV6FailsClosed()
+    {
+        var baseline = Snapshot(
+            1,
+            0,
+            0,
+            [ControlFlowMethod("Stable", raised: true)],
+            schemaVersion: 6);
+        var current = Snapshot(
+            1,
+            0,
+            0,
+            [ControlFlowMethod("Stable", raised: true)],
+            schemaVersion: 5);
+
+        var regressions = CorpusSensor.Compare(
+            baseline,
+            current,
+            [],
+            gateAggregateRates: false);
+
+        Assert.Contains(
+            "control-flow site current snapshot schema is v5; expected v6 or later",
+            regressions);
+    }
+
+    [Fact]
+    public void Compare_SchemaV6CurrentWithoutMethodLedgerFailsClosed()
+    {
+        var baseline = Snapshot(
+            1,
+            0,
+            0,
+            [ControlFlowMethod("Stable", raised: true)],
+            schemaVersion: 6);
+        var current = Snapshot(1, 0, 0, pinnedMethods: null, schemaVersion: 6);
+
+        var regressions = CorpusSensor.Compare(
+            baseline,
+            current,
+            [],
+            gateAggregateRates: false);
+
+        Assert.Contains(
+            "control-flow site current snapshot is schema v6 or later but has no method ledger",
+            regressions);
+    }
+
+    [Fact]
+    public void MethodDeltas_ReportControlFlowSiteChanges()
+    {
+        var baseline = ControlFlowMethod("Changed", raised: true);
+        var current = ControlFlowMethod("Changed", raised: false);
+
+        Assert.Contains(
+            "controlFlowSites",
+            CorpusSensor.MethodDeltasForTesting(baseline, current));
+    }
+
+    [Fact]
+    public void MethodDeltas_PreV6ComparisonIgnoresControlFlowSites()
+    {
+        var baseline = ControlFlowMethod("Changed", raised: true) with
+        {
+            ControlFlowSites = null,
+        };
+        var current = ControlFlowMethod("Changed", raised: false);
+
+        Assert.DoesNotContain(
+            "controlFlowSites",
+            CorpusSensor.MethodDeltasForTesting(
+                baseline,
+                current,
+                compareControlFlowSites: false));
+    }
+
+    [Fact]
+    public void ControlFlowSites_SerializeCompactlyAndRoundTrip()
+    {
+        var method = SnapshotMethod("RoundTrip") with
+        {
+            ControlFlowSites =
+            [
+                new("switch-branch", 0x10, 0, Raised: true),
+                new("leave", 0x20, 1, Raised: false),
+                new(
+                    "conditional-branch",
+                    0x30,
+                    0,
+                    Raised: false,
+                    OutputIdentity: "output@conditional-branch@block_IL_0030->IL_0040#0"),
+            ],
+        };
+
+        string json = JsonSerializer.Serialize(method);
+        var restored = JsonSerializer.Deserialize<CorpusMethodSnapshot>(json);
+
+        Assert.Contains(
+            "\"ControlFlowSites\":\"switch-branch|16|0|1;leave|32|1|0;"
+                + "conditional-branch|48|0|0|output@conditional-branch@block_IL_0030-"
+                + "\\u003EIL_0040#0\"",
+            json);
+        Assert.NotNull(restored);
+        Assert.Equal(method.ControlFlowSites, restored.ControlFlowSites);
+    }
+
+    [Fact]
+    public void ControlFlowSites_EmptySwitchOutputIdentityRoundTrips()
+    {
+        var method = SnapshotMethod("EmptySwitch") with
+        {
+            ControlFlowSites =
+            [
+                new(
+                    "switch-branch",
+                    0x10,
+                    0,
+                    Raised: false,
+                    OutputIdentity: "output@switch-branch@block_IL_0010->#0"),
+            ],
+        };
+
+        string json = JsonSerializer.Serialize(method);
+        var restored = JsonSerializer.Deserialize<CorpusMethodSnapshot>(json);
+
+        Assert.NotNull(restored);
+        Assert.Equal(method.ControlFlowSites, restored.ControlFlowSites);
+    }
+
+    [Fact]
+    public void ControlFlowSites_RejectMalformedCompactEncoding()
+    {
+        var method = SnapshotMethod("Malformed") with
+        {
+            ControlFlowSites = [new("branch", 0x10, 0, Raised: true)],
+        };
+        string json = JsonSerializer.Serialize(method)
+            .Replace(
+                "branch|16|0|1",
+                "branch|-1|0|raised",
+                StringComparison.Ordinal);
+
+        Assert.Throws<JsonException>(
+            () => JsonSerializer.Deserialize<CorpusMethodSnapshot>(json));
+    }
+
+    [Fact]
+    public void ControlFlowSites_RejectDuplicateStableKeys()
+    {
+        var method = SnapshotMethod("Duplicate") with
+        {
+            ControlFlowSites = [new("branch", 0x10, 0, Raised: true)],
+        };
+        string json = JsonSerializer.Serialize(method)
+            .Replace(
+                "branch|16|0|1",
+                "branch|16|0|1;branch|16|0|1",
+                StringComparison.Ordinal);
+
+        var error = Assert.Throws<JsonException>(
+            () => JsonSerializer.Deserialize<CorpusMethodSnapshot>(json));
+        Assert.Contains("Duplicate control-flow site key", error.Message);
+    }
+
+    [Fact]
+    public void ControlFlowSites_RejectMalformedOutputIdentity()
+    {
+        var method = OutputControlFlowMethod("MalformedOutput", hasResidual: true);
+        string json = JsonSerializer.Serialize(method)
+            .Replace(
+                "block_IL_0010",
+                "block_IL_NOTHEX",
+                StringComparison.Ordinal);
+
+        Assert.Throws<JsonException>(
+            () => JsonSerializer.Deserialize<CorpusMethodSnapshot>(json));
+    }
+
+    [Fact]
+    public void ControlFlowSites_RejectMultipleTargetsForSingleTargetTransfer()
+    {
+        var method = OutputControlFlowMethod("MalformedOutput", hasResidual: true);
+        string json = JsonSerializer.Serialize(method)
+            .Replace(
+                "IL_0020#0",
+                "IL_0020,IL_0030#0",
+                StringComparison.Ordinal);
+
+        Assert.Throws<JsonException>(
+            () => JsonSerializer.Deserialize<CorpusMethodSnapshot>(json));
+    }
+
+    [Fact]
+    public void FeatureCoverageFailures_RejectsMissingOptInEvidence()
+    {
+        var snapshot = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: null,
+            profile: CorpusProfile.OptInNet11,
+            featureCoverage: CompleteFeatureCoverage().Remove("union-declarations"));
+
+        var failures = CorpusSensor.FeatureCoverageFailures(snapshot);
+
+        Assert.Contains(
+            "feature evidence 'union-declarations' is 0; expected at least 1",
+            failures);
+    }
+
+    [Fact]
+    public void Compare_RejectsFeatureEvidenceDrop()
+    {
+        var baseline = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 2,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: null,
+            profile: CorpusProfile.OptInNet11,
+            featureCoverage: CompleteFeatureCoverage().SetItem("union-switch-methods", 2));
+        var current = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: null,
+            profile: CorpusProfile.OptInNet11,
+            featureCoverage: CompleteFeatureCoverage());
+
+        var regressions = CorpusSensor.Compare(baseline, current, []);
+
+        Assert.Contains(
+            "feature evidence 'union-switch-methods' dropped (baseline 2, current 1)",
+            regressions);
+    }
+
+    [Fact]
+    public void ClassicStateMachineCoverage_CountsKickoffResultsByFamily()
+    {
+        var coverage = CorpusSensor.BuildClassicStateMachineCoverage(
+        [
+            ClassicKickoff("Async_Value", fullyRaised: true),
+            ClassicKickoff("Iterator_Sequence", fullyRaised: false),
+            ClassicKickoff("AsyncIterator_Sequence", fullyRaised: false),
+            ClassicKickoff("MoveNext", fullyRaised: true, type: "T.<Async_Value>d__1"),
+            ClassicKickoff("Switch_Control", fullyRaised: true),
+        ]);
+
+        Assert.Equal(new ClassicStateMachineFeatureMetrics(1, 1, 0), coverage["classic-async"]);
+        Assert.Equal(new ClassicStateMachineFeatureMetrics(1, 0, 1), coverage["classic-iterator"]);
+        Assert.Equal(new ClassicStateMachineFeatureMetrics(1, 0, 1), coverage["classic-async-iterator"]);
+        Assert.Equal(3, coverage.Count);
+    }
+
+    [Fact]
+    public void Compare_RejectsClassicStateMachineRaisedRegression()
+    {
+        var baselineCoverage = CompleteClassicStateMachineCoverage()
+            .SetItem("classic-async", new ClassicStateMachineFeatureMetrics(4, 4, 0));
+        var currentCoverage = CompleteClassicStateMachineCoverage()
+            .SetItem("classic-async", new ClassicStateMachineFeatureMetrics(4, 3, 1));
+        var baseline = Snapshot(
+            4, 4, 10_000, null,
+            profile: CorpusProfile.ClassicStateMachines,
+            featureCoverage: CompleteClassicFeatureCoverage(),
+            classicStateMachineCoverage: baselineCoverage);
+        var current = Snapshot(
+            4, 3, 7_500, null,
+            profile: CorpusProfile.ClassicStateMachines,
+            featureCoverage: CompleteClassicFeatureCoverage(),
+            classicStateMachineCoverage: currentCoverage);
+
+        var regressions = CorpusSensor.Compare(baseline, current, []);
+
+        Assert.Contains(
+            "classic state-machine fully raised 'classic-async' dropped (baseline 4, current 3)",
+            regressions);
+        Assert.Contains(
+            "classic state-machine residual 'classic-async' increased (baseline 0, current 1)",
+            regressions);
+    }
+
+    [Fact]
+    public void CompilerFeatureOptions_ReplaysMemorySafetyModeFromModuleMetadata()
+    {
+        string updatedAssembly =
+            typeof(ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures).Assembly.Location;
+        string legacyAssembly =
+            typeof(ILInspector.Decompiler.Fixtures.LegacyUnsafe.UnsafeFixtures).Assembly.Location;
+
+        var updated = CompilerFeatureOptions.ParseOptions(updatedAssembly);
+        var legacy = CompilerFeatureOptions.ParseOptions(legacyAssembly);
+        var updatedFunction = ImportFirstMethod(updatedAssembly);
+        var legacyFunction = ImportFirstMethod(legacyAssembly);
+
+        Assert.Contains(
+            updated.Features,
+            feature => feature.Key == "updated-memory-safety-rules" && feature.Value == "true");
+        Assert.DoesNotContain(
+            legacy.Features,
+            feature => feature.Key == "updated-memory-safety-rules");
+        Assert.True(updatedFunction.UsesUpdatedMemorySafetyRules);
+        Assert.False(legacyFunction.UsesUpdatedMemorySafetyRules);
+    }
+
+    [Fact]
+    public void RuntimeAsyncAwaitForeach_PreservesLoopAndExceptionEvidence()
+    {
+        using var source =
+            MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.AwaitForeach));
+        Assert.NotNull(function);
+        IrPasses.Run(function);
+        Assert.Contains(
+            function.Descendants.OfType<ForeachStatement>(),
+            statement => statement.IsAwait);
+
+        var coverage =
+            CorpusSensor.RecordMethodFeatureCoverageForTesting(function);
+
+        Assert.Equal(1, coverage["runtime-async-loop-methods"]);
+        Assert.Equal(1, coverage["runtime-async-exception-methods"]);
+    }
+
+    [Fact]
+    public void RuntimeAsyncAwaitUsing_PreservesExceptionEvidence()
+    {
+        using var source =
+            MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.NestedAwaitUsingResources));
+        Assert.NotNull(function);
+        IrPasses.Run(function);
+
+        Assert.Contains(
+            function.Descendants.OfType<UsingStatement>(),
+            statement => statement.IsAwait);
+        Assert.DoesNotContain(
+            function.Descendants,
+            node => node is TryCatch or TryFinally);
+
+        var coverage =
+            CorpusSensor.RecordMethodFeatureCoverageForTesting(function);
+
+        Assert.Equal(1, coverage["runtime-async-await-using-methods"]);
+        Assert.Equal(1, coverage["runtime-async-exception-methods"]);
+    }
+
+    [Fact]
+    public void Compare_NormalPrQuickGate_LeavesAggregateRateDropAdvisoryWhenPinnedSubsetIsStable()
+    {
+        var baseline = Snapshot(
+            totalMethods: 100,
+            fullyRaisedMethods: 90,
+            fullyRaisedBasisPoints: 9000,
+            pinnedMethods: PinnedMethods(fullyRaised: 9, conditional: 0),
+            schemaVersion: 6);
+        var current = Snapshot(
+            totalMethods: 110,
+            fullyRaisedMethods: 88,
+            fullyRaisedBasisPoints: 8000,
+            pinnedMethods: PinnedMethods(fullyRaised: 9, conditional: 0),
+            schemaVersion: 6);
+
+        var regressions = CorpusSensor.Compare(baseline, current, [], gateAggregateRates: false);
+
+        Assert.Empty(regressions);
+    }
+
+    [Fact]
+    public void Compare_RiskyGate_StillFailsAggregateRateDrop()
+    {
+        var baseline = Snapshot(
+            totalMethods: 100,
+            fullyRaisedMethods: 90,
+            fullyRaisedBasisPoints: 9000,
+            pinnedMethods: PinnedMethods(fullyRaised: 9, conditional: 0));
+        var current = Snapshot(
+            totalMethods: 110,
+            fullyRaisedMethods: 88,
+            fullyRaisedBasisPoints: 8000,
+            pinnedMethods: PinnedMethods(fullyRaised: 9, conditional: 0));
+
+        var regressions = CorpusSensor.Compare(baseline, current, [], gateAggregateRates: true);
+
+        Assert.Contains(regressions, regression => regression.StartsWith("detected lowering residue rate increased", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Compare_NormalPrQuickGate_FailsPinnedRateDrop()
+    {
+        var baseline = Snapshot(
+            totalMethods: 100,
+            fullyRaisedMethods: 90,
+            fullyRaisedBasisPoints: 9000,
+            pinnedMethods: PinnedMethods(fullyRaised: 9, conditional: 0));
+        var current = Snapshot(
+            totalMethods: 100,
+            fullyRaisedMethods: 90,
+            fullyRaisedBasisPoints: 9000,
+            pinnedMethods: PinnedMethods(fullyRaised: 8, conditional: 0));
+
+        var regressions = CorpusSensor.Compare(baseline, current, [], gateAggregateRates: false);
+
+        Assert.Contains(regressions, regression => regression.StartsWith("detected lowering residue rate (pinned) increased", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ControlFlowSiteLedger_ObservesCompilerProducedSwitchRaise()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var raisedFunction = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.SwitchCaseContinueInLoop));
+        var residualFunction = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.SwitchCaseContinueInLoop));
+        var repeatedFunction = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.SwitchCaseContinueInLoop));
+        Assert.NotNull(raisedFunction);
+        Assert.NotNull(residualFunction);
+        Assert.NotNull(repeatedFunction);
+
+        var raisedSites = CorpusSensor.CaptureControlFlowSitesForTesting(
+            raisedFunction,
+            IrPasses.Default,
+            PassContext.ForImport(method => IrImporter.Import(source, method)));
+        var repeatedSites = CorpusSensor.CaptureControlFlowSitesForTesting(
+            repeatedFunction,
+            IrPasses.Default,
+            PassContext.ForImport(method => IrImporter.Import(source, method)));
+        var withoutSwitchRaising = IrPasses.Default
+            .Where(static pass => pass is not SwitchRaisingPass)
+            .ToImmutableArray();
+        var residualSites = CorpusSensor.CaptureControlFlowSitesForTesting(
+            residualFunction,
+            withoutSwitchRaising,
+            PassContext.ForImport(method => IrImporter.Import(source, method)));
+
+        Assert.Equal(raisedSites, repeatedSites);
+        var raisedSwitch = Assert.Single(
+            raisedSites,
+            static site => site.Kind == "switch-branch");
+        var residualSwitch = Assert.Single(
+            residualSites,
+            static site => site.Kind == "switch-branch");
+        Assert.Equal(raisedSwitch.StableKey, residualSwitch.StableKey);
+        Assert.True(raisedSwitch.Raised);
+        Assert.False(residualSwitch.Raised);
+    }
+
+    [Fact]
+    public void ControlFlowSiteLedger_TreatsRebuiltEquivalentTransferAsResidual()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var originalFunction = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.SwitchCaseContinueInLoop));
+        var rebuiltFunction = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.SwitchCaseContinueInLoop));
+        Assert.NotNull(originalFunction);
+        Assert.NotNull(rebuiltFunction);
+
+        var originalSites = CorpusSensor.CaptureControlFlowSitesForTesting(
+            originalFunction,
+            [],
+            PassContext.ForImport(method => IrImporter.Import(source, method)));
+        var rebuiltSites = CorpusSensor.CaptureControlFlowSitesForTesting(
+            rebuiltFunction,
+            [new RebuildSwitchBranchPass()],
+            PassContext.ForImport(method => IrImporter.Import(source, method)));
+
+        Assert.Equal(originalSites, rebuiltSites);
+        Assert.False(Assert.Single(
+            rebuiltSites,
+            static site => site.Kind == "switch-branch").Raised);
+    }
+
+    [Fact]
+    public void ControlFlowSiteLedger_TreatsReparentedEquivalentTransferAsResidual()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var originalFunction = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.SwitchCaseContinueInLoop));
+        var reparentedFunction = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.SwitchCaseContinueInLoop));
+        Assert.NotNull(originalFunction);
+        Assert.NotNull(reparentedFunction);
+
+        var originalSites = CorpusSensor.CaptureControlFlowSitesForTesting(
+            originalFunction,
+            [],
+            PassContext.ForImport(method => IrImporter.Import(source, method)));
+        var reparentedSites = CorpusSensor.CaptureControlFlowSitesForTesting(
+            reparentedFunction,
+            [new ReparentSwitchBranchPass()],
+            PassContext.ForImport(method => IrImporter.Import(source, method)));
+
+        Assert.Equal(originalSites, reparentedSites);
+        Assert.False(Assert.Single(
+            reparentedSites,
+            static site => site.Kind == "switch-branch").Raised);
+    }
+
+    [Fact]
+    public void ControlFlowSiteLedger_DistinguishesNestedFunctionOwners()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var firstFunction = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.TwoLocalFunctionQuadrants));
+        var secondFunction = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.TwoLocalFunctionQuadrants));
+        Assert.NotNull(firstFunction);
+        Assert.NotNull(secondFunction);
+
+        var firstSites = CorpusSensor.CaptureControlFlowSitesForTesting(
+            firstFunction,
+            IrPasses.Default.Add(new ReplaceLocalFunctionBodyWithBranchPass("QuadrantA")),
+            PassContext.ForImport(method => IrImporter.Import(source, method)));
+        var secondSites = CorpusSensor.CaptureControlFlowSitesForTesting(
+            secondFunction,
+            IrPasses.Default.Add(new ReplaceLocalFunctionBodyWithBranchPass("QuadrantB")),
+            PassContext.ForImport(method => IrImporter.Import(source, method)));
+        var firstOutput = Assert.Single(
+            firstSites,
+            static site => site.OutputIdentity is not null && site.Kind == "branch");
+        var secondOutput = Assert.Single(
+            secondSites,
+            static site => site.OutputIdentity is not null && site.Kind == "branch");
+
+        Assert.NotEqual(firstOutput.StableKey, secondOutput.StableKey);
+        Assert.Contains(
+            $"@local_n{System.Convert.ToHexString("QuadrantA"u8)}",
+            firstOutput.StableKey,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"@local_n{System.Convert.ToHexString("QuadrantB"u8)}",
+            secondOutput.StableKey,
+            StringComparison.Ordinal);
+        var method = SnapshotMethod("NestedOwner") with
+        {
+            ControlFlowSites = [firstOutput, secondOutput],
+        };
+        string json = JsonSerializer.Serialize(method);
+        var restored = JsonSerializer.Deserialize<CorpusMethodSnapshot>(json);
+        Assert.NotNull(restored);
+        Assert.Equal(method.ControlFlowSites, restored.ControlFlowSites);
+    }
+
+    [Fact]
+    public void ControlFlowSiteLedger_NestedOwnerIdentitySurvivesSiblingCoverageChange()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var baselineFunction = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.TwoLocalFunctionQuadrants));
+        var currentFunction = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.TwoLocalFunctionQuadrants));
+        Assert.NotNull(baselineFunction);
+        Assert.NotNull(currentFunction);
+
+        var baselineSites = CorpusSensor.CaptureControlFlowSitesForTesting(
+            baselineFunction,
+            IrPasses.Default
+                .Add(new RemoveLocalFunctionPass("QuadrantA"))
+                .Add(new ReplaceLocalFunctionBodyWithBranchPass("QuadrantB")),
+            PassContext.ForImport(method => IrImporter.Import(source, method)));
+        var currentSites = CorpusSensor.CaptureControlFlowSitesForTesting(
+            currentFunction,
+            IrPasses.Default.Add(new ReplaceLocalFunctionBodyWithBranchPass("QuadrantB")),
+            PassContext.ForImport(method => IrImporter.Import(source, method)));
+        var baselineOutput = Assert.Single(
+            baselineSites,
+            static site => site.OutputIdentity is not null && site.Kind == "branch");
+        var currentOutput = Assert.Single(
+            currentSites,
+            static site => site.OutputIdentity is not null && site.Kind == "branch");
+
+        Assert.Equal(baselineOutput.StableKey, currentOutput.StableKey);
+    }
+
+    [Fact]
+    public void Compare_ControlFlowLossCannotBeOffsetByUnrelatedGain()
+    {
+        var baseline = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 5_000,
+            pinnedMethods:
+            [
+                ControlFlowMethod("Lost", raised: true),
+                ControlFlowMethod("Gained", raised: false),
+            ],
+            schemaVersion: 6);
+        var current = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 5_000,
+            pinnedMethods:
+            [
+                ControlFlowMethod("Lost", raised: false),
+                ControlFlowMethod("Gained", raised: true),
+            ],
+            schemaVersion: 6);
+
+        var regressions = CorpusSensor.Compare(
+            baseline,
+            current,
+            [],
+            gateAggregateRates: false);
+
+        Assert.Contains(
+            "control-flow raise lost: nuget:pinned/lib.dll!T::Lost()/switch-branch@IL_0010#0",
+            regressions);
+        var transitions = CorpusSensor.PinnedControlFlowTransitions(baseline, current);
+        Assert.Empty(transitions.SampleMismatches);
+        Assert.Single(transitions.Losses);
+        Assert.Single(transitions.Gains);
+    }
+
+    [Fact]
+    public void Compare_PinnedFullyRaisedLossCannotBeOffsetByGain()
+    {
+        var lost = SnapshotMethod("Lost");
+        var gained = SnapshotMethod("Gained") with
+        {
+            Fidelity = "Partial",
+            FullyRaised = false,
+            Residual = "fidelity: DEC0009",
+        };
+        var baseline = Snapshot(2, 1, 5_000, [lost, gained]);
+        var current = Snapshot(
+            2,
+            1,
+            5_000,
+            [
+                lost with
+                {
+                    Fidelity = "Partial",
+                    FullyRaised = false,
+                    Residual = "fidelity: DEC0009",
+                },
+                gained with
+                {
+                    Fidelity = "Full",
+                    FullyRaised = true,
+                    Residual = null,
+                },
+            ]);
+
+        var regressions = CorpusSensor.Compare(
+            baseline,
+            current,
+            [],
+            gateAggregateRates: false);
+
+        Assert.Contains(
+            regressions,
+            regression => regression.Contains(
+                "fully raised method lost (pinned): nuget:pinned/lib.dll!T::Lost()",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Compare_PinnedFullFidelityLossCannotBeOffsetByGainOrValidityCoverageChange()
+    {
+        var lost = SnapshotMethod("Lost", validity: "valid") with
+        {
+            FullyRaised = false,
+            Residual = "structuring: conditional-branch",
+        };
+        var gained = SnapshotMethod("Gained") with
+        {
+            Fidelity = "Partial",
+            FullyRaised = false,
+            Residual = "fidelity: DEC0009",
+        };
+        var baseline = Snapshot(
+            2,
+            0,
+            0,
+            [lost, gained],
+            semanticCheckedMethods: 1);
+        var current = Snapshot(
+            2,
+            0,
+            0,
+            [
+                lost with
+                {
+                    Fidelity = "Partial",
+                    Residual = "fidelity: DEC0009",
+                    Validity = "syntax-valid",
+                },
+                gained with
+                {
+                    Fidelity = "Full",
+                    Residual = "structuring: conditional-branch",
+                },
+            ]);
+
+        var regressions = CorpusSensor.Compare(
+            baseline,
+            current,
+            [],
+            gateAggregateRates: false);
+
+        Assert.Contains(
+            "Full fidelity method lost (pinned): "
+                + "nuget:pinned/lib.dll!T::Lost() -> fidelity: DEC0009",
+            regressions);
+        Assert.DoesNotContain(
+            regressions,
+            regression => regression.Contains(
+                "nuget:pinned/lib.dll!T::Gained()",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Compare_PinnedValidityLossCannotBeOffsetByGain()
+    {
+        var baseline = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 2,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods:
+            [
+                SnapshotMethod("Lost", validity: "valid"),
+                SnapshotMethod("Gained", validity: "semantic-defect:CS0159"),
+            ],
+            semanticCheckedMethods: 2,
+            semanticDefectMethods: 1);
+        var current = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 2,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods:
+            [
+                SnapshotMethod("Lost", validity: "semantic-defect:CS0159"),
+                SnapshotMethod("Gained", validity: "valid"),
+            ],
+            semanticCheckedMethods: 2,
+            semanticDefectMethods: 1);
+
+        var regressions = CorpusSensor.Compare(
+            baseline,
+            current,
+            [],
+            gateAggregateRates: false);
+
+        Assert.Contains(
+            "valid method regressed (pinned): "
+                + "nuget:pinned/lib.dll!T::Lost() -> semantic-defect:CS0159",
+            regressions);
+    }
+
+    [Theory]
+    [InlineData("not-sampled")]
+    [InlineData("syntax-valid")]
+    public void Compare_PinnedValidityCoverageChangeIsNotARegression(string currentValidity)
+    {
+        var baseline = Snapshot(
+            1,
+            1,
+            10_000,
+            [SnapshotMethod("Stable", validity: "valid")],
+            semanticCheckedMethods: 1);
+        var current = Snapshot(
+            1,
+            1,
+            10_000,
+            [SnapshotMethod("Stable", validity: currentValidity)],
+            semanticCheckedMethods: currentValidity == "syntax-valid" ? 0 : 1);
+
+        var regressions = CorpusSensor.PinnedMethodRegressions(baseline, current);
+
+        Assert.DoesNotContain(
+            regressions,
+            regression => regression.StartsWith(
+                "valid method regressed (pinned)",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Compare_PinnedMethodGateFailsClosedWithoutBaselineLedger()
+    {
+        var baseline = Snapshot(1, 1, 10_000, pinnedMethods: null);
+        var current = Snapshot(1, 1, 10_000, [SnapshotMethod("Stable")]);
+
+        Assert.Contains(
+            "pinned method baseline has no method ledger",
+            CorpusSensor.PinnedMethodRegressions(baseline, current));
+    }
+
+    [Fact]
+    public void Compare_PinnedMethodGateFailsClosedWithoutCurrentLedger()
+    {
+        var baseline = Snapshot(1, 1, 10_000, [SnapshotMethod("Stable")]);
+        var current = Snapshot(1, 1, 10_000, pinnedMethods: null);
+
+        Assert.Contains(
+            "pinned method current snapshot has no method ledger",
+            CorpusSensor.PinnedMethodRegressions(baseline, current));
+    }
+
+    [Fact]
+    public void Compare_ControlFlowLossWithinSameMethodCannotBeOffset()
+    {
+        var baselineMethod = SnapshotMethod("TwoDispatches") with
+        {
+            ControlFlowSites =
+            [
+                new("switch-branch", 0x10, 0, Raised: true),
+                new("switch-branch", 0x20, 0, Raised: false),
+            ],
+        };
+        var currentMethod = baselineMethod with
+        {
+            ControlFlowSites =
+            [
+                new("switch-branch", 0x10, 0, Raised: false),
+                new("switch-branch", 0x20, 0, Raised: true),
+            ],
+        };
+        var baseline = Snapshot(1, 0, 0, [baselineMethod], schemaVersion: 6);
+        var current = Snapshot(1, 0, 0, [currentMethod], schemaVersion: 6);
+
+        var regressions = CorpusSensor.Compare(
+            baseline,
+            current,
+            [],
+            gateAggregateRates: false);
+
+        Assert.Contains(
+            regressions,
+            regression => regression.EndsWith(
+                "TwoDispatches()/switch-branch@IL_0010#0",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Compare_ControlFlowGateIgnoresRepoAssemblyChurn()
+    {
+        var baseline = Snapshot(
+            2,
+            0,
+            0,
+            [
+                ControlFlowMethod("Pinned", raised: true),
+                ControlFlowMethod("RepoMethod", raised: true, assemblyPath: "artifacts/bin/Product.dll"),
+            ],
+            schemaVersion: 6);
+        var current = Snapshot(
+            2,
+            0,
+            0,
+            [
+                ControlFlowMethod("Pinned", raised: true),
+                ControlFlowMethod("RepoMethod", raised: false, assemblyPath: "artifacts/bin/Product.dll"),
+            ],
+            schemaVersion: 6);
+
+        var regressions = CorpusSensor.Compare(
+            baseline,
+            current,
+            [],
+            gateAggregateRates: false);
+
+        Assert.DoesNotContain(
+            regressions,
+            regression => regression.StartsWith("control-flow", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Compare_ControlFlowGateFailsClosedOnPinnedSiteSampleChange()
+    {
+        var baseline = Snapshot(
+            1,
+            0,
+            0,
+            [ControlFlowMethod("Changed", raised: true)],
+            schemaVersion: 6);
+        var currentMethod = ControlFlowMethod("Changed", raised: true) with
+        {
+            ControlFlowSites = [new("switch-branch", 0x20, 0, Raised: true)],
+        };
+        var current = Snapshot(1, 0, 0, [currentMethod], schemaVersion: 6);
+
+        var regressions = CorpusSensor.Compare(
+            baseline,
+            current,
+            [],
+            gateAggregateRates: false);
+
+        Assert.Contains(
+            "control-flow imported site sample differs for nuget:pinned/lib.dll!T::Changed() (missing 1, added 1)",
+            regressions);
+    }
+
+    [Fact]
+    public void Compare_NewOutputResidualIsLossAndRemovedOutputResidualIsGain()
+    {
+        var baseline = Snapshot(
+            2,
+            0,
+            0,
+            [
+                OutputControlFlowMethod("Lost", hasResidual: false),
+                OutputControlFlowMethod("Gained", hasResidual: true),
+            ],
+            schemaVersion: 6);
+        var current = Snapshot(
+            2,
+            0,
+            0,
+            [
+                OutputControlFlowMethod("Lost", hasResidual: true),
+                OutputControlFlowMethod("Gained", hasResidual: false),
+            ],
+            schemaVersion: 6);
+
+        var transitions = CorpusSensor.PinnedControlFlowTransitions(baseline, current);
+        var regressions = CorpusSensor.Compare(
+            baseline,
+            current,
+            [],
+            gateAggregateRates: false);
+
+        Assert.Single(transitions.Losses);
+        Assert.Single(transitions.Gains);
+        Assert.Contains(
+            regressions,
+            regression => regression.Contains(
+                "T::Lost()/conditional-branch:output@conditional-branch@block_IL_0010->IL_0020#0",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Compare_EmptyPinnedControlFlowDomainFailsClosed()
+    {
+        var snapshot = Snapshot(
+            1,
+            0,
+            0,
+            [ControlFlowMethod("Repo", raised: true, assemblyPath: "artifacts/bin/Product.dll")],
+            schemaVersion: 6);
+
+        var regressions = CorpusSensor.Compare(
+            snapshot,
+            snapshot,
+            [],
+            gateAggregateRates: false);
+
+        Assert.Contains(
+            "control-flow pinned method domain is empty (baseline 0, current 0)",
+            regressions);
+    }
+
+    [Fact]
+    public void PortablePath_UsesConfiguredNuGetPackageRoot()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "custom-nuget-root");
+        string assembly = Path.Combine(
+            root,
+            "newtonsoft.json",
+            "13.0.4",
+            "lib",
+            "net6.0",
+            "Newtonsoft.Json.dll");
+
+        Assert.Equal(
+            "nuget:newtonsoft.json/13.0.4/lib/net6.0/Newtonsoft.Json.dll",
+            CorpusSensor.PortablePath(assembly, root));
+    }
+
+    [Fact]
+    public void PortablePath_DoesNotTreatConfiguredRootAncestorAsNuGetPackage()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "workspace-root");
+        string assembly = Path.Combine(
+            root,
+            "src",
+            "Product",
+            "release",
+            "Product.dll");
+
+        Assert.False(
+            CorpusSensor.PortablePath(assembly, root)
+                .StartsWith("nuget:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void PortablePath_DefaultNuGetCacheIgnoresUnrelatedConfiguredRoot()
+    {
+        string assembly = Path.Combine(
+            Path.DirectorySeparatorChar.ToString(),
+            "home",
+            "runner",
+            ".nuget",
+            "packages",
+            "newtonsoft.json",
+            "13.0.4",
+            "lib",
+            "net6.0",
+            "Newtonsoft.Json.dll");
+
+        Assert.Equal(
+            "nuget:newtonsoft.json/13.0.4/lib/net6.0/Newtonsoft.Json.dll",
+            CorpusSensor.PortablePath(
+                assembly,
+                Path.Combine(Path.GetTempPath(), "custom-nuget-root")));
+    }
+
+    [Fact]
+    public void Compare_DoesNotGateFidelityCountsWhenPinnedSamplesDiffer()
+    {
+        var baseline = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: FidelityMethods(("One", "Exact")),
+            fidelityCompileCap: 1,
+            fidelityCheckedMethods: 1,
+            fidelityExactMethods: 1);
+        var current = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: FidelityMethods(("Two", "OpcodeDiff")),
+            fidelityCompileCap: 1,
+            fidelityCheckedMethods: 1,
+            fidelityOpcodeDiffMethods: 1);
+
+        var regressions = CorpusSensor.Compare(baseline, current, [], gateAggregateRates: false);
+
+        Assert.DoesNotContain(regressions, regression => regression.StartsWith("fidelity opcode diffs", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Compare_GatesFidelityCountsWhenPinnedSamplesMatch()
+    {
+        var baseline = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: FidelityMethods(("One", "Exact")),
+            fidelityCompileCap: 1,
+            fidelityCheckedMethods: 1,
+            fidelityExactMethods: 1);
+        var current = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: FidelityMethods(("One", "OpcodeDiff")),
+            fidelityCompileCap: 1,
+            fidelityCheckedMethods: 1,
+            fidelityOpcodeDiffMethods: 1);
+
+        var regressions = CorpusSensor.Compare(baseline, current, [], gateAggregateRates: false);
+
+        Assert.Contains(regressions, regression => regression.StartsWith("fidelity opcode diffs (pinned)", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Compare_GatesOperandDiffsWhenPinnedSamplesMatch()
+    {
+        var baseline = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: FidelityMethods(("One", "Exact")),
+            fidelityCompileCap: 1,
+            fidelityCheckedMethods: 1,
+            fidelityExactMethods: 1);
+        var current = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: FidelityMethods(("One", "OperandDiff")),
+            fidelityCompileCap: 1,
+            fidelityCheckedMethods: 1,
+            fidelityOperandDiffMethods: 1);
+
+        var regressions = CorpusSensor.Compare(baseline, current, [], gateAggregateRates: false);
+
+        Assert.Contains(
+            regressions,
+            regression => regression.StartsWith("fidelity operand diffs (pinned)", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Compare_RejectsFidelityOracleMismatch()
+    {
+        var baseline = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: FidelityMethods(("One", "Exact")),
+            fidelityCompileCap: 1,
+            fidelityCheckedMethods: 1,
+            fidelityExactMethods: 1);
+        var current = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: FidelityMethods(("One", "Exact")),
+            fidelityCompileCap: 1,
+            fidelityCheckedMethods: 1,
+            fidelityExactMethods: 1,
+            fidelityOracle: CorpusFidelityOracle.ReturnToSender);
+
+        var regressions = CorpusSensor.Compare(baseline, current, [], gateAggregateRates: false);
+
+        Assert.Contains(
+            regressions,
+            regression => regression == "fidelity oracle differs (baseline compile-back, current rts-parity)");
+        string report = CorpusSensor.QualityMetricChangesForTesting(baseline, current);
+        Assert.Contains("Fidelity exact (oracle differs)", report);
+    }
+
+    [Fact]
+    public void Compare_RejectsFidelityContractMismatch()
+    {
+        var baseline = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: FidelityMethods(("One", "Exact")),
+            fidelityCompileCap: 1,
+            fidelityCheckedMethods: 1,
+            fidelityExactMethods: 1,
+            fidelityContractVersion: 0);
+        var current = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: FidelityMethods(("One", "Exact")),
+            fidelityCompileCap: 1,
+            fidelityCheckedMethods: 1,
+            fidelityExactMethods: 1);
+
+        var regressions = CorpusSensor.Compare(baseline, current, [], gateAggregateRates: false);
+
+        Assert.Contains(
+            regressions,
+            regression => regression
+                == $"fidelity contract differs (baseline v0, current v{FidelityCheck.CurrentContractVersion})");
+        string report = CorpusSensor.QualityMetricChangesForTesting(baseline, current);
+        Assert.Contains("Fidelity exact (contract differs)", report);
+    }
+
+    [Fact]
+    public void AlignReturnToSenderResults_ReportsUnavailableTarget()
+    {
+        var target = new FidelityCheck.CompileBackResult(
+            "Fixture",
+            "Method",
+            1,
+            "(corelib:System.Int32) -> corelib:System.Int32",
+            FidelityCheck.CompileBackStatus.Exact,
+            "ldarg.1 ret",
+            "ldarg.1 ret",
+            Detail: null);
+
+        var result = Assert.Single(
+            CorpusSensor.AlignReturnToSenderResultsForTesting(
+                [target],
+                Array.Empty<ReturnToSender.Result>()));
+
+        Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, result.Status);
+        Assert.Equal("return-to-sender-target-unavailable", result.Detail);
+        Assert.Equal("return-to-sender", result.CaptureDetail);
+        var buckets = FidelityCheck.SummarizeFailures(
+            [result],
+            FidelityCheck.CompileBackStatus.ContextFail);
+        Assert.Equal(1, buckets["return-to-sender target unavailable"].Count);
+    }
+
+    [Fact]
+    public void AlignReturnToSenderResults_PreservesFidelityContractEvidence()
+    {
+        var target = CompileBackResult("Method", FidelityCheck.CompileBackStatus.Exact);
+        var fidelityDiff = new IlBodyDiffResult(
+            IlBodyDiffOutcome.Exact,
+            Failure: null,
+            Rows: []);
+        var rts = new ReturnToSender.Result(
+            MinimalReturnToSenderPlan("Method"),
+            Source: "",
+            FidelityCheck.CompileBackStatus.Exact,
+            OriginalOpcodes: "ldc.i4 ret",
+            RecompiledOpcodes: "ldc.i4 ret",
+            Detail: null,
+            FidelityDiff: fidelityDiff);
+
+        var aligned = Assert.Single(
+            CorpusSensor.AlignReturnToSenderResultsForTesting([target], [rts]));
+
+        Assert.Same(fidelityDiff, aligned.FidelityDiff);
+    }
+
+    [Fact]
+    public void ReturnToSenderCutover_ContextFailureRetainsEverySelectedTarget()
+    {
+        FidelityCheck.CompileBackTarget[] targets =
+        [
+            new("test.dll", "Fixture", "One", 0, "() -> corelib:System.Int32"),
+            new("test.dll", "Fixture", "Two", 0, "() -> corelib:System.Int32"),
+        ];
+
+        var results = CorpusSensor.EvaluateReturnToSenderCutoverTargetsForTesting(
+            targets,
+            () => throw new InvalidOperationException(
+                "Compilation reference preparation failed with ReferencePlatformSelectionUnavailable."));
+
+        Assert.Equal(2, results.Count);
+        Assert.All(results, result =>
+        {
+            Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, result.Status);
+            Assert.Contains("ReferencePlatformSelectionUnavailable", result.Detail);
+            Assert.Equal(
+                "return-to-sender-cutover; compile-back-floor=false",
+                result.CaptureDetail);
+        });
+        var buckets = FidelityCheck.SummarizeFailures(
+            results,
+            FidelityCheck.CompileBackStatus.ContextFail);
+        Assert.Equal(2, buckets["return-to-sender context unavailable"].Count);
+    }
+
+    /// <summary>
+    /// The contract must compose every declared <see cref="IlBodyDiffNormalization"/>
+    /// option. The enforcement set is derived from the enum rather than restated,
+    /// so a newly declared option fails here until someone decides explicitly
+    /// whether the compile-back oracle should apply it — a stale entry and a
+    /// missing entry both fail, instead of the pin silently drifting.
+    ///
+    /// The version is pinned alongside it, because changing which normalizations the
+    /// comparison applies changes what "exact" means for every persisted corpus
+    /// baseline; the version must move with the set.
+    /// </summary>
+    [Fact]
+    public void FidelityContract_ComposesAllIlBodyNormalizations()
+    {
+        IlBodyDiffNormalization allDeclared = Enum.GetValues<IlBodyDiffNormalization>()
+            .Where(option => option != IlBodyDiffNormalization.None)
+            .Aggregate(IlBodyDiffNormalization.None, (all, option) => all | option);
+
+        Assert.Equal(FidelityCheck.ContractBodyDiffNormalization, allDeclared);
+        Assert.Equal(3, FidelityCheck.CurrentContractVersion);
+    }
+
+    [Fact]
+    public void ClassifyStatus_RequiresContractBodyEqualityForExact()
+    {
+        var exact = new IlBodyDiffResult(
+            IlBodyDiffOutcome.Exact,
+            Failure: null,
+            Rows: []);
+        var divergent = new IlBodyDiffResult(
+            IlBodyDiffOutcome.OperandDiff,
+            Failure: null,
+            Rows:
+            [
+                new IlDiffRow(
+                    0,
+                    IlDiffKind.Remove,
+                    new CanonicalIlOperation(0, "ldc.i4", new IlOperandIdentity(IlOperandIdentityKind.Immediate, "5")),
+                    "Removed IL operation 'ldc.i4 5'"),
+            ]);
+        var unavailable = new IlBodyDiffResult(
+            IlBodyDiffOutcome.Unavailable,
+            Failure: "body decode failed",
+            Rows: []);
+
+        Assert.Equal(
+            FidelityCheck.CompileBackStatus.Exact,
+            FidelityCheck.ClassifyStatus(isFull: true, opcodesExact: true, fidelityDiff: exact));
+        Assert.Equal(
+            FidelityCheck.CompileBackStatus.OperandDiff,
+            FidelityCheck.ClassifyStatus(isFull: true, opcodesExact: true, fidelityDiff: divergent));
+        Assert.Equal(
+            FidelityCheck.CompileBackStatus.OpcodeDiff,
+            FidelityCheck.ClassifyStatus(isFull: true, opcodesExact: false, fidelityDiff: divergent));
+        Assert.Equal(
+            FidelityCheck.CompileBackStatus.NotFull,
+            FidelityCheck.ClassifyStatus(isFull: false, opcodesExact: true, fidelityDiff: divergent));
+        Assert.Equal(
+            FidelityCheck.CompileBackStatus.FidelityUnavailable,
+            FidelityCheck.ClassifyStatus(isFull: true, opcodesExact: true, fidelityDiff: null));
+        Assert.Equal(
+            FidelityCheck.CompileBackStatus.FidelityUnavailable,
+            FidelityCheck.ClassifyStatus(isFull: true, opcodesExact: true, fidelityDiff: unavailable));
+    }
+
+    [Fact]
+    public void CorpusSchemaV4_DeserializesAsUnversionedFidelityContract()
+    {
+        var v4 = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: null) with
+        {
+            SchemaVersion = 4,
+        };
+
+        string json = JsonSerializer.Serialize(v4)
+            .Replace(
+                $"\"ContractVersion\":{CorpusSensor.CurrentFidelityContractVersion},",
+                "",
+                StringComparison.Ordinal);
+        var restored = JsonSerializer.Deserialize<CorpusSensorSnapshot>(json);
+
+        Assert.NotNull(restored);
+        Assert.Equal(4, restored.SchemaVersion);
+        Assert.Equal(0, restored.Metrics.Fidelity.ContractVersion);
+        Assert.Equal(7, CorpusSensor.CurrentSchemaVersion);
+        Assert.Equal(
+            FidelityCheck.CurrentContractVersion,
+            CorpusSensor.CurrentFidelityContractVersion);
+    }
+
+    [Fact]
+    public void SummarizeReturnToSenderParity_ClassifiesRescuedSameAndWorse()
+    {
+        var exact = CompileBackResult("Exact", FidelityCheck.CompileBackStatus.Exact);
+        var rescued = CompileBackResult("Rescued", FidelityCheck.CompileBackStatus.OpcodeDiff);
+        var unavailable = CompileBackResult("Unavailable", FidelityCheck.CompileBackStatus.FidelityUnavailable);
+        var worse = CompileBackResult("Worse", FidelityCheck.CompileBackStatus.Exact);
+
+        var parity = CorpusSensor.SummarizeReturnToSenderParityForTesting(
+            [exact, rescued, unavailable, worse],
+            [
+                exact,
+                rescued with { Status = FidelityCheck.CompileBackStatus.Exact },
+                unavailable with { Status = FidelityCheck.CompileBackStatus.Exact },
+                worse with { Status = FidelityCheck.CompileBackStatus.OpcodeDiff },
+            ]);
+
+        Assert.Equal(2, parity.RescuedMethods);
+        Assert.Equal(1, parity.SameMethods);
+        Assert.Equal(1, parity.WorseMethods);
+        Assert.Equal(4, parity.ComparedMethods);
+    }
+
+    [Fact]
+    public void Compare_GatesReturnToSenderParityWhenSampleMatches()
+    {
+        var baseline = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: FidelityMethods(("One", "Exact")),
+            fidelityCompileCap: 1,
+            fidelityCheckedMethods: 1,
+            fidelityExactMethods: 1,
+            fidelityOracle: CorpusFidelityOracle.ReturnToSender,
+            returnToSenderParity: new ReturnToSenderParityMetrics(0, 1, 0));
+        var current = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: FidelityMethods(("One", "OpcodeDiff")),
+            fidelityCompileCap: 1,
+            fidelityCheckedMethods: 1,
+            fidelityOpcodeDiffMethods: 1,
+            fidelityOracle: CorpusFidelityOracle.ReturnToSender,
+            returnToSenderParity: new ReturnToSenderParityMetrics(0, 0, 1));
+
+        var regressions = CorpusSensor.Compare(baseline, current, [], gateAggregateRates: false);
+
+        Assert.Contains(
+            regressions,
+            regression => regression.StartsWith("RTS parity worse methods increased", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void DeterministicCompileBackTargetAttempts_UsesStableSampleRegardlessOfInputOrder()
+    {
+        string assemblyPath = Path.Combine(Environment.CurrentDirectory, "pinned.dll");
+        var methods = Enumerable.Range(0, 105)
+            .Select(i => SnapshotMethod($"M{i:000}", assemblyPath: "pinned.dll", fidelityCheck: "not-sampled"))
+            .Append(SnapshotMethod("<Generated>", assemblyPath: "pinned.dll", fidelityCheck: "not-sampled"))
+            .ToArray();
+
+        var forward = CorpusSensor.DeterministicCompileBackTargetAttemptsForTesting(methods, assemblyPath, cap: 1);
+        var reversed = CorpusSensor.DeterministicCompileBackTargetAttemptsForTesting(methods.Reverse().ToArray(), assemblyPath, cap: 1);
+
+        Assert.Equal(100, forward.Count);
+        Assert.Equal(
+            forward.Select(target => $"{target.Type}::{target.Method}{target.Signature}"),
+            reversed.Select(target => $"{target.Type}::{target.Method}{target.Signature}"));
+        Assert.DoesNotContain(forward, target => target.Method.Contains('<', StringComparison.Ordinal));
+        Assert.All(forward, target => Assert.Equal(assemblyPath, target.AssemblyPath));
+    }
+
+    [Fact]
+    public void DeterministicReturnToSenderCutoverTargets_SelectsExactCapBeforeEitherOracle()
+    {
+        string assemblyPath = Path.Combine(Environment.CurrentDirectory, "pinned.dll");
+        CorpusMethodSnapshot[] methods =
+        [
+            SnapshotMethod("LegacyExact", assemblyPath: "pinned.dll", fidelityCheck: "Exact"),
+            SnapshotMethod("LegacyUnavailable", assemblyPath: "pinned.dll", fidelityCheck: "FidelityUnavailable"),
+            SnapshotMethod("LegacyContextFail", assemblyPath: "pinned.dll", fidelityCheck: "ContextFail"),
+            SnapshotMethod("LegacyRecompileFail", assemblyPath: "pinned.dll", fidelityCheck: "RecompileFail"),
+            SnapshotMethod("LegacyNotFull", assemblyPath: "pinned.dll", fidelityCheck: "NotFull"),
+            SnapshotMethod("<Owner>b__0_0", assemblyPath: "pinned.dll", fidelityCheck: "Exact"),
+        ];
+
+        var selected = CorpusSensor.DeterministicReturnToSenderCutoverTargetsForTesting(
+            methods,
+            assemblyPath,
+            cap: 4);
+        var reordered = CorpusSensor.DeterministicReturnToSenderCutoverTargetsForTesting(
+            methods.Reverse().ToArray(),
+            assemblyPath,
+            cap: 4);
+
+        Assert.Equal(4, selected.Count);
+        Assert.DoesNotContain(selected, target => target.Method.StartsWith("<", StringComparison.Ordinal));
+        Assert.Equal(
+            selected.Select(target => $"{target.Type}::{target.Method}#{target.Overload}{target.Signature}"),
+            reordered.Select(target => $"{target.Type}::{target.Method}#{target.Overload}{target.Signature}"));
+        Assert.Contains(selected, target => target.Method == "LegacyContextFail");
+    }
+
+    [Fact]
+    public void DeterministicReturnToSenderCutoverTargets_FailsWhenExactCapIsUnavailable()
+    {
+        string assemblyPath = Path.Combine(Environment.CurrentDirectory, "pinned.dll");
+        CorpusMethodSnapshot[] methods =
+        [
+            SnapshotMethod("Only", assemblyPath: "pinned.dll"),
+            SnapshotMethod("<Generated>", assemblyPath: "pinned.dll"),
+        ];
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            CorpusSensor.DeterministicReturnToSenderCutoverTargetsForTesting(
+                methods,
+                assemblyPath,
+                cap: 2));
+
+        Assert.Contains("requires exactly 2 eligible methods", exception.Message);
+        Assert.Contains("but found 1", exception.Message);
+    }
+
+    [Fact]
+    public void SelectThenEvaluateNativeFirst_CompletesEveryPhaseAcrossAssemblies()
+    {
+        var events = new List<string>();
+
+        var results = CorpusSensor.SelectThenEvaluateNativeFirst(
+            new[] { "A", "B" },
+            assembly =>
+            {
+                events.Add($"select:{assembly}");
+                return $"{assembly}:target";
+            },
+            target =>
+            {
+                events.Add($"native:{target}");
+                return $"{target}:native";
+            },
+            (target, native) =>
+            {
+                events.Add($"legacy:{target}");
+                return $"{native}:legacy";
+            });
+
+        Assert.Equal(
+        [
+            "select:A",
+            "select:B",
+            "native:A:target",
+            "native:B:target",
+            "legacy:A:target",
+            "legacy:B:target",
+        ],
+            events);
+        Assert.Equal(
+            ["A:target:native:legacy", "B:target:native:legacy"],
+            results);
+    }
+
+    [Fact]
+    public void SummarizeReturnToSenderCutover_SeparatesExactAndAvailabilityChanges()
+    {
+        FidelityCheck.CompileBackResult[] legacy =
+        [
+            CompileBackResult("A", FidelityCheck.CompileBackStatus.Exact),
+            CompileBackResult("B", FidelityCheck.CompileBackStatus.Exact),
+            CompileBackResult("C", FidelityCheck.CompileBackStatus.RecompileFail),
+            CompileBackResult("D", FidelityCheck.CompileBackStatus.NotFull),
+            CompileBackResult("E", FidelityCheck.CompileBackStatus.OpcodeDiff),
+        ];
+        FidelityCheck.CompileBackResult[] native =
+        [
+            CompileBackResult("A", FidelityCheck.CompileBackStatus.Exact),
+            CompileBackResult("B", FidelityCheck.CompileBackStatus.ContextFail),
+            CompileBackResult("C", FidelityCheck.CompileBackStatus.OpcodeDiff),
+            CompileBackResult("D", FidelityCheck.CompileBackStatus.NotFull),
+            CompileBackResult("E", FidelityCheck.CompileBackStatus.Exact),
+        ];
+
+        var metrics = CorpusSensor.SummarizeReturnToSenderCutoverForTesting(
+            legacy,
+            native);
+
+        Assert.Equal(5, metrics.SelectedMethods);
+        Assert.Equal(3, metrics.NativeAvailableMethods);
+        Assert.Equal(2, metrics.NativeUnavailableMethods);
+        Assert.Equal(3, metrics.LegacyAvailableMethods);
+        Assert.Equal(2, metrics.LegacyUnavailableMethods);
+        Assert.Equal(1, metrics.ExactLossMethods);
+        Assert.Equal(1, metrics.AvailabilityLossMethods);
+        Assert.Equal(1, metrics.ExactGainMethods);
+        Assert.Equal(1, metrics.AvailabilityGainMethods);
+        Assert.Equal(2, metrics.SameStatusMethods);
+        Assert.Equal(0, metrics.CompileBackFloorAppliedMethods);
+    }
+
+    [Fact]
+    public void Compare_ReturnToSenderCutover_GatesLossesAndCompileBackFloor()
+    {
+        var methods = FidelityMethods(("One", "Exact"));
+        var run = new CorpusRunIdentity(
+            SourceRevision: new string('a', 40),
+            SourceState: "clean",
+            Compiler: "Roslyn test",
+            Runtime: ".NET test",
+            OperatingSystem: "TestOS",
+            ProcessArchitecture: "X64");
+        var mvid = Guid.Parse("11111111-1111-1111-1111-111111111111");
+        var baseline = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: methods,
+            fidelityCompileCap: 1,
+            fidelityCheckedMethods: 1,
+            fidelityExactMethods: 1,
+            fidelityOracle: CorpusFidelityOracle.ReturnToSenderCutover,
+            returnToSenderCutover: new(1, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0),
+            schemaVersion: CorpusSensor.CurrentSchemaVersion,
+            runIdentity: run,
+            moduleVersionId: mvid);
+        var current = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: methods,
+            fidelityCompileCap: 1,
+            fidelityCheckedMethods: 1,
+            fidelityExactMethods: 1,
+            fidelityOracle: CorpusFidelityOracle.ReturnToSenderCutover,
+            returnToSenderCutover: new(1, 1, 0, 1, 0, 1, 1, 0, 0, 0, 1),
+            schemaVersion: CorpusSensor.CurrentSchemaVersion,
+            runIdentity: run,
+            moduleVersionId: mvid);
+
+        var regressions = CorpusSensor.Compare(baseline, current, [], gateAggregateRates: false);
+
+        Assert.Contains(regressions, regression =>
+            regression.Contains("RTS cutover exact losses increased", StringComparison.Ordinal));
+        Assert.Contains(regressions, regression =>
+            regression.Contains("RTS cutover availability losses increased", StringComparison.Ordinal));
+        Assert.Contains(regressions, regression =>
+            regression.Contains("RTS cutover compile-back floor applications increased", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ReturnToSenderCutover_RealFixtureRetainsEveryNativePairWithoutFloor()
+    {
+        string assemblyPath = Path.GetFullPath(FixtureCatalog.DecompilerLadderRung5.AssemblyPath());
+
+        var snapshot = CorpusSensor.CaptureReturnToSenderCutoverForTesting(
+            [assemblyPath],
+            fidelityCap: 2);
+        var selected = Assert.IsType<ReturnToSenderCutoverMetrics>(
+            snapshot.Metrics.Fidelity.ReturnToSenderCutover);
+        var sampledMethods = snapshot.Methods!
+            .Where(method => method.FidelityCheck != "not-sampled")
+            .ToArray();
+
+        Assert.Equal(2, selected.SelectedMethods);
+        Assert.Equal(2, selected.NativeAvailableMethods + selected.NativeUnavailableMethods);
+        Assert.Equal(2, sampledMethods.Length);
+        Assert.All(sampledMethods, method =>
+        {
+            Assert.Equal("return-to-sender-cutover; compile-back-floor=false", method.FidelityCapture);
+            Assert.NotNull(method.FidelityReference);
+        });
+        Assert.Equal(0, selected.CompileBackFloorAppliedMethods);
+        Assert.NotNull(snapshot.RunIdentity);
+        Assert.NotEqual("unknown", snapshot.RunIdentity.SourceRevision);
+        Assert.Equal(40, snapshot.RunIdentity.SourceRevision.Length);
+        Assert.True(snapshot.RunIdentity.SourceState is "clean" or "dirty");
+        Assert.NotNull(Assert.Single(snapshot.Assemblies).ModuleVersionId);
+
+        string json = JsonSerializer.Serialize(snapshot);
+        var restored = JsonSerializer.Deserialize<CorpusSensorSnapshot>(json);
+        Assert.NotNull(restored);
+        Assert.Equal(snapshot.RunIdentity, restored.RunIdentity);
+        Assert.Equal(
+            snapshot.Metrics.Fidelity.ReturnToSenderCutover,
+            restored.Metrics.Fidelity.ReturnToSenderCutover);
+        Assert.Equal(
+            sampledMethods.Select(method => (method.DisplayMethod, method.FidelityCheck, method.FidelityReference)),
+            restored.Methods!
+                .Where(method => method.FidelityCheck != "not-sampled")
+                .Select(method => (method.DisplayMethod, method.FidelityCheck, method.FidelityReference)));
+    }
+
+    [Fact]
+    public void ReturnToSenderCutoverReport_RendersEveryStatusPairAndLoss()
+    {
+        var snapshot = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 2,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods:
+            [
+                RtsMethod("Loss", fidelityReference: "Exact", fidelityCheck: "ContextFail"),
+                RtsMethod("Gain", fidelityReference: "RecompileFail", fidelityCheck: "Exact"),
+            ],
+            fidelityCompileCap: 2,
+            fidelityCheckedMethods: 2,
+            fidelityExactMethods: 1,
+            fidelityContextFailMethods: 1,
+            fidelityOracle: CorpusFidelityOracle.ReturnToSenderCutover,
+            returnToSenderCutover: new(2, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0),
+            schemaVersion: CorpusSensor.CurrentSchemaVersion);
+
+        var lines = CorpusSensor.ReturnToSenderCutoverPairLinesForTesting(snapshot);
+
+        Assert.Equal(2, lines.Length);
+        Assert.Contains(lines, line =>
+            line.Contains("legacy Exact -> native ContextFail [LOSS]", StringComparison.Ordinal));
+        Assert.Contains(lines, line =>
+            line.Contains("legacy RecompileFail -> native Exact", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void QualityDiffCard_ReturnToSenderCutoverDisclosesIdentityAndAllMetrics()
+    {
+        var run = new CorpusRunIdentity(
+            SourceRevision: new string('a', 40),
+            SourceState: "clean",
+            Compiler: "Roslyn test",
+            Runtime: ".NET test",
+            OperatingSystem: "TestOS",
+            ProcessArchitecture: "X64");
+        var baseline = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: [RtsMethod("One", "Exact", "Exact")],
+            fidelityCompileCap: 1,
+            fidelityCheckedMethods: 1,
+            fidelityExactMethods: 1,
+            fidelityOracle: CorpusFidelityOracle.ReturnToSenderCutover,
+            returnToSenderCutover: new(1, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0),
+            schemaVersion: CorpusSensor.CurrentSchemaVersion,
+            runIdentity: run,
+            moduleVersionId: Guid.Parse("11111111-1111-1111-1111-111111111111"));
+        var current = baseline with
+        {
+            Metrics = baseline.Metrics with
+            {
+                Fidelity = baseline.Metrics.Fidelity with
+                {
+                    ReturnToSenderCutover = new(1, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0),
+                },
+            },
+        };
+
+        string card = CorpusSensor.QualityDiffCardForTesting(baseline, current, []);
+
+        Assert.Contains("Corpus profile: real-world", card);
+        Assert.Contains("Method cap: 100", card);
+        Assert.Contains("Per-assembly fidelity cap: 1", card);
+        Assert.Contains("Source revision: `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` (clean)", card);
+        Assert.Contains("RTS cutover native available", card);
+        Assert.Contains("RTS cutover legacy unavailable", card);
+        Assert.Contains("RTS cutover exact gains", card);
+        Assert.Contains("RTS cutover availability gains", card);
+        Assert.Contains("RTS cutover same status", card);
+        Assert.Contains("RTS cutover compile-back floor applications", card);
+
+        var disclosure = CorpusSensor.CorpusDisclosureLinesForTesting(
+            current with { MethodCap = null });
+        Assert.Contains("Corpus profile: real-world", disclosure);
+        Assert.Contains("Method cap: uncapped", disclosure);
+        Assert.Contains("Per-assembly fidelity cap: 1", disclosure);
+    }
+
+    [Fact]
+    public void Compare_ReturnToSenderCutover_RejectsDifferentModuleIdentity()
+    {
+        var run = new CorpusRunIdentity(
+            SourceRevision: new string('a', 40),
+            SourceState: "clean",
+            Compiler: "Roslyn test",
+            Runtime: ".NET test",
+            OperatingSystem: "TestOS",
+            ProcessArchitecture: "X64");
+        var baseline = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: [RtsMethod("One", "Exact", "Exact")],
+            fidelityCompileCap: 1,
+            fidelityCheckedMethods: 1,
+            fidelityExactMethods: 1,
+            fidelityOracle: CorpusFidelityOracle.ReturnToSenderCutover,
+            returnToSenderCutover: new(1, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0),
+            schemaVersion: CorpusSensor.CurrentSchemaVersion,
+            runIdentity: run,
+            moduleVersionId: Guid.Parse("11111111-1111-1111-1111-111111111111"));
+        var current = baseline with
+        {
+            Assemblies =
+            [
+                new CorpusAssemblySnapshot(
+                    "Test",
+                    "test.dll",
+                    1,
+                    Guid.Parse("22222222-2222-2222-2222-222222222222")),
+            ],
+        };
+
+        var regressions = CorpusSensor.Compare(baseline, current, [], gateAggregateRates: false);
+
+        Assert.Contains("RTS cutover input identity differs from baseline", regressions);
+    }
+
+    [Fact]
+    public void DeepInspectCensus_RetainsNativeReturnToSenderCutoverEvidence()
+    {
+        string root = AuthoredCorpusRatchetTests.FindRepositoryRoot();
+        string workflow = File.ReadAllText(
+            Path.Combine(root, ".github", "workflows", "deep-inspect.yml"));
+
+        Assert.Contains(
+            "artifacts/deep-inspect/rts-cutover-snapshot.json",
+            workflow,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "artifacts/deep-inspect/rts-cutover.txt",
+            workflow,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "--corpus-fidelity-oracle rts-cutover",
+            workflow,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "--corpus-fidelity-cap 50",
+            workflow,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "artifacts/deep-inspect/corpus-assemblies.txt",
+            workflow,
+            StringComparison.Ordinal);
+        Assert.True(
+            workflow.IndexOf(
+                "Record independently selected native RTS cutover evidence",
+                StringComparison.Ordinal)
+            < workflow.IndexOf(
+                "Run real-world corpus sensor",
+                StringComparison.Ordinal),
+            "Native RTS cutover evidence must run before baseline-gated census steps.");
+    }
+
+    [Fact]
+    public void Compare_DoesNotGateSemanticCountsWhenPinnedSamplesDiffer()
+    {
+        var baseline = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: ValidityMethods(("One", "valid")),
+            validityCompileCap: 1,
+            semanticCheckedMethods: 1);
+        var current = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: ValidityMethods(("Two", "semantic-defect:CS0159")),
+            validityCompileCap: 1,
+            semanticCheckedMethods: 1,
+            semanticDefectMethods: 1);
+
+        var regressions = CorpusSensor.Compare(baseline, current, [], gateAggregateRates: false);
+
+        Assert.DoesNotContain(regressions, regression => regression.StartsWith("semantic defect methods", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Compare_GatesSemanticCountsWhenPinnedSamplesMatch()
+    {
+        var baseline = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: ValidityMethods(("One", "valid")),
+            validityCompileCap: 1,
+            semanticCheckedMethods: 1);
+        var current = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: ValidityMethods(("One", "semantic-defect:CS0159")),
+            validityCompileCap: 1,
+            semanticCheckedMethods: 1,
+            semanticDefectMethods: 1);
+
+        var regressions = CorpusSensor.Compare(baseline, current, [], gateAggregateRates: false);
+
+        Assert.Contains(regressions, regression => regression.StartsWith("semantic defect methods (pinned)", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void PinnedGateSummary_MarksSkippedCountGatesAsUngated()
+    {
+        var baseline = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: ValidityMethods(("One", "valid")),
+            validityCompileCap: 1,
+            semanticCheckedMethods: 1);
+        var current = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: ValidityMethods(("Two", "semantic-defect:CS0159")),
+            validityCompileCap: 1,
+            semanticCheckedMethods: 1,
+            semanticDefectMethods: 1);
+
+        string summary = Assert.IsType<string>(
+            CorpusSensor.PinnedGateSummaryForTesting(baseline, current));
+
+        Assert.Contains("Full malformed ungated (sampling differs)", summary);
+        Assert.Contains("semantic defects ungated (sampling differs)", summary);
+        Assert.Contains("fidelity ungated (sampling differs; rely on changed-method fidelity)", summary);
+    }
+
+    [Fact]
+    public void QualityMetricChanges_TreatsSemanticDefectMovementAsContextWhenSamplesDiffer()
+    {
+        var baseline = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 2,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: ValidityMethods(("One", "semantic-defect:CS0159"), ("Two", "valid")),
+            validityCompileCap: 2,
+            semanticCheckedMethods: 2,
+            semanticDefectMethods: 1);
+        var current = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 2,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: ValidityMethods(("Three", "valid"), ("Four", "valid")),
+            validityCompileCap: 2,
+            semanticCheckedMethods: 2,
+            semanticDefectMethods: 0);
+
+        string report = CorpusSensor.QualityMetricChangesForTesting(baseline, current);
+        string semanticRow = report.Split('\n').Single(line => line.Contains("Semantic defects", StringComparison.Ordinal));
+        string malformedRow = report.Split('\n').Single(line => line.Contains("Full malformed", StringComparison.Ordinal));
+
+        Assert.Contains("Semantic defects (sampling differs)", semanticRow);
+        Assert.DoesNotContain("✓", semanticRow);
+        Assert.EndsWith("| 1 (50.00%) → 0 (0.00%) |", semanticRow.TrimEnd());
+        Assert.Contains("Full malformed (sampling differs)", malformedRow);
+        Assert.EndsWith("| 0 → 0 |", malformedRow.TrimEnd());
+    }
+
+    [Fact]
+    public void QualityMetricChanges_ScoresSemanticDefectMovementWhenSamplesMatch()
+    {
+        var baseline = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 2,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: ValidityMethods(("One", "semantic-defect:CS0159"), ("Two", "valid")),
+            validityCompileCap: 2,
+            semanticCheckedMethods: 2,
+            semanticDefectMethods: 1);
+        var current = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 2,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: ValidityMethods(("One", "valid"), ("Two", "valid")),
+            validityCompileCap: 2,
+            semanticCheckedMethods: 2,
+            semanticDefectMethods: 0);
+
+        string report = CorpusSensor.QualityMetricChangesForTesting(baseline, current);
+        string semanticRow = report.Split('\n').Single(line => line.Contains("Semantic defects", StringComparison.Ordinal));
+
+        Assert.Contains("Semantic defects ↓", semanticRow);
+        Assert.Contains("✓", semanticRow);
+        Assert.EndsWith("| 1 (50.00%) → 0 (0.00%) (-1 methods) ✓ |", semanticRow.TrimEnd());
+        Assert.DoesNotContain("sampling differs", report);
+    }
+
+    [Fact]
+    public void QualityMetricChanges_SeparatesSyntacticAndSemanticSamples()
+    {
+        var baseline = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 2,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: ValidityMethods(("One", "semantic-defect:CS0159"), ("Two", "valid")),
+            validityCompileCap: 2,
+            semanticCheckedMethods: 2,
+            semanticDefectMethods: 1);
+        var current = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 2,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: ValidityMethods(("One", "syntax-valid"), ("Two", "syntax-valid")),
+            validityCompileCap: 1,
+            semanticCheckedMethods: 0,
+            semanticDefectMethods: 0);
+
+        string report = CorpusSensor.QualityMetricChangesForTesting(baseline, current);
+
+        Assert.Contains("Full malformed ↓", report);
+        Assert.DoesNotContain("Full malformed (sampling differs)", report);
+        Assert.Contains("Semantic defects (sampling differs)", report);
+    }
+
+    [Fact]
+    public void QualityMetricChanges_TreatsValidityMovementAsContextWithoutMethodDetails()
+    {
+        var baseline = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 2,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: null,
+            validityCompileCap: 2,
+            semanticCheckedMethods: 2,
+            semanticDefectMethods: 1);
+        var current = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 2,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: ValidityMethods(("One", "valid"), ("Two", "valid")),
+            validityCompileCap: 2,
+            semanticCheckedMethods: 2,
+            semanticDefectMethods: 0);
+
+        string report = CorpusSensor.QualityMetricChangesForTesting(baseline, current);
+
+        Assert.Contains("Full malformed (sampling differs)", report);
+        Assert.Contains("Semantic defects (sampling differs)", report);
+    }
+
+    [Fact]
+    public void QualityMetricChanges_TreatsFidelityMovementAsContextWhenSamplesDiffer()
+    {
+        var baseline = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: FidelityMethods(("One", "Exact")),
+            fidelityCompileCap: 1,
+            fidelityCheckedMethods: 1,
+            fidelityExactMethods: 1);
+        var current = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: FidelityMethods(("Two", "OpcodeDiff")),
+            fidelityCompileCap: 1,
+            fidelityCheckedMethods: 1,
+            fidelityOpcodeDiffMethods: 1);
+
+        string report = CorpusSensor.QualityMetricChangesForTesting(baseline, current);
+
+        Assert.Contains("Fidelity opcode diffs (sampling differs)", report);
+        Assert.Contains("Fidelity operand diffs (sampling differs)", report);
+        Assert.Contains("Fidelity unavailable comparisons (sampling differs)", report);
+        Assert.Contains("Fidelity exact (sampling differs)", report);
+        Assert.DoesNotContain("Fidelity opcode diffs ↓", report);
+        Assert.DoesNotContain("✗", report);
+    }
+
+    [Fact]
+    public void CurrentMeasuredDebt_ListsEveryNonZeroFailureClass()
+    {
+        var snapshot = Snapshot(
+            totalMethods: 93,
+            fullyRaisedMethods: 87,
+            fullyRaisedBasisPoints: 9355,
+            pinnedMethods: null,
+            validityCompileCap: 25,
+            fullMalformedMethods: 1,
+            semanticCheckedMethods: 64,
+            semanticDefectMethods: 2,
+            fidelityCompileCap: 25,
+            fidelityCheckedMethods: 64,
+            fidelityExactMethods: 45,
+            fidelityOpcodeDiffMethods: 10,
+            fidelityOperandDiffMethods: 2,
+            fidelityUnavailableMethods: 1,
+            fidelityRecompileFailMethods: 5,
+            fidelityContextFailMethods: 4,
+            passBugs: 1);
+
+        string summary = CorpusSensor.CurrentMeasuredDebtForTesting(snapshot);
+
+        Assert.Equal(
+            "6 methods with detected lowering residue; 1 malformed Full method; "
+            + "2 semantic defects among 64 checked; "
+            + "10 fidelity opcode diffs among 64 checked; "
+            + "2 fidelity operand diffs among 64 checked; "
+            + "1 unavailable fidelity comparison among 64 checked; "
+            + "5 fidelity recompile failures among 64 checked; "
+            + "4 fidelity context failures among 64 checked; 1 pass bug.",
+            summary);
+    }
+
+    [Fact]
+    public void QualityMetricChanges_SeparatesStructuralAndVerifiedRaises()
+    {
+        var baseline = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 2,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods:
+            [
+                ValidityMethod("One", "valid"),
+                ValidityMethod("Two", "semantic-defect:CS0266"),
+            ],
+            validityCompileCap: 2,
+            semanticCheckedMethods: 2,
+            semanticDefectMethods: 1);
+        var current = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 2,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods:
+            [
+                ValidityMethod("One", "valid"),
+                ValidityMethod("Two", "valid"),
+            ],
+            validityCompileCap: 2,
+            semanticCheckedMethods: 2);
+
+        string report = CorpusSensor.QualityMetricChangesForTesting(baseline, current);
+
+        Assert.Contains("Fully raised ↑", report);
+        Assert.Contains("1 (50.00%) → 2 (100.00%) (+1 methods) ✓", report);
+        Assert.Contains("Detected lowering residue ↓", report);
+        Assert.Contains("0 (0.00%) → 0 (0.00%) (0 methods) |", report);
+        Assert.True(
+            report.IndexOf("| Fully raised", StringComparison.Ordinal)
+            > report.IndexOf("| Detected lowering residue", StringComparison.Ordinal));
+        Assert.True(
+            report.IndexOf("| Fully raised", StringComparison.Ordinal)
+            > report.IndexOf("| Pass bugs", StringComparison.Ordinal));
+        Assert.Equal((2, 2), CorpusSensor.VerifiedFullyRaisedForTesting(current));
+    }
+
+    [Fact]
+    public void VerifiedFullyRaised_UsesCompletedOutcomes()
+    {
+        var snapshot = Snapshot(
+            totalMethods: 3,
+            fullyRaisedMethods: 3,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods:
+            [
+                ValidityMethod("Valid", "valid"),
+                ValidityMethod("SyntaxOnly", "syntax-valid"),
+                ValidityMethod("Malformed", "full-malformed:CS1002"),
+            ],
+            validityCompileCap: 1,
+            semanticCheckedMethods: 1);
+
+        Assert.Equal((1, 2), CorpusSensor.VerifiedFullyRaisedForTesting(snapshot));
+    }
+
+    [Fact]
+    public void QualityMetricChanges_TreatsStructuralPopulationDriftAsContext()
+    {
+        var baseline = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 5_000,
+            pinnedMethods: ValidityMethods(("One", "not-sampled"), ("Two", "not-sampled")));
+        var current = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 2,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: ValidityMethods(("Two", "not-sampled"), ("Three", "not-sampled")));
+
+        string report = CorpusSensor.QualityMetricChangesForTesting(baseline, current);
+        string residue = report.Split('\n').Single(
+            line => line.Contains("Detected lowering residue", StringComparison.Ordinal));
+
+        Assert.Contains("Detected lowering residue (population differs)", residue);
+        Assert.DoesNotContain("✓", residue);
+        Assert.EndsWith("| 1 (50.00%) → 0 (0.00%) |", residue.TrimEnd());
+    }
+
+    [Fact]
+    public void QualityMetricChanges_ReportsDetectedResidueCount()
+    {
+        var methods = ValidityMethods(("One", "not-sampled"));
+        var baseline = Snapshot(
+            totalMethods: 93,
+            fullyRaisedMethods: 87,
+            fullyRaisedBasisPoints: 9_355,
+            pinnedMethods: methods);
+        var current = Snapshot(
+            totalMethods: 93,
+            fullyRaisedMethods: 87,
+            fullyRaisedBasisPoints: 9_355,
+            pinnedMethods: methods);
+
+        string report = CorpusSensor.QualityMetricChangesForTesting(baseline, current);
+
+        Assert.Contains("Detected lowering residue ↓", report);
+        Assert.Contains("6 (6.45%) → 6 (6.45%) (0 methods) |", report);
+    }
+
+    [Fact]
+    public void QualityMetricChanges_GroupsThousandsInLargeDeltas()
+    {
+        // At corpus scale a folded delta must carry the same thousands grouping as its operands
+        // (Markout NumberFormat="N0", issue #3170): the scalar Change<int> count row groups both
+        // operands and the absolute delta, and the composite share row groups its delta-noun count.
+        var methods = ValidityMethods(("One", "valid"), ("Two", "valid"));
+        var baseline = Snapshot(
+            totalMethods: 88_000,
+            fullyRaisedMethods: 80_000,
+            fullyRaisedBasisPoints: 9_091,
+            pinnedMethods: methods,
+            validityCompileCap: 2,
+            fullMalformedMethods: 2_000,
+            semanticCheckedMethods: 2);
+        var current = Snapshot(
+            totalMethods: 88_000,
+            fullyRaisedMethods: 81_624,
+            fullyRaisedBasisPoints: 9_275,
+            pinnedMethods: methods,
+            validityCompileCap: 2,
+            fullMalformedMethods: 3_624,
+            semanticCheckedMethods: 2);
+
+        string report = CorpusSensor.QualityMetricChangesForTesting(baseline, current);
+
+        // Scalar count row: grouped operands + grouped absolute delta.
+        Assert.Contains("2,000 → 3,624 (+1,624)", report);
+        // Composite share row (residue): grouped operands (shape) + grouped delta-noun count (knob).
+        Assert.Contains("8,000 (", report);
+        Assert.Contains("(-1,624 methods)", report);
+    }
+
+    [Fact]
+    public void CurrentMeasuredDebt_ReportsNoneForCleanEnabledChecks()
+    {
+        var snapshot = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 2,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: null,
+            validityCompileCap: 2,
+            semanticCheckedMethods: 2,
+            fidelityCompileCap: 2,
+            fidelityCheckedMethods: 2,
+            fidelityExactMethods: 2);
+
+        Assert.Equal(
+            "none in enabled checks.",
+            CorpusSensor.CurrentMeasuredDebtForTesting(snapshot));
+        Assert.Equal(
+            "Regression verdict: PASS — corpus sensor matched baseline tolerances.",
+            CorpusSensor.RegressionVerdictForTesting(regressionCount: 0));
+        Assert.Equal(
+            "Regression verdict: FAIL — corpus sensor reported regressions; review before merging.",
+            CorpusSensor.RegressionVerdictForTesting(regressionCount: 1));
+    }
+
+    static CorpusSensorSnapshot Snapshot(
+        int totalMethods,
+        int fullyRaisedMethods,
+        int fullyRaisedBasisPoints,
+        IReadOnlyList<CorpusMethodSnapshot>? pinnedMethods,
+        int validityCompileCap = 0,
+        int fullMalformedMethods = 0,
+        int semanticCheckedMethods = 0,
+        int semanticDefectMethods = 0,
+        int fidelityCompileCap = 0,
+        int fidelityCheckedMethods = 0,
+        int fidelityExactMethods = 0,
+        int fidelityOpcodeDiffMethods = 0,
+        int fidelityOperandDiffMethods = 0,
+        int fidelityUnavailableMethods = 0,
+        int fidelityRecompileFailMethods = 0,
+        int fidelityContextFailMethods = 0,
+        int fidelityNotFullMethods = 0,
+        int fidelityContractVersion = CorpusSensor.CurrentFidelityContractVersion,
+        int passBugs = 0,
+        CorpusFidelityOracle fidelityOracle = CorpusFidelityOracle.CompileBack,
+        ReturnToSenderParityMetrics? returnToSenderParity = null,
+        ReturnToSenderCutoverMetrics? returnToSenderCutover = null,
+        CorpusProfile profile = CorpusProfile.RealWorld,
+        IReadOnlyDictionary<string, int>? featureCoverage = null,
+        IReadOnlyDictionary<string, ClassicStateMachineFeatureMetrics>? classicStateMachineCoverage = null,
+        int schemaVersion = 1,
+        CorpusRunIdentity? runIdentity = null,
+        Guid? moduleVersionId = null)
+    {
+        return new CorpusSensorSnapshot(
+            SchemaVersion: schemaVersion,
+            Description: "test",
+            GeneratedUtc: DateTimeOffset.UnixEpoch,
+            ValidityCompileCap: validityCompileCap,
+            FidelityCompileCap: fidelityCompileCap,
+            MethodCap: 100,
+            Tolerances: CorpusSensorTolerances.Default,
+            Assemblies: [new CorpusAssemblySnapshot("Test", "test.dll", totalMethods, moduleVersionId)],
+            Methods: pinnedMethods,
+            Metrics: new CorpusSensorMetrics(
+                TotalMethods: totalMethods,
+                FullyRaisedMethods: fullyRaisedMethods,
+                FullyRaisedBasisPoints: fullyRaisedBasisPoints,
+                ConditionalBranchMethods: 0,
+                ConditionalBranchBasisPoints: 0,
+                ForwardMergeStoppedContainers: 0,
+                ForwardMergeBasisPoints: 0,
+                FullMalformedMethods: fullMalformedMethods,
+                SemanticCheckedMethods: semanticCheckedMethods,
+                SemanticDefectMethods: semanticDefectMethods,
+                PassBugs: passBugs,
+                ResidualBuckets: ImmutableDictionary<string, int>.Empty,
+                Structuring: new StructuringSensorMetrics(0, 0, 0, 0, 0, ImmutableDictionary<string, int>.Empty),
+                Fidelity: new FidelitySensorMetrics(
+                    ContractVersion: fidelityContractVersion,
+                    CheckedMethods: fidelityCheckedMethods,
+                    ExactMethods: fidelityExactMethods,
+                    OpcodeDiffMethods: fidelityOpcodeDiffMethods,
+                    OperandDiffMethods: fidelityOperandDiffMethods,
+                    FidelityUnavailableMethods: fidelityUnavailableMethods,
+                    RecompileFailMethods: fidelityRecompileFailMethods,
+                    ContextFailMethods: fidelityContextFailMethods,
+                    NotFullMethods: fidelityNotFullMethods,
+                    ReturnToSenderParity: returnToSenderParity,
+                    ReturnToSenderCutover: returnToSenderCutover)),
+            FidelityOracle: fidelityOracle,
+            Profile: profile,
+            FeatureCoverage: featureCoverage,
+            ClassicStateMachineCoverage: classicStateMachineCoverage,
+            RunIdentity: runIdentity);
+    }
+
+    static ImmutableDictionary<string, int> CompleteClassicFeatureCoverage()
+        => new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            ["classic-async-methods"] = 1,
+            ["classic-iterator-methods"] = 1,
+            ["classic-async-iterator-methods"] = 1,
+            ["switch-methods"] = 1,
+        }.ToImmutableDictionary(StringComparer.Ordinal);
+
+    static ImmutableDictionary<string, ClassicStateMachineFeatureMetrics> CompleteClassicStateMachineCoverage()
+        => new Dictionary<string, ClassicStateMachineFeatureMetrics>(StringComparer.Ordinal)
+        {
+            ["classic-async"] = new(1, 1, 0),
+            ["classic-iterator"] = new(1, 1, 0),
+            ["classic-async-iterator"] = new(1, 1, 0),
+        }.ToImmutableDictionary(StringComparer.Ordinal);
+
+    static ImmutableDictionary<string, int> CompleteFeatureCoverage()
+        => new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            ["await-recovery-methods"] = 1,
+            ["cross-assembly-requires-unsafe-methods"] = 1,
+            ["legacy-memory-safety-control-methods"] = 1,
+            ["runtime-async-awaiter-methods"] = 1,
+            ["runtime-async-await-using-methods"] = 1,
+            ["runtime-async-exception-methods"] = 1,
+            ["runtime-async-loop-methods"] = 1,
+            ["runtime-async-methods"] = 1,
+            ["union-declarations"] = 1,
+            ["union-switch-methods"] = 1,
+            ["union-types"] = 1,
+            ["updated-memory-safety-methods"] = 1,
+        }.ToImmutableDictionary(StringComparer.Ordinal);
+
+    static IrFunction ImportFirstMethod(string assemblyPath)
+    {
+        using var metadata = CorpusMetadata.Create([assemblyPath]);
+        using var source = MetadataSource.Open(assemblyPath, context: metadata);
+        return IrImporter.GetStableSampleCandidates(source, 1).Single().Build(source);
+    }
+
+    static FidelityCheck.CompileBackResult CompileBackResult(
+        string method,
+        FidelityCheck.CompileBackStatus status)
+        => new(
+            "Fixture",
+            method,
+            0,
+            "() -> corelib:System.Int32",
+            status,
+            "ldc.i4.0 ret",
+            "ldc.i4.0 ret",
+            Detail: null);
+
+    static CompileBackReconstructionPlan MinimalReturnToSenderPlan(string method)
+        => new(
+            AssemblyPath: "",
+            TargetMethod: new CompileBackMethodIdentity(
+                Type: "Fixture",
+                Method: method,
+                Overload: 0,
+                Signature: "() -> corelib:System.Int32"),
+            Module: new CompileBackModuleRequirement([], [], []),
+            Types: [],
+            PrintRequests: [],
+            Diagnostics: []);
+
+    static IReadOnlyList<CorpusMethodSnapshot> PinnedMethods(int fullyRaised, int conditional)
+    {
+        var methods = ImmutableArray.CreateBuilder<CorpusMethodSnapshot>(10);
+        for (int i = 0; i < 10; i++)
+        {
+            bool isConditional = i < conditional;
+            bool isFullyRaised = i < fullyRaised;
+            methods.Add(new CorpusMethodSnapshot(
+                Assembly: "Pinned",
+                AssemblyPath: "nuget:pinned/lib.dll",
+                Type: "T",
+                Method: $"M{i}",
+                Overload: 0,
+                Signature: "()",
+                Fidelity: isFullyRaised ? "Full" : "Partial",
+                FullyRaised: isFullyRaised,
+                Residual: isConditional ? "structuring: conditional-branch" : isFullyRaised ? null : "fidelity: unsupported-node",
+                PassBug: null,
+                Validity: "not-sampled",
+                FidelityCheck: "not-sampled",
+                ControlFlowSites: [new("branch", 0x10 + i, 0, Raised: true)]));
+        }
+        return methods.ToImmutable();
+    }
+
+    static CorpusMethodSnapshot ValidityMethod(string method, string validity)
+        => new(
+            Assembly: "Fixture",
+            AssemblyPath: "fixture.dll",
+            Type: "T",
+            Method: method,
+            Overload: 0,
+            Signature: "()",
+            Fidelity: "Full",
+            FullyRaised: true,
+            Residual: null,
+            PassBug: null,
+            Validity: validity,
+            FidelityCheck: "not-sampled");
+
+    static CorpusMethodSnapshot SnapshotMethod(
+        string method,
+        string assemblyPath = "nuget:pinned/lib.dll",
+        string validity = "not-sampled",
+        string fidelityCheck = "not-sampled",
+        string? fidelityReference = null)
+        => new(
+            Assembly: "Pinned",
+            AssemblyPath: assemblyPath,
+            Type: "T",
+            Method: method,
+            Overload: 0,
+            Signature: "()",
+            Fidelity: "Full",
+            FullyRaised: true,
+            Residual: null,
+            PassBug: null,
+            Validity: validity,
+            FidelityCheck: fidelityCheck,
+            FidelityReference: fidelityReference);
+
+    static CorpusMethodSnapshot ControlFlowMethod(
+        string method,
+        bool raised,
+        string assemblyPath = "nuget:pinned/lib.dll")
+        => SnapshotMethod(method, assemblyPath) with
+        {
+            ControlFlowSites = [new("switch-branch", 0x10, 0, raised)],
+        };
+
+    static CorpusMethodSnapshot OutputControlFlowMethod(
+        string method,
+        bool hasResidual)
+        => SnapshotMethod(method, "nuget:pinned/lib.dll") with
+        {
+            ControlFlowSites = hasResidual
+                ?
+                [
+                    new("switch-branch", 0x08, 0, Raised: true),
+                    new(
+                        "conditional-branch",
+                        0x10,
+                        0,
+                        Raised: false,
+                        OutputIdentity: "output@conditional-branch@block_IL_0010->IL_0020#0"),
+                ]
+                : [new("switch-branch", 0x08, 0, Raised: true)],
+        };
+
+    sealed class RebuildSwitchBranchPass : IIrPass
+    {
+        public string Name => "rebuild-switch-branch";
+
+        public void Run(IrFunction function, PassContext context)
+        {
+            var branch = Assert.Single(function.Descendants.OfType<SwitchBranch>());
+            branch.ReplaceWith(branch.Clone());
+        }
+    }
+
+    sealed class ReparentSwitchBranchPass : IIrPass
+    {
+        public string Name => "reparent-switch-branch";
+
+        public void Run(IrFunction function, PassContext context)
+        {
+            var branch = Assert.Single(function.Descendants.OfType<SwitchBranch>());
+            var block = Assert.IsType<Block>(branch.Parent);
+            var replacement = new Block(block.StartOffset + 1);
+            foreach (var child in block.DetachChildren())
+                replacement.Add(child);
+            block.ReplaceWith(replacement);
+        }
+    }
+
+    sealed class ReplaceLocalFunctionBodyWithBranchPass(string name) : IIrPass
+    {
+        public string Name => "replace-local-function-body-with-branch";
+
+        public void Run(IrFunction function, PassContext context)
+        {
+            var localFunction = Assert.Single(
+                function.Descendants.OfType<LocalFunctionStatement>(),
+                local => local.Name == name);
+            var block = localFunction.Body.Blocks[0];
+            block.DetachChildren();
+            block.Add(new Branch(block.StartOffset));
+        }
+    }
+
+    sealed class RemoveLocalFunctionPass(string name) : IIrPass
+    {
+        public string Name => "remove-local-function";
+
+        public void Run(IrFunction function, PassContext context)
+        {
+            var localFunction = Assert.Single(
+                function.Descendants.OfType<LocalFunctionStatement>(),
+                local => local.Name == name);
+            localFunction.Detach();
+        }
+    }
+
+    static CorpusMethodSnapshot ClassicKickoff(
+        string method,
+        bool fullyRaised,
+        string type = "ClassicStateMachineFixtures")
+        => new(
+            Assembly: "Fixture",
+            AssemblyPath: "fixture.dll",
+            Type: type,
+            Method: method,
+            Overload: 0,
+            Signature: "()",
+            Fidelity: fullyRaised ? "Full" : "Partial",
+            FullyRaised: fullyRaised,
+            Residual: fullyRaised ? null : "fidelity: unsupported-node",
+            PassBug: null,
+            Validity: "not-sampled",
+            FidelityCheck: "not-sampled");
+
+    static CorpusMethodSnapshot ResidualMethod(
+        string method,
+        string residual,
+        params CorpusFidelityCauseSnapshot[] causes)
+        => new(
+            Assembly: "Pinned",
+            AssemblyPath: "nuget:pinned/lib.dll",
+            Type: "T",
+            Method: method,
+            Overload: 0,
+            Signature: "()",
+            Fidelity: "Partial",
+            FullyRaised: false,
+            Residual: residual,
+            PassBug: null,
+            Validity: "not-sampled",
+            FidelityCheck: "not-sampled",
+            FidelityCauses: causes.Length == 0 ? null : causes);
+
+    static CorpusMethodSnapshot RtsMethod(
+        string method,
+        string? fidelityReference,
+        string fidelityCheck)
+        => SnapshotMethod(
+            method,
+            fidelityCheck: fidelityCheck,
+            fidelityReference: fidelityReference);
+
+    static CorpusSensorSnapshot ReturnToSenderSnapshot(params CorpusMethodSnapshot[] methods)
+        => Snapshot(
+            totalMethods: methods.Length,
+            fullyRaisedMethods: methods.Length,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: methods,
+            fidelityOracle: CorpusFidelityOracle.ReturnToSender);
+
+    static IReadOnlyList<CorpusMethodSnapshot> ValidityMethods(
+        params (string Method, string Validity)[] values)
+    {
+        var methods = ImmutableArray.CreateBuilder<CorpusMethodSnapshot>(values.Length);
+        foreach (var value in values)
+        {
+            methods.Add(SnapshotMethod(value.Method, validity: value.Validity));
+        }
+        return methods.ToImmutable();
+    }
+
+    static IReadOnlyList<CorpusMethodSnapshot> FidelityMethods(
+        params (string Method, string FidelityCheck)[] values)
+    {
+        var methods = ImmutableArray.CreateBuilder<CorpusMethodSnapshot>(values.Length);
+        foreach (var value in values)
+        {
+            methods.Add(SnapshotMethod(value.Method, fidelityCheck: value.FidelityCheck));
+        }
+        return methods.ToImmutable();
+    }
+
+    [Fact]
+    public void QualityDiffCard_RealWorld_RendersEntirelyThroughMarkout()
+    {
+        var methods = ValidityMethods(("One", "valid"), ("Two", "semantic-defect:CS0159"));
+        var baseline = Snapshot(
+            totalMethods: 8_000,
+            fullyRaisedMethods: 7_000,
+            fullyRaisedBasisPoints: 8_750,
+            pinnedMethods: methods,
+            validityCompileCap: 2,
+            fullMalformedMethods: 40,
+            semanticCheckedMethods: 2,
+            semanticDefectMethods: 1,
+            featureCoverage: CompleteFeatureCoverage(),
+            classicStateMachineCoverage: CompleteClassicStateMachineCoverage());
+        var current = Snapshot(
+            totalMethods: 8_000,
+            fullyRaisedMethods: 7_100,
+            fullyRaisedBasisPoints: 8_875,
+            pinnedMethods: methods,
+            validityCompileCap: 2,
+            fullMalformedMethods: 42,
+            semanticCheckedMethods: 2,
+            semanticDefectMethods: 1,
+            featureCoverage: CompleteFeatureCoverage(),
+            classicStateMachineCoverage: CompleteClassicStateMachineCoverage());
+
+        string card = CorpusSensor.QualityDiffCardForTesting(
+            baseline, current,
+            regressions: ["Full malformed methods (pinned) increased by 2 (baseline 40, current 42, tolerance 0)"],
+            risky: false,
+            baselineRef: "abc123");
+
+        // The metric table now leads the card, immediately under the heading, so the
+        // glyph table renders as the first thing a reviewer sees.
+        Assert.StartsWith("### Decompiler quality diff\n\n| Metric | Change |\n| ------ | ------ |\n", card);
+        // Scalar fields render as two bulleted groups under soft (bold) headers.
+        Assert.Contains(
+            "**Input**\n\n"
+            + "- Corpus: test 1 assembly, 8,000 methods\n"
+            + "- Corpus profile: real-world\n"
+            + "- Method cap: 100\n"
+            + "- Baseline ref: `abc123`\n"
+            + "\n"
+            + "**Analysis**\n\n"
+            + "- Correctness coverage: validity compiled 2 methods (compile-cap 2; per-sample, not corpus-wide); fidelity not run\n"
+            + "- Pinned control-flow raise gate: 1 comparison input mismatch(es); review required.\n"
+            + "- Current measured debt: 900 methods with detected lowering residue; 42 malformed Full methods; 1 semantic defect among 2 checked.\n"
+            + "- Regression verdict: FAIL — corpus sensor reported regressions; review before merging.\n",
+            card);
+        Assert.Contains("Feature evidence:", card);
+        Assert.Contains("- `runtime-async-methods`: 1", card);
+        Assert.Contains("Classic state-machine kickoff evidence:", card);
+        Assert.Contains("- `classic-async`: population 1, fully raised 1, residual 0", card);
+        Assert.Contains("\n\n- Full malformed methods (pinned) increased by 2 (baseline 40, current 42, tolerance 0)", card);
+    }
+
+    [Fact]
+    public void QualityDiffCard_OptInNet11_UsesProfileHeadingAndSkipsPinnedGate()
+    {
+        var methods = ValidityMethods(("One", "valid"));
+        var baseline = Snapshot(8_000, 7_000, 8_750, methods, profile: CorpusProfile.OptInNet11);
+        var current = Snapshot(8_000, 7_100, 8_875, methods, profile: CorpusProfile.OptInNet11);
+
+        string card = CorpusSensor.QualityDiffCardForTesting(baseline, current, regressions: []);
+
+        Assert.StartsWith("### Decompiler net11 opt-in feature diff\n\n| Metric | Change |\n| ------ | ------ |\n", card);
+        // No baseline ref for the opt-in profile, so the Input group drops that bullet.
+        Assert.Contains(
+            "**Input**\n\n"
+            + "- Corpus: test 1 assembly, 8,000 methods\n"
+            + "- Corpus profile: opt-in-net11\n"
+            + "- Method cap: 100\n\n"
+            + "**Analysis**\n\n"
+            + "- Correctness coverage: validity not run; fidelity not run\n"
+            + "- Current measured debt: 900 methods with detected lowering residue.\n"
+            + "- Regression verdict: PASS — corpus sensor matched baseline tolerances.",
+            card);
+        Assert.DoesNotContain("Baseline ref:", card);
+        // The pinned-subset gate is a RealWorld-only section.
+        Assert.DoesNotContain("Pinned-subset gate", card);
+    }
+
+    [Fact]
+    public void QualityDiffCard_StaleBaseline_LeadsWithTableThenStalenessAndAppendsCaveat()
+    {
+        var methods = ValidityMethods(("One", "valid"));
+        var baseline = Snapshot(8_050, 7_050, 8_758, methods, validityCompileCap: 2, semanticCheckedMethods: 2);
+        var current = Snapshot(8_000, 7_100, 8_875, methods, validityCompileCap: 2, semanticCheckedMethods: 2);
+
+        string card = CorpusSensor.QualityDiffCardForTesting(
+            baseline, current,
+            regressions: ["detected lowering residue rate (pinned) increased"],
+            risky: true);
+
+        // The table leads; the staleness note follows it (and now reads "table above").
+        Assert.StartsWith("### Decompiler quality diff\n\n| Metric | Change |", card);
+        Assert.Contains("- Risk warning: thin correctness coverage", card);
+        Assert.Contains("Baseline staleness: corpus drifted from the pinned baseline", card);
+        Assert.Contains("aggregate count deltas in the table above", card);
+        Assert.Contains("- total methods 8,050 -> 8,000 (-50)", card);
+        // Exactly one blank line separates the staleness drift list from the Input group.
+        Assert.Contains("(-50)\n\n**Input**", card);
+        Assert.DoesNotContain("(-50)\n\n\n**Input**", card);
+        Assert.Contains(
+            "Caveat: the corpus drifted from the baseline (see baseline staleness above).",
+            card);
+    }
+}

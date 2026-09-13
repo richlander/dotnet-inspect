@@ -23,11 +23,7 @@ public static class ClassicAsyncArtifactFixtures
 
 public interface IClassicDefaultArtifactFixture
 {
-    async Task<int> DefaultAsync(int value)
-    {
-        await Task.Yield();
-        return value;
-    }
+    async Task<int> DefaultAsync(Task<int> value) => await value;
 }
 
 sealed class ClassicDefaultArtifactFixture : IClassicDefaultArtifactFixture;
@@ -43,7 +39,9 @@ static class Program
         IClassicDefaultArtifactFixture defaultFixture =
             new ClassicDefaultArtifactFixture();
         GC.KeepAlive(
-            defaultFixture.DefaultAsync(42).GetAwaiter().GetResult());
+            defaultFixture.DefaultAsync(Task.FromResult(42))
+                .GetAwaiter()
+                .GetResult());
         return 0;
     }
 }

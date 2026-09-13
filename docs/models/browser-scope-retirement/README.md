@@ -3,7 +3,7 @@
 This bounded adversarial model checks the **post-binding Browser registry**:
 removing an entry from reuse must not return its reservation while construction,
 protected use, or cleanup still owns resources. It is evidence for the planned
-[Browser artifact-backed scope contract](../../../prototypes/inspect-web/README.md#artifact-backed-package-scope-adoption),
+[Browser artifact-backed scope contract](../../../inspect-web/README.md#artifact-backed-package-scope-adoption),
 not another normative owner or a production implementation.
 
 The production consumer is [#5576](https://github.com/richlander/dotnet-inspect/issues/5576),

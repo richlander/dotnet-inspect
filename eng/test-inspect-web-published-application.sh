@@ -3,7 +3,7 @@ set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 site="${1:-$repo_root/artifacts/inspect-web-publish/wwwroot}"
-frontend="$repo_root/prototypes/inspect-web"
+frontend="$repo_root/inspect-web"
 resolver="$repo_root/tools/InspectWebFixtureResolver"
 dotnet=${DOTNET:-dotnet}
 
@@ -31,9 +31,17 @@ facade_pid=$!
 
 (
   cd "$frontend"
-  npm run inspect-web-worker-browser-binding
+  npm run inspect-web-worker-browser-binding \
+    && npm run inspect-web-worker-cpu-isolation
 ) &
 worker_pid=$!
+
+(
+  cd "$frontend"
+  INSPECT_WEB_PUBLISHED_BENCHMARK_SITE="$site" \
+    npm run inspect-web-published-benchmark
+) &
+benchmark_pid=$!
 
 "$repo_root/eng/test-inspect-web-package-adoption-gate.sh" &
 package_pid=$!
@@ -47,7 +55,8 @@ promotion_pid=$!
 failed=0
 for gate in \
   "published facade:$facade_pid" \
-  "Worker browser binding:$worker_pid" \
+  "Worker browser gates:$worker_pid" \
+  "published benchmark bridge:$benchmark_pid" \
   "package adoption:$package_pid" \
   "Authored Source comparison:$source_pid" \
   "promotion validation:$promotion_pid"; do

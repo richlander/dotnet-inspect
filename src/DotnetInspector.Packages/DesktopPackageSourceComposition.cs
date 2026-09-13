@@ -77,6 +77,7 @@ internal sealed class ConfiguredPackageCandidateObservation
 public sealed class PackageVersionDiscoveryResult
 {
     internal PackageVersionDiscoveryResult(
+        string? packageId,
         PackageVersionDiscoveryState state,
         IReadOnlyList<PackageVersionSourceInfo> sourceListings,
         IReadOnlyList<PackageAuthorityFailure> failures,
@@ -85,6 +86,41 @@ public sealed class PackageVersionDiscoveryResult
         PackageVersionDiscoveryContract? contract = null,
         object? candidateIssuer = null)
     {
+        if (packageId is not null
+            && !PackageCoordinateResolver.IsCanonicalPackageId(packageId))
+        {
+            throw new ArgumentException(
+                "Version discovery requires a valid package ID.",
+                nameof(packageId));
+        }
+        ConfiguredPackageCandidateObservation[] candidateSnapshot =
+            candidates is null ? [] : [.. candidates];
+        if (packageId is null
+            && (state != PackageVersionDiscoveryState.Failed
+                || sourceListings.Count != 0
+                || failures.Count == 0
+                || failures.Any(failure =>
+                    failure.Kind != PackageAuthorityFailureKind.Input)
+                || hasAnyCandidate
+                || candidateSnapshot.Length != 0))
+        {
+            throw new ArgumentException(
+                "Missing package identity is reserved for package-ID input failure.",
+                nameof(packageId));
+        }
+        if (candidateSnapshot.Length > 0
+            && (packageId is null
+                || candidateSnapshot.Any(candidate =>
+                    !candidate.Observation.Coordinate.PackageId.Equals(
+                        packageId,
+                        StringComparison.OrdinalIgnoreCase))))
+        {
+            throw new ArgumentException(
+                "Version discovery candidates must belong to the requested package.",
+                nameof(candidates));
+        }
+
+        PackageId = packageId?.ToLowerInvariant();
         State = state;
         SourceListings = new ReadOnlyCollection<PackageVersionSourceInfo>([.. sourceListings]);
         Listings = new ReadOnlyCollection<PackageVersionInfo>(
@@ -96,11 +132,17 @@ public sealed class PackageVersionDiscoveryResult
             new ReadOnlyCollection<PackageAuthorityFailure>([.. failures]);
         HasAnyCandidate = hasAnyCandidate;
         Candidates = new ReadOnlyCollection<ConfiguredPackageCandidateObservation>(
-            candidates is null ? [] : [.. candidates]);
+            candidateSnapshot);
         Contract = contract ?? PackageVersionDiscoveryContract.Unspecified;
         CandidateIssuer = candidateIssuer ?? new object();
     }
 
+    /// <summary>
+    /// The canonical package ID whose source operation produced this result,
+    /// or <see langword="null"/> when input validation rejected the ID before
+    /// source discovery began.
+    /// </summary>
+    public string? PackageId { get; }
     public PackageVersionDiscoveryState State { get; }
     public IReadOnlyList<string> Versions { get; }
     public IReadOnlyList<PackageVersionInfo> Listings { get; }
@@ -130,9 +172,9 @@ public sealed class PackageVersionDiscoveryResult
         }
 
         string normalized = PackageSourceCoordinate.Create(
-            Candidates.FirstOrDefault()?.Observation.Coordinate.PackageId
+            PackageId
                 ?? throw new InvalidOperationException(
-                    "The discovery result contains no candidate observations."),
+                    "Version discovery rejected its package ID before candidate selection."),
             version).Version;
         var reporters = new List<ConfiguredPackageCandidateObservation>();
         var seen = new HashSet<ConfiguredPackageAuthority>(
@@ -186,8 +228,9 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
     private readonly Dictionary<PackageSourceAssociation, AuthorityEntry>
         _authoritiesByAssociation =
             new(ReferenceEqualityComparer.Instance);
-    private readonly object _candidateIssuer = new();
-    private int _disposed;
+    private readonly PackageSourceSettlementLease _sourceLease;
+    private readonly object _disposeGate = new();
+    private Task? _disposal;
 
     /// <summary>
     /// Creates a desktop composition using the installed NuGet credential
@@ -200,6 +243,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         _credentialSource = provider;
         _ownedCredentialSource = provider;
         _createTransport = CreateProductionTransport;
+        _sourceLease = PackageSourceSettlementService.IssueLease(GetSourceClient);
     }
 
     internal DesktopPackageSourceComposition(
@@ -212,6 +256,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         _options = NuGetFetchOptions.FromRequestTimeout(requestTimeout);
         _credentialSource = credentialSource;
         _createTransport = createTransport;
+        _sourceLease = PackageSourceSettlementService.IssueLease(GetSourceClient);
     }
 
     internal NuGetOperationContext CreateOperationContext(CancellationToken cancellationToken = default) =>
@@ -222,7 +267,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
     /// package ID and adopts their results through exact association lookup.
     /// A supplied operation context remains caller-owned.
     /// </summary>
-    public async Task<PackageVersionDiscoveryResult> GetVersionsAsync(
+    public Task<PackageVersionDiscoveryResult> GetVersionsAsync(
         string packageId,
         bool includePrerelease,
         int? limit,
@@ -230,19 +275,33 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         Action<string>? log = null,
         CancellationToken cancellationToken = default,
         bool includeUnlisted = false,
-        NuGetOperationContext? operationContext = null)
+        NuGetOperationContext? operationContext = null) =>
+        PackageSourceSettlementCompatibility.RunAsync(
+            _sourceLease, cancellationToken, operationContext,
+            (generation, operation) => GetVersionsCoreAsync(
+                generation, packageId, includePrerelease, limit, sourceOptions,
+                log, operation, includeUnlisted),
+            _options.RequestTimeout, _options.OperationTimeout);
+
+    private async Task<PackageVersionDiscoveryResult> GetVersionsCoreAsync(
+        PackageSourceSettlementGeneration generation,
+        string packageId,
+        bool includePrerelease,
+        int? limit,
+        NuGetSourceOptions? sourceOptions,
+        Action<string>? log,
+        NuGetOperationContext operation,
+        bool includeUnlisted)
     {
         PackageVersionDiscoveryContract contract =
             PackageVersionDiscoveryContract.Create(
                 includePrerelease,
                 includeUnlisted,
                 limit);
-        ObjectDisposedException.ThrowIf(
-            Volatile.Read(ref _disposed) != 0,
-            this);
         if (!PackageExtractor.IsValidPackageId(packageId))
         {
             return Failed(
+                null,
                 new PackageAuthorityFailure(
                     InertString.Empty,
                     PackageAuthorityFailureKind.Input,
@@ -253,6 +312,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         if (limit <= 0)
         {
             return Failed(
+                packageId,
                 new PackageAuthorityFailure(
                     InertString.Empty,
                     PackageAuthorityFailureKind.Input,
@@ -266,19 +326,16 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         if (sources.Count == 0)
         {
             return new PackageVersionDiscoveryResult(
+                packageId,
                 PackageVersionDiscoveryState.Failed,
                 [],
                 failures,
                 hasAnyCandidate: false,
                 contract: contract,
-                candidateIssuer: _candidateIssuer);
+                candidateIssuer: generation.CandidateIssuerIdentity);
         }
 
-        using NuGetOperationContext? ownedOperation = operationContext is null
-            ? CreateOperationContext(cancellationToken)
-            : null;
-        NuGetOperationContext operation = operationContext ?? ownedOperation!;
-        cancellationToken = operation.ResolveInvocationToken(cancellationToken);
+        CancellationToken cancellationToken = operation.CancellationToken;
         IReadOnlyList<InertString> feedLabels = PackageSourceDisplay.ForVersionListings(sources);
         var versions = new Dictionary<string, List<PackageVersionSourceInfo>>(StringComparer.OrdinalIgnoreCase);
         var candidates = new List<ConfiguredPackageCandidateObservation>();
@@ -327,7 +384,10 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
             if (outcome.Failure is { } failure)
             {
                 RequireAuthority(failure.Source, authority);
-                failures.Add(DescribeFailure(source, failure));
+                failures.Add(
+                    PackageAuthorityFailureAdapter.DescribeVersionFailure(
+                        source,
+                        failure));
             }
             else
             {
@@ -442,13 +502,14 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
             _ => PackageVersionDiscoveryState.Failed,
         };
         return new PackageVersionDiscoveryResult(
+            packageId,
             state,
             ordered,
             failures,
             hasAnyCandidate,
             retainedCandidates,
             contract,
-            _candidateIssuer);
+            generation.CandidateIssuerIdentity);
     }
 
     /// <summary>
@@ -573,16 +634,22 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
     /// Acquires one exact manifest through the desktop transport and authentication policy
     /// while preserving the configured authority's owner-issued association.
     /// </summary>
-    public async Task<PackageSourceOperationResult<PackageSourceManifest>>
+    public Task<PackageSourceOperationResult<PackageSourceManifest>>
         GetManifestAsync(
             ConfiguredPackageAuthority authority,
             PackageSourceCoordinate coordinate,
             CancellationToken cancellationToken = default,
-            NuGetOperationContext? operationContext = null)
+            NuGetOperationContext? operationContext = null) =>
+        PackageSourceSettlementCompatibility.RunAsync(
+            _sourceLease, cancellationToken, operationContext,
+            (_, operation) => GetManifestCoreAsync(authority, coordinate, operation),
+            _options.RequestTimeout, _options.OperationTimeout);
+
+    private async Task<PackageSourceOperationResult<PackageSourceManifest>> GetManifestCoreAsync(
+        ConfiguredPackageAuthority authority,
+        PackageSourceCoordinate coordinate,
+        NuGetOperationContext operation)
     {
-        ObjectDisposedException.ThrowIf(
-            Volatile.Read(ref _disposed) != 0,
-            this);
         ArgumentNullException.ThrowIfNull(authority);
         ArgumentNullException.ThrowIfNull(coordinate);
 
@@ -596,8 +663,8 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
             await runtime.Client.GetManifestAsync(
                 coordinate.PackageId,
                 coordinate.Version,
-                cancellationToken,
-                operationContext).ConfigureAwait(false);
+                operation.CancellationToken,
+                operation).ConfigureAwait(false);
 
         if (outcome.Failure is { } failure)
         {
@@ -760,41 +827,28 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
             : HttpClientFactory.CreateCredentialFreePackageSourceHandler(
                 source.Url);
 
-    internal static PackageAuthorityFailure DescribeFailure(
-        PackageSource source,
-        PackageSourceFailure failure)
+    private IPackageSourceClient GetSourceClient(
+        ConfiguredPackageAuthority authority)
     {
-        InertString authority = PackageSourceDisplay.ForDiagnostics(source);
-        PackageAuthorityFailureKind kind = ClassifySourceFailure(failure.Kind);
-        string message = kind switch
+        ArgumentNullException.ThrowIfNull(authority);
+        if (!_authoritiesByAssociation.TryGetValue(
+                authority.Association,
+                out AuthorityEntry? entry)
+            || !ReferenceEquals(entry.Authority, authority))
         {
-            PackageAuthorityFailureKind.AuthenticationRequired =>
-                $"Package source {authority} requires credentials or rejected the supplied credentials.",
-            PackageAuthorityFailureKind.Timeout =>
-                $"Package source {authority} timed out while enumerating versions.",
-            PackageAuthorityFailureKind.Unsupported =>
-                $"Package source {authority} does not support version enumeration.",
-            PackageAuthorityFailureKind.IncompleteMetadata =>
-                $"Package source {authority} did not provide complete version metadata.",
-            PackageAuthorityFailureKind.InvalidResponse =>
-                $"Package source {authority} returned invalid version metadata.",
-            PackageAuthorityFailureKind.ResponseRejected =>
-                $"Package source {authority} returned version metadata outside the configured safety limits.",
-            PackageAuthorityFailureKind.Transport =>
-                $"Package source {authority} could not be reached while enumerating versions.",
-            _ => failure.Message,
-        };
-        return new PackageAuthorityFailure(authority, kind, message)
-        {
-            SourceFailure = failure,
-            ResultSource = failure.Source,
-        };
+            throw new InvalidOperationException(
+                "The package acquisition candidate refers to an inactive configured authority.");
+        }
+
+        return entry.Client;
     }
 
     private static PackageVersionDiscoveryResult Failed(
+        string? packageId,
         PackageAuthorityFailure failure,
         PackageVersionDiscoveryContract contract) =>
         new(
+            packageId,
             PackageVersionDiscoveryState.Failed,
             [],
             [failure],
@@ -821,11 +875,15 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         });
     }
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0)
-            return;
+        lock (_disposeGate)
+            return new(_disposal ??= DisposeCoreAsync());
+    }
 
+    private async Task DisposeCoreAsync()
+    {
+        await _sourceLease.DisposeAsync().ConfigureAwait(false);
         List<Exception>? failures = null;
         foreach (AuthorityEntry authority in _authorities.Values)
         {

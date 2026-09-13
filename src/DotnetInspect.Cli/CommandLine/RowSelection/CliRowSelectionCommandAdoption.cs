@@ -1,0 +1,378 @@
+using System.CommandLine;
+using System.CommandLine.Parsing;
+using System.Runtime.CompilerServices;
+using DotnetInspector.Sections;
+
+namespace DotnetInspect.Cli.CommandLine;
+
+internal enum CliSelectionFailureCategory
+{
+    Arity = 1,
+    Value = 2,
+    Conflict = 3,
+    Capability = 4,
+    Resolution = 5,
+}
+
+internal sealed class CliRowSelectionCommandAdoption
+{
+    public CliRowSelectionCommandAdoption(
+        CliRowSelectionOptionBindings bindings,
+        CliRowSelectionCapabilities capabilities,
+        Func<ParseResult, bool> isActive,
+        Func<ParseResult, CliRowSelectionLowering<string>, string?>? validateLowering)
+    {
+        Bindings = bindings;
+        Capabilities = capabilities;
+        IsActive = isActive;
+        ValidateLowering = validateLowering;
+    }
+
+    public CliRowSelectionOptionBindings Bindings { get; }
+
+    public CliRowSelectionCapabilities Capabilities { get; }
+
+    public Func<ParseResult, bool> IsActive { get; }
+
+    public Func<ParseResult, CliRowSelectionLowering<string>, string?>? ValidateLowering { get; }
+}
+
+internal sealed record CliRowSelectionPreparation
+{
+    private CliRowSelectionPreparation(
+        ParseResult parseResult,
+        CliRowSelectionLowering<string>? lowering,
+        string? error,
+        int? errorPosition,
+        int? errorComparisonPosition,
+        CliSelectionFailureCategory? errorCategory)
+    {
+        ParseResult = parseResult;
+        Lowering = lowering;
+        Error = error;
+        ErrorPosition = errorPosition;
+        ErrorComparisonPosition = errorComparisonPosition;
+        ErrorCategory = errorCategory;
+    }
+
+    public ParseResult ParseResult { get; }
+
+    public CliRowSelectionLowering<string>? Lowering { get; }
+
+    public string? Error { get; }
+
+    public int? ErrorPosition { get; }
+
+    public int? ErrorComparisonPosition { get; }
+
+    public CliSelectionFailureCategory? ErrorCategory { get; }
+
+    public IReadOnlyList<string>? Arguments { get; init; }
+
+    public IReadOnlyList<int>? ArgumentPositions { get; init; }
+
+    public IReadOnlyList<Option>? PresenceOptions { get; init; }
+
+    public bool HasCompatibilityError { get; init; }
+
+    public bool IsAdopted { get; init; }
+
+    public bool IsActive => Lowering is not null || Error is not null;
+
+    public static CliRowSelectionPreparation Inactive(ParseResult parseResult) =>
+        new(parseResult, null, null, null, null, null);
+
+    public static CliRowSelectionPreparation Success(
+        ParseResult parseResult,
+        CliRowSelectionLowering<string> lowering) =>
+        new(parseResult, lowering, null, null, null, null);
+
+    public static CliRowSelectionPreparation Failed(
+        ParseResult parseResult,
+        string error,
+        int position,
+        CliSelectionFailureCategory category,
+        int? comparisonPosition = null) =>
+        new(
+            parseResult,
+            null,
+            error,
+            position,
+            comparisonPosition ?? position,
+            category);
+}
+
+internal static class CliRowSelectionCommandRegistry
+{
+    private static readonly ConditionalWeakTable<
+        Command,
+        CliRowSelectionCommandAdoption> Adoptions = new();
+
+    private static readonly ConditionalWeakTable<
+        ParseResult,
+        CliRowSelectionLowering<string>> Lowerings = new();
+
+    public static void Register(
+        Command command,
+        CliRowSelectionOptionBindings bindings,
+        CliRowSelectionCapabilities capabilities,
+        Func<ParseResult, bool> isActive,
+        Func<ParseResult, CliRowSelectionLowering<string>, string?>? validateLowering = null)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        ArgumentNullException.ThrowIfNull(bindings);
+        ArgumentNullException.ThrowIfNull(isActive);
+        Adoptions.Add(
+            command,
+            new(bindings, capabilities, isActive, validateLowering));
+    }
+
+    public static bool OwnsShortLimit(
+        ParseResult parseResult,
+        IReadOnlyList<string> arguments)
+    {
+        if (TryGetActiveAdoption(parseResult, out _))
+            return true;
+
+        return parseResult.CommandResult.Command.Name == "router"
+            && arguments.Any(
+                static argument =>
+                    argument is "--versions"
+                        or "--versions-with-feed");
+    }
+
+    public static CliRowSelectionPreparation Prepare(
+        ParseResult parseResult,
+        string[]? arguments)
+    {
+        ArgumentNullException.ThrowIfNull(parseResult);
+
+        if (!TryGetActiveAdoption(
+                parseResult,
+                out CliRowSelectionCommandAdoption? adoption))
+        {
+            return CliRowSelectionPreparation.Inactive(parseResult);
+        }
+
+        string[] effectiveArguments =
+            arguments is null
+                ? [.. parseResult.Tokens.Select(static token => token.Value)]
+                : arguments;
+        Command rootCommand = GetRootCommand(parseResult);
+        CliRowSelectionArgumentResult result =
+            CliRowSelectionArgumentAdapter.LowerExplicit(
+                rootCommand,
+                effectiveArguments,
+                adoption!.Bindings,
+                adoption.Capabilities);
+
+        if (!adoption.IsActive(result.ParseResult))
+        {
+            return CliRowSelectionPreparation.Inactive(
+                result.ParseResult) with
+            {
+                Arguments = result.Arguments,
+                ArgumentPositions = result.ArgumentPositions,
+                IsAdopted = true
+            };
+        }
+
+        return PrepareLowering(result, adoption) with
+        {
+            Arguments = result.Arguments,
+            ArgumentPositions = result.ArgumentPositions,
+            IsAdopted = true,
+            PresenceOptions =
+            [
+                adoption.Bindings.Head,
+                adoption.Bindings.Tail,
+                adoption.Bindings.Lines,
+                adoption.Bindings.TailLines
+            ]
+        };
+    }
+
+    private static CliRowSelectionPreparation PrepareLowering(
+        CliRowSelectionArgumentResult result,
+        CliRowSelectionCommandAdoption adoption)
+    {
+        if (result.ArgumentFailure is { } argumentFailure)
+        {
+            return CliRowSelectionPreparation.Failed(
+                result.ParseResult,
+                FormatArgumentFailure(argumentFailure),
+                argumentFailure.Position,
+                CliSelectionFailureCategory.Arity);
+        }
+
+        if (result.HasParseErrors)
+            return CliRowSelectionPreparation.Inactive(result.ParseResult);
+
+        CliRowSelectionLoweringResult<string> loweringResult =
+            result.LoweringResult
+            ?? throw new InvalidOperationException(
+                "An adopted row-selection parse produced no lowering result.");
+        if (!loweringResult.IsSuccess)
+        {
+            CliRowSelectionFailure failure =
+                loweringResult.Failure!;
+            return CliRowSelectionPreparation.Failed(
+                result.ParseResult,
+                FormatLoweringFailure(failure),
+                failure.Position,
+                FailureCategory(failure.Reason),
+                comparisonPosition:
+                    failure.Reason
+                        == CliRowSelectionFailureReason.ModifierRequiresCount
+                    ? int.MaxValue
+                    : failure.Position);
+        }
+
+        CliRowSelectionLowering<string> lowering = loweringResult.Value!;
+        if (adoption.ValidateLowering?.Invoke(result.ParseResult, lowering) is { } error)
+        {
+            return CliRowSelectionPreparation.Failed(
+                result.ParseResult,
+                error,
+                int.MaxValue,
+                CliSelectionFailureCategory.Resolution) with
+            {
+                HasCompatibilityError = true
+            };
+        }
+
+        Lowerings.Add(result.ParseResult, lowering);
+        return CliRowSelectionPreparation.Success(
+            result.ParseResult,
+            lowering);
+    }
+
+    public static bool TryGetPreparedSemanticIntent(
+        ParseResult parseResult,
+        string selectionName,
+        out RowSelectionIntent<string>? semanticIntent,
+        out string? error)
+    {
+        ArgumentNullException.ThrowIfNull(parseResult);
+        ArgumentException.ThrowIfNullOrWhiteSpace(selectionName);
+
+        if (Lowerings.TryGetValue(
+                parseResult,
+                out CliRowSelectionLowering<string>? lowering))
+        {
+            semanticIntent = lowering.SemanticIntent;
+            error = null;
+            return true;
+        }
+
+        if (TryGetActiveAdoption(
+                parseResult,
+                out CliRowSelectionCommandAdoption? adoption)
+            && CliRowSelectionArgumentAdapter.HasExplicitRowSelection(
+                parseResult,
+                adoption!.Bindings))
+        {
+            semanticIntent = null;
+            error =
+                $"{selectionName} row selection was not lowered before "
+                + "execution.";
+            return false;
+        }
+
+        semanticIntent = null;
+        error = null;
+        return true;
+    }
+
+    public static bool TryGetActiveAdoption(
+        ParseResult parseResult,
+        out CliRowSelectionCommandAdoption? adoption)
+    {
+        if (Adoptions.TryGetValue(
+                parseResult.CommandResult.Command,
+                out adoption)
+            && adoption.IsActive(parseResult))
+        {
+            return true;
+        }
+
+        adoption = null;
+        return false;
+    }
+
+    private static Command GetRootCommand(ParseResult parseResult)
+    {
+        CommandResult commandResult = parseResult.CommandResult;
+        while (commandResult.Parent is CommandResult parent)
+            commandResult = parent;
+        return commandResult.Command;
+    }
+
+    public static string FormatArgumentFailure(
+        CliRowSelectionArgumentFailure failure) =>
+        failure.Reason switch
+        {
+            CliRowSelectionArgumentFailureReason.MissingValue =>
+                $"{OptionName(failure.OccurrenceKind)} requires a value.",
+            CliRowSelectionArgumentFailureReason.AttachedValueOnModifier =>
+                CliOptionValueValidation.DoesNotAcceptValue(OptionName(failure.OccurrenceKind)),
+            _ => "The row-selection arguments are invalid."
+        };
+
+    public static string FormatLoweringFailure(
+        CliRowSelectionFailure failure) =>
+        failure.Reason switch
+        {
+            CliRowSelectionFailureReason.MalformedValue
+                or CliRowSelectionFailureReason.NonPositiveValue
+                or CliRowSelectionFailureReason.OverflowValue =>
+                $"{OptionName(failure.OccurrenceKind)} requires a positive whole number.",
+            CliRowSelectionFailureReason.InvalidWindowForm =>
+                "--rows requires N..M, N.., or ..M with positive positions.",
+            CliRowSelectionFailureReason.ReversedWindow =>
+                "--rows end must not precede its start.",
+            CliRowSelectionFailureReason.RepeatedGesture =>
+                $"{OptionName(failure.OccurrenceKind)} may only be specified once.",
+            CliRowSelectionFailureReason.ConflictingDirection =>
+                "--head and --tail cannot be combined.",
+            CliRowSelectionFailureReason.ModifierRequiresCount =>
+                $"{OptionName(failure.OccurrenceKind)} requires -n.",
+            CliRowSelectionFailureReason.UnsupportedCapability =>
+                $"{OptionName(failure.OccurrenceKind)} is not available for this command.",
+            _ => "The row-selection arguments are invalid."
+        };
+
+    private static CliSelectionFailureCategory FailureCategory(
+        CliRowSelectionFailureReason reason) =>
+        reason switch
+        {
+            CliRowSelectionFailureReason.MalformedValue
+                or CliRowSelectionFailureReason.NonPositiveValue
+                or CliRowSelectionFailureReason.OverflowValue
+                or CliRowSelectionFailureReason.InvalidWindowForm
+                or CliRowSelectionFailureReason.ReversedWindow =>
+                CliSelectionFailureCategory.Value,
+            CliRowSelectionFailureReason.RepeatedGesture
+                or CliRowSelectionFailureReason.ConflictingDirection
+                or CliRowSelectionFailureReason.ModifierRequiresCount =>
+                CliSelectionFailureCategory.Conflict,
+            CliRowSelectionFailureReason.UnsupportedCapability =>
+                CliSelectionFailureCategory.Capability,
+            _ => CliSelectionFailureCategory.Resolution,
+        };
+
+    public static string OptionName(
+        CliRowSelectionOccurrenceKind kind) =>
+        kind switch
+        {
+            CliRowSelectionOccurrenceKind.Limit => "-n",
+            CliRowSelectionOccurrenceKind.Rows => "--rows",
+            CliRowSelectionOccurrenceKind.Top => "--top",
+            CliRowSelectionOccurrenceKind.OrderBy => "--order-by",
+            CliRowSelectionOccurrenceKind.Head => "--head",
+            CliRowSelectionOccurrenceKind.Tail => "--tail",
+            CliRowSelectionOccurrenceKind.Lines => "--lines",
+            CliRowSelectionOccurrenceKind.TailLines => "--tail-lines",
+            _ => "row selection"
+        };
+}

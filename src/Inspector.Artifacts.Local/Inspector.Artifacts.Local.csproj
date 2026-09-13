@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Authors>Richard Lander</Authors>
+    <Description>Bounded immutable local file and directory acquisition for source-neutral artifact sessions</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Inspector.Artifacts/Inspector.Artifacts.csproj" />
+    <InternalsVisibleTo Include="Inspector.Artifacts.Tests" />
+    <InternalsVisibleTo Include="LocalPathAdmissionBrowserProbe" />
+    <InternalsVisibleTo Include="LocalPathAdmissionPlatformProbe" />
+  </ItemGroup>
+
+</Project>

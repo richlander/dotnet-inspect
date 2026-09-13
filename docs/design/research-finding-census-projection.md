@@ -131,7 +131,7 @@ Method-qualified Research evidence locations remain tracked by
 
 ## Evidence
 
-The Release executable gates in `src/ILInspector.Research.Tests` verify:
+The Release executable gates in `tests/ILInspector.Research.Tests` verify:
 
 - `MemberProjection_PreservesOneCensusAcrossFactsAndAnnotatedSource` proves one
   producer collection and one receipt shared by both projections;

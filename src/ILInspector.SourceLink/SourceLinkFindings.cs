@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 using System.Text;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 

@@ -22,7 +22,7 @@ fi
 
 # Build the tool first
 echo "Building dotnet-inspect..." >&2
-dotnet build "$REPO_ROOT/src/dotnet-inspect" --nologo -v q >&2
+dotnet build "$REPO_ROOT/src/DotnetInspect.Cli" --nologo -v q >&2
 
 # Function to run a command and capture output with header
 run_cmd() {
@@ -32,7 +32,7 @@ run_cmd() {
     echo "COMMAND: $cmd"
     echo "================================================================================"
     # Run via dotnet run, filter out volatile data
-    eval "dotnet run --project $REPO_ROOT/src/dotnet-inspect --no-build -- $cmd 2>&1" | \
+    eval "dotnet run --project $REPO_ROOT/src/DotnetInspect.Cli --no-build -- $cmd 2>&1" | \
         sed -E 's/^(\| Total Downloads \| )[0-9.]+[KMBT]?/\1<FILTERED>/g' | \
         sed -E 's/^(\| Version Downloads \| )[0-9.]+[KMBT]?/\1<FILTERED>/g' | \
         sed -E 's/^(\| Downloads \| )[0-9.]+[KMBT]?/\1<FILTERED>/g' | \

@@ -5,7 +5,7 @@ using CSharpText;
 using ILInspector.CSharp;
 using ILInspector.ControlFlow;
 using ILInspector.Metadata;
-using ILInspector.Text;
+using Inspector.Text;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -59,6 +59,7 @@ public sealed partial class CSharpPrinter
     readonly List<DecompilerDecision> _decisions;
     readonly HashSet<string> _decisionKeys;
     readonly IrNode _stackSlotTelemetryScope;
+    readonly List<ConsumedMemberEvidence> _consumedMembers = [];
 
     CSharpPrinter(
         IrFunction function,
@@ -111,6 +112,9 @@ public sealed partial class CSharpPrinter
         PrinterOptions? options = null,
         Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint = null)
     {
+        if (MemorySafetyModeUnavailableResult(function) is { } unavailable)
+            return unavailable;
+
         List<DecompilerDecision> appliedLenses;
         try
         {
@@ -225,6 +229,9 @@ public sealed partial class CSharpPrinter
         PrinterOptions? options = null)
     {
         printedRanges = PrintedRangeMap.Empty;
+        if (MemorySafetyModeUnavailableResult(function) is { } unavailable)
+            return unavailable;
+
         List<DecompilerDecision> appliedLenses;
         try
         {
@@ -267,6 +274,9 @@ public sealed partial class CSharpPrinter
     /// <summary>As <see cref="PrintLowered(IrFunction)"/>, with <paramref name="importMethodBody"/> wiring the cross-method import seam for non-cosmetic lowered passes such as lambda, local-function, and iterator reconstruction.</summary>
     public static DecompilerResult PrintLowered(IrFunction function, Func<MethodRef, IrFunction?>? importMethodBody)
     {
+        if (MemorySafetyModeUnavailableResult(function) is { } unavailable)
+            return unavailable;
+
         try
         {
             IrPasses.Run(function, IrPasses.Lowered, RaiseContext(importMethodBody));
@@ -300,6 +310,9 @@ public sealed partial class CSharpPrinter
         PrinterOptions? options = null)
     {
         printedRanges = PrintedRangeMap.Empty;
+        if (MemorySafetyModeUnavailableResult(function) is { } unavailable)
+            return unavailable;
+
         try
         {
             IrPasses.Run(function, IrPasses.Lowered, RaiseContext(importMethodBody));
@@ -345,6 +358,9 @@ public sealed partial class CSharpPrinter
 
     public static DecompilerResult Print(IrFunction function, PrinterOptions? options = null)
     {
+        if (MemorySafetyModeUnavailableResult(function) is { } unavailable)
+            return unavailable;
+
         try
         {
             var printer = new CSharpPrinter(function, options);
@@ -361,6 +377,9 @@ public sealed partial class CSharpPrinter
         IrFunction function, out PrintedRangeMap printedRanges, PrinterOptions? options = null)
     {
         printedRanges = PrintedRangeMap.Empty;
+        if (MemorySafetyModeUnavailableResult(function) is { } unavailable)
+            return unavailable;
+
         try
         {
             var sink = new PrintedRangeMap();
@@ -379,6 +398,37 @@ public sealed partial class CSharpPrinter
             return DecompilerResult.Failure(DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
         }
     }
+
+    internal static DecompilerResult? MemorySafetyModeUnavailableResult(
+        IrFunction function)
+    {
+        if (MemorySafetyModeUnavailableResult(function.MemorySafetyMode)
+            is not { } unavailable)
+        {
+            return null;
+        }
+
+        return function.Diagnostics.Count == 0
+            ? unavailable
+            : unavailable with
+            {
+                Diagnostics =
+                [
+                    .. function.Diagnostics,
+                    .. unavailable.Diagnostics,
+                ],
+            };
+    }
+
+    internal static DecompilerResult? MemorySafetyModeUnavailableResult(
+        MemorySafetyModeDecision decision)
+        => decision
+            is MemorySafetyModeDecision.Unavailable unavailable
+                ? DecompilerResult.Failure(
+                    DiagnosticIds.MemorySafetyModeUnavailable,
+                    MemorySafetyModeDecision.DescribeUnavailable(
+                        unavailable.Rules))
+                : null;
 
     DecompilerResult Result(string output, IrFunction function)
         => new(output, function.Fidelity, [.. function.Diagnostics])
@@ -626,10 +676,11 @@ public sealed partial class CSharpPrinter
 
     /// <summary>
     /// Context-added syntax roots, such as a target conversion around an
-    /// existing expression. Keying by the operand gives speculative rendering
-    /// the same last-write-wins behavior as <see cref="_expressionText"/>.
+    /// existing expression. One operand may acquire multiple nested contexts;
+    /// each context kind keeps the last speculative rendering.
     /// </summary>
-    Dictionary<IrExpression, ContextualExpressionCapture>? _contextualExpressions;
+    Dictionary<(IrExpression Operand, string Kind), ContextualExpressionCapture>?
+        _contextualExpressions;
 
     readonly record struct ContextualExpressionCapture(
         SynthesizedRenderedExpression Node,
@@ -1230,37 +1281,8 @@ public sealed partial class CSharpPrinter
         if (CanAssignType(source, load.Type))
             return !StrictlyNarrowsReference(source, load.Type);
         return TypeFamilies.IsBoolean(source)
-            && TypeFamilies.IsIntegerLike(load.Type)
-            && StackSlotLoadTargetType(load) is { } target
-            && TypeFamilies.IsBoolean(target);
+            && CoercionSinks.BooleanSlotLoadType(load, CurrentReturnType, _function.TypeShapes) is not null;
     }
-
-    TypeRef? StackSlotLoadTargetType(LoadStackSlot load)
-        => load.Parent switch
-        {
-            StoreLocal store when ReferenceEquals(store.Value, load) => store.Type,
-            StoreArgument store when ReferenceEquals(store.Value, load) => store.Type,
-            StoreField store when ReferenceEquals(store.Value, load) => store.Field.Type,
-            StoreProperty store when ReferenceEquals(store.Value, load) => StorePropertyTargetType(store),
-            StoreElement store when ReferenceEquals(store.Value, load) => store.ElementType,
-            StoreIndirect store when ReferenceEquals(store.Value, load) => store.Type,
-            Return ret when ReferenceEquals(ret.Value, load) => CurrentReturnType,
-            // A bool-in-int-slot load whose value flows into a boolean operator
-            // or condition position (`!S`, `S && x`, `S ? a : b`, `if (S)`,
-            // `while (S)`) has a boolean target — C# requires bool there. Without
-            // this the slot's bool store and this load get different names (S_1
-            // bool vs S_1_1 int) and the consumer reads an unassigned int split
-            // (CS0165, #2377).
-            LogicalNot not when ReferenceEquals(not.Operand, load) => TypeRef.CoreLib("System", "Boolean"),
-            LogicalBinary logical when ReferenceEquals(logical.Left, load) || ReferenceEquals(logical.Right, load) => TypeRef.CoreLib("System", "Boolean"),
-            Conditional conditional when ReferenceEquals(conditional.Condition, load) => TypeRef.CoreLib("System", "Boolean"),
-            ConditionalBranch branch when ReferenceEquals(branch.Condition, load) => TypeRef.CoreLib("System", "Boolean"),
-            IfStatement ifStatement when ReferenceEquals(ifStatement.Condition, load) => TypeRef.CoreLib("System", "Boolean"),
-            WhileLoop whileLoop when ReferenceEquals(whileLoop.Condition, load) => TypeRef.CoreLib("System", "Boolean"),
-            DoWhileLoop doWhile when ReferenceEquals(doWhile.Condition, load) => TypeRef.CoreLib("System", "Boolean"),
-            ForLoop forLoop when ReferenceEquals(forLoop.Condition, load) => TypeRef.CoreLib("System", "Boolean"),
-            _ => null,
-        };
 
     bool CanAssignTo(IrExpression value, TypeRef target)
     {
@@ -1336,7 +1358,7 @@ public sealed partial class CSharpPrinter
         => type.Kind is not (TypeRefKind.ByRef or TypeRefKind.Pointer or TypeRefKind.FunctionPointer)
             && (TypeFamilies.Of(type) == StackFamily.O
                 || type.DeclaredValueTypeHint == ValueTypeHint.ReferenceType
-                || _function.TypeShapes.GetValueOrDefault(type) == TypeShape.Reference);
+                || _function.TypeShapes.GetValueOrDefault(NamedDefinition(type)) == TypeShape.Reference);
 
     bool CanAssignType(TypeRef source, TypeRef target)
     {
@@ -1357,11 +1379,11 @@ public sealed partial class CSharpPrinter
             return true;
         if (type.DeclaredValueTypeHint == ValueTypeHint.ReferenceType)
             return true;
-        if (_function.TypeShapes.GetValueOrDefault(type) == TypeShape.Reference)
+        if (_function.TypeShapes.GetValueOrDefault(NamedDefinition(type)) == TypeShape.Reference)
             return true;
         return type.Kind is TypeRefKind.Definition or TypeRefKind.GenericInstance
             && type.DeclaredValueTypeHint != ValueTypeHint.ValueType
-            && _function.TypeShapes.GetValueOrDefault(type) is not (TypeShape.ValueType or TypeShape.Enum)
+            && _function.TypeShapes.GetValueOrDefault(NamedDefinition(type)) is not (TypeShape.ValueType or TypeShape.Enum)
             && !TypeFamilies.IsNumericPrimitive(type);
     }
 
@@ -1373,7 +1395,7 @@ public sealed partial class CSharpPrinter
             return true;
         if (type.DeclaredValueTypeHint == ValueTypeHint.ReferenceType)
             return true;
-        if (_function.TypeShapes.GetValueOrDefault(type) == TypeShape.Reference)
+        if (_function.TypeShapes.GetValueOrDefault(NamedDefinition(type)) == TypeShape.Reference)
             return true;
         return type.Kind is TypeRefKind.SzArray or TypeRefKind.Array;
     }
@@ -1573,20 +1595,17 @@ public sealed partial class CSharpPrinter
             }
         }
 
-        // Under the updated memory-safety rules a declaring store whose value is
-        // an unsafe operation gets wrapped in an `unsafe { }` block. If the local
-        // is also read elsewhere, an inline `Type v = <unsafe>` declaration would
-        // strand the variable inside that block (out of scope at its uses), so
-        // demote the store: the local declares up front and the wrapped statement
-        // becomes a plain `v = <unsafe>` assignment.
-        if (EmitsUnsafeBlocks)
+        // A declaring store that still requires an `unsafe { }` block can strand
+        // its local inside that block. Demote only those block-backed stores;
+        // `Type v = unsafe(expr)` keeps the declaration in its original scope.
+        if (EmitsExplicitUnsafeContexts)
         {
             foreach (var store in _declaringStores.OfType<StoreLocal>().ToList())
             {
                 if (_legacyAwaitScopedDeclarations.Contains(store))
                     continue;
                 if (store.Type.Kind != TypeRefKind.ByRef
-                    && HasExplicitUnsafeOperation(store.Value)
+                    && NeedsUnsafeBlock(store)
                     && LocalIsRead(function, store.Index)
                     && !LocalReadsStayInsideUnsafeRun(function, store))
                 {
@@ -1595,7 +1614,8 @@ public sealed partial class CSharpPrinter
                     // inference when split from its declaration, so the hoisted
                     // declaration must restore it (else CS9081). A stackalloc result
                     // can never escape, so `scoped` is always correct here.
-                    if (store.Value is StackAllocArray)
+                    if (store.Value is StackAllocArray
+                        && store.Type.Kind != TypeRefKind.Pointer)
                         _scopedLocals.Add(store.Index);
                     continue;
                 }
@@ -1609,7 +1629,7 @@ public sealed partial class CSharpPrinter
             {
                 if (_legacyAwaitScopedDeclarations.Contains(store))
                     continue;
-                if (!HasUnsafeOperation(store.Value)
+                if (!NeedsUnsafeBlock(store)
                     || StackSlotReferencesStayInBlockAfterStore(function, store)
                         && !StackSlotUnsafeRunContainsAwait(store))
                     continue;
@@ -1643,9 +1663,19 @@ public sealed partial class CSharpPrinter
             return false;
 
         int end = start;
-        while (end + 1 < container.Children.Count
-            && NeedsExplicitUnsafeContext(container.Children[end + 1]))
-            end++;
+        if (store.Value is StackAllocArray
+            && store.Type.Kind == TypeRefKind.Pointer)
+        {
+            end = UnsafeRunEnd(container.Children, start) - 1;
+        }
+        else
+        {
+            while (end + 1 < container.Children.Count
+                && NeedsUnsafeBlock(container.Children[end + 1]))
+            {
+                end++;
+            }
+        }
 
         foreach (var node in function.DescendantsOutsideNestedFunctions)
         {
@@ -1668,7 +1698,7 @@ public sealed partial class CSharpPrinter
             return false;
         for (int i = 0; i < statement.ChildIndex; i++)
         {
-            if (NeedsExplicitUnsafeContext(block.Children[i])
+            if (NeedsUnsafeBlock(block.Children[i])
                 && UnsafeRunEnd(block.Children, i) > statement.ChildIndex)
             {
                 return true;
@@ -2058,7 +2088,8 @@ public sealed partial class CSharpPrinter
         _contextualExpressions = null;
         int? statementStartOverride;
         List<(IrNode Node, int Start, int End)>? contextRanges;
-        Dictionary<IrExpression, ContextualExpressionCapture>? contextualExpressions;
+        Dictionary<(IrExpression Operand, string Kind), ContextualExpressionCapture>?
+            contextualExpressions;
         try
         {
             AppendStatementCore(sb, node, indent, out statementStartOverride);
@@ -2164,7 +2195,8 @@ public sealed partial class CSharpPrinter
         StringBuilder sb,
         IrNode statement,
         int start,
-        IReadOnlyDictionary<IrExpression, ContextualExpressionCapture>? contextualExpressions)
+        IReadOnlyDictionary<(IrExpression Operand, string Kind), ContextualExpressionCapture>?
+            contextualExpressions)
     {
         if (sb.Length <= start
             || ((_expressionText is null || _expressionText.Count == 0)
@@ -2331,10 +2363,15 @@ public sealed partial class CSharpPrinter
                 localFunction.Parameters.Select((parameter, index) =>
                     $"{ParameterTypeText(parameter, index < localFunction.ParameterRefKinds.Length ? localFunction.ParameterRefKinds[index] : ArgumentRefKind.Value)} {CSharpNaming.ContainedIdentifier(parameter.DisplayName)}"));
             string header = $"{modifier}{TypeText(localFunction.ReturnType)} {CSharpNaming.ContainedIdentifier(localFunction.Name)}({parameters})";
-            bool expressionNeedsUnsafeBlock = localFunction.ExpressionBody is { } expression
-                && EmitsUnsafeBlocks
-                && (NeedsExplicitUnsafeContext(expression)
-                    || (localFunction.ReturnType.Kind == TypeRefKind.ByRef && RendersAsPointerDeref(expression)));
+            IrExpression? expressionBody = localFunction.ExpressionBody;
+            bool expressionNeedsUnsafeContext = expressionBody is not null
+                && EmitsExplicitUnsafeContexts
+                && (NeedsExplicitUnsafeContext(expressionBody)
+                    || (localFunction.ReturnType.Kind == TypeRefKind.ByRef && RendersAsPointerDeref(expressionBody)));
+            bool expressionNeedsUnsafeBlock = expressionNeedsUnsafeContext
+                && (!_newMemorySafetyRules
+                    || localFunction.ReturnType is { Namespace: "System", Name: "Void" }
+                    || !UnsafeExpressionCompilerSupports(expressionBody!));
             if (localFunction.ExpressionBody is { } body && !expressionNeedsUnsafeBlock)
             {
                 if (_stackSlotTelemetry is not null
@@ -2344,8 +2381,11 @@ public sealed partial class CSharpPrinter
                 }
                 string expressionText = localFunction.ReturnType.Kind == TypeRefKind.ByRef
                     && ArgumentLvalue(body) is { } place
-                        ? $"ref {place}"
-                        : Expression(body);
+                        ? $"ref {UnsafeExpressionText(
+                            body,
+                            place,
+                            force: RendersAsPointerDeref(body))}"
+                        : UnsafeExpressionText(body, Expression(body));
                 sb.Append(pad).Append(header).Append(" => ").Append(expressionText).AppendLf(";");
             }
             else
@@ -2566,7 +2606,7 @@ public sealed partial class CSharpPrinter
             sb.Append(pad);
             int headerStart = sb.Length;
             sb.Append("for (").Append(initializer).Append("; ")
-                .Append(Condition(forLoop.Condition)).Append("; ").Append(increment).AppendLf(")");
+                .Append(UnsafeConditionText(forLoop.Condition)).Append("; ").Append(increment).AppendLf(")");
             _printedRanges?.RecordRegion(PrintedRegionRole.Header, headerStart, sb.Length);
             sb.Append(pad);
             int bodyStart = sb.Length;
@@ -2580,7 +2620,7 @@ public sealed partial class CSharpPrinter
         {
             sb.Append(pad);
             int headerStart = sb.Length;
-            sb.Append("while (").Append(Condition(whileLoop.Condition)).AppendLf(")");
+            sb.Append("while (").Append(UnsafeConditionText(whileLoop.Condition)).AppendLf(")");
             _printedRanges?.RecordRegion(PrintedRegionRole.Header, headerStart, sb.Length);
             sb.Append(pad);
             int bodyStart = sb.Length;
@@ -2606,7 +2646,7 @@ public sealed partial class CSharpPrinter
             _printedRanges?.RecordRegion(PrintedRegionRole.Body, bodyStart, sb.Length);
             sb.Append("\n").Append(pad);
             int headerStart = sb.Length;
-            sb.Append("while (").Append(Condition(doWhile.Condition)).AppendLf(");");
+            sb.Append("while (").Append(UnsafeConditionText(doWhile.Condition)).AppendLf(");");
             _printedRanges?.RecordRegion(PrintedRegionRole.Header, headerStart, sb.Length);
             return;
         }
@@ -2640,7 +2680,9 @@ public sealed partial class CSharpPrinter
         {
             sb.Append(pad);
             int headerStart = sb.Length;
-            sb.Append("lock (").Append(Expression(lockStatement.LockObject)).AppendLf(")");
+            sb.Append("lock (").Append(UnsafeExpressionText(
+                lockStatement.LockObject,
+                Expression(lockStatement.LockObject))).AppendLf(")");
             _printedRanges?.RecordRegion(PrintedRegionRole.Header, headerStart, sb.Length);
             sb.Append(pad);
             int bodyStart = sb.Length;
@@ -2656,9 +2698,11 @@ public sealed partial class CSharpPrinter
             int headerStart = sb.Length;
             sb.Append("fixed (").Append(TypeText(fixedStatement.ElementType)).Append("* ")
                 .Append(FixedLocalName(fixedStatement)).Append(" = ")
-                .Append(fixedStatement.SourceIsAddress
+                .Append(UnsafeExpressionText(
+                    fixedStatement.PinSource,
+                    fixedStatement.SourceIsAddress
                     ? "&" + Deref(fixedStatement.PinSource)
-                    : Expression(fixedStatement.PinSource))
+                    : Expression(fixedStatement.PinSource)))
                 .AppendLf(")");
             _printedRanges?.RecordRegion(PrintedRegionRole.Header, headerStart, sb.Length);
             sb.Append(pad);
@@ -2676,7 +2720,9 @@ public sealed partial class CSharpPrinter
             sb.Append(usingStatement.IsAwait ? "await using (" : "using (");
             if (usingStatement.DeclaresResourceVariable)
                 sb.Append(TypeText(usingStatement.ResourceType)).Append(' ').Append(LocalName(usingStatement.LocalIndex)).Append(" = ");
-            sb.Append(UsingResourceText(usingStatement)).AppendLf(")");
+            sb.Append(UnsafeExpressionText(
+                usingStatement.Resource,
+                UsingResourceText(usingStatement))).AppendLf(")");
             _printedRanges?.RecordRegion(PrintedRegionRole.Header, headerStart, sb.Length);
             sb.Append(pad);
             int bodyStart = sb.Length;
@@ -2693,7 +2739,9 @@ public sealed partial class CSharpPrinter
             sb.Append(foreachStatement.IsAwait ? "await foreach (" : "foreach (")
                 .Append(TypeText(foreachStatement.LocalType)).Append(' ')
                 .Append(LocalName(foreachStatement.LocalIndex)).Append(" in ")
-                .Append(Expression(foreachStatement.Collection)).AppendLf(")");
+                .Append(UnsafeExpressionText(
+                    foreachStatement.Collection,
+                    Expression(foreachStatement.Collection))).AppendLf(")");
             _printedRanges?.RecordRegion(PrintedRegionRole.Header, headerStart, sb.Length);
             sb.Append(pad);
             int bodyStart = sb.Length;
@@ -2725,7 +2773,7 @@ public sealed partial class CSharpPrinter
         {
             sb.Append(pad);
             int headerStart = sb.Length;
-            sb.Append("if (").Append(Condition(ifStatement.Condition)).AppendLf(")");
+            sb.Append("if (").Append(UnsafeConditionText(ifStatement.Condition)).AppendLf(")");
             _printedRanges?.RecordRegion(PrintedRegionRole.Header, headerStart, sb.Length);
             sb.Append(pad);
             int bodyStart = sb.Length;
@@ -2749,7 +2797,9 @@ public sealed partial class CSharpPrinter
         {
             sb.Append(pad);
             int headerStart = sb.Length;
-            sb.Append("switch (").Append(Expression(switchNode.Value)).AppendLf(")");
+            sb.Append("switch (").Append(UnsafeExpressionText(
+                switchNode.Value,
+                Expression(switchNode.Value))).AppendLf(")");
             _printedRanges?.RecordRegion(PrintedRegionRole.Header, headerStart, sb.Length);
             sb.Append(pad);
             int bodyStart = sb.Length;
@@ -2796,8 +2846,11 @@ public sealed partial class CSharpPrinter
             // of `case i: goto IL_xxxx;`. Fall-through preserves out-of-range
             // behavior.
             string temp = _switchTemps.TryGetValue(switchBranch, out var name) ? name : "__switchValue";
+            string value = UnsafeExpressionText(
+                switchBranch.Value,
+                Expression(switchBranch.Value));
             sb.Append(pad).Append(temp).Append(" = ")
-                .Append("(int)(").Append(Expression(switchBranch.Value)).AppendLf(");");
+                .Append("(int)(").Append(value).AppendLf(");");
             for (int t = 0; t < switchBranch.TargetOffsets.Length; t++)
             {
                 sb.Append(pad);
@@ -2819,15 +2872,12 @@ public sealed partial class CSharpPrinter
     }
 
     /// <summary>
-    /// Emits a sibling statement sequence, wrapping unsafe operations in
-    /// explicit <c>unsafe { }</c> blocks when the source module uses the updated
-    /// memory-safety rules. Maximal runs of adjacent statements that need an
-    /// unsafe context coalesce into a single block, and the block is scoped to
-    /// the smallest enclosing statement: a loop or <c>if</c> whose body (not its
-    /// header) holds the unsafe op is left unwrapped so the recursion wraps the
-    /// inner statement instead. When the module uses legacy rules — or the
-    /// statements are already inside an emitted block — this is a plain
-    /// per-statement emit, identical to the pre-feature output.
+    /// Emits a sibling statement sequence. Updated-rules statements whose unsafe
+    /// work is fully contained by one rendered value/header expression use
+    /// <c>unsafe(expr)</c>; the remaining statements coalesce into minimal
+    /// <c>unsafe { }</c> runs that preserve scope and data flow. A loop or
+    /// <c>if</c> whose body (not its header) holds the unsafe op is left
+    /// unwrapped so recursion contains the inner statement instead.
     /// </summary>
     void AppendStatements(StringBuilder sb, IReadOnlyList<IrNode> statements, int indent)
     {
@@ -2853,6 +2903,7 @@ public sealed partial class CSharpPrinter
         ref SemanticSpacingState spacingState)
     {
         int i = 0;
+        int separatorAlreadyAppliedAt = -1;
         while (i < statements.Count)
         {
             if (statements[i] is StoreLocal inlineStore && _inlineReceiverTempStores.ContainsValue(inlineStore))
@@ -2861,9 +2912,9 @@ public sealed partial class CSharpPrinter
                 continue;
             }
 
-            if (EmitsUnsafeBlocks
+            if (EmitsExplicitUnsafeContexts
                 && _unsafeDepth == 0
-                && NeedsExplicitUnsafeContext(statements[i]))
+                && NeedsUnsafeBlock(statements[i]))
             {
                 int j = UnsafeRunEnd(statements, i);
                 string pad = new(' ', indent * 4);
@@ -2882,6 +2933,21 @@ public sealed partial class CSharpPrinter
                         sb,
                         statements[firstVisible],
                         spacingState);
+                }
+                else
+                {
+                    for (int k = j; k < statements.Count; k++)
+                    {
+                        if (!IsVisibleStatement(statements[k]))
+                            continue;
+
+                        AppendSemanticSeparator(
+                            sb,
+                            statements[k],
+                            spacingState);
+                        separatorAlreadyAppliedAt = k;
+                        break;
+                    }
                 }
                 sb.Append(pad).AppendLf("unsafe");
                 sb.Append(pad).AppendLf("{");
@@ -2910,7 +2976,7 @@ public sealed partial class CSharpPrinter
             else
             {
                 bool visible = IsVisibleStatement(statements[i]);
-                if (visible)
+                if (visible && i != separatorAlreadyAppliedAt)
                 {
                     AppendSemanticSeparator(
                         sb,
@@ -2984,13 +3050,13 @@ public sealed partial class CSharpPrinter
 
     bool HasGeneratedUnsafeSetupBoundary(IReadOnlyList<IrNode> statements)
     {
-        if (!EmitsUnsafeBlocks || _unsafeDepth != 0)
+        if (!EmitsExplicitUnsafeContexts || _unsafeDepth != 0)
             return false;
 
         int i = 0;
         while (i < statements.Count)
         {
-            if (!NeedsExplicitUnsafeContext(statements[i]))
+            if (!NeedsUnsafeBlock(statements[i]))
             {
                 i++;
                 continue;
@@ -3013,6 +3079,14 @@ public sealed partial class CSharpPrinter
                 {
                     setupStatements++;
                 }
+            }
+            for (int k = end; setupStatements >= 2 && k < statements.Count; k++)
+            {
+                if (!IsVisibleStatement(statements[k]))
+                    continue;
+                if (IsMajorControlFlow(statements[k]))
+                    return true;
+                break;
             }
             i = end;
         }
@@ -3070,7 +3144,7 @@ public sealed partial class CSharpPrinter
     int UnsafeRunEnd(IReadOnlyList<IrNode> statements, int start)
     {
         int end = start + 1;
-        while (end < statements.Count && NeedsExplicitUnsafeContext(statements[end]))
+        while (end < statements.Count && NeedsUnsafeBlock(statements[end]))
             end++;
 
         for (int i = start; i < end; i++)
@@ -3079,7 +3153,7 @@ public sealed partial class CSharpPrinter
             if (requiredEnd > end)
             {
                 end = requiredEnd;
-                while (end < statements.Count && NeedsExplicitUnsafeContext(statements[end]))
+                while (end < statements.Count && NeedsUnsafeBlock(statements[end]))
                     end++;
             }
         }
@@ -3093,7 +3167,7 @@ public sealed partial class CSharpPrinter
         {
             StoreStackSlot store when _declaringStores.Contains(store)
                 => LastReferenceEnd(statements, searchStart, node => ReferencesStackSlot(node, store.Slot)),
-            StoreLocal store when _declaringStores.Contains(store) && NeedsExplicitUnsafeContext(store)
+            StoreLocal store when _declaringStores.Contains(store) && NeedsUnsafeBlock(store)
                 => LastReferenceEnd(statements, searchStart, node => ReferencesLocalIncludingSharedNestedScopes(node, store.Index)),
             _ => searchStart,
         };
@@ -3159,13 +3233,224 @@ public sealed partial class CSharpPrinter
                     && node.DescendantsAndSelfOutsideNestedFunctions
                         .Any(IsLegacyPointerOperation));
 
-    bool EmitsUnsafeBlocks => _newMemorySafetyRules || _containsAwaitSyntax;
+    bool EmitsExplicitUnsafeContexts => _newMemorySafetyRules || _containsAwaitSyntax;
 
     bool NeedsExplicitUnsafeContext(IrNode node)
-        => EmitsUnsafeBlocks && NeedsUnsafeContext(node);
+        => EmitsExplicitUnsafeContexts && NeedsUnsafeContext(node);
 
-    bool HasExplicitUnsafeOperation(IrNode? node)
-        => HasUnsafeOperation(node);
+    bool NeedsUnsafeBlock(IrNode node)
+        => NeedsExplicitUnsafeContext(node)
+            && !CanRenderUnsafeContextAsExpressions(node);
+
+    bool CanRenderUnsafeContextAsExpressions(IrNode node)
+    {
+        if (!_newMemorySafetyRules)
+            return false;
+
+        switch (node)
+        {
+            case Return { Value: { } value }
+                when value is not StackAllocate
+                    and not SwitchExpression
+                    and not UnionSwitchExpression
+                    and not PatternSwitchExpression
+                    and not TupleSwitchExpression:
+                return UnsafeRequirementsAreWithin(
+                    node,
+                    CurrentReturnType.Kind == TypeRefKind.ByRef,
+                    value);
+            case YieldReturn yieldReturn:
+                return UnsafeRequirementsAreWithin(node, yieldReturn.Value);
+            case Throw { Value: { } value } when value is not CaughtException:
+                return UnsafeRequirementsAreWithin(node, value);
+            case StoreLocal { Value: not StackAllocate } store:
+                return AssignmentUnsafeExpressionRoot(
+                        store.Value,
+                        left => left is LoadLocal load && load.Index == store.Index,
+                        store.Type) is { } localRoot
+                    && UnsafeRequirementsAreWithin(
+                        store,
+                        store.Type.Kind == TypeRefKind.ByRef,
+                        localRoot);
+            case StoreArgument store:
+                return AssignmentUnsafeExpressionRoot(
+                        store.Value,
+                        left => left is LoadArgument load
+                            && PlaceIdentity.SameArgument(
+                                load.Index,
+                                load.Parameter,
+                                store.Index,
+                                store.Parameter),
+                        store.Type) is { } argumentRoot
+                    && UnsafeRequirementsAreWithin(store, argumentRoot);
+            case StoreStackSlot { Value: not StackAllocate } store:
+                var slotType = StackSlotTargetType(store);
+                return AssignmentUnsafeExpressionRoot(
+                        store.Value,
+                        left => left is LoadStackSlot load
+                            && StackSlotName(load) == StackSlotName(store),
+                        slotType) is { } slotRoot
+                    && UnsafeRequirementsAreWithin(
+                        store,
+                        slotType?.Kind == TypeRefKind.ByRef,
+                        slotRoot);
+            case StoreField store:
+                return AssignmentUnsafeExpressionRoot(
+                        store.Value,
+                        left => left is LoadField load
+                            && load.Field.Name == store.Field.Name
+                            && Equals(load.Field.DeclaringType, store.Field.DeclaringType)
+                            && SamePlace(load.Instance, store.Instance),
+                        store.Field.Type) is { } fieldRoot
+                    && UnsafeRequirementsAreWithin(store, fieldRoot);
+            case StoreProperty store:
+                return AssignmentUnsafeExpressionRoot(
+                        store.Value,
+                        left => left is LoadProperty load
+                            && load.PropertyName == store.PropertyName
+                            && Equals(load.Accessor.DeclaringType, store.Accessor.DeclaringType)
+                            && SameLValue(load.Instance, store.Instance)
+                            && PlaceIdentity.SameOperands(load.IndexArguments, store.IndexArguments),
+                        StorePropertyTargetType(store)) is { } propertyRoot
+                    && UnsafeRequirementsAreWithin(store, propertyRoot);
+            case StoreElement store when InlineReceiverTempStoreValue(store) is null:
+                return UnsafeRequirementsAreWithin(store, store.Value);
+            case StoreIndirect store:
+                return AssignmentUnsafeExpressionRoot(
+                        store.Value,
+                        left => left is LoadIndirect load && SameLValue(load.Address, store.Address),
+                        IndirectStoreType(store.Address, store.Type)) is { } indirectRoot
+                    && UnsafeRequirementsAreWithin(store, indirectRoot);
+            case DeconstructionAssignment assignment:
+                return UnsafeRequirementsAreWithin(assignment, assignment.Source);
+            case ChainedAssignment assignment:
+                return UnsafeRequirementsAreWithin(assignment, assignment.Value);
+            case NullCoalescingAssignment assignment:
+                return UnsafeRequirementsAreWithin(assignment, assignment.Value);
+            case NullCoalescingFieldAssignment assignment:
+                return UnsafeRequirementsAreWithin(assignment, assignment.Value);
+            case NullCoalescingPropertyAssignment assignment:
+                return UnsafeRequirementsAreWithin(assignment, assignment.Value);
+            case EventSubscription subscription:
+                return UnsafeRequirementsAreWithin(subscription, subscription.Value);
+            case ExpressionStatement { Expression: { } expression }
+                when expression is not UnsupportedNode:
+                return CanDiscardUnsafeExpression(expression)
+                    && UnsafeRequirementsAreWithin(node, expression);
+            case ConditionalBranch branch:
+                return UnsafeRequirementsAreWithin(branch, branch.Condition);
+            case SwitchBranch branch:
+                return UnsafeRequirementsAreWithin(branch, branch.Value);
+            case ForLoop loop:
+                return !NeedsUnsafeBlock(loop.Initializer)
+                    && !NeedsUnsafeBlock(loop.Increment)
+                    && UnsafeExpressionCompilerSupports(
+                        loop.Condition,
+                        acceptsDirectRequiresUnsafeMember: true);
+            case WhileLoop loop:
+                return UnsafeExpressionCompilerSupports(loop.Condition);
+            case DoWhileLoop loop:
+                return UnsafeExpressionCompilerSupports(loop.Condition);
+            case IfStatement conditional:
+                return UnsafeExpressionCompilerSupports(conditional.Condition);
+            case Switch switchNode:
+                return UnsafeExpressionCompilerSupports(
+                    switchNode.Value,
+                    acceptsDirectRequiresUnsafeMember: true);
+            case Fixed fixedStatement:
+                return !fixedStatement.RequiresUnsafeContext
+                    && !fixedStatement.SourceIsAddress
+                    && UnsafeExpressionCompilerSupports(fixedStatement.PinSource);
+            case UsingStatement usingStatement:
+                return !MethodsRequireUnsafe(usingStatement.ConsumedMemberRefs)
+                    && UnsafeExpressionCompilerSupports(usingStatement.Resource);
+            case ForeachStatement foreachStatement:
+                return !MethodsRequireUnsafe(foreachStatement.ConsumedMemberRefs)
+                    && UnsafeExpressionCompilerSupports(
+                        foreachStatement.Collection,
+                        acceptsDirectRequiresUnsafeMember: true);
+            case Lock lockStatement:
+                return UnsafeExpressionCompilerSupports(lockStatement.LockObject);
+            case TryCatch tryCatch:
+                return tryCatch.Clauses.All(clause =>
+                    clause.Filter is not { } filter
+                    || UnsafeExpressionCompilerSupports(filter));
+            default:
+                return false;
+        }
+    }
+
+    bool UnsafeRequirementsAreWithin(IrNode node, params IrExpression[] expressions)
+        => UnsafeRequirementsAreWithin(node, allowOwnerOperation: false, expressions);
+
+    bool UnsafeRequirementsAreWithin(
+        IrNode node,
+        bool allowOwnerOperation,
+        params IrExpression[] expressions)
+    {
+        bool found = false;
+        foreach (var operation in node.DescendantsAndSelfOutsideNestedFunctions)
+        {
+            if (!IsUnsafeOperation(operation))
+                continue;
+            found = true;
+            if (allowOwnerOperation && ReferenceEquals(operation, node))
+                continue;
+            if (!expressions.Any(expression => IsDescendantOrSelf(operation, expression)))
+                return false;
+        }
+        return found && expressions.All(expression =>
+            UnsafeExpressionCompilerSupports(expression));
+    }
+
+    /// <summary>
+    /// Roslyn 5.9 parses and emits unsafe expressions, but does not yet treat a
+    /// direct requires-unsafe property access or method-address conversion as
+    /// satisfied by the wrapper in every expression position (CS9362). A larger
+    /// enclosing expression, and direct for/switch/foreach headers, do bind
+    /// correctly. A pointer-targeted stackalloc still loses its target type
+    /// inside the wrapper (CS8346), even when nested.
+    /// </summary>
+    bool UnsafeExpressionCompilerSupports(
+        IrExpression expression,
+        bool acceptsDirectRequiresUnsafeMember = false)
+        => (acceptsDirectRequiresUnsafeMember
+                || !(expression is AddressOfMethod { Method: { } method }
+                    && MethodRequiresUnsafe(method))
+                && !(expression is LoadProperty { Accessor: { } accessor }
+                    && MethodRequiresUnsafe(accessor)))
+            && !expression.DescendantsAndSelfOutsideNestedFunctions.Any(operation =>
+                operation is StackAllocArray
+                {
+                    ResultType: { Kind: TypeRefKind.Pointer }
+                });
+
+    IrExpression? AssignmentUnsafeExpressionRoot(
+        IrExpression value,
+        Func<IrExpression, bool> readsTarget,
+        TypeRef? targetType)
+    {
+        if (value is not Binary binary || !readsTarget(binary.Left))
+            return value;
+        if (binary.IsChecked
+            || targetType?.Kind == TypeRefKind.Pointer
+            || binary.Kind is BinaryKind.ShiftLeft or BinaryKind.ShiftRight)
+        {
+            return null;
+        }
+        return binary.Right;
+    }
+
+    static bool CanDiscardUnsafeExpression(IrExpression expression)
+        => expression.ResultType is { Kind: not TypeRefKind.ByRef } type
+            && type is not { Namespace: "System", Name: "Void" };
+
+    bool ShouldDiscardForUnsafeExpression(IrExpression expression)
+        => _newMemorySafetyRules
+            && _unsafeDepth == 0
+            && IsStatementExpression(expression)
+            && CanDiscardUnsafeExpression(expression)
+            && HasRequiredUnsafeOperation(expression);
 
     bool NeedsUnsafeBodyModifier(IrNode node)
         => NeedsUnsafeContext(node)
@@ -3188,34 +3473,49 @@ public sealed partial class CSharpPrinter
     /// ordinary <c>fixed</c> statements, and <c>sizeof</c> are safe under the new
     /// rules.
     /// </summary>
-    bool IsUnsafeOperation(IrNode node) => node switch
+    bool IsUnsafeOperation(IrNode node)
     {
-        CallIndirect => true,
-        StackAllocate => true,
-        // A stackalloc-backed Span (raised to `stackalloc T[n]` by
-        // StackAllocSpanPass) is governed by the stackalloc rule — unsafe only
-        // under [SkipLocalsInit], where the stack space is uninitialized.
-        StackAllocArray sa => _skipLocalsInit || sa.ResultType?.Kind == TypeRefKind.Pointer,
-        Call c => MethodRequiresUnsafe(c.Callee)
-            || CallRendersPointerDereference(c),
-        NewObject n => MethodRequiresUnsafe(n.Constructor)
-            || ArgumentsRenderPointerDereference(n.Arguments, n.Constructor.ParameterTypes),
-        IncrementDecrement i => MethodRequiresUnsafe(i.ConsumedMethod),
-        Convert c => IsUnboxPointerConversion(c),
-        LoadField f => IsPointerReceiver(f.Instance),
-        StoreField f => IsPointerReceiver(f.Instance),
-        LoadFieldAddress f => IsPointerReceiver(f.Instance),
-        LoadProperty p => AccessorRequiresUnsafe(p.Accessor, p.Instance),
-        StoreProperty p => AccessorRequiresUnsafe(p.Accessor, p.Instance),
-        EventSubscription e => AccessorRequiresUnsafe(e.Accessor, e.Instance),
-        FixedBufferElementAddress => true,
-        LoadIndirect { Address: FixedBufferElementAddress } => true,
-        StoreIndirect { Address: FixedBufferElementAddress } => true,
-        LoadIndirect l => RendersAsPointerDeref(l.Address),
-        StoreIndirect s => RendersAsPointerDeref(s.Address),
-        InitObject o => RendersAsPointerDeref(o.Address),
-        _ => IsRaisedUnsafeOperation(node),
-    };
+        if (ConsumedFieldsRequireUnsafe(node))
+            return true;
+
+        return node switch
+        {
+            CallIndirect => true,
+            StackAllocate => true,
+            // A stackalloc-backed Span (raised to `stackalloc T[n]` by
+            // StackAllocSpanPass) is governed by the stackalloc rule — unsafe
+            // only under [SkipLocalsInit], where the stack space is
+            // uninitialized.
+            StackAllocArray sa =>
+                _skipLocalsInit
+                || sa.ResultType?.Kind == TypeRefKind.Pointer,
+            Call c => MethodRequiresUnsafe(c.Callee)
+                || CallRendersPointerDereference(c),
+            NewObject n => MethodRequiresUnsafe(n.Constructor)
+                || ArgumentsRenderPointerDereference(
+                    n.Arguments,
+                    n.Constructor.ParameterTypes),
+            IncrementDecrement i =>
+                MethodRequiresUnsafe(i.ConsumedMethod),
+            Convert c => IsUnboxPointerConversion(c),
+            LoadField f => IsPointerReceiver(f.Instance),
+            StoreField f => IsPointerReceiver(f.Instance),
+            LoadFieldAddress f => IsPointerReceiver(f.Instance),
+            LoadProperty p =>
+                AccessorRequiresUnsafe(p.Accessor, p.Instance),
+            StoreProperty p =>
+                AccessorRequiresUnsafe(p.Accessor, p.Instance),
+            EventSubscription e =>
+                AccessorRequiresUnsafe(e.Accessor, e.Instance),
+            FixedBufferElementAddress => true,
+            LoadIndirect { Address: FixedBufferElementAddress } => true,
+            StoreIndirect { Address: FixedBufferElementAddress } => true,
+            LoadIndirect l => RendersAsPointerDeref(l.Address),
+            StoreIndirect s => RendersAsPointerDeref(s.Address),
+            InitObject o => RendersAsPointerDeref(o.Address),
+            _ => IsRaisedUnsafeOperation(node),
+        };
+    }
 
     bool IsRaisedUnsafeOperation(IrNode node) => node switch
     {
@@ -3267,6 +3567,19 @@ public sealed partial class CSharpPrinter
 
     bool MethodsRequireUnsafe(IEnumerable<MethodRef?> methods)
         => methods.Any(MethodRequiresUnsafe);
+
+    bool ConsumedFieldsRequireUnsafe(IrNode node)
+    {
+        _consumedMembers.Clear();
+        ConsumedMemberEvidence.AddFrom(node, _consumedMembers);
+        return _consumedMembers.Any(item => item.Field is { } field
+            && FieldMemorySafetyContract.RequiresUnsafe(
+                field,
+                _newMemorySafetyRules,
+                legacyShapeRequiresUnsafe:
+                    field.FixedBuffer is null
+                    && ContainsPointer(field.Type)));
+    }
 
     bool DeconstructionTargetRequiresUnsafe(DeconstructionTarget target)
         => target is
@@ -3410,7 +3723,7 @@ public sealed partial class CSharpPrinter
             : clause.VariableIndex is { } index
                 ? $"catch ({TypeText(clause.ExceptionType)} {LocalName(index)})"
                 : $"catch ({TypeText(clause.ExceptionType)})";
-        return clause.Filter is { } filter ? $"{header} when ({Condition(filter)})" : header;
+        return clause.Filter is { } filter ? $"{header} when ({UnsafeConditionText(filter)})" : header;
     }
 
     /// <summary>Null means the statement has no body spelling: a no-argument base-constructor call is implicit in C#.</summary>
@@ -3684,8 +3997,13 @@ public sealed partial class CSharpPrinter
         ExpressionStatement e => e.Expression switch
         {
             UnsupportedNode u => UnsupportedStatement(e, u),
-            // A user-defined checked ++/-- as a statement spells checked(x++),
-            // which is CS0201 in statement position; use a checked { ... } block.
+            { } expr when ShouldDiscardForUnsafeExpression(expr)
+                => DiscardStatement(e, expr),
+            // A safe user-defined checked ++/-- as a statement spells
+            // checked(x++), which is CS0201 in statement position; use a
+            // checked { ... } block. Unsafe-required operators take the
+            // discard-expression path above so one wrapper contains both
+            // contexts.
             IncrementDecrement { IsChecked: true } id => CheckedIncrementStatement(e, id),
             // C# requires an expression statement to be an invocation, object
             // creation, await, or inc/decrement. A bare value — a stack slot
@@ -3701,16 +4019,16 @@ public sealed partial class CSharpPrinter
         // declaration (CS8172) and any later rebind (CS8173). Deref renders the
         // address value as the place it refers to.
         StoreLocal { Type.Kind: TypeRefKind.ByRef } s => _declaringStores.Contains(s)
-            ? $"{TypeText(s.Type)} {LocalName(s.Index)} = ref {Deref(s.Value)};"
-            : $"{LocalName(s.Index)} = ref {Deref(s.Value)};",
+            ? $"{TypeText(s.Type)} {LocalName(s.Index)} = ref {UnsafeExpressionText(s.Value, Deref(s.Value), force: RendersAsPointerDeref(s.Value))};"
+            : $"{LocalName(s.Index)} = ref {UnsafeExpressionText(s.Value, Deref(s.Value), force: RendersAsPointerDeref(s.Value))};",
         StoreLocal s => _declaringStores.Contains(s)
-            ? $"{DeclarationTypeText(s.Type, s.Value)} {LocalName(s.Index)} = {DeclarationInitializerText(s.Type, s.Value)};"
+            ? $"{DeclarationTypeText(s.Type, s.Value)} {LocalName(s.Index)} = {UnsafeExpressionText(s.Value, DeclarationInitializerText(s.Type, s.Value))};"
             : AssignmentText(s, $"{LocalName(s.Index)}", s.Value, left => left is LoadLocal load && load.Index == s.Index, s.Type),
-        DeconstructionAssignment d => $"({string.Join(", ", d.Targets.Select(DeconstructionTargetText))}) = {Expression(d.Source)};",
-        ChainedAssignment c => $"{string.Join(" = ", c.Targets.Select(ChainedAssignmentTargetText))} = {CoerceText(c.Value, c.InnermostTargetType)};",
-        NullCoalescingAssignment n => $"{LocalName(n.LocalIndex)} ??= {CoerceText(n.Value, n.LocalType)};",
-        NullCoalescingFieldAssignment n => $"{FieldTarget(n.Field, n.Instance)} ??= {CoerceText(n.Value, n.Field.Type)};",
-        NullCoalescingPropertyAssignment n => $"{PropertyTarget(n.Setter, n.Instance, n.IndexArguments, n.PropertyName, n.IsVirtual)} ??= {CoerceText(n.Value, n.PropertyType)};",
+        DeconstructionAssignment d => $"({string.Join(", ", d.Targets.Select(DeconstructionTargetText))}) = {UnsafeExpressionText(d.Source, Expression(d.Source))};",
+        ChainedAssignment c => $"{string.Join(" = ", c.Targets.Select(ChainedAssignmentTargetText))} = {UnsafeExpressionText(c.Value, CoerceText(c.Value, c.InnermostTargetType))};",
+        NullCoalescingAssignment n => $"{LocalName(n.LocalIndex)} ??= {UnsafeExpressionText(n.Value, CoerceText(n.Value, n.LocalType))};",
+        NullCoalescingFieldAssignment n => $"{FieldTarget(n.Field, n.Instance)} ??= {UnsafeExpressionText(n.Value, CoerceText(n.Value, n.Field.Type))};",
+        NullCoalescingPropertyAssignment n => $"{PropertyTarget(n.Setter, n.Instance, n.IndexArguments, n.PropertyName, n.IsVirtual)} ??= {UnsafeExpressionText(n.Value, CoerceText(n.Value, n.PropertyType))};",
         StoreArgument s => AssignmentText(
             s,
             CSharpNaming.ContainedIdentifier(s.Name),
@@ -3725,10 +4043,10 @@ public sealed partial class CSharpPrinter
         // A ref-typed slot stores by rebinding the reference — C#'s ref
         // (re)assignment, exactly as for ref locals above.
         StoreStackSlot s when StackSlotTargetType(s) is { Kind: TypeRefKind.ByRef } refType => _declaringStores.Contains(s)
-            ? $"{TypeText(refType)} {StackSlotName(s)} = ref {Deref(s.Value)};"
-            : $"{StackSlotName(s)} = ref {Deref(s.Value)};",
+            ? $"{TypeText(refType)} {StackSlotName(s)} = ref {UnsafeExpressionText(s.Value, Deref(s.Value), force: RendersAsPointerDeref(s.Value))};"
+            : $"{StackSlotName(s)} = ref {UnsafeExpressionText(s.Value, Deref(s.Value), force: RendersAsPointerDeref(s.Value))};",
         StoreStackSlot s => _declaringStores.Contains(s)
-            ? $"{DeclarationTypeText(StackSlotTargetType(s)!, s.Value)} {StackSlotName(s)} = {DeclarationInitializerText(StackSlotTargetType(s)!, s.Value)};"
+            ? $"{DeclarationTypeText(StackSlotTargetType(s)!, s.Value)} {StackSlotName(s)} = {UnsafeExpressionText(s.Value, DeclarationInitializerText(StackSlotTargetType(s)!, s.Value))};"
             : AssignmentText(s, StackSlotName(s), s.Value, left => left is LoadStackSlot load && StackSlotName(load) == StackSlotName(s), StackSlotTargetType(s)),
         StoreField s => AssignmentText(
             s,
@@ -3748,15 +4066,16 @@ public sealed partial class CSharpPrinter
                 && SameLValue(load.Instance, s.Instance)
                 && PlaceIdentity.SameOperands(load.IndexArguments, s.IndexArguments),
             StorePropertyTargetType(s)),
-        EventSubscription e => $"{PropertyTarget(e.Accessor, e.HasInstance ? e.Instance : null, [], e.EventName, e.IsVirtual, isEvent: true)} {(e.IsAdd ? "+=" : "-=")} {CoerceText(e.Value, e.Accessor.ParameterTypes[0])};",
+        EventSubscription e => $"{PropertyTarget(e.Accessor, e.HasInstance ? e.Instance : null, [], e.EventName, e.IsVirtual, isEvent: true)} {(e.IsAdd ? "+=" : "-=")} {UnsafeExpressionText(e.Value, CoerceText(e.Value, e.Accessor.ParameterTypes[0]))};",
         StoreElement s when InlineReceiverTempStoreValue(s) is { } value => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {value};",
-        StoreElement s => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {InitializerText(s.Value, StoreElementTargetType(s), StoreElementNewTarget(s))};",
+        StoreElement s => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {UnsafeExpressionText(s.Value, InitializerText(s.Value, StoreElementTargetType(s), StoreElementNewTarget(s)))};",
         StoreIndirect s => AssignmentText(
             s,
             IndirectTarget(s.Address, IndirectStoreType(s.Address, s.Type)),
             s.Value,
             left => left is LoadIndirect load && SameLValue(load.Address, s.Address),
-            IndirectStoreType(s.Address, s.Type)),
+            IndirectStoreType(s.Address, s.Type),
+            parenthesizeIncrementTarget: RendersAsPointerDeref(s.Address)),
         // default-initialization of a named place spells through the place,
         // not its address.
         InitObject { Address: LoadLocalAddress local } init => _declaringStores.Contains(init)
@@ -3768,16 +4087,16 @@ public sealed partial class CSharpPrinter
         CopyBlock cb => "/* unsupported cpblk */",
         Return { Value: { } value } => ReturnText(value),
         Return => "return;",
-        YieldReturn y => $"yield return {Expression(y.Value)};",
+        YieldReturn y => $"yield return {UnsafeExpressionText(y.Value, Expression(y.Value))};",
         YieldBreak => "yield break;",
         // The rethrow: the raw caught value thrown back is C#'s bare throw.
         Throw { Value: CaughtException } => "throw;",
-        Throw t => $"throw {Expression(t.Value)};",
+        Throw t => $"throw {UnsafeExpressionText(t.Value, Expression(t.Value))};",
         Break => "break;",
         Continue => "continue;",
         Branch b => $"goto {LabelName(b.TargetOffset)};",
-        ConditionalBranch c => $"if ({Condition(c.Condition)}) goto {LabelName(c.TargetOffset)};",
-        SwitchBranch s => $"switch ({Expression(s.Value)}) goto [{string.Join(", ", s.TargetOffsets.Select(LabelName))}];",
+        ConditionalBranch c => $"if ({UnsafeConditionText(c.Condition)}) goto {LabelName(c.TargetOffset)};",
+        SwitchBranch s => $"switch ({UnsafeExpressionText(s.Value, Expression(s.Value))}) goto [{string.Join(", ", s.TargetOffsets.Select(LabelName))}];",
         Leave l => $"goto {LabelName(l.TargetOffset)}; // leave",
         EndFinally => "// endfinally",
         EndFilter f => $"// endfilter({CommentExpressionText(f.Value)})",
@@ -4129,9 +4448,28 @@ public sealed partial class CSharpPrinter
         {
             var node = new SynthesizedRenderedExpression(kind);
             _printedRangeMetadata.SetNodeKind(node, kind);
-            (_contextualExpressions ??= [])[operand] = new(node, operand, text);
+            (_contextualExpressions ??= [])[(operand, kind)] =
+                new(node, operand, text);
         }
         return text;
+    }
+
+    string UnsafeExpressionText(
+        IrExpression expression,
+        string text,
+        bool force = false)
+    {
+        if (!_newMemorySafetyRules
+            || _unsafeDepth != 0
+            || (!force && !HasRequiredUnsafeOperation(expression)))
+        {
+            return text;
+        }
+
+        return CaptureContextualExpression(
+            expression,
+            $"unsafe({text})",
+            "UnsafeExpression");
     }
 
     void CaptureContextRange(IrNode node, int start, int end)
@@ -4159,7 +4497,8 @@ public sealed partial class CSharpPrinter
         // narrow-backed enum's out-of-range/negative value in `unchecked`, e.g.
         // `unchecked((U)(-1))`); naming flag combinations is a later slice. A
         // long-backed enum keeps its `long` payload.
-        Constant { Value: int or long, Type: { } enumType } c when _function.TypeShapes.GetValueOrDefault(enumType) == TypeShape.Enum
+        Constant { Value: int or long, Type: { } enumType } c
+            when CoercionRendering.IsEnum(enumType, _function.TypeShapes)
             => WithNodeKind(c, EnumConstantText(c, enumType), "ConversionExpression"),
         Constant { Value: float value } c when !float.IsFinite(value)
             => WithNodeKind(c, SingleText(value), "MemberAccessExpression"),
@@ -4479,6 +4818,9 @@ public sealed partial class CSharpPrinter
         _ => Expression(condition),
     };
 
+    string UnsafeConditionText(IrExpression condition)
+        => UnsafeExpressionText(condition, Condition(condition));
+
     string BindDirectTruthiness(
         IrExpression condition,
         string text,
@@ -4620,10 +4962,10 @@ public sealed partial class CSharpPrinter
                 return null;   // a float is never a branch operand
         }
 
-        // No primitive family. A generic instance is provably a reference; a
-        // bare definition resolves by its same-assembly shape.
+        // A nested enum inside a generic owner is represented as a generic
+        // instance even though its definition-keyed shape is an enum.
         if (type.Kind == TypeRefKind.GenericInstance)
-            return reference;
+            return CoercionRendering.IsEnum(type, _function.TypeShapes) ? integer : reference;
 
         switch (type.DeclaredValueTypeHint)
         {
@@ -4633,7 +4975,7 @@ public sealed partial class CSharpPrinter
                 return integer;
         }
 
-        return _function.TypeShapes.GetValueOrDefault(type) switch
+        return _function.TypeShapes.GetValueOrDefault(NamedDefinition(type)) switch
         {
             TypeShape.Reference => reference,
             TypeShape.Enum => integer,
@@ -4724,7 +5066,7 @@ public sealed partial class CSharpPrinter
         return TypeFamilies.Of(source) == StackFamily.O
             || source.Kind is TypeRefKind.SzArray or TypeRefKind.Array
             || source.DeclaredValueTypeHint == ValueTypeHint.ReferenceType
-            || _function.TypeShapes.GetValueOrDefault(source) == TypeShape.Reference;
+            || _function.TypeShapes.GetValueOrDefault(NamedDefinition(source)) == TypeShape.Reference;
     }
 
     /// <summary>
@@ -4951,10 +5293,10 @@ public sealed partial class CSharpPrinter
     {
         TypeRefKind.Definition =>
             !IsNullableDefinition(type)
-            && _function.TypeShapes.GetValueOrDefault(type) != TypeShape.Reference,
+            && _function.TypeShapes.GetValueOrDefault(NamedDefinition(type)) != TypeShape.Reference,
         TypeRefKind.GenericInstance =>
             !TypeFamilies.IsNullableType(type)
-            && _function.TypeShapes.GetValueOrDefault(type) != TypeShape.Reference,
+            && _function.TypeShapes.GetValueOrDefault(NamedDefinition(type)) != TypeShape.Reference,
         _ => false,
     };
 
@@ -5631,8 +5973,8 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string ReturnText(IrExpression value)
         => CurrentReturnType is { Kind: TypeRefKind.ByRef } && ArgumentLvalue(value) is { } place
-            ? $"return ref {place};"
-            : $"return {CoerceText(value, CurrentReturnType)};";
+            ? $"return ref {UnsafeExpressionText(value, place, force: RendersAsPointerDeref(value))};"
+            : $"return {UnsafeExpressionText(value, CoerceText(value, CurrentReturnType))};";
 
     /// <summary>
     /// Renders the initializer for a place whose static type is <paramref name="target"/>:
@@ -5775,14 +6117,20 @@ public sealed partial class CSharpPrinter
         string target,
         IrExpression value,
         Func<IrExpression, bool> readsTarget,
-        TypeRef? targetType = null)
+        TypeRef? targetType = null,
+        bool parenthesizeIncrementTarget = false)
     {
         if (value is Binary binary && readsTarget(binary.Left))
         {
             // A compound assignment only forms when the value reads the target
             // in same-type arithmetic, so the result already matches the target
             // — no conversion is involved on this path.
-            string statement = CompoundStatement(target, binary, targetType, out bool isIncrement);
+            string statement = CompoundStatement(
+                target,
+                binary,
+                targetType,
+                parenthesizeIncrementTarget,
+                out bool isIncrement);
             _printedRangeMetadata?.SetNodeKind(
                 owner,
                 binary.IsChecked
@@ -5796,7 +6144,7 @@ public sealed partial class CSharpPrinter
             // overflow-honoring operators ever carry IsChecked here.
             return binary.IsChecked ? $"checked {{ {statement} }}" : statement;
         }
-        return $"{target} = {InitializerText(value, targetType)};";
+        return $"{target} = {UnsafeExpressionText(value, InitializerText(value, targetType))};";
     }
 
     /// <summary>
@@ -5809,9 +6157,13 @@ public sealed partial class CSharpPrinter
         string target,
         Binary binary,
         TypeRef? targetType,
+        bool parenthesizeIncrementTarget,
         out bool isIncrement)
     {
         isIncrement = false;
+        string incrementTarget = parenthesizeIncrementTarget
+            ? $"({target})"
+            : target;
         if (targetType is { Kind: TypeRefKind.Pointer, ElementType: { } pointerElement }
             && binary.Kind is BinaryKind.Add or BinaryKind.Subtract)
         {
@@ -5820,7 +6172,7 @@ public sealed partial class CSharpPrinter
                 if (pointerIndex is Constant { Value: 1 })
                 {
                     isIncrement = true;
-                    return $"{target}{(binary.Kind == BinaryKind.Add ? "++" : "--")};";
+                    return $"{incrementTarget}{(binary.Kind == BinaryKind.Add ? "++" : "--")};";
                 }
                 return $"{target} {BinaryOperator(binary)}= {Expression(pointerIndex)};";
             }
@@ -5829,7 +6181,7 @@ public sealed partial class CSharpPrinter
         if (binary.Kind is BinaryKind.Add or BinaryKind.Subtract && binary.Right is Constant { Value: 1 })
         {
             isIncrement = true;
-            return $"{target}{(binary.Kind == BinaryKind.Add ? "++" : "--")};";
+            return $"{incrementTarget}{(binary.Kind == BinaryKind.Add ? "++" : "--")};";
         }
         // The compound runs in the lvalue's type. Prefer the resolved store type
         // (`targetType`) over `binary.Left.ResultType`: an indirect store reads its
@@ -5879,6 +6231,7 @@ public sealed partial class CSharpPrinter
             : NeedsCompoundSignCast(binary, lvalueType)
                 ? CoerceText(binary.Right, lvalueType)
                 : Operand(binary.Right);
+        rightText = UnsafeExpressionText(binary.Right, rightText);
         return $"{target} {BinaryOperator(binary)}= {rightText};";
     }
 
@@ -6051,7 +6404,8 @@ public sealed partial class CSharpPrinter
     bool IsValueTypeTarget(TypeRef type)
         => TypeFamilies.IsNumericPrimitive(type)
             || type is { Namespace: "System", Name: "Boolean", Assembly: TypeRef.CoreLibrary }
-            || _function.TypeShapes.GetValueOrDefault(type) is TypeShape.ValueType or TypeShape.Enum;
+            || !TypeFamilies.IsNullableType(type)
+                && _function.TypeShapes.GetValueOrDefault(NamedDefinition(type)) is TypeShape.ValueType or TypeShape.Enum;
 
     /// <summary>The operator form of an op_* call, or null when the name has no spelling (op_True/op_False and friends stay as calls).</summary>
     string? OperatorSpelling(Call call)
@@ -6434,7 +6788,7 @@ public sealed partial class CSharpPrinter
     string DiscardStatement(ExpressionStatement owner, IrExpression expression)
     {
         _printedRangeMetadata?.SetNodeKind(owner, "AssignmentStatement");
-        return $"_ = {Expression(expression)};";
+        return $"_ = {UnsafeExpressionText(expression, Expression(expression))};";
     }
 
     /// <summary>Renders a diagnostic comment payload without publishing it as surface syntax.</summary>
@@ -6620,7 +6974,7 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string? EnumMemberName(Constant constant)
         => constant.Value is int or long
-            && _function.EnumMembers.TryGetValue(constant.Type, out var members)
+            && _function.EnumMembers.TryGetValue(NamedDefinition(constant.Type), out var members)
             && members.TryGetValue(constant.Value is int i ? i : (long)constant.Value!, out var name)
             ? $"{TypeQualifierText(constant.Type)}.{name}"
             : null;
@@ -6644,7 +6998,7 @@ public sealed partial class CSharpPrinter
         if (_options.EnumCaseLabelOrder != EnumCaseLabelOrder.Alphabetical
             || enumType is null
             || section.Labels.Length < 2
-            || !_function.EnumMembers.TryGetValue(enumType, out var members))
+            || !_function.EnumMembers.TryGetValue(NamedDefinition(enumType), out var members))
         {
             return section.Labels;
         }

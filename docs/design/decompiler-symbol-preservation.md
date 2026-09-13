@@ -336,7 +336,7 @@ METADATA_TESTS=tests/ILInspector.Metadata.Tests/bin/Release/net11.0/ILInspector.
 RUNTIME=artifacts/bin/ILInspector.Decompiler.Fixtures.RuntimeAsync/release/ILInspector.Decompiler.Fixtures.RuntimeAsync.dll
 
 inspect_member() {
-  dotnet run --project src/dotnet-inspect -c Release --no-build -- \
+  dotnet run --project src/DotnetInspect.Cli -c Release --no-build -- \
     member "$1" "$2" --library "$3" \
     -S "Decompiled Source" --bare --tips q
 }
@@ -349,7 +349,7 @@ inspect_member ILInspector.Decompiler.Tests.CfgSampleClass KeywordParam "$CFG"
 inspect_member ILInspector.Decompiler.Tests.CfgSampleClass GreaterAsByte "$CFG"
 inspect_member ILInspector.Decompiler.Tests.NamePreservationSamples StackAllocGenericNameCollision "$CFG"
 
-dotnet run --project src/dotnet-inspect -c Release --no-build -- \
+dotnet run --project src/DotnetInspect.Cli -c Release --no-build -- \
   type ILInspector.Metadata.Tests.TupleSampleClass \
   --library "$METADATA_TESTS" \
   -S "Decompiled Source" --bare --tips q
@@ -436,7 +436,7 @@ new { Id = x, Name = y }
 ```bash
 inspect_member ILInspector.Decompiler.Tests.CfgSampleClass TuplePair "$CFG"
 
-dotnet run --project src/dotnet-inspect -c Release --no-build -- \
+dotnet run --project src/DotnetInspect.Cli -c Release --no-build -- \
   type ILInspector.Metadata.Tests.TupleSampleClass \
   --library "$METADATA_TESTS" \
   -S "Decompiled Source" --bare --tips q
@@ -492,7 +492,7 @@ dotnet run --project tools/DecompilerHarness -c Release --no-build -- \
   --dump 'ILInspector.Decompiler.Fixtures.ClassicAsync.AsyncFixtures::TwoSequentialNamedAwaits' \
   --skip-pdb
 
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
   -method '*LoopRoleNamesAreSynthesized*'
 ```
 
@@ -634,7 +634,7 @@ inspect_member \
   RuntimeAsyncNoAwaitUnsafe \
   "$CFG"
 
-dotnet run --project src/dotnet-inspect -c Release --no-build -- \
+dotnet run --project src/DotnetInspect.Cli -c Release --no-build -- \
   member ILInspector.Decompiler.Tests.CfgSampleClass \
   RuntimeAsyncNoAwaitUnsafe \
   --library "$CFG" \
@@ -738,7 +738,7 @@ inspect_member \
   Number \
   "$CFG"
 
-dotnet run --project src/dotnet-inspect -c Release --no-build -- \
+dotnet run --project src/DotnetInspect.Cli -c Release --no-build -- \
   type ILInspector.Decompiler.Tests.PrimaryCtorSample \
   --library "$CFG" \
   -S "Decompiled Source" --bare --tips q
@@ -813,13 +813,13 @@ dotnet run --project tests/ILInspector.Metadata.Tests -c Release --no-build -- \
 dotnet run --project tests/ILInspector.Metadata.Tests -c Release --no-build -- \
   -method '*GenericExtensionSignaturePreservesBinderAndCollisionFreeFallback*'
 
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
   -method '*Import_MissingParameterName_SynthesizesOrdinalName*'
 
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
   -method '*Import_SynthesizedParameterName_DoesNotCollideWithArtifactName*'
 
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
   -method '*Import_SynthesizedParameterName_DoesNotCollideWithMethodGenericParameter*'
 ```
 
@@ -841,10 +841,10 @@ type generic `arg0` does not force a rename, so the ordinary fallback remains
 dotnet run --project tests/ILInspector.CSharp.Tests -c Release --no-build -- \
   -method '*HostileMetadataSelfNameIsNotRendered*'
 
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
   -method '*UnspeakableNameFidelityTests*'
 
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
   -method '*ReusingOuter*'
 ```
 
@@ -864,7 +864,7 @@ artifact identity and remain collision-resolved across nested scopes.
 ### P27: different PDB names for one reused slot
 
 ```bash
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
   -method '*ReusedSlotWithDifferentScopeNames_ExposesCurrentLastNameLoss*'
 ```
 
@@ -882,14 +882,14 @@ inspect_member \
   KeywordNamedIteratorLocal \
   "$CFG"
 
-dotnet run --project src/dotnet-inspect -c Release --no-build -- \
+dotnet run --project src/DotnetInspect.Cli -c Release --no-build -- \
   member \
   CSharpText.Tests.UnicodeIdentifierFixtures \
   CombiningMarkGenericParameter \
   --library "$CSHARP_TEXT" \
   -S "Fidelity Causes; Decompiled Source" --tips q
 
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
   -method '*FullGrammarGenericParameterName_ExposesCurrentNarrowAdmission*'
 ```
 
@@ -928,7 +928,7 @@ occurrence would leave the shared-printer rule inconsistent.
 ### P30: unrepresentable parameter on a bodyless member
 
 ```bash
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
   -method '*BodylessUnrepresentableParameter*'
 ```
 

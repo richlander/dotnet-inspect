@@ -3,57 +3,65 @@ using ILInspector.MetadataPrimitives;
 
 namespace DotnetInspector.Queries;
 
-/// <summary>The ordered structural level of one inspection subject.</summary>
+/// <summary>The immutable structural level of one inspection subject.</summary>
 public enum StructuralSubjectKind
 {
-    Root,
+    Workspace,
+    Package,
     Library,
     Type,
     Member,
 }
 
 /// <summary>
-/// One exact structural subject inside a realized inspection coordinate.
+/// One exact structural subject inside one live inspection Workspace.
 /// </summary>
 /// <remarks>
-/// Display text, list position, filenames, and metadata tokens alone are not
-/// identity. Construction composes owner-issued identity currencies, and the
-/// sealed variants make kind, parent, and identity shape agree by construction.
+/// Display text, list position, filenames, portable coordinates, and metadata
+/// tokens alone are not identity. Construction composes owner-issued identity
+/// currencies, and the sealed variants make kind, ancestry, and identity shape
+/// agree by construction.
 /// </remarks>
 public abstract record StructuralSubjectIdentity
 {
-    private protected StructuralSubjectIdentity(
-        RealizedMemberCoordinate coordinate)
+    private protected StructuralSubjectIdentity()
     {
-        ArgumentNullException.ThrowIfNull(coordinate);
-        Coordinate = coordinate;
     }
 
-    /// <summary>The realized input containing this subject.</summary>
-    public RealizedMemberCoordinate Coordinate { get; }
+    /// <summary>The exact Workspace subject containing this subject.</summary>
+    public abstract WorkspaceSubject Workspace { get; }
 
     /// <summary>The subject's structural level.</summary>
     public abstract StructuralSubjectKind Kind { get; }
 
     /// <summary>
-    /// Whether this identity can cross the loaded-workspace boundary.
+    /// Whether this process-local identity can cross the loaded-Workspace boundary.
     /// </summary>
-    public abstract bool IsPortable { get; }
+    public bool IsPortable => false;
 
-    /// <summary>Creates the product-owned root for one realized coordinate.</summary>
-    public static RootSubject ForRoot(RealizedMemberCoordinate coordinate) =>
-        new(coordinate);
+    /// <summary>Creates the subject for one exact open Workspace.</summary>
+    public static WorkspaceSubject ForWorkspace(
+        InspectionWorkspaceIdentity workspace) =>
+        new(workspace);
+
+    /// <summary>Creates one exact retained Package subject.</summary>
+    public static PackageSubject ForPackage(
+        WorkspaceSubject workspace,
+        WorkspacePackageOccurrence occurrence) =>
+        new(workspace, occurrence);
 
     /// <summary>
-    /// Creates the explicit aggregate over all admitted libraries.
+    /// Creates the explicit aggregate over all admitted libraries in a Package.
     /// </summary>
     public static AllLibrariesSubject ForAllLibraries(
-        RealizedMemberCoordinate coordinate) =>
-        new(coordinate);
+        PackageSubject package) =>
+        new(package);
 
     /// <summary>Creates one exact acquired Library subject.</summary>
-    public static LibrarySubject ForLibrary(WorkspaceContextMember library) =>
-        new(library);
+    public static LibrarySubject ForLibrary(
+        PackageSubject package,
+        WorkspaceContextMember library) =>
+        new(package, library);
 
     /// <summary>Creates one exact metadata Type subject.</summary>
     public static TypeSubject ForType(
@@ -67,61 +75,125 @@ public abstract record StructuralSubjectIdentity
         MemberAnchor member) =>
         new(declaringType, member);
 
-    /// <summary>One realized coordinate root.</summary>
-    public sealed record RootSubject : StructuralSubjectIdentity
+    /// <summary>One exact live Workspace.</summary>
+    public sealed record WorkspaceSubject : StructuralSubjectIdentity
     {
-        internal RootSubject(RealizedMemberCoordinate coordinate)
-            : base(coordinate)
+        internal WorkspaceSubject(InspectionWorkspaceIdentity identity)
         {
+            ArgumentNullException.ThrowIfNull(identity);
+            Identity = identity;
         }
+
+        public override WorkspaceSubject Workspace => this;
 
         public override StructuralSubjectKind Kind =>
-            StructuralSubjectKind.Root;
+            StructuralSubjectKind.Workspace;
 
-        public override bool IsPortable => true;
+        /// <summary>The Artifact-owner identity of the exact Workspace.</summary>
+        public InspectionWorkspaceIdentity Identity { get; }
+
+        /// <inheritdoc />
+        public override string ToString() =>
+            $"{nameof(WorkspaceSubject)} {{ {nameof(Kind)} = {Kind}, " +
+            $"{nameof(IsPortable)} = {IsPortable}, " +
+            $"{nameof(Identity)} = {Identity} }}";
     }
 
-    /// <summary>The explicit aggregate over all admitted libraries.</summary>
+    /// <summary>One exact retained Package occurrence.</summary>
+    public sealed record PackageSubject : StructuralSubjectIdentity
+    {
+        internal PackageSubject(
+            WorkspaceSubject workspace,
+            WorkspacePackageOccurrence occurrence)
+        {
+            ArgumentNullException.ThrowIfNull(workspace);
+            ArgumentNullException.ThrowIfNull(occurrence);
+            if (!ReferenceEquals(
+                    occurrence.Identity.WorkspaceIdentity,
+                    workspace.Identity))
+            {
+                throw new ArgumentException(
+                    "The Package occurrence must belong to the exact Workspace.",
+                    nameof(occurrence));
+            }
+
+            Workspace = workspace;
+            Occurrence = occurrence;
+        }
+
+        public override WorkspaceSubject Workspace { get; }
+
+        public override StructuralSubjectKind Kind =>
+            StructuralSubjectKind.Package;
+
+        /// <summary>The complete Scope-issued retained Package occurrence.</summary>
+        public WorkspacePackageOccurrence Occurrence { get; }
+
+        /// <summary>The Scope-issued descriptive Package facts.</summary>
+        public WorkspacePackageDescriptor Descriptor => Occurrence.Package;
+
+        /// <summary>The portable coordinate projected by the Package descriptor.</summary>
+        public RealizedMemberCoordinate.Package Coordinate =>
+            Descriptor.Coordinate;
+    }
+
+    /// <summary>The explicit aggregate over all admitted Package libraries.</summary>
     public sealed record AllLibrariesSubject : StructuralSubjectIdentity
     {
-        internal AllLibrariesSubject(RealizedMemberCoordinate coordinate)
-            : base(coordinate)
+        internal AllLibrariesSubject(PackageSubject package)
         {
+            ArgumentNullException.ThrowIfNull(package);
+            Package = package;
         }
+
+        public override WorkspaceSubject Workspace => Package.Workspace;
 
         public override StructuralSubjectKind Kind =>
             StructuralSubjectKind.Library;
 
-        public override bool IsPortable => true;
+        /// <summary>The exact Package whose libraries are aggregated.</summary>
+        public PackageSubject Package { get; }
+
+        public RealizedMemberCoordinate.Package Coordinate =>
+            Package.Coordinate;
     }
 
     /// <summary>One exact acquired Library.</summary>
     public sealed record LibrarySubject : StructuralSubjectIdentity
     {
         internal LibrarySubject(
+            PackageSubject package,
             WorkspaceContextMember library)
-            : base(RequireLibrary(library).Realized)
         {
+            ArgumentNullException.ThrowIfNull(package);
+            ArgumentNullException.ThrowIfNull(library);
+            if (library.Realized != package.Coordinate)
+            {
+                throw new ArgumentException(
+                    "The Library must belong to the exact Package coordinate.",
+                    nameof(library));
+            }
+
+            Package = package;
             Identity = new InspectionGraphAssemblyIdentity.Acquired(
                 library.Participant.Assembly);
         }
 
+        public override WorkspaceSubject Workspace => Package.Workspace;
+
         public override StructuralSubjectKind Kind =>
             StructuralSubjectKind.Library;
 
-        public override bool IsPortable => false;
+        /// <summary>The exact Package containing the Library.</summary>
+        public PackageSubject Package { get; }
+
+        public RealizedMemberCoordinate.Package Coordinate =>
+            Package.Coordinate;
 
         /// <summary>
         /// The exact acquired assembly identity that identifies the Library.
         /// </summary>
         public InspectionGraphAssemblyIdentity.Acquired Identity { get; }
-
-        static WorkspaceContextMember RequireLibrary(
-            WorkspaceContextMember? library)
-        {
-            ArgumentNullException.ThrowIfNull(library);
-            return library;
-        }
     }
 
     /// <summary>One exact metadata Type in one acquired Library.</summary>
@@ -130,8 +202,8 @@ public abstract record StructuralSubjectIdentity
         internal TypeSubject(
             LibrarySubject library,
             MetadataTypeDefinitionName type)
-            : base(RequireLibrary(library).Coordinate)
         {
+            ArgumentNullException.ThrowIfNull(library);
             ArgumentNullException.ThrowIfNull(type);
             Library = library;
             Identity = new InspectionGraphTypeIdentity.AcquiredDefinition(
@@ -139,24 +211,21 @@ public abstract record StructuralSubjectIdentity
                 type);
         }
 
+        public override WorkspaceSubject Workspace => Library.Workspace;
+
         public override StructuralSubjectKind Kind =>
             StructuralSubjectKind.Type;
 
-        public override bool IsPortable => false;
-
         /// <summary>The exact acquired Library containing the Type.</summary>
         public LibrarySubject Library { get; }
+
+        public RealizedMemberCoordinate.Package Coordinate =>
+            Library.Coordinate;
 
         /// <summary>The exact acquired metadata Type identity.</summary>
         public InspectionGraphTypeIdentity.AcquiredDefinition Identity
         {
             get;
-        }
-
-        static LibrarySubject RequireLibrary(LibrarySubject? library)
-        {
-            ArgumentNullException.ThrowIfNull(library);
-            return library;
         }
     }
 
@@ -166,8 +235,8 @@ public abstract record StructuralSubjectIdentity
         internal MemberSubject(
             TypeSubject declaringType,
             MemberAnchor member)
-            : base(RequireDeclaringType(declaringType).Coordinate)
         {
+            ArgumentNullException.ThrowIfNull(declaringType);
             ArgumentNullException.ThrowIfNull(member);
             DeclaringType = declaringType;
             Identity = new InspectionGraphMemberIdentity.AcquiredApi(
@@ -176,21 +245,19 @@ public abstract record StructuralSubjectIdentity
                 member);
         }
 
+        public override WorkspaceSubject Workspace =>
+            DeclaringType.Workspace;
+
         public override StructuralSubjectKind Kind =>
             StructuralSubjectKind.Member;
-
-        public override bool IsPortable => false;
 
         /// <summary>The exact Type containing the Member.</summary>
         public TypeSubject DeclaringType { get; }
 
+        public RealizedMemberCoordinate.Package Coordinate =>
+            DeclaringType.Coordinate;
+
         /// <summary>The exact acquired API Member identity.</summary>
         public InspectionGraphMemberIdentity.AcquiredApi Identity { get; }
-
-        static TypeSubject RequireDeclaringType(TypeSubject? declaringType)
-        {
-            ArgumentNullException.ThrowIfNull(declaringType);
-            return declaringType;
-        }
     }
 }

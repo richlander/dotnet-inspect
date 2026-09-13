@@ -3,10 +3,10 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
-using DotnetInspector.Artifacts;
+using Inspector.Artifacts;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Queries;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Presentation.Tests;

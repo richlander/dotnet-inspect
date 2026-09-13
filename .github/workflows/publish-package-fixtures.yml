@@ -50,7 +50,7 @@ jobs:
 
       - name: Validate fixture catalog
         shell: bash
-        run: dotnet run --project src/dotnet-inspect.Tests -c Release -- --filter-class "DotnetInspector.Tests.PackageFixtureTests"
+        run: dotnet run --project tests/DotnetInspect.Cli.Tests -c Release -- --filter-class "DotnetInspect.Cli.Tests.PackageFixtureTests"
 
       - name: Pack fixture packages
         shell: bash

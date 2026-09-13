@@ -5,12 +5,12 @@
 This document defines the main-thread operation-authority component for
 [issue #5092](https://github.com/richlander/dotnet-inspect/issues/5092).
 The component is implemented in
-`prototypes/inspect-web/src/operation-authority.ts` and first adopted by Type
-Source in `prototypes/inspect-web/src/source-inspection.ts`. Operation-ID
+`inspect-web/src/operation-authority.ts` and first adopted by Type
+Source in `inspect-web/src/source-inspection.ts`. Operation-ID
 uniqueness, operation cancellation, stale-publication safety, and quiescence
-are enforced by `prototypes/inspect-web/test/operation-authority.test.ts` and
+are enforced by `inspect-web/test/operation-authority.test.ts` and
 the Type Source adoption cases in
-`prototypes/inspect-web/test/source-inspection.test.ts`.
+`inspect-web/test/source-inspection.test.ts`.
 
 Issue #5672 adds atomic unexpected-terminal publication for the Worker runtime
 consumer in #5636. It remains an operation-authority contract: producer
@@ -609,10 +609,15 @@ no-op.
 Handle cancellation and session cancellation use one callout rule: the logical
 outcome, authority revocation, reason, and forwarding flag commit before the
 feature event publishes; the external cancellation endpoint is invoked only
-after that feature callout. Endpoint exceptions are caught at that boundary,
-emitted to the diagnostic observer, and do not escape, undo the transition, or
-permit another forwarding attempt. Reentrant producer events therefore observe
-the canceled outcome.
+after that feature callout. The producer adapter receives a read-only live
+cancellation state during preparation. Its reason changes in that same
+authority commit, before feature publication, so adapter-owned admission can
+close without moving the external cancellation endpoint ahead of the feature
+callout. The state stores only that reason; retaining the state does not retain
+the operation record, sink, or callbacks. Endpoint exceptions are caught at
+that boundary, emitted to the diagnostic observer, and do not escape, undo the
+transition, or permit another forwarding attempt. Reentrant producer events
+therefore observe the canceled outcome.
 Each handle remains bound to its originating operation record. Calling an old
 handle never delegates to the session's current operation and cannot change a
 replacement's outcome, authority, cancellation count, or producer endpoint.
@@ -770,8 +775,8 @@ Release TypeScript gate below owns those concrete properties.
 ## Required implementation gate
 
 `inspect-web-operation-authority` is the Release TypeScript gate implemented by
-`prototypes/inspect-web/test/operation-authority.test.ts`, with first-consumer
-coverage in `prototypes/inspect-web/test/source-inspection.test.ts`. Both run
+`inspect-web/test/operation-authority.test.ts`, with first-consumer
+coverage in `inspect-web/test/source-inspection.test.ts`. Both run
 under the ordinary inspect-web `npm test` gate and include:
 
 - concurrent and sequential sessions receiving opaque IDs never previously
@@ -836,7 +841,8 @@ under the ordinary inspect-web `npm test` gate and include:
 - exact `started`, `replaced`, `progress`, `durable`, `terminal`, `canceled`,
   and `disposed` feature events, including start/replacement publication before
   producer activation and cancellation/disposal publication before producer
-  cancellation, with no stacked cancellation/start events for replacement or
+  cancellation, with the read-only cancellation state updated before those
+  feature callouts and no stacked cancellation/start events for replacement or
   disposal;
 - terminal publication through its reserved event after logical completion,
   with no later authority write;

@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 
 using DotnetInspector.Core;
 using DotnetInspector.Services;
-using ILInspector.Findings;
+using Inspector.Findings;
 
 namespace ILInspector.DecompilerHarness;
 

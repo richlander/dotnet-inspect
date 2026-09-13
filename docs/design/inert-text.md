@@ -254,7 +254,7 @@ context. This behavior is gated by
 `SkillDocuments_ClassifyRawContentBeforeNormalizingGitHubLinks`,
 `Package_SkillDocumentDeclaredAsReadmeUsesSkillContainment`, and
 `SkillDocuments_OutputAliasesWritePackageAndProjectPayloads` in the Release
-`dotnet-inspect.Tests` suite. The close negative
+`DotnetInspect.Cli.Tests` suite. The close negative
 `Package_OrdinaryDocumentOutputStillPreservesExactBytes` keeps the exception
 limited to package skill paths.
 
@@ -264,7 +264,7 @@ A boundary is worth something only if it cannot be walked around, so the claim
 has to be measured rather than asserted. The table path holds up: of 113 direct
 `Console.Write` calls in the tree only 24 interpolate anything, and all 24 are
 in a cache command, an analysis dev app and a decompiler fixture. None are in
-`src/dotnet-inspect/Output/`, which writes content the serializer has already
+`src/DotnetInspect.Cli/Output/`, which writes content the serializer has already
 rendered. Foreign text cannot reach stdout as a table cell without passing
 through a row property.
 

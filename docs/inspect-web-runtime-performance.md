@@ -67,7 +67,7 @@ later observation to one runtime.
 | Measurement | Boundary | Interpretation |
 | --- | --- | --- |
 | Startup latency | Navigation start through callable managed build identity | User-visible cold site startup, including asset transfer and runtime initialization |
-| Framework bytes | Browser resource timing for `/_framework/` through readiness | Transfer evidence associated with startup; zero transfer sizes make the observation unsuitable for byte comparison |
+| Framework bytes | Playwright network accounting for page- and Worker-initiated `/_framework/` requests through readiness | Encoded response-body and response-header transfer evidence associated with startup |
 | Cold package inspection | First exact package query in the fresh context | Network-sensitive end-to-end user latency |
 | Warm package inspection | Immediate repeat of the exact query | Process-local package reuse plus repeated managed projection |
 | Package-performance latency | First and second whole-package performance scans | Expensive first-use and warm managed analysis |
@@ -98,15 +98,35 @@ other failure is retained in the report with its stage and message, makes the
 report non-comparable, and causes a nonzero exit.
 
 The harness does not repair product output, bypass product acquisition, or
-construct managed evidence. It invokes the published product facades exactly
-as the site does.
+construct managed evidence. It opts into a narrow browser benchmark bridge
+over the site's existing production `EngineClient`, so startup and every
+measured operation use the same long-lived Worker runtime and generated
+product-operation path as the deployed application. The pinned comparison
+operation remains part of this matched workload even when it has no current UI
+affordance. Ordinary site loads do not install the bridge.
+
+Window Resource Timing does not include the dedicated Worker's framework
+requests in Firefox. The harness therefore records framework transfers from
+Playwright's page-level network events, which include requests initiated by
+the page and its Worker. It reports encoded response bytes; decoded response
+bytes are unavailable at that boundary and remain `null` in the raw report.
+Observation starts before navigation. At managed readiness, the harness stops
+accepting new framework requests and waits within the same startup deadline for
+every request already observed to finish or fail; a failed or stalled request
+rejects the sample visibly instead of producing partial byte accounting.
+
+Promoted run `34545510641` established the migration failure that this boundary
+replaces: all ten samples timed out waiting for uninitialized main-thread
+generated facades, before build identity or timing evidence. The retained host
+load was modest, so the run was rejected as a deterministic harness defect and
+produced no trend point.
 
 ## Running the harness
 
 Install the existing Inspect Web toolchain, including Firefox:
 
 ```bash
-cd prototypes/inspect-web
+cd inspect-web
 npm ci
 npx playwright install firefox
 ```
@@ -115,7 +135,7 @@ Run a matched-head comparison:
 
 ```bash
 npm run benchmark:published -- \
-  --site mono=https://dotnet-inspect.ca \
+  --site mono=https://dotnet-inspect.net \
   --site coreclr=https://coreclr.dotnet-inspect.ca \
   --samples 5 \
   --member-count 10 \
@@ -140,6 +160,12 @@ site order, five samples per site, and ten distinct member operations per
 sample. Manual dispatch may change the sample and member counts for diagnostic
 runs without changing the scheduled defaults.
 
+The Mono control is the promoted production site at
+`https://dotnet-inspect.net`, not the continuously deployed staging site at
+`https://dotnet-inspect.ca`. Production Mono and the isolated CoreCLR site
+advance from the same promotion SHA, while staging advances on every successful
+`main` deployment and cannot provide a stable cross-site commit pair.
+
 The report records the runner's raw one-, five-, and fifteen-minute load
 averages before and after the browser work, along with values normalized by
 logical processor count. These measurements expose obvious runner contention;
@@ -162,7 +188,7 @@ For a short diagnostic run while deployments intentionally differ:
 
 ```bash
 npm run benchmark:published -- \
-  --site mono=https://dotnet-inspect.ca \
+  --site mono=https://dotnet-inspect.net \
   --site coreclr=https://coreclr.dotnet-inspect.ca \
   --samples 1 \
   --member-count 3 \
@@ -189,14 +215,16 @@ commits. They justify the harness shape only.
 
 ## Runtime migration evidence
 
-The .NET 12 non-ReadyToRun and ReadyToRun deployments must use one exact,
-coherent SDK and workload cohort. A floating daily or a stable SDK combined
-with separately overridden runtime packages is not comparable evidence.
+Each .NET 12 deployment must use one exact, coherent SDK and workload cohort.
+A floating daily or a stable SDK combined with separately overridden runtime
+packages is not comparable evidence.
 
-The non-ReadyToRun CoreCLR deployment pins the runtime-main cohort:
+The CoreCLR deployment pins the runtime-main cohort:
 
-- SDK `12.0.100-alpha.1.26454.116`;
-- runtime and browser workload packs `12.0.0-alpha.1.26454.116`; and
+- SDK `12.0.100-alpha.1.26459.112`;
+- runtime and browser workload packs `12.0.0-alpha.1.26459.112`;
+- dotnet/dotnet VMR source commit
+  `7792b064d8573a30d8527944de8184b7e108837e`; and
 - workload feed
   `https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet12/nuget/v3/index.json`.
 
@@ -206,28 +234,71 @@ Inspect Web project graph retains that target framework while executing on the
 explicitly. Both workload installation and application publication restore use
 the pinned daily feed plus NuGet.org. Publication uses package-source mapping so
 the installed workload supplies `Microsoft.NET.Sdk.WebAssembly.Pack`, the daily
-feed supplies SDK-selected `Microsoft.NET.ILLink.Tasks`, and NuGet.org supplies
-ordinary project dependencies. Its artifact carries `dotnet --info`, `dotnet
-workload list`, and a machine-readable receipt that binds the SDK, runtime,
-workload manifest and packs, feeds, target framework, runtime-async lowering,
-and non-ReadyToRun configuration. It also records the pinned CoreCLR pack's
-native JavaScript and Wasm hashes, which must equal the published runtime
-assets. The same receipt is verified before artifact upload and again before
-deployment.
+feed supplies SDK-selected linker, NativeAOT compiler, and runtime packages,
+and NuGet.org supplies ordinary project dependencies. The same mapped
+configuration governs both publication and runtime-async verification. Its
+artifact carries `dotnet --info`, `dotnet workload list`, and a machine-readable
+receipt that binds the SDK, runtime, workload manifest and packs, feeds, target
+framework, runtime-async lowering, and non-ReadyToRun configuration. It also
+records the pinned CoreCLR pack's native JavaScript and Wasm hashes, which must
+equal the published runtime assets. The same receipt is verified before
+artifact upload and again before deployment. Before upload, the focused
+package-adoption canary opens a deterministic local package through the
+published production Worker and `QueryPackage` operation. Build identity and
+the async-lowering canary are not sufficient deployment evidence by
+themselves.
 
-ReadyToRun publication must additionally record:
+The earlier `12.0.100-alpha.1.26454.116` non-ReadyToRun cohort produced the
+accepted baseline run `34439612493`. The later cohort remains pinned after the
+ReadyToRun trial so the rejected optimization is the only configuration
+removed.
 
-- `PublishReadyToRun=true`;
-- non-composite per-assembly output;
-- proof that published application and framework assets are the Crossgen2 Wasm
-  images;
-- compressed and uncompressed `/_framework/` size; and
-- the same runtime-async deployment and browser correctness gates used by the
-  non-ReadyToRun CoreCLR deployment.
+### Rejected ReadyToRun trial
 
-The current runtime-main daily has a Linux path-casing defect: Crossgen2 writes
-`R2R/` while the browser packaging target probes `r2r/`.
+Promotion run `34559349236` deployed product commit
+`e7572e46d66a8dd064131c6fa66d4230a8405b98` with non-composite application
+ReadyToRun. Crossgen2 produced 71 of 74 managed assets, including all eight
+application assets and `System.Private.CoreLib`. The artifact passed build
+identity, runtime-async, asset-identity, and publication-shape checks.
+
+The first one-sample production preflight rejected that configuration before
+the five-sample budget was spent. Mono completed the pinned workload, while
+CoreCLR reached Worker readiness and then failed the first package query with:
+
+```text
+Fatal error.
+Invalid Program: attempted to call a UnmanagedCallersOnly method from managed code.
+```
+
+The same commit and cohort succeeded locally with
+`PublishReadyToRun=false` and reproduced the fatal error with
+`PublishReadyToRun=true`. Making only
+`DotnetInspect.Web.Interop.Package` IL-only did not change the failure. A direct
+generated-facade invocation exposed mismatched
+`WasmDelayLoadHelper`/`WasmR2RToInterpreterThunk` dispatch beginning in
+`NuGetFetch.PackageSourceOperation.CaptureAsync<T>`; interpreting `NuGetFetch`
+revealed another failing generic async dispatch in
+`BrowserPackageWorkspace.RunPackageOperationAsync<T>`. Selective exclusions
+therefore do not provide a viable application configuration.
+
+This is the same CoreCLR-Wasm R2R thunk/signature-mismatch family tracked by
+[dotnet/runtime#129622](https://github.com/dotnet/runtime/issues/129622) and
+[dotnet/runtime#129857](https://github.com/dotnet/runtime/issues/129857), but
+the pinned later cohort still reproduces the product failure. The public
+CoreCLR comparison consequently uses the later .NET 12 cohort without
+ReadyToRun. No R2R performance trend point exists because correctness is a
+precondition for measurement.
+
+Any future ReadyToRun publication must additionally record non-composite
+per-assembly output, prove that published assets are the Crossgen2 Wasm images,
+record compressed and uncompressed `/_framework/` size, and pass the same
+focused production-Worker package operation before deployment. The retained
+publication verifier can produce that evidence, but it does not make R2R a
+supported deployment configuration.
+
+The earlier runtime-main cohort had a Linux path-casing defect: Crossgen2 wrote
+`R2R/` while the browser packaging target probed `r2r/`.
 [dotnet/runtime#133203](https://github.com/dotnet/runtime/pull/133203) carries
-the fix. The deployment should select a daily containing that fix rather than
-commit a dependency on the private `_WasmPublishR2RDir` workaround used during
-the investigation.
+the fix. The pinned ReadyToRun cohort contains the synchronized fix and does
+not depend on the private `_WasmPublishR2RDir` workaround used during the
+investigation.

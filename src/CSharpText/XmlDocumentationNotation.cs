@@ -22,32 +22,90 @@ public static class XmlDocumentationNotation
     };
 
     /// <summary>
-    /// Builds an XML-documentation member identity from neutral textual inputs.
+    /// Builds an exact compiler XML-documentation identity from owner-issued
+    /// definition-name segments and already-projected parameter types.
     /// </summary>
     public static XmlDocMemberIdentity CreateMemberIdentity(
         string kind,
-        string typeFullName,
+        string typeNamespace,
+        IReadOnlyList<string> typeNameSegments,
         string memberName,
-        IReadOnlyList<string> parameterTypes,
-        IReadOnlyList<string> typeParameterNames,
-        string? signatureMemberName = null,
-        string? conversionReturnType = null)
+        IReadOnlyList<string> parameterTypeIds,
+        int methodGenericArity = 0,
+        string? conversionReturnType = null,
+        bool isVararg = false)
     {
-        var typeParameterMap = typeParameterNames
-            .Select((name, index) => (Name: name, Index: index))
-            .ToDictionary(parameter => parameter.Name, parameter => parameter.Index, StringComparer.Ordinal);
-        var methodParameterMap = GetMethodGenericParameterMap(signatureMemberName);
-        var parameters = parameterTypes
-            .Select(parameter => NormalizeParameterType(parameter, typeParameterMap, methodParameterMap))
-            .ToList();
-        var returnType = string.IsNullOrWhiteSpace(conversionReturnType)
-            ? null
-            : NormalizeParameterType(conversionReturnType, typeParameterMap, methodParameterMap);
+        ArgumentException.ThrowIfNullOrWhiteSpace(kind);
+        ArgumentNullException.ThrowIfNull(typeNamespace);
+        ArgumentNullException.ThrowIfNull(typeNameSegments);
+        ArgumentException.ThrowIfNullOrWhiteSpace(memberName);
+        ArgumentNullException.ThrowIfNull(parameterTypeIds);
+        ArgumentOutOfRangeException.ThrowIfNegative(methodGenericArity);
 
-        return new XmlDocMemberIdentity(
-            $"{kind}:{NormalizeTypeName(typeFullName)}.{NormalizeMemberName(memberName)}",
-            parameters,
-            returnType);
+        string typeName = FormatDefinitionName(typeNamespace, typeNameSegments);
+        var builder = new StringBuilder(
+            kind.Length + typeName.Length + memberName.Length + 8);
+        builder.Append(kind);
+        builder.Append(':');
+        builder.Append(typeName);
+        builder.Append('.');
+        builder.Append(NormalizeMemberName(memberName));
+        if (methodGenericArity > 0)
+        {
+            builder.Append("``");
+            builder.Append(methodGenericArity);
+        }
+        if (parameterTypeIds.Count > 0 || isVararg)
+        {
+            builder.Append('(');
+            builder.AppendJoin(',', parameterTypeIds);
+            if (isVararg && parameterTypeIds.Count > 0)
+                builder.Append(',');
+            builder.Append(')');
+        }
+        if (!string.IsNullOrWhiteSpace(conversionReturnType))
+        {
+            builder.Append('~');
+            builder.Append(conversionReturnType);
+        }
+        return new XmlDocMemberIdentity(builder.ToString());
+    }
+
+    /// <summary>
+    /// Builds an exact compiler XML-documentation identity for one type.
+    /// </summary>
+    public static XmlDocMemberIdentity CreateTypeIdentity(
+        string typeNamespace,
+        IReadOnlyList<string> typeNameSegments)
+        => new($"T:{FormatDefinitionName(typeNamespace, typeNameSegments)}");
+
+    /// <summary>
+    /// Formats a structured metadata definition name for compiler XML documentation.
+    /// </summary>
+    public static string FormatDefinitionName(
+        string typeNamespace,
+        IReadOnlyList<string> typeNameSegments)
+    {
+        ArgumentNullException.ThrowIfNull(typeNamespace);
+        ArgumentNullException.ThrowIfNull(typeNameSegments);
+        if (typeNameSegments.Count == 0)
+            throw new ArgumentException("At least one type-name segment is required.", nameof(typeNameSegments));
+
+        string typeName = string.Join(
+            '.',
+            typeNameSegments.Select(FormatNameSegment));
+        return typeNamespace.Length == 0
+            ? typeName
+            : $"{typeNamespace}.{typeName}";
+    }
+
+    /// <summary>
+    /// Escapes one metadata name segment without interpreting nested-type boundaries.
+    /// </summary>
+    public static string FormatNameSegment(string segment)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(segment);
+        return segment.Replace('.', '#');
     }
 
     /// <summary>Normalizes a CLR nested-type name for XML-documentation identity.</summary>
@@ -56,12 +114,10 @@ public static class XmlDocumentationNotation
 
     /// <summary>Normalizes a member name for XML-documentation identity.</summary>
     public static string NormalizeMemberName(string memberName)
-        => memberName is ".cctor"
-            ? memberName
-            : memberName
-                .Replace('.', '#')
-                .Replace('<', '{')
-                .Replace('>', '}');
+        => memberName
+            .Replace('.', '#')
+            .Replace('<', '{')
+            .Replace('>', '}');
 
     /// <summary>Normalizes one XML-documentation parameter type.</summary>
     public static string NormalizeParameterType(string parameter)
@@ -286,28 +342,6 @@ public static class XmlDocumentationNotation
         return parameter;
     }
 
-    private static Dictionary<string, int> GetMethodGenericParameterMap(string? memberName)
-    {
-        if (string.IsNullOrWhiteSpace(memberName))
-            return new Dictionary<string, int>(StringComparer.Ordinal);
-
-        var memberSegmentStart = memberName.LastIndexOf('.');
-        var memberSegment = memberSegmentStart >= 0
-            ? memberName[(memberSegmentStart + 1)..]
-            : memberName;
-        var genericStart = memberSegment.IndexOf('<');
-        if (genericStart < 0)
-            return new Dictionary<string, int>(StringComparer.Ordinal);
-
-        if (!TryGetGenericParts(memberSegment, genericStart, out _, out var parameters, out _))
-            return new Dictionary<string, int>(StringComparer.Ordinal);
-
-        return SplitParameters(parameters)
-            .Select((name, index) => (Name: name.Trim(), Index: index))
-            .Where(parameter => parameter.Name.Length > 0)
-            .ToDictionary(parameter => parameter.Name, parameter => parameter.Index, StringComparer.Ordinal);
-    }
-
     private static IEnumerable<string> SplitParameters(string parameters)
     {
         var depth = 0;
@@ -434,9 +468,17 @@ public static class XmlDocumentationNotation
 }
 
 /// <summary>
-/// The lookup key and normalized signature components used to match an XML-documentation member.
+/// An exact compiler XML-documentation ID for one type or member.
 /// </summary>
-public sealed record XmlDocMemberIdentity(
-    string LookupKey,
-    IReadOnlyList<string> NormalizedParameters,
-    string? NormalizedReturnType = null);
+public sealed record XmlDocMemberIdentity
+{
+    public XmlDocMemberIdentity(string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        Value = value;
+    }
+
+    public string Value { get; }
+
+    public override string ToString() => Value;
+}

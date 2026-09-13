@@ -1,7 +1,7 @@
 using System.Buffers;
 using System.Runtime.CompilerServices;
 using ILInspector.Analysis;
-using ILInspector.Findings;
+using Inspector.Findings;
 
 namespace DotnetInspector.Queries.Tests;
 

@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
-using DotnetInspector.Artifacts;
-using DotnetInspector.Artifacts.Workspaces;
+using Inspector.Artifacts;
+using Inspector.Artifacts.Workspaces;
 using ILInspector.Metadata;
 using InertText;
 
@@ -83,6 +83,12 @@ public sealed class CompileReferenceImage
     public AssemblyReferenceIdentity Identity => Snapshot.Identity;
     public Guid ModuleVersionId => Snapshot.ModuleVersionId;
     public InertString? Location { get; }
+
+    internal bool IsSameModuleAs(CompileReferenceImage other) =>
+        Identity.IsEquivalentTo(other.Identity)
+        && ModuleVersionId == other.ModuleVersionId
+        && ContentDigest.Algorithm == other.ContentDigest.Algorithm
+        && ContentDigest.HexValue == other.ContentDigest.HexValue;
 }
 
 /// <summary>
@@ -170,7 +176,9 @@ public sealed class CompileReferenceInventory
                 ArtifactContentReference content = owner.GetContentReference(input.Artifact, lease);
                 ResolvedAssemblyReference? assembly =
                     ResolvedAssemblyReference.CreateFromArtifactIfManaged(
-                        content.Registration, content.OpenRead, input.Provenance);
+                        content.Registration,
+                        () => owner.OpenRead(content, lease),
+                        input.Provenance);
                 if (assembly is null)
                     return Reject(CompileReferenceFailureKind.ReferenceImageInvalid, input.Artifact);
 

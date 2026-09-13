@@ -49,7 +49,7 @@ Show me just the first 4 lines about System.Text.Json.
 ```
 
 ```bash
-dotnet-inspect System.Text.Json -n 4
+dotnet-inspect library System.Text.Json -n 4
 ```
 
 ```expect
@@ -98,7 +98,7 @@ wc -l | tr -d ' '
 > `--rows` carries its own count, so it needs no `-n`. Add `--tail` for the last N instead, or give `--rows` a range such as `2..10` to name the rows directly.
 
 ```bash
-dotnet-inspect System.Text.Json -S "Async*" --rows 6
+dotnet-inspect library System.Text.Json -S "Async*" --rows 6
 ```
 
 ```expect
@@ -169,10 +169,10 @@ Tips:
 
 > Goal: Return only the first N matches from a find search.
 
-### 5a. Using `find -t N`
+### 5a. Using `find -n N`
 
 ```bash
-dotnet-inspect find "Json*" -t 3 -v:q
+dotnet-inspect find "Json*" -n 3 -v:q
 ```
 
 ```expect

@@ -1,6 +1,6 @@
 {
   "exe": "dotnet-inspect",
-  "project": "src/dotnet-inspect/dotnet-inspect.csproj",
+  "project": "src/DotnetInspect.Cli/DotnetInspect.Cli.csproj",
   "update": {
     "type": "nuget",
     "package": "dotnet-inspect"

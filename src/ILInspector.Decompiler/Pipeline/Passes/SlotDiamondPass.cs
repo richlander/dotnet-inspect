@@ -423,7 +423,9 @@ public sealed class SlotDiamondPass : IIrPass
         var headChildren = head.DetachChildren();
         for (int k = 0; k < headChildren.Count - 1; k++)
             folded.Add(headChildren[k]);
-        folded.Add(new IfStatement(Conditions.Negate(condition), thenArm, null));
+        var guard = new IfStatement(Conditions.Negate(condition), thenArm, null);
+        guard.InheritSourceOffset(headChildren[^1]);
+        folded.Add(guard);
 
         foreach (var block in blocks)
             block.Detach();

@@ -6,13 +6,23 @@ This document is the normative owner for the catalog-to-Workspace ecosystem
 registration handoff tracked by
 [#6307](https://github.com/richlander/dotnet-inspect/issues/6307). It is one
 focused slice of stage 3 in
-[#6012](https://github.com/richlander/dotnet-inspect/issues/6012).
+[#6012](https://github.com/richlander/dotnet-inspect/issues/6012), revised by
+the construction-ownership replacement
+[#6570](https://github.com/richlander/dotnet-inspect/issues/6570).
 
-The first production consumers are fresh Workspace construction and
-registration editing in both the CLI and Inspect Web. The handoff is shared
-substrate between the application ecosystem catalog and reusable Workspace
-consumers. It is not a new ecosystem catalog, source resolver, Workspace state
-model, call-graph request, or host-specific adapter.
+The first production consumers are the Ecosystems-owned curated Workspace
+constructor and explicit ecosystem-registration editing in both the CLI and
+Inspect Web. The handoff is shared substrate between the application ecosystem
+catalog and reusable Workspace registration. It is not a new ecosystem
+catalog, source resolver, Workspace state model, call-graph request, or
+host-specific adapter.
+
+The lower identity, declaration envelope, three-arm population union, and
+public consumer canary are implemented by
+`DotnetInspector.Queries.WorkspaceEcosystemRegistrationDeclaration` under
+[#6640](https://github.com/richlander/dotnet-inspect/issues/6640). Application
+pack correspondence, curated construction, Workspace retention, persistence,
+and host adoption remain in their separately owned slices.
 
 ## Authority and exact claim
 
@@ -21,9 +31,10 @@ model, call-graph request, or host-specific adapter.
 > Given one application-issued ecosystem-pack correspondence and one complete
 > immutable set of owner-issued Workspace-relevant contributions, construct
 > one resource-free lower-layer ecosystem-registration declaration or one
-> typed rejection. The application catalog may project a selected pack and one
-> separately authored ordered default manifest through that declaration
-> without lower layers referencing or rediscovering the catalog.
+> typed rejection. The application catalog may project a selected pack and use
+> one separately authored ordered curated manifest to construct a new
+> independent Workspace through the neutral Workspace API, without lower
+> layers referencing or rediscovering the catalog.
 
 The owner defines:
 
@@ -31,16 +42,17 @@ The owner defines:
 - the explicit correspondence between one `EcosystemPackId` and one lower
   declaration;
 - the closed version-1 contribution slots crossing this boundary;
-- complete declaration, correspondence, and default-manifest validation;
+- complete declaration, correspondence, and curated-manifest validation;
 - single-pack projection outcomes; and
-- the materialization and non-action rules for projection.
+- curated Workspace construction and the non-action rules for projection.
 
 It consumes without redefining:
 
 - Ecosystem Packs' application identity, manifest, display metadata, retrieval
   knowledge, prefix entries, and Integration scanner selection;
 - Source Selection's `PackagePrefixDeclaration`;
-- the platform source owner's future typed library-population declaration;
+- Source Selection's `ExactLibrarySourceCoordinate` and
+  `PlatformLibraryPopulationDeclaration`;
 - Packages' `PackageCoordinate`;
 - Integration's `EcosystemIntegrationScannerBinding`; and
 - Workspace Scope's future registration revision, mutation, snapshot, and
@@ -50,8 +62,8 @@ It consumes without redefining:
 
 `EcosystemPackId` lives in `DotnetInspector.Ecosystems`. That application
 catalog references Queries and is intentionally consumed only by the CLI and
-`InspectWeb.Engine.CatalogExports`. Reusable Queries and
-`InspectWeb.Engine.Core` cannot reference the catalog without reversing the
+`DotnetInspect.Web.Interop.Catalog`. Reusable Queries and
+`DotnetInspect.Web.Core` cannot reference the catalog without reversing the
 layering boundary or creating a project cycle.
 
 Passing only `EcosystemPackId.Value` downward would avoid the project reference
@@ -60,12 +72,58 @@ contribution completeness, owner-issued source values, or the distinction
 between a known pack with no Workspace projection and an unknown pack.
 
 Copying catalog metadata into each host is also invalid. It would create two
-default manifests, two identity maps, and host-specific decisions about which
+curated manifests, two identity maps, and host-specific decisions about which
 prefixes or platform populations belong to an ecosystem.
 
-The handoff instead performs one application-owned projection. Lower consumers
-retain the resulting declaration and never call back into
+The handoff instead performs one application-owned projection. Ecosystems uses
+that projection to construct the curated product Workspace. Lower consumers
+retain the resulting declarations and never call back into
 `DotnetInspector.Ecosystems`.
+
+The Workspace API does not ask the catalog for defaults. It defaults to an
+empty Workspace and accepts ordinary explicit registration, including a
+complete explicit initial set. This reverses the former relationship: the
+product-specific Ecosystems layer depends on and invokes neutral Workspace
+construction; Workspace never depends on, invokes, or offers an option for
+Ecosystems curation.
+
+## Product scenario served
+
+This handoff is the declaration boundary inside the end-to-end scenario owned
+by [Workspace registration and call-graph focal
+length](workspace-registration-and-call-graph-scope.md#end-to-end-product-scenario):
+
+```text
+discovery-oriented command or Spotlight selection
+  -> Ecosystems creates the current curated Workspace
+     -> project Platform, ASP.NET Core, and Microsoft.Extensions
+        into complete lower ecosystem declarations
+        -> initialize one fresh neutral Workspace explicitly
+           -> add the selected package as membership
+              -> focus a Library, type, or member
+                 -> run a bounded graph over the requested focal length
+                    -> persist expanded registrations, not curated intent
+```
+
+The declaration added by this slice carries the inert information needed at the
+second step. For example, the ASP.NET Core declaration can retain both its
+Platform population and `Microsoft.AspNetCore.` package-prefix population,
+while the Platform declaration retains the .NET runtime population. Later
+consumers can select those exact contributions without importing the
+application catalog or reconstructing them from display text.
+
+The handoff does not decide that the discovery operation should be curated,
+admit the selected package, establish focus, choose `Everything`, resolve a
+reference, apply Platform pruning, or serialize a Workspace. Those decisions
+remain with the host, Workspace, graph, resolution, pruning, and persistence
+owners named by the experience specification. The handoff makes their
+composition possible while preserving each decision as an explicit typed
+boundary.
+
+The contrasting high-fidelity scenario deliberately bypasses this curated
+factory. Package-mode `depends` constructs raw and keeps package-authored
+dependency routes as evidence. Both scenarios use the same neutral Workspace
+API; only the caller's construction choice differs.
 
 ## Boundary shape
 
@@ -81,10 +139,14 @@ EcosystemWorkspaceRegistrationProjection
   WorkspaceEcosystemRegistrationDeclaration
         |
         v
-reusable Workspace consumers
-  Queries
-  InspectWeb.Engine.Core
-  future Workspace Scope and Definitions
+Ecosystems curated-Workspace constructor
+  one authored current manifest
+        |
+        v
+neutral Workspace API
+  empty default construction
+  complete explicit initial registration
+  later explicit registration
 ```
 
 The application catalog may expose:
@@ -95,8 +157,9 @@ SelectWorkspaceRegistration(EcosystemPackId)
    | Unavailable(EcosystemPackId)
    | Unknown(EcosystemPackId)
 
-DiscoverDefaultWorkspaceRegistrations()
-  -> complete immutable ordered declarations
+CreateCuratedWorkspace()
+  Create()             -> new synchronous InspectionWorkspace
+  CreateAsynchronous() -> new asynchronous InspectionWorkspace
 ```
 
 Grammar-invalid external text is rejected before exact lookup by the existing
@@ -104,9 +167,12 @@ application identity boundary. `Unavailable` means the pack is known but the
 product build contributes no lower Workspace declaration. `Unknown` means no
 pack registration has that exact application identity.
 
-Default discovery has no partial or unavailable success shape. The static
-product manifest is invalid if any authored default cannot project a complete
-population declaration.
+Curated construction has no partial or unavailable success shape. The static
+product manifest is invalid if any authored entry cannot project a complete
+population declaration. The catalog may retain an internal immutable
+declaration sequence for validation and construction, but public callers obtain
+the curated Workspace rather than a default list that they could reinterpret
+or apply inconsistently.
 
 ## Lower identity and issued correspondence
 
@@ -131,7 +197,7 @@ Complete catalog construction requires:
 - equal canonical values within the explicit pair;
 - at most one lower identity for each application pack;
 - at most one application pack for each lower identity; and
-- preservation of the exact paired declaration through lookup and default
+- preservation of the exact paired declaration through lookup and curated
   projection.
 
 The equal-value check prevents one product concept from acquiring two external
@@ -184,16 +250,23 @@ The version-1 population union is closed:
 
 ```text
 WorkspaceEcosystemPopulationDeclaration
-  = Platform(PlatformLibraryPopulationDeclaration)
+  = ExactLibrary(ExactLibrarySourceCoordinate)
+  | Platform(PlatformLibraryPopulationDeclaration)
   | PackagePrefix(PackagePrefixDeclaration)
 ```
 
+The exact-library arm retains the
+[Exact Library Source Coordinate](exact-library-source-coordinate.md) issued by
+Source Selection. It preserves that owner's exact package/Platform source arm
+and Metadata assembly identity without inspecting, reparsing, or realizing it.
+
 The platform arm retains the
 [Platform Library Population Declaration](platform-library-population-declaration.md)
-issued by Source Selection. Its closed values denote the .NET runtime or
-ASP.NET Core logical library population. This document does not define target
-selection, reference or implementation view, library inventory, acquisition,
-realization, completion, or failure behavior.
+issued by Source Selection. The declaration retains the lower
+[Platform Family](platform-target-currency.md#platform-family) for the .NET
+runtime or ASP.NET Core logical library population. This document does not
+define target selection, reference or implementation view, library inventory,
+acquisition, realization, completion, or failure behavior.
 
 The package-prefix arm retains `PackagePrefixDeclaration`, not
 `PackagePrefixRequest`. The registration records literal source intent without
@@ -207,11 +280,12 @@ permission, or permission to stop after one contribution. A consumer claiming
 a complete ecosystem population must apply every request-relevant
 contribution or return its own typed incomplete or unavailable result.
 
-Duplicate platform population identities and duplicate package-prefix
-declarations within one ecosystem are rejected. Cross-arm textual similarity
-does not establish duplication: a platform population and a
-`Microsoft.AspNetCore.` package prefix describe different source domains and
-may coexist.
+Duplicate exact-library coordinates, platform population identities, and
+package-prefix declarations within one ecosystem are rejected through their
+owners' equality. Cross-arm overlap does not establish duplication: an exact
+Platform Library may coexist with its broad Platform population, and an exact
+package Library may coexist with a matching package prefix. Those values
+describe different population intent and remain in authored order.
 
 ### Integration contribution
 
@@ -263,12 +337,12 @@ The catalog does not synthesize a declaration on selection from descriptor
 display properties. Complete construction pairs and validates the declaration
 once; discovery and selection reuse that immutable value.
 
-## Product default manifest
+## Curated Workspace manifest
 
 The application catalog owns one separate authored sequence:
 
 ```text
-ProductWorkspaceEcosystemDefaults
+CuratedProductWorkspace
   ecosystem.platform
   ecosystem.aspnetcore
   ecosystem.microsoft-extensions
@@ -277,42 +351,64 @@ ProductWorkspaceEcosystemDefaults
 This order is product policy. It is not derived from pack discovery order,
 alphabetical order, package-set order, or namespace roots. The current pack
 discovery order places Microsoft.Extensions before ASP.NET Core, so filtering
-the ordinary pack manifest would produce the wrong default order.
+the ordinary pack manifest would produce the wrong curated order.
 
-Complete default-manifest validation requires:
+Complete curated-manifest validation requires:
 
-- exactly the three literal product identities above in that order for the
-  initial adoption;
+- at least one authored application identity;
 - no duplicate application or lower identity;
 - every application identity to resolve to one explicit projection; and
 - every projected declaration to contain at least one population contribution.
 
+The three identities above are the initial product composition and require
+direct product gates when implemented. They are not a permanent closed grammar.
+Ecosystems may add, remove, or reorder entries in a later product build when
+product policy changes, with updated real-scenario evidence and gates.
+
 The initial target contributions are:
 
-| Default | Required population declarations |
+| Curated registration | Required population declarations |
 | --- | --- |
 | Platform | `Platform(DotNetRuntime)` |
 | ASP.NET Core | `Platform(AspNetCore)` and `Microsoft.AspNetCore.` package prefix |
 | Microsoft.Extensions | `Microsoft.Extensions.` package prefix |
 
 Namespace roots and core-package priorities remain additional inert knowledge.
-They cannot satisfy the default population requirement by themselves.
+They cannot satisfy the curated population requirement by themselves.
 
-Aspire remains a shipped pack but is not a fresh-Workspace default. Adding or
-removing a default is an application-manifest change, not a Workspace Scope
-default embedded in CLI, Browser, Queries, or persisted data.
+Aspire remains a shipped pack but is not part of the curated Workspace. Adding
+or removing a curated entry is an application-manifest change, not a Workspace
+Scope default embedded in CLI, Browser, Queries, or persisted data.
 
-The catalog publishes the same lower declaration sequence to the CLI and
-`InspectWeb.Engine.CatalogExports`. Browser Core receives only lower
-declarations. Neither host copies the three IDs or reconstructs declarations
-from ordinary pack discovery.
+The catalog constructs the same curated Workspace for the CLI and through the
+Inspect Web application boundary. Browser Core receives only the resulting
+lower Workspace state. Hosts consume that construction result rather than
+determining curation from ordinary pack discovery or asking Workspace to
+discover defaults.
+
+The curated API is a factory, not a singleton. Every successful call returns a
+new Workspace with independent identity, lifetime, registrations, content, and
+revision history. Existing Workspaces do not observe later catalog changes.
+The two construction entry points mirror the Workspace owner's existing
+synchronous and asynchronous lifetime modes. Ecosystems selects no new close,
+cleanup, or artifact-session behavior; callers close the returned Workspace
+under its ordinary owner-issued contract.
 
 ## Construction, completeness, and failure
 
-Declaration and catalog construction are deterministic over static immutable
-values. They perform no I/O and have no operation-level `Incomplete` outcome.
-An invalid declaration, correspondence, or default manifest is a product-build
-defect and fails complete manifest construction visibly.
+Declaration, catalog, and curated Workspace construction are deterministic over
+static immutable values. They perform no I/O and have no operation-level
+`Incomplete` outcome. An invalid declaration, correspondence, or curated
+manifest is a product-build defect and fails complete construction visibly.
+
+Curated construction first validates the complete static manifest, then passes
+the complete ordered registration set to the Workspace owner's atomic explicit
+initialization path for the selected lifetime mode. That Workspace API is raw,
+not curated: an empty input constructs empty, and no option names or discovers
+the product manifest. The Workspace owner retains registration validation,
+initial revision, failure, and cleanup semantics. Ecosystems returns one fully
+initialized Workspace or propagates the owner-issued failure; it never returns
+a partially registered Workspace or substitutes a shorter manifest.
 
 Runtime work begins only after a consumer selects a contribution. Platform or
 package-prefix owners retain their own `Unavailable`, `Rejected`,
@@ -320,13 +416,27 @@ package-prefix owners retain their own `Unavailable`, `Rejected`,
 not turn one of those results into an empty population or retry through another
 contribution.
 
+Lower declaration construction snapshots each supplied sequence exactly once
+into an immutable array and then validates that snapshot. It retains the
+original immutable element values and the scanner binding by reference without
+invocation or introspection.
+
 Lower declaration construction validates:
 
 - canonical lower identity;
-- non-null immutable contribution sequences;
-- existing owner validation for every carried value;
+- non-null contribution sequences and elements;
+- namespace-root shapes and ordinal case-sensitive duplicates;
+- Packages-owned coordinate validity, unversioned and target-neutral
+  core-package roles, and ordinal-ignore-case duplicate package IDs;
+- non-null population payloads and owner-defined equality for exact-library,
+  Platform, and package-prefix duplicates;
 - duplicate identities within each contribution domain; and
 - at least one knowledge, population, or scanner contribution.
+
+The handoff owns admissibility for its raw namespace and role-specific
+core-package slots. It does not reparse package-prefix declarations, inspect
+exact-library fields, reinterpret Platform families, or invoke scanner
+bindings.
 
 It does not establish that:
 
@@ -354,12 +464,12 @@ A pack contributes a title, demos, and a curated package-set action but no
 Workspace declaration. It remains a valid application pack. Workspace
 projection returns `Unavailable` rather than an empty declaration.
 
-### Hints-only default
+### Hints-only curated entry
 
-A default row resolves to a declaration with namespace roots and core packages
+A curated row resolves to a declaration with namespace roots and core packages
 but no population contribution. The ordinary declaration is valid for
-knowledge consumers, but complete default-manifest construction rejects it.
-Fresh Workspace construction never silently registers a population that a
+knowledge consumers, but complete curated-manifest construction rejects it.
+Curated Workspace construction never silently registers a population that a
 call-graph consumer cannot form.
 
 ### Shared-framework and package overlap
@@ -371,6 +481,12 @@ The population owner distinguishes ASP.NET Core focus members from .NET
 runtime binding support; consumer and assembly-reference resolution owners
 decide request-relevant population and binding from their typed evidence.
 
+An exact ASP.NET Core Library may also appear beside
+`Platform(AspNetCore)`, and an exact package Library may appear beside a
+matching package prefix. These are deliberate cross-arm overlaps, not
+duplicates. Exact coordinates name one Library; broad declarations name
+populations.
+
 ### Prefix bound leakage
 
 Two consumers select the same Microsoft.Extensions declaration. One searches
@@ -378,11 +494,19 @@ at most 25 packages and another at most 500. Both retain the exact same
 `PackagePrefixDeclaration`; their operation requests and completion differ.
 The product manifest does not encode either bound.
 
-### Default projection unavailable
+### Curated projection unavailable
 
-The product default manifest names Platform, but the pack registration lacks
-its source-owned platform population declaration. Static default construction
-fails visibly. Discovery does not omit Platform and continue with two defaults.
+The curated manifest names Platform, but the pack registration lacks its
+source-owned platform population declaration. Curated construction fails
+visibly. It does not omit Platform and return a shorter Workspace.
+
+### Product curation changes
+
+One product build constructs the initial three-registration Workspace. A later
+build changes the one curated manifest. New curated construction uses the later
+complete sequence; an existing Workspace and a restored definition retain
+their exact expanded registrations. Neither carries a `curated` mode that is
+re-evaluated against the later catalog.
 
 ## Analogous implementations
 
@@ -411,40 +535,44 @@ operation behavior.
 
 | Owner | Responsibility retained |
 | --- | --- |
-| This handoff | Lower identity, declaration envelope, explicit pack correspondence, projection outcomes, and default-manifest validation |
-| [Static Ecosystem Packs](ecosystem-packs.md) | Application pack identity, static contributions, display/actions, shipped pack manifest, and authored product-default choices |
+| This handoff | Lower identity, declaration envelope, explicit pack correspondence, projection outcomes, curated-manifest validation, and complete curated construction |
+| [Static Ecosystem Packs](ecosystem-packs.md) | Application pack identity, static contributions, display/actions, shipped pack manifest, and authored curated-Workspace choices |
 | [Typed Source Intent](search-scope-domain.md) | Package-prefix declaration validation and later request policy |
 | Platform source owner | Platform population identity, inventory, target selection, acquisition, completion, and failures |
 | [Integrations](integrations.md) | Scanner execution, observations, concepts, evidence, completion, and failures |
-| [Workspace Scope](workspace-scope-and-expansion.md) | Registration revisions, edits, complete snapshots, fresh construction, and retained declarations |
-| [Workspace Definitions](workspace-definitions.md) | Portable registration and explicit opt-out persistence |
+| [Workspace Scope](workspace-scope-and-expansion.md) | Empty construction, explicit registration revisions, edits, complete snapshots, and retained declarations |
+| [Workspace Definitions](workspace-definitions.md) | Portable complete expanded registrations, including an empty set |
 | Call Graph and resolution owners | Population selection, finite work, graph construction, binding, completion, and results |
-| CLI | Shared-default construction, command intent, disclosure, and rendering |
-| Inspect Web | Shared-default construction, editing, managed transport, and interaction |
+| CLI | Per-command raw-versus-curated choice, disclosure, and rendering |
+| Inspect Web | Raw-versus-curated experience choice, editing, managed transport, and interaction |
 
-There are eight counted adoption steps:
+There are nine counted adoption steps:
 
 1. Lock this focused handoff design under #6307.
 2. Implement the Source-Selection-owned .NET runtime and ASP.NET Core library
    population declarations defined by #6328.
-3. Implement the lower identity, declaration, validation, and public consumer
-   canary in Queries.
+3. Implement the lower identity, declaration, three owner-issued population
+   arms, validation, and public consumer canary in Queries.
 4. Add package-prefix slots, explicit lower projections, exact selection
-   outcomes, and the authored three-row default manifest to Static Ecosystem
+   outcomes, and the authored three-row curated manifest to Static Ecosystem
    Packs.
-5. Adopt retained ecosystem declarations and fresh defaults in Workspace Scope
-   without adding application-catalog dependencies.
-6. Adopt portable declarations and explicit empty/default opt-out state in
-   Workspace Definitions.
-7. Have the CLI obtain fresh defaults only through the catalog projection and
-   pass lower declarations into shared Workspace construction.
-8. Have `InspectWeb.Engine.CatalogExports` publish the same projection to
-   Browser Core, then adopt Workspace editing without another default table.
+5. Adopt retained ecosystem declarations, empty default construction, and
+   complete explicit initialization in Workspace Scope without adding
+   application-catalog dependencies or a curated option.
+6. Have Ecosystems construct one fresh independent Workspace from the current
+   complete curated manifest through the public Workspace API.
+7. Adopt portable declarations and exact expanded registration state,
+   including an empty set, in Workspace Definitions.
+8. Have each CLI command explicitly choose raw Workspace construction or the
+   Ecosystems curated constructor.
+9. Have the Inspect Web application boundary make the same explicit choice,
+   then adopt Workspace editing without another curated table.
 
-Exact-library registration remains a separate source-owner slice within #6012
-stage 3. Call-graph focal lengths, resolution execution, persistence UX, and
-host presentation remain their later counted #6012 stages. This document does
-not authorize one PR spanning the eight steps.
+Exact-library identity remains owned by its completed Source Selection slice,
+PR #6613; this handoff only retains that value as one population arm.
+Call-graph focal lengths, resolution execution, persistence UX, and host
+presentation remain their later counted #6012 stages. This document does not
+authorize one PR spanning the nine steps.
 
 ## Demo
 
@@ -465,50 +593,79 @@ Known
 
 Reading this result does not inspect installed packs or query NuGet.
 
-Fresh construction obtains:
+Curated construction obtains:
 
 ```text
-DiscoverDefaultWorkspaceRegistrations()
+CreateCuratedWorkspace()
 
-1. ecosystem.platform
-2. ecosystem.aspnetcore
-3. ecosystem.microsoft-extensions
+Create()
+  -> synchronous InspectionWorkspace
+     Registrations
+       1. ecosystem.platform
+       2. ecosystem.aspnetcore
+       3. ecosystem.microsoft-extensions
+
+CreateAsynchronous()
+  -> asynchronous InspectionWorkspace
+     same initial registrations
 ```
 
-The CLI and Browser pass that exact sequence to shared Workspace construction.
-Restoring an explicitly empty registration sequence passes the empty sequence
-instead; neither host calls default discovery during restoration.
+Direct Workspace construction instead returns an empty registration set.
+Restoring an explicitly empty registration sequence constructs raw and remains
+empty; neither host calls curated construction during restoration.
 
 The neighboring Aspire pack remains discoverable through the application
-catalog but is absent from the default sequence. Selecting Aspire may return
+catalog but is absent from the curated sequence. Selecting Aspire may return
 its own lower declaration as contribution slots land; its presence in ordinary
-pack discovery does not make it a default.
+pack discovery does not make it curated.
 
 ## Required gates
 
 | Gate | Required observation |
 | --- | --- |
-| Lower declaration construction | Canonical identity, immutable owner values, duplicate rejection, empty-declaration rejection, and authored order are preserved. |
+| Lower declaration construction | Canonical identity, immutable snapshots, exact owner values across all three population arms, duplicate rejection, empty-declaration rejection, and authored order are preserved. |
 | Explicit correspondence | Equal text without a retained pair cannot project; mismatched paired spellings and duplicate lower IDs reject complete catalog construction. |
 | Projection fidelity | Known selection returns the exact retained declaration; known unavailable and unknown identities remain distinct. |
 | Resource-free projection | Discovery and selection invoke no prefix query, platform source, package-set lookup, scanner, acquisition, or Workspace mutation. |
-| Product defaults | Literal Platform, ASP.NET Core, Microsoft.Extensions order and required population contributions are enforced without filtering ordinary pack discovery. |
+| Curated product Workspace | The current Platform, ASP.NET Core, Microsoft.Extensions order and required population contributions are enforced without filtering ordinary pack discovery. |
+| Independent construction | Repeated curated calls return distinct Workspace identities and lifetimes with equal initial registrations. |
+| Lifetime preservation | Curated synchronous and asynchronous construction preserve the corresponding Workspace close, cleanup, artifact-session, and report contracts without an Ecosystems-owned variant. |
+| Empty lower-layer default | Direct Workspace construction without explicit registrations is empty and has no path that consults Ecosystems or requests curation. |
+| Complete failure | Invalid or unavailable curated entries return no partial Workspace and retain the product defect visibly. |
+| Product-policy evolution | Changing the curated manifest affects new curated construction only; existing and restored expanded registration sets remain unchanged. |
 | Prefix policy separation | Projected prefixes retain exact `PackagePrefixDeclaration` values and no request bound or prerelease policy. |
 | Catalog dependency policy | Existing full project-and-assembly gates keep `DotnetInspector.Ecosystems` out of Queries and every inspect-web production project except `CatalogExports`. |
 | Ordinary consumer canary | A non-friend consumer selects lower declarations through the public catalog surface and uses them without internal access. |
-| CLI and Browser adoption | Both hosts receive one equal default declaration sequence from the catalog; neither contains a duplicate identity table. |
-| Pathological defaults | Unknown, unavailable, duplicate, and hints-only default rows fail visibly rather than producing a shorter success result. |
+| CLI and Browser adoption | Both hosts invoke the Ecosystems-owned construction path and observe its exact initial registration sequence. |
+| Pathological curation | Unknown, unavailable, duplicate, and hints-only curated rows fail visibly rather than producing a shorter success result. |
 
 The existing ecosystem-catalog dependency gates retain full coverage for the
-catalog absence claim. Platform and package-prefix operations keep their own
-Release gates; this handoff's tests do not manufacture their population,
-acquisition, or completion evidence.
+catalog-to-lower-layer dependency absence claim. There is no dedicated source
+or API-prohibition gate policing the statement that Workspace offers no
+curated option or that hosts do not determine curation independently. Those
+are ownership rules enforced by design review. Required future positive Release
+gates instead prove empty default construction, complete explicit
+initialization, Ecosystems-owned curated construction, and both host call
+paths. The handoff and curated construction remain unverified until they land.
+
+Platform and package-prefix operations keep their own Release gates; this
+handoff's tests do not manufacture their population, acquisition, or completion
+evidence.
+
+## TLA+ assessment
+
+No TLA+ model is required for the implemented lower declaration. It is one
+immutable value with no publication, revision, replacement, scheduling,
+concurrency, or failure-state transition. Workspace revisions and curated
+construction retain their own state-model assessments when they consume this
+value.
 
 ## Non-claims
 
 This design does not define:
 
-- exact-library registration identity or source-owner-issued coordinates;
+- exact-library registration identity or source-owner-issued coordinates
+  beyond retaining the owner-issued value;
 - platform family grammar, target selection, library inventory, or
   acquisition;
 - package-prefix query results, package limits, paging, source authorization,
@@ -521,5 +678,7 @@ This design does not define:
 - scanner execution or Integration result behavior;
 - application display, demo, tool, or package-set actions;
 - runtime plugins, dynamic registration, reflection discovery, hot reload, or
-  catalog mutation; or
+  runtime catalog mutation;
+- named curated profiles, selection among historical product compositions, or
+  a durable `curated` bit in persisted Workspace state; or
 - a claim that every ecosystem or source can produce a complete population.

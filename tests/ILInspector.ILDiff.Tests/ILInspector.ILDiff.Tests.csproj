@@ -10,6 +10,7 @@
     <IsAotCompatible>false</IsAotCompatible>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <OutputType>Exe</OutputType>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
   </PropertyGroup>
 
   <ItemGroup>
@@ -23,7 +24,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\ILInspector.Findings\ILInspector.Findings.csproj" />
+    <ProjectReference Include="..\..\src\Inspector.Findings\Inspector.Findings.csproj" />
     <ProjectReference Include="..\..\src\ILInspector.ILDiff\ILInspector.ILDiff.csproj" />
     <ProjectReference Include="..\..\src\ILInspector.Instructions\ILInspector.Instructions.csproj" />
   </ItemGroup>

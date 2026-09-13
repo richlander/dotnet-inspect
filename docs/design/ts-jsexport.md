@@ -78,7 +78,7 @@ parts:
    first resolves the complete root set, then generates the same independent
    facade for each resolved assembly.
 3. **Inspect-web is a consumer of the tool.** Its managed
-   `InspectWeb.Engine.dll` exposes dotnet-inspect functionality through one
+   `DotnetInspect.Web.dll` exposes dotnet-inspect functionality through one
    `InspectionEngine` type containing static `[JSExport]` methods.
 4. **`ILInspector.JsExportSurface` is part of the tool's implementation.** It
    is a host-side library over Metadata- and Analysis-owned facts. It constructs
@@ -102,7 +102,7 @@ The phases compose as follows:
 ```text
 ts-jsexport process on a developer or CI host
 
-InspectWeb.Engine.dll --compiled context--> seven rooted export assemblies
+DotnetInspect.Web.dll --compiled context--> seven rooted export assemblies
                                                     |
                                                     v
                                           JsExportSurface models
@@ -144,7 +144,7 @@ That raw object is usable without `ts-jsexport`:
 ```js
 const runtime = await dotnet.create();
 const exports =
-  await runtime.getAssemblyExports("InspectWeb.Engine");
+  await runtime.getAssemblyExports("DotnetInspect.Web");
 const json =
   await exports.InspectionEngine.QueryPackage(
     packageId,
@@ -259,7 +259,12 @@ arguments are JSON wire types. Closed uses retain their structured argument
 identities. A parameter embedded inside a case signature remains unsupported:
 substituting a wire type into a CLR container is not generally faithful
 (`T[]` writes an array for `T = int`, but a Base64 string for `T = byte`).
-This boundary does not add general generic DTO support.
+Generic JSON records with direct, recursively parametric members use generic
+TypeScript interfaces. Closed constructions are discovered only from
+authenticated source-generated JSON roots, and their arguments are substituted
+through supported records, arrays, dictionaries, nullable values, and unions.
+Open, embedded non-parametric, or unauthenticated constructions fail visibly
+before publication; the boundary does not infer arbitrary CLR generic shapes.
 
 Deserialize-reached unions, unavailable case/null evidence, unsupported
 converters, unmapped alternatives, and recursive union-case alias components
@@ -267,6 +272,14 @@ fail visibly before publication. Recursive DTO interfaces are not union-case
 alias components and retain their existing behavior.
 Unused union registrations remain inert. No discriminator, replacement
 transport, or runtime schema validator is introduced.
+
+The envelope pilot has one deliberate converter exception: the shared
+`InertText.InertString` field converter is authenticated as the JSON `string`
+wire shape and preserves nullable fields as `string | null`. Polymorphic
+`System.Text.Json` base records remain structural in this generation slice;
+their runtime discriminator and derived members are preserved by the managed
+serializer, while a later union-lowering slice may expose them as a
+discriminated TypeScript union.
 
 `JsonUnionWireTests` and the compiler/runtime consumer harness
 `eng/test-ts-jsexport-typescript.sh` gate the generated contract against actual

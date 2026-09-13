@@ -1,6 +1,6 @@
 using System.Text;
 using ILInspector.MetadataPrimitives;
-using ILInspector.Text;
+using Inspector.Text;
 
 namespace DotnetInspector.Services;
 

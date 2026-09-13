@@ -140,13 +140,13 @@ jobs:
             and .repository_projects == (.repository_projects | sort | unique)
             and (.repository_project_sha256 | test("^[0-9a-f]{64}$"))
             and ([.assemblies[].name] == [
-              "InspectWeb.Engine",
-              "InspectWeb.Engine.AnalysisExports",
-              "InspectWeb.Engine.CallGraphExports",
-              "InspectWeb.Engine.CatalogExports",
-              "InspectWeb.Engine.MetadataExports",
-              "InspectWeb.Engine.PackageExports",
-              "InspectWeb.Engine.SourceExports"
+              "DotnetInspect.Web",
+              "DotnetInspect.Web.Interop.Analysis",
+              "DotnetInspect.Web.Interop.CallGraph",
+              "DotnetInspect.Web.Interop.Catalog",
+              "DotnetInspect.Web.Interop.Metadata",
+              "DotnetInspect.Web.Interop.Package",
+              "DotnetInspect.Web.Interop.Source"
             ])
             and ([.assemblies[].module] == [
               "inspect-web-host",
@@ -168,7 +168,7 @@ jobs:
               and (.published_js_sha256 | test("^[0-9a-f]{64}$"))
               and .webcil_assembly == .name
               and (. as $assembly | $assembly.published_webcil_file | startswith($assembly.name + "."))
-              and (.published_webcil_file | test("^InspectWeb\\.Engine(\\.[A-Za-z0-9]+)*\\.[A-Za-z0-9]+\\.wasm$"))
+              and (.published_webcil_file | test("^DotnetInspect\\.Web(\\.[A-Za-z0-9]+)*\\.[A-Za-z0-9]+\\.wasm$"))
               and (.published_webcil_sha256 | test("^[0-9a-f]{64}$"))
               and .js_export_method_count > 0
               and .async_method_count > 0

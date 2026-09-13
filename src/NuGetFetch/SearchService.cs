@@ -8,6 +8,7 @@ namespace NuGetFetch;
 /// </summary>
 public partial class SearchService
 {
+    private const int InitialPrefixCandidatePageSize = 20;
     private const int PrefixSearchPageSize = 100;
     private const int MaxPrefixSearchPages = 100;
     private readonly HttpClient _client;
@@ -99,6 +100,39 @@ public partial class SearchService
         bool prerelease,
         AuthenticationHeaderValue? auth,
         NuGetOperationDeadline operation)
+        => await SearchPageAsync(
+            query,
+            skip,
+            take,
+            prerelease,
+            auth,
+            NuGetApi.DeserializeSearchResponseAsync,
+            operation).ConfigureAwait(false);
+
+    private async Task<IReadOnlyList<SearchResult>> SearchPrefixCandidatePageAsync(
+        string query,
+        int skip,
+        int take,
+        bool prerelease,
+        AuthenticationHeaderValue? auth,
+        NuGetOperationDeadline operation)
+        => await SearchPageAsync(
+            query,
+            skip,
+            take,
+            prerelease,
+            auth,
+            NuGetApi.DeserializePrefixSearchResponseAsync,
+            operation).ConfigureAwait(false);
+
+    private async Task<IReadOnlyList<SearchResult>> SearchPageAsync(
+        string query,
+        int skip,
+        int take,
+        bool prerelease,
+        AuthenticationHeaderValue? auth,
+        Func<Stream, CancellationToken, ValueTask<SearchResponse?>> deserialize,
+        NuGetOperationDeadline operation)
     {
         string pre = prerelease ? "true" : "false";
         if (!SearchRequestUri.TryCompose(
@@ -137,7 +171,7 @@ public partial class SearchService
 
             return await NuGetMetadataReader.ReadResponseAsync(
                 response,
-                NuGetApi.DeserializeSearchResponseAsync,
+                deserialize,
                 _options,
                 operation.RequestTimeout,
                 requestToken).ConfigureAwait(false);
@@ -282,13 +316,48 @@ public partial class SearchService
         int take,
         bool prerelease,
         AuthenticationHeaderValue? auth,
-        int? maximumSkip)
+        int? maximumSkip) =>
+        CreatePrefixSearchCursor(
+            prefix,
+            take,
+            prerelease,
+            auth,
+            maximumSkip,
+            includeVersionHistory: true);
+
+    internal PrefixSearchCursor CreatePrefixCandidateCursor(
+        string prefix,
+        int take,
+        bool prerelease,
+        AuthenticationHeaderValue? auth,
+        int? maximumSkip) =>
+        CreatePrefixSearchCursor(
+            prefix,
+            take,
+            prerelease,
+            auth,
+            maximumSkip,
+            includeVersionHistory: false);
+
+    private PrefixSearchCursor CreatePrefixSearchCursor(
+        string prefix,
+        int take,
+        bool prerelease,
+        AuthenticationHeaderValue? auth,
+        int? maximumSkip,
+        bool includeVersionHistory)
     {
         if (maximumSkip < 0)
             throw new ArgumentOutOfRangeException(nameof(maximumSkip));
 
         return new PrefixSearchCursor(
-            this, prefix, take, prerelease, auth, maximumSkip);
+            this,
+            prefix,
+            take,
+            prerelease,
+            auth,
+            maximumSkip,
+            includeVersionHistory);
     }
 
     internal sealed record PrefixSearchPage(
@@ -301,12 +370,16 @@ public partial class SearchService
         int take,
         bool prerelease,
         AuthenticationHeaderValue? auth,
-        int? maximumSkip)
+        int? maximumSkip,
+        bool includeVersionHistory)
     {
         private readonly HashSet<string> _matchedIds =
             new(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _observedResults =
             new(StringComparer.OrdinalIgnoreCase);
+        private int _pageSize = includeVersionHistory
+            ? PrefixSearchPageSize
+            : InitialPrefixCandidatePageSize;
         private int _skip;
         private int _pageNumber;
 
@@ -323,11 +396,18 @@ public partial class SearchService
                 return new([], Completion);
             }
 
-            IReadOnlyList<SearchResult> page =
-                await service.SearchPageAsync(
+            IReadOnlyList<SearchResult> page = includeVersionHistory
+                ? await service.SearchPageAsync(
                     prefix,
                     _skip,
-                    PrefixSearchPageSize,
+                    _pageSize,
+                    prerelease,
+                    auth,
+                    operation).ConfigureAwait(false)
+                : await service.SearchPrefixCandidatePageAsync(
+                    prefix,
+                    _skip,
+                    _pageSize,
                     prerelease,
                     auth,
                     operation).ConfigureAwait(false);
@@ -360,6 +440,12 @@ public partial class SearchService
             if (!madeProgress)
                 throw new InvalidOperationException(
                     "NuGet search pagination repeated a page without making progress.");
+
+            if (!includeVersionHistory
+                && matches.Count * 2 < page.Count)
+            {
+                _pageSize = Math.Min(_pageSize * 2, PrefixSearchPageSize);
+            }
 
             _skip += page.Count;
             if (!IsCompleted)

@@ -8,7 +8,7 @@
     <DebugType>embedded</DebugType>
     <Deterministic>true</Deterministic>
     <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
-    <PathMap>$(MSBuildProjectDirectory)=/_/</PathMap>
+    <PathMap>$(MSBuildProjectDirectory)/BodylessSourceCollision/Left=/_/Case,$(MSBuildProjectDirectory)/BodylessSourceCollision/Right=/_/case,$(MSBuildProjectDirectory)=/_/</PathMap>
     <SourceLink>$(MSBuildProjectDirectory)/sourcelink.json</SourceLink>
     <EnableSourceControlManagerQueries>false</EnableSourceControlManagerQueries>
     <EnableSourceLink>false</EnableSourceLink>

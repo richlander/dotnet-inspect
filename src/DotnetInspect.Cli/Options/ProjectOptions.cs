@@ -1,0 +1,61 @@
+using DotnetInspect.Cli.Output;
+
+namespace DotnetInspect.Cli.Options;
+
+public record ProjectOptions : IProjectionOptions
+{
+    public string ProjectPath { get; init; } = ".";
+
+    public bool Print { get; init; }
+
+    public RowSelector? PrintRow { get; init; }
+
+    public bool Value { get; init; }
+
+    public bool Urls { get; init; }
+
+    public bool Paths { get; init; }
+
+    public bool JsonArray { get; init; }
+
+    public string? Tfm { get; init; }
+
+    public PackageFileContentScope ContentScope { get; init; } = PackageFileContentScope.Full;
+
+    public bool FrontmatterRequested { get; init; }
+
+    public bool BodyRequested { get; init; }
+
+    public string? OutputPath { get; init; }
+
+    public OutputFormat Format { get; init; } = OutputFormat.Markdown;
+
+    public bool NoHeader { get; init; }
+
+    public bool Bare { get; init; }
+
+    public string[]? Discover { get; init; }
+
+    public bool Tree { get; init; }
+
+    public bool Schema { get; init; }
+
+    public string[]? Select { get; init; }
+
+    /// <summary>
+    /// Bare <c>-S</c>: a request for this command's default preset rather than for any named
+    /// section or category. Tracked separately from <see cref="Select"/> so the marker is never
+    /// spellable as a selector value. See #3547.
+    /// </summary>
+    public bool SelectDefault { get; init; }
+
+    public string[]? Columns { get; init; }
+
+    public string[]? Fields { get; init; }
+
+    public bool Count { get; init; }
+
+    public RowWindow? Rows { get; init; }
+
+    public bool Verbose { get; init; }
+}

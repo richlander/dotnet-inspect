@@ -669,7 +669,8 @@ public sealed class PackageSourceOperationResult<T>
     {
         PackageSourceClientFactory.RequireOwnerCapability(ownerCapability);
         if (typeof(T) != typeof(PackageSearchResult)
-            && typeof(T) != typeof(NuGetGalleryDiscoveryResult)
+            && typeof(T) != typeof(NuGetCatalogPage)
+            && typeof(T) != typeof(NuGetCatalogPackageReceipt)
             && typeof(T) != typeof(PackageVersionResult)
             && typeof(T) != typeof(PackageSourceManifest)
             && typeof(T) != typeof(PackageSourcePayload))
@@ -1401,21 +1402,6 @@ public sealed partial class PackageSourceResultFactory
 
 internal static class PackageSourceOperation
 {
-    public static Task<PackageSourceOperationResult<NuGetGalleryDiscoveryResult>>
-        CaptureGalleryDiscoveryAsync(
-            PackageSourceResultFactory factory,
-            Func<Task<NuGetGalleryDiscoveryResult>> operation,
-            CancellationToken cancellationToken,
-            NuGetOperationContext? operationContext,
-            NuGetOperationDeadline operationDeadline) =>
-        CaptureAsync(
-            operation,
-            value => factory.SucceededGalleryDiscovery(value, operationDeadline),
-            factory.FailedGalleryDiscovery,
-            allowNotFound: false,
-            cancellationToken,
-            operationContext);
-
     public static Task<PackageSourceOperationResult<PackageSearchResult>>
         CaptureSearchAsync(
             PackageSourceResultFactory factory,
@@ -1495,6 +1481,25 @@ internal static class PackageSourceOperation
             cancellationToken,
             operationContext);
 
+    public static Task<
+        PackageSourceOperationResult<NuGetCatalogPackageReceipt>>
+        CaptureCatalogPackageReceiptAsync(
+            PackageSourceResultFactory factory,
+            PackageSourceCoordinate coordinate,
+            Func<Task<NuGetCatalogPackageReceipt>> operation,
+            NuGetOperationDeadline operationDeadline,
+            CancellationToken cancellationToken,
+            NuGetOperationContext? operationContext = null) =>
+        CaptureAsync(
+            operation,
+            value => factory.SucceededCatalogPackageReceipt(
+                value,
+                operationDeadline),
+            kind => factory.FailedCatalogPackageReceipt(coordinate, kind),
+            allowNotFound: false,
+            cancellationToken,
+            operationContext);
+
     private static async Task<PackageSourceOperationResult<T>> CaptureAsync<T>(
         Func<Task<T>> operation,
         Func<T, PackageSourceOperationResult<T>> succeeded,
@@ -1526,7 +1531,7 @@ internal static class PackageSourceOperation
         }
     }
 
-    private static bool TryClassify(
+    internal static bool TryClassify(
         Exception exception,
         bool allowNotFound,
         out PackageSourceFailureKind kind)
@@ -1543,11 +1548,15 @@ internal static class PackageSourceOperation
                 PackageSourceFailureKind.ResponseRejected,
             NuGetRedirectLimitExceededException
                 or NuGetRegistrationResourceLimitExceededException
+                or NuGetCatalogResourceLimitExceededException
+                or NuGetCatalogRequestLimitExceededException
+                or NuGetCatalogDecodedByteLimitExceededException
                 or LocalPackageSourceLimitExceededException =>
                 PackageSourceFailureKind.ResponseRejected,
             NuGetSourceCapabilityUnavailableException =>
                 PackageSourceFailureKind.Unsupported,
             NuGetSourceResponseException
+                or NuGetCatalogStalePageException
                 or System.Text.Json.JsonException
                 or InvalidDataException =>
                 PackageSourceFailureKind.InvalidResponse,
@@ -1586,10 +1595,14 @@ internal static class PackageSourceOperation
             or NuGetMetadataResponseTooLargeException
             or NuGetRedirectLimitExceededException
             or NuGetRegistrationResourceLimitExceededException
+            or NuGetCatalogResourceLimitExceededException
+            or NuGetCatalogRequestLimitExceededException
+            or NuGetCatalogDecodedByteLimitExceededException
             or LocalPackageSourceLimitExceededException
             or LocalPackageSourceNotFoundException
             or NuGetSourceCapabilityUnavailableException
             or NuGetSourceResponseException
+            or NuGetCatalogStalePageException
             or System.Text.Json.JsonException
             or InvalidDataException
             or HttpRequestException

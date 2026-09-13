@@ -1,6 +1,6 @@
 using DotnetInspector.Fixtures;
 using DotnetInspector.Services;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries.Tests;

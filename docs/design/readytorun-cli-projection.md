@@ -32,7 +32,7 @@ inapplicable, while malformed ReadyToRun or metadata-root structure remains a
 visible typed-query failure.
 
 The Release gates are the ReadyToRun and metadata-lens cases in
-`dotnet-inspect.Tests`. They cover explicit disclosure, image and section
+`DotnetInspect.Cli.Tests`. They cover explicit disclosure, image and section
 facts, selected-root provenance, table and heap operations from the selected
 root, missing-root inapplicability, malformed-root failure, and unchanged
 default suppression.
@@ -43,8 +43,8 @@ default suppression.
 members are:
 
 - `ReadyToRun: Image`, a fixed one-row summary containing role, discovery
-  evidence, exact version, raw-preserving flags, header location and size, and
-  manifest relationship; and
+  evidence, exact ReadyToRun format version, raw-preserving flags, header
+  location and size, and manifest relationship; and
 - `ReadyToRun: Sections`, one row per validated section-directory entry,
   including numeric type identity, RVA, size, and CLI-metadata aliasing.
 

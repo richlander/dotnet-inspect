@@ -257,6 +257,9 @@ public enum WorkspaceContextLoadFailureKind
     /// <summary>A selected image has no managed metadata or cannot be read.</summary>
     InvalidImage,
 
+    /// <summary>The context's immutable image-retention budget was exhausted.</summary>
+    ImageRetentionBudgetExceeded,
+
     /// <summary>The host offers no capability an acquisition kind requires.</summary>
     HostCapabilityUnavailable,
 

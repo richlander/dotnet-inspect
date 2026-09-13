@@ -2,14 +2,14 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-canary="$repo_root/prototypes/inspect-web/multi-facade-canary"
+canary="$repo_root/inspect-web/multi-facade-canary"
 host="$canary/Host/TsJsExport.MultiFacade.BrowserCanary.csproj"
-verifier="$repo_root/prototypes/inspect-web/scripts/verify-multi-facade-canary.ts"
+verifier="$repo_root/inspect-web/scripts/verify-multi-facade-canary.ts"
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
 dotnet=${DOTNET:-dotnet}
 node=${NODE:-node}
-tsc=${TSC:-"$repo_root/prototypes/inspect-web/node_modules/.bin/tsc"}
+tsc=${TSC:-"$repo_root/inspect-web/node_modules/.bin/tsc"}
 
 mode=comprehensive
 case "${1:-}" in

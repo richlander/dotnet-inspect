@@ -14,8 +14,14 @@ This is a design proposal. Implementation has begun: the `package`,
 selected context into exactly one `AssemblyContextGroup` now exist in product
 code. Product code also selects and realizes exact already-acquired package
 content into coordinated surface and implementation roles for Browser package
-workspaces. Schema version 2, packet format 2, complete view binding, and the
-restoration coordinator defined here are not yet implemented.
+workspaces. Browser home demos execute every selected preset through
+`RunHomeDemo`, apply its typed package or Platform activation, and publish the
+ordinary canonical Browser workspace only after the selected result is ready.
+CLI Platform demos use the same `WorkspaceContextLoader` implementation-pack
+realization before lowering the selected images into the ordinary type/member
+section pipeline.
+Schema version 2, packet format 2, complete view binding, and the restoration
+coordinator defined here are not yet implemented.
 The definition-record loader, registry, scenario resolution, product home
 demos, and role realization listed under
 [What exists today](#what-exists-today) are gated. Every other property asserted
@@ -26,7 +32,7 @@ below is **unverified** until the gates named in
 
 The initiative began with three consumers needing a portable workspace
 description and being served by none (the browser workbench described below
-lives in the main tree under `prototypes/inspect-web`; claims about it cite that
+lives in the main tree under `inspect-web`; claims about it cite that
 implementation):
 
 - The browser workbench's home demos were hand-authored base64 URL strings, and
@@ -60,6 +66,12 @@ one complete restoration result.
 
 Adjacent owners remain independent:
 
+- [CLI Workspace Sharing](cli-workspace-sharing.md) owns the public
+  `--share` gesture, its use of an inspection command's already-resolved
+  semantic state, terminal packet/URL output, refusal behavior, and
+  command-by-command adoption. It consumes this owner's scenario records and
+  typed packet-projection outcome rather than defining another Workspace or
+  packet grammar.
 - [View Facet Registry](view-facet-registry.md) issues and resolves facet IDs,
   descriptors, applicability, and availability, and owns its private execution
   bindings.
@@ -104,9 +116,11 @@ authority and carries only owner-issued activation and Navigation authority.
    replace the pseudo-package; each group expression lowers to exactly one
    `AssemblyContextGroup`.
 5. **The URL share packet is a terse projection of one scenario
-   composition**, produced and consumed by the browser's transposition layer.
-   The visible query is a human-readable courtesy label; the peer definition
-   records are always canonical.
+   composition**, produced and consumed through the product transposition
+   layer. CLI inspection commands may request that projection through the
+   separately owned [`--share` contract](cli-workspace-sharing.md); Inspect Web
+   consumes it for restoration. The visible query is a human-readable courtesy
+   label; the peer definition records are always canonical.
 6. **Complete committed views begin at definition schema version 2 and packet
    format 2.** Version 1 remains an immutable legacy contract. Version 2 uses
    one canonical View Facet Registry ID field, one retained view state per
@@ -181,8 +195,8 @@ it:
 ```
 
 Next, the authoring examples — what a demo author writes. A workspace
-definition subscribes by reference; the System.Text.Json demo needs only
-the platform and one package, so no custom group is involved at all:
+definition names the exact Runtime Platform assembly directly, so the
+System.Text.Json demo needs no package coordinate or custom group:
 
 ```json
 {
@@ -190,14 +204,13 @@ the platform and one package, so no custom group is involved at all:
   "kind": "workspace",
   "id": "stj-serializer-tour",
   "title": "System.Text.Json serializer tour",
-  "description": "JsonSerializer surface with the platform in scope.",
+  "description": "JsonSerializer surface from the Runtime Platform.",
   "contexts": [
     {
       "name": "stj",
-      "subscribe": ":Platform@10.0.10",
       "framework": "net10.0",
       "members": [
-        { "kind": "package", "id": "System.Text.Json", "version": "10.0.0", "framework": "net10.0" }
+        { "kind": "platform", "family": "runtime", "assembly": "System.Text.Json", "version": "10.0.12", "framework": "net10.0" }
       ]
     }
   ]
@@ -223,16 +236,12 @@ Its view and navigation presets are peer authored records:
   "id": "serializer-navigation",
   "tabs": [
     {
-      "id": "platform",
-      "subscribe": ":Platform@10.0.10",
-      "framework": "net10.0"
-    },
-    {
       "id": "stj",
       "coordinate": {
-        "kind": "package",
-        "id": "System.Text.Json",
-        "version": "10.0.0",
+        "kind": "platform",
+        "family": "runtime",
+        "assembly": "System.Text.Json",
+        "version": "10.0.12",
         "framework": "net10.0"
       }
     }
@@ -774,12 +783,12 @@ section; CLI and browser encodings consume that plan rather than parsing the
 member selection independently. **The current schema-version-1 home demos bind
 legacy product section display names** through
 `ProductDemoSections` (today: `Methods` for the STJ API tour; `Call
-Graph` primary bind for multi-package and package-local graph demos, expanded
+Graph` primary bind for multi-source and focused graph demos, expanded
 at run via `ExpandRunSections` / `DemoScenarioRunner`: Markdown keeps
 `Call Graph` + `Callers`; table/tsv/jsonl select `Callers` when the demo has
 caller scope — MemberCommand re-adds Callers under caller scope, so
 Call Graph-only tabular would silently fall back to a member inventory — and
-select `Call Graph` when it does not, so package-local entry points with empty
+select `Call Graph` when it does not, so single-library entry points with empty
 Callers still emit rows; standalone `--mermaid` keeps `Call Graph`; document
 `--json` fails closed for Call Graph demos until graph sections project into
 that payload.
@@ -791,12 +800,10 @@ mermaid rather than falling through to the type shape tree. The
 [View Facet Registry](view-facet-registry.md) settles minted facet identity;
 schema version 2 and the explicit legacy table below settle versioned migration
 and complete view composition. `ecosystem.platform` is application grouping,
-not workspace-coordinate inference: the current System.Text.Json demos retain
-their exact package pins even when the ecosystem catalog groups them as basic
-Platform demos. Platform-coordinate workspaces remain a product capability but
-the shipped home demos do not adopt them in this slice. Browser run-plan and
-engine execution do admit exact, assembly-scoped Platform coordinates so the
-coordinate migration can occur without fabricating package inputs. A Browser
+not workspace-coordinate inference. The three System.Text.Json demos now
+declare exact, assembly-scoped Runtime Platform coordinates after exact prune
+evidence and the Platform catalog independently establish package subsumption
+and library availability. A Browser
 home-demo context is source-homogeneous; a Platform context uses only the
 supported `runtime` and `aspnetcore` families, one exact Platform version and
 target framework that agrees with the context-wide framework constraint, and
@@ -816,28 +823,36 @@ their exact canonical facet IDs before Registry resolution.
 **CLI run** lowers the resolved plan to `TypeCommand` / `MemberCommand` options
 (`DemoScenarioRunner`) so `dotnet-inspect demo <id>` returns ordinary section
 output from the existing pipelines; multi-package workspaces encode extra
-package members as `--caller-package` for the call-graph demo. **inspect-web** loads home-demo metadata and exact scenario IDs from the
+package members as `--caller-package` for the call-graph demo. A Platform demo
+retains every exact family, version, framework, and assembly coordinate through
+`WorkspaceContextLoader`, then materializes the selected implementation images
+for the existing CLI section renderers. The focused image remains the command
+root; additional selected images enter the ordinary member caller-scope path
+through one temporary directory. The CLI does not inspect reference-pack stubs
+as implementation bodies or fabricate package coordinates for Platform
+members. **inspect-web** loads home-demo metadata and exact scenario IDs from the
 ecosystem catalog through the browser engine (`ListHomeDemos` /
-`ResolveHomeDemo` / `RunHomeDemo`). The transfer replaced only the
-application-inventory source with flattened descriptors and exact selection;
-Workspace Definitions execution remains unchanged. `RunHomeDemo` accepts both
-type-only `Methods` and member-bound
-`Call Graph` presets: the engine resolves the workspace, focus, section, and
-optional member anchor, opens one aggregate browser workspace, and returns its
-ordinary browsable surfaces plus exact source-owner-issued activation identity.
-Package runs retain package identity; Platform runs retain family, assembly,
-version, and target-framework identity while using the shared Platform
-workspace, API-surface projection, and progressively acquired Call Graph path.
-Mixed package/Platform contexts remain unsupported until a product demo needs
-that composition. The focused
-`BrowserTypeSurface.Api` rows are the browser's ordinary Methods-section
-output; a member-bound run additionally returns the ordinary Call Graph
-projection. The engine rejects other product sections,
-library-scoped views, and runtime-identifier-scoped package workspaces until
-Browser has explicit execution support rather than silently dropping those
-bindings. These properties are gated by
+`RunHomeDemo`; `ResolveHomeDemo` remains a tooling/debug projection).
+Every selected home demo executes through `RunHomeDemo`; the host does not
+construct a share packet, rebuild package coordinates, or lower a Platform
+family to a package ID. `RunHomeDemo` accepts both type-only `Methods` and
+member-bound `Call Graph` presets: the engine resolves the workspace, focus,
+section, and optional member anchor, opens one aggregate browser workspace, and
+returns its ordinary browsable surfaces plus exact source-owner-issued
+activation identity. Package runs retain package identity; Platform runs
+retain family, assembly, version, and target-framework identity while using the
+shared Platform workspace, API-surface projection, and progressively acquired
+Call Graph path. Mixed package/Platform contexts remain unsupported until a
+product demo needs that composition. The focused `BrowserTypeSurface.Api` rows
+are the browser's ordinary Methods-section output; a member-bound run
+additionally returns the ordinary Call Graph projection. The engine rejects
+other product sections, library-scoped views, and runtime-identifier-scoped
+package workspaces until Browser has explicit execution support rather than
+silently dropping those bindings. These properties are gated by
 `ToRunPlan_AllProductHomeDemosHaveSupportedBrowserShape`,
 `StjSerializer_RunPlanOwnsTypeOnlyMethodsSelection`,
+`StjPlatformDemos_JoinExactSupplyAndCatalogEvidence`,
+`ExtensionsPlatformDemos_JoinExactSupplyAndCatalogEvidence`,
 `ToRunPlan_DerivesNonFirstFocusForTypeOnlyMethodsView`,
 `ToRunPlan_PlatformCoordinatePreservesSourceNativeFocus`,
 `ToRunPlan_RejectsMixedPackageAndPlatformWorkspace`,
@@ -855,30 +870,47 @@ bindings. These properties are gated by
 `HomeDemoRunCore_ProjectsTheAnchoredMemberAndItsGraph`,
 `PlatformHomeDemoRunCore_ProjectsMethodsWithSourceNativeActivation`, and
 `PlatformHomeDemoRunCore_PreservesContextAcrossEquivalentVersionSpellings`.
+CLI multi-Platform execution and caller-scope preservation are gated by
+`Runner_LowersMultiPlatformCallGraphWithCallerScopeSections`,
+`Cli_DemoCallGraph_Table_EmitsCallersRows`, and the all-demo Mermaid and table
+execution gates.
 
-This engine capability does not yet change the home buttons. The current
-TypeScript still restores STJ through a share deep link built from the resolved
-projection and invokes `RunHomeDemo` for Call Graph. The frontend follow-up
-must apply the typed Methods result and then push a canonical shareable
-location; calling the engine without updating location would regress refresh
-and sharing. That follow-up can then delete the host-owned share encoding and
-the residual platform → `Microsoft.NETCore.App` runtime-pack mapping (for
-future platform members) from
-`prototypes/inspect-web/src/product-home-demos.ts`. TypeScript applies the
-current Call Graph result without parsing definition member keys or
-reconstructing package/query inputs. Until that native Platform navigation
-adoption lands, the frontend rejects a Platform activation explicitly; no
-shipped demo emits one yet.
+The Browser host validates the complete typed result before replacing the
+current workspace. Package activation retains the returned coordinates and
+selected context in their declared order. Platform activation requires one
+exact target and one focus Library whose descriptor agrees with both the
+source family and the exact Platform catalog, then enters the ordinary native
+Platform Library path without reacquiring an already returned surface.
+Methods clears member and graph state; Call Graph requires one exact member
+anchor and the returned graph. The host derives the canonical shareable
+location from the resulting ordinary Browser state and publishes the retained
+workspace only after selection and any graph rendering succeed. Failure or
+supersession publishes no partial replacement. These frontend boundaries are
+gated by `product-home-demos.test.ts`,
+`saved-workspace-navigation.test.ts`, the home-demo source contract in
+`spotlight-identity.test.ts`, and the package/Platform Methods and Call Graph
+production-composition cases in `library-hierarchy.spec.ts`.
+
+The System.Text.Json and Microsoft.Extensions migrations are gated by two
+independent exact facts: `PlatformPrunePolicy` reports that each former package
+pin is subsumed, and the same target independently contains each explicitly
+selected implementation library. Package identity is never treated as assembly
+identity. The three System.Text.Json demos use the Runtime Platform target.
+The five Microsoft.Extensions demos remain owned by the Microsoft.Extensions
+ecosystem while their selected libraries use the ASP.NET Core Platform target;
+ecosystem grouping and source provenance are orthogonal. Demos requesting a
+version newer than the selected Platform ceiling remain package-backed. Aspire
+demos remain package-backed because their libraries are not supplied by the
+Platform.
 Browser package scopes now adapt product-selected, product-realized package
 participants into Browser coordinate/asset provenance; Browser still owns Wasm
 transport, cache/deadline/lifetime policy, and its resource-limit values.
 Residual: (1) bind minted facet IDs to replace the display-name allow list;
-(2) realize definitions via `WorkspaceContextLoader` instead of CLI package/
-`--caller-package` encoding; (3) canonical frontend activation of every home
-demo, including share-location projection and deletion of browser-owned packet
-construction; (4) Call Graph / Callers structured JSON projection remains the
-shared member-pipeline gap (Markdown/Mermaid are the faithful graph formats
-today).
+(2) realize package definitions via `WorkspaceContextLoader` instead of CLI
+package/`--caller-package` encoding; (3) Call Graph / Callers structured JSON
+projection remains the shared
+member-pipeline gap
+(Markdown/Mermaid are the faithful graph formats today).
 
 ### Member coordinates
 
@@ -1154,8 +1186,9 @@ The packet separates navigation from binding:
   focused tab, and preserving tabs does not imply relationships across
   independent groups.
 - `v` and the selection keys project the peer view preset. Library scope is
-  encoded for package and platform coordinates alike; the current prototype's
-  `l`-only-for-runtime-pack omission does not survive into v1.
+  encoded for package and platform coordinates alike; the current Inspect Web
+  implementation's `l`-only-for-runtime-pack omission does not survive into
+  v1.
 
 Session → packet totality is a design constraint: every interactively
 reachable v1 session has explicit navigation and context state and must
@@ -1362,8 +1395,8 @@ The lowerer uses this closed, scope-aware table:
 | `lens`, exact Type, no Member | `api` | Type, `type.api` |
 | `lens`, exact Type, no Member | `metadata` | Type, `type.metadata` |
 | `lens`, exact Type, no Member | `source` | Type, `type.source` |
-| package-capable coordinate with no Type or Member | `overview` | Root, `root.package-overview` |
-| package-capable coordinate with no Type or Member | `dependencies` | Root, `root.package-dependencies` |
+| package-capable coordinate with no Type or Member | `overview` | Package, `package.overview` |
+| package-capable coordinate with no Type or Member | `dependencies` | Package, `package.dependencies` |
 | package-capable coordinate with no Type or Member | `integrations` | All Libraries, `library.integrations` |
 | package-capable coordinate with no Type or Member | `opportunities` | All Libraries, `library.opportunities` |
 | package-capable coordinate with no Type or Member | `analysis` | All Libraries, `library.analysis` |
@@ -1475,9 +1508,20 @@ Each Workspace is constructed solely from its own definition; no other
 Workspace or Workspace definition participates.
 
 This rule applies to saved definitions, share packets, Browser history,
-product demos, external-package Spotlight selection, and CLI canonical replay.
+product demos, Spotlight package selections classified as
+`RestoreExternalPackageWorkspace` by the
+[Spotlight destination-activation
+owner](inspect-web-spotlight-destination-activation.md), and CLI canonical
+replay.
 Selecting a subject already loaded in the active Workspace is ordinary
 Navigation and does not invoke restoration.
+
+Browser history identifies retained Workspaces only within one loaded page
+session. An entry stamped by an earlier page load is an ordinary location, not
+a reference to a deleted Workspace in the current retained collection. After a
+reload, Back and Forward restore such locations into the active Workspace (or
+construct the first Workspace when none exists); they do not consume additional
+retained-Workspace capacity.
 
 A packet or definition remains inert data and cannot authorize acquisition.
 Restoration consumes the current owner-authorized activation demand required
@@ -1531,14 +1575,22 @@ One restoration attempt proceeds in this order:
    A late completion for a settled token is discarded and cannot activate.
 
 At most one unpublished new Workspace may exist. It is not selectable,
-rendered, addressable through ordinary host actions, or recorded in history
-before activation. A newer attempt closes the older attempt's Workspace before
-beginning another.
+represented in the published Workspace collection, addressable through ordinary
+host actions, or recorded in history before activation. The Browser host may
+render its construction progress or prepared result in the inert workbench while
+the attempt remains current; that provisional presentation has no active
+Workspace identity and failure restores the prior presentation. A newer attempt
+closes the older attempt's Workspace before beginning another.
 
-The Browser/Wasm host must define construction admission and retained-Workspace
-capacity policies before adoption. Published Workspaces remain live until the
-user deletes them. Per-Workspace budgets do not bound the retained collection;
-this design makes no process-wide peak-memory safety claim.
+The Browser/Wasm host admits at most four published Workspaces. A request for a
+fifth fails visibly before construction and directs the user to delete a
+Workspace first. Published Workspaces remain live until the user deletes them.
+The count aligns with the Browser engine's existing four-scope ceiling, but
+collection membership does not prove that one corresponding engine scope
+remains resident. Exact engine Workspace identity and close-on-deletion need
+their own integration gate before retained-lifecycle adoption is complete.
+Per-Workspace budgets alone do not bound the retained collection, and this
+design makes no process-wide peak-memory safety claim.
 
 The Workspace subject lists the published collection and identifies the active
 Workspace. Selecting another published Workspace changes only the active
@@ -1996,6 +2048,48 @@ Definition records and product demos (this slice):
   `Encode_RejectsEmptyFilePathWithoutStackTrace` and
   `Encode_InvalidFilePathDoesNotPrintStackTrace` gate contained file-input
   diagnostics across platform path rules;
+- CLI `member --share packet|url` projects one explicitly selected public
+  package member through `WorkspaceSharePacketTransposer`. The first slice
+  requires a NuGet.org producer receipt, exact package version and framework,
+  one library selected by `PackageCompileAssetSelector`, and a package-unique
+  structured type identity across that Browser compile surface. It emits the
+  API lens, exact Browser Type and Library compatibility keys, the
+  `ApiMemberIdentity` anchor fingerprint, and no section so Browser restoration
+  selects member Overview. Selection by `Name:N`, `Name~digest`, or `--index N`
+  is mandatory; a lone matching overload does not imply portable intent.
+  Platform, project, local package, private-feed, tools-only or otherwise
+  non-compile package content, non-public, ambiguous assembly-qualified type,
+  section, analysis, source, caller-scope, and other output modes fail visibly
+  before packet emission. The projection runs after exact overload resolution
+  and before documentation, PDB, source, decompiler, or analysis enrichment.
+  `MemberShare_PacketProjectsExactPackageMember`,
+  `MemberShare_UrlWrapsCanonicalPacket`,
+  `MemberShare_NeighboringOverloadsHaveDistinctAnchors`,
+  `MemberShare_UsesBrowserCompileAssetsInsteadOfRuntimeCopies`,
+  `MemberShare_RejectsToolsOnlyPackageSurface`,
+  `MemberShare_RequiresExactMemberBeforeAcquisition`,
+  `MemberShare_RejectsPlatformSource`,
+  `MemberShare_RejectsLocalPackage`, and
+  `MemberShare_RejectsConflictingModes` gate the production boundary;
+- the package `dependencies` compatibility token lowers to
+  `package.dependencies`; the packet carries the exact package coordinate
+  and framework but no graph results, dependency-group indexes, or Browser
+  runtime state. The public CLI gesture and producer behavior are owned by
+  [CLI Workspace Sharing](cli-workspace-sharing.md). The published Browser
+  restores its package Dependencies lens and lazily computes the graph.
+  Browser capture refuses an explicitly selected dependency group that differs
+  from the active framework because format 1 cannot preserve that override,
+  and canonical Dependencies restoration clears any prior Browser-local group
+  override before rendering. The Browser Share action uses this canonical
+  capture path even though ordinary package-root address-bar state retains its
+  simpler route form. `canonical package dependency views restore the package
+  root lens`,
+  `canonical package views reject contradictory structural selection`,
+  `capture projects package Dependencies through the packet lens`,
+  `capture refuses a non-active package dependency group`, and
+  `Share copies canonical package Dependencies and refuses a non-active group`,
+  and `canonical package Dependencies restoration clears a resident group
+  override` gate the Browser adapter;
 - `InspectionDefinitionJson` applies the 1 MiB/1024-coordinate portable record
   limits and iteratively rejects catalog-group trees over 30 levels or 1024
   nodes before recursively processing authored records;
@@ -2036,9 +2130,13 @@ Definition records and product demos (this slice):
   independent; the selected context bounds cross-package Call Graph expansion.
   Browser-created Call Graph contexts compose only package tabs with the active
   tab's framework and RID; incompatible targets remain separate contexts.
-  Product-run Call Graph demos install their exact executed package order as the
-  selected context, and expanded queries send that complete ordered context to
-  the product engine.
+  Product-run home demos install their exact returned source set and typed
+  focus before publishing. Package demos retain the executed package order as
+  the selected context; expanded Call Graph queries send that complete ordered
+  context to the product engine. Platform demos retain one exact target and
+  enter the native Platform Library/type/member path without reacquiring the
+  returned surface. Methods and Call Graph both publish through the ordinary
+  Browser share projection.
   Exact `:Platform` versions remain exact through initial and lazy acquisition,
   while an absent pin remains floating. Browser activation accepts at most one
   Platform tab and is atomic: an unavailable coordinate, selected library,

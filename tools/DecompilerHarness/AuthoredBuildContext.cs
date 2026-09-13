@@ -3,7 +3,7 @@ using System.Reflection;
 
 using DotnetInspector.RoundTripCompilation;
 using ILInspector.CSharp;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 

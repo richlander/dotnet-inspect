@@ -38,7 +38,7 @@ connect it to these neighboring owners:
 | `ILInspector.ControlFlow` | Graph, dominance, and dataflow kernels. | Adapting IR terminators to edges and choosing structured replacements. |
 | `CSharpText` | Model-free textual grammars, identifiers, and layout. | Body recovery and model-bound expression spelling. |
 | `ILInspector.CSharp` | Typed declarations, signatures, type shells, and body/artifact contracts. | Supplying recovered bodies and declaration-relevant body facts. |
-| `ILInspector.Findings`, `ILInspector.ILDiff`, and `ILInspector.Text` | Observation/comparison contracts and IL/text comparison services. | Decompiler-specific projections and C# structural comparison. |
+| `Inspector.Findings`, `ILInspector.ILDiff`, and `Inspector.Text` | Observation/comparison contracts and IL/text comparison services. | Decompiler-specific projections and C# structural comparison. |
 
 Analysis independently produces IL-body evidence. Research composes Analysis
 and Decompiler results rather than asking either producer to own the other's
@@ -186,7 +186,7 @@ rewrites; the harness consumes them through stage dumps.
 | `DotnetInspector.Queries` | Source queries compose acquired source and decompiled fallback; `BodyShapesQuery` delegates exact syntax-kind searches to `BodyShapeSearch`. |
 | `ILInspector.Research` | `ResearchViews` joins producer-owned facts with printed C#/IL provenance and constructs annotated-source output. Decompiler owns the portable document types, not the complete cross-domain operation. |
 | CLI | `MemberCodeProvider`, queries, and section/output adapters expose source, IL, annotated views, and comparisons. Some direct import/printer composition remains in the host. |
-| Browser | `prototypes/inspect-web/engine.SourceExports` consumes Queries/Research and exports portable source documents rather than mutable IR. |
+| Browser | `inspect-web/DotnetInspect.Web.Interop.Source` consumes Queries/Research and exports portable source documents rather than mutable IR. |
 | Tests and harnesses | Exercise product import, passes, printing, body production, and comparison; add independent compiler/oracle observations. |
 
 C# and annotated-source text are language artifacts with exact coordinates, so
@@ -204,13 +204,21 @@ its different questions separate.
 
 | Location | Role |
 | --- | --- |
-| [`src/ILInspector.Decompiler.Tests`](../src/ILInspector.Decompiler.Tests) | Executable xUnit suite: importer, IR, passes, proof atoms, printer, annotation/document contracts, body production, and harness regression tests. |
+| [`tests/ILInspector.Decompiler.Tests`](../tests/ILInspector.Decompiler.Tests) | Product-owned executable xUnit suite: importer, IR, passes, proof atoms, printer, annotation/document contracts, and body production. Existing linked harness sources and regressions are migration debt, not placement precedent. |
+| [`tests/DecompilerHarness.Tests`](../tests/DecompilerHarness.Tests) | Harness-owned executable xUnit suite: ReturnToSender, compile-back, corpus, and other harness orchestration contracts. It consumes `tools/DecompilerHarness`, which in turn consumes product libraries. |
 | [`fixtures/decompiler`](../fixtures/decompiler) | Independently compiled inputs where compiler features, module attributes, assembly identity, or cross-assembly relationships matter. |
 | [`tests/DotnetInspector.FixtureInfrastructure`](../tests/DotnetInspector.FixtureInfrastructure) | `FixtureCatalog` registration and resolution shared by tests and harnesses. |
 | [`tools/DecompilerHarness`](../tools/DecompilerHarness) | Single-method diagnostics, compile-back, generated-fixture catalog, source oracles, and corpus measurements. |
 | [`tools/RoundTripCompilation`](../tools/RoundTripCompilation) | Tools-side compilation and comparison support used by harness/tests. |
 | [`tools/HarnessReportProtocol`](../tools/HarnessReportProtocol), [`tools/HarnessReportDiff`](../tools/HarnessReportDiff) | Stored typed reports and goal-aware before/after report comparison. |
 | Adjacent suites | Metadata/Analysis/IL round-trip owner tests; Queries, CLI, and browser-engine tests for their integration boundaries. |
+
+New ReturnToSender and harness behavior belongs in `tools/DecompilerHarness`;
+its focused tests belong in `tests/DecompilerHarness.Tests`. The harness may
+depend on product libraries and exercise their public contracts, but product
+projects and product-owned test suites do not acquire harness-only behavior.
+Existing harness tests can move to that boundary incrementally rather than
+making a feature change carry an unrelated suite migration.
 
 The decompiler test project links selected harness source files so xUnit gates
 exercise the same measurement implementation. It also builds the harness
@@ -264,20 +272,20 @@ test host via `dotnet run`, not `dotnet test`.
 dotnet build dotnet-inspect.slnx -c Release
 
 # Discover the current named lanes.
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
   --gate list
 
 # Iterate on one pass's positive and decline cases.
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
   -class ILInspector.Decompiler.Tests.UsingStatementPassTests
 
 # Run the fidelity area, including its slow tests.
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- \
   --gate fidelity
 ```
 
 The current decompiler host's
-[`Program.cs`](../src/ILInspector.Decompiler.Tests/Program.cs) expands `--gate`
+[`Program.cs`](../tests/ILInspector.Decompiler.Tests/Program.cs) expands `--gate`
 before invoking xUnit. `Speed=Slow` is a cost classification; `Area` selects
 functional slices. Area tags are not an exhaustive inventory of all tests.
 The decompiler still uses its transitional native selectors such as `-class`

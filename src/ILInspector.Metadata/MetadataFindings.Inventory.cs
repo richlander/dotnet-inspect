@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Text;
-using ILInspector.Findings;
+using Inspector.Findings;
 
 namespace ILInspector.Metadata;
 

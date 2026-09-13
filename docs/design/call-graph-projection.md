@@ -580,5 +580,5 @@ cross-assembly / generic-recursion-collapse / return-type identity behavior, the
 bodiless-target combined view, and the two-different-unsupported-roots rejection)
 and in `tests/DotnetInspector.Queries.Tests/MemberCallGraphSessionTests.cs` for
 progressive acquisition and bounded cross-library callee neighborhoods.
-`src/dotnet-inspect.Tests/MemberCallGraphSectionTests.cs` covers the CLI section,
+`tests/DotnetInspect.Cli.Tests/MemberCallGraphSectionTests.cs` covers the CLI section,
 its lowerings, and its `--fields` projection.

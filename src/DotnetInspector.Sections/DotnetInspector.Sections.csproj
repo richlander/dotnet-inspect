@@ -14,6 +14,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../DotnetInspector.Queries/DotnetInspector.Queries.csproj" />
     <ProjectReference Include="../DotnetInspector.RowSelection/DotnetInspector.RowSelection.csproj" />
   </ItemGroup>
 

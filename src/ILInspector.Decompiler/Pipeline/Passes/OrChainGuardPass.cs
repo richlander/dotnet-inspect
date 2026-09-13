@@ -250,7 +250,9 @@ public sealed class OrChainGuardPass : IIrPass
         var rootChildren = blocks[p].DetachChildren();
         for (int k = 0; k < rootChildren.Count - 1; k++)
             folded.Add(rootChildren[k]);
-        folded.Add(new ConditionalBranch(new LogicalNot(throwCondition!), joinOffset));
+        var replacement = new ConditionalBranch(new LogicalNot(throwCondition!), joinOffset);
+        replacement.InheritSourceOffset(rootChildren[^1]);
+        folded.Add(replacement);
 
         foreach (var block in blocks)
             block.Detach();

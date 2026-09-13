@@ -22,7 +22,6 @@ public sealed record VocabularyWireSection(
     string Id,
     string Name,
     string Summary,
-    string[] Categories,
     [property: JsonPropertyName("accepted_by")] string[] AcceptedBy,
     VocabularyWireField[] Fields,
     Dictionary<string, JsonNode?>[] Values);
@@ -85,7 +84,6 @@ public static class VocabularyJson
             section.Id,
             section.Name,
             section.Summary,
-            [.. section.Categories],
             [.. section.AcceptedBy],
             [.. section.Fields.Select(ToWireField)],
             [.. section.Values.Select(row => ToWireRow(section.Fields, row))]);

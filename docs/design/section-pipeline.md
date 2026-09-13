@@ -306,7 +306,7 @@ Release conformance is enforced by
 `CompiledExecution_DoesNotRetainOrDisposeSuppliedContext`,
 `DiffQueryCatalog_RunsOnlySelectedSectionDemand`, and
 `DiffCatalog_RepeatedAcquisitionAndCommonPlanningAllocateNothing` in
-`dotnet-inspect.Tests`.
+`DotnetInspect.Cli.Tests`.
 
 The executable
 [compiled inspection domain model](models/compiled-inspection-domain/README.md)

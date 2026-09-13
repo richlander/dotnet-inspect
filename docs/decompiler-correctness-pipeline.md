@@ -169,7 +169,8 @@ entry gate invalidates every later result, so run it first and report it.
    looks green. Decompiler-relevant projects:
 
    ```bash
-   dotnet run --project src/ILInspector.Decompiler.Tests -c Release
+   dotnet run --project tests/ILInspector.Decompiler.Tests -c Release
+   dotnet run --project tests/DecompilerHarness.Tests -c Release
    dotnet run --project tests/ILInspector.Analysis.Tests -c Release
    dotnet run --project tests/ILInspector.Metadata.Tests -c Release
    ```
@@ -211,14 +212,14 @@ entry gate invalidates every later result, so run it first and report it.
 
 Notes:
 
-- The full `src/ILInspector.Decompiler.Tests` suite runs compile-back fidelity
+- The full `tests/ILInspector.Decompiler.Tests` suite runs compile-back fidelity
   checks and can be slow, especially under a contended shared machine; it is part
   of the entry gate for behavior changes, but iterate against a class filter and
   run the full suite before requesting review.
 - **PR CI runs only the fast unit subset.** The `test` job in `ci.yml` runs
-  `dotnet run --project src/dotnet-inspect.Tests -c Release --
+  `dotnet run --project tests/DotnetInspect.Cli.Tests -c Release --
   --filter-not-trait
-  "Speed=Slow"`, `dotnet run --project src/ILInspector.Decompiler.Tests -c
+  "Speed=Slow"`, `dotnet run --project tests/ILInspector.Decompiler.Tests -c
   Release -- -trait- "Speed=Slow"`, and the matching fast Analysis/IL
   round-trip filters. These gate command surface, pass logic, printer, importer
   facts, identity, and classification regressions without the broad integration
@@ -251,7 +252,7 @@ the pipeline — test suite, harness, sweep, benchmark — validates after every
 pass in the same build users run.
 
 The shipped CLI is the one sanctioned opt-out
-(`IrInvariants.DisableForShippedTool()` in `src/dotnet-inspect/Program.cs`), so
+(`IrInvariants.DisableForShippedTool()` in `src/DotnetInspect.Cli/Program.cs`), so
 the tool pays nothing on the decompile hot path. Declining validation has
 exactly one form — `Enabled`'s setter is private, so the compiler rejects any
 other spelling — and `IrInvariantsHostContractTests` pins that one call site, so
@@ -301,9 +302,9 @@ narrows to X's fast tests.
 
 ```bash
 # every Fidelity test, fast and slow:
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait "Area=Fidelity"
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- -trait "Area=Fidelity"
 # fast Fidelity tests only:
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait "Area=Fidelity" -trait- "Speed=Slow"
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- -trait "Area=Fidelity" -trait- "Speed=Slow"
 ```
 
 Areas and their member classes:
@@ -350,8 +351,8 @@ Memorizing the `Speed`/`Area` trait spellings above is friction, and an
 arguments before delegating to the runner. Run `--gate list` for the table:
 
 ```bash
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate list
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate no-corpus
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- --gate list
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- --gate no-corpus
 ```
 
 | Preset | Expands to | Use |
@@ -408,10 +409,10 @@ explicit triggers. The job runs separately so it never serializes with the hot
 `test` lane, and executes `--gate pre-merge`.
 
 ```bash
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- \
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- \
   --gate pre-merge -preEnumerateTheories -noColor -list full/json \
   > /tmp/expected.json
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- \
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- \
   --gate pre-merge -preEnumerateTheories -noColor -noAutoReporters \
   -reporter json -xml /tmp/gates.xml | tee /tmp/events.jsonl
 dotnet run eng/check-decompiler-gate.cs -- \
@@ -685,7 +686,7 @@ example.
 Report:
 
 1. focused tests;
-2. `src/ILInspector.Decompiler.Tests`;
+2. `tests/ILInspector.Decompiler.Tests`;
 3. generated quality card showing no unexpected corpus movement;
 4. adversarial review summary with resolution commit links.
 
@@ -765,7 +766,7 @@ context, conversions, field/local ordering, or shift masking.
 
 Report compile-back evidence in two layers:
 
-1. **Fixture gate** — the focused `src/ILInspector.Decompiler.Tests` fixture that
+1. **Fixture gate** — the focused `tests/ILInspector.Decompiler.Tests` fixture that
    covers the changed shape. Name whether the sugared gate (`FidelityGateTests`),
    lowered gate (`LoweredFidelityGateTests`), or a pass-specific test is the
    relevant guard. If a fidelity-diff docket row is fixed, shrink `KnownDiffs` and
@@ -834,7 +835,7 @@ Decline (adversarial near miss): <synthetic/near-miss shape that must NOT raise;
 Proof level: shape proof (pass fixtures + adversarial negative)
   [+ validity if output legality changes]
 Evidence:
-- src/ILInspector.Decompiler.Tests <ClassTests>: <N> positive, <M> negative, all green
+- tests/ILInspector.Decompiler.Tests <ClassTests>: <N> positive, <M> negative, all green
 - <generated quality card, only if corpus behavior can move>
 Honesty note: invalid Full -> Partial is an honesty improvement, not a regression.
 ```

@@ -809,6 +809,48 @@ public partial class AssemblyDependencyResolverTests
     }
 
     [Fact]
+    public void IntrinsicCompositionHandoff_DoesNotFallThroughToLaterFacade()
+    {
+        byte[] image = BuildAssembly(
+            "IntrinsicCompositionOwner",
+            [1, 2, 3],
+            assemblyReferences:
+            [
+                "System.Private.CoreLib",
+                "mscorlib",
+            ]);
+        ResolvedAssemblyReference owner =
+            ResolvedAssemblyReference.Create(
+                new AssemblyReferenceIdentity(
+                    "IntrinsicCompositionOwner",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null),
+                path: null,
+                () => new MemoryStream(image, writable: false),
+                AssemblyResolutionProvenance.Local(
+                    "intrinsic composition handoff test"));
+        AssemblyBindingCandidateDomain domain =
+            AssemblyBindingCandidateDomain.Create([owner]);
+        int selectionCount = 0;
+
+        AssemblyBindingSelection result =
+            IntrinsicCoreLibraryBinding.Select(
+                owner,
+                _ => ++selectionCount == 1
+                    ? AssemblyBindingSelection.RequireComposition(
+                        domain)
+                    : AssemblyBindingSelection.Found(owner));
+
+        Assert.Same(
+            domain,
+            Assert.IsType<
+                AssemblyBindingSelection.CompositionRequired>(
+                    result).Domain);
+        Assert.Equal(1, selectionCount);
+    }
+
+    [Fact]
     public void AssemblyGroup_VersionSkewedRootRequiresIdentityPolicy()
     {
         string path = typeof(AssemblyDependencyResolverTests)
@@ -888,7 +930,7 @@ public partial class AssemblyDependencyResolverTests
     }
 
     [Fact]
-    public void AssemblyGroup_SelectedVersionOutsideGroupRequiresIdentityPolicy()
+    public void AssemblyGroup_TerminalSelectedVersionOutsideGroupIsPreserved()
     {
         string path = typeof(AssemblyDependencyResolverTests)
             .Assembly.Location;
@@ -918,13 +960,11 @@ public partial class AssemblyDependencyResolverTests
             AssemblyBindingOrigin.FromAssembly(root),
             AssemblyResolutionScope.Any);
 
-        var unavailable = Assert.IsType<
-            AssemblyBindingSelection.Unavailable>(
+        var actual = Assert.IsType<
+            AssemblyBindingSelection.Selected>(
                 group.Select(request).Selection);
 
-        Assert.Equal(
-            AssemblyBindingFailureKind.IdentityPolicyRequired,
-            unavailable.Failure.Kind);
+        Assert.Same(selected, actual.Assembly);
     }
 
     [Fact]
@@ -1298,7 +1338,7 @@ public partial class AssemblyDependencyResolverTests
     }
 
     [Fact]
-    public void AssemblyGroup_SkewedDesignatedPreservesOriginNameOwner()
+    public void AssemblyGroup_TerminalLocalSelectionSurvivesSkewedDesignatedRoot()
     {
         var requested = new AssemblyReferenceIdentity(
             "Platform.Library",
@@ -1330,12 +1370,10 @@ public partial class AssemblyDependencyResolverTests
             AssemblyBindingOrigin.FromAssembly(owner),
             AssemblyResolutionScope.Any);
 
-        var unavailable = Assert.IsType<AssemblyBindingSelection.Unavailable>(
+        var actual = Assert.IsType<AssemblyBindingSelection.Selected>(
             group.Select(request).Selection);
 
-        Assert.Equal(
-            AssemblyBindingFailureKind.IdentityPolicyRequired,
-            unavailable.Failure.Kind);
+        Assert.Same(sibling, actual.Assembly);
         Assert.Equal(1, policy.SelectionCount);
     }
 
@@ -1364,7 +1402,10 @@ public partial class AssemblyDependencyResolverTests
                 "test platform",
                 frameworkVersion: null,
                 "group origin-policy test"));
-        var policy = new SelectedPolicy(platform);
+        var policy = new FixedSelectionPolicy(
+            AssemblyBindingSelection.RequireComposition(
+                AssemblyBindingCandidateDomain.Create(
+                    [platform, designated])));
         var group = new SourceRelativeAssemblyGroupBindingPolicy(
             [
                 (owner, (IAssemblyBindingPolicy)policy),
@@ -1460,7 +1501,9 @@ public partial class AssemblyDependencyResolverTests
             AssemblyResolutionProvenance.Designated(
                 "policy group overlay"));
         var policy = new FixedSelectionPolicy(
-            AssemblyBindingSelection.Found(policyCandidate));
+            AssemblyBindingSelection.RequireComposition(
+                AssemblyBindingCandidateDomain.Create(
+                    [root, policyCandidate])));
         var group = new SourceRelativeAssemblyGroupBindingPolicy(
             [
                 (owner, (IAssemblyBindingPolicy)policy),
@@ -1477,6 +1520,58 @@ public partial class AssemblyDependencyResolverTests
         Assert.Equal(2, ambiguous.Assemblies.Length);
         Assert.Contains(root, ambiguous.Assemblies);
         Assert.Contains(policyCandidate, ambiguous.Assemblies);
+        Assert.Equal(1, policy.SelectionCount);
+    }
+
+    [Fact]
+    public void AssemblyGroup_DesignatedTieRetainsLowerPrecedencePlatformEvidence()
+    {
+        var requested = new AssemblyReferenceIdentity(
+            "Platform.Library",
+            new Version(1, 0, 0, 0),
+            null,
+            "001122aabbccddee");
+        ResolvedAssemblyReference owner = Descriptor(
+            new AssemblyReferenceIdentity(
+                "Owner",
+                new Version(1, 0, 0, 0),
+                null,
+                null),
+            AssemblyResolutionProvenance.Local("owner"));
+        ResolvedAssemblyReference first = Descriptor(
+            requested,
+            AssemblyResolutionProvenance.Designated(
+                "first designated contender"));
+        ResolvedAssemblyReference second = Descriptor(
+            requested with { Version = new Version(2, 0, 0, 0) },
+            AssemblyResolutionProvenance.Designated(
+                "second designated contender"));
+        ResolvedAssemblyReference platform = Descriptor(
+            requested,
+            AssemblyResolutionProvenance.Platform(
+                "test platform",
+                frameworkVersion: null,
+                "inactive platform contender"));
+        var policy = new FixedSelectionPolicy(
+            AssemblyBindingSelection.RequireComposition(
+                AssemblyBindingCandidateDomain.Create(
+                    [first, second, platform])));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (owner, (IAssemblyBindingPolicy)policy),
+                (first, (IAssemblyBindingPolicy)policy),
+                (second, (IAssemblyBindingPolicy)policy),
+            ]);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(requested),
+            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyResolutionScope.Any);
+
+        var ambiguous = Assert.IsType<AssemblyBindingSelection.Ambiguous>(
+            group.Select(request).Selection);
+
+        Assert.Equal([first, second], ambiguous.Assemblies);
+        Assert.Equal([platform], ambiguous.ShadowedAssemblies);
         Assert.Equal(1, policy.SelectionCount);
     }
 
@@ -1504,7 +1599,9 @@ public partial class AssemblyDependencyResolverTests
             AssemblyResolutionProvenance.Designated(
                 "policy group overlay"));
         var policy = new FixedSelectionPolicy(
-            AssemblyBindingSelection.Found(policyCandidate));
+            AssemblyBindingSelection.RequireComposition(
+                AssemblyBindingCandidateDomain.Create(
+                    [root, policyCandidate])));
         var group = new SourceRelativeAssemblyGroupBindingPolicy(
             [
                 (owner, (IAssemblyBindingPolicy)policy),
@@ -1556,7 +1653,9 @@ public partial class AssemblyDependencyResolverTests
                 frameworkVersion: null,
                 "policy platform"));
         var policy = new FixedSelectionPolicy(
-            AssemblyBindingSelection.Found(policyPlatform));
+            AssemblyBindingSelection.RequireComposition(
+                AssemblyBindingCandidateDomain.Create(
+                    [designated, rootPlatform, policyPlatform])));
         var group = new SourceRelativeAssemblyGroupBindingPolicy(
             [
                 (owner, (IAssemblyBindingPolicy)policy),
@@ -1928,6 +2027,57 @@ public partial class AssemblyDependencyResolverTests
         Assert.Equal(platformPath, shadow.Path);
         Assert.IsType<AssemblyResolutionProvenance.PlatformAsset>(
             shadow.Provenance);
+    }
+
+    [Fact]
+    public void Select_DesignatedTieRetainsInstalledPlatformShadow()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-designated-tie-").FullName;
+        try
+        {
+            string platformPath = typeof(System.Runtime.GCSettings)
+                .Assembly.Location;
+            string secondDesignatedPath = Path.Combine(
+                root,
+                Path.GetFileName(platformPath));
+            File.Copy(platformPath, secondDesignatedPath);
+            using var stream = File.OpenRead(platformPath);
+            using var peReader = new PEReader(stream);
+            AssemblyReferenceIdentity platformIdentity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(
+                    peReader.GetMetadataReader());
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(platformPath)
+                {
+                    PackageRoots = [],
+                    CorpusAssemblyPaths =
+                        [platformPath, secondDesignatedPath],
+                    IncludeSiblingAssemblies = false,
+                    IncludeTrustedPlatformAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                });
+            var request = new AssemblyBindingRequest(
+                AssemblyBindingTarget.Reference(platformIdentity),
+                AssemblyBindingOrigin.Global(),
+                AssemblyResolutionScope.Platform);
+
+            var ambiguous =
+                Assert.IsType<AssemblyBindingSelection.Ambiguous>(
+                    resolver.Select(request).Selection);
+
+            Assert.Equal(2, ambiguous.Assemblies.Length);
+            ResolvedAssemblyReference shadow =
+                Assert.Single(ambiguous.ShadowedAssemblies);
+            Assert.Equal(platformPath, shadow.Path);
+            Assert.IsType<AssemblyResolutionProvenance.PlatformAsset>(
+                shadow.Provenance);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     [Fact]

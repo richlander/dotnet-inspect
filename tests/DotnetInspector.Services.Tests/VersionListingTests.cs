@@ -1,5 +1,5 @@
+using DotnetInspector.Cache;
 using System.Net;
-using DotnetInspector.Core;
 using DotnetInspector.Packages;
 using NuGetSource = NuGetFetch.PackageSource;
 using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
@@ -11,7 +11,7 @@ namespace DotnetInspector.Services.Tests;
 /// exposes the per-version <see cref="PackageVersionInfo.Listed"/> bit so surfaces can mark unlisted
 /// versions rather than silently hiding them, while still hiding them by default.
 /// </summary>
-[Collection(CoreCacheCollection.Name)]
+[Collection(PersistentCacheCollection.Name)]
 public class VersionListingTests : IDisposable
 {
     private const string VersionCacheCategory = "versions-v5";
@@ -20,11 +20,11 @@ public class VersionListingTests : IDisposable
 
     public VersionListingTests()
     {
-        CoreCache.Initialize("dotnet-inspect-test");
-        CoreCache.Clear(VersionCacheCategory);
+        PersistentCache.Initialize("dotnet-inspect-test");
+        PersistentCache.Clear(VersionCacheCategory);
     }
 
-    public void Dispose() => CoreCache.Clear(VersionCacheCategory);
+    public void Dispose() => PersistentCache.Clear(VersionCacheCategory);
 
     private static readonly (string Version, bool Listed)[] Registry =
     [
@@ -105,7 +105,7 @@ public class VersionListingTests : IDisposable
         _ = await PackageExtractor.GetVersionListingsAsync(
             client, "Pkg", includePrerelease: true, includeUnlisted: true, limit: null, log: null);
 
-        Assert.Null(CoreCache.TryGet(
+        Assert.Null(PersistentCache.TryGet(
             VersionCacheCategory,
             PackageExtractor.GetListingsVersionCacheKey(
                 "Pkg",

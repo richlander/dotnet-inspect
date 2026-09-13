@@ -97,7 +97,7 @@ public sealed record AnnotationDescriptor(string Id, AnnotationCategory Category
 
 /// <summary>
 /// The non-generic observation contract, mirroring <c>IFinding</c>
-/// (<see cref="ILInspector.Findings"/>). A heterogeneous fact stream can carry
+/// (<see cref="Inspector.Findings"/>). A heterogeneous fact stream can carry
 /// <see cref="Annotation{T}"/> values with different payload types — and the
 /// legacy string-<see cref="Detail"/>-only <see cref="Annotation"/> atom —
 /// while every consumer (renderer, JSON/TSV projection, anchor) reads the same
@@ -142,7 +142,7 @@ public sealed record Annotation(
 /// The typed atom: an occurrence that carries its producer's domain payload
 /// (e.g. <c>AllocationOccurrence</c>) instead of a pre-flattened
 /// <see cref="Detail"/> string, mirroring <c>Finding&lt;T&gt;</c>
-/// (<see cref="ILInspector.Findings"/>). <see cref="Detail"/> is a render-time
+/// (<see cref="Inspector.Findings"/>). <see cref="Detail"/> is a render-time
 /// projection of <see cref="Payload"/> through <see cref="Formatter"/>, so the
 /// structure survives for typed consumers (e.g. identity-diffing) and the
 /// rendered text is computed exactly once, in one place, rather than

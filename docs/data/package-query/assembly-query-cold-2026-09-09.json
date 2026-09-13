@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 1,
+  "timestampUtc": "2026-09-09T01:49:33.665983+00:00",
+  "revision": "cf96f4e7be43e905a2bd1908ac1d8f42687cc095",
+  "scenarioId": "decoded-literal-five-packages-v1",
+  "cacheState": "cold",
+  "host": "merritt",
+  "os": "Ubuntu 24.04.4 LTS",
+  "architecture": "X64",
+  "processorCount": 24,
+  "framework": ".NET 11.0.0-rc.1.26425.128",
+  "semanticFingerprint": "68761A316A9607EF7ABF31C5F87BAD7D8270C80751EE5B3DB463CFF75CD180F0",
+  "samples": [
+    {
+      "trial": 1,
+      "elapsedMilliseconds": 869.7103,
+      "cpuMilliseconds": 470,
+      "peakWorkingSetBytes": 120991744,
+      "candidates": 5,
+      "matches": 1,
+      "semanticMisses": 4,
+      "notApplicable": 0,
+      "failures": 0,
+      "httpRequests": 5,
+      "candidatesPerSecond": 5.74904080128751,
+      "semanticFingerprint": "68761A316A9607EF7ABF31C5F87BAD7D8270C80751EE5B3DB463CFF75CD180F0"
+    },
+    {
+      "trial": 2,
+      "elapsedMilliseconds": 1005.1743,
+      "cpuMilliseconds": 430,
+      "peakWorkingSetBytes": 121061376,
+      "candidates": 5,
+      "matches": 1,
+      "semanticMisses": 4,
+      "notApplicable": 0,
+      "failures": 0,
+      "httpRequests": 5,
+      "candidatesPerSecond": 4.974261677800556,
+      "semanticFingerprint": "68761A316A9607EF7ABF31C5F87BAD7D8270C80751EE5B3DB463CFF75CD180F0"
+    },
+    {
+      "trial": 3,
+      "elapsedMilliseconds": 669.4991,
+      "cpuMilliseconds": 400,
+      "peakWorkingSetBytes": 121094144,
+      "candidates": 5,
+      "matches": 1,
+      "semanticMisses": 4,
+      "notApplicable": 0,
+      "failures": 0,
+      "httpRequests": 5,
+      "candidatesPerSecond": 7.468269934940913,
+      "semanticFingerprint": "68761A316A9607EF7ABF31C5F87BAD7D8270C80751EE5B3DB463CFF75CD180F0"
+    }
+  ],
+  "summary": {
+    "elapsedMilliseconds": {
+      "median": 869.7103,
+      "mean": 848.1279,
+      "minimum": 669.4991,
+      "maximum": 1005.1743,
+      "p95": 1005.1743
+    },
+    "cpuMilliseconds": {
+      "median": 430,
+      "mean": 433.3333333333333,
+      "minimum": 400,
+      "maximum": 470,
+      "p95": 470
+    },
+    "peakWorkingSetBytes": {
+      "median": 121061376,
+      "mean": 121049088,
+      "minimum": 120991744,
+      "maximum": 121094144,
+      "p95": 121094144
+    },
+    "httpRequests": {
+      "median": 5,
+      "mean": 5,
+      "minimum": 5,
+      "maximum": 5,
+      "p95": 5
+    },
+    "candidatesPerSecond": {
+      "median": 5.74904080128751,
+      "mean": 6.063857471342993,
+      "minimum": 4.974261677800556,
+      "maximum": 7.468269934940913,
+      "p95": 7.468269934940913
+    }
+  }
+}

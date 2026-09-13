@@ -27,8 +27,10 @@ public sealed class DelegateConstructionPass : IIrPass
             var target = children[0];
             var pointer = (LoadFunctionPointer)children[1];
             context.Stepper.StepOver($"raise method group to {newObject.Constructor.DeclaringType.Name} delegate creation", newObject);
-            newObject.ReplaceWith(new DelegateCreation(
-                newObject.Constructor.DeclaringType, pointer.Method, pointer.IsVirtual, target));
+            var creation = new DelegateCreation(
+                newObject.Constructor.DeclaringType, pointer.Method, pointer.IsVirtual, target, newObject.Constructor);
+            creation.InheritSourceOffset(newObject);
+            newObject.ReplaceWith(creation);
         }
     }
 
@@ -36,7 +38,7 @@ public sealed class DelegateConstructionPass : IIrPass
     // proven the declaring type is actually a delegate. User types can define a
     // normal .ctor(object, IntPtr), and rewriting those would invent delegate
     // syntax for a non-delegate constructor.
-    static bool IsDelegateConstructor(MethodRef constructor)
+    internal static bool IsDelegateConstructor(MethodRef constructor)
         => constructor.Name == ".ctor"
             && constructor.HasThis
             && constructor.DeclaringTypeIsDelegate == MetadataFactState.Yes

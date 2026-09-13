@@ -63,10 +63,10 @@ root overview carries:
   and
 - the containing image's PE and CLI header facts.
 
-The ReadyToRun response carries role, advertisements, exact version, raw and
-named flags, header locations, manifest relationship, and every section entry
-with its numeric identity. TypeScript renders those fields but does not
-reclassify the image or discover the manifest section.
+The ReadyToRun response carries role, advertisements, exact ReadyToRun format
+version, raw and named flags, header locations, manifest relationship, and every
+section entry with its numeric identity. TypeScript renders those fields but
+does not reclassify the image or discover the manifest section.
 
 The facade may perform the CLI-root, manifest-root, and ReadyToRun queries
 independently against the same immutable, admitted workspace participant. This

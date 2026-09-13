@@ -215,7 +215,8 @@ public class CallerScopeReachabilityPlanTests
         AssemblyBindingOccurrence delegated = new TestLineage(fallback.Version).Issue(facade);
         fallback.SnapshotFactory = _ => new(
             fallback.Version,
-            AssemblyBindingSelection.FoundOccurrence(delegated, [shadow]));
+            AssemblyBindingCandidateDomain.Create(
+                [facade, shadow]).Finalize(delegated));
         var policy = new CallerScopeReachabilityPlan.ScopeFirstBindingPolicy(
             fallback, target, []);
         var request = new AssemblyBindingRequest(

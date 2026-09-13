@@ -1,9 +1,9 @@
 using CSharpText;
 using DotnetInspector.Queries;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
-using ILInspector.Text;
+using Inspector.Text;
 using Markout;
 
 namespace DotnetInspector.Presentation;

@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 using System.Text;
-using ILInspector.Text;
+using Inspector.Text;
 
 namespace ILInspector.Instructions;
 

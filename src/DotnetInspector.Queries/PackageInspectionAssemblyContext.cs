@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
 
-using DotnetInspector.Artifacts;
-using DotnetInspector.Artifacts.Workspaces;
+using Inspector.Artifacts;
+using Inspector.Artifacts.Workspaces;
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
 
@@ -184,7 +184,10 @@ public sealed partial class InspectionWorkspace
                         selection.Input.Provenance(entry.TargetFramework);
                     if (artifact.Projection is not ArtifactAssemblyProjectionOutcome.Projected
                         && ResolvedAssemblyReference.CreateFromStreamIfManaged(
-                            artifact.Content.OpenRead, provenance) is null)
+                            () => session.OpenRead(
+                                artifact.Content,
+                                lease),
+                            provenance) is null)
                     {
                         lease.Dispose();
                         await session.DisposeAsync().ConfigureAwait(false);
@@ -195,10 +198,18 @@ public sealed partial class InspectionWorkspace
                         continue;
                     }
                     long retainedBytes;
-                    using (Stream retained = artifact.Content.OpenRead())
+                    using (Stream retained =
+                        session.OpenRead(
+                            artifact.Content,
+                            lease))
                         retainedBytes = retained.Length;
                     ResolvedAssemblyReference assembly = CreatePackageArtifactAssembly(
-                        artifact, provenance, acquired.Count, out _);
+                        artifact,
+                        session,
+                        lease,
+                        provenance,
+                        acquired.Count,
+                        out _);
                     remainingBytes -= retainedBytes;
                     acquired.Add(new InspectionArtifact(
                         new PackageInspectionAssemblyReference(entry, assembly),
@@ -210,7 +221,7 @@ public sealed partial class InspectionWorkspace
                     await CleanupFailedArtifactRealizationAsync(
                         null, lease, session, failure).ConfigureAwait(false);
                     if (failure.Data.Contains(
-                        "DotnetInspector.Artifacts.Workspaces.CleanupFailures"))
+                        "Inspector.Artifacts.Workspaces.CleanupFailures"))
                         throw;
                     outcomes.Add(entry, new PackageInspectionAssemblyOutcome.Unavailable(
                         entry, "The selected image contains invalid metadata.", []));
@@ -220,7 +231,7 @@ public sealed partial class InspectionWorkspace
                     await CleanupFailedArtifactRealizationAsync(
                         null, lease, session, failure).ConfigureAwait(false);
                     if (failure.Data.Contains(
-                        "DotnetInspector.Artifacts.Workspaces.CleanupFailures"))
+                        "Inspector.Artifacts.Workspaces.CleanupFailures"))
                         throw;
                     outcomes.Add(entry, new PackageInspectionAssemblyOutcome.Unavailable(
                         entry, "The selected package entry is invalid or exceeds the artifact byte limit.", []));

@@ -2,8 +2,11 @@
 
 ## Status
 
-Implemented by #6268 as the policy slice of #6228 effort 1. No production
-consumer adopts the result in this slice.
+Implemented by #6268 as the policy slice of #6228 effort 1. Inspect Web now
+projects exact reference-pack inventory into its Platform catalog and uses this
+policy to gate the three System.Text.Json and five Microsoft.Extensions demo
+migrations. Runtime activation still consumes explicit Platform assembly
+coordinates; this policy does not infer them from package identity.
 
 ## Authority and exact claim
 
@@ -24,7 +27,9 @@ It owns:
   inventory target;
 - interpreting an unresolved floating coordinate as `NotComparable`;
 - preserving family and supplied-version evidence when an inventory entry
-  exists, including for non-delegating results; and
+  exists, including for non-delegating results;
+- issuing resource-free correspondence that retains the exact inventory,
+  coordinate, and supply result together; and
 - deriving `DelegatesToPlatform` from exactly one result: `Subsumed`.
 
 It does not own:
@@ -40,19 +45,26 @@ It does not own:
 
 ## Inputs and result
 
-`PlatformPrunePolicy.Decide` accepts:
+`PlatformPrunePolicy.Evaluate` accepts:
 
 - one `PlatformPruneInventory`, already composed for the platform target; and
 - one `PackageCoordinate`.
 
-It returns `PlatformSupply`:
+It returns one `PlatformSupplyReceipt` that retains those exact input objects
+and the resulting `PlatformSupply`:
 
 | Field | Meaning |
 | --- | --- |
+| `Inventory` | The exact composed inventory used by the comparison |
+| `Coordinate` | The exact package coordinate supplied to policy |
+| `Supply` | The comparison result described by the remaining fields |
 | `Subsumption` | The inventory owner's comparison result |
 | `Family` | The shared framework carrying the entry, or null when absent |
 | `SuppliedVersion` | The literal supplied version, or null when absent |
 | `DelegatesToPlatform` | True only when `Subsumption` is `Subsumed` |
+
+`PlatformPrunePolicy.Decide` remains the convenience projection that returns
+only `receipt.Supply` for consumers that do not need correspondence.
 
 The result deliberately contains no platform library. A package identity does
 not establish an assembly identity, and this transform receives no
@@ -106,9 +118,15 @@ effort 1 after design #6233 and inventory #6239. That tracker assigns later
 adoption to:
 
 - effort 5 for the CLI;
-- efforts 2, 3, and 8 for browser/Wasm ecosystem, routing, and demo behavior;
-  and
+- efforts 2 and 3 for broader browser/Wasm ecosystem and routing behavior;
 - effort 9 for package dependency traversal.
+
+Inspect Web's checked-in Platform catalog is the first production projection:
+each exact target carries its pack-owned package supply rows beside, but
+separate from, its library rows. The Runtime System.Text.Json and ASP.NET Core
+Microsoft.Extensions demos consume the result only as an authoring migration
+gate and separately require exact implementation-library rows for every
+selected assembly.
 
 [#6266](https://github.com/richlander/dotnet-inspect/issues/6266) separately
 tracks the eight-step package-input evolution. Its step 6 adopts normalized
@@ -155,10 +173,13 @@ dotnet run --project tests/DotnetInspector.Services.Tests -c Release -- \
 | Invalid coordinate syntax fails through the coordinate owner | `InvalidCoordinateFailsBeforePolicy` |
 | An explicit framework must match the inventory target | `CoordinateFrameworkMustNameTheInventoryTarget` |
 | A runtime identifier does not change the decision | `RuntimeIdentifierDoesNotChangeTheAnswer` |
+| A receipt retains the exact comparison inputs | `ReceiptRetainsTheExactComparisonInputs` |
+| Equal supply values do not collapse input correspondence | `EqualSupplyDoesNotCollapseComparisonCorrespondence` |
+| An absent-entry receipt retains inputs and canonical no-supply evidence | `AbsentEntryReceiptRetainsInputsAndCanonicalNoSupply` |
 
 ## Non-claims
 
-This owner does not claim that delegation has been adopted by a graph, CLI, or
-browser/Wasm consumer. It does not identify a platform assembly or library,
-acquire a package or reference pack, or interpret pre- versus post-restore
-artifacts.
+This owner does not identify a platform assembly or library, acquire a package
+or reference pack, or interpret pre- versus post-restore artifacts. Graph, CLI,
+and broader browser routing adoption remain consumer-owned even though Inspect
+Web now uses the result to gate exact demo coordinates.

@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
-using DotnetInspector.Artifacts;
-using DotnetInspector.Artifacts.Workspaces;
+using Inspector.Artifacts;
+using Inspector.Artifacts.Workspaces;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 using InertText;
@@ -61,24 +61,40 @@ public sealed class CompileReferencePlatformPolicy
     public AssemblyBindingPolicyVersion OwnerPolicyVersion { get; }
     public ImmutableArray<CompilePlatformBindingEvidence> Bindings { get; }
 
+    public static ValueTask<CompileReferenceResult<CompileReferencePlatformPolicy>> PrepareAsync(
+        ArtifactSetSession owner,
+        AssemblyDependencyResolver resolver,
+        ResolvedAssemblyReference source,
+        IEnumerable<AssemblyBindingRequest> requests,
+        CancellationToken cancellationToken = default) =>
+        PrepareAsync(owner, resolver, source, [], requests, cancellationToken);
+
     public static async ValueTask<CompileReferenceResult<CompileReferencePlatformPolicy>> PrepareAsync(
         ArtifactSetSession owner,
         AssemblyDependencyResolver resolver,
         ResolvedAssemblyReference source,
+        IEnumerable<ResolvedAssemblyReference> candidates,
         IEnumerable<AssemblyBindingRequest> requests,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(owner);
         ArgumentNullException.ThrowIfNull(resolver);
         ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(candidates);
         ArgumentNullException.ThrowIfNull(requests);
         cancellationToken.ThrowIfCancellationRequested();
+        ResolvedAssemblyReference[] declaredCandidates = candidates.ToArray();
         AssemblyBindingRequest[] declared = requests.ToArray();
         var capture = new CapturePolicy(resolver, cancellationToken);
         try
         {
             ResolvedAssemblyReference retainedSource = capture.Retain(source);
             var roots = new List<ResolvedAssemblyReference> { retainedSource };
+            foreach (ResolvedAssemblyReference candidate in declaredCandidates)
+            {
+                ArgumentNullException.ThrowIfNull(candidate);
+                capture.Retain(candidate);
+            }
             foreach (AssemblyBindingRequest request in declared)
             {
                 ArgumentNullException.ThrowIfNull(request);
@@ -265,8 +281,16 @@ public sealed class CompileReferencePlatformPolicy
                 Retain(shadow);
             // Services currently issues Seed occurrences. Retention preserves both
             // that continuation and the original acquisition registration.
-            return new(Version, AssemblyBindingSelection.Found(Retain(selected.Assembly),
-                [.. selected.ShadowedAssemblies.Select(Retain)]));
+            ResolvedAssemblyReference retained = Retain(selected.Assembly);
+            ImmutableArray<ResolvedAssemblyReference> retainedShadows =
+                [.. selected.ShadowedAssemblies.Select(Retain)];
+            AssemblyBindingSelection retainedSelection =
+                retainedShadows.IsEmpty
+                    ? AssemblyBindingSelection.Found(retained)
+                    : AssemblyBindingCandidateDomain.Create(
+                        [retained, .. retainedShadows])
+                        .Finalize([retained]);
+            return new(Version, retainedSelection);
         }
 
         public ResolvedAssemblyReference Retain(ResolvedAssemblyReference assembly)

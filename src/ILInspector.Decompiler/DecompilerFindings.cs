@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
 
 using ILInspector.Decompiler.Pipeline;
-using ILInspector.Findings;
+using Inspector.Findings;
 
 namespace ILInspector.Decompiler;
 
@@ -88,7 +88,8 @@ public static class DecompilerFindings
     static bool IsOperationFailure(string id)
         => id is DiagnosticIds.InternalError
             or DiagnosticIds.ContextUnavailable
-            or DiagnosticIds.EmptyOutput;
+            or DiagnosticIds.EmptyOutput
+            or DiagnosticIds.MemorySafetyModeUnavailable;
 
     static ImmutableArray<PairFinding<DecompilerFidelityCause>> ClassifyFacetChanges(
         ImmutableArray<PairFinding<DecompilerFidelityCause>> pairs)

@@ -79,16 +79,14 @@ QueryResultRow     — one package's metadata/manifest/content projection + whic
 
 This mirrors the existing `NuGetSearchOutcome` shape (`Results` + `Failures`,
 never a success-shaped empty result) rather than inventing a new error
-convention. The runtime `QueryRequest` retains a typed package-or-Gallery input
-kind for shared consumers, plus editor text, source selections, prerelease
-intent, selected opaque inspection facets, and independent candidate and match
-limits. Inspect Web lowers only package input. **Run query** interprets an exact
-package ID or one terminal-star literal prefix through the shared
+convention. The runtime `QueryRequest` retains editor text, prerelease intent,
+selected opaque inspection facets, and independent candidate and match limits.
+**Run query** interprets an exact package ID or one terminal-star literal prefix
+through the shared
 [Package Query input selection](package-query-input-selection.md) contract.
 Blank package input stays idle. Spotlight owns open-text package discovery; the
 Browser query surface exposes no Gallery search, browse, package-type, or
-source-order gesture. The shared Gallery request and execution path remain
-available outside this host interaction.
+source-order gesture.
 Facet descriptors come from `PackageQuery.Facets`; the browser does not own an
 independent predicate table. It preserves the product-issued ID, label,
 summary, weight, tier, optional compatibility-selection group, and optional
@@ -105,7 +103,7 @@ evaluation failures remain visible per-package failures. Each evidence entry
 retains its product-issued package-or-query scope and optional count-plus-preview
 summary from [Package Query inspection evidence](package-query-inspection-evidence.md).
 
-Assembly-pattern requests are a separate request mode, not another Gallery
+Assembly-pattern requests are a separate request mode, not another package
 facet tier. The host discovers descriptors from the assembly-pattern registry
 and submits one opaque pattern ID, the literal operand unchanged, up to five
 explicit exact `ID@VERSION` coordinates, and a target framework.
@@ -169,11 +167,14 @@ and
   mutually exclusive facets, such as has-dependencies and no-dependencies,
   replace one another. Product-issued display groups render `.NET Tool`, `v1`,
   and `v2` as one segmented control while retaining three independently
-  focusable buttons and opaque facet IDs. `.NET Tool` matches any tool from
-  manifest evidence and replaces selected version segments. `v1` and `v2`
-  inspect `DotnetToolSettings.xml`; either replaces `.NET Tool`, while both
-  version segments may remain selected and form an OR-union. A matching row's
-  product evidence identifies the format it matched.
+  focusable buttons and opaque facet IDs. `.NET Tool` prefilters tools from
+  manifest evidence, opens each admitted package, and reports CLI v1, CLI v2,
+  or explicitly unrecognized settings from `DotnetToolSettings.xml`; it
+  replaces selected version segments. `v1` and `v2` filter to their recognized
+  settings versions; either replaces `.NET Tool`, while both version segments
+  may remain selected and form an OR-union. Every tool segment is bounded
+  package-content work, and a matching row's product evidence identifies the
+  observed format.
   `embedded SKILL.md` matches package entries at `skills/SKILL.md` or
   `skills/**/SKILL.md`, case-insensitively. The rail persistently discloses
   that content facets may download up to 20 candidate archives.
@@ -192,7 +193,14 @@ and
   visible without consuming package-row credit. Rows append to source-
   independent state, while Browser publication is frame-batched and patches
   only the live failure, cancellation, and result regions rather than replacing
-  the whole application DOM for every event. Product-issued progress
+  the whole application DOM for every event. The result region retains every
+  admitted row in that state but mounts at most 30 package cards: the estimated
+  visible range plus five rows of overscan on either side, clamped to that
+  ceiling. Top and bottom spacers preserve the full accumulated scroll range.
+  The renderer measures the mounted row extent and preserves the first visible
+  row as an anchor while the window moves, so refinement does not reset the
+  user's scroll position. Scroll and stream updates share the existing
+  animation-frame patch schedule. Product-issued progress
   checkpoints distinguish source search, manifest evaluation, and explicit
   package-content evaluation, so filtered candidates remain perceptible
   without becoming result rows. Query-scoped source-selection context from the
@@ -509,7 +517,7 @@ and browser-history and focus-return outcomes are proved by
 8. Run a sparse or zero-match query and confirm source, manifest, and
    package-content progress advances before completion without manufacturing
    rows. Confirm semantic completion crosses the Browser boundary only once.
-9. Select `v1`, `v2`, or `embedded SKILL.md`; confirm the request bound drops
+9. Select `.NET Tool`, `v1`, `v2`, or `embedded SKILL.md`; confirm the request bound drops
    to 20 candidates, archive acquisition uses the Browser package store and
    deadline, and acquisition/evaluation failures remain visible. Remove the
    final package-content facet and confirm the default returns to 200.
@@ -533,7 +541,12 @@ and browser-history and focus-return outcomes are proved by
    cannot publish an uncredited match.
 13. Confirm that streamed progress and rows produce at most one query-region
    patch per animation frame and do not replace the application root.
-14. Confirm assembly `NoMatch`, `NotApplicable`, and failures remain distinct,
+14. Accumulate 100 rows and confirm that all rows remain in query state and
+   final accounting while no more than 30 package cards are mounted. Scroll
+   from the first rows through the middle to the final rows; confirm five-row
+   overscan, spacer-preserved range, stable visible-row anchoring, typed row
+   opening, and near-end demand pressure.
+15. Confirm assembly `NoMatch`, `NotApplicable`, and failures remain distinct,
    an empty match set states only selected-primary-implementation-assembly
    scope, assessments spend no match credit, and every assembly match opens
    by its exact opaque Root request after candidate disposal.
@@ -549,7 +562,9 @@ and browser-history and focus-return outcomes are proved by
 4. **#5464** adds the bounded package-content tier, the embedded `SKILL.md`
    facet, and the segmented .NET tool format control.
 5. **#5816** adds Browser-advertised match credit, scroll-pressure
-   replenishment, and frame-batched query-region rendering through #5832.
+   replenishment, and frame-batched query-region rendering through #5832. Its
+   Browser-owned DOM follow-up retains the complete outcome in state while
+   mounting a bounded 30-card result window with five-row overscan.
 6. [Package Query assembly-pattern
    evaluation](package-query-assembly-evaluation.md) owns one-candidate
    primary-assembly selection, semantic confirmation, evidence, and resource
@@ -561,18 +576,15 @@ and browser-history and focus-return outcomes are proved by
    reacquisition request rather than applying the ordinary package-row
    ID/version handoff to a result whose selection target may differ from its
    acquisition coordinate.
-7. **#6019** made the website the first Gallery discovery consumer, using
-   ordinary shared acquisition and local evaluation before the general Source
-   Delegation protocol. **#6341** retires that Browser gesture while preserving
-   the shared Gallery substrate. [#5919](https://github.com/richlander/dotnet-inspect/issues/5919)
-   retains the counted path through delegation and CLI adoption; CLI query
-   discovery belongs to [PR #6004](https://github.com/richlander/dotnet-inspect/pull/6004).
+7. **#6019** historically added a Gallery discovery consumer. The browse/order
+   gesture and its shared discovery substrate are now retired; supported
+   Package Query input is exact ID or explicit V3-backed prefix only.
 8. [Incremental prefix candidates](package-prefix-candidate-stream.md), tracked
    by #5816, removes the complete-search barrier in prefix-profile consumers.
    [#6070](https://github.com/richlander/dotnet-inspect/issues/6070) restored
-   explicit package-ID and prefix selection on the website. Its separate
-   Gallery gesture is retired by #6341. DOM virtualization and Worker placement
-   remain separate follow-ups.
+   explicit package-ID and prefix selection on the website. This Browser DOM
+   slice supplies virtualization; Worker placement remains a separate
+   follow-up.
 9. [Package Query inspection evidence](package-query-inspection-evidence.md),
    tracked by #6071, transports typed package/query scope and count-plus-preview
    summaries to the website. Query context renders once per result set while
