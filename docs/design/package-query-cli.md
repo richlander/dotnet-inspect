@@ -9,7 +9,7 @@ host-neutral query contract rather than inventing its own.
 ## Status
 
 Implemented product contract with CLI adoption tracked by
-[#6767](https://github.com/richlander/dotnet-inspect/issues/6767).
+[#6768](https://github.com/richlander/dotnet-inspect/issues/6768).
 The earlier patternless `find --package-prefix` corpus route and its
 `PackageProfileSections` rendering path landed in #4551 and are historical
 inputs to this design; `package query` supersedes that command surface. See
@@ -230,7 +230,7 @@ satisfy selected product-owned facts available from source metadata, exact
 manifests, or an explicitly supplied package archive. `find` remains the
 type/member/API verb; its package prefix option only scopes a patterned API
 search. The promoted tier for facts that require opening an assembly remains
-separate under #6768.
+separate under #6767.
 This document defines where those pieces belong across the existing L1/L2/L3
 split, rather than treating the CLI project as a place to accumulate new
 bespoke logic the way it did before that split existed.
@@ -806,17 +806,17 @@ the CLI's named facets as canonical for the browser's facet rail.
    provider and at most 20 candidates. `PackageQueryTests` and
    `PackageQueryPlanner_IsReachableFromBrowserConsumer` are the named Release
    gates.
-4. **CLI package-query command — implemented by #6767.** `package query`
+4. **CLI package-query command — implemented by #6768.** `package query`
    consumes exact-ID or terminal-star prefix input, admits the tool facet
    family, treats selecting a content facet as acquisition approval, offers
    `--nuspec-only` as the restrictive override, and preserves the
    package-content 20-candidate maximum.
-5. **CLI limit reconciliation — implemented by #6767.** `--take` owns
+5. **CLI limit reconciliation — implemented by #6768.** `--take` owns
    explicit candidate work and semantic `-n` owns final package rows. Without
    explicit `--take`, a lone Head is delegated through the shared optional
    match budget and, for direct rows, the candidate budget. Browser callers
    retain their numeric match budgets.
-6. **Command retirement — implemented by #6767.** `package search` and
+6. **Command retirement — implemented by #6768.** `package search` and
    patternless `find --package-prefix` are removed without aliases.
    Patterned `find PATTERN --package-prefix PREFIX` remains API search.
 7. **Compose the focused
