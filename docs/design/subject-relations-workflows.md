@@ -96,10 +96,58 @@ interface versus pattern enumeration candidates; and an unfamiliar Aspire
 provider/consumer pair. Record answer correctness and evidence provenance,
 reopening accuracy, query-construction errors, command/tool work, time to useful
 output, packages/bytes acquired, and incomplete-result handling. Compare
-current commands with the proposed flow, not an agent's memory of how to build
-a sample application.
+production commands with the runnable candidate flow, not an agent's memory
+of how to build a sample application.
 Run enough repetitions to distinguish a directional result from a single
 successful attempt; do not infer reliability from one run.
+
+#### Lightweight head-to-head
+
+Perform a head-to-head (H2H) during runnable CLI adoption, before claiming
+workflow parity or retiring the existing commands. Use the **latest production
+version of dotnet-inspect available when the comparison starts** as the
+baseline, rather than rebuilding an old branch or treating main as production.
+Record that exact package/informational version, the candidate commit and
+Release build, input package/assembly versions, selected TFMs, and runtime.
+Keep those versions fixed for the comparison.
+
+Use the three discovery scenarios above, including applicable worked
+signature/return refinements. Compare both the easy curated entry point and
+the additional composable questions; do not demonstrate new expressiveness
+only by choosing questions that the baseline cannot answer. Let production
+use its best supported combination of commands, sections, help and
+version-matched skills. Several commands or manual inspection can still be
+a correct baseline answer; an unavailable flag alone is not a failed task.
+
+First hold candidate populations constant to compare subject continuity and
+query composition. Then compare the default populations separately to assess
+breadth, cost and noise. Both sides inspect the same versioned assets, with
+the same source/network permissions and a recorded cache state. Run the sides
+sequentially; distinguish acquisition and startup work from query work rather
+than attributing every timing difference to the new design.
+
+**No formal harness is required.** A command transcript, relevant outputs
+and a short side-by-side results table in the adoption PR are sufficient.
+For each question, report correct/incorrect/incomplete/unsupported, exact
+answer coordinates and evidence, construction/reopening work, time to useful
+output and acquisition cost. Compare semantic answers rather than requiring
+identical table layouts or treating a larger row count as better coverage.
+Preserve counterexamples and failures, not just the successful demonstration.
+If agents perform the tasks, use fresh contexts, identical task text and
+resource permissions, and the same model/configuration; record their tool
+work as part of the result.
+
+End with a decision for each hypothesis: demonstrated benefit, regression,
+or inconclusive. A small manual H2H is directional workflow evidence, not a
+statistical reliability study or a replacement for the Release correctness
+gates. Comparable baseline success is a valid result and a reason to
+reconsider added UX complexity. Rework a regression or explicitly resolve the
+tradeoff before using the comparison to justify adoption or retirement.
+
+The H2H is **not yet run**: this design-only slice has no executable candidate
+for the proposed UX. Existing production probes establish facts about the
+baseline; mockups do not count as candidate execution. Attach the actual
+comparison to the relevant implementation slice when that path is runnable.
 
 All-known registration can remain useful even if eager broad execution is
 not. If breadth performs poorly, retain the population and identity machinery
@@ -569,8 +617,8 @@ a name-only search.
 ### How shortcut flags and --where combine
 
 A flag can be a **compound shortcut: which results + where constraint**.
-For example, `--returns Foo` selects member results and requires their declared
-return type to match `Foo`. The proposed equivalence is:
+For example, on `find`, `--returns Foo` selects member results and requires
+their declared return type to match `Foo`. The proposed equivalence is:
 
 ```console
 dotnet-inspect find --returns Foo
@@ -578,7 +626,7 @@ dotnet-inspect find --returns Foo
 dotnet-inspect find --members --where "returns=Foo"
 ```
 
-The same decomposition applies to the other signature shortcuts:
+The same Find-result decomposition applies to the other signature shortcuts:
 
 | Shortcut | Which results | Where constraint |
 | --- | --- | --- |
@@ -592,7 +640,7 @@ without introducing a separate execution path. Population selection remains
 distinct: `--ecosystem` chooses where to look, not which semantic associations
 to report.
 
-For these proposed signature queries, the short flags and `--where` contribute
+For these proposed Find member queries, the short flags and `--where` contribute
 to **one typed request**. Expand the shortcuts, then combine the constraints
 with **AND** on the same exact result. Neither spelling takes precedence;
 argument order cannot change the question. A shortcut's default result-kind
@@ -942,6 +990,133 @@ structural and does not execute the broad sweep. Filtering can avoid irrelevant
 producer work when its owner proves the equivalence, but cannot turn
 unexamined candidates into a completed negative result.
 
+### Query discovery for the sections
+
+**Yes: the proposed `-Q Relations` advertises `--returns`**, alongside its
+canonical `returns` predicate and its meaning for relation rows. Query
+discovery must answer both "what can I filter?" and "which convenient spelling
+can I use?" A shortcut is advertised for a particular command/section
+binding, not globally just because its option name exists.
+
+The [query-discovery owner](progressive-disclosure.md#query-discovery) retains
+the acquisition-free `-Q` contract and the `Query: <Section>` companion.
+This adoption needs its descriptors to disclose the result unit, predicate
+meaning, operators, value domain, combination rules, and shortcut expansion.
+Those facts must come from the accepted binding, not a separate help-only
+registry. The following output is a **mockup of the target**, not a claim
+that today's CLI accepts these predicates.
+
+```console
+dotnet-inspect type -Q Relations
+```
+
+**Query: Relations** (result unit: logical relation rows).
+
+Direction default: both.
+Composition: AND on each relation; explicit family alternatives are OR.
+
+| Predicate | Operators | Meaning / values | Shortcut |
+| --- | --- | --- | --- |
+| `form` | `=` | Relation forms such as `interface`, `signature`, `invocation`; enumerate adopted values. | None |
+| `relation` | `=` | Producer-issued relation IDs and their readings, such as implements, accepts, returns or calls. | None |
+| `direction` | `=` | `incoming`, `outgoing`, `both`, relative to the subject closure. | None |
+| `evidence` | `=` | Adopted declaration, static IL, pattern-candidate or opportunity evidence kinds. | None |
+| `ecosystem` | `=` | Canonical ecosystem association IDs, such as `ecosystem.aspire`. | None; `--ecosystem` selects a population instead. |
+| `concept` | `=` | Producer-issued Integration concept IDs. | None |
+| `signature` | `=` | Keep signature relations whose referenced type occurrence matches the supplied shape. | `--signature Shape` |
+| `returns` | `=` | Keep return relations whose whole declared returned shape matches the supplied shape. | `--returns Shape` |
+| `signature-family` | `=` | Keep signature relations matching an adopted type family; `span` means Span/ReadOnlySpan. | `--span` for `span` |
+
+The real descriptor must enumerate supported IDs or identify their owned
+vocabulary; the abbreviated value descriptions above are not new relation-ID
+registries. Named shape predicates retain bound type identity and match-site
+evidence. `returns=Foo` does not match merely because `Foo` occurs inside a
+returned `Task<Foo>` or appears in a parameter.
+
+For the selected relation section, the short and long spellings are:
+
+```console
+dotnet-inspect type IApplicationBuilder \
+  --platform Microsoft.AspNetCore.Http.Abstractions \
+  -S Relations --returns IApplicationBuilder
+
+dotnet-inspect type IApplicationBuilder \
+  --platform Microsoft.AspNetCore.Http.Abstractions \
+  -S Relations --where "returns=IApplicationBuilder"
+```
+
+Both retain return relations such as
+`UseExtensions.Use -> IApplicationBuilder`; they do not retain that method's
+extension-receiver relation just because the method also returns the
+requested type. They do not turn the result into a member inventory.
+
+The explicit section supplies **which**, and its shortcut supplies **where**.
+The Find member-result expansion earlier is the default for that Find
+workflow, not a mandatory `--members` rewrite on every command. Explicit
+compatible section selection is resolved before defaults, irrespective of
+argument order; an incompatible selection is diagnosed rather than replaced.
+
+| Query context | What `--returns Foo` keeps |
+| --- | --- |
+| Find member `Results` | Members whose declared return type matches `Foo`, with their match evidence. |
+| `Relations` | Return-relation rows whose declared returned shape matches `Foo`. |
+| `Integration` | The same return-relation rows, still restricted to producer-classified Integration evidence and any selected ecosystem/concept associations. |
+| `Extensions` | Extension-member candidates whose declared return shape matches `Foo`; the receiver-match requirement remains in force. |
+
+This row-unit distinction also governs conjunctions. Find can require two
+signature shapes at different sites on one member. Relation predicates
+constrain one logical relation; they do not combine different edges from
+the same member to manufacture a match. A query for a callee that returns
+`Foo` is not automatically a return relation, either: signature filtering
+must not silently become a join over invocation targets.
+
+#### Initial discovery coverage by section
+
+The following table defines the initial predicate adoption for every section
+in the proposed category. Existing owner-adopted capabilities are retained;
+"no new predicates" does not remove formatting, row selection or explicit
+traversal options.
+
+| Section | Query predicates introduced here | Signature shortcuts |
+| --- | --- | --- |
+| `Relations` | The nine predicates in the mockup, with logical-relation semantics. | `--signature`, `--returns`, `--span` |
+| `Integration` | The same predicates, with the classified-evidence condition always retained. | `--signature`, `--returns`, `--span` |
+| `Extensions` | `signature`, `returns`, `signature-family` over extension-member candidates. | `--signature`, `--returns`, `--span` |
+| `Implementers`, `Derived Types` | No new predicates; describe any adopted type-candidate bindings, or explicitly report no query operators. | None; member signature predicates are not type-candidate predicates. |
+| `Dependencies`, `References` | No new predicates; describe the owning evidence view's adopted bindings, or explicitly report no query operators. | None |
+| `Calls`, `Callers` | No new predicates; describe the owning call view's adopted bindings, or explicitly report no query operators. | None; do not imply a callee-signature join. |
+
+The dependency-only `Dependency Graph` and `Failures` sections and the
+separately selected `Call Graph` likewise retain their owners' discovery
+contracts; this design does not invent `--where` bindings for their columns.
+Where a known section has no adopted operators, a named request such as
+`type -Q Implementers` still identifies the section and explicitly says
+**no query operators**. An unknown section remains an error. Bare `-Q` lists
+only query-capable sections, under the existing discovery contract.
+
+`-Q @Relations` expands the subject's category and reports these capabilities
+**per section**, not as an unlabeled union of keys or shortcuts. Fixed form,
+direction and candidate restrictions remain part of each section's
+description. For example, `--returns` is not advertised for `Implementers`
+merely because it is available for the neighboring `Relations` section.
+Consequently, a type request combining all of `@Relations` with `--returns`
+is incompatible with its type-candidate sections: ask for `Relations`,
+`Integration` or `Extensions` explicitly. Do not silently drop sections or
+leave some of their rows unfiltered.
+
+The same descriptor supplies the shortcut spelling, canonical predicate and
+contextual expansion to help and `-Q`; a displayed shortcut must actually bind
+in that section. `-D` describes membership and fields rather than promising
+that every displayed field is filterable. A section predicate is advertised
+only after its producer, binding and output path are adopted. Merely landing
+this design must not make future flags appear in production discovery.
+
+`-Q` does not acquire a supplied target, expand candidate populations, decode
+signatures or run any relation producer. It cannot combine with `-S`, `-D`
+or execution options such as `--where` and `--returns`. Request discovery,
+then run a separate inspection. Markout remains the common metadata lowering
+path; this is richer section capability disclosure, not another query engine.
+
 ### What invocation and language patterns do not prove
 
 A static `callvirt` operand is not proof of the runtime implementation.
@@ -1003,7 +1178,7 @@ map, not a specification of the participating components' internals.
 | Dependencies | [Dependency inspection](dependency-inspection-command.md) owns the current root-set operation and section/traversal contract; adopt subject presets and a graph-host entry point before retiring `depends`. Existing package/restored-project evidence and traversal owners remain unchanged. |
 | Language patterns | A focused producer must own candidate identity, checked shape and applicability limits before pattern rows can enter the view. |
 | Graph / Relations composition | [Graph documents](inspection-graph-document.md) and [modes](inspection-graph-modes.md) retain canonical endpoints/occurrences; this owner selects and composes evidence relative to the focused subject and population. |
-| Presentation / hosts | [Output shapes](output-shapes.md) lower one typed row set; CLI and browser consume shared results and coverage rather than inferring relations from text. |
+| Presentation / hosts | [Output shapes](output-shapes.md) lower one typed row set; CLI and browser consume shared results and coverage rather than inferring relations from text. The [query-discovery owner](progressive-disclosure.md#query-discovery) must adopt section-specific result-unit and shortcut disclosure from the same accepted bindings. |
 | Workspace Definitions / sharing | [Workspace definitions](workspace-definitions.md), [sharing](cli-workspace-sharing.md) and [plan projections](inspection-plan-projections.md) retain exact portable state or refuse it. |
 
 The host-neutral composition lives at the query layer. CLI parsing and browser
@@ -1095,9 +1270,9 @@ unreviewable changes inside a nominal slice.
 | 10 | Shared Subject Relations query composition over adopted producers. |
 | 11 | Shared typed section projection, per-subject category membership and cross-listing, and Markout format lowerings. |
 | 12 | Workspace Definitions adoption for portable relation views and locator context. |
-| 13 | CLI ecosystem-to-locator handoff, contract/signature Find queries and vocabulary, subject categories, Integration view, section-backed shortcuts and dependency root-set mode, sharing and focused ecosystem skill adoption. |
+| 13 | CLI ecosystem-to-locator handoff, contract/signature Find queries and vocabulary, subject categories, Integration view, section-backed shortcuts and per-section query discovery, dependency root-set mode, sharing and focused ecosystem skill adoption, with the lightweight production-versus-candidate H2H. |
 | 14 | Inspect Web/Browser-Wasm adoption of the same locator and relation request/results. |
-| 15 | Retire `extensions`, `implements`, `depends` and per-ecosystem Integration sections after single-subject and root-set parity and disclosure; retain `ecosystem` as the vocabulary command. Coordinate existing `dependency-evidence` retirement with its owner. |
+| 15 | Retire `extensions`, `implements`, `depends` and per-ecosystem Integration sections after single-subject and root-set parity and disclosure; retain `ecosystem` as the vocabulary command. Preserve the dependency owner's completed `dependency-evidence` retirement. |
 
 CLI adoption is step 13 and website adoption step 14; neither is optional
 for this shared substrate. Step 15 is part of completion. Producers may ship
@@ -1129,6 +1304,7 @@ the named adoption gates run in Release:
 | Sharing fidelity | A portable narrowed Relations view restores the same registrations, focus and filters; an unprojectable local/private case reports the actual limitation. |
 | Shortcut equivalence | Each `--depends` request and its `-S @Dependencies` expansion preserve the same focus, population, selected producers, evidence, bounds, errors and output. `-D` exposes those sections; `-Q` describes only executable query bindings without running producers. |
 | Section catalog and traversal disclosure | The four subject catalogs match the membership and overlap tables. Shared category sections select once. Package `@Relations` does not request dependency traversal, library references remain direct without their explicit graph gesture, and member `Call Graph` stays separate. Focused inherited matches retain their evidence rather than masquerading as direct edges. |
+| Section query discovery | Named and category `-Q` report actual per-section bindings, result units and accepted shortcut expansions without target acquisition or producer work. Return filtering keeps member rows in Find, return edges in Relations and classified return edges in Integration; it does not retain unrelated edges or switch an explicit view. Unsupported categories/bindings fail visibly, and known sections without operators say so. |
 | Predicate composition | Mixed flags/`--where` and their expanded forms agree regardless of order. Span-family OR remains inside the AND with a string return; repeated signature shapes match one member, duplicate constraints do not duplicate evidence, contradictory return predicates give an honestly scoped empty result, and invalid bindings fail visibly. |
 | Retirement parity | Migrated extension/reachable-extension, implementer/subclass and type-hierarchy workflows retain their results and bounds. Single- and mixed-root dependency replacements preserve declarations, traversal, unresolved targets, partial failures, exit status and formats before their old routes disappear. |
 
