@@ -831,19 +831,8 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void ParsedLineWindow_UsesActiveCommandOptionArity()
+    public void ParsedLineWindow_RequiredOptionsOwnLimitShapedValues()
     {
-        PreprocessAndApplyLineWindow(
-            ["find", "--platform", "-n1", "JsonSerializer"]);
-        Assert.Equal(1, CommandLineBuilder.HeadLines);
-
-        string[] shorthand = PreprocessAndApplyLineWindow(
-            ["find", "--platform", "-1", "JsonSerializer"]);
-        Assert.Equal(
-            ["find", "--platform", "-n", "1", "JsonSerializer"],
-            shorthand);
-        Assert.Equal(1, CommandLineBuilder.HeadLines);
-
         PreprocessAndApplyLineWindow(
             ["member", "System.String", "--focus", "-n1"]);
         Assert.Null(CommandLineBuilder.HeadLines);

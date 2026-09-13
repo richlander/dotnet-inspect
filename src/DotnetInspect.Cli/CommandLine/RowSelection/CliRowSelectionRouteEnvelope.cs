@@ -174,7 +174,8 @@ internal static class CliRowSelectionRouteEnvelope
 {
     public static CliRowSelectionRouteEnvelopeResult Evaluate(
         string[] arguments,
-        IReadOnlyList<CliRowSelectionRouteCandidate> candidates)
+        IReadOnlyList<CliRowSelectionRouteCandidate> candidates,
+        bool deferLegacyWindow = false)
     {
         ArgumentNullException.ThrowIfNull(arguments);
         ArgumentNullException.ThrowIfNull(candidates);
@@ -190,7 +191,8 @@ internal static class CliRowSelectionRouteEnvelope
                 .Select(candidate =>
                     Observe(
                         arguments,
-                        candidate))
+                        candidate,
+                        deferLegacyWindow))
                 .ToArray();
         bool hasUnexpectedCommand =
             observations.Any(
@@ -231,7 +233,8 @@ internal static class CliRowSelectionRouteEnvelope
         RequestScan scan =
             ScanRequests(
                 arguments,
-                observations);
+                observations,
+                deferLegacyWindow);
 
         // Declaration and capability failures are compared in argv order so
         // naming a command cannot be suggested for a uniformly unsupported
@@ -397,7 +400,8 @@ internal static class CliRowSelectionRouteEnvelope
 
     private static CandidateObservation Observe(
         string[] arguments,
-        CliRowSelectionRouteCandidate candidate)
+        CliRowSelectionRouteCandidate candidate,
+        bool deferLegacyWindow)
     {
         string[] prefixedArguments =
             [
@@ -422,6 +426,9 @@ internal static class CliRowSelectionRouteEnvelope
                 .Where(
                     occurrence =>
                         occurrence.Position >= prefixLength
+                        && (!deferLegacyWindow
+                            || occurrence.Kind
+                                != CliRowSelectionOccurrenceKind.Rows)
                         && !result.ScopeDependentArguments.Any(
                             argument => argument.OptionPosition == occurrence.Position))
                 .Select(
@@ -433,6 +440,9 @@ internal static class CliRowSelectionRouteEnvelope
         CliRowSelectionArgumentFailure[] argumentFailures =
             result.ArgumentFailures
                 .Where(failure => failure.Position >= prefixLength
+                    && (!deferLegacyWindow
+                        || failure.OccurrenceKind
+                            != CliRowSelectionOccurrenceKind.Rows)
                     && !result.ScopeDependentArguments.Any(
                         argument => argument.OptionPosition == failure.Position))
                 .Select(failure =>
@@ -552,7 +562,8 @@ internal static class CliRowSelectionRouteEnvelope
 
     private static RequestScan ScanRequests(
         IReadOnlyList<string> arguments,
-        IReadOnlyList<CandidateObservation> observations)
+        IReadOnlyList<CandidateObservation> observations,
+        bool deferLegacyWindow)
     {
         var requests =
             new List<RequestToken>();
@@ -622,6 +633,15 @@ internal static class CliRowSelectionRouteEnvelope
                         argument => argument.FollowingPosition == position));
             if (!potentialRequest
                 || requiredClaims.All(claimed => claimed))
+            {
+                continue;
+            }
+
+            if (deferLegacyWindow
+                && meanings.All(
+                    meaning =>
+                        meaning
+                            == CliRowSelectionOccurrenceKind.Rows))
             {
                 continue;
             }

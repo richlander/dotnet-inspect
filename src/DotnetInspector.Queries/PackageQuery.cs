@@ -55,7 +55,7 @@ public sealed record PackageQueryRequest(
     string Prefix,
     IReadOnlyCollection<string>? FacetIds = null,
     int MaximumCandidates = PackageQuery.DefaultMaximumCandidates,
-    int MaximumMatches = PackageQuery.DefaultMaximumMatches,
+    int? MaximumMatches = PackageQuery.DefaultMaximumMatches,
     bool IncludePrerelease = false);
 
 /// <summary>Why a package-query request could not become an executable plan.</summary>
@@ -141,7 +141,7 @@ public sealed class PackageQueryPlan
         InertString prefixEvidence,
         ImmutableArray<PackageQueryFacetDefinition> definitions,
         int maximumCandidates,
-        int maximumMatches,
+        int? maximumMatches,
         bool includePrerelease,
         SourceSelector? packageInput = null)
     {
@@ -158,7 +158,7 @@ public sealed class PackageQueryPlan
     public InertString Prefix { get; }
     public ImmutableArray<PackageQueryFacetDescriptor> Facets { get; }
     public int MaximumCandidates { get; }
-    public int MaximumMatches { get; }
+    public int? MaximumMatches { get; }
     public bool IncludePrerelease { get; }
     public SourceSelector? PackageInput { get; }
 
@@ -241,7 +241,7 @@ public sealed record PackageQuerySummary(
     InertString Prefix,
     PackageSourceResultIdentity Source,
     int CandidateLimit,
-    int MatchLimit,
+    int? MatchLimit,
     int Candidates,
     int Matches,
     int Failures,
@@ -520,12 +520,13 @@ public static partial class PackageQuery
         InertString scopeEvidence,
         IReadOnlyCollection<string>? facetIds,
         int maximumCandidates,
-        int maximumMatches,
+        int? maximumMatches,
         bool includePrerelease,
         SourceSelector? packageInput = null)
     {
-        if (maximumMatches
-            is <= 0 or > PackageProfileQuery.MaximumPackageLimit)
+        if (maximumMatches is int presentMatchLimit
+            && presentMatchLimit
+                is <= 0 or > PackageProfileQuery.MaximumPackageLimit)
         {
             return Rejected(
                 PackageQueryRequestFailureReason.InvalidMatchLimit,
@@ -846,7 +847,8 @@ public static partial class PackageQuery
                                     : PackageQueryFacetTier.SearchMetadata,
                             evidence.ToImmutable()));
                     cancellationToken.ThrowIfCancellationRequested();
-                    if (matches >= plan.MaximumMatches)
+                    if (plan.MaximumMatches is int maximumMatches
+                        && matches >= maximumMatches)
                     {
                         yield return Completed(
                             plan,

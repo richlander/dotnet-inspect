@@ -88,9 +88,11 @@ evaluation, inert evidence, distinct candidate and match bounds, and typed
 completion without choosing a renderer. This contract is gated by
 `PackageQueryTests` and the
 `PackageQueryPlanner_IsReachableFromBrowserConsumer` consumer canary. The
-profile's L2 `Packages` section owns package/dependency row grain, schema,
-projection, and visible failure or truncation evidence; `find` retains only
-request binding, acquisition authorization, diagnostics, and format selection.
+profile's L2 `Packages` section owns one-row-per-package grain, schema,
+projection, and visible failure or truncation evidence. Dependency-group
+projection remains a separate consumer of `PackageDependencyGroupsQuery`;
+`find` retains only request binding, acquisition authorization, diagnostics,
+and format selection.
 The
 API-comparison seam
 retains Metadata-owned Finding correspondence and compatibility classification
