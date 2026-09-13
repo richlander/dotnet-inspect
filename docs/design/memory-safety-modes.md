@@ -267,6 +267,9 @@ the constructor declaration contract and does not widen the reconstructed body.
 Callable operations inside a safe constructor's initializer arguments retain
 their own context through `unsafe(expr)` rather than making the constructor
 unsafe. A by-ref argument keeps its `ref`/`out`/`in` keyword outside the wrapper.
+When an `in` parameter accepts an rvalue, the compiler-generated single-use
+temporary and address load are folded back to that rvalue, and the call-site
+`in` remains implicit as required by C#.
 When Roslyn rejects a direct property or method-address operand, an IL-neutral
 cast to the exact parameter type supplies the larger expression that Roslyn
 accepts without changing overload selection.

@@ -236,6 +236,12 @@ public class SafeInArgumentBase
         => _ = value;
 }
 
+public class SafeInRvalueArgumentBase
+{
+    public SafeInRvalueArgumentBase(in int value)
+        => _ = value;
+}
+
 public sealed class ContractObject
 {
     public unsafe ContractObject() { }

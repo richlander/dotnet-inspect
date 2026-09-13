@@ -1247,12 +1247,16 @@ public sealed partial class CSharpPrinter
             }
         }
 
+        TypeRef? valueParameter = parameter is { Kind: TypeRefKind.ByRef }
+            && refKind == ArgumentRefKind.In
+            ? parameter.ElementType
+            : parameter;
         if (!UnsafeExpressionCompilerSupports(argument)
-            && parameter is { Kind: not TypeRefKind.ByRef }
-            && refKind == ArgumentRefKind.Value
+            && valueParameter is { Kind: not TypeRefKind.ByRef }
+            && refKind is ArgumentRefKind.Value or ArgumentRefKind.In
             && argument is AddressOfMethod or LoadProperty)
         {
-            text = $"({TypeText(parameter)}){Operand(argument)}";
+            text = $"({TypeText(valueParameter)}){Operand(argument)}";
         }
 
         return UnsafeExpressionText(argument, text, force: true);
@@ -1317,17 +1321,19 @@ public sealed partial class CSharpPrinter
             return null;
         bool pointerAsAddress = IsPointerByRefArgument(parameter, argument);
         // `in` accepts a value argument (the compiler introduces a temporary), so
-        // ordinary place/value spellings keep the keyword implicit. A pointer
-        // must be dereferenced as a place, and the explicit keyword preserves that
-        // this is the readonly-reference argument rather than a copied value.
+        // an rvalue keeps the keyword implicit. A genuine lvalue uses the explicit
+        // keyword when requested to preserve overload identity. A pointer must be
+        // dereferenced as a place and always keeps the explicit keyword.
         if (refKind == ArgumentRefKind.In)
-            return (explicitIn || pointerAsAddress
-                ? ArgumentLvalue(argument, pointerAsAddress)
-                : ArgumentPlace(argument, pointerAsAddress)) is { } inPlace
-                ? explicitIn || pointerAsAddress
-                    ? $"in {inPlace}"
-                    : inPlace
-                : null;
+        {
+            if ((explicitIn || pointerAsAddress)
+                && ArgumentLvalue(argument, pointerAsAddress) is { } inLvalue)
+            {
+                return $"in {inLvalue}";
+            }
+            return ArgumentPlace(argument, pointerAsAddress)
+                ?? Expression(argument);
+        }
         // `out`/`ref` require a genuine assignable lvalue. ArgumentLvalue spells
         // every assignable form (including an unbox, as `Unsafe.Unbox<T>(o)`);
         // anything else is a bare value with no ref-place spelling, so leave it
@@ -1377,7 +1383,9 @@ public sealed partial class CSharpPrinter
         // ref-returning call, or a ref slot the importer spilled the managed
         // pointer into (a ref argument evaluated before a later side-effecting
         // argument). Each renders as a bare name the ref/out keyword prefixes.
-        LoadLocal or LoadArgument or LoadStackSlot or LoadIndirect or Call or CallIndirect
+        LoadLocal or LoadArgument or LoadStackSlot or LoadIndirect => Expression(argument),
+        Call { ResultType.Kind: TypeRefKind.ByRef }
+            or CallIndirect { ResultType.Kind: TypeRefKind.ByRef }
             or LoadProperty { ResultType.Kind: TypeRefKind.ByRef } => Expression(argument),
         _ => null,
     };

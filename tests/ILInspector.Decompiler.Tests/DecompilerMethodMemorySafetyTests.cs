@@ -1,9 +1,14 @@
+using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Reflection.Metadata.Ecma335;
 
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Instructions;
 using ILInspector.Metadata;
 
+using Constant = ILInspector.Decompiler.Pipeline.Constant;
+using Parameter = ILInspector.Decompiler.Pipeline.Parameter;
 using ChainB = ILInspector.Decompiler.Fixtures.UnsafeChainB.LibraryB;
 using ChainDerived =
     ILInspector.Decompiler.Fixtures.UnsafeChainB.ContractDerived;
@@ -17,12 +22,18 @@ using ChainRefArgumentDerived =
     ILInspector.Decompiler.Fixtures.UnsafeChainB.ContractRefArgumentDerived;
 using ChainInArgumentDerived =
     ILInspector.Decompiler.Fixtures.UnsafeChainB.ContractInArgumentDerived;
+using ChainInRvalueArgumentDerived =
+    ILInspector.Decompiler.Fixtures.UnsafeChainB.ContractInRvalueArgumentDerived;
+using ChainInPropertyArgumentDerived =
+    ILInspector.Decompiler.Fixtures.UnsafeChainB.ContractInPropertyArgumentDerived;
 using ChainRefPropertyArgumentDerived =
     ILInspector.Decompiler.Fixtures.UnsafeChainB.ContractRefPropertyArgumentDerived;
 using ChainThis =
     ILInspector.Decompiler.Fixtures.UnsafeChainB.ThisContract;
 using ChainThisArgument =
     ILInspector.Decompiler.Fixtures.UnsafeChainB.ThisArgumentContract;
+using ChainThisInRvalue =
+    ILInspector.Decompiler.Fixtures.UnsafeChainB.ThisInRvalueContract;
 using NewFixtures =
     ILInspector.Decompiler.Fixtures.NewUnsafe.AccessorContractFixtures;
 using NewMethods =
@@ -359,6 +370,119 @@ public class DecompilerMethodMemorySafetyTests
     }
 
     [Fact]
+    public void SafeBaseConstructorInitializer_ReconstructsInRvalueArgument()
+    {
+        DecompilerResult result =
+            DecompileType(typeof(ChainInRvalueArgumentDerived));
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Contains(
+            "base(unsafe(LibraryA.M1()))",
+            result.Output);
+        Assert.DoesNotContain(
+            "public unsafe ContractInRvalueArgumentDerived()",
+            result.Output);
+        Assert.DoesNotContain("direct constructor call", result.Output);
+        AssertCompilesType(
+            result.Output!,
+            """
+            public class SafeInRvalueArgumentBase
+            {
+                public SafeInRvalueArgumentBase(in int value) { }
+            }
+            public static class LibraryA
+            {
+                public static unsafe int M1() => 42;
+            }
+            """);
+    }
+
+    [Fact]
+    public void SafeBaseConstructorInitializer_InRvalueArgumentRoundTripsExactly()
+    {
+        string path = typeof(ChainInRvalueArgumentDerived).Assembly.Location;
+        DecompilerResult result =
+            DecompileType(typeof(ChainInRvalueArgumentDerived));
+        string source = $$"""
+            {{result.Output}}
+            public class SafeInRvalueArgumentBase
+            {
+                public SafeInRvalueArgumentBase(in int value) { }
+            }
+            public static class LibraryA
+            {
+                public static unsafe int M1() => 42;
+            }
+            """;
+        var compilation = UnsafeEmitterTests.CreateUpdatedRulesCompilation(
+            "__in_rvalue_roundtrip",
+            source,
+            Microsoft.CodeAnalysis.OptimizationLevel.Release);
+        using var stream = new MemoryStream();
+        var emit = compilation.Emit(
+            stream,
+            cancellationToken: TestContext.Current.CancellationToken);
+        UnsafeEmitterTests.AssertNoWarningsOrErrors(emit.Diagnostics, source);
+
+        ConstructorIl original = ReadConstructorIl(
+            File.ReadAllBytes(path),
+            typeof(ChainInRvalueArgumentDerived).FullName!);
+        ConstructorIl recompiled = ReadConstructorIl(
+            stream.ToArray(),
+            typeof(ChainInRvalueArgumentDerived).FullName!);
+
+        Assert.Equal(original.Opcodes, recompiled.Opcodes);
+        Assert.Equal("SafeInRvalueArgumentBase", original.CalledConstructorType);
+        Assert.Equal(original.CalledConstructorType, recompiled.CalledConstructorType);
+        Assert.DoesNotContain(ILOpCode.Ldind_i4, recompiled.Opcodes);
+    }
+
+    [Fact]
+    public void SafeBaseConstructorInitializer_CastsInRvaluePropertyArgument()
+    {
+        DecompilerResult result =
+            DecompileType(typeof(ChainInPropertyArgumentDerived));
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Contains(
+            "base(unsafe((int)LibraryA.ContractProperty))",
+            result.Output);
+        AssertCompilesType(
+            result.Output!,
+            """
+            public class SafeInRvalueArgumentBase
+            {
+                public SafeInRvalueArgumentBase(in int value) { }
+            }
+            public static class LibraryA
+            {
+                public static unsafe int ContractProperty => 42;
+            }
+            """);
+    }
+
+    [Fact]
+    public void SafeThisConstructorInitializer_ReconstructsInRvalueArgument()
+    {
+        DecompilerResult result =
+            DecompileType(typeof(ChainThisInRvalue));
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Contains(
+            "public ThisInRvalueContract() : this(unsafe(LibraryA.M1()))",
+            result.Output);
+        Assert.DoesNotContain("direct constructor call", result.Output);
+        AssertCompilesType(
+            result.Output!,
+            """
+            public static class LibraryA
+            {
+                public static unsafe int M1() => 42;
+            }
+            """);
+    }
+
+    [Fact]
     public void UnsafeBaseConstructorInitializer_PreservesRefPropertyArgument()
     {
         DecompilerResult result =
@@ -575,6 +699,84 @@ public class DecompilerMethodMemorySafetyTests
         }
         return MemberBodyProducer.Project(type, path, pdbPath: null);
     }
+
+    static ConstructorIl ReadConstructorIl(byte[] image, string typeFullName)
+    {
+        using var pe = new PEReader(new MemoryStream(image, writable: false));
+        var reader = pe.GetMetadataReader();
+        var typeHandle = Assert.Single(
+            reader.TypeDefinitions,
+            handle =>
+            {
+                var definition = reader.GetTypeDefinition(handle);
+                string fullName = string.IsNullOrEmpty(reader.GetString(definition.Namespace))
+                    ? reader.GetString(definition.Name)
+                    : $"{reader.GetString(definition.Namespace)}.{reader.GetString(definition.Name)}";
+                return fullName == typeFullName;
+            });
+        var type = reader.GetTypeDefinition(typeHandle);
+        var methodHandle = Assert.Single(
+            type.GetMethods(),
+            handle => reader.GetString(reader.GetMethodDefinition(handle).Name) == ".ctor");
+        var method = reader.GetMethodDefinition(methodHandle);
+        var instructions = MethodInstructions.Decode(
+            pe.GetMethodBody(method.RelativeVirtualAddress)).Instructions;
+        var constructorCall = instructions.Last(instruction =>
+            instruction.OpCode == ILOpCode.Call
+            && CalledMethodName(reader, instruction) == ".ctor");
+        return new ConstructorIl(
+            [.. instructions.Select(instruction => instruction.OpCode)],
+            CalledTypeName(reader, constructorCall));
+    }
+
+    static string CalledMethodName(
+        System.Reflection.Metadata.MetadataReader reader,
+        DecodedInstruction instruction)
+    {
+        var handle = MetadataTokens.EntityHandle((int)instruction.OperandValue);
+        return handle.Kind switch
+        {
+            System.Reflection.Metadata.HandleKind.MemberReference =>
+                reader.GetString(reader.GetMemberReference(
+                    (System.Reflection.Metadata.MemberReferenceHandle)handle).Name),
+            System.Reflection.Metadata.HandleKind.MethodDefinition =>
+                reader.GetString(reader.GetMethodDefinition(
+                    (System.Reflection.Metadata.MethodDefinitionHandle)handle).Name),
+            _ => "",
+        };
+    }
+
+    static string CalledTypeName(
+        System.Reflection.Metadata.MetadataReader reader,
+        DecodedInstruction instruction)
+    {
+        var handle = MetadataTokens.EntityHandle((int)instruction.OperandValue);
+        System.Reflection.Metadata.EntityHandle typeHandle = handle.Kind switch
+        {
+            System.Reflection.Metadata.HandleKind.MemberReference =>
+                reader.GetMemberReference(
+                    (System.Reflection.Metadata.MemberReferenceHandle)handle).Parent,
+            System.Reflection.Metadata.HandleKind.MethodDefinition =>
+                reader.GetMethodDefinition(
+                    (System.Reflection.Metadata.MethodDefinitionHandle)handle)
+                    .GetDeclaringType(),
+            _ => default,
+        };
+        return typeHandle.Kind switch
+        {
+            System.Reflection.Metadata.HandleKind.TypeReference =>
+                reader.GetString(reader.GetTypeReference(
+                    (System.Reflection.Metadata.TypeReferenceHandle)typeHandle).Name),
+            System.Reflection.Metadata.HandleKind.TypeDefinition =>
+                reader.GetString(reader.GetTypeDefinition(
+                    (System.Reflection.Metadata.TypeDefinitionHandle)typeHandle).Name),
+            _ => "",
+        };
+    }
+
+    sealed record ConstructorIl(
+        IReadOnlyList<ILOpCode> Opcodes,
+        string CalledConstructorType);
 
     const string SafeArgumentDeclarations = """
         public class SafeArgumentBase

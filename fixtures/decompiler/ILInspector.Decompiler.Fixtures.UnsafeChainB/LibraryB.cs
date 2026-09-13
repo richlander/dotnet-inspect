@@ -154,6 +154,34 @@ public sealed class ContractInArgumentDerived : SafeInArgumentBase
     }
 }
 
+public sealed class ContractInRvalueArgumentDerived : SafeInRvalueArgumentBase
+{
+    public ContractInRvalueArgumentDerived()
+        : base(unsafe(LibraryA.M1()))
+    {
+    }
+}
+
+public sealed class ContractInPropertyArgumentDerived : SafeInRvalueArgumentBase
+{
+    public ContractInPropertyArgumentDerived()
+        : base(unsafe((int)LibraryA.ContractProperty))
+    {
+    }
+}
+
+public sealed class ThisInRvalueContract
+{
+    public ThisInRvalueContract(in int value)
+    {
+    }
+
+    public ThisInRvalueContract()
+        : this(unsafe(LibraryA.M1()))
+    {
+    }
+}
+
 public sealed class ContractRefPropertyArgumentDerived : SafeRefArgumentBase
 {
     public unsafe ContractRefPropertyArgumentDerived()
