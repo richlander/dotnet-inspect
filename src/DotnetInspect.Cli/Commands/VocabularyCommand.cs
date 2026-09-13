@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Views;
 using DotnetInspector.Sections;
 using DotnetInspector.Vocabulary;
 using Markout;
@@ -135,31 +136,32 @@ public static class VocabularyCommand
             return 1;
         }
 
+        if (options.JsonOutput && projectedColumns is not { Length: > 0 })
+        {
+            Console.WriteLine(VocabularyJson.Serialize(document, renderedSections));
+            return 0;
+        }
+
+        VocabularyView view = VocabularyView.Create(renderedSections);
         if (options.JsonOutput)
         {
-            if (projectedColumns is { Length: > 0 })
-            {
-                OutputFormatter.WriteProjectedJson(
-                    Console.Out,
-                    projectedColumns,
-                    fields: null,
-                    (writer, formatter, writerOptions) =>
-                        WriteSections(
-                            new MarkoutWriter(writer, formatter, writerOptions),
-                            renderedSections,
-                            includeDocumentHeading: true),
-                    maxRows: null);
-            }
-            else
-            {
-                Console.WriteLine(VocabularyJson.Serialize(document, renderedSections));
-            }
+            OutputFormatter.WriteProjectedJson(
+                Console.Out,
+                projectedColumns,
+                fields: null,
+                (writer, formatter, writerOptions) =>
+                    MarkoutSerializer.Serialize(
+                        view,
+                        writer,
+                        formatter,
+                        VocabularyViewContext.Default,
+                        writerOptions),
+                maxRows: null);
             return 0;
         }
 
         if (options.Tabular)
         {
-            VocabularySection section = renderedSections[0];
             OutputFormatter.WriteProjectedTable(
                 Console.Out,
                 showHeader: !options.NoHeader,
@@ -168,11 +170,12 @@ public static class VocabularyCommand
                 renderedColumns,
                 fields: null,
                 (writer, formatter, writerOptions) =>
-                {
-                    var markout = new MarkoutWriter(writer, formatter, writerOptions);
-                    WriteTable(markout, section);
-                    markout.Flush();
-                },
+                    MarkoutSerializer.Serialize(
+                        view,
+                        writer,
+                        formatter,
+                        VocabularyViewContext.Default,
+                        writerOptions),
                 maxRows: null);
             return 0;
         }
@@ -181,14 +184,14 @@ public static class VocabularyCommand
             renderedColumns,
             fields: null,
             rows: null);
-        var markdown = new MarkoutWriter(
+        MarkoutSerializer.Serialize(
+            view,
             Console.Out,
             options.PlainText
                 ? new PlainTextFormatter()
                 : new MarkdownFormatter(),
+            VocabularyViewContext.Default,
             markdownOptions);
-        WriteSections(markdown, renderedSections, includeDocumentHeading: true);
-        markdown.Flush();
         return 0;
     }
 
@@ -233,38 +236,6 @@ public static class VocabularyCommand
                     section with { Values = [.. rowSet.Values] }),
         ];
         return true;
-    }
-
-    private static void WriteSections(
-        MarkoutWriter writer,
-        IEnumerable<VocabularySection> sections,
-        bool includeDocumentHeading)
-    {
-        if (includeDocumentHeading)
-            writer.WriteHeading(1, "Vocabulary");
-        foreach (VocabularySection section in sections)
-        {
-            writer.WriteHeading(2, section.Name);
-            writer.WriteParagraph(section.Summary);
-            WriteTable(writer, section);
-        }
-    }
-
-    private static void WriteTable(
-        MarkoutWriter writer,
-        VocabularySection section)
-    {
-        string[] labels = [.. section.Fields.Select(field => field.Label)];
-        string[] ids = [.. section.Fields.Select(field => field.Id)];
-        string[][] rows =
-        [
-            .. section.Values.Select(row =>
-                section.Fields.Select(field =>
-                    row.TryGetValue(field.Id, out VocabularyValue value)
-                        ? value.ToDisplayString()
-                        : "").ToArray()),
-        ];
-        writer.WriteTable(labels, ids, rows);
     }
 
     private static DocumentSchema CreateSchema(VocabularyDocument document)

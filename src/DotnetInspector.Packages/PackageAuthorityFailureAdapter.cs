@@ -5,6 +5,37 @@ namespace DotnetInspector.Packages;
 
 internal static class PackageAuthorityFailureAdapter
 {
+    internal static PackageAuthorityFailure DescribeSearchFailure(
+        PackageSource source,
+        PackageSourceFailure failure)
+    {
+        InertString authority = PackageSourceDisplay.ForDiagnostics(source);
+        PackageAuthorityFailureKind kind = Classify(failure.Kind);
+        string message = kind switch
+        {
+            PackageAuthorityFailureKind.AuthenticationRequired =>
+                $"Package source {authority} requires credentials or rejected the supplied credentials.",
+            PackageAuthorityFailureKind.Timeout =>
+                $"Package source {authority} timed out while searching package IDs.",
+            PackageAuthorityFailureKind.Unsupported =>
+                $"Package source {authority} does not support package-prefix search.",
+            PackageAuthorityFailureKind.IncompleteMetadata =>
+                $"Package source {authority} did not provide complete package-search metadata.",
+            PackageAuthorityFailureKind.InvalidResponse =>
+                $"Package source {authority} returned invalid package-search metadata.",
+            PackageAuthorityFailureKind.ResponseRejected =>
+                $"Package source {authority} returned package-search metadata outside the configured safety limits.",
+            PackageAuthorityFailureKind.Transport =>
+                $"Package source {authority} could not be reached while searching package IDs.",
+            _ => failure.Message,
+        };
+        return new PackageAuthorityFailure(authority, kind, message)
+        {
+            SourceFailure = failure,
+            ResultSource = failure.Source,
+        };
+    }
+
     internal static PackageAuthorityFailure DescribeVersionFailure(
         PackageSource source,
         PackageSourceFailure failure)
@@ -51,6 +82,8 @@ internal static class PackageAuthorityFailureAdapter
             PackageAuthorityFailureKind.ResponseRejected,
         PackageSourceFailureKind.Transport =>
             PackageAuthorityFailureKind.Transport,
+        PackageSourceFailureKind.NotFound =>
+            PackageAuthorityFailureKind.Unsupported,
         _ => throw new ArgumentOutOfRangeException(nameof(kind)),
     };
 }

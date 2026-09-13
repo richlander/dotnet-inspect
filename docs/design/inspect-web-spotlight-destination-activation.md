@@ -2,14 +2,17 @@
 
 ## Status and owner
 
-This is the proposed, unimplemented interaction contract for
+This is the approved, staged interaction contract for
 [#6673](https://github.com/richlander/dotnet-inspect/issues/6673), under the
 Workspace experience tracker
 [#6012](https://github.com/richlander/dotnet-inspect/issues/6012). The operator
 approved this focused Browser-specific capability: Spotlight preserves the
 active Workspace for destinations already admitted or covered by its current
-registration-bearing Scope revision, and creates a fresh curated Workspace
-only for an uncovered package.
+Scope and registration revisions, and creates a fresh curated Workspace only
+for an uncovered package. The resource-free coverage and activation-plan
+projection is implemented by
+`BrowserSpotlightDestinationProjection`; execution and Browser presentation
+adoption remain later stages.
 
 This document is the normative owner of **Spotlight destination activation**.
 It owns exact-candidate classification, the Browser activation plan,
@@ -86,18 +89,23 @@ Every selectable descriptor retains these owner-issued values:
 - the exact Spotlight result generation;
 - the exact active `InspectionWorkspaceIdentity`;
 - the exact Scope snapshot, logical revision, and publication base used for
-  membership and registration classification;
+  membership classification;
+- the exact separate `WorkspaceRegistrationRevision` used for registration
+  classification;
 - the exact destination identity and source family;
 - zero or more exact membership or registration-coverage witnesses; and
-- the owner-issued action or request payload required by the selected plan.
+- the source-bound package request or Workspace-bound owner action required by
+  the selected plan.
 
 These values form one captured activation basis. Equal Workspace labels,
 package coordinates, assembly simple names, Library display names, or
 registration text do not substitute for any part of that basis.
 
-Spotlight does not invent a parallel Workspace or registration identity.
-Registration content is read only from the exact Scope snapshot that owns it;
-later Scope or publication-base movement invalidates that captured basis.
+Spotlight does not invent a parallel Workspace or registration identity. It
+accepts Scope and registration snapshots only when both belong to the same
+exact Workspace and preserves their independent revisions. Later registration,
+Scope, or publication-base movement invalidates that captured basis; replacing
+registrations does not manufacture a new Scope revision.
 
 Classification occurs when Spotlight renders the selectable result descriptor,
 not when the user later selects it. Selection issues a new activation intent
@@ -151,8 +159,9 @@ existing Browser Platform experience.
 
 ## Registration coverage
 
-Coverage is an exact, resource-free classification over the complete
-registration projection in the captured Scope snapshot:
+Coverage is an exact, resource-free classification over the complete captured
+registration revision, joined to the captured Scope through their shared exact
+Workspace identity:
 
 - an exact-Library registration covers only its exact source coordinate and
   never covers its enclosing package as a whole;
@@ -173,10 +182,10 @@ population order. Classification does not select an arbitrary first witness
 as binding precedence.
 
 Every witness binds the exact Workspace, Scope revision and publication base,
-retained registration identity, nested population contribution when
-applicable, exact candidate, and source family. A Platform witness for
-`System.Text.Json` cannot cover the package-origin candidate with the same
-visible name.
+registration revision, registration position, nested population contribution
+and authored position when applicable, exact candidate, and source family. A
+Platform witness for `System.Text.Json` cannot cover the package-origin
+candidate with the same visible name.
 
 Coverage says that the current Workspace is the appropriate composition
 boundary. The selected operation must still honor source availability,
@@ -207,8 +216,11 @@ explicitly selected membership merely because this shortcut exists.
 
 When the exact enclosing Package occurrence is already current but the Library
 is not yet realized, `ActivateCurrentPackageLibrary` consumes that occurrence
-and the exact Library intent without adding duplicate Package membership.
-Focus may proceed only through owner-issued ancestry for that occurrence.
+and the exact Library intent without adding duplicate Package membership. The
+package request must identify the occurrence's complete realized coordinate,
+including producer and target, rather than merely matching its package ID and
+version. Focus may proceed only through owner-issued ancestry for that
+occurrence.
 
 The phases are deliberately not described as one atomic transaction:
 
@@ -229,6 +241,9 @@ activation.
 invokes the exact host-local Platform action for a Library, Type, or Member. It
 never represents Platform as a Package, manufactures package ancestry, or
 promotes a package merely because the Library has a package counterpart.
+Every such action remains bound to the exact Workspace that issued it; an
+action retained from another Workspace is stale even when its target text and
+Platform coordinates still compare equal.
 
 A Platform Library may receive this action because current registration
 coverage permits its realization or because that exact Library is already
@@ -410,7 +425,7 @@ design evidence, not implementation conformance.
 | Participating owner | Responsibility retained |
 | --- | --- |
 | [Workspace registration and call-graph focal length](workspace-registration-and-call-graph-scope.md) | Experience-level raw/curated construction and inert registration purpose |
-| [Workspace Scope and Expansion](workspace-scope-and-expansion.md) | Exact membership, registration and Scope revisions, mutation admission, Package occurrence issuance, and complete results |
+| [Workspace Scope and Expansion](workspace-scope-and-expansion.md) | Exact membership and Scope revisions, mutation admission, Package occurrence issuance, and complete results |
 | [Workspace Ecosystem Registration Handoff](workspace-ecosystem-registration-handoff.md) and source owners | Retained population contributions and their owner-defined matching or realization outcomes |
 | [Inspection Subject Navigation](inspection-subject-navigation.md) | Shared Package/Library/Type/Member ancestry, focus, reconciliation, and exact action authority |
 | [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) | Canonical location, history, effect installation, and consumer synchronization |
@@ -432,6 +447,11 @@ Production adoption is staged by owner:
    host publication for uncovered packages.
 6. Run Browser original-host and Firefox acceptance gates, then include the
    capability in a separately authorized release and website deployment.
+
+Stage 2 is implemented in the managed Inspect Web composition layer. Its
+source-bound package requests, Workspace-bound generic action payloads, and
+exact Library intents preserve owner-issued values opaquely; the projection
+never reconstructs or executes them.
 
 Each implementation stage receives its own focused issue and PR. This design
 does not authorize one implementation change spanning all participating
@@ -462,11 +482,15 @@ owners.
 
 The TLA+ configurations registered in
 `eng/tla-expected-exit-codes.txt` gate the model's exact semantic outcomes.
-Future implementation gates must exercise the real `System.Text.Json`
-package/Platform overlap through product-owned candidate construction, plus
-current Scope commit followed by Navigation failure, stale revision,
-supersession, and source denial. Workspace Definitions retains its separate
-non-install cleanup gate for external-package restoration.
+`BrowserSpotlightDestinationProjectionTests` gates every projection plan arm,
+ordered overlapping witnesses for admitted and registration-covered Package
+and Library subjects, exact-Library-only coverage, independent Scope and
+registration basis validation, stale and foreign Workspace evidence,
+same-ID/version source-request separation, stale Package occurrences, and the
+real package and Platform `System.Text.Json` overlap. Later execution gates
+must cover current Scope commit followed by Navigation failure, selection-time
+stale revision, supersession, and source denial. Workspace Definitions retains
+its separate non-install cleanup gate for external-package restoration.
 
 Presentation is Browser-native stateful interaction and does not require
 Markout. The model and future Browser tests are the selected positive gates;
@@ -479,7 +503,7 @@ This design does not define:
 - registration construction, validation, persistence, or mutation;
 - package-prefix, ecosystem, or Platform-population enumeration;
 - source authorization, credentials, offline policy, acquisition, or caching;
-- Package or Library ranking;
+- Package or Library ranking within a current- or new-Workspace group;
 - shared Platform Scope membership or Navigation subjects;
 - Workspace editor Save, Add, or arbitrary multi-package composition;
 - call-graph focal lengths, traversal, binding, or pruning;
