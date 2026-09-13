@@ -118,6 +118,45 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     [Fact]
+    public async Task TimelineRange_SemanticRowsComposeWithoutReducingExplicitAcquisition()
+    {
+        const string Id = "range.timeline.semantic-rows";
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
+            new SelectionFeedHandler(FirstFeed, Id, ["1.0.0", "2.0.0", "3.0.0"],
+                version => CreateApiPackage(Id, version), requests));
+
+        var result = await RunCommandAsync(
+            [
+                "timeline",
+                "--package", $"{Id}@1.0.0..3.0.0",
+                "--type", RangeType,
+                "--finding", "api.type",
+                "--source", FirstFeed,
+                "--at", "all",
+                "-S", "Evaluations",
+                "-2",
+                "--tail",
+                "--rows", "1..1",
+                "--columns", "Version",
+                "--tsv",
+                "--tips", "q"
+            ]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            3,
+            requests.Count(request =>
+                request.EndsWith(".nupkg", StringComparison.Ordinal)));
+        Assert.Equal(
+            ["version", "2.0.0"],
+            result.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    [Fact]
     public async Task TimelineRange_ProbeReplayRetainsWorkingDirectoryAndSelectionPolicy()
     {
         const string Id = "range.timeline.replay";
