@@ -145,7 +145,42 @@ retains its source owner's value rather than interpreting display text or
 reconstructing ecosystem contributions. Registration describes possible
 populations, not permission, acquisition, Package membership or query results.
 
-The public construction forms are:
+#### WorkspacePlan construction
+
+Issue [#6790](https://github.com/richlander/dotnet-inspect/issues/6790)
+separates the registration data from the live owner. This owner issues
+`WorkspacePlan`: a complete validated immutable registration sequence, usable
+without constructing or disposing a Workspace. Its claim is:
+
+> A retained plan can seed independent live Workspaces. Each initial revision
+> retains the exact supplied plan; replacement and close cannot mutate that
+> plan or transfer another Workspace's revision authority.
+
+```csharp
+WorkspacePlan empty = new();
+WorkspacePlan plan = new(
+[
+    new WorkspaceRegistration.PackagePrefix(new("Microsoft.Extensions.")),
+]);
+await using var first = new InspectionWorkspace(plan);
+await using var second = new InspectionWorkspace(plan);
+```
+
+Only the live owners require disposal. A plan chooses no lifetime, acquires
+no population, and issues no Workspace or revision identity. The reused
+registration arms retain their source owners' values, including exact ecosystem
+declaration instances. A plan remains readable and reusable after a consuming
+Workspace closes.
+
+The current profile is the dry form of registration construction, **not** a
+snapshot of acquired Package membership, assembly groups or query authority.
+The existing portable `WorkspaceDefinition` remains the
+[Definitions-owned JSON composition record](workspace-definitions.md), with
+contexts, group subscriptions and display metadata. This plan introduces no
+second wire format or definition loader; portable lowering remains separate
+owner work.
+
+The existing convenience forms lower to the same plan boundary:
 
 ```csharp
 ImmutableArray<WorkspaceRegistration> registrations =
@@ -161,13 +196,14 @@ construction validates the entire immutable input before exposing a Workspace;
 default arrays, null entries and duplicate registration identities are
 argument errors, never partial initialization. Every constructed Workspace
 has an independent Workspace identity and initial registration revision.
-Neither constructor chooses product curation or executes a contribution.
+No constructor chooses product curation or executes a contribution.
 Construction is synchronous; the live owner's complete close must be awaited
 through `CloseAsync()` or `DisposeAsync()`.
 
 `GetRegistrationSnapshot()` returns the current complete
 `WorkspaceRegistrationRevision`, including its exact Workspace identity,
-opaque revision identity and ordered registrations. A closing or closed
+opaque revision identity and `Plan`. `Registrations` is the same plan's ordered
+sequence, not parallel state. A closing or closed
 Workspace instead returns `Unavailable` with its historical last revision
 and the existing Workspace lifetime failure. It does not return that revision
 as current.
@@ -177,8 +213,8 @@ in-memory operation. It shares the existing Workspace
 runtime gate with close; there is no preparation phase, background work,
 deadline, cancellation protocol or acquired resource. The result is one of:
 
-- `Committed`: a fresh revision contains the entire requested sequence;
-- `NoEffect`: an equal ordered sequence retains the exact current revision;
+- `Committed`: a fresh revision and plan contain the entire requested sequence;
+- `NoEffect`: an equal ordered sequence retains the exact current revision and plan;
 - `Rejected`: malformed input, a foreign Workspace, a stale revision or
   duplicate identities retain the current revision; or
 - `Unavailable`: close has started, and the returned last revision is
@@ -228,16 +264,24 @@ outcomes, persistence and host queries remain later owner adoptions.
 
 The next consumers are Ecosystems-owned construction and Workspace Definitions
 restoration under #6570, #6012 and #6761, followed by both CLI and Inspect Web.
+The plan separation is the second follow-up slice after the sole live lifetime
+in [#6789](https://github.com/richlander/dotnet-inspect/issues/6789).
+[#6791](https://github.com/richlander/dotnet-inspect/issues/6791) then adopts
+plans in Ecosystems and retires its four live factories. The shared plan's
+CLI/H2H and Browser/Wasm production adoption remain counted in #6761.
 A public non-friend consumer exercises construction, reading, pattern matching
 and replacement in this slice. No host-specific registration registry, product
 factory, CLI flag or browser behavior is introduced here.
 
-`WorkspaceRegistrationTests` and the registration/Package interaction cases in
+`WorkspacePlanTests`, `WorkspaceRegistrationTests` and the registration/Package interaction cases in
 `WorkspaceScopeTests` are the Release conformance gates. They retain a real
 `System.Text.Json@11.0.0-preview.7.26381.103` exact-library coordinate alongside
 Platform and `Microsoft.Extensions.` declarations. They cover complete initial
 state, identity/equality boundaries, stale/foreign requests, close, historical
 revisions, competing replacements, and unchanged physical/Package state.
+The plan cases also exercise non-friend construction, sharing across independent
+owners, exact revision-to-plan association, unchanged historical plans, and
+reuse after close without transferring revision authority.
 The [registration revision model](models/workspace-registration-revisions/README.md)
 provides separate bounded evidence for revision and close interleavings,
 including stale/foreign requests and no-op/correspondence negative controls.

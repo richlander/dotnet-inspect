@@ -12,6 +12,12 @@ public sealed record WorkspaceRegistrationObservation(
 
 public static class WorkspaceRegistrationConsumer
 {
+    public static WorkspacePlan CreatePlan(
+        ImmutableArray<WorkspaceRegistration> registrations) =>
+        new(registrations);
+
+    public static InspectionWorkspace Create(WorkspacePlan plan) => new(plan);
+
     public static InspectionWorkspace Create(
         ImmutableArray<WorkspaceRegistration> registrations) =>
         new(registrations);

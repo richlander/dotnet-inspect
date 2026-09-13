@@ -15,6 +15,13 @@ Workspace deliberately uses the same initial revision number and payload.
 Revision numbers are opaque equality tokens to clients; bounded allocation uses
 the history length solely to provide fresh tokens, never to order requests.
 
+`registrations` abstracts the immutable `WorkspacePlan` payload. A plan itself
+has no live identity: the association and replacement authority still come from
+the exact Workspace and revision identity in this tuple. Retaining the payload
+as a reusable plan adds no state-machine transition. The separate Release
+`WorkspacePlanTests` gate checks exact object retention and reuse across live
+owners; those C# properties are not inferred from this model.
+
 This is independent evidence for registrations, **not** an import of the
 Package Scope/Artifact physical-publication model.
 
