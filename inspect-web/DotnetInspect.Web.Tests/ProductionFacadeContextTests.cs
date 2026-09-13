@@ -1,7 +1,6 @@
 using System.Reflection;
 using System.Text.Json.Serialization;
 using System.Xml.Linq;
-using DotnetInspector.Core;
 using DotnetInspector.Sections;
 using TsJsExport;
 

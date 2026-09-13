@@ -5,7 +5,6 @@ using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
-using DotnetInspector.Core;
 using DotnetInspector.Fixtures;
 using DotnetInspector.HarnessReports;
 using DotnetInspector.Packages;

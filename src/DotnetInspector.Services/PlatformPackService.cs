@@ -1,5 +1,4 @@
 using DotnetInspector.Cache;
-using DotnetInspector.Core;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.Services;

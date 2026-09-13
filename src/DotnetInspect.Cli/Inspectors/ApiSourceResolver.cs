@@ -6,8 +6,6 @@ using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 
-using Core = DotnetInspector.Core;
-
 namespace DotnetInspect.Cli.Inspectors;
 
 internal sealed record ApiSourceResult(

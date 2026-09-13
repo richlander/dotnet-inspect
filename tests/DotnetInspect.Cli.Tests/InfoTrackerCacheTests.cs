@@ -1,5 +1,5 @@
 using DotnetInspector.Cache;
-using DotnetInspector.Core;
+using DotnetInspect.Cli;
 using DotnetInspector.Packages;
 
 namespace DotnetInspect.Cli.Tests;

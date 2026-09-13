@@ -15,7 +15,6 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="DotnetInspector.Cache" />
-    <InternalsVisibleTo Include="DotnetInspector.Core" />
     <InternalsVisibleTo Include="DotnetInspector.Networking.Tests" />
     <InternalsVisibleTo Include="DotnetInspector.Packages" />
     <InternalsVisibleTo Include="DotnetInspector.Services.Tests" />
