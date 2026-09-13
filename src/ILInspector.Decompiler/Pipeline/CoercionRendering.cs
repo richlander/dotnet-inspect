@@ -7,6 +7,25 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </summary>
 public static class CoercionRendering
 {
+    public static bool TryCharConstantValue(IrExpression expression, out char value)
+    {
+        switch (expression)
+        {
+            case Constant { Value: char c }:
+                value = c;
+                return true;
+            case Constant { Value: int i } when i is >= char.MinValue and <= char.MaxValue:
+                value = (char)i;
+                return true;
+            case Constant { Value: long l } when l is >= char.MinValue and <= char.MaxValue:
+                value = (char)l;
+                return true;
+            default:
+                value = default;
+                return false;
+        }
+    }
+
     /// <summary>
     /// The slot-store wrappability contract: every accepted pair is both a
     /// coercion spelling that <c>CoerceText</c> renders and a stack-family

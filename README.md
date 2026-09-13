@@ -523,8 +523,8 @@ dotnet-inspect library System.Text.Json --il-offset 0x060002EA+0x0
 ```bash
 dotnet-inspect diff --package Markout@0.33.0..0.35.2
 dotnet-inspect diff --platform System.Runtime@9.0.0..10.0.0 --breaking
-dotnet-inspect timeline --package Markout@0.33.0..0.35.2 --type Markout.MarkoutWriterOptions --members --at all
-dotnet-inspect timeline --package System.Text.Json@8.0.0..9.0.0 --type System.Text.Json.JsonSerializer --members --at all
+dotnet-inspect timeline --package Markout@0.33.0..0.35.2 --type Markout.MarkoutWriterOptions --members --at all -S Transitions -n 10 --tail
+dotnet-inspect timeline --package System.Text.Json@8.0.0..9.0.0 --type System.Text.Json.JsonSerializer --members --at all -S Evaluations --rows 2..
 ```
 
 ### Structural matching
