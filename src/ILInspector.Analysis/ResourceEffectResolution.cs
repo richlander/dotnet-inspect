@@ -8,6 +8,7 @@ using System.Security.Cryptography;
 using System.Text;
 
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Analysis;
 
@@ -41,6 +42,7 @@ public enum ResourceEffectResolutionWorkDimension
     CompatibilityComparisons,
     RetainedDiagnostics,
     ProvenanceAssociations,
+    MetadataAssociations,
 }
 
 public enum ResourceEffectResolutionRejectionKind
@@ -76,7 +78,8 @@ public sealed class ResourceEffectResolutionLimits
         int maxSignatureNodes = 1_000_000,
         int maxInvocationBindings = 1_000_000,
         int maxRetainedDiagnostics = 100_000,
-        int maxProvenanceAssociations = 1_000_000)
+        int maxProvenanceAssociations = 1_000_000,
+        int maxMetadataAssociations = 100_000)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
             maxSelectorEvaluations);
@@ -95,6 +98,8 @@ public sealed class ResourceEffectResolutionLimits
             maxRetainedDiagnostics);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
             maxProvenanceAssociations);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            maxMetadataAssociations);
         MaxSelectorEvaluations = maxSelectorEvaluations;
         MaxDefinitionCandidates = maxDefinitionCandidates;
         MaxBoundEffects = maxBoundEffects;
@@ -104,6 +109,7 @@ public sealed class ResourceEffectResolutionLimits
         MaxInvocationBindings = maxInvocationBindings;
         MaxRetainedDiagnostics = maxRetainedDiagnostics;
         MaxProvenanceAssociations = maxProvenanceAssociations;
+        MaxMetadataAssociations = maxMetadataAssociations;
     }
 
     public int MaxSelectorEvaluations { get; }
@@ -115,6 +121,7 @@ public sealed class ResourceEffectResolutionLimits
     public int MaxInvocationBindings { get; }
     public int MaxRetainedDiagnostics { get; }
     public int MaxProvenanceAssociations { get; }
+    public int MaxMetadataAssociations { get; }
 }
 
 public sealed class ResourceEffectOccurrencePopulationReceipt
@@ -1005,7 +1012,12 @@ public static class ResourceEffectResolver
             ResolvedTypeDefinitionKey,
             DefinitionCandidateSet>(
                 ReferenceEqualityComparer.Instance);
+        var semanticsByAssembly = new Dictionary<
+            ResolvedAssemblyReference,
+            MethodSemanticsIndex>(
+                ReferenceEqualityComparer.Instance);
         long examinedDefinitions = 0;
+        long examinedMetadataAssociations = 0;
         foreach (PendingInvocation item in pending)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -1036,7 +1048,9 @@ public static class ResourceEffectResolver
                 DiscoverDefinitionCandidates(
                     resolved,
                     limits,
+                    semanticsByAssembly,
                     ref examinedDefinitions,
+                    ref examinedMetadataAssociations,
                     ref signatureNodes);
             byType.Add(resolved.Definition.Key, discovered);
             result.Add(item, discovered);
@@ -1047,7 +1061,10 @@ public static class ResourceEffectResolver
     static DefinitionCandidateSet DiscoverDefinitionCandidates(
         TypeResolutionOutcome.Resolved resolved,
         ResourceEffectResolutionLimits limits,
+        Dictionary<ResolvedAssemblyReference, MethodSemanticsIndex>
+            semanticsByAssembly,
         ref long examinedDefinitions,
+        ref long examinedMetadataAssociations,
         ref long signatureNodes)
     {
         try
@@ -1075,23 +1092,193 @@ public static class ResourceEffectResolver
             }
 
             TypeDefinition type = reader.GetTypeDefinition(typeHandle);
+            if (!semanticsByAssembly.TryGetValue(
+                    assembly,
+                    out MethodSemanticsIndex? semanticsIndex))
+            {
+                semanticsIndex = ReadMethodSemantics(
+                    peReader,
+                    limits,
+                    ref examinedMetadataAssociations);
+                semanticsByAssembly.Add(assembly, semanticsIndex);
+            }
+            if (semanticsIndex.Failure is { } semanticsFailure)
+            {
+                return new(
+                    [],
+                    semanticsFailure,
+                    semanticsIndex.WorkDimension);
+            }
             HashSet<int> getters = [];
             HashSet<int> setters = [];
+            HashSet<int> propertyRows = [];
+            var rolesByMethod = new Dictionary<int, ushort>();
+            var invalidSemanticsMethods = new HashSet<int>();
+            var propertyAccessors = new Dictionary<
+                int,
+                (PropertyDefinitionHandle Property, bool Setter)>();
+            var propertySignatures =
+                new Dictionary<int, MethodSignature<TypeRef>>();
+            var invalidPropertyRows = new HashSet<int>();
+            GenericScope typeScope = new(
+                MemberResolver.GenericParameterNames(
+                    reader,
+                    type.GetGenericParameters()),
+                []);
             foreach (PropertyDefinitionHandle propertyHandle
                 in type.GetProperties())
             {
-                PropertyAccessors accessors =
-                    reader.GetPropertyDefinition(propertyHandle)
-                        .GetAccessors();
-                if (!accessors.Getter.IsNil)
+                if (++examinedMetadataAssociations
+                    > limits.MaxMetadataAssociations)
                 {
-                    getters.Add(
-                        MetadataTokens.GetToken(accessors.Getter));
+                    return new(
+                        [],
+                        ResourceEffectResolutionGapKind
+                            .WorkLimitExceeded,
+                        ResourceEffectResolutionWorkDimension
+                            .MetadataAssociations);
                 }
-                if (!accessors.Setter.IsNil)
+                int propertyRow =
+                    MetadataTokens.GetRowNumber(propertyHandle);
+                propertyRows.Add(propertyRow);
+                PropertyDefinition property =
+                    reader.GetPropertyDefinition(propertyHandle);
+                if (!SignatureBlobGuard.IsSafeToDecode(
+                    reader,
+                    property.Signature,
+                    SignatureBlobGuard.Kind.Method))
                 {
-                    setters.Add(
-                        MetadataTokens.GetToken(accessors.Setter));
+                    invalidPropertyRows.Add(propertyRow);
+                }
+                else
+                {
+                    MethodSignature<TypeRef> propertySignature =
+                        property.DecodeSignature(
+                            TypeRefDecoder.Instance,
+                            typeScope);
+                    long remainingSignatureNodes =
+                        limits.MaxSignatureNodes - signatureNodes;
+                    long propertySignatureNodes =
+                        SignatureNodeCount(
+                            propertySignature,
+                            remainingSignatureNodes);
+                    if (propertySignatureNodes
+                        > remainingSignatureNodes)
+                    {
+                        return new(
+                            [],
+                            ResourceEffectResolutionGapKind
+                                .WorkLimitExceeded,
+                            ResourceEffectResolutionWorkDimension
+                                .SignatureNodes);
+                    }
+                    signatureNodes += propertySignatureNodes;
+                    byte expectedPropertyHeader =
+                        propertySignature.Header.IsInstance
+                            ? (byte)0x28
+                            : (byte)0x08;
+                    if (propertySignature.Header.RawValue
+                        != expectedPropertyHeader)
+                    {
+                        invalidPropertyRows.Add(propertyRow);
+                    }
+                    else
+                    {
+                        propertySignatures.Add(
+                            propertyRow,
+                            propertySignature);
+                    }
+                }
+                if (!semanticsIndex.PropertyRows.TryGetValue(
+                        propertyRow,
+                        out ImmutableArray<MethodSemanticsRow> rows))
+                {
+                    continue;
+                }
+                var seenRows =
+                    new HashSet<(ushort Semantics, int Method)>();
+                var roleMethods = new Dictionary<ushort, int>();
+                foreach (MethodSemanticsRow row in rows)
+                {
+                    MethodDefinition method =
+                        reader.GetMethodDefinition(row.Method);
+                    int methodToken =
+                        MetadataTokens.GetToken(row.Method);
+                    if (method.GetDeclaringType() != typeHandle)
+                    {
+                        invalidSemanticsMethods.Add(methodToken);
+                        continue;
+                    }
+                    if (!seenRows.Add(
+                            (row.RawSemantics, methodToken)))
+                    {
+                        invalidSemanticsMethods.Add(methodToken);
+                        continue;
+                    }
+                    if (rolesByMethod.TryGetValue(
+                            methodToken,
+                            out ushort existingRole))
+                    {
+                        if (existingRole != row.RawSemantics)
+                            invalidSemanticsMethods.Add(methodToken);
+                    }
+                    else
+                    {
+                        rolesByMethod.Add(
+                            methodToken,
+                            row.RawSemantics);
+                    }
+                    if (row.RawSemantics
+                        == (ushort)MethodSemanticsAttributes.Getter)
+                    {
+                        if (roleMethods.TryGetValue(
+                                row.RawSemantics,
+                                out int existingGetter))
+                        {
+                            invalidSemanticsMethods.Add(existingGetter);
+                            invalidSemanticsMethods.Add(methodToken);
+                            continue;
+                        }
+                        roleMethods.Add(
+                            row.RawSemantics,
+                            methodToken);
+                        getters.Add(methodToken);
+                        if (!propertyAccessors.TryAdd(
+                            methodToken,
+                            (propertyHandle, Setter: false)))
+                        {
+                            invalidSemanticsMethods.Add(methodToken);
+                        }
+                        continue;
+                    }
+                    if (row.RawSemantics
+                        == (ushort)MethodSemanticsAttributes.Setter)
+                    {
+                        if (roleMethods.TryGetValue(
+                                row.RawSemantics,
+                                out int existingSetter))
+                        {
+                            invalidSemanticsMethods.Add(existingSetter);
+                            invalidSemanticsMethods.Add(methodToken);
+                            continue;
+                        }
+                        roleMethods.Add(
+                            row.RawSemantics,
+                            methodToken);
+                        setters.Add(methodToken);
+                        if (!propertyAccessors.TryAdd(
+                            methodToken,
+                            (propertyHandle, Setter: true)))
+                        {
+                            invalidSemanticsMethods.Add(methodToken);
+                        }
+                        continue;
+                    }
+                    if (row.RawSemantics
+                        != (ushort)MethodSemanticsAttributes.Other)
+                    {
+                        invalidSemanticsMethods.Add(methodToken);
+                    }
                 }
             }
 
@@ -1133,14 +1320,52 @@ public static class ResourceEffectResolver
                 }
                 signatureNodes += candidateSignatureNodes;
                 int token = MetadataTokens.GetToken(methodHandle);
+                bool invalidSemantics =
+                    invalidSemanticsMethods.Contains(token);
+                if (semanticsIndex.RowsByMethod.TryGetValue(
+                        token,
+                        out ImmutableArray<MethodSemanticsRow> associatedRows)
+                    && associatedRows.Any(row =>
+                        row.AssociationKind
+                            != MethodSemanticsAssociationKind.Property
+                        || !propertyRows.Contains(
+                            row.AssociationRowNumber)))
+                {
+                    invalidSemantics = true;
+                }
+                MethodDefinition method =
+                    reader.GetMethodDefinition(methodHandle);
+                if (propertyAccessors.TryGetValue(
+                        token,
+                        out var accessor)
+                    && (invalidPropertyRows.Contains(
+                            MetadataTokens.GetRowNumber(
+                                accessor.Property))
+                        || !propertySignatures.TryGetValue(
+                            MetadataTokens.GetRowNumber(
+                                accessor.Property),
+                            out MethodSignature<TypeRef>
+                                propertySignature)
+                        || PropertyAccessorShapeIsInvalid(
+                            member,
+                            propertySignature,
+                            method,
+                            type.GetGenericParameters().Count,
+                            accessor.Setter)))
+                {
+                    invalidSemantics = true;
+                }
                 ResourceEffectSelectedMemberSemantics semantics =
-                    getters.Contains(token)
-                        ? ResourceEffectSelectedMemberSemantics.PropertyGetter
-                        : setters.Contains(token)
-                            ? ResourceEffectSelectedMemberSemantics.PropertySetter
-                            : member.Kind == MemberKind.Constructor
-                                ? ResourceEffectSelectedMemberSemantics.Constructor
-                                : ResourceEffectSelectedMemberSemantics.Method;
+                    invalidSemantics
+                        ? ResourceEffectSelectedMemberSemantics
+                            .Unsupported
+                        : SelectedMemberSemantics(
+                            member,
+                            method.Attributes,
+                            type.GetGenericParameters().Count,
+                            method.GetGenericParameters().Count,
+                            getters.Contains(token),
+                            setters.Contains(token));
                 candidates.Add(
                     new PendingDefinitionCandidate(
                         assembly,
@@ -1166,6 +1391,131 @@ public static class ResourceEffectResolver
                 [],
                 ResourceEffectResolutionGapKind
                     .UnsupportedSignature);
+        }
+    }
+
+    static MethodSemanticsIndex ReadMethodSemantics(
+        PEReader peReader,
+        ResourceEffectResolutionLimits limits,
+        ref long examinedMetadataAssociations)
+    {
+        int remaining = checked(
+            (int)Math.Max(
+                0,
+                limits.MaxMetadataAssociations
+                    - examinedMetadataAssociations));
+        MethodSemanticsReadResult result =
+            MethodSemanticsRowReader.Read(
+                peReader,
+                new MethodSemanticsReadBudget(remaining));
+        switch (result)
+        {
+            case MethodSemanticsReadResult.Success success:
+            {
+                examinedMetadataAssociations += success.RowsVisited;
+                if (!success.AssociationsAreNondecreasing)
+                {
+                    return new(
+                        ImmutableDictionary<
+                            int,
+                            ImmutableArray<MethodSemanticsRow>>.Empty,
+                        ImmutableDictionary<
+                            int,
+                            ImmutableArray<MethodSemanticsRow>>.Empty,
+                        ResourceEffectResolutionGapKind
+                            .UnsupportedSignature);
+                }
+                var rowsByProperty = new Dictionary<
+                    int,
+                    ImmutableArray<MethodSemanticsRow>.Builder>();
+                var rowsByMethod = new Dictionary<
+                    int,
+                    ImmutableArray<MethodSemanticsRow>.Builder>();
+                foreach (MethodSemanticsRow row in success.Rows)
+                {
+                    int methodToken =
+                        MetadataTokens.GetToken(row.Method);
+                    if (!rowsByMethod.TryGetValue(
+                            methodToken,
+                            out ImmutableArray<MethodSemanticsRow>.Builder?
+                                methodRows))
+                    {
+                        methodRows = ImmutableArray
+                            .CreateBuilder<MethodSemanticsRow>();
+                        rowsByMethod.Add(methodToken, methodRows);
+                    }
+                    methodRows.Add(row);
+                    if (row.AssociationKind
+                        != MethodSemanticsAssociationKind.Property)
+                    {
+                        continue;
+                    }
+                    if (!rowsByProperty.TryGetValue(
+                            row.AssociationRowNumber,
+                            out ImmutableArray<MethodSemanticsRow>.Builder?
+                                propertyRows))
+                    {
+                        propertyRows = ImmutableArray
+                            .CreateBuilder<MethodSemanticsRow>();
+                        rowsByProperty.Add(
+                            row.AssociationRowNumber,
+                            propertyRows);
+                    }
+                    propertyRows.Add(row);
+                }
+                return new(
+                    rowsByProperty.ToDictionary(
+                        pair => pair.Key,
+                        pair => pair.Value.ToImmutable()),
+                    rowsByMethod.ToDictionary(
+                        pair => pair.Key,
+                        pair => pair.Value.ToImmutable()),
+                    Failure: null);
+            }
+            case MethodSemanticsReadResult
+                .RetainedAssociationBudgetExceeded exceeded:
+                examinedMetadataAssociations += exceeded.RowsVisited;
+                return new(
+                    ImmutableDictionary<
+                        int,
+                        ImmutableArray<MethodSemanticsRow>>.Empty,
+                    ImmutableDictionary<
+                        int,
+                        ImmutableArray<MethodSemanticsRow>>.Empty,
+                    ResourceEffectResolutionGapKind.WorkLimitExceeded,
+                    ResourceEffectResolutionWorkDimension
+                        .MetadataAssociations);
+            case MethodSemanticsReadResult.MalformedInput malformed:
+                examinedMetadataAssociations += malformed.RowsVisited;
+                return examinedMetadataAssociations
+                        > limits.MaxMetadataAssociations
+                    ? new(
+                        ImmutableDictionary<
+                            int,
+                            ImmutableArray<MethodSemanticsRow>>.Empty,
+                        ImmutableDictionary<
+                            int,
+                            ImmutableArray<MethodSemanticsRow>>.Empty,
+                        ResourceEffectResolutionGapKind.WorkLimitExceeded,
+                        ResourceEffectResolutionWorkDimension
+                            .MetadataAssociations)
+                    : new(
+                        ImmutableDictionary<
+                            int,
+                            ImmutableArray<MethodSemanticsRow>>.Empty,
+                        ImmutableDictionary<
+                            int,
+                            ImmutableArray<MethodSemanticsRow>>.Empty,
+                        ResourceEffectResolutionGapKind.UnsupportedSignature);
+            default:
+                return new(
+                    ImmutableDictionary<
+                        int,
+                        ImmutableArray<MethodSemanticsRow>>.Empty,
+                    ImmutableDictionary<
+                        int,
+                        ImmutableArray<MethodSemanticsRow>>.Empty,
+                    ResourceEffectResolutionGapKind.UnsupportedSignature);
         }
     }
 
@@ -1259,6 +1609,11 @@ public static class ResourceEffectResolver
             return new SelectedMemberOutcome.Ambiguous();
 
         PendingDefinitionCandidate selected = matches[0];
+        if (selected.Semantics
+            == ResourceEffectSelectedMemberSemantics.Unsupported)
+        {
+            return new SelectedMemberOutcome.Unsupported();
+        }
         if (!ReferenceEquals(
                 selected.Assembly,
                 resolved.Definition.Assembly.Assembly)
@@ -1948,6 +2303,11 @@ public static class ResourceEffectResolver
     {
         MemberRef member = candidate.Pending.Call.Callee;
         MemberRef selectedMember = candidate.SelectedMember!;
+        if (candidate.Semantics
+                == ResourceEffectSelectedMemberSemantics.Unsupported)
+        {
+            return TypeMatchResult.Unsupported;
+        }
         if (!MemberKindMatches(selector.Kind, candidate.Semantics)
             || selector.IsStatic == member.HasThis
             || selector.HasThis != member.HasThis
@@ -2019,11 +2379,12 @@ public static class ResourceEffectResolver
                         ? ParameterDirection.UnknownByRef
                         : ParameterDirection.Value
                     : selectedMember.ParameterDirections[i];
-            if (!RefKindMatches(
-                    selector.Parameters[i].RefKind,
-                    direction))
+            TypeMatchResult refKindMatch = MatchRefKind(
+                selector.Parameters[i].RefKind,
+                direction);
+            if (refKindMatch != TypeMatchResult.Match)
             {
-                return TypeMatchResult.NoMatch;
+                return refKindMatch;
             }
             if (actual.Kind == TypeRefKind.ByRef)
                 actual = actual.ElementType!;
@@ -3009,16 +3370,11 @@ public static class ResourceEffectResolver
             claim = null;
             return false;
         }
-        ResourceKindReference? slotKind = null;
-        if (source is ResourceEffectLocation.OperationSlot slot)
-        {
-            slotKind = slot.Kind;
-        }
-        ResolvedResourceKindReference? kind =
-            EffectiveKind(effect, declaredKind, slotKind);
-        if (declaredKind is not null
-            && slotKind is not null
-            && kind is null)
+        if (!TryEffectiveKind(
+                effect,
+                declaredKind,
+                source,
+                out ResolvedResourceKindReference? kind))
         {
             claim = null;
             return false;
@@ -3097,22 +3453,59 @@ public static class ResourceEffectResolver
             _ => null,
         };
 
-    static ResolvedResourceKindReference? EffectiveKind(
+    internal static bool TryEffectiveKind(
         ResolvedResourceEffect effect,
         ResourceKindReference? direct,
-        ResourceKindReference? slot)
+        ResourceEffectLocation source,
+        out ResolvedResourceKindReference? effective)
     {
-        ResolvedResourceKindReference? directKind =
+        effective =
             direct is null ? null : BoundKind(effect, direct);
-        ResolvedResourceKindReference? slotKind =
-            slot is null ? null : BoundKind(effect, slot);
-        if (directKind is not null
-            && slotKind is not null
-            && !SameKind(directKind, slotKind))
+        foreach (ResourceKindReference slot
+            in OperationSlotKinds(source))
         {
-            return null;
+            ResolvedResourceKindReference slotKind =
+                BoundKind(effect, slot);
+            if (effective is not null
+                && !SameKind(effective, slotKind))
+            {
+                effective = null;
+                return false;
+            }
+            effective = slotKind;
         }
-        return directKind ?? slotKind;
+        return true;
+    }
+
+    static IEnumerable<ResourceKindReference> OperationSlotKinds(
+        ResourceEffectLocation location)
+    {
+        switch (location)
+        {
+            case ResourceEffectLocation.OperationSlot operation:
+                if (operation.Kind is not null)
+                    yield return operation.Kind;
+                foreach (ResourceKindReference nested
+                    in OperationSlotKinds(operation.Source))
+                {
+                    yield return nested;
+                }
+                break;
+            case ResourceEffectLocation.Field field:
+                foreach (ResourceKindReference nested
+                    in OperationSlotKinds(field.Root))
+                {
+                    yield return nested;
+                }
+                break;
+            case ResourceEffectLocation.StructuralField field:
+                foreach (ResourceKindReference nested
+                    in OperationSlotKinds(field.Root))
+                {
+                    yield return nested;
+                }
+                break;
+        }
     }
 
     static ResolvedResourceKindReference BoundKind(
@@ -3823,23 +4216,237 @@ public static class ResourceEffectResolver
             _ => null,
         };
 
-    static bool RefKindMatches(
+    static TypeMatchResult MatchRefKind(
         ResourceEffectRefKind selector,
-        ParameterDirection actual) =>
-        selector switch
+        ParameterDirection actual)
+    {
+        if (selector == ResourceEffectRefKind.Value)
         {
-            ResourceEffectRefKind.Value =>
-                actual == ParameterDirection.Value,
+            return actual == ParameterDirection.Value
+                ? TypeMatchResult.Match
+                : TypeMatchResult.NoMatch;
+        }
+        if (actual == ParameterDirection.UnknownByRef)
+            return TypeMatchResult.Unsupported;
+        return selector switch
+        {
             ResourceEffectRefKind.Ref =>
-                actual
-                    is ParameterDirection.Ref
-                        or ParameterDirection.UnknownByRef,
+                actual == ParameterDirection.Ref
+                    ? TypeMatchResult.Match
+                    : TypeMatchResult.NoMatch,
             ResourceEffectRefKind.In =>
-                actual == ParameterDirection.In,
+                actual == ParameterDirection.In
+                    ? TypeMatchResult.Match
+                    : TypeMatchResult.NoMatch,
             ResourceEffectRefKind.Out =>
-                actual == ParameterDirection.Out,
-            _ => false,
+                actual == ParameterDirection.Out
+                    ? TypeMatchResult.Match
+                    : TypeMatchResult.NoMatch,
+            _ => TypeMatchResult.NoMatch,
         };
+    }
+
+    static ResourceEffectSelectedMemberSemantics
+        SelectedMemberSemantics(
+            MemberRef member,
+            MethodAttributes attributes,
+            int typeGenericParameterRows,
+            int genericParameterRows,
+            bool isPropertyGetter,
+            bool isPropertySetter)
+    {
+        string name = member.Name;
+        if (name is ".ctor" or ".cctor")
+        {
+            const MethodAttributes ConstructorAttributes =
+                MethodAttributes.SpecialName
+                | MethodAttributes.RTSpecialName;
+            bool isStatic =
+                (attributes & MethodAttributes.Static) != 0;
+            byte expectedHeader =
+                name == ".ctor" ? (byte)0x20 : (byte)0x00;
+            bool valid = (attributes & ConstructorAttributes)
+                    == ConstructorAttributes
+                && (name == ".cctor") == isStatic
+                && member.HasThis != isStatic
+                && member.GenericArity == 0
+                && genericParameterRows == 0
+                && GenericReferencesAreValid(
+                    member,
+                    typeGenericParameterRows,
+                    methodGenericArity: 0)
+                && member.SignatureHeader == expectedHeader
+                && (attributes
+                    & (MethodAttributes.Abstract
+                        | MethodAttributes.Virtual)) == 0
+                && FrameworkIdentity.IsCoreLibraryType(
+                    member.ReturnType,
+                    "System",
+                    "Void")
+                && (name == ".ctor"
+                    || member.ParameterTypes.IsEmpty);
+            return valid
+                ? ResourceEffectSelectedMemberSemantics.Constructor
+                : ResourceEffectSelectedMemberSemantics.Unsupported;
+        }
+        if (isPropertyGetter)
+            return ResourceEffectSelectedMemberSemantics.PropertyGetter;
+        if (isPropertySetter)
+            return ResourceEffectSelectedMemberSemantics.PropertySetter;
+        return ResourceEffectSelectedMemberSemantics.Method;
+    }
+
+    static bool PropertyAccessorShapeIsInvalid(
+        MemberRef member,
+        MethodSignature<TypeRef> propertySignature,
+        MethodDefinition method,
+        int typeGenericParameterRows,
+        bool setter)
+    {
+        if ((method.Attributes & MethodAttributes.SpecialName) == 0
+            || ((method.Attributes & MethodAttributes.Static) != 0)
+                == member.HasThis
+            || member.GenericArity != 0
+            || method.GetGenericParameters().Count != 0
+            || !GenericReferencesAreValid(
+                member,
+                typeGenericParameterRows,
+                methodGenericArity: 0)
+            || !GenericReferencesAreValid(
+                propertySignature,
+                typeGenericParameterRows,
+                methodGenericArity: 0)
+            || member.SignatureHeader
+                != (member.HasThis ? (byte)0x20 : (byte)0x00))
+        {
+            return true;
+        }
+        if (propertySignature.Header.IsInstance != member.HasThis
+            || FrameworkIdentity.IsCoreLibraryType(
+                propertySignature.ReturnType,
+                "System",
+                "Void"))
+        {
+            return true;
+        }
+        if (!setter)
+        {
+            return !TypeRef.ExactSignatureEquals(
+                    member.ReturnType,
+                    propertySignature.ReturnType)
+                || !TypeSequenceEquals(
+                    member.ParameterTypes,
+                    propertySignature.ParameterTypes);
+        }
+        return !FrameworkIdentity.IsCoreLibraryType(
+                member.ReturnType,
+                "System",
+                "Void")
+            || member.ParameterTypes.Length
+                != propertySignature.ParameterTypes.Length + 1
+            || !TypeSequenceEquals(
+                member.ParameterTypes[
+                    ..propertySignature.ParameterTypes.Length],
+                propertySignature.ParameterTypes)
+            || !TypeRef.ExactSignatureEquals(
+                member.ParameterTypes[^1],
+                propertySignature.ReturnType);
+
+        static bool TypeSequenceEquals(
+            ImmutableArray<TypeRef> left,
+            ImmutableArray<TypeRef> right)
+        {
+            if (left.Length != right.Length)
+                return false;
+            for (int index = 0; index < left.Length; index++)
+            {
+                if (!TypeRef.ExactSignatureEquals(
+                    left[index],
+                    right[index]))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+    }
+
+    static bool GenericReferencesAreValid(
+        MemberRef member,
+        int typeGenericArity,
+        int methodGenericArity)
+    {
+        if (!GenericReferencesAreValid(
+                member.DeclaringType,
+                typeGenericArity,
+                methodGenericArity)
+            || !GenericReferencesAreValid(
+                member.ReturnType,
+                typeGenericArity,
+                methodGenericArity))
+        {
+            return false;
+        }
+        return member.ParameterTypes.All(type =>
+            GenericReferencesAreValid(
+                type,
+                typeGenericArity,
+                methodGenericArity));
+    }
+
+    static bool GenericReferencesAreValid(
+        MethodSignature<TypeRef> signature,
+        int typeGenericArity,
+        int methodGenericArity) =>
+        GenericReferencesAreValid(
+            signature.ReturnType,
+            typeGenericArity,
+            methodGenericArity)
+        && signature.ParameterTypes.All(type =>
+            GenericReferencesAreValid(
+                type,
+                typeGenericArity,
+                methodGenericArity));
+
+    static bool GenericReferencesAreValid(
+        TypeRef type,
+        int typeGenericArity,
+        int methodGenericArity)
+    {
+        var pending = new Stack<TypeRef>();
+        pending.Push(type);
+        while (pending.Count > 0)
+        {
+            TypeRef current = pending.Pop();
+            if (current.Kind == TypeRefKind.GenericParameter
+                && (uint)current.GenericParameterIndex
+                    >= (uint)typeGenericArity)
+            {
+                return false;
+            }
+            if (current.Kind == TypeRefKind.MethodGenericParameter
+                && (uint)current.GenericParameterIndex
+                    >= (uint)methodGenericArity)
+            {
+                return false;
+            }
+            if (current.ElementType is not null)
+                pending.Push(current.ElementType);
+            foreach (TypeRef argument in current.TypeArguments)
+                pending.Push(argument);
+            if (current.ModifierType is not null)
+                pending.Push(current.ModifierType);
+            if (current.UnmodifiedType is not null)
+                pending.Push(current.UnmodifiedType);
+            if (current.FunctionPointerSignature is { } nested)
+            {
+                pending.Push(nested.ReturnType);
+                foreach (TypeRef parameter in nested.ParameterTypes)
+                    pending.Push(parameter);
+            }
+        }
+        return true;
+    }
 
     static ResourceEffectResolutionReceipt CreateReceipt(
         ResourceEffectAdmissionReceipt admission,
@@ -4130,6 +4737,38 @@ public static class ResourceEffectResolver
         return count;
     }
 
+    static long SignatureNodeCount(
+        MethodSignature<TypeRef> signature,
+        long limit)
+    {
+        var pending = new Stack<TypeRef>();
+        pending.Push(signature.ReturnType);
+        foreach (TypeRef parameter in signature.ParameterTypes)
+            pending.Push(parameter);
+        long count = 0;
+        while (pending.Count > 0)
+        {
+            TypeRef current = pending.Pop();
+            if (++count > limit)
+                return count;
+            if (current.ElementType is not null)
+                pending.Push(current.ElementType);
+            foreach (TypeRef argument in current.TypeArguments)
+                pending.Push(argument);
+            if (current.ModifierType is not null)
+                pending.Push(current.ModifierType);
+            if (current.UnmodifiedType is not null)
+                pending.Push(current.UnmodifiedType);
+            if (current.FunctionPointerSignature is { } nested)
+            {
+                pending.Push(nested.ReturnType);
+                foreach (TypeRef parameter in nested.ParameterTypes)
+                    pending.Push(parameter);
+            }
+        }
+        return count;
+    }
+
     static ResourceEffectResolutionGap WorkGap(
         ResourceEffectResolutionWorkDimension dimension,
         long limit,
@@ -4162,6 +4801,8 @@ public static class ResourceEffectResolver
                 limits.MaxRetainedDiagnostics,
             ResourceEffectResolutionWorkDimension.ProvenanceAssociations =>
                 limits.MaxProvenanceAssociations,
+            ResourceEffectResolutionWorkDimension.MetadataAssociations =>
+                limits.MaxMetadataAssociations,
             ResourceEffectResolutionWorkDimension.CompatibilityComparisons =>
                 limits.MaxCompatibilityComparisons,
             _ => throw new InvalidOperationException(
@@ -4405,6 +5046,7 @@ public static class ResourceEffectResolver
         Constructor,
         PropertyGetter,
         PropertySetter,
+        Unsupported,
     }
 
     sealed record PendingInvocation(
@@ -4422,6 +5064,16 @@ public static class ResourceEffectResolver
 
     sealed record DefinitionCandidateSet(
         ImmutableArray<PendingDefinitionCandidate> Candidates,
+        ResourceEffectResolutionGapKind? Failure,
+        ResourceEffectResolutionWorkDimension? WorkDimension = null);
+
+    sealed record MethodSemanticsIndex(
+        IReadOnlyDictionary<
+            int,
+            ImmutableArray<MethodSemanticsRow>> PropertyRows,
+        IReadOnlyDictionary<
+            int,
+            ImmutableArray<MethodSemanticsRow>> RowsByMethod,
         ResourceEffectResolutionGapKind? Failure,
         ResourceEffectResolutionWorkDimension? WorkDimension = null);
 

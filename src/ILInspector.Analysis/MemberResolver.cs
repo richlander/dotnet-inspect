@@ -109,7 +109,9 @@ internal static class MemberResolver
         _ => TypeRef.Unsupported($"member parent kind {parent.Kind}"),
     };
 
-    static ImmutableArray<string> GenericParameterNames(MetadataReader reader, GenericParameterHandleCollection handles)
+    internal static ImmutableArray<string> GenericParameterNames(
+        MetadataReader reader,
+        GenericParameterHandleCollection handles)
     {
         if (handles.Count == 0)
             return [];

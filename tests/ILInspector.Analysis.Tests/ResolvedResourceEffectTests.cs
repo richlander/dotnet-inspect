@@ -1,4 +1,8 @@
 using System.Collections.Immutable;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 
 using DotnetInspector.Fixtures;
 using DotnetInspector.Services;
@@ -209,6 +213,500 @@ public sealed class ResolvedResourceEffectTests
                         maxInvocationBindings: int.MaxValue)));
 
         Assert.NotEmpty(complete.Snapshot.Effects);
+    }
+
+    [Fact]
+    public void MetadataAssociationWorkLimitIsVisible()
+    {
+        ResourceEffectResolutionOutcome.Incomplete incomplete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Incomplete>(
+                Resolve(
+                    ArrayPoolResourceEffectModel.Create(),
+                    new ResourceEffectResolutionLimits(
+                        maxMetadataAssociations: 1)));
+
+        Assert.Contains(
+            incomplete.Evaluations.SelectMany(
+                evaluation => evaluation.Gaps),
+            gap =>
+                gap.Kind
+                    == ResourceEffectResolutionGapKind.WorkLimitExceeded
+                && gap.WorkDimension
+                    == ResourceEffectResolutionWorkDimension
+                        .MetadataAssociations
+                && gap.Limit == 1
+                && gap.RequiredWork == 2);
+    }
+
+    [Fact]
+    public void OtherPropertySemanticsRowsConsumeTheResolutionBudget()
+    {
+        const string AssemblyName = "ManyPropertySemantics";
+        byte[] image = BuildDirectCallAssembly(
+            AssemblyName,
+            "Target",
+            MethodAttributes.Public | MethodAttributes.Static,
+            [0x00, 0x00, 0x01],
+            parameterAttributes: null,
+            otherPropertySemanticsRows: 3);
+        ResourceEffectResolutionOutcome.Incomplete incomplete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Incomplete>(
+                ResolveSynthetic(
+                    image,
+                    AssemblyName,
+                    SyntheticMethodModel(
+                        AssemblyName,
+                        "Target",
+                        ResourceEffectMemberKind.Method,
+                        parameters: []),
+                    new ResourceEffectResolutionLimits(
+                        maxMetadataAssociations: 2)));
+
+        Assert.Contains(
+            incomplete.Evaluations.SelectMany(
+                evaluation => evaluation.Gaps),
+            gap =>
+                gap.Kind
+                    == ResourceEffectResolutionGapKind.WorkLimitExceeded
+                && gap.WorkDimension
+                    == ResourceEffectResolutionWorkDimension
+                        .MetadataAssociations
+                && gap.Limit == 2
+                && gap.RequiredWork == 3);
+    }
+
+    [Fact]
+    public void MalformedReservedConstructorIsUnsupported()
+    {
+        const string AssemblyName = "MalformedConstructor";
+        AssertUnsupported(
+            BuildDirectCallAssembly(
+                AssemblyName,
+                ".cctor",
+                MethodAttributes.Public | MethodAttributes.Static,
+                [0x00, 0x00, 0x01]),
+            parameters: []);
+        AssertUnsupported(
+            BuildDirectCallAssembly(
+                AssemblyName,
+                ".cctor",
+                MethodAttributes.Public
+                    | MethodAttributes.Static
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.RTSpecialName,
+                [0x10, 0x00, 0x00, 0x01]),
+            parameters: []);
+        AssertUnsupported(
+            BuildDirectCallAssembly(
+                AssemblyName,
+                ".cctor",
+                MethodAttributes.Public
+                    | MethodAttributes.Static
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.RTSpecialName
+                    | MethodAttributes.Virtual,
+                [0x00, 0x00, 0x01]),
+            parameters: []);
+        ResourceEffectParameterSelector objectParameter = new(
+            CoreLibraryType("System", "Object"),
+            ResourceEffectRefKind.Value);
+        AssertUnsupported(
+            BuildDirectCallAssembly(
+                AssemblyName,
+                ".cctor",
+                MethodAttributes.Public
+                    | MethodAttributes.Static
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.RTSpecialName,
+                [0x00, 0x01, 0x01, 0x1C],
+                ParameterAttributes.None),
+            [objectParameter]);
+        AssertUnsupported(
+            BuildDirectCallAssembly(
+                AssemblyName,
+                ".cctor",
+                MethodAttributes.Public
+                    | MethodAttributes.Static
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.RTSpecialName,
+                [0x00, 0x00, 0x08]),
+            parameters: []);
+        AssertUnsupported(
+            BuildDirectCallAssembly(
+                AssemblyName,
+                ".cctor",
+                MethodAttributes.Public
+                    | MethodAttributes.Static
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.RTSpecialName,
+                [0x00, 0x00, 0x01],
+                methodGenericParameterRows: 1),
+            parameters: []);
+        AssertUnsupported(
+            BuildDirectCallAssembly(
+                AssemblyName,
+                ".ctor",
+                MethodAttributes.Public
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.RTSpecialName,
+                [0x20, 0x01, 0x01, 0x1E, 0x00],
+                ParameterAttributes.None,
+                useNewObject: true),
+            [
+                new ResourceEffectParameterSelector(
+                    CoreLibraryType("System", "Object"),
+                    ResourceEffectRefKind.Value),
+            ],
+            isStatic: false);
+
+        static void AssertUnsupported(
+            byte[] image,
+            ImmutableArray<ResourceEffectParameterSelector> parameters,
+            bool isStatic = true)
+        {
+            ResourceEffectResolutionOutcome.Incomplete incomplete =
+                Assert.IsType<ResourceEffectResolutionOutcome.Incomplete>(
+                    ResolveSynthetic(
+                        image,
+                        AssemblyName,
+                        SyntheticMethodModel(
+                            AssemblyName,
+                            isStatic ? ".cctor" : ".ctor",
+                            ResourceEffectMemberKind.Constructor,
+                            parameters,
+                            isStatic)));
+
+            Assert.Empty(incomplete.Effects);
+            Assert.Contains(
+                incomplete.Evaluations.SelectMany(
+                    evaluation => evaluation.Gaps),
+                gap =>
+                    gap.Kind
+                        == ResourceEffectResolutionGapKind
+                            .UnsupportedSignature);
+        }
+    }
+
+    [Fact]
+    public void ValidInstanceConstructorResolves()
+    {
+        const string AssemblyName = "ValidConstructor";
+        byte[] image = BuildDirectCallAssembly(
+            AssemblyName,
+            ".ctor",
+            MethodAttributes.Public
+                | MethodAttributes.SpecialName
+                | MethodAttributes.RTSpecialName,
+            [0x20, 0x00, 0x01],
+            useNewObject: true);
+
+        ResourceEffectResolutionOutcome.Complete complete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
+                ResolveSynthetic(
+                    image,
+                    AssemblyName,
+                    SyntheticMethodModel(
+                        AssemblyName,
+                        ".ctor",
+                        ResourceEffectMemberKind.Constructor,
+                        parameters: [],
+                        isStatic: false)));
+
+        Assert.NotEmpty(complete.Snapshot.Effects);
+    }
+
+    [Fact]
+    public void UnknownByRefDirectionIsUnsupported()
+    {
+        const string AssemblyName = "UnknownByRefDirection";
+        byte[] image = BuildDirectCallAssembly(
+            AssemblyName,
+            "Target",
+            MethodAttributes.Public | MethodAttributes.Static,
+            [0x00, 0x01, 0x01, 0x10, 0x08],
+            ParameterAttributes.In | ParameterAttributes.Out);
+
+        ResourceEffectResolutionOutcome.Incomplete incomplete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Incomplete>(
+                ResolveSynthetic(
+                    image,
+                    AssemblyName,
+                    SyntheticMethodModel(
+                        AssemblyName,
+                        "Target",
+                        ResourceEffectMemberKind.Method,
+                        [
+                            new ResourceEffectParameterSelector(
+                                CoreLibraryType("System", "Int32"),
+                                ResourceEffectRefKind.Ref),
+                        ])));
+
+        Assert.Empty(incomplete.Effects);
+        Assert.Contains(
+            incomplete.Evaluations.SelectMany(
+                evaluation => evaluation.Gaps),
+            gap =>
+                gap.Kind
+                    == ResourceEffectResolutionGapKind.UnsupportedSignature);
+
+        ResourceEffectResolutionOutcome.Complete unmatched =
+            Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
+                ResolveSynthetic(
+                    image,
+                    AssemblyName,
+                    SyntheticMethodModel(
+                        AssemblyName,
+                        "Target",
+                        ResourceEffectMemberKind.Method,
+                        [
+                            new ResourceEffectParameterSelector(
+                                CoreLibraryType("System", "Int32"),
+                                ResourceEffectRefKind.Value),
+                        ])));
+        Assert.Empty(unmatched.Snapshot.Effects);
+        Assert.Equal(
+            ResourceEffectTargetEvaluationKind.Unmatched,
+            Assert.Single(unmatched.Evaluations).Kind);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AmbiguousPropertySemanticsAreUnsupported(
+        bool crossTypeAssociation)
+    {
+        const string AssemblyName = "AmbiguousPropertySemantics";
+        MethodSemanticsAttributes[] semantics =
+            crossTypeAssociation
+                ? [MethodSemanticsAttributes.Getter]
+                : [
+                    MethodSemanticsAttributes.Getter,
+                    MethodSemanticsAttributes.Setter,
+                ];
+        byte[] image = BuildDirectCallAssembly(
+            AssemblyName,
+            "Target",
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.SpecialName,
+            [0x00, 0x00, 0x01],
+            parameterAttributes: null,
+            propertySemantics: semantics,
+            propertyOnDifferentType: crossTypeAssociation);
+
+        ResourceEffectResolutionOutcome.Incomplete incomplete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Incomplete>(
+                ResolveSynthetic(
+                    image,
+                    AssemblyName,
+                    SyntheticMethodModel(
+                        AssemblyName,
+                        "Target",
+                        ResourceEffectMemberKind.Method,
+                        parameters: [])));
+
+        Assert.Empty(incomplete.Effects);
+        Assert.Contains(
+            incomplete.Evaluations.SelectMany(
+                evaluation => evaluation.Gaps),
+            gap =>
+                gap.Kind
+                    == ResourceEffectResolutionGapKind.UnsupportedSignature);
+    }
+
+    [Fact]
+    public void EventSemanticsAreUnsupportedForMethodSelection()
+    {
+        const string AssemblyName = "EventSemantics";
+        byte[] image = BuildDirectCallAssembly(
+            AssemblyName,
+            "Target",
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.SpecialName,
+            [0x00, 0x00, 0x01],
+            eventSemantics: [MethodSemanticsAttributes.Adder]);
+
+        ResourceEffectResolutionOutcome.Incomplete incomplete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Incomplete>(
+                ResolveSynthetic(
+                    image,
+                    AssemblyName,
+                    SyntheticMethodModel(
+                        AssemblyName,
+                        "Target",
+                        ResourceEffectMemberKind.Method,
+                        parameters: [])));
+
+        Assert.Empty(incomplete.Effects);
+        Assert.Contains(
+            incomplete.Evaluations.SelectMany(
+                evaluation => evaluation.Gaps),
+            gap =>
+                gap.Kind
+                    == ResourceEffectResolutionGapKind.UnsupportedSignature);
+    }
+
+    [Fact]
+    public void UnrelatedEventSemanticsDoNotBlockOrdinaryMethod()
+    {
+        const string AssemblyName = "UnrelatedEventSemantics";
+        byte[] image = BuildDirectCallAssembly(
+            AssemblyName,
+            "Target",
+            MethodAttributes.Public | MethodAttributes.Static,
+            [0x00, 0x00, 0x01],
+            eventSemantics: [MethodSemanticsAttributes.Adder],
+            eventTargetsCaller: true);
+
+        ResourceEffectResolutionOutcome.Complete complete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
+                ResolveSynthetic(
+                    image,
+                    AssemblyName,
+                    SyntheticMethodModel(
+                        AssemblyName,
+                        "Target",
+                        ResourceEffectMemberKind.Method,
+                        parameters: [])));
+
+        Assert.NotEmpty(complete.Snapshot.Effects);
+    }
+
+    [Fact]
+    public void DuplicatePropertySemanticsAreUnsupported()
+    {
+        const string AssemblyName = "DuplicatePropertySemantics";
+        byte[] image = BuildDirectCallAssembly(
+            AssemblyName,
+            "Target",
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.SpecialName,
+            [0x00, 0x00, 0x08],
+            propertySemantics:
+            [
+                MethodSemanticsAttributes.Getter,
+                MethodSemanticsAttributes.Getter,
+            ]);
+
+        ResourceEffectResolutionOutcome.Incomplete incomplete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Incomplete>(
+                ResolveSynthetic(
+                    image,
+                    AssemblyName,
+                    SyntheticMethodModel(
+                        AssemblyName,
+                        "Target",
+                        ResourceEffectMemberKind.PropertyGetter,
+                        parameters: [])));
+
+        Assert.Empty(incomplete.Effects);
+        Assert.Contains(
+            incomplete.Evaluations.SelectMany(
+                evaluation => evaluation.Gaps),
+            gap =>
+                gap.Kind
+                    == ResourceEffectResolutionGapKind.UnsupportedSignature);
+    }
+
+    [Fact]
+    public void InvalidPropertyAccessorSignatureIsUnsupported()
+    {
+        const string AssemblyName = "InvalidPropertyAccessor";
+        byte[] image = BuildDirectCallAssembly(
+            AssemblyName,
+            "Target",
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.SpecialName,
+            [0x00, 0x00, 0x01],
+            propertySemantics: [MethodSemanticsAttributes.Getter]);
+
+        ResourceEffectResolutionOutcome.Incomplete incomplete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Incomplete>(
+                ResolveSynthetic(
+                    image,
+                    AssemblyName,
+                    SyntheticMethodModel(
+                        AssemblyName,
+                        "Target",
+                        ResourceEffectMemberKind.PropertyGetter,
+                        parameters: [])));
+
+        Assert.Empty(incomplete.Effects);
+        Assert.Contains(
+            incomplete.Evaluations.SelectMany(
+                evaluation => evaluation.Gaps),
+            gap =>
+                gap.Kind
+                    == ResourceEffectResolutionGapKind.UnsupportedSignature);
+    }
+
+    [Fact]
+    public void PropertyAccessorGenericMetadataIsUnsupported()
+    {
+        const string AssemblyName = "GenericPropertyAccessor";
+        byte[] image = BuildDirectCallAssembly(
+            AssemblyName,
+            "Target",
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.SpecialName,
+            [0x10, 0x00, 0x00, 0x08],
+            propertySemantics: [MethodSemanticsAttributes.Getter]);
+
+        ResourceEffectResolutionOutcome.Incomplete incomplete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Incomplete>(
+                ResolveSynthetic(
+                    image,
+                    AssemblyName,
+                    SyntheticMethodModel(
+                        AssemblyName,
+                        "Target",
+                        ResourceEffectMemberKind.PropertyGetter,
+                        parameters: [])));
+
+        Assert.Empty(incomplete.Effects);
+        Assert.Contains(
+            incomplete.Evaluations.SelectMany(
+                evaluation => evaluation.Gaps),
+            gap =>
+                gap.Kind
+                    == ResourceEffectResolutionGapKind.UnsupportedSignature);
+    }
+
+    [Fact]
+    public void PropertyAccessorOutOfRangeGenericReferenceIsUnsupported()
+    {
+        const string AssemblyName = "InvalidPropertyGenericReference";
+        byte[] image = BuildDirectCallAssembly(
+            AssemblyName,
+            "Target",
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.SpecialName,
+            [0x00, 0x00, 0x1E, 0x00],
+            propertySemantics: [MethodSemanticsAttributes.Getter]);
+
+        ResourceEffectResolutionOutcome.Incomplete incomplete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Incomplete>(
+                ResolveSynthetic(
+                    image,
+                    AssemblyName,
+                    SyntheticMethodModel(
+                        AssemblyName,
+                        "Target",
+                        ResourceEffectMemberKind.PropertyGetter,
+                        parameters: [])));
+
+        Assert.Empty(incomplete.Effects);
+        Assert.Contains(
+            incomplete.Evaluations.SelectMany(
+                evaluation => evaluation.Gaps),
+            gap =>
+                gap.Kind
+                    == ResourceEffectResolutionGapKind.UnsupportedSignature);
     }
 
     [Fact]
@@ -1388,6 +1886,36 @@ public sealed class ResolvedResourceEffectTests
                             kind,
                             Correspondence: null,
                             Observation: null)))));
+
+        ResolvedResourceEffect narrowed =
+            complete.Snapshot.Effects.First(effect =>
+                Assert.IsType<ResourceEffect.Consume>(
+                    effect.Effect).Kind is not null);
+        var otherKind = new ResourceKindReference(
+            new ResourceKindIdentity(
+                "example.operation-slot-other-kind"),
+            [variable]);
+        ResourceEffectLocation nested =
+            new ResourceEffectLocation.OperationSlot(
+                new ResourceEffectLocation.OperationSlot(
+                    parameter,
+                    kind),
+                kind: null);
+        Assert.True(
+            ResourceEffectResolver.TryEffectiveKind(
+                narrowed,
+                direct: null,
+                nested,
+                out ResolvedResourceKindReference? effective));
+        Assert.Equal(kind.Identity, effective?.Identity);
+        Assert.False(
+            ResourceEffectResolver.TryEffectiveKind(
+                narrowed,
+                direct: null,
+                new ResourceEffectLocation.OperationSlot(
+                    nested,
+                    otherKind),
+                out _));
     }
 
     [Fact]
@@ -1752,6 +2280,269 @@ public sealed class ResolvedResourceEffectTests
             participants,
             cancellationToken:
                 TestContext.Current.CancellationToken);
+
+    static ResourceEffectResolutionOutcome ResolveSynthetic(
+        byte[] image,
+        string assemblyName,
+        ResourceEffectAdmission admission,
+        ResourceEffectResolutionLimits? limits = null)
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "dotnet-inspect-resolved-effects-"
+                + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, assemblyName + ".dll");
+        try
+        {
+            File.WriteAllBytes(path, image);
+            LibraryBodyIndex index = LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+            ResolvedAssemblyReference assembly =
+                ResolvedAssemblyReference.CreateFromPath(
+                    path,
+                    AssemblyResolutionProvenance.Local(
+                        "synthetic resolved resource-effect test"));
+            return ResourceEffectResolver.Resolve(
+                admission,
+                new AssemblyDependencyResolver(
+                    new AssemblyDependencyResolutionOptions(path)),
+                [new CatalogCallGraphParticipant(index, assembly)],
+                limits,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    static ResourceEffectAdmission SyntheticMethodModel(
+        string assemblyName,
+        string methodName,
+        ResourceEffectMemberKind kind,
+        ImmutableArray<ResourceEffectParameterSelector> parameters,
+        bool isStatic = true)
+    {
+        var identity = new ResourceEffectModelIdentity(
+            $"example.{assemblyName.ToLowerInvariant()}");
+        ResourceTypeExpression.Named declaringType = new(
+            new ResourceAssemblySelector(
+                assemblyName,
+                publicKeyToken: null,
+                ResourceAssemblyVersionPolicy.Any),
+            "N",
+            [new ResourceTypeNameSegment("Owner", 0)]);
+        return Admit(
+            new ResourceEffectModelDefinition(
+                ResourceEffectLanguageIdentity.Version1,
+                identity,
+                [],
+                [],
+                [
+                    new ResourceEffectTypedDeclaration(
+                        new ResourceEffectTargetSelector.Member(
+                            new ResourceEffectMemberSelector(
+                                declaringType,
+                                methodName,
+                                kind,
+                                isStatic,
+                                genericArity: 0,
+                                ResourceEffectCallingConvention.Default,
+                                hasThis: !isStatic,
+                                explicitThis: false,
+                                parameters,
+                                CoreLibraryType("System", "Void"))),
+                        new ResourceEffect.Operation(
+                            ResourceOperationBoundary.Ordinary,
+                            ResourceOperationThrows.Possible,
+                            Guard: null),
+                        [Provenance(identity.Value, 0)]),
+                ]));
+    }
+
+    static byte[] BuildDirectCallAssembly(
+        string assemblyName,
+        string targetName,
+        MethodAttributes targetAttributes,
+        byte[] targetSignature,
+        ParameterAttributes? parameterAttributes = null,
+        int otherPropertySemanticsRows = 0,
+        MethodSemanticsAttributes[]? propertySemantics = null,
+        bool propertyOnDifferentType = false,
+        MethodSemanticsAttributes[]? eventSemantics = null,
+        int methodGenericParameterRows = 0,
+        bool eventTargetsCaller = false,
+        bool useNewObject = false)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            metadata.GetOrAddString(assemblyName + ".dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(assemblyName),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: AssemblyHashAlgorithm.Sha1);
+        AssemblyReferenceHandle systemRuntime =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Runtime"),
+                new Version(11, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: metadata.GetOrAddBlob(
+                    Convert.FromHexString("b03f5f7f11d50a3a")),
+                flags: default,
+                hashValue: default);
+        TypeReferenceHandle objectType =
+            metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle owner = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Owner"),
+            baseType: objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle propertyOwner = owner;
+        if (propertyOnDifferentType)
+        {
+            propertyOwner = metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Other"),
+                baseType: objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(3));
+        }
+
+        ParameterHandle parameterList =
+            MetadataTokens.ParameterHandle(1);
+        if (parameterAttributes is { } attributes)
+        {
+            metadata.AddParameter(
+                attributes,
+                metadata.GetOrAddString("value"),
+                sequenceNumber: 1);
+        }
+
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        var targetIl = new BlobBuilder();
+        targetIl.WriteByte((byte)ILOpCode.Ret);
+        int targetBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(targetIl));
+        var callerIl = new BlobBuilder();
+        if (parameterAttributes is not null)
+            callerIl.WriteByte((byte)ILOpCode.Ldnull);
+        callerIl.WriteByte(
+            (byte)(useNewObject
+                ? ILOpCode.Newobj
+                : ILOpCode.Call));
+        callerIl.WriteInt32(
+            MetadataTokens.GetToken(
+                MetadataTokens.MethodDefinitionHandle(1)));
+        if (useNewObject)
+            callerIl.WriteByte((byte)ILOpCode.Pop);
+        callerIl.WriteByte((byte)ILOpCode.Ret);
+        int callerBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(callerIl));
+
+        MethodDefinitionHandle target =
+            metadata.AddMethodDefinition(
+                targetAttributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString(targetName),
+                metadata.GetOrAddBlob(targetSignature),
+                targetBody,
+                parameterList);
+        for (int index = 0;
+            index < methodGenericParameterRows;
+            index++)
+        {
+            metadata.AddGenericParameter(
+                target,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString($"T{index}"),
+                index);
+        }
+        MethodDefinitionHandle caller =
+            metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Caller"),
+            metadata.GetOrAddBlob(
+                new byte[] { 0x00, 0x00, 0x01 }),
+            callerBody,
+            parameterAttributes is null
+                ? parameterList
+                : MetadataTokens.ParameterHandle(2));
+
+        if (otherPropertySemanticsRows > 0
+            || propertySemantics is not null)
+        {
+            PropertyDefinitionHandle property =
+                metadata.AddProperty(
+                    PropertyAttributes.None,
+                    metadata.GetOrAddString("Value"),
+                    metadata.GetOrAddBlob(
+                        new byte[] { 0x08, 0x00, 0x08 }));
+            metadata.AddPropertyMap(propertyOwner, property);
+            IEnumerable<MethodSemanticsAttributes> semantics =
+                propertySemantics
+                ?? Enumerable.Repeat(
+                    MethodSemanticsAttributes.Other,
+                    otherPropertySemanticsRows);
+            foreach (MethodSemanticsAttributes value in semantics)
+            {
+                metadata.AddMethodSemantics(
+                    property,
+                    value,
+                    target);
+            }
+        }
+        if (eventSemantics is not null)
+        {
+            EventDefinitionHandle @event =
+                metadata.AddEvent(
+                    EventAttributes.None,
+                    metadata.GetOrAddString("Changed"),
+                    objectType);
+            metadata.AddEventMap(owner, @event);
+            foreach (MethodSemanticsAttributes value
+                in eventSemantics)
+            {
+                metadata.AddMethodSemantics(
+                    @event,
+                    value,
+                    eventTargetsCaller ? caller : target);
+            }
+        }
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
 
     static ResourceEffectAdmission Admit(
         params ResourceEffectModelDefinition[] definitions) =>
