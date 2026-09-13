@@ -20,8 +20,10 @@ host-specific adapter.
 The lower identity, declaration envelope, three-arm population union, and
 public consumer canary are implemented by
 `DotnetInspector.Queries.WorkspaceEcosystemRegistrationDeclaration` under
-[#6640](https://github.com/richlander/dotnet-inspect/issues/6640). Application
-pack correspondence, curated construction, Workspace retention, persistence,
+[#6640](https://github.com/richlander/dotnet-inspect/issues/6640).
+[Workspace Scope](workspace-scope-and-expansion.md#inert-registration-adoption)
+adopts retention, empty/explicit initialization and exact-revision replacement
+under #6577. Application pack correspondence, curated construction, persistence
 and host adoption remain in their separately owned slices.
 
 ## Authority and exact claim
@@ -55,8 +57,7 @@ It consumes without redefining:
   `PlatformLibraryPopulationDeclaration`;
 - Packages' `PackageCoordinate`;
 - Integration's `EcosystemIntegrationScannerBinding`; and
-- Workspace Scope's future registration revision, mutation, snapshot, and
-  restoration contracts.
+- Workspace Scope's registration revision, mutation and snapshot contracts.
 
 ## Why this owner is needed
 
