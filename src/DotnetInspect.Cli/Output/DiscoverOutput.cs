@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Options;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
@@ -28,7 +29,9 @@ public static class DiscoverOutput
         IReadOnlySet<string>? catalogHiddenSections = null,
         IReadOnlySet<string>? listedCategoryDoors = null,
         IProjectionOptions? projection = null,
-        bool plainText = false)
+        bool plainText = false,
+        RowSelectionIntent<string>? semanticRowSelection = null,
+        string semanticSelectionName = "Discovery")
     {
         sectionCategories = FilterCategories(sectionCategories, schema.SectionNames);
 
@@ -41,7 +44,15 @@ public static class DiscoverOutput
             var projectedRows = GetDiscoveryRows(discover, schema, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors);
             if (projectedRows == null)
                 return 1;
-            var visibleRows = RowWindow.Apply(projection?.Rows, projectedRows);
+            if (!TryApplyRowSelection(
+                    projectedRows,
+                    projection?.Rows,
+                    semanticRowSelection,
+                    semanticSelectionName,
+                    out IReadOnlyList<DiscoveryRow> visibleRows))
+            {
+                return 1;
+            }
             return LensProjection.TryProject(
                     projection,
                     "-D/--discover",
@@ -69,7 +80,9 @@ public static class DiscoverOutput
                 catalogHiddenSections,
                 listedCategoryDoors,
                 projection!,
-                projectedColumns);
+                projectedColumns,
+                semanticRowSelection,
+                semanticSelectionName);
         }
 
         // Auto-promote to tree when discovering items from multiple sections
@@ -93,12 +106,23 @@ public static class DiscoverOutput
                 sectionCategories,
                 catalogHiddenSections,
                 listedCategoryDoors,
-                projection?.Rows);
+                projection?.Rows,
+                semanticRowSelection,
+                semanticSelectionName);
 
         var rows = GetDiscoveryRows(discover, schema, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors);
         if (rows == null)
             return 1;
-        rows = [.. RowWindow.Apply(projection?.Rows, rows)];
+        if (!TryApplyRowSelection(
+                rows,
+                projection?.Rows,
+                semanticRowSelection,
+                semanticSelectionName,
+                out IReadOnlyList<DiscoveryRow> selectedRows))
+        {
+            return 1;
+        }
+        rows = [.. selectedRows];
 
         var view = new DiscoveryListView { Items = rows };
         var context = new DiscoveryContext();
@@ -165,7 +189,9 @@ public static class DiscoverOutput
         IReadOnlySet<string>? catalogHiddenSections,
         IReadOnlySet<string>? listedCategoryDoors,
         IProjectionOptions projection,
-        IReadOnlyList<string> columns)
+        IReadOnlyList<string> columns,
+        RowSelectionIntent<string>? semanticRowSelection,
+        string semanticSelectionName)
     {
         var rows = GetDiscoveryRows(
             discover,
@@ -177,8 +203,18 @@ public static class DiscoverOutput
         if (rows == null)
             return 1;
 
+        if (!TryApplyRowSelection(
+                rows,
+                projection.Rows,
+                semanticRowSelection,
+                semanticSelectionName,
+                out IReadOnlyList<DiscoveryRow> selectedRows))
+        {
+            return 1;
+        }
+
         WriteProjectedJson(
-            [.. RowWindow.Apply(projection.Rows, rows)],
+            selectedRows,
             columns);
         return 0;
     }
@@ -219,7 +255,9 @@ public static class DiscoverOutput
         IReadOnlyDictionary<string, string[]>? sectionCategories = null,
         IReadOnlySet<string>? catalogHiddenSections = null,
         IReadOnlySet<string>? listedCategoryDoors = null,
-        IProjectionOptions? projection = null)
+        IProjectionOptions? projection = null,
+        RowSelectionIntent<string>? semanticRowSelection = null,
+        string semanticSelectionName = "Discovery")
     {
         // Build a filtered schema with only effective sections
         var filtered = new DocumentSchema();
@@ -254,6 +292,16 @@ public static class DiscoverOutput
                 discover, filtered, fullSchema, sectionCategories);
             if (remaining == null)
             {
+                if (!TryApplyRowSelection(
+                        Array.Empty<DiscoveryRow>(),
+                        projection?.Rows,
+                        semanticRowSelection,
+                        semanticSelectionName,
+                        out _))
+                {
+                    return 1;
+                }
+
                 // Every requested section was valid but empty, so the discovered row count is
                 // zero. Returning here without projecting would drop the request.
                 if (LensProjection.IsRequested(projection))
@@ -287,10 +335,28 @@ public static class DiscoverOutput
                 catalogHiddenSections,
                 listedCategoryDoors,
                 projection!,
-                projectedColumns);
+                projectedColumns,
+                semanticRowSelection,
+                semanticSelectionName);
         }
 
-        return Execute(discover, filtered, tree, markdown, json, tsv, jsonl, verbosity, rootLabel, sectionCostAnnotations, effectiveSectionCategories, catalogHiddenSections, listedCategoryDoors, projection);
+        return Execute(
+            discover,
+            filtered,
+            tree,
+            markdown,
+            json,
+            tsv,
+            jsonl,
+            verbosity,
+            rootLabel,
+            sectionCostAnnotations,
+            effectiveSectionCategories,
+            catalogHiddenSections,
+            listedCategoryDoors,
+            projection,
+            semanticRowSelection: semanticRowSelection,
+            semanticSelectionName: semanticSelectionName);
     }
 
     /// <summary>
@@ -778,7 +844,9 @@ public static class DiscoverOutput
         IReadOnlyDictionary<string, string[]>? sectionCategories = null,
         IReadOnlySet<string>? catalogHiddenSections = null,
         IReadOnlySet<string>? listedCategoryDoors = null,
-        RowWindow? rows = null)
+        RowWindow? rows = null,
+        RowSelectionIntent<string>? semanticRowSelection = null,
+        string semanticSelectionName = "Discovery")
     {
         var nodes = new List<TreeNode>();
 
@@ -912,7 +980,16 @@ public static class DiscoverOutput
             }
         }
 
-        nodes = ApplyTreeWindow(nodes, rows, discover is { Length: > 0 });
+        if (!TryApplyTreeSelection(
+                nodes,
+                rows,
+                semanticRowSelection,
+                semanticSelectionName,
+                discover is { Length: > 0 },
+                out nodes))
+        {
+            return 1;
+        }
 
         // Wrap in root node when label is provided and showing full tree
         if (rootLabel != null && discover is null or { Length: 0 })
@@ -923,16 +1000,30 @@ public static class DiscoverOutput
         return 0;
     }
 
-    private static List<TreeNode> ApplyTreeWindow(
+    private static bool TryApplyTreeSelection(
         List<TreeNode> nodes,
         RowWindow? rows,
-        bool grouped)
+        RowSelectionIntent<string>? semanticRowSelection,
+        string semanticSelectionName,
+        bool grouped,
+        out List<TreeNode> selectedNodes)
     {
-        if (rows is not { IsUnlimited: false } window)
-            return nodes;
-
         if (!grouped)
-            return [.. window.Apply(nodes)];
+        {
+            if (!TryApplyRowSelection(
+                    nodes,
+                    rows,
+                    semanticRowSelection,
+                    semanticSelectionName,
+                    out IReadOnlyList<TreeNode> selectedTopLevel))
+            {
+                selectedNodes = [];
+                return false;
+            }
+
+            selectedNodes = [.. selectedTopLevel];
+            return true;
+        }
 
         var rowAddresses = new List<(int Parent, int? Child)>();
         for (var parent = 0; parent < nodes.Count; parent++)
@@ -948,9 +1039,19 @@ public static class DiscoverOutput
             }
         }
 
-        var selected = window.Apply(rowAddresses);
+        if (!TryApplyRowSelection(
+                rowAddresses,
+                rows,
+                semanticRowSelection,
+                semanticSelectionName,
+                out IReadOnlyList<(int Parent, int? Child)> selectedAddresses))
+        {
+            selectedNodes = [];
+            return false;
+        }
+
         var result = new List<TreeNode>();
-        foreach (var parentGroup in selected.GroupBy(address => address.Parent))
+        foreach (var parentGroup in selectedAddresses.GroupBy(address => address.Parent))
         {
             var source = nodes[parentGroup.Key];
             var selectedChildren = parentGroup
@@ -961,8 +1062,27 @@ public static class DiscoverOutput
                 ? source
                 : new TreeNode(source.Text) { Children = selectedChildren });
         }
-        return result;
+        selectedNodes = result;
+        return true;
     }
+
+    private static bool TryApplyRowSelection<T>(
+        IReadOnlyList<T> rows,
+        RowWindow? legacyWindow,
+        RowSelectionIntent<string>? semanticRowSelection,
+        string semanticSelectionName,
+        out IReadOnlyList<T> selectedRows)
+        => CliSemanticRowSelection.TrySelectOrApplyLegacy(
+            semanticRowSelection,
+            legacyWindow,
+            rows,
+            "discovery",
+            failure =>
+                $"{semanticSelectionName} row selection stage "
+                + $"{failure.Failure.StageNumber} requires discovery row "
+                + $"{failure.Failure.RequiredPosition}, but only "
+                + $"{failure.Failure.AvailableCount} discovery rows are available.",
+            out selectedRows);
 
     private static IReadOnlyDictionary<string, string[]>? FilterCategories(
         IReadOnlyDictionary<string, string[]>? categories,
