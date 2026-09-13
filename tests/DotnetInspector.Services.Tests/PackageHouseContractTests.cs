@@ -874,7 +874,6 @@ public sealed class PackageHouseContractTests
         Assert.Throws<ArgumentException>(
             () => new PackageHouseAcquisitionReceipt(
                 decision,
-                candidate,
                 authority,
                 otherSource,
                 PackagePayloadOrigin.Cache,
@@ -912,7 +911,7 @@ public sealed class PackageHouseContractTests
         Assert.Same(bundle.Decision, result.Decision);
         Assert.Same(bundle.Acquisition, result.Evidence.Acquisition);
         Assert.Same(failure, Assert.Single(result.Evidence.Failures));
-        Assert.NotNull(result.Evidence.Identity);
+        Assert.Same(request, result.Request);
     }
 
     [Fact]
@@ -1021,13 +1020,12 @@ public sealed class PackageHouseContractTests
         AcquisitionBundle bundle = Acquisition(
             request,
             content.GenerationIdentity);
-        var selection = new PackageHouseAssetSelectionReceipt.Compile(
+        var realization = new PackageHouseRealizationReceipt.Compile(
             bundle.Acquisition,
             PackageCompileAssetSelector.Evaluate(
                 content,
                 "contoso.json",
                 "net10.0"));
-        var realization = new PackageHouseRealizationReceipt(selection);
         var timeout = new PackageHouseFailure.Timeout(
             request.Operation.Identity,
             PackageHouseTimeoutKind.Operation,
@@ -1059,13 +1057,12 @@ public sealed class PackageHouseContractTests
         AcquisitionBundle bundle = Acquisition(
             request,
             content.GenerationIdentity);
-        var selection = new PackageHouseAssetSelectionReceipt.Compile(
+        var realization = new PackageHouseRealizationReceipt.Compile(
             bundle.Acquisition,
             PackageCompileAssetSelector.Evaluate(
                 content,
                 "contoso.json",
                 "net10.0"));
-        var realization = new PackageHouseRealizationReceipt(selection);
         var ownerFailure = new PackageAuthorityFailure(
             Reason("nuget.org"),
             PackageAuthorityFailureKind.Timeout,
@@ -1091,7 +1088,7 @@ public sealed class PackageHouseContractTests
 
         Assert.Equal(
             PackageCompileAssetSelectionStatus.EmptyCompileGroup,
-            selection.Selection.Status);
+            realization.Selection.Status);
         Assert.Same(realization, failed.Evidence.Realization);
         Assert.Same(adapted, Assert.Single(failed.Evidence.Failures));
     }
@@ -1140,7 +1137,7 @@ public sealed class PackageHouseContractTests
                 "net10.0");
 
         Assert.Throws<ArgumentException>(
-            () => new PackageHouseAssetSelectionReceipt.Compile(
+            () => new PackageHouseRealizationReceipt.Compile(
                 bundle.Acquisition,
                 receipt));
     }
@@ -1159,10 +1156,9 @@ public sealed class PackageHouseContractTests
             content.GenerationIdentity);
         PackageAssetSelectionReceipt ownerReceipt =
             PackageAssetSelector.Evaluate(content, "net10.0");
-        var selection = new PackageHouseAssetSelectionReceipt.Runtime(
+        var realization = new PackageHouseRealizationReceipt.Runtime(
             bundle.Acquisition,
             ownerReceipt);
-        var realization = new PackageHouseRealizationReceipt(selection);
         var evidence = new PackageHouseEvidence(
             request,
             bundle.Decision,
@@ -1174,8 +1170,8 @@ public sealed class PackageHouseContractTests
         Assert.Equal(
             "net8.0",
             Assert.IsType<PackageAssetSelection.Selected>(
-                selection.Selection).Universe.TargetFramework);
-        Assert.Same(ownerReceipt, selection.Receipt);
+                realization.Selection).Universe.TargetFramework);
+        Assert.Same(ownerReceipt, realization.Receipt);
         Assert.Same(realization, result.Evidence.Realization);
     }
 
@@ -1198,13 +1194,13 @@ public sealed class PackageHouseContractTests
                 "net10.0");
 
         Assert.Throws<ArgumentException>(
-            () => new PackageHouseAssetSelectionReceipt.Compile(
+            () => new PackageHouseRealizationReceipt.Compile(
                 bundle.Acquisition,
                 receipt));
     }
 
     [Fact]
-    public void SameCoordinateWithDifferentTargetsHasDistinctSettlements()
+    public void SameCoordinateWithDifferentTargetsRetainsDistinctEvidence()
     {
         AcquisitionBundle netEight = Acquisition(
             Request(
@@ -1223,7 +1219,10 @@ public sealed class PackageHouseContractTests
             netTen.Decision,
             netTen.Acquisition);
 
-        Assert.NotSame(first.Identity, second.Identity);
+        Assert.NotSame(first.Request, second.Request);
+        Assert.NotSame(
+            first.Request.TargetContext,
+            second.Request.TargetContext);
         Assert.NotSame(netEight.Generation, netTen.Generation);
         Assert.Same(Coordinate, netEight.Decision.Coordinate);
         Assert.Same(Coordinate, netTen.Decision.Coordinate);
@@ -1246,15 +1245,14 @@ public sealed class PackageHouseContractTests
                 content,
                 "contoso.json",
                 "net10.0");
-        var selection = new PackageHouseAssetSelectionReceipt.Compile(
+        var realization = new PackageHouseRealizationReceipt.Compile(
             bundle.Acquisition,
             ownerReceipt);
-        var realization = new PackageHouseRealizationReceipt(selection);
 
         PackageHouseLibraryHandoff.Compile handoff =
             Assert.IsType<PackageHouseLibraryHandoff.Compile>(
                 Assert.Single(realization.LibraryHandoffs));
-        Assert.Same(selection, handoff.Selection);
+        Assert.Same(ownerReceipt, handoff.Receipt);
         Assert.Same(bundle.Acquisition, handoff.Acquisition);
         Assert.Same(bundle.Decision, handoff.Decision);
         Assert.Same(Coordinate, handoff.Coordinate);
@@ -1268,6 +1266,63 @@ public sealed class PackageHouseContractTests
     }
 
     [Fact]
+    public void CompileHandoffRejectsForeignSelectionGeneration()
+    {
+        PackageHouseRequest request = Request(
+            PackageHouseOperationProfile.Realize,
+            handoff: PackageHouseLibraryHandoffMode.SelectedLibraries);
+        IPackageContent acquired = Content(
+            "ref/net10.0/Contoso.Json.dll");
+        IPackageContent foreign = Content(
+            "ref/net10.0/Contoso.Json.dll");
+        AcquisitionBundle bundle = Acquisition(
+            request,
+            acquired.GenerationIdentity);
+        PackageCompileAssetSelectionReceipt receipt =
+            PackageCompileAssetSelector.Evaluate(
+                foreign,
+                "contoso.json",
+                "net10.0");
+        PackageCompileAsset asset = Assert.Single(
+            receipt.Selection.Assets);
+
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseLibraryHandoff.Compile(
+                bundle.Acquisition,
+                receipt,
+                asset,
+                receipt.Selection.FindImplementationAsset(asset)));
+    }
+
+    [Fact]
+    public void CompileHandoffRejectsRuntimeRealizationRequest()
+    {
+        PackageHouseRequest request = Request(
+            PackageHouseOperationProfile.Realize,
+            handoff: PackageHouseLibraryHandoffMode.SelectedLibraries,
+            selection: PackageHouseAssetSelectionKind.Runtime);
+        IPackageContent content = Content(
+            "ref/net10.0/Contoso.Json.dll");
+        AcquisitionBundle bundle = Acquisition(
+            request,
+            content.GenerationIdentity);
+        PackageCompileAssetSelectionReceipt receipt =
+            PackageCompileAssetSelector.Evaluate(
+                content,
+                "contoso.json",
+                "net10.0");
+        PackageCompileAsset asset = Assert.Single(
+            receipt.Selection.Assets);
+
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseLibraryHandoff.Compile(
+                bundle.Acquisition,
+                receipt,
+                asset,
+                receipt.Selection.FindImplementationAsset(asset)));
+    }
+
+    [Fact]
     public void PackageOnlyRealizationDoesNotUnwrapSelectedLibraries()
     {
         PackageHouseRequest request = Request(
@@ -1278,15 +1333,14 @@ public sealed class PackageHouseContractTests
         AcquisitionBundle bundle = Acquisition(
             request,
             content.GenerationIdentity);
-        var selection = new PackageHouseAssetSelectionReceipt.Compile(
+        var realization = new PackageHouseRealizationReceipt.Compile(
             bundle.Acquisition,
             PackageCompileAssetSelector.Evaluate(
                 content,
                 "contoso.json",
                 "net10.0"));
-        var realization = new PackageHouseRealizationReceipt(selection);
 
-        Assert.True(selection.Selection.IsSelected);
+        Assert.True(realization.Selection.IsSelected);
         Assert.Empty(realization.LibraryHandoffs);
     }
 
@@ -1308,20 +1362,19 @@ public sealed class PackageHouseContractTests
                 content,
                 "net10.0",
                 "linux-x64");
-        var selection = new PackageHouseAssetSelectionReceipt.Runtime(
+        var realization = new PackageHouseRealizationReceipt.Runtime(
             bundle.Acquisition,
             ownerReceipt);
-        var realization = new PackageHouseRealizationReceipt(selection);
 
         PackageHouseLibraryHandoff.Runtime handoff =
             Assert.IsType<PackageHouseLibraryHandoff.Runtime>(
                 Assert.Single(realization.LibraryHandoffs));
-        Assert.Same(ownerReceipt, selection.Receipt);
+        Assert.Same(ownerReceipt, realization.Receipt);
         Assert.Same(
             Assert.IsType<PackageAssetSelection.Selected>(
                 ownerReceipt.Selection).Universe.Assets[0],
             handoff.Asset);
-        Assert.Same(selection, handoff.Selection);
+        Assert.Same(ownerReceipt, handoff.Receipt);
     }
 
     [Fact]
@@ -1340,21 +1393,19 @@ public sealed class PackageHouseContractTests
                 content,
                 "contoso.json",
                 "net10.0");
-        var selection = new PackageHouseAssetSelectionReceipt.Compile(
+        var realization = new PackageHouseRealizationReceipt.Compile(
             bundle.Acquisition,
             ownerReceipt);
-
-        var realization = new PackageHouseRealizationReceipt(selection);
         var evidence = new PackageHouseEvidence(
             request,
             bundle.Decision,
             bundle.Acquisition,
             realization);
 
-        Assert.Same(ownerReceipt, selection.Receipt);
+        Assert.Same(ownerReceipt, realization.Receipt);
         Assert.Equal(
             PackageCompileAssetSelectionStatus.NoMatchingTargetFramework,
-            selection.Selection.Status);
+            realization.Selection.Status);
         Assert.Empty(realization.LibraryHandoffs);
         Assert.Throws<ArgumentException>(
             () => new PackageHouseResult.Settled(evidence));
@@ -1381,10 +1432,9 @@ public sealed class PackageHouseContractTests
                 content,
                 "contoso.json",
                 "net10.0");
-        var selection = new PackageHouseAssetSelectionReceipt.Compile(
+        var realization = new PackageHouseRealizationReceipt.Compile(
             bundle.Acquisition,
             ownerReceipt);
-        var realization = new PackageHouseRealizationReceipt(selection);
         var evidence = new PackageHouseEvidence(
             request,
             bundle.Decision,
@@ -1395,7 +1445,7 @@ public sealed class PackageHouseContractTests
 
         Assert.Equal(
             PackageCompileAssetSelectionStatus.EmptyCompileGroup,
-            selection.Selection.Status);
+            realization.Selection.Status);
         Assert.Empty(result.Evidence.Realization!.LibraryHandoffs);
     }
 
@@ -1418,7 +1468,6 @@ public sealed class PackageHouseContractTests
             PlatformPrunePolicy.Evaluate(inventory, policyCoordinate);
         var pruning = new PackageHousePruningReceipt(
             request,
-            target,
             policy);
         PackageHouseDecisionReceipt decision =
             PackageHouseDecisionReceipt.DelegateToPlatform(
@@ -1467,7 +1516,6 @@ public sealed class PackageHouseContractTests
 
         var pruning = new PackageHousePruningReceipt(
             request,
-            target,
             policy);
 
         Assert.Equal("4.0.0-rc.1", coordinate.Version);
@@ -1489,7 +1537,6 @@ public sealed class PackageHouseContractTests
         Assert.Throws<ArgumentException>(
             () => new PackageHousePruningReceipt(
                 request,
-                target,
                 PlatformPrunePolicy.Evaluate(
                     inventory,
                     new PackageCoordinate(
@@ -1499,13 +1546,31 @@ public sealed class PackageHouseContractTests
         Assert.Throws<ArgumentException>(
             () => new PackageHousePruningReceipt(
                 request,
-                target,
                 PlatformPrunePolicy.Evaluate(
                     PlatformInventory("net11.0", "11.0.1"),
                     new PackageCoordinate(
                         "contoso.json",
                         "4.0.0",
                         "net11.0"))));
+    }
+
+    [Fact]
+    public void PruningRequiresRequestPlatformCorrespondence()
+    {
+        PackageHouseRequest request = Request(
+            PackageHouseOperationProfile.Acquire,
+            requestedFramework: "net11.0");
+        PlatformSupplyReceipt policy = PlatformPrunePolicy.Evaluate(
+            PlatformInventory("net11.0", "11.0.0"),
+            new PackageCoordinate(
+                "contoso.json",
+                "4.0.0",
+                "net11.0"));
+
+        Assert.Throws<ArgumentException>(
+            () => new PackageHousePruningReceipt(
+                request,
+                policy));
     }
 
     [Fact]
@@ -1540,7 +1605,6 @@ public sealed class PackageHouseContractTests
         Assert.Throws<ArgumentException>(
             () => new PackageHousePruningReceipt(
                 request,
-                target,
                 policy));
     }
 
@@ -1567,7 +1631,6 @@ public sealed class PackageHouseContractTests
                 "net11.0"));
         var pruning = new PackageHousePruningReceipt(
             request,
-            target,
             policy);
 
         Assert.Throws<ArgumentException>(
@@ -1587,7 +1650,7 @@ public sealed class PackageHouseContractTests
             typeof(PackageVersionRangeSelection),
             typeof(PackageVersionResolutionReceipt),
             typeof(PackageHouseDemand),
-            typeof(PackageHouseAssetSelectionReceipt),
+            typeof(PackageHouseRealizationReceipt),
             typeof(PackageHouseLibraryHandoff),
             typeof(PackageHouseFailure),
             typeof(PackageHouseResult),
@@ -1656,7 +1719,6 @@ public sealed class PackageHouseContractTests
             typeof(PackageHouseDecisionReceipt),
             typeof(PackageHousePruningReceipt),
             typeof(PackageHouseAcquisitionReceipt),
-            typeof(PackageHouseAssetSelectionReceipt),
             typeof(PackageAssetSelectionReceipt),
             typeof(PackageCompileAssetSelectionReceipt),
             typeof(PackageHouseRealizationReceipt),
@@ -1937,7 +1999,6 @@ public sealed class PackageHouseContractTests
         generation ??= new PackageContentGenerationIdentity();
         var acquisition = new PackageHouseAcquisitionReceipt(
             decision,
-            candidate,
             authority,
             source,
             PackagePayloadOrigin.Cache,
