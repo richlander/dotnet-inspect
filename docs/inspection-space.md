@@ -380,10 +380,13 @@ decide whether a query may use their content. Authorization remains a decision
 for the current query plan, not a permanent property of the group.
 
 [Workspace Scope and Expansion](design/workspace-scope-and-expansion.md) owns
-the committed logical Package occurrences above those physical contexts,
-closed-by-default selective dependency expansion, revision-bound scope edits,
-and closure completeness. Artifact Acquisition retains realization, admission,
-binding-context publication, query authorization, and physical lifetime.
+the committed logical Package occurrences above those physical contexts and
+the independent inert registration revision. Both Workspace lifetime modes
+support empty or complete explicit registration initialization and exact-revision
+replacement without realizing those populations or changing Package membership.
+Package edits retain their existing publication and closure contract.
+Artifact Acquisition retains realization, admission, binding-context
+publication, query authorization, and physical lifetime.
 
 Queries may cross assembly boundaries within a group. They must not infer a
 relationship across groups. Multiple groups support comparisons such as two
@@ -1063,8 +1066,8 @@ snapshot. Its request binds the seed subject, one candidate breadth (`Self`,
 `Everything` plus `SimilarNames`. The normative contract is
 [Structural clone search scope](design/structural-clone-search-scope.md).
 
-Workspace registration lookup is not implemented, so breadth membership is
-supplied rather than inferred: each snapshot entry carries its own
+Registration-derived participant realization is not yet adopted by this query,
+so breadth membership is supplied rather than inferred: each snapshot entry carries its own
 `ContainingLibrary`, `RegisteredEcosystem`, or `Available` membership, and the
 snapshot binds the starting and effective Workspace revisions plus one opaque
 snapshot identity. The constructor rejects a repeated participant, a repeated

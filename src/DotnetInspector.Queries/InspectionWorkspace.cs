@@ -1152,17 +1152,28 @@ public sealed partial class InspectionWorkspace :
     int _nextRegistrationIndex;
 
     public InspectionWorkspace()
+        : this([], InspectionWorkspaceLifetimeMode.Synchronous)
     {
-        _lifetimeMode = InspectionWorkspaceLifetimeMode.Synchronous;
+    }
+
+    /// <summary>Creates a synchronous Workspace with one complete inert registration set.</summary>
+    public InspectionWorkspace(ImmutableArray<WorkspaceRegistration> registrations)
+        : this(ValidateInitialRegistrations(registrations), InspectionWorkspaceLifetimeMode.Synchronous)
+    {
     }
 
     InspectionWorkspace(
+        ImmutableArray<WorkspaceRegistration> registrations,
         InspectionWorkspaceLifetimeMode lifetimeMode)
     {
+        _registrationRevision = new(_identity, registrations);
         _lifetimeMode = lifetimeMode;
-        _closeStart = new(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        _closeTask = CloseCoreAsync(_closeStart.Task);
+        if (lifetimeMode == InspectionWorkspaceLifetimeMode.Asynchronous)
+        {
+            _closeStart = new(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            _closeTask = CloseCoreAsync(_closeStart.Task);
+        }
     }
 
     /// <summary>
@@ -1170,7 +1181,12 @@ public sealed partial class InspectionWorkspace :
     /// <see cref="CloseAsync"/>.
     /// </summary>
     public static InspectionWorkspace CreateAsynchronous() =>
-        new(InspectionWorkspaceLifetimeMode.Asynchronous);
+        new([], InspectionWorkspaceLifetimeMode.Asynchronous);
+
+    /// <summary>Creates an asynchronous Workspace with one complete inert registration set.</summary>
+    public static InspectionWorkspace CreateAsynchronous(
+        ImmutableArray<WorkspaceRegistration> registrations) =>
+        new(ValidateInitialRegistrations(registrations), InspectionWorkspaceLifetimeMode.Asynchronous);
 
     /// <summary>
     /// Gets the terminal report after asynchronous close completes.
