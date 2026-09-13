@@ -2,7 +2,6 @@ using System.Reflection.PortableExecutable;
 using System.Reflection.Metadata;
 using System.Text.Json;
 
-using DotnetInspector.Core;
 using DotnetInspector.Services;
 using Inspector.Findings;
 using ILInspector.Metadata;

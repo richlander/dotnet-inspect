@@ -1,6 +1,5 @@
 using System.Net;
 
-using DotnetInspector.Core;
 
 namespace DotnetInspector.Packages;
 

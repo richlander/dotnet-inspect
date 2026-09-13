@@ -3,7 +3,6 @@
 
 using System.Net.Http.Headers;
 using System.Text;
-using DotnetInspector.Core;
 using InertText;
 using NuGetFetch;
 using NuGetSource = NuGetFetch.PackageSource;

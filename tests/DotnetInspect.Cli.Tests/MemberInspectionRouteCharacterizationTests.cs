@@ -6,7 +6,6 @@ using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 using System.Text;
 using DotnetInspect.Cli.Commands;
-using DotnetInspector.Core;
 using DotnetInspector.Fixtures;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;

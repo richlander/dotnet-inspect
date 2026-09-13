@@ -2,9 +2,9 @@ using DotnetInspector.Cache;
 using System.Text;
 using DotnetInspector.Networking;
 
-namespace DotnetInspector.Core;
+namespace DotnetInspect.Cli;
 
-public sealed class RequestMermaidDiagram :
+internal sealed class RequestMermaidDiagram :
     IObserver<NetworkRequestObservation>,
     IObserver<CacheObservation>,
     IObserver<BreadcrumbObservation>,

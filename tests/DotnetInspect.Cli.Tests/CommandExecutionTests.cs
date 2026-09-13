@@ -17,7 +17,7 @@ using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using DotnetInspector.Fixtures;
 using DotnetInspect.Cli.Commands;
-using DotnetInspector.Core;
+using DotnetInspect.Cli;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;

@@ -1659,6 +1659,8 @@ public sealed class ApiTypeShape : IEquatable<ApiTypeShape>
         ApiTypeReferenceIdentity? definition = null,
         ApiTypeShape? elementType = null,
         ImmutableArray<ApiTypeShape> typeArguments = default,
+        int genericParameterIndex = -1,
+        bool isMethodGenericParameter = false,
         int arrayRank = 0,
         ImmutableArray<int> arraySizes = default,
         ImmutableArray<int> arrayLowerBounds = default)
@@ -1668,6 +1670,8 @@ public sealed class ApiTypeShape : IEquatable<ApiTypeShape>
         Definition = definition;
         ElementType = elementType;
         TypeArguments = typeArguments.IsDefault ? [] : typeArguments;
+        GenericParameterIndex = genericParameterIndex;
+        IsMethodGenericParameter = isMethodGenericParameter;
         ArrayRank = arrayRank;
         ArraySizes = arraySizes.IsDefault ? [] : arraySizes;
         ArrayLowerBounds = arrayLowerBounds.IsDefault
@@ -1684,6 +1688,10 @@ public sealed class ApiTypeShape : IEquatable<ApiTypeShape>
     public ApiTypeShape? ElementType { get; }
 
     public ImmutableArray<ApiTypeShape> TypeArguments { get; }
+
+    public int GenericParameterIndex { get; }
+
+    public bool IsMethodGenericParameter { get; }
 
     public int ArrayRank { get; }
 
@@ -1712,6 +1720,14 @@ public sealed class ApiTypeShape : IEquatable<ApiTypeShape>
             ApiTypeShapeKind.GenericInstance,
             definition: definition,
             typeArguments: typeArguments);
+
+    public static ApiTypeShape GenericParameter(
+        int index,
+        bool isMethodParameter) =>
+        new(
+            ApiTypeShapeKind.GenericParameter,
+            genericParameterIndex: index,
+            isMethodGenericParameter: isMethodParameter);
 
     public static ApiTypeShape SzArray(ApiTypeShape elementType) =>
         new(ApiTypeShapeKind.SzArray, elementType: elementType);
@@ -1743,6 +1759,9 @@ public sealed class ApiTypeShape : IEquatable<ApiTypeShape>
             if (left.Kind != right.Kind
                 || left.Primitive != right.Primitive
                 || left.Definition != right.Definition
+                || left.GenericParameterIndex != right.GenericParameterIndex
+                || left.IsMethodGenericParameter
+                    != right.IsMethodGenericParameter
                 || left.ArrayRank != right.ArrayRank
                 || !left.ArraySizes.AsSpan().SequenceEqual(
                     right.ArraySizes.AsSpan())
@@ -1776,6 +1795,8 @@ public sealed class ApiTypeShape : IEquatable<ApiTypeShape>
             hash.Add(current.Kind);
             hash.Add(current.Primitive);
             hash.Add(current.Definition);
+            hash.Add(current.GenericParameterIndex);
+            hash.Add(current.IsMethodGenericParameter);
             hash.Add(current.ArrayRank);
             foreach (int size in current.ArraySizes)
                 hash.Add(size);
@@ -1795,6 +1816,7 @@ public enum ApiTypeShapeKind
     Primitive,
     Named,
     GenericInstance,
+    GenericParameter,
     SzArray,
     Array,
 }

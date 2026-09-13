@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using DotnetInspector.Core;
 using NuGet.Versioning;
 
 namespace DotnetInspector.Packages;
