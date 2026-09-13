@@ -1191,7 +1191,8 @@ public sealed partial class CSharpPrinter
         ImmutableArray<ArgumentRefKind> refKinds,
         bool explicitIn = false,
         bool chainFidelityCasts = false,
-        bool coerceValues = true)
+        bool coerceValues = true,
+        bool unsafeExpressions = false)
     {
         var parts = new List<string>();
         int i = 0;
@@ -1203,16 +1204,57 @@ public sealed partial class CSharpPrinter
                 : parameter is { Kind: TypeRefKind.ByRef }
                     ? ArgumentRefKind.Ref
                     : ArgumentRefKind.Value;
+            string text;
             if (RefArgument(argument, parameter, refKind, explicitIn) is { } refSpelling)
-                parts.Add(refSpelling);
+                text = refSpelling;
             else if (chainFidelityCasts && parameter is not null && refKind == ArgumentRefKind.Value
                 && ChainFidelityCast(argument, parameter) is { } fidelityCast)
-                parts.Add(fidelityCast);
+                text = fidelityCast;
             else
-                parts.Add(coerceValues && parameter is not null ? CoerceText(argument, parameter) : Expression(argument));
+                text = coerceValues && parameter is not null
+                    ? CoerceText(argument, parameter)
+                    : Expression(argument);
+            parts.Add(unsafeExpressions
+                ? ConstructorInitializerArgumentText(argument, text, parameter, refKind)
+                : text);
             i++;
         }
         return string.Join(", ", parts);
+    }
+
+    string ConstructorInitializerArgumentText(
+        IrExpression argument,
+        string text,
+        TypeRef? parameter,
+        ArgumentRefKind refKind)
+    {
+        if (!_newMemorySafetyRules
+            || _unsafeDepth != 0
+            || !HasRequiredUnsafeOperation(argument))
+        {
+            return text;
+        }
+
+        foreach (string prefix in new[] { "ref ", "out ", "in " })
+        {
+            if (text.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                return prefix + UnsafeExpressionText(
+                    argument,
+                    text[prefix.Length..],
+                    force: true);
+            }
+        }
+
+        if (!UnsafeExpressionCompilerSupports(argument)
+            && parameter is { Kind: not TypeRefKind.ByRef }
+            && refKind == ArgumentRefKind.Value
+            && argument is AddressOfMethod or LoadProperty)
+        {
+            text = $"({TypeText(parameter)}){Operand(argument)}";
+        }
+
+        return UnsafeExpressionText(argument, text, force: true);
     }
 
     /// <summary>

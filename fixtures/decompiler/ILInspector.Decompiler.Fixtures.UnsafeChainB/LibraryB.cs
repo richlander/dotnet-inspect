@@ -115,3 +115,49 @@ public sealed class ImplicitContractDerived : ImplicitContractBase
         Value = 42;
     }
 }
+
+public sealed class ContractArgumentDerived : SafeArgumentBase
+{
+    public int Value;
+
+    public ContractArgumentDerived()
+        : base(unsafe(LibraryA.M1()))
+    {
+        Value = 42;
+    }
+}
+
+public sealed class ContractPropertyArgumentDerived : SafeArgumentBase
+{
+    public int Value;
+
+    public ContractPropertyArgumentDerived()
+        : base(unsafe((int)LibraryA.ContractProperty))
+    {
+        Value = 42;
+    }
+}
+
+public sealed class ContractRefArgumentDerived : SafeRefArgumentBase
+{
+    public ContractRefArgumentDerived()
+        : base(ref unsafe(LibraryA.ContractRef()))
+    {
+    }
+}
+
+public sealed class ThisArgumentContract
+{
+    public int Value;
+
+    public ThisArgumentContract(int value)
+    {
+        Value = value;
+    }
+
+    public ThisArgumentContract()
+        : this(unsafe(LibraryA.M1()))
+    {
+        Value++;
+    }
+}

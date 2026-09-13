@@ -37,6 +37,8 @@ using System.Threading.Tasks;
 /// </summary>
 public static class LibraryA
 {
+    static int s_contractRef;
+
     public static unsafe int ContractField;
     public static int SafeField;
 
@@ -50,6 +52,9 @@ public static class LibraryA
         add { }
         remove { }
     }
+
+    public static unsafe ref int ContractRef()
+        => ref s_contractRef;
 
     public static Task<int> SafePointerTask(int* value)
         => Task.FromResult(1);
@@ -202,6 +207,18 @@ public class ContractBase
 public class ImplicitContractBase
 {
     public unsafe ImplicitContractBase() { }
+}
+
+public class SafeArgumentBase
+{
+    public SafeArgumentBase(int value)
+        => _ = value;
+}
+
+public class SafeRefArgumentBase
+{
+    public SafeRefArgumentBase(ref int value)
+        => _ = value;
 }
 
 public sealed class ContractObject

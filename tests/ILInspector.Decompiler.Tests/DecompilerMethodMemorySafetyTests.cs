@@ -9,8 +9,16 @@ using ChainDerived =
     ILInspector.Decompiler.Fixtures.UnsafeChainB.ContractDerived;
 using ChainImplicitDerived =
     ILInspector.Decompiler.Fixtures.UnsafeChainB.ImplicitContractDerived;
+using ChainArgumentDerived =
+    ILInspector.Decompiler.Fixtures.UnsafeChainB.ContractArgumentDerived;
+using ChainPropertyArgumentDerived =
+    ILInspector.Decompiler.Fixtures.UnsafeChainB.ContractPropertyArgumentDerived;
+using ChainRefArgumentDerived =
+    ILInspector.Decompiler.Fixtures.UnsafeChainB.ContractRefArgumentDerived;
 using ChainThis =
     ILInspector.Decompiler.Fixtures.UnsafeChainB.ThisContract;
+using ChainThisArgument =
+    ILInspector.Decompiler.Fixtures.UnsafeChainB.ThisArgumentContract;
 using NewFixtures =
     ILInspector.Decompiler.Fixtures.NewUnsafe.AccessorContractFixtures;
 using NewMethods =
@@ -240,6 +248,85 @@ public class DecompilerMethodMemorySafetyTests
             """);
     }
 
+    [Fact]
+    public void SafeBaseConstructorInitializer_WrapsUnsafeMethodArgument()
+    {
+        DecompilerResult result = DecompileType(typeof(ChainArgumentDerived));
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Contains(
+            "public ContractArgumentDerived() : base(unsafe(LibraryA.M1()))",
+            result.Output);
+        Assert.DoesNotContain(
+            "public unsafe ContractArgumentDerived()",
+            result.Output);
+        AssertCompilesType(
+            result.Output!,
+            SafeArgumentDeclarations);
+    }
+
+    [Fact]
+    public void SafeThisConstructorInitializer_WrapsUnsafeMethodArgument()
+    {
+        DecompilerResult result = DecompileType(typeof(ChainThisArgument));
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Contains(
+            "public ThisArgumentContract() : this(unsafe(LibraryA.M1()))",
+            result.Output);
+        Assert.DoesNotContain(
+            "public unsafe ThisArgumentContract()",
+            result.Output);
+        AssertCompilesType(
+            result.Output!,
+            """
+            public static class LibraryA
+            {
+                public static unsafe int M1() => 42;
+            }
+            """);
+    }
+
+    [Fact]
+    public void SafeBaseConstructorInitializer_CastsDirectUnsafePropertyArgument()
+    {
+        DecompilerResult result =
+            DecompileType(typeof(ChainPropertyArgumentDerived));
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Contains(
+            "base(unsafe((int)LibraryA.ContractProperty))",
+            result.Output);
+        AssertCompilesType(
+            result.Output!,
+            SafeArgumentDeclarations);
+    }
+
+    [Fact]
+    public void SafeBaseConstructorInitializer_KeepsRefOutsideUnsafeArgument()
+    {
+        DecompilerResult result =
+            DecompileType(typeof(ChainRefArgumentDerived));
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Contains(
+            "base(ref unsafe(LibraryA.ContractRef()))",
+            result.Output);
+        AssertCompilesType(
+            result.Output!,
+            """
+            public class SafeRefArgumentBase
+            {
+                public SafeRefArgumentBase(ref int value) { }
+            }
+            public static class LibraryA
+            {
+                static int s_value;
+                public static unsafe ref int ContractRef() => ref s_value;
+            }
+            """);
+    }
+
     [Theory]
     [InlineData(MemorySafetyRulesState.Unsupported, false, false)]
     [InlineData(MemorySafetyRulesState.Malformed, false, false)]
@@ -412,6 +499,31 @@ public class DecompilerMethodMemorySafetyTests
         Assert.NotNull(result.Output);
         return result;
     }
+
+    static DecompilerResult DecompileType(Type reflectedType)
+    {
+        string path = reflectedType.Assembly.Location;
+        ApiType type;
+        using (var pe = new PEReader(File.OpenRead(path)))
+        {
+            type = Assert.Single(
+                ApiSurfaceExtractor.Extract(pe).Types,
+                candidate => candidate.FullName == reflectedType.FullName);
+        }
+        return MemberBodyProducer.Project(type, path, pdbPath: null);
+    }
+
+    const string SafeArgumentDeclarations = """
+        public class SafeArgumentBase
+        {
+            public SafeArgumentBase(int value) { }
+        }
+        public static class LibraryA
+        {
+            public static unsafe int M1() => 42;
+            public static unsafe int ContractProperty { get => 42; }
+        }
+        """;
 
     static void AssertCompiles(
         string methodHeader,

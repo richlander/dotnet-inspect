@@ -3692,7 +3692,12 @@ public sealed partial class CSharpPrinter
         if (IsImplicitParameterlessBaseCall(call))
             return null;  // implicit base()
         var arguments = call.Arguments.Skip(1).ToList();
-        return $"{(isThis ? "this" : "base")}({Arguments(arguments, callee.ParameterTypes, callee.ParameterRefKinds, chainFidelityCasts: true)});";
+        return $"{(isThis ? "this" : "base")}({Arguments(
+            arguments,
+            callee.ParameterTypes,
+            callee.ParameterRefKinds,
+            chainFidelityCasts: true,
+            unsafeExpressions: true)});";
     }
 
     bool IsImplicitParameterlessBaseCall(Call call)
