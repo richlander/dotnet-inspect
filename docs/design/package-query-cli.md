@@ -28,7 +28,10 @@ carries the required shared Share outcome and diagnostics. Package Query does
 not yet have a canonical Workspace packet projection, so its current Share
 outcome is explicitly non-projectable rather than a host-reconstructed URL.
 The internal event stream remains an execution mechanism for progressive
-Browser delivery, not the completed host-neutral handoff.
+Browser delivery, not the completed host-neutral handoff. The Browser facade
+retains a typed transport projection of the envelope's complete event content,
+Share outcome, and diagnostics through its Worker boundary; Browser state keeps
+that projection even though the current UI does not yet render Share metadata.
 Package-content evaluation is product-gated to at most 20 candidates.
 `PackageQueryTests` is its Release gate;
 `PackageQueryPlanner_IsReachableFromBrowserConsumer` is the Browser consumer

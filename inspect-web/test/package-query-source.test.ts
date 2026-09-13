@@ -9,7 +9,9 @@ import {
 } from "../src/package-query-source.ts";
 import {
   createAssemblyQueryRequest,
+  createPackageQueryController,
   createQueryRequest,
+  initialQueryState,
   withFacet,
   type QueryAssemblyAssessment,
   type QueryResultRow,
@@ -71,9 +73,35 @@ function succeeded(
   value: BrowserPackageQueryEvent,
 ): BrowserPackageQueryResult {
   return {
-    version: 1,
+    version: 2,
+    kind: "Succeeded",
+    value: null,
+    inspection: {
+      content: [value],
+      share: {
+        kind: "NonProjectable",
+        fullUrl: null,
+        packet: null,
+        path: "package-query/share",
+        reason: "No canonical Workspace packet.",
+      },
+      diagnostics: [],
+    },
+    failureKind: null,
+    error: null,
+    diagnostic: null,
+    reason: null,
+  };
+}
+
+function assemblySucceeded(
+  value: BrowserPackageQueryEvent,
+): BrowserPackageQueryResult {
+  return {
+    version: 2,
     kind: "Succeeded",
     value,
+    inspection: null,
     failureKind: null,
     error: null,
     diagnostic: null,
@@ -186,6 +214,91 @@ test("Browser source preserves the default stable-only selection", async () => {
       createQueryRequest(searchText),
       () => {}, () => {}, () => {}, new AbortController().signal);
   }
+});
+
+test("Browser source retains the Package Query inspection envelope", async () => {
+  const inspections: Array<
+    BrowserPackageQueryResult["inspection"]
+  > = [];
+  const engine: BrowserPackageQueryEngine = {
+    ...defaultControls,
+    async run() {
+      return succeeded(completionEvent);
+    },
+  };
+
+  const completion = await createBrowserPackageQueryDataSource(engine, {
+    onInspection: inspection => inspections.push(inspection),
+  }).run(
+    createQueryRequest("Contoso."),
+    () => {},
+    () => {},
+    () => {},
+    new AbortController().signal);
+
+  assert.deepEqual(completion, { kind: "exhausted" });
+  assert.equal(inspections.length, 2);
+  assert.equal(inspections[0], null);
+  assert.equal(inspections[1]?.content.at(-1)?.kind, "Completed");
+  assert.deepEqual(inspections[1]?.share, {
+    kind: "NonProjectable",
+    fullUrl: null,
+    packet: null,
+    path: "package-query/share",
+    reason: "No canonical Workspace packet.",
+  });
+});
+
+test("Browser source retains only validated current-generation inspection", async () => {
+  let retained: BrowserPackageQueryResult["inspection"] = null;
+  const malformedCompletion = {
+    ...completionEvent,
+    completion: {
+      ...completionEvent.completion!,
+      kind: "ExplicitCandidatesComplete" as const,
+      sourceCandidates: 2,
+      candidates: 1,
+      scope: "selector-issued candidates",
+    },
+  };
+  const malformedEngine: BrowserPackageQueryEngine = {
+    ...defaultControls,
+    async run() {
+      return succeeded(malformedCompletion);
+    },
+  };
+  await assert.rejects(
+    createBrowserPackageQueryDataSource(malformedEngine, {
+      onInspection: inspection => { retained = inspection; },
+    }).run(
+      createQueryRequest("Contoso."),
+      () => {},
+      () => {},
+      () => {},
+      new AbortController().signal),
+    /omitted its accounting or scope/);
+  assert.equal(retained, null);
+
+  const source = createBrowserPackageQueryDataSource({
+    ...defaultControls,
+    async run() {
+      return succeeded(completionEvent);
+    },
+  }, {
+    onInspection: inspection => { retained = inspection; },
+  });
+  const state = initialQueryState();
+  const controller = createPackageQueryController(
+    state,
+    source,
+    updateKind => {
+      if (updateKind === "reset") retained = null;
+    });
+  await controller.run(createQueryRequest("Contoso."));
+  assert.notEqual(retained, null);
+
+  controller.configure(createQueryRequest("Fabrikam."));
+  assert.equal(retained, null);
 });
 
 test("V3 metadata rows preserve unknown downloads and source-authored evidence", async () => {
@@ -494,7 +607,7 @@ test("Browser source dispatches assembly requests without package-search paramet
         20,
       ]);
       assert.ok(typeof args[6] === "object" && args[6] !== null);
-      return succeeded(assemblyCompletionEvent);
+      return assemblySucceeded(assemblyCompletionEvent);
     },
   };
   const completion = await createBrowserPackageQueryDataSource(engine).run(
@@ -526,7 +639,7 @@ test("explicit candidate completion requires finite complete accounting and scop
         return succeeded(completionEvent);
       },
       async runAssembly() {
-        return succeeded({ ...assemblyCompletionEvent, completion });
+        return assemblySucceeded({ ...assemblyCompletionEvent, completion });
       },
     };
     return await createBrowserPackageQueryDataSource(engine).run(
@@ -656,7 +769,7 @@ test("Browser source keeps assembly matches and assessments distinct", async () 
           rootRequest: assessmentRoot,
         },
       }));
-      return succeeded(assemblyCompletionEvent);
+      return assemblySucceeded(assemblyCompletionEvent);
     },
   };
 
@@ -752,7 +865,7 @@ test("assembly match rows require the opaque Root request", async () => {
         progress: null,
         assessment: null,
       }));
-      return succeeded(assemblyCompletionEvent);
+      return assemblySucceeded(assemblyCompletionEvent);
     },
   };
 
@@ -1036,9 +1149,10 @@ test("Browser source decodes managed failure and cancellation results", async ()
     ...defaultControls,
     async run() {
       return {
-        version: 1,
+        version: 2,
         kind: "Failed",
         value: null,
+        inspection: null,
         failureKind: "Unexpected",
         error: "managed package query failed",
         diagnostic: "diagnostic",
@@ -1090,9 +1204,10 @@ test("Browser source decodes managed failure and cancellation results", async ()
     ...defaultControls,
     async run() {
       return {
-        version: 1,
+        version: 2,
         kind: "Canceled",
         value: null,
+        inspection: null,
         failureKind: null,
         error: null,
         diagnostic: null,
@@ -1155,9 +1270,10 @@ test("Browser source reports unexpected failure after a superseded observer fail
   await Promise.resolve();
   abort.abort("superseded");
   settleManagedResult?.({
-    version: 1,
+    version: 2,
     kind: "Failed",
     value: null,
+    inspection: null,
     failureKind: "Unexpected",
     error: "managed package query failed",
     diagnostic: "managed diagnostic",

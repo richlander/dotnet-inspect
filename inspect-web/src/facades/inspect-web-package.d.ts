@@ -1,6 +1,7 @@
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 export type BrowserDependencyCoordinateMatchOutcome = "NoMatch" | "Unique" | "Ambiguous" | number;
 export type BrowserDependencyCoordinateProvenance = "NuGetPackage" | "PlatformRuntime" | number;
+export type BrowserInspectionShareKind = "Available" | "NonProjectable" | number;
 export type BrowserPackageAssemblyAssessmentKind = "NoMatch" | "NotApplicable" | number;
 export type BrowserPackageQueryCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
 export type BrowserPackageQueryCompletionKind = "Exhausted" | "MatchLimitReached" | "CandidateLimitReached" | "SourcePageLimitReached" | "ClientPageLimitReached" | "Failed" | "ExactPackageComplete" | "ExplicitCandidatesComplete" | number;
@@ -58,6 +59,19 @@ export interface BrowserDependencyCoordinateMatch {
 export interface BrowserExceptionSurface {
     readonly type: string;
     readonly description: string;
+}
+export interface BrowserInspectionDiagnostic {
+    readonly code: string;
+    readonly severity: string;
+    readonly summary: string;
+    readonly correspondence: string | null;
+}
+export interface BrowserInspectionShare {
+    readonly kind: BrowserInspectionShareKind;
+    readonly fullUrl: string | null;
+    readonly packet: string | null;
+    readonly path: string | null;
+    readonly reason: string | null;
 }
 export interface BrowserMemberBodySelector {
     readonly token: number;
@@ -212,6 +226,11 @@ export interface BrowserPackageQueryFailure {
     readonly kind: BrowserPackageQueryFailureKind;
     readonly message: string;
 }
+export interface BrowserPackageQueryInspection {
+    readonly content: ReadonlyArray<BrowserPackageQueryEvent>;
+    readonly share: BrowserInspectionShare;
+    readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
+}
 export interface BrowserPackageQueryMatchCreditResponse {
     readonly kind: BrowserPackageQueryMatchCreditKind;
     readonly additionalMatchCredit: number | null;
@@ -225,6 +244,7 @@ export interface BrowserPackageQueryResult {
     readonly version: number;
     readonly kind: BrowserPackageQueryResultKind;
     readonly value: BrowserPackageQueryEvent | null;
+    readonly inspection: BrowserPackageQueryInspection | null;
     readonly failureKind: BrowserPackageQueryOperationFailureKind | null;
     readonly error: string | null;
     readonly diagnostic: string | null;

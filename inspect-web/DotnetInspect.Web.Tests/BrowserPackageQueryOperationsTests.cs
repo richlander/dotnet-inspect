@@ -1,5 +1,7 @@
+using System.Collections.Immutable;
 using System.Runtime.Versioning;
 using System.Text.Json;
+using DotnetInspector.Core;
 using DotnetInspector.Queries;
 using DotnetInspector.SourceSelection;
 using InertText;
@@ -601,14 +603,86 @@ public sealed class BrowserPackageQueryOperationsTests
         await observer.ObserveAsync(
             completed,
             TestContext.Current.CancellationToken);
-        BrowserPackageQueryEvent terminal = observer.Complete(
-            [progress, completed]);
+        var envelope = new InspectionEnvelope<
+            ImmutableArray<PackageQueryEvent>>(
+                [progress, completed],
+                new InspectionShare.NonProjectable(
+                    "package-query/share",
+                    "No canonical Workspace packet."));
+        BrowserPackageQueryInspection inspection = observer.Complete(envelope);
 
-        Assert.Equal(BrowserPackageQueryEventKind.Completed, terminal.Kind);
+        Assert.Equal(
+            [
+                BrowserPackageQueryEventKind.Progress,
+                BrowserPackageQueryEventKind.Completed,
+            ],
+            inspection.Content.Select(queryEvent => queryEvent.Kind));
+        Assert.Equal(
+            BrowserInspectionShareKind.NonProjectable,
+            inspection.Share.Kind);
+        Assert.Equal("package-query/share", inspection.Share.Path);
+        Assert.Empty(inspection.Diagnostics);
         Assert.Single(emitted);
         Assert.Equal(
             BrowserPackageQueryEventKind.Progress,
             emitted[0].Kind);
+    }
+
+    [Fact]
+    public void PackageQueryResultPreservesInspectionEnvelopeProjection()
+    {
+        var completed = new BrowserPackageQueryEvent(
+            BrowserPackageQueryEventKind.Completed,
+            Row: null,
+            Failure: null,
+            Completion: new BrowserPackageQueryCompletion(
+                "Contoso.",
+                PackageProducerIdentity.NuGetOrg.Display.ToString(),
+                CandidateLimit: 20,
+                MatchLimit: 20,
+                Candidates: 0,
+                Matches: 0,
+                Failures: 0,
+                BrowserPackageQueryCompletionKind.Exhausted));
+        var inspection = new BrowserPackageQueryInspection(
+            [completed],
+            new BrowserInspectionShare(
+                BrowserInspectionShareKind.NonProjectable,
+                FullUrl: null,
+                Packet: null,
+                "package-query/share",
+                "No canonical Workspace packet."),
+            [
+                new BrowserInspectionDiagnostic(
+                    "package-query-note",
+                    "Information",
+                    "Package Query completed.",
+                    Correspondence: null),
+            ]);
+        var result = BrowserPackageQueryResult.From(
+            new BrowserManagedOperationResult<
+                BrowserPackageQueryInspection,
+                string,
+                string>.Succeeded(inspection));
+
+        string json = JsonSerializer.Serialize(
+            result,
+            BrowserPackageJsonContext.Default.BrowserPackageQueryResult);
+        BrowserPackageQueryResult? roundTripped = JsonSerializer.Deserialize(
+            json,
+            BrowserPackageJsonContext.Default.BrowserPackageQueryResult);
+
+        Assert.NotNull(roundTripped);
+        Assert.Equal(2, roundTripped.Version);
+        Assert.Null(roundTripped.Value);
+        Assert.NotNull(roundTripped.Inspection);
+        Assert.Equal(
+            inspection.Content,
+            roundTripped.Inspection.Content);
+        Assert.Equal(inspection.Share, roundTripped.Inspection.Share);
+        Assert.Equal(
+            inspection.Diagnostics,
+            roundTripped.Inspection.Diagnostics);
     }
 
     [Fact]

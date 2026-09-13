@@ -5,6 +5,7 @@ import type {
   BrowserPackageAssemblyAssessment,
   BrowserPackageQueryCompletion as BrowserPackageQueryCompletionPayload,
   BrowserPackageQueryFailure as BrowserPackageQueryFailurePayload,
+  BrowserPackageQueryInspection,
   BrowserPackageQueryProgress as BrowserPackageQueryProgressPayload,
   BrowserPackageQueryRow as BrowserPackageQueryRowPayload,
   BrowserPackageQueryEvent as BrowserPackageQueryEventPayload,
@@ -24,6 +25,7 @@ import type {
 import { PACKAGE_QUERY_INITIAL_MATCH_CREDIT } from "./package-query.ts";
 
 export type { BrowserPackageAssemblyQueryPattern } from "./facades/inspect-web-package.d.ts";
+export type { BrowserPackageQueryInspection } from "./facades/inspect-web-package.d.ts";
 
 export interface BrowserPackageQueryEngine {
   cancel(
@@ -58,6 +60,9 @@ export interface BrowserPackageQueryEngine {
 
 export interface BrowserPackageQueryDataSourceOptions {
   createOperationId?: () => string;
+  onInspection?: (
+    inspection: BrowserPackageQueryInspection | null,
+  ) => void;
   reportUnexpectedFailure?: (
     operationId: string,
     error: Error,
@@ -113,6 +118,7 @@ export function createBrowserPackageQueryDataSource(
         `Package Query managed operation '${operationId}' failed unexpectedly.`,
         diagnostic ?? error);
     });
+  const onInspection = options.onInspection ?? (() => {});
   return {
     initialMatchCredit: PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
     requestMore: async additionalMatchCredit => {
@@ -138,6 +144,7 @@ export function createBrowserPackageQueryDataSource(
           "The Browser package-query operation ID allocator returned no ID.");
       }
       activeOperationId = operationId;
+      onInspection(null);
 
       let completion: TerminalQueryCompletion | null = null;
       const flushState: {
@@ -229,7 +236,7 @@ export function createBrowserPackageQueryDataSource(
               eventSink);
         flushEvents();
         let unexpectedFailure: Error | null = null;
-        if (result.version === 1
+        if (result.version === 2
             && result.kind === "Failed"
             && result.failureKind === "Unexpected") {
           unexpectedFailure = new Error(
@@ -247,7 +254,7 @@ export function createBrowserPackageQueryDataSource(
           }
         }
         if (flushState.failed) throw flushState.error;
-        if (result.version !== 1) {
+        if (result.version !== 2) {
           throw new Error(
             "The Browser package-query result version is unsupported.");
         }
@@ -256,12 +263,31 @@ export function createBrowserPackageQueryDataSource(
           throw unexpectedFailure ?? new Error(
             result.error ?? "The Browser package query failed without an error.");
         }
-        if (result.kind !== "Succeeded" || result.value === null) {
+        if (result.kind !== "Succeeded") {
           throw new TypeError(
             "The Browser package-query result was not a supported terminal result.");
         }
         if (abortSignal.aborted) return { kind: "cancelled" };
-        const finalEvent = result.value;
+        let finalEvent: BrowserPackageQueryEventPayload;
+        if (request.assemblyPattern) {
+          if (result.value === null || result.inspection !== null) {
+            throw new TypeError(
+              "The Browser assembly-query result had invalid inspection data.");
+          }
+          finalEvent = result.value;
+        } else {
+          if (result.value !== null || result.inspection === null) {
+            throw new TypeError(
+              "The Browser package-query result did not contain its inspection envelope.");
+          }
+          const content = result.inspection.content;
+          const terminal = content.at(-1);
+          if (terminal?.kind !== "Completed") {
+            throw new TypeError(
+              "The Browser package-query inspection did not end with completion.");
+          }
+          finalEvent = terminal;
+        }
         if (finalEvent.kind !== "Completed") {
           throw new TypeError(
             "The Browser package-query result was not a terminal event.");
@@ -273,12 +299,17 @@ export function createBrowserPackageQueryDataSource(
           onProgress,
           onAssessment,
           terminal => { completion = terminal; });
-        return completion
-          ?? {
+        if (completion === null) {
+          return {
             kind: "failed",
             reason:
               "The Browser package-query stream ended without a completion event.",
           };
+        }
+        if (!request.assemblyPattern) {
+          onInspection(result.inspection);
+        }
+        return completion;
       } catch (error) {
         flushEvents();
         if (flushState.failed) throw flushState.error;
