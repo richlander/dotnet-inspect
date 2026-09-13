@@ -1,5 +1,4 @@
 using DotnetInspect.Cli.CommandLine;
-using DotnetInspector.Core;
 using ILInspector.Metadata;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;

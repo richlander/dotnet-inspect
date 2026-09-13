@@ -5,7 +5,6 @@ using System.Text.Json;
 using System.Xml.Linq;
 using System.Runtime.InteropServices;
 using System.Reflection.Metadata;
-using DotnetInspector.Core;
 using DotnetInspector.DependencyManifests;
 using DotnetInspector.Packages;
 using ILInspector.Metadata;

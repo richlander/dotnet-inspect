@@ -247,12 +247,11 @@ internal static class UnsafeAwaitOperand
     internal static bool MethodRequiresUnsafe(
         MethodRef method,
         bool usesUpdatedMemorySafetyRules)
-        => method.RequiresUnsafe
-            ? usesUpdatedMemorySafetyRules
-            : method.RequiresUnsafeFact == MetadataFactState.Yes
-                || method.RequiresUnsafeFact == MetadataFactState.Unknown
-                    && (ContainsPointer(method.ReturnType)
-                        || method.ParameterTypes.Any(ContainsPointer));
+        => MethodMemorySafetyContract.RequiresUnsafe(
+            method,
+            usesUpdatedMemorySafetyRules,
+            ContainsPointer(method.ReturnType)
+                || method.ParameterTypes.Any(ContainsPointer));
 
     static bool CallRendersPointerDereference(Call call)
     {

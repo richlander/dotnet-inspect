@@ -14,8 +14,6 @@ using Inspector.Findings;
 using ILInspector.Metadata;
 using Markout;
 
-using Core = DotnetInspector.Core;
-
 namespace DotnetInspect.Cli.Commands;
 
 public static class TimelineCommand

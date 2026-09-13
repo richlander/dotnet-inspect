@@ -1,4 +1,3 @@
-using DotnetInspector.Core;
 using DotnetInspector.RowSelection;
 
 namespace DotnetInspector.Sections;

@@ -62,7 +62,10 @@ static class SpilledReceiverFold
     /// current <see cref="CountPlaces"/> snapshot — a consumer that folds to a
     /// fixpoint must recompute it between folds because a fold moves loads.
     /// <paramref name="stackSlotsOnly"/> prevents the run from consuming an
-    /// adjacent user local. <paramref name="orderSensitiveArguments"/> names
+    /// adjacent user local. <paramref name="allowInArgumentAddressSpills"/>
+    /// admits the compiler's single-use local-address lowering for an
+    /// <c>in</c> rvalue only when that address is a direct sink argument.
+    /// <paramref name="orderSensitiveArguments"/> names
     /// parameter slots whose address escapes or whose value is reassigned, so a
     /// moved effect cannot cross a read that it may change.
     /// </summary>
@@ -73,6 +76,7 @@ static class SpilledReceiverFold
         PassContext context,
         string stepLabel,
         bool stackSlotsOnly = false,
+        bool allowInArgumentAddressSpills = false,
         IReadOnlySet<int>? orderSensitiveArguments = null)
     {
         if (statement.Parent is not Block block)
@@ -85,7 +89,11 @@ static class SpilledReceiverFold
         {
             if (stackSlotsOnly && block.Children[i] is not StoreStackSlot)
                 break;
-            if (SpillLoadInside(block.Children[i], sink, usage) is not { } load)
+            if (SpillLoadInside(
+                    block.Children[i],
+                    sink,
+                    usage,
+                    allowInArgumentAddressSpills) is not { } load)
                 break;
             run.Add((block.Children[i], load, (IrExpression)block.Children[i].Children[0]));
         }
@@ -208,9 +216,17 @@ static class SpilledReceiverFold
     static bool IsReorderTrivial(IrExpression value)
         => value is Constant or SizeOf or LoadToken;
 
-    /// <summary>The single load of <paramref name="node"/> when it is a single-use
-    /// spill store whose load sits inside <paramref name="call"/>; otherwise null.</summary>
-    public static IrNode? SpillLoadInside(IrNode node, IrExpression call, IReadOnlyDictionary<(bool IsSlot, int Index), Place> usage)
+    /// <summary>
+    /// The sole value read of <paramref name="node"/> when it is a single-use
+    /// spill store whose read sits inside <paramref name="call"/>. When explicitly
+    /// enabled, the compiler's sole direct <c>in</c>-argument address read is the
+    /// equivalent value consumer. Any other address use remains a decline.
+    /// </summary>
+    public static IrNode? SpillLoadInside(
+        IrNode node,
+        IrExpression call,
+        IReadOnlyDictionary<(bool IsSlot, int Index), Place> usage,
+        bool allowInArgumentAddressSpills = false)
     {
         (bool IsSlot, int Index)? key = node switch
         {
@@ -220,13 +236,22 @@ static class SpilledReceiverFold
         };
         if (key is not { } place
             || !usage.TryGetValue(place, out var record)
-            || record.AddressTaken
-            || record.Stores != 1
-            || record.Loads.Count != 1)
+            || record.Stores != 1)
         {
             return null;
         }
-        var load = record.Loads[0];
+        IrNode? load = record switch
+        {
+            { AddressTaken: false, Loads.Count: 1 } => record.Loads[0],
+            { Loads.Count: 0, Addresses.Count: 1 }
+                when allowInArgumentAddressSpills
+                    && call is Call sink
+                    && IsDirectInArgument(record.Addresses[0], sink)
+                => record.Addresses[0],
+            _ => null,
+        };
+        if (load is null)
+            return null;
         if (!ReferenceOwnership.IsInside(load, call))
             return null;
 
@@ -239,6 +264,23 @@ static class SpilledReceiverFold
         // own slot numbering. Since lambda raising, a captured outer local prints as
         // an in-body load of that local, so this shape is reachable; decline it.
         return CrossesNestedFunctionBoundary(load, call) ? null : load;
+    }
+
+    static bool IsDirectInArgument(IrNode address, Call call)
+    {
+        int receiverCount = call.Callee.HasThis ? 1 : 0;
+        for (int i = receiverCount; i < call.Arguments.Count; i++)
+        {
+            if (!ReferenceEquals(call.Arguments[i], address))
+                continue;
+            int parameterIndex = i - receiverCount;
+            return parameterIndex < call.Callee.ParameterTypes.Length
+                && call.Callee.ParameterTypes[parameterIndex].Kind == TypeRefKind.ByRef
+                && call.Callee.ParameterRefKindsFacts == ParameterRefKindFacts.Known
+                && parameterIndex < call.Callee.ParameterRefKinds.Length
+                && call.Callee.ParameterRefKinds[parameterIndex] == ArgumentRefKind.In;
+        }
+        return false;
     }
 
     /// <summary>
@@ -293,7 +335,7 @@ static class SpilledReceiverFold
             {
                 case LoadLocal load: Entry(false, load.Index).Loads.Add(load); break;
                 case StoreLocal store: Entry(false, store.Index).Stores++; break;
-                case LoadLocalAddress address: Entry(false, address.Index).AddressTaken = true; break;
+                case LoadLocalAddress address: Entry(false, address.Index).Addresses.Add(address); break;
                 case LoadStackSlot load: Entry(true, load.Slot).Loads.Add(load); break;
                 case StoreStackSlot store: Entry(true, store.Slot).Stores++; break;
             }
@@ -304,7 +346,8 @@ static class SpilledReceiverFold
     public sealed class Place
     {
         public List<IrNode> Loads { get; } = [];
+        public List<IrNode> Addresses { get; } = [];
         public int Stores { get; set; }
-        public bool AddressTaken { get; set; }
+        public bool AddressTaken => Addresses.Count != 0;
     }
 }

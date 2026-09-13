@@ -4,7 +4,6 @@ using System.Runtime.Versioning;
 using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using DotnetInspector.Core;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;

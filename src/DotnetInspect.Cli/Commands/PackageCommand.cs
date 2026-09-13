@@ -1,5 +1,4 @@
 using DotnetInspect.Cli.Models;
-using DotnetInspector.Core;
 using ILInspector.Metadata;
 using System.Text.Json;
 using System.Text.Json.Serialization;

@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 
-using DotnetInspector.Core;
 using DotnetInspector.Packages;
 using NuGetFetch;
 

@@ -1,12 +1,12 @@
 using System.Text;
 
-namespace DotnetInspector.Core;
+namespace DotnetInspect.Cli;
 
 /// <summary>
 /// A TextWriter wrapper that counts characters written to the underlying writer.
 /// Used by <see cref="InfoTracker"/> to measure output volume.
 /// </summary>
-public sealed class CountingTextWriter : TextWriter
+internal sealed class CountingTextWriter : TextWriter
 {
     private readonly TextWriter _inner;
     private long _charCount;

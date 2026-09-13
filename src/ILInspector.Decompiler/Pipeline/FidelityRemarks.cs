@@ -59,7 +59,7 @@ public static class FidelityRemarks
             {
                 if (evidence.Method is MethodRef method
                     && reportedMethods.Add(method)
-                    && HasInvalidMemorySafetyEvidence(method))
+                    && MethodMemorySafetyContract.HasInvalidEvidence(method))
                 {
                     string contractState = method.MemorySafetyRulesUnavailable
                         ? "unavailable module rules"
@@ -236,14 +236,6 @@ public static class FidelityRemarks
                 DecompilerFidelityDiscriminators.PinnedLocal);
         }
     }
-
-    static bool HasInvalidMemorySafetyEvidence(MethodRef method)
-        => method.MemorySafetyRulesState is
-                MemorySafetyRulesState.Unsupported
-                    or MemorySafetyRulesState.Malformed
-                    or MemorySafetyRulesState.Conflicting
-            || method.MemorySafetyRulesUnavailable
-            || method.MemorySafetyContractUnavailable;
 
     static DecompilerFidelityCause Cause(
         string code,
