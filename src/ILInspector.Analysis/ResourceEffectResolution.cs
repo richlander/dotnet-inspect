@@ -3294,92 +3294,124 @@ public static class ResourceEffectResolver
         other switch
         {
             ResourceEffect.Borrow borrow =>
-                (BoundLocationEquals(
+                (BoundApplicabilityLocationEquals(
                         otherEffect,
                         borrow.Source,
+                        borrow.Kind,
                         independenceEffect,
-                        independence.Source)
-                    && BoundLocationEquals(
+                        independence.Source,
+                        directRight: null)
+                    && BoundApplicabilityLocationEquals(
                         otherEffect,
                         borrow.Target,
+                        borrow.Kind,
                         independenceEffect,
-                        independence.Target))
-                || (BoundOptionalLocationEquals(
+                        independence.Target,
+                        directRight: null))
+                || (BoundOptionalApplicabilityLocationEquals(
                         otherEffect,
                         borrow.Lender,
+                        borrow.Kind,
                         independenceEffect,
-                        independence.Source)
-                    && BoundLocationEquals(
+                        independence.Source,
+                        directRight: null)
+                    && BoundApplicabilityLocationEquals(
                         otherEffect,
                         borrow.Target,
+                        borrow.Kind,
                         independenceEffect,
-                        independence.Target)),
+                        independence.Target,
+                        directRight: null)),
             ResourceEffect.Derive derive =>
-                BoundLocationEquals(
+                BoundApplicabilityLocationEquals(
                     otherEffect,
                     derive.Source,
+                    directLeft: null,
                     independenceEffect,
-                    independence.Source)
-                && BoundLocationEquals(
+                    independence.Source,
+                    directRight: null)
+                && BoundApplicabilityLocationEquals(
                     otherEffect,
                     derive.Target,
+                    directLeft: null,
                     independenceEffect,
-                    independence.Target),
+                    independence.Target,
+                    directRight: null),
             ResourceEffect.Pass pass =>
-                BoundLocationEquals(
+                BoundApplicabilityLocationEquals(
                     otherEffect,
                     pass.Source,
+                    directLeft: null,
                     independenceEffect,
-                    independence.Source)
-                && BoundLocationEquals(
+                    independence.Source,
+                    directRight: null)
+                && BoundApplicabilityLocationEquals(
                     otherEffect,
                     pass.Target,
+                    directLeft: null,
                     independenceEffect,
-                    independence.Target),
+                    independence.Target,
+                    directRight: null),
             ResourceEffect.Move move =>
-                BoundLocationEquals(
+                BoundApplicabilityLocationEquals(
                     otherEffect,
                     move.Source,
+                    move.Kind,
                     independenceEffect,
-                    independence.Source)
-                && BoundLocationEquals(
+                    independence.Source,
+                    directRight: null)
+                && BoundApplicabilityLocationEquals(
                     otherEffect,
                     move.Target,
+                    move.Kind,
                     independenceEffect,
-                    independence.Target),
+                    independence.Target,
+                    directRight: null),
             ResourceEffect.Consume consume =>
-                BoundLocationEquals(
+                BoundApplicabilityLocationEquals(
                     otherEffect,
                     consume.Source,
+                    consume.Kind,
                     independenceEffect,
-                    independence.Source)
-                && BoundLocationEquals(
+                    independence.Source,
+                    directRight: null)
+                && BoundApplicabilityLocationEquals(
                     otherEffect,
                     consume.Target,
+                    consume.Kind,
                     independenceEffect,
-                    independence.Target),
+                    independence.Target,
+                    directRight: null),
             ResourceEffect.Accept accept =>
-                BoundLocationEquals(
+                BoundApplicabilityLocationEquals(
                     otherEffect,
                     accept.Source,
+                    accept.Kind,
                     independenceEffect,
-                    independence.Source)
-                && BoundLocationEquals(
+                    independence.Source,
+                    directRight: null)
+                && BoundApplicabilityLocationEquals(
                     otherEffect,
                     accept.Target,
+                    accept.Kind,
                     independenceEffect,
-                    independence.Target),
+                    independence.Target,
+                    directRight: null),
             ResourceEffect.Acquire acquire =>
-                BoundOptionalLocationEquals(
+                BoundOptionalApplicabilityLocationEquals(
                     otherEffect,
                     acquire.Lender,
+                    acquire.Kind,
                     independenceEffect,
-                    independence.Source)
-                && BoundLocationEquals(
+                    independence.Source,
+                    directRight: null)
+                && BoundApplicabilityLocationEquals(
                     otherEffect,
                     acquire.Target,
+                    acquire.Kind,
                     independenceEffect,
-                    independence.Target),
+                    independence.Target,
+                    directRight: null),
             _ => false,
         };
 
@@ -3832,6 +3864,53 @@ public static class ResourceEffectResolver
                     left,
                     rightEffect,
                     right);
+
+    static bool BoundOptionalApplicabilityLocationEquals(
+        ResolvedResourceEffect leftEffect,
+        ResourceEffectLocation? left,
+        ResourceKindReference? directLeft,
+        ResolvedResourceEffect rightEffect,
+        ResourceEffectLocation? right,
+        ResourceKindReference? directRight) =>
+        left is null
+            ? right is null
+            : right is not null
+                && BoundApplicabilityLocationEquals(
+                    leftEffect,
+                    left,
+                    directLeft,
+                    rightEffect,
+                    right,
+                    directRight);
+
+    static bool BoundApplicabilityLocationEquals(
+        ResolvedResourceEffect leftEffect,
+        ResourceEffectLocation left,
+        ResourceKindReference? directLeft,
+        ResolvedResourceEffect rightEffect,
+        ResourceEffectLocation right,
+        ResourceKindReference? directRight)
+    {
+        if (!BoundTransitionLocationEquals(
+                leftEffect,
+                left,
+                rightEffect,
+                right)
+            || !TryEffectiveKind(
+                leftEffect,
+                directLeft,
+                left,
+                out ResolvedResourceKindReference? leftKind)
+            || !TryEffectiveKind(
+                rightEffect,
+                directRight,
+                right,
+                out ResolvedResourceKindReference? rightKind))
+        {
+            return false;
+        }
+        return KindDomainsOverlap(leftKind, rightKind);
+    }
 
     static bool BoundTransitionLocationEquals(
         ResolvedResourceEffect leftEffect,

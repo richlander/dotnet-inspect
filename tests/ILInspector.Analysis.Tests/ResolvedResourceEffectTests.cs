@@ -2011,6 +2011,44 @@ public sealed class ResolvedResourceEffectTests
                         [Provenance(name, 2)]),
                 ]);
         }
+        ResourceEffectModelDefinition IndependenceModel(
+            string name,
+            ResourceKindReference? effectKind,
+            bool independent)
+        {
+            ResourceEffectLocation.OperationSlot slot =
+                new(operationSource, effectKind);
+            return new(
+                ResourceEffectLanguageIdentity.Version1,
+                new ResourceEffectModelIdentity(name),
+                [
+                    new ResourceKindDefinition(
+                        ArrayPoolResourceEffectModel.BufferKind,
+                        1,
+                        [Provenance(name, 0)]),
+                ],
+                [],
+                [
+                    new ResourceEffectTypedDeclaration(
+                        target,
+                        new ResourceEffect.Consume(
+                            operationSource,
+                            slot,
+                            effectKind),
+                        [Provenance(name, 1)]),
+                    new ResourceEffectTypedDeclaration(
+                        target,
+                        independent
+                            ? new ResourceEffect.Independent(
+                                slot,
+                                new ResourceEffectLocation.Receiver())
+                            : new ResourceEffect.Pass(
+                                slot,
+                                new ResourceEffectLocation.Receiver(),
+                                Identity: null),
+                        [Provenance(name, 2)]),
+                ]);
+        }
         ResourceEffectResolutionOutcome.Complete complete =
             Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
                 Resolve(
@@ -2071,6 +2109,18 @@ public sealed class ResolvedResourceEffectTests
                                 effect =>
                                     effect.Effect.GetType().Name))
                     : outcomeWithCompletion.GetType().Name);
+
+        Assert.IsType<ResourceEffectResolutionOutcome.Conflict>(
+            Resolve(
+                Admit(
+                    IndependenceModel(
+                        "example.independent-slot-all-kinds",
+                        effectKind: null,
+                        independent: true),
+                    IndependenceModel(
+                        "example.pass-slot-buffer-kind",
+                        kind,
+                        independent: false))));
 
         Assert.IsType<ResourceEffectResolutionOutcome.Conflict>(
             Resolve(
