@@ -14554,17 +14554,17 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("3")]
+    [InlineData("..3")]
     [InlineData("2..10")]
-    [InlineData("2+10")]
+    [InlineData("2..11")]
     [InlineData("1..1")]
     public async Task Find_RowWindowUnderProjectedJson_MatchesTheTableFormats(string window)
     {
         // #3494: --rows is a Shape decision, so it has to survive the change of Format. It is
-        // applied by Markout before rows reach any formatter rather than by a line-oriented
+        // applied to semantic rows before they reach any formatter rather than by a line-oriented
         // post-processor -- counting lines is only safe when one row is one line, which a
-        // pretty-printed JSON document violates. Every window kind is covered because Markout,
-        // not the caller, decides what head/range/start+count mean.
+        // pretty-printed JSON document violates. Prefix, closed, and single-row ranges therefore
+        // select the same identities in each format.
         var (tsvExit, tsvOutput, _) = await RunAppAsync(
             "find", "*", "--library", TestAssemblyPath, "--columns", "Type", "--tsv", "--rows", window);
         var (jsonExit, jsonOutput, _) = await RunAppAsync(
@@ -14589,14 +14589,14 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Find_RowWindowUnderProjectedJson_KeepsTheDocumentParsable()
     {
-        // A window that selects nothing must still be a JSON document. The table formats emit an
-        // empty string here; JSON cannot, because "no bytes" is not a value a consumer can parse.
+        // A one-row semantic window remains a complete JSON document rather than becoming a
+        // line-oriented fragment of the pretty-printed representation.
         var (exit, output, _) = await RunAppAsync(
-            "find", "*", "--library", TestAssemblyPath, "--columns", "Type", "--json", "--rows", "100000..");
+            "find", "*", "--library", TestAssemblyPath, "--columns", "Type", "--json", "--rows", "1..1");
 
         Assert.Equal(0, exit);
         using var document = JsonDocument.Parse(output);
-        Assert.Empty(document.RootElement.GetProperty("results").EnumerateArray());
+        Assert.Single(document.RootElement.GetProperty("results").EnumerateArray());
     }
 
     [Fact]
@@ -14663,9 +14663,9 @@ public partial class CommandExecutionTests
         // The member search reaches the lowered view through a separate call site; a fix applied to
         // only one of the two would leave --rows silently dropped on the other.
         var (tsvExit, tsvOutput, _) = await RunAppAsync(
-            "find", "Dispose", "--members", "--library", TestAssemblyPath, "--columns", "Member", "--tsv", "--rows", "2");
+            "find", "Dispose", "--members", "--library", TestAssemblyPath, "--columns", "Member", "--tsv", "--rows", "1..2");
         var (jsonExit, jsonOutput, _) = await RunAppAsync(
-            "find", "Dispose", "--members", "--library", TestAssemblyPath, "--columns", "Member", "--json", "--rows", "2");
+            "find", "Dispose", "--members", "--library", TestAssemblyPath, "--columns", "Member", "--json", "--rows", "1..2");
 
         Assert.Equal(0, tsvExit);
         Assert.Equal(0, jsonExit);
@@ -15158,10 +15158,10 @@ public partial class CommandExecutionTests
     {
         var find = await RunAppAsync(
             "find", "*", "--platform", "System.Private.CoreLib",
-            "--count", "--rows", "1", "--tips", "q");
+            "--count", "--rows", "1..1", "--tips", "q");
         var members = await RunAppAsync(
             "find", ".ToString", "--platform", "System.Private.CoreLib",
-            "--count", "--rows", "1", "--tips", "q");
+            "--count", "--rows", "1..1", "--tips", "q");
         var implements = await RunAppAsync(
             "implements", "IDisposable", "--platform", "System.Private.CoreLib",
             "--count", "--rows", "1", "--tips", "q");
