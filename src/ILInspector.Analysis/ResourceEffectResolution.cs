@@ -2266,10 +2266,15 @@ public static class ResourceEffectResolver
         {
             return false;
         }
-        TypeRef declaring = member.DeclaringType.Kind
-                == TypeRefKind.GenericInstance
-            ? member.DeclaringType.ElementType!
-            : member.DeclaringType;
+        TypeRef declaring = member.DeclaringType;
+        if (declaring.Kind == TypeRefKind.GenericInstance)
+        {
+            if (declaring.ElementType is null)
+                return true;
+            declaring = declaring.ElementType;
+        }
+        if (declaring.Kind == TypeRefKind.Unsupported)
+            return true;
         return string.Equals(
                 selector.DeclaringType.Namespace,
                 declaring.Namespace,

@@ -859,6 +859,31 @@ public sealed class ResolvedResourceEffectTests
     }
 
     [Fact]
+    public void UnsupportedDeclaringTypeIsNotUnmatched()
+    {
+        const string AssemblyName = "UnsupportedDeclaringType";
+        ResourceEffectResolutionOutcome.Incomplete incomplete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Incomplete>(
+                ResolveSynthetic(
+                    BuildUnsupportedDeclaringTypeCallAssembly(
+                        AssemblyName),
+                    AssemblyName,
+                    SyntheticMethodModel(
+                        AssemblyName,
+                        "Target",
+                        ResourceEffectMemberKind.Method,
+                        parameters: [])));
+
+        Assert.Empty(incomplete.Effects);
+        Assert.Contains(
+            incomplete.Evaluations.SelectMany(
+                evaluation => evaluation.Gaps),
+            gap =>
+                gap.Kind
+                    == ResourceEffectResolutionGapKind.UnsupportedSignature);
+    }
+
+    [Fact]
     public void ProvenanceAssociationWorkLimitIsVisible()
     {
         ResourceEffectTargetSelector target =
@@ -2915,6 +2940,99 @@ public sealed class ResolvedResourceEffectTests
                     eventTargetsCaller ? caller : target);
             }
         }
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildUnsupportedDeclaringTypeCallAssembly(
+        string assemblyName)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            metadata.GetOrAddString(assemblyName + ".dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(assemblyName),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: AssemblyHashAlgorithm.Sha1);
+        AssemblyReferenceHandle systemRuntime =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Runtime"),
+                new Version(11, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: metadata.GetOrAddBlob(
+                    Convert.FromHexString("b03f5f7f11d50a3a")),
+                flags: default,
+                hashValue: default);
+        TypeReferenceHandle objectType =
+            metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle owner = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Owner"),
+            baseType: objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var declaringSignature = new BlobBuilder();
+        for (int depth = 0;
+            depth <= SignatureBlobGuard.DefaultMaxDepth;
+            depth++)
+        {
+            declaringSignature.WriteByte(0x1D);
+        }
+        declaringSignature.WriteByte(0x12);
+        declaringSignature.WriteCompressedInteger(
+            MetadataTokens.GetRowNumber(owner) << 2);
+        TypeSpecificationHandle declaringType =
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(declaringSignature));
+        MemberReferenceHandle target =
+            metadata.AddMemberReference(
+                declaringType,
+                metadata.GetOrAddString("Target"),
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x00, 0x00, 0x01 }));
+
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        var callerIl = new BlobBuilder();
+        callerIl.WriteByte((byte)ILOpCode.Call);
+        callerIl.WriteInt32(MetadataTokens.GetToken(target));
+        callerIl.WriteByte((byte)ILOpCode.Ret);
+        int callerBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(callerIl));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Caller"),
+            metadata.GetOrAddBlob(
+                new byte[] { 0x00, 0x00, 0x01 }),
+            callerBody,
+            MetadataTokens.ParameterHandle(1));
 
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
