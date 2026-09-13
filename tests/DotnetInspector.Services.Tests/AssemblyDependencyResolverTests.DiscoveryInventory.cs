@@ -227,6 +227,83 @@ public partial class AssemblyDependencyResolverTests
     }
 
     [Fact]
+    public void CaptureDiscoveryInventory_DepsProjectAssetUsesApplicationRelativePath()
+    {
+        using var files = new DiscoveryFiles();
+        string project = files.Write(
+            "ProjectDependency.dll",
+            BuildAssembly("ProjectDependency", []));
+        files.WriteText("Target.deps.json", """
+            {"targets":{"net11.0":{"ProjectDependency/1.0.0":{"runtime":
+              {"lib/net11.0/ProjectDependency.dll":{}}}}},
+             "libraries":{"ProjectDependency/1.0.0":{"type":"project"}}}
+            """);
+        var resolver = new AssemblyDependencyResolver(files.Options with
+        {
+            IncludeDepsJsonAssets = true,
+        });
+
+        var inventory = Assert.IsType<AssemblyDependencyDiscoveryResult.Captured>(
+            resolver.CaptureDiscoveryInventory(TestContext.Current.CancellationToken));
+        var row = Assert.Single(inventory.Entries);
+        Assert.Equal(project, row.Dependency.Path);
+        Assert.Equal(
+            AssemblyDependencyProvenance.DepsJsonAsset,
+            row.Dependency.Provenance);
+        Assert.Equal(project, Acquired(row).Path);
+        Assert.Equal(project, Assert.Single(resolver.ResolveAll()).Path);
+    }
+
+    [Fact]
+    public void CaptureDiscoveryInventory_MissingDepsProjectAssetIsUnavailable()
+    {
+        using var files = new DiscoveryFiles();
+        string missing = Path.Combine(files.Root, "ProjectDependency.dll");
+        files.WriteText("Target.deps.json", """
+            {"targets":{"net11.0":{"ProjectDependency/1.0.0":{"runtime":
+              {"ProjectDependency.dll":{}}}}},
+             "libraries":{"ProjectDependency/1.0.0":{"type":"project"}}}
+            """);
+        var resolver = new AssemblyDependencyResolver(files.Options with
+        {
+            IncludeDepsJsonAssets = true,
+        });
+
+        var failure = Assert.IsType<AssemblyDependencyDiscoveryResult.Failed>(
+            resolver.CaptureDiscoveryInventory(TestContext.Current.CancellationToken));
+        var row = Assert.Single(failure.PartialEntries);
+        Assert.Equal(missing, row.Dependency.Path);
+        Assert.Equal(
+            CandidateOpenFailureKind.Unreadable,
+            Assert.IsType<AssemblyDependencyAcquisition.Unavailable>(
+                row.Acquisition).Failure.Kind);
+        Assert.Empty(resolver.ResolveAll());
+    }
+
+    [Fact]
+    public void CaptureDiscoveryInventory_RejectsEscapingDepsProjectAssetPath()
+    {
+        using var files = new DiscoveryFiles();
+        files.WriteText("Target.deps.json", """
+            {"targets":{"net11.0":{"ProjectDependency/1.0.0":{"runtime":
+              {"../ProjectDependency.dll":{}}}}},
+             "libraries":{"ProjectDependency/1.0.0":{"type":"project"}}}
+            """);
+        var resolver = new AssemblyDependencyResolver(files.Options with
+        {
+            IncludeDepsJsonAssets = true,
+        });
+
+        var failure = Assert.IsType<AssemblyDependencyDiscoveryResult.Failed>(
+            resolver.CaptureDiscoveryInventory(TestContext.Current.CancellationToken));
+        Assert.Empty(failure.PartialEntries);
+        Assert.Equal(
+            AssemblyDependencyDiscoveryFailureKind.InvalidDocument,
+            Assert.Single(failure.DiscoveryFailures).Kind);
+        Assert.Empty(resolver.ResolveAll());
+    }
+
+    [Fact]
     public void CaptureDiscoveryInventory_DepsAssetWithoutPhysicalLocationIsOneUnavailableRow()
     {
         using var files = new DiscoveryFiles();
@@ -560,6 +637,30 @@ public partial class AssemblyDependencyResolverTests
     {
         using var files = new DiscoveryFiles();
         var resolver = new AssemblyDependencyResolver(DiscoveryDocumentOptions(files, document, content));
+        Assert.Empty(resolver.ResolveAll());
+        var failed = Assert.IsType<AssemblyDependencyDiscoveryResult.Failed>(
+            resolver.CaptureDiscoveryInventory(TestContext.Current.CancellationToken));
+        Assert.Empty(failed.PartialEntries);
+        Assert.Equal(AssemblyDependencyDiscoveryFailureKind.InvalidDocument,
+            Assert.Single(failed.DiscoveryFailures).Kind);
+    }
+
+    public static TheoryData<string> RejectedProjectPackagePaths => new()
+    {
+        { """{"targets":{"net10.0":{"P/1.0.0":{"runtime":{"P.dll":{}}}}},"libraries":{"P/1.0.0":{"type":"project","path":null}}}""" },
+        { """{"targets":{"net10.0":{"P/1.0.0":{"runtime":{"P.dll":{}}}}},"libraries":{"P/1.0.0":{"type":"project","path":""}}}""" },
+    };
+
+    [Theory]
+    [MemberData(nameof(RejectedProjectPackagePaths))]
+    public void CaptureDiscoveryInventory_RejectsProjectPackagePathWithoutEnablingApplicationFallback(
+        string content)
+    {
+        using var files = new DiscoveryFiles();
+        files.Write("P.dll", BuildAssembly("P", []));
+        var resolver = new AssemblyDependencyResolver(
+            DiscoveryDocumentOptions(files, "deps", content));
+
         Assert.Empty(resolver.ResolveAll());
         var failed = Assert.IsType<AssemblyDependencyDiscoveryResult.Failed>(
             resolver.CaptureDiscoveryInventory(TestContext.Current.CancellationToken));
