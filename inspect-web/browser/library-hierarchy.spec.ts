@@ -3886,6 +3886,48 @@ test("Spotlight backdrop dismissal restores an open Chooser", async ({
   expect(page.url()).toBe(url);
 });
 
+test("Chooser horizontal arrows do not commit workspace navigation", async ({
+  page,
+}) => {
+  await installFacades(page);
+  await page.goto(root);
+  await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+  await page.setViewportSize({ width: 390, height: 900 });
+
+  const url = page.url();
+  const overview = inspectorTab(page, "data-library-lens", "overview");
+  const inspectorTrigger =
+    page.locator("[data-navigation-trigger='inspector']");
+  const inspectorMenu = page.locator("#inspector-navigation-menu");
+  await inspectorTrigger.click();
+  const references =
+    inspectorMenu.getByRole("menuitemradio", { name: "References" });
+  await references.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(references).toBeFocused();
+  await expect(inspectorMenu).toBeVisible();
+  await expect(overview).toHaveAttribute("aria-selected", "true");
+  expect(page.url()).toBe(url);
+  await page.keyboard.press("Escape");
+
+  const subjectTrigger =
+    page.locator("[data-navigation-trigger='subject']");
+  const subjectMenu = page.locator("#subject-navigation-menu");
+  await subjectTrigger.click();
+  const typeItem = subjectMenu.getByRole("menuitemradio", { name: "Type" });
+  await typeItem.focus();
+  await page.keyboard.press("ArrowLeft");
+  await expect(typeItem).toBeFocused();
+  await expect(subjectMenu).toBeVisible();
+  await expect(subjectTab(page, "library"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(overview).toHaveAttribute("aria-selected", "true");
+  expect(page.url()).toBe(url);
+  await page.keyboard.press("Escape");
+  await expect(subjectMenu).toBeHidden();
+  await expect(subjectTrigger).toBeFocused();
+});
+
 for (const [command, dialog] of [
   ["settings", "#settings-dialog"],
   ["keyboard help", "#keyboard-help-dialog"],

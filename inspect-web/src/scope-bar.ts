@@ -1211,6 +1211,10 @@ class ScopeBarController implements ScopeBarBinding {
       group.menuItems[targetIndex]?.focus();
       return;
     }
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      event.preventDefault();
+      return;
+    }
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       item.click();
