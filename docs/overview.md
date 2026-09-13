@@ -114,6 +114,13 @@ substrates, and inspection producers that will extend that space.
   locator with CLI/browser subject capabilities; lower owners retain
   acquisition, Workspace, metadata, Analysis, graph and sharing contracts.
   The proposed
+  [Reverse Type-Declaration Locator](design/reverse-type-declaration-locator.md)
+  owns finite-population declaration discovery as detached exact Library
+  coordinates, structured Metadata names, declaration kinds, observation
+  contexts and coverage. It does not select a type binding; its
+  [delivery map](design/reverse-type-locator-adoption.md) stages producer and
+  CLI/browser adoption separately.
+  The proposed
   [structural clone search scope](design/structural-clone-search-scope.md)
   owner defines Library, Type, and Member seed populations plus the shared
   `Self`, `SelfAndRegisteredEcosystems`, and `Everything` candidate breadth
