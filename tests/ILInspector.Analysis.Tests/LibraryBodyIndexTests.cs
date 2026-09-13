@@ -16668,6 +16668,122 @@ public class LibraryBodyIndexTests
         Assert.Equal(1, CountMethodReferenceResolutions(image));
     }
 
+    [Fact]
+    public void MethodReference_MethodDefinitionParentRequiresVarargSignature()
+    {
+        MemberReferenceHandle memberReference = default;
+        byte[] image = EmitAssembly(
+            "InvalidMethodDefinitionParent",
+            metadata =>
+            {
+                TypeDefinitionHandle type = metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("Owner"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(1));
+                var signature = new BlobBuilder();
+                signature.WriteByte(
+                    (byte)SignatureCallingConvention.Default);
+                signature.WriteByte(0);
+                signature.WriteByte((byte)SignatureTypeCode.Void);
+                BlobHandle signatureHandle =
+                    metadata.GetOrAddBlob(signature);
+                MethodDefinitionHandle method =
+                    metadata.AddMethodDefinition(
+                        MethodAttributes.Public
+                            | MethodAttributes.Static,
+                        MethodImplAttributes.IL,
+                        metadata.GetOrAddString("Target"),
+                        signatureHandle,
+                        bodyOffset: 0,
+                        MetadataTokens.ParameterHandle(1));
+                memberReference = metadata.AddMemberReference(
+                    method,
+                    metadata.GetOrAddString("Target"),
+                    signatureHandle);
+            });
+        using var stream = new MemoryStream(image);
+        using var peReader = new PEReader(stream);
+
+        MemberRef resolved = MemberResolver.ResolveMethod(
+            peReader.GetMetadataReader(),
+            memberReference,
+            GenericScope.Empty);
+
+        Assert.Equal(MemberKind.Unsupported, resolved.Kind);
+    }
+
+    [Fact]
+    public void MethodReferenceCacheDistinguishesMethodDefinitionParents()
+    {
+        MemberReferenceHandle firstReference = default;
+        MemberReferenceHandle secondReference = default;
+        MethodDefinitionHandle firstMethod = default;
+        byte[] image = EmitAssembly(
+            "DistinctMethodDefinitionParents",
+            metadata =>
+            {
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("Owner"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(1));
+                var signature = new BlobBuilder();
+                signature.WriteByte(
+                    (byte)SignatureCallingConvention.VarArgs);
+                signature.WriteByte(1);
+                signature.WriteByte((byte)SignatureTypeCode.Void);
+                signature.WriteByte((byte)SignatureTypeCode.Int32);
+                BlobHandle signatureHandle =
+                    metadata.GetOrAddBlob(signature);
+                firstMethod = metadata.AddMethodDefinition(
+                    MethodAttributes.Public | MethodAttributes.Static,
+                    MethodImplAttributes.IL,
+                    metadata.GetOrAddString("Target"),
+                    signatureHandle,
+                    bodyOffset: 0,
+                    MetadataTokens.ParameterHandle(1));
+                MethodDefinitionHandle secondMethod =
+                    metadata.AddMethodDefinition(
+                        MethodAttributes.Public
+                            | MethodAttributes.Static,
+                        MethodImplAttributes.IL,
+                        metadata.GetOrAddString("Target"),
+                        signatureHandle,
+                        bodyOffset: 0,
+                        MetadataTokens.ParameterHandle(1));
+                firstReference = metadata.AddMemberReference(
+                    firstMethod,
+                    metadata.GetOrAddString("Target"),
+                    signatureHandle);
+                secondReference = metadata.AddMemberReference(
+                    secondMethod,
+                    metadata.GetOrAddString("Target"),
+                    signatureHandle);
+            });
+        using var stream = new MemoryStream(image);
+        using var peReader = new PEReader(stream);
+        int resolutions = 0;
+        var resolver = new LibraryBodyMethodReferenceResolver(
+            peReader.GetMetadataReader(),
+            (_, _) => resolutions++);
+
+        _ = resolver.ResolveMethod(
+            firstReference,
+            GenericScope.Empty,
+            firstMethod);
+        _ = resolver.ResolveMethod(
+            secondReference,
+            GenericScope.Empty,
+            firstMethod);
+
+        Assert.Equal(2, resolutions);
+    }
+
     static byte[] EmitLiftedMemberReferenceReplayAssembly(
         int referenceCount,
         int ownerCount,

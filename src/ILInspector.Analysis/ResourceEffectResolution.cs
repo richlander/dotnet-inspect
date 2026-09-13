@@ -39,6 +39,8 @@ public enum ResourceEffectResolutionWorkDimension
     InvocationBindings,
     BoundEffects,
     CompatibilityComparisons,
+    RetainedDiagnostics,
+    ProvenanceAssociations,
 }
 
 public enum ResourceEffectResolutionRejectionKind
@@ -72,7 +74,9 @@ public sealed class ResourceEffectResolutionLimits
         int maxCompatibilityComparisons = 1_000_000,
         int maxInvocationOccurrences = 100_000,
         int maxSignatureNodes = 1_000_000,
-        int maxInvocationBindings = 1_000_000)
+        int maxInvocationBindings = 1_000_000,
+        int maxRetainedDiagnostics = 100_000,
+        int maxProvenanceAssociations = 1_000_000)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
             maxSelectorEvaluations);
@@ -87,6 +91,10 @@ public sealed class ResourceEffectResolutionLimits
             maxSignatureNodes);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
             maxInvocationBindings);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            maxRetainedDiagnostics);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            maxProvenanceAssociations);
         MaxSelectorEvaluations = maxSelectorEvaluations;
         MaxDefinitionCandidates = maxDefinitionCandidates;
         MaxBoundEffects = maxBoundEffects;
@@ -94,6 +102,8 @@ public sealed class ResourceEffectResolutionLimits
         MaxInvocationOccurrences = maxInvocationOccurrences;
         MaxSignatureNodes = maxSignatureNodes;
         MaxInvocationBindings = maxInvocationBindings;
+        MaxRetainedDiagnostics = maxRetainedDiagnostics;
+        MaxProvenanceAssociations = maxProvenanceAssociations;
     }
 
     public int MaxSelectorEvaluations { get; }
@@ -103,6 +113,8 @@ public sealed class ResourceEffectResolutionLimits
     public int MaxInvocationOccurrences { get; }
     public int MaxSignatureNodes { get; }
     public int MaxInvocationBindings { get; }
+    public int MaxRetainedDiagnostics { get; }
+    public int MaxProvenanceAssociations { get; }
 }
 
 public sealed class ResourceEffectOccurrencePopulationReceipt
@@ -503,20 +515,25 @@ public abstract class ResourceEffectResolutionOutcome
 
     public sealed class Conflict : ResourceEffectResolutionOutcome
     {
+        readonly ImmutableArray<ResourceEffectResolutionGap> _gaps;
+
         internal Conflict(
             ImmutableArray<ResourceEffectConflict> conflicts,
             ResourceEffectResolutionReceipt receipt,
-            ImmutableArray<ResourceEffectTargetEvaluation> evaluations)
+            ImmutableArray<ResourceEffectTargetEvaluation> evaluations,
+            ImmutableArray<ResourceEffectResolutionGap> gaps)
         {
             Conflicts = conflicts;
             Receipt = receipt;
             Evaluations = evaluations;
+            _gaps = gaps;
         }
 
         public ImmutableArray<ResourceEffectConflict> Conflicts { get; }
         public ResourceEffectResolutionReceipt Receipt { get; }
         public ImmutableArray<ResourceEffectTargetEvaluation> Evaluations
             { get; }
+        public ImmutableArray<ResourceEffectResolutionGap> Gaps => _gaps;
     }
 
     public sealed class Rejected : ResourceEffectResolutionOutcome
@@ -1348,6 +1365,10 @@ public static class ResourceEffectResolver
         var allEffects = new List<ResolvedResourceEffect>();
         long selectorEvaluations = 0;
         long boundEffects = 0;
+        long retainedDiagnostics = 0;
+        long provenanceAssociations = 0;
+        bool retainedDiagnosticsIncomplete = false;
+        bool retainedDiagnosticsLimitReported = false;
 
         foreach (AdmittedResourceEffectModel model in admission.Models)
         {
@@ -1361,12 +1382,70 @@ public static class ResourceEffectResolver
                     ImmutableArray.CreateBuilder<ResourceEffectResolutionGap>();
                 bool ambiguous = false;
                 bool unsupported = false;
+                bool evaluationDiagnosticsIncomplete = false;
+
+                void RetainGap(ResourceEffectResolutionGap gap)
+                {
+                    if (retainedDiagnostics
+                        == limits.MaxRetainedDiagnostics)
+                    {
+                        retainedDiagnosticsIncomplete = true;
+                        evaluationDiagnosticsIncomplete = true;
+                        if (!retainedDiagnosticsLimitReported)
+                        {
+                            retainedDiagnosticsLimitReported = true;
+                            ResourceEffectResolutionGap limitGap = WorkGap(
+                                ResourceEffectResolutionWorkDimension
+                                    .RetainedDiagnostics,
+                                limits.MaxRetainedDiagnostics,
+                                (long)limits.MaxRetainedDiagnostics + 1);
+                            if (gaps.Count > 0)
+                            {
+                                gaps[^1] = limitGap;
+                            }
+                            else
+                            {
+                                for (int index = evaluations.Count - 1;
+                                    index >= 0;
+                                    index--)
+                                {
+                                    ResourceEffectTargetEvaluation previous =
+                                        evaluations[index];
+                                    if (previous.Gaps.IsEmpty)
+                                        continue;
+                                    ImmutableArray<
+                                        ResourceEffectResolutionGap>.Builder
+                                        previousGaps =
+                                            previous.Gaps.ToBuilder();
+                                    previousGaps[^1] = limitGap;
+                                    evaluations[index] =
+                                        new ResourceEffectTargetEvaluation(
+                                            previous.Model,
+                                            previous.ModelReceipt,
+                                            previous.Declaration,
+                                            previous.Kind,
+                                            previous.Effects,
+                                            previousGaps.ToImmutable());
+                                    break;
+                                }
+                            }
+                        }
+                        return;
+                    }
+                    retainedDiagnostics++;
+                    gaps.Add(gap);
+                }
+
                 if (planningGap is not null)
-                    gaps.Add(planningGap);
+                    RetainGap(planningGap);
                 if (declaration.Target
                         is not ResourceEffectTargetSelector.Member
                             { Selector.Kind: not ResourceEffectMemberKind.Field })
                 {
+                    RetainGap(
+                        new ResourceEffectResolutionGap(
+                            ResourceEffectResolutionGapKind
+                                .UnsupportedSignature));
                     evaluations.Add(
                         new ResourceEffectTargetEvaluation(
                             model.Identity,
@@ -1374,11 +1453,7 @@ public static class ResourceEffectResolver
                             declaration,
                             ResourceEffectTargetEvaluationKind.Unsupported,
                             [],
-                            [
-                                new ResourceEffectResolutionGap(
-                                    ResourceEffectResolutionGapKind
-                                        .UnsupportedSignature),
-                            ]));
+                            gaps.ToImmutable()));
                     continue;
                 }
                 foreach (ResolvedInvocationCandidate candidate in candidates)
@@ -1386,7 +1461,7 @@ public static class ResourceEffectResolver
                     if (++selectorEvaluations
                         > limits.MaxSelectorEvaluations)
                     {
-                        gaps.Add(Gap(
+                        RetainGap(Gap(
                             ResourceEffectResolutionGapKind
                                 .WorkLimitExceeded,
                             candidate.Pending) with
@@ -1414,20 +1489,20 @@ public static class ResourceEffectResolver
                         == ResourceEffectTargetEvaluationKind.Ambiguous)
                     {
                         ambiguous = true;
-                        gaps.Add(candidate.Gap!);
+                        RetainGap(candidate.Gap!);
                         continue;
                     }
                     if (candidate.Kind
                         == ResourceEffectTargetEvaluationKind.Unsupported)
                     {
                         unsupported = true;
-                        gaps.Add(candidate.Gap!);
+                        RetainGap(candidate.Gap!);
                         continue;
                     }
                     if (candidate.Kind
                         == ResourceEffectTargetEvaluationKind.Incomplete)
                     {
-                        gaps.Add(candidate.Gap!);
+                        RetainGap(candidate.Gap!);
                         continue;
                     }
 
@@ -1441,7 +1516,7 @@ public static class ResourceEffectResolver
                     if (match == TypeMatchResult.Unsupported)
                     {
                         unsupported = true;
-                        gaps.Add(
+                        RetainGap(
                             new ResourceEffectResolutionGap(
                                 ResourceEffectResolutionGapKind
                                     .UnsupportedSignature,
@@ -1459,7 +1534,7 @@ public static class ResourceEffectResolver
                     if (match == TypeMatchResult.Ambiguous)
                     {
                         ambiguous = true;
-                        gaps.Add(
+                        RetainGap(
                             new ResourceEffectResolutionGap(
                                 ResourceEffectResolutionGapKind
                                     .AmbiguousDefinition,
@@ -1476,7 +1551,7 @@ public static class ResourceEffectResolver
                     }
                     if (match == TypeMatchResult.Incomplete)
                     {
-                        gaps.Add(
+                        RetainGap(
                             new ResourceEffectResolutionGap(
                                 ResourceEffectResolutionGapKind
                                     .CorrespondenceIncomplete,
@@ -1495,7 +1570,7 @@ public static class ResourceEffectResolver
                         continue;
                     if (++boundEffects > limits.MaxBoundEffects)
                     {
-                        gaps.Add(Gap(
+                        RetainGap(Gap(
                             ResourceEffectResolutionGapKind
                                 .WorkLimitExceeded,
                             candidate.Pending) with
@@ -1522,7 +1597,7 @@ public static class ResourceEffectResolver
                             ambiguous = true;
                         else if (bindingResult == TypeMatchResult.Unsupported)
                             unsupported = true;
-                        gaps.Add(Gap(
+                        RetainGap(Gap(
                             bindingResult
                                 == TypeMatchResult.Ambiguous
                                     ? ResourceEffectResolutionGapKind
@@ -1543,7 +1618,7 @@ public static class ResourceEffectResolver
                                 ResolvedResourceKindReference>
                                 resolvedKinds))
                     {
-                        gaps.Add(
+                        RetainGap(
                             new ResourceEffectResolutionGap(
                                 ResourceEffectResolutionGapKind
                                     .CorrespondenceIncomplete,
@@ -1571,7 +1646,7 @@ public static class ResourceEffectResolver
                             ambiguous = true;
                         else if (guardResult == TypeMatchResult.Unsupported)
                             unsupported = true;
-                        gaps.Add(Gap(
+                        RetainGap(Gap(
                             guardResult == TypeMatchResult.Ambiguous
                                 ? ResourceEffectResolutionGapKind
                                     .AmbiguousDefinition
@@ -1586,12 +1661,34 @@ public static class ResourceEffectResolver
                     if (HasDeferredOccurrenceReference(
                             declaration.Effect))
                     {
-                        gaps.Add(Gap(
+                        RetainGap(Gap(
                             ResourceEffectResolutionGapKind
                                 .CorrespondenceIncomplete,
                             candidate.Pending));
                         continue;
                     }
+                    long requiredProvenanceAssociations =
+                        provenanceAssociations
+                        + declaration.Provenances.Length;
+                    if (requiredProvenanceAssociations
+                        > limits.MaxProvenanceAssociations)
+                    {
+                        RetainGap(Gap(
+                            ResourceEffectResolutionGapKind
+                                .WorkLimitExceeded,
+                            candidate.Pending) with
+                        {
+                            WorkDimension =
+                                ResourceEffectResolutionWorkDimension
+                                    .ProvenanceAssociations,
+                            Limit = limits.MaxProvenanceAssociations,
+                            RequiredWork =
+                                requiredProvenanceAssociations,
+                        });
+                        break;
+                    }
+                    provenanceAssociations =
+                        requiredProvenanceAssociations;
                     var effect = new ResolvedResourceEffect(
                         admission.Receipt,
                         candidate.Occurrence!,
@@ -1612,7 +1709,7 @@ public static class ResourceEffectResolver
 
                 if (!populationComplete)
                 {
-                    gaps.Add(
+                    RetainGap(
                         new ResourceEffectResolutionGap(
                             ResourceEffectResolutionGapKind
                                 .PopulationIncomplete));
@@ -1623,6 +1720,7 @@ public static class ResourceEffectResolver
                         : unsupported
                             ? ResourceEffectTargetEvaluationKind.Unsupported
                             : gaps.Count > 0
+                                || evaluationDiagnosticsIncomplete
                                 ? ResourceEffectTargetEvaluationKind.Incomplete
                                 : matches.Count > 0
                                     ? ResourceEffectTargetEvaluationKind.Resolved
@@ -1648,8 +1746,66 @@ public static class ResourceEffectResolver
                 limits,
                 cancellationToken,
                 out bool compatibilityIncomplete);
+        ResourceEffectResolutionGap? compatibilityGap = null;
+        if (compatibilityIncomplete)
+        {
+            if (retainedDiagnostics
+                == limits.MaxRetainedDiagnostics)
+            {
+                retainedDiagnosticsIncomplete = true;
+                if (!retainedDiagnosticsLimitReported)
+                {
+                    retainedDiagnosticsLimitReported = true;
+                    ResourceEffectResolutionGap limitGap = WorkGap(
+                        ResourceEffectResolutionWorkDimension
+                            .RetainedDiagnostics,
+                        limits.MaxRetainedDiagnostics,
+                        (long)limits.MaxRetainedDiagnostics + 1);
+                    for (int index = evaluations.Count - 1;
+                        index >= 0;
+                        index--)
+                    {
+                        ResourceEffectTargetEvaluation previous =
+                            evaluations[index];
+                        if (previous.Gaps.IsEmpty)
+                            continue;
+                        ImmutableArray<
+                            ResourceEffectResolutionGap>.Builder
+                            previousGaps = previous.Gaps.ToBuilder();
+                        previousGaps[^1] = limitGap;
+                        evaluations[index] =
+                            new ResourceEffectTargetEvaluation(
+                                previous.Model,
+                                previous.ModelReceipt,
+                                previous.Declaration,
+                                previous.Kind,
+                                previous.Effects,
+                                previousGaps.ToImmutable());
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                retainedDiagnostics++;
+                compatibilityGap = WorkGap(
+                    ResourceEffectResolutionWorkDimension
+                        .CompatibilityComparisons,
+                    limits.MaxCompatibilityComparisons,
+                    (long)limits.MaxCompatibilityComparisons + 1);
+            }
+        }
         ImmutableArray<ResourceEffectTargetEvaluation> resultEvaluations =
             evaluations.ToImmutable();
+        var resultGaps =
+            ImmutableArray.CreateBuilder<ResourceEffectResolutionGap>();
+        resultGaps.AddRange(
+            resultEvaluations.SelectMany(
+                evaluation => evaluation.Gaps));
+        if (compatibilityGap is not null)
+            resultGaps.Add(compatibilityGap);
+        ImmutableArray<ResourceEffectResolutionGap> immutableResultGaps =
+            resultGaps.ToImmutable();
         if (!conflicts.IsEmpty)
         {
             ResourceEffectResolutionReceipt receipt = CreateReceipt(
@@ -1659,31 +1815,22 @@ public static class ResourceEffectResolver
                 resultEvaluations,
                 coalesced,
                 conflicts,
-                []);
+                immutableResultGaps);
             return new ResourceEffectResolutionOutcome.Conflict(
                 conflicts,
                 receipt,
-                resultEvaluations);
+                resultEvaluations,
+                immutableResultGaps);
         }
         if (!populationComplete
             || compatibilityIncomplete
+            || retainedDiagnosticsIncomplete
             || resultEvaluations.Any(evaluation =>
                 evaluation.Kind
                     is ResourceEffectTargetEvaluationKind.Ambiguous
                         or ResourceEffectTargetEvaluationKind.Unsupported
                         or ResourceEffectTargetEvaluationKind.Incomplete))
         {
-            ImmutableArray<ResourceEffectResolutionGap> resultGaps =
-                compatibilityIncomplete
-                    ? [WorkGap(
-                        ResourceEffectResolutionWorkDimension
-                            .CompatibilityComparisons,
-                        limits.MaxCompatibilityComparisons,
-                        (long)limits.MaxCompatibilityComparisons + 1)]
-                    : [
-                        .. resultEvaluations.SelectMany(
-                            evaluation => evaluation.Gaps),
-                    ];
             ResourceEffectResolutionReceipt receipt = CreateReceipt(
                 admission.Receipt,
                 populationReceipt,
@@ -1691,12 +1838,12 @@ public static class ResourceEffectResolver
                 resultEvaluations,
                 coalesced,
                 [],
-                resultGaps);
+                immutableResultGaps);
             return new ResourceEffectResolutionOutcome.Incomplete(
                 coalesced,
                 receipt,
                 resultEvaluations,
-                resultGaps);
+                immutableResultGaps);
         }
         ResourceEffectResolutionReceipt completeReceipt = CreateReceipt(
             admission.Receipt,
@@ -3930,6 +4077,10 @@ public static class ResourceEffectResolver
                 limits.MaxInvocationBindings,
             ResourceEffectResolutionWorkDimension.BoundEffects =>
                 limits.MaxBoundEffects,
+            ResourceEffectResolutionWorkDimension.RetainedDiagnostics =>
+                limits.MaxRetainedDiagnostics,
+            ResourceEffectResolutionWorkDimension.ProvenanceAssociations =>
+                limits.MaxProvenanceAssociations,
             ResourceEffectResolutionWorkDimension.CompatibilityComparisons =>
                 limits.MaxCompatibilityComparisons,
             _ => throw new InvalidOperationException(

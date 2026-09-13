@@ -212,6 +212,121 @@ public sealed class ResolvedResourceEffectTests
     }
 
     [Fact]
+    public void ProvenanceAssociationWorkLimitIsVisible()
+    {
+        ResourceEffectTargetSelector target =
+            new ResourceEffectTargetSelector.Member(
+                new ResourceEffectMemberSelector(
+                    FixtureType("Entry"),
+                    "VarargMarker",
+                    ResourceEffectMemberKind.Method,
+                    isStatic: true,
+                    genericArity: 0,
+                    ResourceEffectCallingConvention.VarArgs,
+                    hasThis: false,
+                    explicitThis: false,
+                    [
+                        new ResourceEffectParameterSelector(
+                            CoreLibraryType("System", "Int32"),
+                            ResourceEffectRefKind.Value),
+                    ],
+                    CoreLibraryType("System", "Void")));
+        ResourceEffectAdmission admission = Admit(
+            Model(
+                "example.provenance-limit.first",
+                target,
+                new ResourceEffect.Operation(
+                    ResourceOperationBoundary.Ordinary,
+                    ResourceOperationThrows.Possible,
+                    Guard: null)),
+            Model(
+                "example.provenance-limit.second",
+                target,
+                new ResourceEffect.Operation(
+                    ResourceOperationBoundary.Ordinary,
+                    ResourceOperationThrows.Possible,
+                    Guard: null)));
+
+        ResourceEffectResolutionOutcome.Incomplete incomplete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Incomplete>(
+                Resolve(
+                    admission,
+                    new ResourceEffectResolutionLimits(
+                        maxProvenanceAssociations: 1)));
+
+        Assert.Single(incomplete.Effects);
+        Assert.Single(incomplete.Effects[0].Provenances);
+        Assert.Contains(
+            incomplete.Gaps,
+            gap =>
+                gap.Kind
+                    == ResourceEffectResolutionGapKind.WorkLimitExceeded
+                && gap.WorkDimension
+                    == ResourceEffectResolutionWorkDimension
+                        .ProvenanceAssociations
+                && gap.Limit == 1
+                && gap.RequiredWork == 2);
+        Assert.Single(incomplete.Gaps);
+    }
+
+    [Fact]
+    public void RetainedDiagnosticWorkLimitIsVisible()
+    {
+        ResourceEffectTargetSelector target =
+            new ResourceEffectTargetSelector.Member(
+                new ResourceEffectMemberSelector(
+                    FixtureType("Entry"),
+                    "VarargMarker",
+                    ResourceEffectMemberKind.Method,
+                    isStatic: true,
+                    genericArity: 0,
+                    ResourceEffectCallingConvention.VarArgs,
+                    hasThis: false,
+                    explicitThis: false,
+                    [
+                        new ResourceEffectParameterSelector(
+                            CoreLibraryType("System", "Int32"),
+                            ResourceEffectRefKind.Value),
+                    ],
+                    CoreLibraryType("System", "Void")));
+        ResourceEffectAdmission admission = Admit(
+            Model(
+                "example.diagnostic-limit.first",
+                target,
+                new ResourceEffect.Operation(
+                    ResourceOperationBoundary.Ordinary,
+                    ResourceOperationThrows.Possible,
+                    Guard: null)),
+            Model(
+                "example.diagnostic-limit.second",
+                target,
+                new ResourceEffect.Operation(
+                    ResourceOperationBoundary.Ordinary,
+                    ResourceOperationThrows.Possible,
+                    Guard: null)));
+
+        ResourceEffectResolutionOutcome.Incomplete incomplete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Incomplete>(
+                Resolve(
+                    admission,
+                    new ResourceEffectResolutionLimits(
+                        maxSelectorEvaluations: 1,
+                        maxRetainedDiagnostics: 1)));
+
+        Assert.Contains(
+            incomplete.Gaps,
+            gap =>
+                gap.Kind
+                    == ResourceEffectResolutionGapKind.WorkLimitExceeded
+                && gap.WorkDimension
+                    == ResourceEffectResolutionWorkDimension
+                        .RetainedDiagnostics
+                && gap.Limit == 1
+                && gap.RequiredWork == 2);
+        Assert.Single(incomplete.Gaps);
+    }
+
+    [Fact]
     public void MethodGenericArgumentsBindWithoutSignatureUse()
     {
         ResourceEffectAdmission admission = MethodModel(
@@ -1208,7 +1323,15 @@ public sealed class ResolvedResourceEffectTests
                 new ResourceEffect.Operation(
                     ResourceOperationBoundary.Ordinary,
                     ResourceOperationThrows.Never,
-                    Guard: null)));
+                    Guard: null)),
+            Model(
+                "example.deferred-outcome",
+                target,
+                new ResourceEffect.Outcome(
+                    new ResourceEffectLocalIdentity("result"),
+                    new ResourceEffectLocation.Return(),
+                    new ResourceEffectOutcomeTest.ExactType(
+                        "Example.MissingType"))));
 
         ResourceEffectResolutionOutcome.Conflict conflict =
             Assert.IsType<ResourceEffectResolutionOutcome.Conflict>(
@@ -1217,6 +1340,23 @@ public sealed class ResolvedResourceEffectTests
                     new ResourceEffectResolutionLimits(
                         maxCompatibilityComparisons: 1)));
         Assert.NotEmpty(conflict.Conflicts);
+        Assert.Contains(
+            conflict.Gaps,
+            gap => gap.WorkDimension
+                == ResourceEffectResolutionWorkDimension
+                    .CompatibilityComparisons);
+
+        ResourceEffectResolutionOutcome.Conflict diagnosticConflict =
+            Assert.IsType<ResourceEffectResolutionOutcome.Conflict>(
+                Resolve(
+                    admission,
+                    new ResourceEffectResolutionLimits(
+                        maxRetainedDiagnostics: 1)));
+        Assert.NotEmpty(diagnosticConflict.Conflicts);
+        Assert.Single(diagnosticConflict.Gaps);
+        Assert.Equal(
+            ResourceEffectResolutionWorkDimension.RetainedDiagnostics,
+            diagnosticConflict.Gaps[0].WorkDimension);
     }
 
     [Fact]

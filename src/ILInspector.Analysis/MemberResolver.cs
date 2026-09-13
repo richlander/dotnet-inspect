@@ -43,10 +43,17 @@ internal static class MemberResolver
             case HandleKind.MemberReference:
             {
                 var member = reader.GetMemberReference((MemberReferenceHandle)handle);
-                var declaring = ResolveParentType(reader, member.Parent, callerScope);
                 if (!SignatureBlobGuard.IsSafeToDecode(reader, member.Signature, SignatureBlobGuard.Kind.Method))
                     return MemberRef.Unsupported("member-reference signature nesting depth exceeded");
                 var signature = member.DecodeMethodSignature(TypeRefDecoder.Instance, GenericScope.Empty);
+                if (member.Parent.Kind == HandleKind.MethodDefinition
+                    && signature.Header.CallingConvention
+                        != SignatureCallingConvention.VarArgs)
+                {
+                    return MemberRef.Unsupported(
+                        "method-definition parent requires vararg signature");
+                }
+                var declaring = ResolveParentType(reader, member.Parent, callerScope);
                 var typeArguments = declaring.Kind == TypeRefKind.GenericInstance ? declaring.TypeArguments : [];
                 string name = reader.GetString(member.Name);
                 return new MemberRef(
