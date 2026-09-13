@@ -96,9 +96,18 @@ public class PackageSearchCommand
             {
                 CommandError.WriteWarning($"could not search {failure}");
             }
+            if (outcome.SearchLimitReached)
+            {
+                CommandError.WriteWarning(
+                    $"Package search reached the {options.Take}-result per-feed "
+                    + "source limit; additional matches may be omitted.");
+            }
 
             // A genuine zero-result search succeeded; an incomplete one did not.
-            var exitCode = outcome.Failures.Count > 0 ? 1 : 0;
+            var exitCode =
+                outcome.Failures.Count > 0 || outcome.SourceSelectionIncomplete
+                    ? 1
+                    : 0;
 
             // --count reduces the payload, so it is resolved before the format flags that
             // render it. Ordering these the other way lets --json answer a count request

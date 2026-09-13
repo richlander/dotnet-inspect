@@ -1189,6 +1189,33 @@ public class NuGetSearchSourcesTests
     }
 
     [Fact]
+    public async Task SearchAsync_PerFeedTakeDoesNotCapAggregateResults()
+    {
+        const string indexA = "https://a.example/v3/index.json";
+        const string indexB = "https://b.example/v3/index.json";
+        const string searchA = "https://a.example/v3/query";
+        const string searchB = "https://b.example/v3/query";
+
+        var handler = new RouteHandler
+        {
+            [indexA] = $$"""{"resources":[{"@id":"{{searchA}}","@type":"SearchQueryService"}]}""",
+            [indexB] = $$"""{"resources":[{"@id":"{{searchB}}","@type":"SearchQueryService"}]}""",
+            [searchA] = """{"data":[{"id":"A.Package","version":"1.0.0"}]}""",
+            [searchB] = """{"data":[{"id":"B.Package","version":"1.0.0"}]}"""
+        };
+        using var client = new HttpClient(handler);
+
+        NuGetSearchOutcome outcome = await NuGetSearchService.SearchAsync(
+            client,
+            "q",
+            take: 1,
+            sourceOptions: new NuGetSourceOptions { Sources = [indexA, indexB] });
+
+        Assert.Equal(["A.Package", "B.Package"], outcome.Results.Select(r => r.PackageId));
+        Assert.True(outcome.SearchLimitReached);
+    }
+
+    [Fact]
     public async Task SearchAsync_PackageSourceMappingFiltersEachResultByReportingAlias()
     {
         const string indexA = "https://a.example/v3/index.json";

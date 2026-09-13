@@ -419,15 +419,10 @@ public static class PackageCommandDefinitions
             }
 
             var projection = ProjectionAudit.Requested(parseResult, opts);
-            bool explicitSourceTake =
-                parseResult.GetResult(takeOption) is { Implicit: false };
             var options = new PackageSearchOptions
             {
                 Query = query,
-                Take = explicitSourceTake
-                    ? parseResult.GetValue(takeOption)
-                    : parseResult.GetValue(opts.Limit)
-                        ?? parseResult.GetValue(takeOption),
+                Take = parseResult.GetValue(takeOption),
                 Prerelease =
                     parseResult.GetValue(inheritedPrereleaseOption)
                     || parseResult.GetValue(prereleaseOption),

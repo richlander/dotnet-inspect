@@ -12510,12 +12510,12 @@ public partial class CommandExecutionTests
                 "package", "--rows", "1", "--out", outputPath,
                 "search", "Fixture", "--count", "--take", "2");
 
-            Assert.Equal(0, exit);
+            Assert.Equal(1, exit);
             Assert.Empty(output);
             Assert.Equal("1\n", await File.ReadAllTextAsync(
                 outputPath,
                 TestContext.Current.CancellationToken));
-            Assert.Empty(error);
+            Assert.Contains("per-feed source limit", error);
         }
         finally
         {
@@ -12585,9 +12585,10 @@ public partial class CommandExecutionTests
             "package", "--rows", "5..6",
             "search", "Fixture", "--take", "2");
 
-        Assert.Equal(0, exit);
+        Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("requested row window", error);
+        Assert.Contains("per-feed source limit", error);
         Assert.DoesNotContain("No packages found", error);
     }
 
@@ -12764,11 +12765,11 @@ public partial class CommandExecutionTests
             "package", "-n2",
             "search", "Fixture", "--take=3", "--json");
 
-        Assert.Equal(0, exit);
+        Assert.Equal(1, exit);
         Assert.Equal(2, output.Split(
             '\n',
             StringSplitOptions.RemoveEmptyEntries).Length);
-        Assert.Empty(error);
+        Assert.Contains("per-feed source limit", error);
     }
 
     [Fact]

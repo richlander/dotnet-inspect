@@ -26,13 +26,13 @@ The end-to-end tracker has four steps:
    with `--take` and the universal row-selection grammar;
 3. adopt the result command-wide for `find`, with selective Package Query and
    package profiling exposing both `--take` and `-n`; and
-4. complete package-search source delegation, eventually retiring plain
-   `package search --take` in favor of semantic `-n` plus a proven source
-   strategy only where the full multi-source result remains equivalent. The
-   current adoption is deliberately narrower: package search lowers `-n`
-   through the shared semantic row path and uses it as the default upstream
-   demand, while an explicit `--take` remains an independent per-feed work
-   bound. The source-completion and exact early-stop proof remain future work.
+4. complete package-search source delegation, evaluating whether plain
+   `package search --take` can eventually retire in favor of semantic `-n`
+   plus a proven source strategy where the full multi-source result remains
+   equivalent. The current adoption is deliberately narrower: package search
+   lowers `-n` through the shared semantic row path, while `--take` remains
+   an independent per-feed work bound. The source-completion and exact
+   early-stop proof remain future work.
 
 Steps 1 through 3 are implemented: #6489 reconciles Package Query and adopts
 the command-wide `find` surface. Step 4 remains separate future work.
@@ -574,20 +574,21 @@ That focused adoption decides whether ordinary type/member early exit can be
 proven equivalent through source delegation or must be removed. This design
 does not decide it.
 
-### Step 4: retire plain `package search --take`
+### Step 4: evaluate plain `package search --take`
 
-Plain package search has no named selective, enrichment, fan-out, or
-aggregation scenario that makes a user-authored work count independently
-useful from the final row count. Its multi-source implementation still maps,
-deduplicates, merges, and limits provider rows, so its adoption:
+Plain package search still needs a source-delegation design before its
+independent work bound can be retired or lowered from semantic `-n`. Its
+multi-source implementation maps, deduplicates, and merges provider rows, so
+the current adoption:
 
-- retires the CLI `--take` option;
-- uses `-n` to select final package rows;
-- may lower `-n` to provider request counts only through source delegation
-  that proves the complete effective cross-source order, source mapping,
-  deduplication, failure, and completion behavior; and
+- retains `--take` as an explicit per-feed source-work bound;
+- uses `-n` to select final package rows without deriving source demand from
+  an arbitrary ordered semantic plan;
 - preserves provider caps, source failures, and incomplete merged-search
-  evidence rather than treating the delegated count as exhaustion.
+  evidence rather than treating a delegated count as exhaustion; and
+- leaves retirement or source-owned lowering to a future adoption after the
+  complete effective cross-source order, source mapping, deduplication,
+  failure, and completion behavior are proven.
 
 If package search later adds selective enrichment, fan-out, or aggregation
 that makes an independent work maximum useful, that owner may propose a new
