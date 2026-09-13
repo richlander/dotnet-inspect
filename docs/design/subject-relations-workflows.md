@@ -24,7 +24,7 @@ Required changes to their current defaults and capabilities are named adoption
 prerequisites, not silently implemented amendments to their designs.
 
 The requested scope joins `find`, existing subject commands, ecosystem
-discovery, relation mechanisms, and sharing. This document proposes the workflow
+discovery, relation forms, and sharing. This document proposes the workflow
 target and composition boundary; it does not sweep lower-owner implementation
 designs into one new umbrella component. Each adoption closes in its owner.
 
@@ -122,11 +122,11 @@ dotnet-inspect member Aspire.Hosting.RedisBuilderExtensions \
   --package Aspire.Hosting.Redis@13.5.3 --tfm net8.0 \
   -m AddRedis:1 -S @Relations
 
-# Inspect the integration lens, then narrow the relation mechanism.
+# Inspect the integration lens, then narrow the relation form.
 dotnet-inspect library ./AppHost.dll \
   -S Integration --where "ecosystem=ecosystem.aspire"
 dotnet-inspect library ./AppHost.dll \
-  -S Integration --where "mechanism=invocation"
+  -S Integration --where "form=invocation"
 
 # Reuse an already selected type; do not rebuild its coordinate elsewhere.
 dotnet-inspect type HttpClient --platform System.Net.Http -S @Relations
@@ -273,8 +273,9 @@ dotnet-inspect type Stream --platform System.Private.CoreLib -S "Derived Types"
 Illustrative answers include `HttpClientJsonExtensions` receiver declarations,
 `MemoryStream` as an IDisposable implementation, and `MemoryStream` as a Stream
 subclass. These are three evidence readings, not three coordinate grammars.
-The focused sections are projections over the same owner-issued relations as
-`Relations`; `-Q` discloses their applicable relation and evidence filters.
+The focused sections consume the same owner-issued evidence as `Relations`,
+with their own candidate-selection semantics; `-Q` discloses their applicable
+relation and evidence filters.
 They preserve the current concrete-type and inherited-interface semantics,
 not merely a filter over direct one-hop declarations.
 
@@ -761,6 +762,96 @@ relation evidence; its `Integration` view selects evidence carrying a
 producer-issued integration association. Both are projections of the same
 composition result, not separately implemented scanners.
 
+### Per-subject section catalog
+
+This is the complete proposed initial membership of `@Relations`. `Yes` means
+authored category membership for that subject kind, not that every inspected
+subject has rows. `No` means the named section is not in `@Relations` for
+that subject; it does not remove an independently available section. Relevant
+evidence can still appear in the general `Relations` view over that subject's
+owned closure. These are adoption targets, not claims about today's section
+registration.
+
+| Section | Package | Library | Type | Member | Relation forms | Focus-relative reading |
+| --- | --- | --- | --- | --- | --- | --- |
+| `Relations` | Yes | Yes | Yes | Yes | All applicable forms | Both incoming and outgoing incidence; the general one-hop relation view. |
+| `Integration` | Yes | Yes | Yes | Yes | All applicable forms with Integration associations | Both directions, retaining classification and evidence rather than inferring successful integration. |
+| `Dependencies` | Yes | No | No | No | `package-dependency` | Outgoing direct package declarations and their available resolution evidence. |
+| `References` | No | Yes | No | No | `assembly-reference` | Outgoing direct assembly references; unresolved references remain visible. |
+| `Extensions` | No | No | Yes | No | `extension` | Incoming extension-provider matches for the focused receiver type. |
+| `Implementers` | No | No | Yes | No | `interface` | Incoming implementation candidates for the focused interface, under the existing concrete/inherited-match policy. |
+| `Derived Types` | No | No | Yes | No | `base-type` | Incoming subclass candidates for the focused base type, including owner-established indirect matches. |
+| `Calls` | No | No | No | Yes | `invocation`, `object-creation` | Outgoing direct static call evidence from the selected member. |
+| `Callers` | No | No | No | Yes | `invocation`, `object-creation` | Incoming direct static call-site evidence reaching the selected member. |
+
+For example, `package X -D @Relations` describes `Relations`, `Integration`
+and `Dependencies`; `type T -D @Relations` describes `Relations`,
+`Integration`, `Extensions`, `Implementers` and `Derived Types`.
+Structural discovery describes membership even where a focused question is
+inapplicable to the particular target. Effective discovery and execution
+retain the owning section's applicability, no-match and unavailable outcomes.
+`-Q @Relations` describes adopted query bindings, not invented common operators
+for every member of the category.
+
+Candidate sections do not change the general view's one-hop contract.
+An inherited interface match or indirect subclass match may need hierarchy
+evidence, but it must not be mislabeled as a direct declaration edge.
+Preserve the producer's actual endpoints and match explanation rather than
+retargeting an edge to the focus. Likewise, reachable extension discovery
+requires its explicit `--reachable` gesture; category selection does not
+enable it.
+
+`form` and `relation` are facets, not rules for creating a section per value.
+Signature uses and qualified pattern candidates remain available through
+`Relations` and its filters; a `--span` predicate does not introduce a `Span`
+section. The current member `Signature` view, Find `Results`, ecosystem
+catalog sections and vocabulary sections do not become category members
+merely because these workflows use them.
+
+Selecting `@Relations` selects its distinct sections, so a curated section
+may summarize evidence also present in `Relations`. It is not a union whose
+rows should be summed across sections. Select `-S Relations` for one general
+logical-edge inventory or a focused section for that question. Focused
+sections retain their owner-defined row units and call-site detail; the
+general view does not force every evidence table into one graph-row schema.
+
+### Overlap with Dependencies and explicit graph views
+
+`@Dependencies` is the outward dependency preset selected by `--depends`.
+Its overlap with `@Relations` is section cross-listing, not a second query
+implementation. The complete proposed preset for each subject is the union
+of the two middle columns:
+
+| Subject | In both `@Relations` and `@Dependencies` | In `@Dependencies` only | Traversal distinction |
+| --- | --- | --- | --- |
+| Package | `Dependencies` | `Dependency Graph`, `Failures` | `@Relations` selects direct evidence. `@Dependencies` also selects package traversal and its diagnostic table, preserving the dependency owner's depth defaults. |
+| Library | `References` | None | Both presets select flat direct references by default. Explicit `References --tree` selects the existing resolved traversal; `--depth` bounds it. |
+| Type | None | `Dependency Graph` | The dependency preset selects the base-type/interface hierarchy traversal. General `Relations` incidence and focused incoming candidates do not substitute for that graph. |
+| Member | `Calls` | None | Both presets expose direct outgoing calls. `Callers` belongs only to `@Relations`; the transitive `Call Graph` belongs to neither preset. |
+
+`Dependency Graph` is therefore outside `@Relations`, but selecting
+`@Dependencies` on a package or type explicitly requests it. A member
+`Call Graph` requires separate section selection. The graph commands'
+root-set dependency traversal and peer/induced-set modes remain separate
+operations, not hidden expansions of either subject category.
+
+`References` illustrates a different case: its direct and transitive views
+share a section name under the
+[existing projection contract](progressive-disclosure.md#section-selection).
+Cross-listing that name does not implicitly add `--tree` or alter its depth.
+Supported explicit traversal gestures retain their owner-defined meaning;
+ordinary category selection alone does not request them.
+
+For a package, selecting `Dependencies` without `Dependency Graph` must not
+run transitive package acquisition merely because both sections also belong
+to another category. `Failures` is a dependency diagnostic projection, not
+the only channel for errors: every selected view still retains its mandatory
+failure, coverage and exit-status behavior when that table is not selected.
+Combining categories selects a shared section once; it does not duplicate
+that section's rows or change its query, default depth or evidence meaning.
+
+### Integration classification
+
 `Integration` replaces the user-facing family of `Integration: Aspire`,
 `Integration: Logging`, and similar sections after adoption. Ecosystem and
 concept become discoverable facets. One fact may carry multiple associations
@@ -776,25 +867,38 @@ A package reference, similar name, other overload or different version cannot
 supply that join. An unavailable correspondence stays unavailable rather than
 becoming an unclassified negative or an inferred invocation.
 
+### Relation forms and query facets
+
 The conceptual axes are independent:
 
 | Axis | Meaning |
 | --- | --- |
-| Mechanism | Type-system relationship, invocation, dependency/reference, or language-pattern candidate. |
-| Relation | The precise producer-defined relationship within that mechanism. |
+| Form | How the relation is expressed: interface, base type, extension declaration, signature, invocation, object creation, reference/dependency, or pattern. |
+| Relation | The precise producer-defined connection expressed in that form, such as implements, accepts, returns or calls. |
 | Direction | Incoming/outgoing incidence at the focused subject; `both` selects their union. |
 | Evidence | Declaration, static IL observation, bounded pattern candidate, or inferred opportunity. |
 | Signature site/shape | Where a referenced type occurs in a member declaration, preserving parameter/return role and constructed shape; not proof of interface implementation or invocation. |
 | Ecosystem/concept | Zero or more producer-issued semantic associations; not a population or ownership assertion. |
 
-Initial mechanical readings:
+Initial relation forms and readings (query spellings remain proposed):
 
-| Mechanism | Relation readings and canonical endpoints |
+| Form | Relation readings and canonical endpoints |
 | --- | --- |
-| Type system | Derived type to base type; implementing type to interface; extension member to receiver; supported signature member to referenced type. |
-| Invocation | Caller member to statically selected callee; constructing member to constructor. |
-| Dependency/reference | Referencing library to referenced library; package to its owner-resolved dependency, retaining declaration/resolution distinctions. |
-| Language pattern | Candidate type/member to an owner-issued language-pattern description, with the checked shape and remaining applicability conditions. |
+| `interface` | Implements: implementing type to interface. |
+| `base-type` | Inherits: derived type to base type; indirect candidate matches retain their supporting hierarchy evidence. |
+| `extension` | Extends: extension member to receiver type. |
+| `signature` | Accepts or returns: member to the referenced type, retaining position and constructed shape. |
+| `invocation` | Calls: caller member to statically selected callee. |
+| `object-creation` | Constructs: constructing member to constructor. |
+| `assembly-reference` | References: referencing library to referenced assembly, preserving unresolved declaration evidence. |
+| `package-dependency` | Depends on: package to its owner-resolved dependency, retaining declaration/resolution distinctions. |
+| `pattern` | Candidate type/member to an owner-issued language-pattern description, with the checked shape and remaining applicability conditions. |
+
+Discovery describes the facet as **relation form**; the query key is `form`.
+For example, `form=signature` can be narrowed by an accepts/returns relation,
+while `form=invocation` selects call evidence. Form is separate from evidence
+kind: a pattern candidate does not become a declaration or a runtime fact
+because it is included in the same domain.
 
 This is a product vocabulary, not a replacement relationship-ID registry.
 Existing `api.extension`, `metadata.reference`, `integration.observed`,
@@ -965,7 +1069,7 @@ unreviewable changes inside a nominal slice.
 | 8 | Integration-owned semantic annotations and opportunity distinctions. |
 | 9 | A focused language-pattern candidate contract and producer. |
 | 10 | Shared Subject Relations query composition over adopted producers. |
-| 11 | Shared typed section projection and Markout format lowerings. |
+| 11 | Shared typed section projection, per-subject category membership and cross-listing, and Markout format lowerings. |
 | 12 | Workspace Definitions adoption for portable relation views and locator context. |
 | 13 | CLI ecosystem-to-locator handoff, contract/signature Find queries and vocabulary, subject categories, Integration view, section-backed shortcuts and dependency root-set mode, sharing and focused ecosystem skill adoption. |
 | 14 | Inspect Web/Browser-Wasm adoption of the same locator and relation request/results. |
@@ -1000,6 +1104,7 @@ the named adoption gates run in Release:
 | Format and host correspondence | CLI formats and browser consume identical logical edges, occurrence associations and coverage; windowing does not change query completeness or row meaning. |
 | Sharing fidelity | A portable narrowed Relations view restores the same registrations, focus and filters; an unprojectable local/private case reports the actual limitation. |
 | Shortcut equivalence | Each `--depends` request and its `-S @Dependencies` expansion preserve the same focus, population, selected producers, evidence, bounds, errors and output. `-D` exposes those sections; `-Q` describes only executable query bindings without running producers. |
+| Section catalog and traversal disclosure | The four subject catalogs match the membership and overlap tables. Shared category sections select once. Package `@Relations` does not request dependency traversal, library references remain direct without their explicit graph gesture, and member `Call Graph` stays separate. Focused inherited matches retain their evidence rather than masquerading as direct edges. |
 | Predicate composition | Mixed flags/`--where` and their expanded forms agree regardless of order. Span-family OR remains inside the AND with a string return; repeated signature shapes match one member, duplicate constraints do not duplicate evidence, contradictory return predicates give an honestly scoped empty result, and invalid bindings fail visibly. |
 | Retirement parity | Migrated extension/reachable-extension, implementer/subclass and type-hierarchy workflows retain their results and bounds. Single- and mixed-root dependency replacements preserve declarations, traversal, unresolved targets, partial failures, exit status and formats before their old routes disappear. |
 
