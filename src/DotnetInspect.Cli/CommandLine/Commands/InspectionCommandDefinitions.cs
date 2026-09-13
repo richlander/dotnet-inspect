@@ -92,12 +92,16 @@ public static class InspectionCommandDefinitions
         opts.AddTableOptionsTo(command);
         opts.AddJsonOptionTo(command);
         command.Options.Add(opts.Markdown);
-        opts.AddOutputOptionsTo(command);
+        opts.AddOutputOptionsTo(
+            command,
+            validateLegacyRowWindow: static _ => false);
         command.Options.Add(opts.Select);
         command.Options.Add(opts.Columns);
         command.Options.Add(opts.Fields);
         opts.AddCountOptionTo(command);
         opts.AddNuGetOptionsTo(command);
+        var linesOption = new Option<bool>("--lines");
+        var tailLinesOption = new Option<bool>("--tail-lines");
 
         command.SetAction(async (parseResult, ct) =>
         {
@@ -130,6 +134,16 @@ public static class InspectionCommandDefinitions
                 return 1;
             }
 
+            if (!CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
+                    parseResult,
+                    "Timeline",
+                    out RowSelectionIntent<string>? rowSelection,
+                    out string? rowSelectionError))
+            {
+                CommandError.Write(rowSelectionError!);
+                return 1;
+            }
+
             if (!NuGetConfigDirectoryOption.TryApply(
                     parseResult.GetValue(configDirectoryOption),
                     opts.ParseNuGetSourceOptions(parseResult),
@@ -158,7 +172,7 @@ public static class InspectionCommandDefinitions
                 Jsonl = opts.ResolveJsonl(parseResult),
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
                 Count = parseResult.GetValue(opts.Count),
-                Rows = opts.ParseRows(parseResult),
+                RowSelection = rowSelection,
                 Select = opts.ParseSelect(parseResult),
                 SelectDefault = opts.ParseSelectDefault(parseResult),
                 Columns = opts.ParseColumns(parseResult),
@@ -166,6 +180,21 @@ public static class InspectionCommandDefinitions
                 SourceOptions = sourceOptions,
             });
         });
+
+        CliRowSelectionCommandRegistry.Register(
+            command,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                linesOption,
+                tailLinesOption),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window,
+            isActive: static _ => true);
 
         return command;
     }

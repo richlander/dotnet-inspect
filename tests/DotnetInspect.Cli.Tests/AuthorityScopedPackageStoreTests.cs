@@ -2,7 +2,7 @@ using DotnetInspector.Cache;
 using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
-using DotnetInspector.Core;
+using DotnetInspect.Cli;
 using DotnetInspector.Packages;
 using NuGetFetch;
 

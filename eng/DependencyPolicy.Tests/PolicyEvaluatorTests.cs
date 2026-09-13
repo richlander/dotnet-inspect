@@ -744,16 +744,16 @@ public sealed class PolicyEvaluatorTests
         AssertCheckedInRuleRejectsRepositoryDependency(
             "untrusted-documents-stays-independent",
             "UntrustedDocuments",
-            "DotnetInspector.Core");
+            "DotnetInspector.Packages");
     }
 
     [Fact]
-    public void CheckedInPolicyKeepsNetworkingBelowCoreAndHosts()
+    public void CheckedInPolicyKeepsNetworkingWithinOwnerBoundary()
     {
         AssertCheckedInRuleRejectsRepositoryDependency(
-            "networking-stays-below-core-and-hosts",
+            "networking-stays-within-owner-boundary",
             "DotnetInspector.Networking",
-            "DotnetInspector.Core");
+            "DotnetInspector.Packages");
     }
 
     [Fact]
@@ -783,7 +783,7 @@ public sealed class PolicyEvaluatorTests
         AssertCheckedInRuleRejectsRepositoryDependency(
             "cache-stays-within-owner-boundary",
             "DotnetInspector.Cache",
-            "DotnetInspector.Core");
+            "DotnetInspector.Packages");
     }
 
     [Fact]

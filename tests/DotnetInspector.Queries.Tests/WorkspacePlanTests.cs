@@ -1,6 +1,10 @@
 using System.Collections.Immutable;
+using System.Net;
+using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
 using DotnetInspector.QueriesConsumer;
+using ILInspector.Metadata;
+using NuGetFetch;
 
 namespace DotnetInspector.Queries.Tests;
 
@@ -11,14 +15,19 @@ public sealed class WorkspacePlanTests
     {
         WorkspacePlan plan = new();
         Assert.Empty(plan.Registrations);
+        Assert.Empty(plan.Contexts);
         Assert.Empty(WorkspacePlan.Empty.Registrations);
+        Assert.Empty(WorkspacePlan.Empty.Contexts);
         await using InspectionWorkspace first = WorkspaceRegistrationConsumer.Create(plan);
         await using InspectionWorkspace second = WorkspaceRegistrationConsumer.Create(plan);
 
         WorkspaceRegistrationRevision firstRevision = Current(first);
         WorkspaceRegistrationRevision secondRevision = Current(second);
+        WorkspaceRegistrationObservation firstObservation =
+            WorkspaceRegistrationConsumer.Observe(first);
         Assert.Same(plan, firstRevision.Plan);
         Assert.Same(plan, secondRevision.Plan);
+        Assert.Equal(plan.Contexts, firstObservation.Contexts);
         Assert.NotSame(firstRevision.Workspace, secondRevision.Workspace);
         Assert.NotSame(firstRevision.Identity, secondRevision.Identity);
     }
@@ -49,6 +58,132 @@ public sealed class WorkspacePlanTests
     }
 
     [Fact]
+    public async Task ContextBearingPlanIsReusableAcrossIndependentOwnersAndAfterClose()
+    {
+        WorkspacePlan plan = WorkspaceRegistrationConsumer.CreatePlan(
+            [],
+            RealContexts());
+        var first = WorkspaceRegistrationConsumer.Create(plan);
+        await using InspectionWorkspace second =
+            WorkspaceRegistrationConsumer.Create(plan);
+
+        WorkspaceRegistrationRevision firstRevision = Current(first);
+        WorkspaceRegistrationRevision secondRevision = Current(second);
+        Assert.Same(plan, firstRevision.Plan);
+        Assert.Same(plan, secondRevision.Plan);
+        Assert.NotSame(firstRevision.Workspace, secondRevision.Workspace);
+        Assert.NotSame(firstRevision.Identity, secondRevision.Identity);
+
+        await first.DisposeAsync();
+        await using InspectionWorkspace third =
+            WorkspaceRegistrationConsumer.Create(plan);
+        WorkspaceRegistrationRevision thirdRevision = Current(third);
+        Assert.Same(plan, thirdRevision.Plan);
+        Assert.NotSame(firstRevision.Workspace, thirdRevision.Workspace);
+        Assert.Equal(2, thirdRevision.Plan.Contexts.Length);
+    }
+
+    [Fact]
+    public void ContextOrderTargetsAndCallerCollectionsAreSnapshotted()
+    {
+        List<WorkspaceMemberCoordinate> packageMembers =
+        [
+            WorkspaceMemberCoordinate.Package(
+                "System.Text.Json",
+                "11.0.0-preview.7.26381.103",
+                "net10.0"),
+        ];
+        List<WorkspaceMemberCoordinate> platformMembers =
+        [
+            WorkspaceMemberCoordinate.Platform(
+                "runtime",
+                "System.Text.Json",
+                "11.0.0-preview.7.26381.103",
+                "net11.0"),
+        ];
+        List<WorkspaceContextInput> contexts =
+        [
+            new()
+            {
+                Framework = "net10.0",
+                RuntimeIdentifier = "linux-x64",
+                Members = packageMembers,
+            },
+            new()
+            {
+                Framework = "net11.0",
+                Members = platformMembers,
+            },
+        ];
+
+        WorkspacePlan plan = WorkspaceRegistrationConsumer.CreatePlan([], contexts);
+        contexts.Clear();
+        packageMembers.Clear();
+        platformMembers[0] = WorkspaceMemberCoordinate.Platform("aspnetcore");
+
+        Assert.Equal(2, plan.Contexts.Length);
+        Assert.Equal("net10.0", plan.Contexts[0].Framework);
+        Assert.Equal("linux-x64", plan.Contexts[0].RuntimeIdentifier);
+        var package = Assert.IsType<WorkspaceMemberCoordinate.PackageMember>(
+            Assert.Single(plan.Contexts[0].Members));
+        Assert.Equal("System.Text.Json", package.PackageId);
+        Assert.Equal("11.0.0-preview.7.26381.103", package.Version);
+        Assert.Equal("net10.0", package.Framework);
+
+        Assert.Equal("net11.0", plan.Contexts[1].Framework);
+        Assert.Null(plan.Contexts[1].RuntimeIdentifier);
+        var platform = Assert.IsType<WorkspaceMemberCoordinate.PlatformMember>(
+            Assert.Single(plan.Contexts[1].Members));
+        Assert.Equal("runtime", platform.Family);
+        Assert.Equal("System.Text.Json", platform.Assembly);
+        Assert.Equal("11.0.0-preview.7.26381.103", platform.Version);
+        Assert.Equal("net11.0", platform.Framework);
+    }
+
+    [Fact]
+    public async Task ConstructionDoesNotAcquireAndLoaderValidationRemainsAtInvocation()
+    {
+        var declaration = new WorkspaceEcosystemRegistrationDeclaration(
+            WorkspaceEcosystemRegistrationId.Create("ecosystem.no-construction-work"),
+            [],
+            [],
+            [],
+            EcosystemIntegrationScannerBinding.Create(UnexpectedScanner));
+        WorkspaceContextInput invalid = RealContexts()[0] with
+        {
+            Framework = "not a framework",
+        };
+        WorkspacePlan plan = WorkspaceRegistrationConsumer.CreatePlan(
+            [new WorkspaceRegistration.Ecosystem(declaration)],
+            [invalid]);
+        await using InspectionWorkspace workspace =
+            WorkspaceRegistrationConsumer.Create(plan);
+        var scope = Assert.IsType<WorkspaceScopeReadResult.Available>(
+            await workspace.GetScopeSnapshotAsync());
+        Assert.Empty(scope.Snapshot.Packages);
+
+        var authorization = new RecordingAuthorization();
+        using var handler = new RecordingHandler();
+        using var client = new HttpClient(handler);
+        var failed = Assert.IsType<WorkspacePackageRootAcquisitionOutcome.Failed>(
+            await WorkspaceContextLoader.AcquirePackageRootAsync(
+                plan.Contexts[0],
+                new WorkspaceContextLoadOptions
+                {
+                    HttpClient = client,
+                    SourceAuthorization = authorization,
+                    PackageStore = new InMemoryPackageStore(),
+                },
+                TestContext.Current.CancellationToken));
+
+        Assert.Contains(
+            failed.Failures,
+            failure => failure.Kind == WorkspaceContextLoadFailureKind.InvalidCoordinate);
+        Assert.Equal(0, authorization.Requests);
+        Assert.Equal(0, handler.Requests);
+    }
+
+    [Fact]
     public void PlanConstructionRejectsTheWholeInvalidSet()
     {
         var library = new WorkspaceRegistration.ExactLibrary(
@@ -72,6 +207,14 @@ public sealed class WorkspacePlanTests
         }
         Assert.Throws<ArgumentNullException>(
             () => WorkspaceRegistrationConsumer.Create((WorkspacePlan)null!));
+        Assert.Throws<ArgumentNullException>(
+            () => WorkspaceRegistrationConsumer.CreatePlan([], null!));
+        Assert.Throws<ArgumentException>(
+            () => WorkspaceRegistrationConsumer.CreatePlan([], [null!]));
+        Assert.Throws<ArgumentException>(
+            () => WorkspaceRegistrationConsumer.CreatePlan(
+                [],
+                [new WorkspaceContextInput { Members = null! }]));
     }
 
     [Fact]
@@ -79,7 +222,7 @@ public sealed class WorkspacePlanTests
     {
         var original = new WorkspaceRegistration.PackagePrefix(new("Microsoft.Extensions."));
         var replacement = new WorkspaceRegistration.PackagePrefix(new("Aspire."));
-        WorkspacePlan plan = new([original]);
+        WorkspacePlan plan = new([original], RealContexts());
         await using var first = new InspectionWorkspace(plan);
         await using var second = new InspectionWorkspace(plan);
         WorkspaceRegistrationRevision initial = Current(first);
@@ -93,6 +236,9 @@ public sealed class WorkspacePlanTests
             first.ReplaceRegistrations(initial, [replacement]));
         Assert.NotSame(plan, changed.Revision.Plan);
         Assert.Equal([replacement], changed.Revision.Plan.Registrations);
+        Assert.Equal(2, changed.Revision.Plan.Contexts.Length);
+        Assert.Same(plan.Contexts[0], changed.Revision.Plan.Contexts[0]);
+        Assert.Same(plan.Contexts[1], changed.Revision.Plan.Contexts[1]);
         Assert.Equal([original], plan.Registrations);
         Assert.Same(plan, initial.Plan);
         Assert.Same(plan, Current(second).Plan);
@@ -158,4 +304,63 @@ public sealed class WorkspacePlanTests
             ["System"], [],
             [new WorkspaceEcosystemPopulationDeclaration.Platform(
                 new(PlatformFamily.DotNetRuntime))]);
+
+    static WorkspaceContextInput[] RealContexts() =>
+    [
+        new()
+        {
+            Framework = "net10.0",
+            Members =
+            [
+                WorkspaceMemberCoordinate.Package(
+                    "System.Text.Json",
+                    "11.0.0-preview.7.26381.103",
+                    "net10.0"),
+            ],
+        },
+        new()
+        {
+            Framework = "net11.0",
+            Members =
+            [
+                WorkspaceMemberCoordinate.Platform(
+                    "runtime",
+                    "System.Text.Json",
+                    "11.0.0-preview.7.26381.103",
+                    "net11.0"),
+            ],
+        },
+    ];
+
+    sealed class RecordingAuthorization : IPackageSourceAuthorization
+    {
+        public int Requests { get; private set; }
+
+        public PackageSourceAuthorization AuthorizeSourcesFor(string packageId)
+        {
+            Requests++;
+            return PackageSourceAuthorization.Deny("No source is available.");
+        }
+    }
+
+    sealed class RecordingHandler : HttpMessageHandler
+    {
+        public int Requests { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Requests++;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)
+            {
+                RequestMessage = request,
+            });
+        }
+    }
+
+    static ImmutableArray<EcosystemIntegrationClassification> UnexpectedScanner(
+        EcosystemIntegrationObservationContext context) =>
+        throw new InvalidOperationException(
+            "Plan and Workspace construction must not invoke scanners.");
 }

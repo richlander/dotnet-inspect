@@ -1,6 +1,5 @@
 using System.IO.Compression;
 using ILInspector.Metadata;
-using DotnetInspector.Core;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;

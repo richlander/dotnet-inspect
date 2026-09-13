@@ -603,7 +603,7 @@ public sealed class TypeScriptFacadeEmitterTests
             export interface GenericRecord<T0> {
               readonly content: T0;
               readonly nested: GenericNested<T0>;
-              readonly items: ReadonlyArray<T0>;
+              readonly items: ReadonlyArray<GenericNested<T0>>;
               readonly lookup: Readonly<Record<string, T0>>;
               readonly choice: Boxed<T0>;
             }
@@ -617,7 +617,93 @@ public sealed class TypeScriptFacadeEmitterTests
             StringComparison.Ordinal);
         Assert.Contains(
             "export async function getGenericRecordWidgetAsync(name: string): "
-                + "Promise<GenericRecord<WidgetDto>>",
+                + "Promise<GenericRecord<WidgetDto | null>>",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function getNullableGenericNested(): "
+                + "GenericNested<string | null>",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface GenericNestedEnvelope {
+              readonly item: GenericNested<string | null>;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function getGenericNestedEnvelope(): "
+                + "GenericNestedEnvelope",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface WrappedGenericNestedEnvelope {
+              readonly item: Wrapped<GenericNested<string | null>>;
+              readonly items: Wrapped<ReadonlyArray<GenericNested<string | null> | null>>;
+              readonly lookup: Wrapped<Readonly<Record<string, GenericNested<string | null> | null>>>;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function getWrappedGenericNestedEnvelope(): "
+                + "WrappedGenericNestedEnvelope",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface GenericNestedValue<T0> {
+              readonly value: T0;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface NullableWrappedGenericNestedEnvelope {
+              readonly item: Wrapped<GenericNestedValue<string | null> | null>;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function getNullableWrappedGenericNestedEnvelope(): "
+                + "NullableWrappedGenericNestedEnvelope",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface NullablePair<T0, T1> {
+              readonly first: T0;
+              readonly second: T1;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface MixedNullableValueEnvelope {
+              readonly item: NullablePair<number | null, string | null>;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function getMixedNullableValueEnvelope(): "
+                + "MixedNullableValueEnvelope",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export type GenericNestedChoice = "
+                + "GenericNested<string | null> | number | null;",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function getGenericNestedChoice(): "
+                + "GenericNestedChoice",
             source,
             StringComparison.Ordinal);
     }

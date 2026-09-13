@@ -2,7 +2,6 @@ using System.Collections.Concurrent;
 using System.CommandLine;
 
 using DotnetInspect.Cli.CommandLine;
-using DotnetInspector.Core;
 
 namespace DotnetInspect.Cli.Tests;
 
