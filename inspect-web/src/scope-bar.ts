@@ -972,8 +972,7 @@ class ScopeBarController implements ScopeBarBinding {
   private readonly handleDocumentPointerDown = (event: PointerEvent) => {
     const target = event.target;
     if (!(target instanceof Node)) return;
-    if (target instanceof Element
-      && target.closest('[role="dialog"][aria-modal="true"]')) return;
+    if (this.hasActiveModal()) return;
     const group = this.subject?.state.open
       ? this.subject
       : this.inspector?.state.open

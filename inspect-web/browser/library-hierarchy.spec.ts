@@ -3805,3 +3805,120 @@ for (const startingSubject of ["Package", "Library", "Type", "Member"]) {
     await expect(page.locator(".inspected-target")).toContainText("Example.Neighbor");
   });
 }
+
+test("an open Chooser yields Spotlight keyboard ownership", async ({ page }) => {
+  await installFacades(page);
+  await page.goto(root);
+  await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+  await page.setViewportSize({ width: 390, height: 900 });
+
+  const trigger = page.locator("[data-navigation-trigger='inspector']");
+  const menu = page.locator("#inspector-navigation-menu");
+  await trigger.click();
+  const overview = inspectorTab(page, "data-library-lens", "overview");
+  const references = menu.getByRole("menuitemradio", { name: "References" });
+  await references.focus();
+  await expect(references).toBeFocused();
+  const url = page.url();
+
+  await page.keyboard.press("Control+p");
+  const input = page.locator("#spotlight-input");
+  await expect(input).toBeFocused();
+  await expect(menu).toBeHidden();
+  expect(await input.evaluate(element => {
+    const bounds = element.getBoundingClientRect();
+    const target = document.elementFromPoint(
+      bounds.left + bounds.width / 2,
+      bounds.top + bounds.height / 2);
+    return target === element || element.contains(target);
+  })).toBe(true);
+  await input.click();
+  await expect(overview).toHaveAttribute("aria-selected", "true");
+  expect(page.url()).toBe(url);
+
+  await page.keyboard.press("Escape");
+  await expect(input).toHaveCount(0);
+  await expect(menu).toBeVisible();
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  await expect(references).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await expect(trigger).toBeFocused();
+  await expect(overview).toHaveAttribute("aria-selected", "true");
+  expect(page.url()).toBe(url);
+
+  await trigger.click();
+  await page.keyboard.press("Control+p");
+  await expect(input).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect.poll(() => page.evaluate(() =>
+    document.activeElement?.closest(".spotlight") != null)).toBe(true);
+});
+
+test("Spotlight backdrop dismissal restores an open Chooser", async ({
+  page,
+}) => {
+  await installFacades(page);
+  await page.goto(root);
+  await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+  await page.setViewportSize({ width: 390, height: 900 });
+
+  const trigger = page.locator("[data-navigation-trigger='inspector']");
+  const menu = page.locator("#inspector-navigation-menu");
+  await trigger.click();
+  const overview = inspectorTab(page, "data-library-lens", "overview");
+  const references = menu.getByRole("menuitemradio", { name: "References" });
+  await references.focus();
+  const url = page.url();
+
+  await page.keyboard.press("Control+p");
+  await expect(page.locator("#spotlight-input")).toBeFocused();
+  await expect(menu).toBeHidden();
+  await page.locator("#spotlight-backdrop").click({
+    position: { x: 5, y: 5 },
+  });
+
+  await expect(page.locator("#spotlight-input")).toHaveCount(0);
+  await expect(menu).toBeVisible();
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  await expect(references).toBeFocused();
+  await expect(overview).toHaveAttribute("aria-selected", "true");
+  expect(page.url()).toBe(url);
+});
+
+for (const [command, dialog] of [
+  ["settings", "#settings-dialog"],
+  ["keyboard help", "#keyboard-help-dialog"],
+] as const) {
+  test(`an open Chooser regains focus after ${command}`, async ({ page }) => {
+    await installFacades(page);
+    await page.goto(root);
+    await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+    await page.setViewportSize({ width: 390, height: 900 });
+
+    const trigger = page.locator("[data-navigation-trigger='inspector']");
+    const menu = page.locator("#inspector-navigation-menu");
+    await trigger.click();
+    const overview = inspectorTab(page, "data-library-lens", "overview");
+    const references = menu.getByRole("menuitemradio", { name: "References" });
+    await references.focus();
+    const url = page.url();
+
+    await page.keyboard.press("Control+k");
+    const input = page.locator("#spotlight-input");
+    await input.fill(command);
+    await page.keyboard.press("Enter");
+    await expect(page.locator(dialog)).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.locator(dialog)).toHaveCount(0);
+    await expect(menu).toBeVisible();
+    await expect(trigger).toHaveAttribute("aria-expanded", "true");
+    await expect(references).toBeFocused();
+
+    await page.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+    await expect(trigger).toBeFocused();
+    await expect(overview).toHaveAttribute("aria-selected", "true");
+    expect(page.url()).toBe(url);
+  });
+}
