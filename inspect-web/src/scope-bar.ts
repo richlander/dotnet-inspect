@@ -1223,6 +1223,7 @@ class ScopeBarController implements ScopeBarBinding {
     if (event.key.length !== 1 || event.altKey || event.ctrlKey || event.metaKey) {
       return;
     }
+    event.preventDefault();
     const prefix = event.key.toLocaleLowerCase();
     const candidates = [
       ...group.menuItems.slice(index + 1),
@@ -1232,7 +1233,6 @@ class ScopeBarController implements ScopeBarBinding {
       (candidate.textContent ?? "").trim().toLocaleLowerCase()
         .startsWith(prefix));
     if (target) {
-      event.preventDefault();
       target.focus();
     }
   }

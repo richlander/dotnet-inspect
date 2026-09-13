@@ -3886,7 +3886,7 @@ test("Spotlight backdrop dismissal restores an open Chooser", async ({
   expect(page.url()).toBe(url);
 });
 
-test("Chooser horizontal arrows do not commit workspace navigation", async ({
+test("Chooser keyboard input does not commit workspace navigation", async ({
   page,
 }) => {
   await installFacades(page);
@@ -3902,7 +3902,11 @@ test("Chooser horizontal arrows do not commit workspace navigation", async ({
   await inspectorTrigger.click();
   const references =
     inspectorMenu.getByRole("menuitemradio", { name: "References" });
-  await references.focus();
+  await page.keyboard.press("r");
+  await expect(references).toBeFocused();
+  await page.keyboard.press("2");
+  await page.keyboard.press("z");
+  await expect(page.locator("#spotlight-input")).toHaveCount(0);
   await page.keyboard.press("ArrowRight");
   await expect(references).toBeFocused();
   await expect(inspectorMenu).toBeVisible();
