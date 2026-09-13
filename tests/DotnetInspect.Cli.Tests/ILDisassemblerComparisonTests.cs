@@ -15,6 +15,8 @@ namespace DotnetInspect.Cli.Tests;
 [Collection("Console")]
 public class ILDisassemblerComparisonTests
 {
+    static readonly TimeSpan ToolTimeout = TimeSpan.FromSeconds(30);
+
     static readonly string CoreDll = FindAssembly("DotnetInspector.Core.dll");
     static readonly string CacheDll = FindAssembly("DotnetInspector.Cache.dll");
     static readonly string MetadataDll = FindAssembly("ILInspector.Metadata.dll");
@@ -99,56 +101,92 @@ public class ILDisassemblerComparisonTests
         yield return ["Test", "DotnetInspect.Cli.Tests.ILSampleClass", "CompareEquals"];
     }
 
+    [Fact]
+    public void ToolRunner_DrainsRedirectedStreamsConcurrently()
+    {
+        const string Payload =
+            "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+            + "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        var tempDir = Path.Combine(Path.GetTempPath(), $"tool-output-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            string fileName;
+            string[] arguments;
+            if (OperatingSystem.IsWindows())
+            {
+                string scriptPath = Path.Combine(tempDir, "write-output.cmd");
+                File.WriteAllText(
+                    scriptPath,
+                    $$"""
+                    @echo off
+                    for /L %%i in (1,1,4096) do @echo {{Payload}} 1>&2
+                    echo complete
+                    """);
+                fileName = "cmd.exe";
+                arguments = ["/d", "/s", "/c", scriptPath];
+            }
+            else
+            {
+                string scriptPath = Path.Combine(tempDir, "write-output.sh");
+                File.WriteAllText(
+                    scriptPath,
+                    $$"""
+                    i=0
+                    while [ "$i" -lt 4096 ]; do
+                      printf '%s\n' '{{Payload}}' >&2
+                      i=$((i + 1))
+                    done
+                    printf '%s\n' complete
+                    """);
+                fileName = "/bin/sh";
+                arguments = [scriptPath];
+            }
+
+            var result = RunTool(fileName, arguments, TimeSpan.FromSeconds(15));
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Contains("complete", result.StandardOutput);
+            Assert.True(
+                result.StandardError.Length > 64 * 1024,
+                $"Expected redirected stderr to exceed pipe capacity; got {result.StandardError.Length} characters.");
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
     // --- Tool execution ---
 
     static string RunILDasm(string assemblyPath, string outputPath)
     {
-        var psi = new ProcessStartInfo
+        var result = RunTool(
+            "ildasm",
+            [assemblyPath, $"-output={outputPath}", "-utf8"]);
+        if (result.ExitCode != 0)
         {
-            FileName = "ildasm",
-            ArgumentList = { assemblyPath, $"-output={outputPath}", "-utf8" },
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-        };
-
-        using var process = Process.Start(psi)!;
-        string output = process.StandardOutput.ReadToEnd();
-        process.WaitForExit(TimeSpan.FromSeconds(30));
-
-        if (process.ExitCode != 0)
-        {
-            string stderr = process.StandardError.ReadToEnd();
             throw new InvalidOperationException(
-                $"ildasm exited with code {process.ExitCode}: {stderr}");
+                $"ildasm exited with code {result.ExitCode}: {result.StandardError}");
         }
 
-        return output;
+        return result.StandardOutput;
     }
 
     static string RunILAsm(string ilPath, string outputDll)
     {
-        var psi = new ProcessStartInfo
+        var result = RunTool(
+            "ilasm",
+            [ilPath, "-dll", $"-output={outputDll}", "-quiet"]);
+        if (result.ExitCode != 0)
         {
-            FileName = "ilasm",
-            ArgumentList = { ilPath, "-dll", $"-output={outputDll}", "-quiet" },
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-        };
-
-        using var process = Process.Start(psi)!;
-        string output = process.StandardOutput.ReadToEnd();
-        process.WaitForExit(TimeSpan.FromSeconds(30));
-
-        if (process.ExitCode != 0)
-        {
-            string stderr = process.StandardError.ReadToEnd();
             throw new InvalidOperationException(
-                $"ilasm exited with code {process.ExitCode}: {stderr}\nstdout: {output}");
+                $"ilasm exited with code {result.ExitCode}: {result.StandardError}"
+                + $"\nstdout: {result.StandardOutput}");
         }
 
-        return output;
+        return result.StandardOutput;
     }
 
     static string RoundtripWithILAsm(string assemblyPath)
@@ -378,35 +416,55 @@ public class ILDisassemblerComparisonTests
     {
         try
         {
-            var psi = new ProcessStartInfo
-            {
-                FileName = fileName,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-            };
-            foreach (var arg in arguments)
-                psi.ArgumentList.Add(arg);
-
-            using var process = Process.Start(psi);
-            if (process is null) return false;
-
-            // Drain both streams to avoid deadlock on tools that write a lot to stderr.
-            var stdout = process.StandardOutput.ReadToEndAsync();
-            var stderr = process.StandardError.ReadToEndAsync();
-            if (!process.WaitForExit(TimeSpan.FromSeconds(30)))
-            {
-                try { process.Kill(entireProcessTree: true); } catch { /* ignore */ }
-                return false;
-            }
-            stdout.GetAwaiter().GetResult();
-            stderr.GetAwaiter().GetResult();
-
-            return process.ExitCode == 0;
+            return RunTool(fileName, arguments).ExitCode == 0;
         }
         catch
         {
             return false;
         }
     }
+
+    static ToolResult RunTool(
+        string fileName,
+        IReadOnlyList<string> arguments,
+        TimeSpan? timeout = null)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = fileName,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        foreach (var argument in arguments)
+            psi.ArgumentList.Add(argument);
+
+        using var process = Process.Start(psi)
+            ?? throw new InvalidOperationException($"Failed to start {fileName}.");
+
+        Task<string> stdout = process.StandardOutput.ReadToEndAsync();
+        Task<string> stderr = process.StandardError.ReadToEndAsync();
+        TimeSpan effectiveTimeout = timeout ?? ToolTimeout;
+        if (!process.WaitForExit(effectiveTimeout))
+        {
+            OutOfProcessCliProcess.KillAndWaitForExit(process, TimeSpan.FromSeconds(5));
+            Task.WaitAll([stdout, stderr], TimeSpan.FromSeconds(5));
+            throw new TimeoutException(
+                $"{fileName} did not exit within {effectiveTimeout}: "
+                + string.Join(" ", arguments));
+        }
+
+        if (!Task.WaitAll([stdout, stderr], TimeSpan.FromSeconds(5)))
+            throw new TimeoutException($"{fileName} output streams did not close after exit.");
+
+        return new ToolResult(
+            process.ExitCode,
+            stdout.GetAwaiter().GetResult(),
+            stderr.GetAwaiter().GetResult());
+    }
+
+    readonly record struct ToolResult(
+        int ExitCode,
+        string StandardOutput,
+        string StandardError);
 }
