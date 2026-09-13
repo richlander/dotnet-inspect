@@ -35,6 +35,30 @@ resources. They are not the definition of ownership. `ArrayPool<T>.Rent` and
 `Return` form an ownership protocol without either interface, and an exclusive
 mutable value may need ownership without any release operation.
 
+## Ownership, lease, and receipt composition
+
+Ownership has structural but not domain shape. It says that one current owner
+controls mutation, transfer, borrowing, and any terminal responsibility. It
+does not identify the resource, purpose, issuer, generation, or permitted
+operation. Leases and receipts supply that domain meaning.
+
+The three concepts are complementary rather than interchangeable:
+
+| Concept | What the map looks for | What it cannot establish alone |
+| --- | --- | --- |
+| Ownership: **who controls the value** | One current mutation or terminal-responsibility holder, explicit transfer, and bounded borrows. | What the value represents, why exclusive control is required, or the exact issuer, generation, authorization, and durable outcome. |
+| Lease: **what live capability is owned and why** | One issuer-created value naming the resource or operation, exact correspondence, permitted authority, and a release or settlement obligation. | Source-level alias exclusion, transfer invalidation, or borrow lifetime in current C#. |
+| Receipt: **what happened** | Immutable owner-issued identity, provenance, decision, or outcome evidence after an operation. | Live authority, retention, access, mutation, release, reopening, or resumption. |
+
+For Package Source, ownership says who currently controls one
+`PackageSourceOperationLease`; the lease joins that authority to one settlement
+generation and operation context; and the result receipts preserve source,
+candidate, decision, and outcome evidence after the lease is released. Without
+ownership the lease can still be aliased by current C# references. Without the
+lease, ownership has no issuer-issued capability to validate. Without the
+receipt or another detached owner-issued outcome, later stateless work that
+needs durable evidence has none and must not infer it from a former handle.
+
 ## Claim
 
 An ownership mapping is useful only when it identifies all of these separately:

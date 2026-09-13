@@ -78,6 +78,68 @@ ownership-protected only when its focused owner declares that identity or
 exclusive mutation is correctness-sensitive. Ordinary shared mutable state is
 not silently reclassified by this protocol.
 
+## Ownership, leases, and receipts
+
+Ownership has a minimal structural shape but no resource-specific shape. It
+says that one current owner controls a value, ownership moves rather than
+copies, and other access is borrowed. It does not say what the value represents,
+why exclusive control is required, which issuer granted authority, which
+generation is current, or which operations are permitted.
+
+Compiler rules, API shape, runtime checks, and Analysis enforce different
+subsets of that ownership relation. A lease and a receipt add the domain shape:
+
+- **ownership answers who** may mutate, borrow, transfer, release, or settle a
+  value now;
+- a **lease answers what and why**: it is an issuer-created live capability
+  that names the resource or operation, carries temporary authority and exact
+  correspondence, and states the terminal release or settlement obligation;
+  and
+- a **receipt answers what happened**: it is immutable durable evidence of a
+  completed decision, transfer, or settlement and carries no live authority.
+
+A lease is not an alternative to ownership. It is one terminal-resource shape
+that gives domain meaning to the ownership relation and must itself have one
+current owner. A receipt is intentionally outside the live ownership lifecycle
+after publication.
+
+| Mechanism used alone | Protection retained | Protection missing |
+| --- | --- | --- |
+| Ownership without a nominal lease | Exclusive mutation, transfer invalidation, bounded borrows, and any owner-declared cleanup remain expressible. This is sufficient for an operation-local mutable builder. An owner-specific protocol such as `ArrayPool<T>.Rent`/`Return` can supply domain meaning without a lease type. | Ownership alone does not identify which issuer, resource, generation, registration, or authorization granted a capability. It does not provide revocation, operation admission, or durable evidence after the owner ends. |
+| Lease value without ownership enforcement | The lease can name the exact issuer, resource, generation, operation context, authority, and required release or settlement. Runtime validation can reject stale, foreign, revoked, or already-ended use. | In current C#, aliases can copy the lease reference, conceptual transfer does not invalidate the source, borrows can escape unsupported shapes, two aliases can attempt release, and an asynchronous settlement awaitable can be dropped. |
+| Receipt without a live owner or lease | The receipt can safely retain identity, provenance, generation, decision, and outcome after the operation ends. It can cross service, serialization, process, or Workspace-realization boundaries when its owner permits that use. | A receipt cannot access, mutate, keep alive, release, reopen, or resume the resource. It proves an owner-issued past fact, not current authority. |
+| Ownership and lease without a receipt | The live operation has single-owner discipline plus exact issuer-scoped authority and terminal responsibility. | Unless the operation returns another owner-issued detached outcome, no durable value records what was selected, produced, transferred, or settled. A later stateless operation cannot safely infer that history from a former handle. |
+| Ownership and receipt without a lease | Exclusive mutable construction and detached evidence remain possible. | For an issuer-controlled live resource, the caller lacks an explicit current capability joining its ownership to the exact issuer, generation, authorization, and terminal obligation. |
+
+The complete service pattern composes all three when an operation requires both
+live external authority and durable cross-operation evidence:
+
+```text
+issuer creates lease
+  -> caller owns or transfers that exact lease
+     -> operation borrows or consumes it
+        -> operation returns detached result + receipt
+        -> owner transfers or releases the lease
+receipt remains; live authority does not
+```
+
+This composition serves the stateless core direction. A service receives every
+live authority it needs as an owned lease or another explicit owned input and
+returns detached results and, when durable evidence is required, an owner-issued
+receipt. A detached owner-issued outcome may itself be sufficient when no
+separate receipt contract is needed. The service does not recover authority
+from a receipt, infer current rights from identity text, or retain a hidden
+lease so a later operation can reconstruct the past.
+
+The layers are jointly necessary for the project goals:
+
+| Goal | Ownership contribution | Lease and receipt contribution |
+| --- | --- | --- |
+| Security | Define stale-owner and incompatible-alias use as invalid so compiler enforcement, API shape, runtime checks, or Analysis can prevent, reject, or detect it within their supported boundaries. | The lease binds live authority to the exact issuer and correspondence; a receipt remains non-authoritative so past evidence cannot be replayed as current access. |
+| Reliability | Define transfer, borrowing, use after move, and terminal responsibility explicitly; enforcement remains layered and incomplete in current C#. | Runtime lease validation rejects stale or foreign authority; receipts preserve the exact completed decision and outcome after live authority ends when that durable evidence is required. |
+| Performance | Permit direct bounded borrows and exclusive mutable construction without defensive copies. | A lease bounds how long expensive content must remain live, while a receipt retains evidence without pinning that content or forcing the service to cache prior observations. |
+| Stateless services | Require every live dependency to arrive as an owned input. | The operation consumes or borrows the lease and returns detached data plus an owner-issued receipt when later work needs durable evidence, so the next operation does not depend on hidden process history. |
+
 ## Authority and exact claim
 
 **Resource Ownership and Borrowing** owns:
