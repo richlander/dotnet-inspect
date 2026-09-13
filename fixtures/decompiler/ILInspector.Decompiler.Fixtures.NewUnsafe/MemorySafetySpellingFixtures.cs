@@ -65,6 +65,11 @@ public interface IMemorySafetyExtensionInterface
 {
 }
 
+public abstract class MemorySafetyAbstractFixture
+{
+    public abstract int Read();
+}
+
 public sealed class MemorySafetyExtensionClass
 {
 }

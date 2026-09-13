@@ -1,3 +1,4 @@
+using System.Reflection;
 using DotnetInspector.Packages;
 using NuGetFetch;
 
@@ -9,9 +10,75 @@ public sealed class PackageHouseExecutionTests
     private const string Version = "10.0.0";
 
     [Fact]
+    public async Task CompleteVersionDiscoveryIssuesReporterBoundCandidate()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(["9.0.0", Version]),
+            new SourceBehavior(["9.0.0"]));
+        using PackageSourceOperationLease operation =
+            environment.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken);
+
+        PackageVersionDiscoveryResult discovery =
+            await operation.DiscoverVersionsAsync(
+                PackageId,
+                environment.Authorization,
+                PackageVersionDiscoveryContract.CompleteVersionEnumeration);
+
+        Assert.Equal(
+            PackageVersionDiscoveryState.Authoritative,
+            discovery.State);
+        Assert.Same(
+            PackageVersionDiscoveryContract.CompleteVersionEnumeration,
+            discovery.Contract);
+        Assert.True(
+            discovery.Contract.SupportsCompleteVersionEnumeration);
+        Assert.Equal([Version, "9.0.0"], discovery.Versions);
+        PackageAcquisitionCandidate candidate =
+            discovery.SelectCandidate(Version);
+        Assert.Equal(
+            PackageAcquisitionCandidateKind.Discovered,
+            candidate.Kind);
+        PackageAcquisitionAuthorityEvidence reporter =
+            Assert.Single(candidate.Authorities);
+        Assert.Same(
+            environment.Clients[0].Source,
+            reporter.Observation!.Source);
+        Assert.All(
+            environment.Clients,
+            client => Assert.Equal(1, client.VersionRequests));
+    }
+
+    [Fact]
+    public async Task CompleteVersionDiscoveryPreservesAuthoritativeEmpty()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior([]));
+        using PackageSourceOperationLease operation =
+            environment.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken);
+
+        PackageVersionDiscoveryResult discovery =
+            await operation.DiscoverVersionsAsync(
+                PackageId,
+                environment.Authorization,
+                PackageVersionDiscoveryContract.CompleteVersionEnumeration);
+
+        Assert.Equal(
+            PackageVersionDiscoveryState.Authoritative,
+            discovery.State);
+        Assert.Empty(discovery.Versions);
+        Assert.Empty(discovery.Listings);
+        Assert.Empty(discovery.Failures);
+        Assert.False(discovery.HasAnyCandidate);
+        Assert.Throws<ArgumentException>(
+            () => discovery.SelectCandidate(Version));
+    }
+
+    [Fact]
     public async Task ExactSettleAuthorizesWithoutPayloadWork()
     {
-        using HouseEnvironment environment = HouseEnvironment.Create(
+        await using HouseEnvironment environment = HouseEnvironment.Create(
             new SourceBehavior([Version]));
         int stores = 0;
         PackageHouseRequest request = ExactRequest(
@@ -26,8 +93,9 @@ public sealed class PackageHouseExecutionTests
         PackageHouseSettlement settlement =
             await house.ExecuteAsync(
                 request,
-                environment.Lease,
-                TestContext.Current.CancellationToken);
+                environment.IssueOperation(
+                    request,
+                    TestContext.Current.CancellationToken));
 
         PackageHouseSettlement.ResourceFree resourceFree =
             Assert.IsType<PackageHouseSettlement.ResourceFree>(
@@ -39,12 +107,13 @@ public sealed class PackageHouseExecutionTests
         Assert.Equal(0, stores);
         Assert.Equal(0, environment.Clients[0].VersionRequests);
         Assert.Equal(0, environment.Clients[0].PayloadRequests);
+        await environment.AssertRootSettledAsync();
     }
 
     [Fact]
     public async Task ExactAcquireBindsLivePayloadToResourceFreeReceipt()
     {
-        using HouseEnvironment environment = HouseEnvironment.Create(
+        await using HouseEnvironment environment = HouseEnvironment.Create(
             new SourceBehavior([Version]));
         PackageHouseRequest request = ExactRequest(
             PackageHouseOperationProfile.Acquire);
@@ -54,8 +123,9 @@ public sealed class PackageHouseExecutionTests
         PackageHouseSettlement settlement =
             await house.ExecuteAsync(
                 request,
-                environment.Lease,
-                TestContext.Current.CancellationToken);
+                environment.IssueOperation(
+                    request,
+                    TestContext.Current.CancellationToken));
 
         PackageHouseSettlement.Acquired acquired =
             Assert.IsType<PackageHouseSettlement.Acquired>(
@@ -75,12 +145,13 @@ public sealed class PackageHouseExecutionTests
         Assert.Equal(payload.Origin, acquisition.Origin);
         Assert.Equal(payload.ProducerKey, acquisition.Producer.Key);
         Assert.Equal(1, environment.Clients[0].PayloadRequests);
+        await environment.AssertRootSettledAsync();
     }
 
     [Fact]
     public async Task AcquireRequiresPayloadAcquisitionPlan()
     {
-        using HouseEnvironment environment = HouseEnvironment.Create(
+        await using HouseEnvironment environment = HouseEnvironment.Create(
             new SourceBehavior([Version]));
         PackageHouse house = environment.CreateHouse();
         PackageHouseRequest request = ExactRequest(
@@ -90,20 +161,22 @@ public sealed class PackageHouseExecutionTests
             await Assert.ThrowsAsync<InvalidOperationException>(
                 () => house.ExecuteAsync(
                     request,
-                    environment.Lease,
-                    TestContext.Current.CancellationToken));
+                    environment.IssueOperation(
+                        request,
+                        TestContext.Current.CancellationToken)));
 
         Assert.Contains(
             "package store capability",
             exception.Message,
             StringComparison.Ordinal);
         Assert.Equal(0, environment.Clients[0].PayloadRequests);
+        await environment.AssertRootSettledAsync();
     }
 
     [Fact]
     public async Task SelectingAcquireUsesOnlyAuthoritiesThatReportedSelection()
     {
-        using HouseEnvironment environment = HouseEnvironment.Create(
+        await using HouseEnvironment environment = HouseEnvironment.Create(
             new SourceBehavior(["9.0.0", Version]),
             new SourceBehavior(["9.0.0"]));
         var request = new PackageHouseRequest(
@@ -118,8 +191,9 @@ public sealed class PackageHouseExecutionTests
         PackageHouseSettlement settlement =
             await house.ExecuteAsync(
                 request,
-                environment.Lease,
-                TestContext.Current.CancellationToken);
+                environment.IssueOperation(
+                    request,
+                    TestContext.Current.CancellationToken));
 
         Assert.IsType<PackageHouseResult.Settled>(
             settlement.Result);
@@ -137,7 +211,7 @@ public sealed class PackageHouseExecutionTests
     [Fact]
     public async Task CandidateAcquirePreservesResolvedAuthorityCorrespondence()
     {
-        using HouseEnvironment environment = HouseEnvironment.Create(
+        await using HouseEnvironment environment = HouseEnvironment.Create(
             new SourceBehavior(["9.0.0"]),
             new SourceBehavior([Version]));
         PackageHouse house = environment.CreateHouse(
@@ -151,8 +225,9 @@ public sealed class PackageHouseExecutionTests
         PackageHouseSettlement selected =
             await house.ExecuteAsync(
                 selectingRequest,
-                environment.Lease,
-                TestContext.Current.CancellationToken);
+                environment.IssueOperation(
+                    selectingRequest,
+                    TestContext.Current.CancellationToken));
         PackageAcquisitionCandidate candidate =
             Assert.IsType<PackageHouseResult.Settled>(selected.Result)
                 .Decision!.Candidate!;
@@ -165,8 +240,9 @@ public sealed class PackageHouseExecutionTests
         PackageHouseSettlement acquired =
             await house.ExecuteAsync(
                 candidateRequest,
-                environment.Lease,
-                TestContext.Current.CancellationToken);
+                environment.IssueOperation(
+                    candidateRequest,
+                    TestContext.Current.CancellationToken));
 
         Assert.IsType<PackageHouseSettlement.Acquired>(acquired);
         Assert.Same(candidate, acquired.Result.Decision!.Candidate);
@@ -180,16 +256,21 @@ public sealed class PackageHouseExecutionTests
     [Fact]
     public async Task CandidateDemandRejectsAnotherLeaseIssuer()
     {
-        using HouseEnvironment first = HouseEnvironment.Create(
+        await using HouseEnvironment first = HouseEnvironment.Create(
             new SourceBehavior([Version]));
-        using HouseEnvironment second = HouseEnvironment.Create(
+        await using HouseEnvironment second = HouseEnvironment.Create(
             new SourceBehavior([Version]));
-        PackageAcquisitionCandidate candidate =
-            Assert.IsType<PackageAcquisitionCandidate>(
-                first.Lease.ResolvePinnedCandidate(
+        PackageAcquisitionCandidate candidate;
+        using (PackageSourceOperationLease operation =
+            first.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken))
+        {
+            candidate = Assert.IsType<PackageAcquisitionCandidate>(
+                operation.ResolvePinnedCandidate(
                     first.Authorization.AuthorizeSourcesFor(PackageId),
                     PackageSourceCoordinate.Create(PackageId, Version))
                 .Candidate);
+        }
         var request = new PackageHouseRequest(
             new PackageHouseDemand.Candidate(candidate),
             PackageHouseOperation.Create(
@@ -199,11 +280,12 @@ public sealed class PackageHouseExecutionTests
             await Assert.ThrowsAsync<InvalidOperationException>(
                 () => second.CreateHouse().ExecuteAsync(
                     request,
-                    second.Lease,
-                    TestContext.Current.CancellationToken));
+                    second.IssueOperation(
+                        request,
+                        TestContext.Current.CancellationToken)));
 
         Assert.Contains(
-            "another source settlement lease",
+            "another Package Source root generation",
             exception.Message,
             StringComparison.Ordinal);
     }
@@ -211,14 +293,19 @@ public sealed class PackageHouseExecutionTests
     [Fact]
     public async Task CandidateDemandCannotBypassHouseAuthorization()
     {
-        using HouseEnvironment environment = HouseEnvironment.Create(
+        await using HouseEnvironment environment = HouseEnvironment.Create(
             new SourceBehavior([Version]));
-        PackageAcquisitionCandidate candidate =
-            Assert.IsType<PackageAcquisitionCandidate>(
-                environment.Lease.ResolvePinnedCandidate(
+        PackageAcquisitionCandidate candidate;
+        using (PackageSourceOperationLease operation =
+            environment.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken))
+        {
+            candidate = Assert.IsType<PackageAcquisitionCandidate>(
+                operation.ResolvePinnedCandidate(
                     environment.Authorization.AuthorizeSourcesFor(PackageId),
                     PackageSourceCoordinate.Create(PackageId, Version))
                 .Candidate);
+        }
         var request = new PackageHouseRequest(
             new PackageHouseDemand.Candidate(candidate),
             PackageHouseOperation.Create(
@@ -233,8 +320,9 @@ public sealed class PackageHouseExecutionTests
         PackageHouseSettlement settlement =
             await house.ExecuteAsync(
                 request,
-                environment.Lease,
-                TestContext.Current.CancellationToken);
+                environment.IssueOperation(
+                    request,
+                    TestContext.Current.CancellationToken));
 
         Assert.IsType<PackageHouseSettlement.ResourceFree>(settlement);
         Assert.IsType<PackageHouseResult.Rejected>(settlement.Result);
@@ -245,7 +333,7 @@ public sealed class PackageHouseExecutionTests
     [Fact]
     public async Task PartialDiscoveryDoesNotReachPayloadOrStore()
     {
-        using HouseEnvironment environment = HouseEnvironment.Create(
+        await using HouseEnvironment environment = HouseEnvironment.Create(
             new SourceBehavior([Version]),
             new SourceBehavior(
                 [],
@@ -268,8 +356,9 @@ public sealed class PackageHouseExecutionTests
         PackageHouseSettlement settlement =
             await house.ExecuteAsync(
                 request,
-                environment.Lease,
-                TestContext.Current.CancellationToken);
+                environment.IssueOperation(
+                    request,
+                    TestContext.Current.CancellationToken));
 
         Assert.IsType<PackageHouseResult.Incomplete>(
             settlement.Result);
@@ -279,14 +368,15 @@ public sealed class PackageHouseExecutionTests
         Assert.All(
             environment.Clients,
             client => Assert.Equal(0, client.PayloadRequests));
+        await environment.AssertRootSettledAsync();
     }
 
     [Fact]
     public async Task SelectionKeepsNotFoundAndNoMatchDistinct()
     {
-        using HouseEnvironment absent = HouseEnvironment.Create(
+        await using HouseEnvironment absent = HouseEnvironment.Create(
             new SourceBehavior([]));
-        using HouseEnvironment prerelease = HouseEnvironment.Create(
+        await using HouseEnvironment prerelease = HouseEnvironment.Create(
             new SourceBehavior(["11.0.0-preview.1"]));
         PackageHouseRequest CreateRequest() => new(
             new PackageHouseDemand.Selecting(
@@ -295,18 +385,20 @@ public sealed class PackageHouseExecutionTests
             PackageHouseOperation.Create(
                 PackageHouseOperationProfile.Settle));
 
+        PackageHouseRequest absentRequest = CreateRequest();
         PackageHouseSettlement notFound =
             await absent.CreateHouse().ExecuteAsync(
-                CreateRequest(),
-                absent.Lease,
-                cancellationToken:
-                    TestContext.Current.CancellationToken);
+                absentRequest,
+                absent.IssueOperation(
+                    absentRequest,
+                    TestContext.Current.CancellationToken));
+        PackageHouseRequest prereleaseRequest = CreateRequest();
         PackageHouseSettlement noMatch =
             await prerelease.CreateHouse().ExecuteAsync(
-                CreateRequest(),
-                prerelease.Lease,
-                cancellationToken:
-                    TestContext.Current.CancellationToken);
+                prereleaseRequest,
+                prerelease.IssueOperation(
+                    prereleaseRequest,
+                    TestContext.Current.CancellationToken));
 
         Assert.IsType<PackageHouseResult.NotFound>(
             notFound.Result);
@@ -315,25 +407,40 @@ public sealed class PackageHouseExecutionTests
     }
 
     [Fact]
-    public async Task SuppliedOperationDeadlinesMustMatchRequest()
+    public async Task OperationDeadlinesMustMatchRequest()
     {
-        using HouseEnvironment environment = HouseEnvironment.Create(
+        await using HouseEnvironment environment = HouseEnvironment.Create(
             new SourceBehavior([Version]));
         PackageHouseRequest request = ExactRequest(
             PackageHouseOperationProfile.Settle);
-        using var operation = new NuGetOperationContext(
-            request.Operation.RequestTimeout
-                + TimeSpan.FromSeconds(1),
-            request.Operation.OperationTimeout,
-            TestContext.Current.CancellationToken);
+        PackageSourceOperationLease operation =
+            environment.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken,
+                request.Operation.RequestTimeout
+                    + TimeSpan.FromSeconds(1),
+                request.Operation.OperationTimeout);
 
         await Assert.ThrowsAsync<ArgumentException>(
             () => environment.CreateHouse().ExecuteAsync(
                 request,
-                environment.Lease,
-                cancellationToken:
-                    TestContext.Current.CancellationToken,
-                operationContext: operation));
+                operation));
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task NullRequestReleasesTransferredOperation()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior([Version]));
+        PackageSourceOperationLease operation =
+            environment.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken);
+
+        await Assert.ThrowsAsync<ArgumentNullException>(
+            () => environment.CreateHouse().ExecuteAsync(
+                null!,
+                operation));
+        await environment.AssertRootSettledAsync();
     }
 
     [Fact]
@@ -342,7 +449,7 @@ public sealed class PackageHouseExecutionTests
         using var cancellation =
             CancellationTokenSource.CreateLinkedTokenSource(
                 TestContext.Current.CancellationToken);
-        using HouseEnvironment environment = HouseEnvironment.Create(
+        await using HouseEnvironment environment = HouseEnvironment.Create(
             new SourceBehavior(
                 [Version],
                 BeforeVersions: async (_, token) =>
@@ -363,18 +470,20 @@ public sealed class PackageHouseExecutionTests
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
                 () => environment.CreateHouse().ExecuteAsync(
                     request,
-                    environment.Lease,
-                    cancellationToken: cancellation.Token));
+                    environment.IssueOperation(
+                        request,
+                        cancellation.Token)));
 
         Assert.Equal(
             cancellation.Token,
             exception.CancellationToken);
+        await environment.AssertRootSettledAsync();
     }
 
     [Fact]
     public async Task OperationTimeoutBecomesTypedTerminalFailure()
     {
-        using HouseEnvironment environment = HouseEnvironment.Create(
+        await using HouseEnvironment environment = HouseEnvironment.Create(
             new SourceBehavior(
                 [Version],
                 BeforeVersions: async (_, token) =>
@@ -394,12 +503,13 @@ public sealed class PackageHouseExecutionTests
         PackageHouseSettlement settlement =
             await environment.CreateHouse().ExecuteAsync(
                 request,
-                environment.Lease,
-                cancellationToken:
-                    TestContext.Current.CancellationToken);
+                environment.IssueOperation(
+                    request,
+                    TestContext.Current.CancellationToken));
 
         Assert.IsType<PackageHouseResult.Failed>(
             settlement.Result);
+        Assert.Null(settlement.Result.Decision);
         Assert.Contains(
             settlement.Result.Evidence.Failures,
             failure =>
@@ -411,12 +521,15 @@ public sealed class PackageHouseExecutionTests
                     } authority
                 && authority.Failure.Timeout.Duration
                     == request.Operation.OperationTimeout);
+        Assert.IsType<PackageHouseFailure.Timeout>(
+            settlement.Result.Evidence.Failures.Last());
+        await environment.AssertRootSettledAsync();
     }
 
     [Fact]
     public async Task SelectingMayTimeOutBeforeDiscoveryReceiptExists()
     {
-        using HouseEnvironment environment = HouseEnvironment.Create(
+        await using HouseEnvironment environment = HouseEnvironment.Create(
             new SourceBehavior([Version]));
         var request = new PackageHouseRequest(
             new PackageHouseDemand.Selecting(
@@ -427,10 +540,10 @@ public sealed class PackageHouseExecutionTests
                 requestTimeout: TimeSpan.FromSeconds(1),
                 operationTimeout:
                     TimeSpan.FromMilliseconds(20)));
-        using var operation = new NuGetOperationContext(
-            request.Operation.RequestTimeout,
-            request.Operation.OperationTimeout,
-            TestContext.Current.CancellationToken);
+        PackageSourceOperationLease operation =
+            environment.IssueOperation(
+                request,
+                TestContext.Current.CancellationToken);
         await Task.Delay(
             TimeSpan.FromMilliseconds(60),
             TestContext.Current.CancellationToken);
@@ -438,10 +551,7 @@ public sealed class PackageHouseExecutionTests
         PackageHouseSettlement settlement =
             await environment.CreateHouse().ExecuteAsync(
                 request,
-                environment.Lease,
-                cancellationToken:
-                    TestContext.Current.CancellationToken,
-                operationContext: operation);
+                operation);
 
         Assert.IsType<PackageHouseResult.Failed>(
             settlement.Result);
@@ -450,12 +560,13 @@ public sealed class PackageHouseExecutionTests
             Assert.Single(
                 settlement.Result.Evidence.Failures));
         Assert.Equal(0, environment.Clients[0].VersionRequests);
+        await environment.AssertRootSettledAsync();
     }
 
     [Fact]
     public async Task OperationTimeoutMayPreserveCompletedSelectionReceipt()
     {
-        using HouseEnvironment environment = HouseEnvironment.Create(
+        await using HouseEnvironment environment = HouseEnvironment.Create(
             new SourceBehavior([]));
         var request = new PackageHouseRequest(
             new PackageHouseDemand.Selecting(
@@ -466,9 +577,9 @@ public sealed class PackageHouseExecutionTests
         PackageHouseSettlement settlement =
             await environment.CreateHouse().ExecuteAsync(
                 request,
-                environment.Lease,
-                cancellationToken:
-                    TestContext.Current.CancellationToken);
+                environment.IssueOperation(
+                    request,
+                    TestContext.Current.CancellationToken));
         PackageHouseDecisionReceipt decision =
             Assert.IsType<PackageHouseDecisionReceipt>(
                 settlement.Result.Decision);
@@ -494,6 +605,102 @@ public sealed class PackageHouseExecutionTests
             Assert.Single(failed.Evidence.Failures));
     }
 
+    [Fact]
+    public async Task UnsupportedRealizeReleasesTransferredOperation()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior([Version]));
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(
+                PackageSourceCoordinate.Create(
+                    PackageId,
+                    Version)),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize),
+            PackageHouseTargetContext.Exact("net10.0"),
+            PackageHouseAssetSelectionKind.Compile);
+
+        await Assert.ThrowsAsync<NotSupportedException>(
+            () => environment.CreateHouse().ExecuteAsync(
+                request,
+                environment.IssueOperation(
+                    request,
+                    TestContext.Current.CancellationToken)));
+
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task ThrownSourceExceptionReleasesTransferredOperation()
+    {
+        var expected =
+            new InvalidDataException("Source failed after invocation.");
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(
+                [Version],
+                BeforeVersions: (_, _) =>
+                    Task.FromException(expected)));
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Selecting(
+                new PackageVersionSelectionRequest.LatestStable(
+                    PackageId)),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Settle));
+
+        Assert.Same(
+            expected,
+            await Assert.ThrowsAsync<InvalidDataException>(
+                () => environment.CreateHouse().ExecuteAsync(
+                    request,
+                    environment.IssueOperation(
+                        request,
+                        TestContext.Current.CancellationToken))));
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public void ResultsAndReceiptsRetainNoSourceLeaseAuthority()
+    {
+        Type[] resourceTypes =
+        [
+            typeof(PackageSourceOperationLease),
+            typeof(PackageSourceSettlementLease),
+        ];
+        Type[] resultAndReceiptTypes =
+        [
+            typeof(PackageHouseSettlement),
+            .. typeof(PackageHouseSettlement)
+                .GetNestedTypes(BindingFlags.Public),
+            typeof(PackageHouseResult),
+            .. typeof(PackageHouseResult)
+                .GetNestedTypes(BindingFlags.Public),
+            typeof(PackageHouseDecisionReceipt),
+            typeof(PackageHouseAcquisitionReceipt),
+            typeof(PackageHouseEvidence),
+            typeof(PackageHouseFailure),
+            .. typeof(PackageHouseFailure)
+                .GetNestedTypes(BindingFlags.Public),
+            typeof(PackageAcquisitionCandidate),
+            typeof(PackageAcquisitionCandidateCorrespondence),
+            typeof(PackageVersionResolutionReceipt),
+            .. typeof(PackageVersionResolutionReceipt)
+                .GetNestedTypes(BindingFlags.Public),
+            typeof(AcquiredPackageSourcePayload),
+        ];
+
+        Assert.All(
+            resultAndReceiptTypes,
+            type => Assert.DoesNotContain(
+                type.GetFields(
+                    BindingFlags.Instance
+                    | BindingFlags.Public
+                    | BindingFlags.NonPublic),
+                field => resourceTypes.Any(
+                    resource =>
+                        resource.IsAssignableFrom(
+                            field.FieldType))));
+    }
+
     private static PackageHouseRequest ExactRequest(
         PackageHouseOperationProfile profile) =>
         new(
@@ -512,23 +719,23 @@ public sealed class PackageHouseExecutionTests
             CancellationToken,
             Task>? BeforeVersions = null);
 
-    private sealed class HouseEnvironment : IDisposable
+    private sealed class HouseEnvironment : IAsyncDisposable
     {
         private HouseEnvironment(
             FixedAuthorization authorization,
-            PackageSourceSettlementLease lease,
+            PackageSourceSettlementLease root,
             IReadOnlyList<HouseSourceClient> clients,
             IReadOnlyList<IPackageSourceClient> ownedClients)
         {
             Authorization = authorization;
-            Lease = lease;
+            Root = root;
             Clients = clients;
             OwnedClients = ownedClients;
         }
 
         public FixedAuthorization Authorization { get; }
 
-        public PackageSourceSettlementLease Lease { get; }
+        public PackageSourceSettlementLease Root { get; }
 
         public IReadOnlyList<HouseSourceClient> Clients { get; }
 
@@ -603,9 +810,24 @@ public sealed class PackageHouseExecutionTests
                     ? null
                     : new PackagePayloadAcquisitionPlan(getStore));
 
-        public void Dispose()
+        public PackageSourceOperationLease IssueOperation(
+            PackageHouseRequest request,
+            CancellationToken cancellationToken) =>
+            Root.IssueOperationLease(
+                cancellationToken,
+                request.Operation.RequestTimeout,
+                request.Operation.OperationTimeout);
+
+        public async Task AssertRootSettledAsync()
         {
-            Lease.Dispose();
+            ValueTask settlement = Root.DisposeAsync();
+            Assert.True(settlement.IsCompletedSuccessfully);
+            await settlement;
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            await Root.DisposeAsync();
             foreach (IPackageSourceClient client in OwnedClients)
             {
                 client.Dispose();

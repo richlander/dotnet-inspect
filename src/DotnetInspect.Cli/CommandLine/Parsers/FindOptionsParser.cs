@@ -4,8 +4,8 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Sections;
-using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using DotnetInspector.SourceSelection;
@@ -38,10 +38,7 @@ public static class FindOptionsParser
         Option<bool> NoHeaderOption,
         Option<string?> PackagePrefixOption,
         Option<bool> MembersOption,
-        Option<string?> LiteralOption,
-        Option<int?> CandidatesOption,
-        Option<int?> MatchesOption,
-        Option<bool> PackageContentOption);
+        Option<string?> LiteralOption);
 
     /// <summary>
     /// Result of parsing find command options.
@@ -71,69 +68,53 @@ public static class FindOptionsParser
         var pattern = parseResult.GetValue(args.PatternArg);
         var literal = parseResult.GetValue(args.LiteralOption);
         var packagePrefix = parseResult.GetValue(args.PackagePrefixOption);
+        var typeFilter = parseResult.GetValue(args.TypeFilterOption);
         bool packagePrefixSpecified =
             parseResult.GetResult(args.PackagePrefixOption)
                 is { Implicit: false };
-        string[] where = parseResult.GetValue(opts.RowWhere) ?? [];
-        int? candidates = parseResult.GetValue(args.CandidatesOption);
-        int? matches = parseResult.GetValue(args.MatchesOption);
-        bool packageContent = parseResult.GetValue(args.PackageContentOption);
-        bool queryRequested = where.Length > 0
-            || candidates is not null || matches is not null
-            || parseResult.GetResult(args.PackageContentOption) is { Implicit: false };
-        string[]? select = opts.ParseSelect(parseResult);
-        bool selectSpecified = parseResult.GetResult(opts.Select) is { Implicit: false };
-        if ((queryRequested || selectSpecified)
-            && (!string.IsNullOrEmpty(pattern) || !packagePrefixSpecified))
-        {
-            CommandError.Write(
-                "Package Query options and -S data selection require patternless find --package-prefix; use -Q <section> for query discovery.");
-            return new Invalid();
-        }
-        if (select is not null)
-        {
-            SelectResult sectionSelection = SelectResolver.ResolveSelectAsSections(
-                select, [PackageProfileSections.Packages],
-                categories: new Dictionary<string, string[]>());
-            if (SelectOutput.WriteUnresolved(sectionSelection))
-                return new Invalid();
-            if (sectionSelection.Sections?.Contains(PackageProfileSections.Packages) != true)
-            {
-                CommandError.Write("A package-prefix data selection must include Packages.");
-                return new Invalid();
-            }
-        }
-        PackageQueryOptions? packageQuery = null;
-        if (queryRequested && !PackageQueryOptions.TryCreate(
-            packagePrefix ?? "", where, packageContent, candidates, matches,
-            parseResult.GetValue(opts.Count),
-            parseResult.GetValue(args.TypeFilterOption),
-            out packageQuery, out var queryError))
-        {
-            CommandError.Write(queryError);
-            return new Invalid();
-        }
-
         if (string.IsNullOrEmpty(pattern)
             && !packagePrefixSpecified
             && literal is null)
             return new ShowHelpWithTips();
+        if (string.IsNullOrEmpty(pattern)
+            && packagePrefixSpecified
+            && literal is null)
+        {
+            CommandError.Write(
+                "find --package-prefix requires a type or member pattern; "
+                + "use 'package query <ID-or-prefix*>' for package rows.");
+            return new Invalid();
+        }
 
+        if (!CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
+                parseResult,
+                "Find",
+                out RowSelectionIntent<string>? rowSelection,
+                out string? rowSelectionError))
+        {
+            CommandError.Write(rowSelectionError!);
+            return new Invalid();
+        }
+
+        if (literal is not null
+            && !ValidateLiteralQuery(
+                parseResult,
+                opts,
+                args,
+                pattern,
+                literal))
+        {
+            return new Invalid();
+        }
         var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
-        var typeFilter = parseResult.GetValue(args.TypeFilterOption);
         AssemblySetRequest sources;
         SearchSourceSelection? selection = null;
-        bool profileHasGroupScope = false;
-        if (literal is not null || string.IsNullOrEmpty(pattern))
+        bool packagePrefixLimitReached = false;
+        if (literal is not null)
         {
-            // Profiles have their own grammar and reject API scopes before acquisition.
-            // Literal assembly queries read the declared sources the same way: the shared
+            // Literal assembly queries read the declared sources directly: the shared
             // planner needs the caller's exact ordered selection, including duplicates it
             // rejects itself, so source normalization must not silently remove them.
-            profileHasGroupScope = literal is null
-                && (parseResult.GetValue(args.PlatformOption)
-                    || parseResult.GetValue(args.ExtensionsOption)
-                    || parseResult.GetValue(args.AspNetCoreOption));
             sources = new()
             {
                 Packages = parseResult.GetValue(args.PackageOption) ?? [],
@@ -149,8 +130,12 @@ public static class FindOptionsParser
                 parseResult, args.PackageOption, args.AssemblyOption, args.ProjectOption,
                 args.PlatformOption, args.PlatformLibraryOption, args.ExtensionsOption,
                 args.AspNetCoreOption, args.BinOption, args.PackagePrefixOption);
-            (selection, sources) = await SearchSourceAdapter.BindAsync(
+            SearchSourceBinding binding = await SearchSourceAdapter.BindAsync(
                 intent, HttpClientFactory.Shared, parseResult.GetValue(opts.Verbose), sourceOptions);
+            selection = binding.Selection;
+            sources = binding.Request;
+            packagePrefixLimitReached =
+                binding.PackagePrefixLimitReached;
         }
 
         var verbosity = opts.ParseVerbosity(parseResult);
@@ -159,6 +144,7 @@ public static class FindOptionsParser
             Pattern = pattern ?? "",
             Literal = literal,
             SourceSelection = selection,
+            PackagePrefixLimitReached = packagePrefixLimitReached,
             Packages = [.. sources.Packages],
             Assemblies = [.. sources.Assemblies],
             PlatformAssemblies = [.. sources.PlatformAssemblies],
@@ -171,9 +157,8 @@ public static class FindOptionsParser
             // No valid type/namespace starts with '.', so the shortcut is unambiguous.
             Members = parseResult.GetValue(args.MembersOption)
                 || (pattern?.StartsWith('.') ?? false),
-            Limit = CommandLineHelpers.ParseTypeLimit(typeFilter),
             TypeFilter = typeFilter,
-            Rows = opts.ParseRows(parseResult),
+            RowSelection = rowSelection,
             Count = parseResult.GetValue(opts.Count),
             JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
             CompactJson = parseResult.GetValue(args.CompactOption),
@@ -187,19 +172,79 @@ public static class FindOptionsParser
             Columns = opts.ParseColumns(parseResult),
             Fields = opts.ParseFields(parseResult),
             Discover = opts.ParseDiscover(parseResult),
-            Select = select,
-            PackageQuery = packageQuery,
             Tree = opts.ParseTree(parseResult),
             PackagePrefix = packagePrefix,
             PackagePrefixSpecified = packagePrefixSpecified,
-            HasPackageProfileGroupScope = profileHasGroupScope,
             SourceOptions = sourceOptions
         };
 
-        var tipLevel = options.Literal is not null || options.IsPackageProfile || options.FormatExplicitlySet || options.IsRawOutput || options.Count || verbosity == Verbosity.Quiet || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || options.Limit != null
+        var tipLevel = options.Literal is not null || options.FormatExplicitlySet || options.IsRawOutput || options.Count || verbosity == Verbosity.Quiet || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || options.RowSelection is not null
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);
 
         return new Success(options, verbosity, tipLevel);
+    }
+
+    private static bool ValidateLiteralQuery(
+        ParseResult parseResult,
+        SharedOptions opts,
+        FindCommandArgs args,
+        string? pattern,
+        string literal)
+    {
+        if (!string.IsNullOrEmpty(pattern)
+            || parseResult.GetResult(args.PackagePrefixOption)
+                is { Implicit: false }
+            || parseResult.GetResult(args.AssemblyOption)
+                is { Implicit: false }
+            || parseResult.GetResult(args.PlatformOption)
+                is { Implicit: false }
+            || parseResult.GetResult(args.PlatformLibraryOption)
+                is { Implicit: false }
+            || parseResult.GetValue(args.ExtensionsOption)
+            || parseResult.GetValue(args.AspNetCoreOption)
+            || parseResult.GetResult(args.ProjectOption)
+                is { Implicit: false }
+            || parseResult.GetResult(args.BinOption)
+                is { Implicit: false }
+            || parseResult.GetValue(args.MembersOption)
+            || parseResult.GetValue(args.AllOption)
+            || parseResult.GetResult(args.TypeFilterOption)
+                is { Implicit: false })
+        {
+            CommandError.Write(
+                "--literal searches only explicit ID@VERSION packages; "
+                + "it cannot be combined with a type pattern, API search scopes, "
+                + "--package-prefix, --members, --all, or --type.");
+            return false;
+        }
+
+        if (parseResult.GetValue(opts.Discover) is not null)
+            return true;
+
+        string tfm =
+            parseResult.GetValue(args.TfmOption) ?? "";
+        if (string.IsNullOrWhiteSpace(tfm))
+        {
+            CommandError.Write(
+                PackageAssemblyQueryDiagnostics.MissingTargetFramework);
+            return false;
+        }
+
+        try
+        {
+            _ = PackageAssemblyQuery.Plan(
+                PackageAssemblyPatterns.StringLiteralContains,
+                literal,
+                parseResult.GetValue(args.PackageOption) ?? [],
+                tfm);
+            return true;
+        }
+        catch (ArgumentException ex)
+        {
+            CommandError.Write(
+                PackageAssemblyQueryDiagnostics.Describe(ex));
+            return false;
+        }
     }
 
     /// <summary>

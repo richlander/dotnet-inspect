@@ -164,6 +164,7 @@ function performanceMember(): AppMemberSurface {
     isObsolete: false,
     genericArity: 0,
     metadataToken: null,
+    declarationMetadataToken: 0x17000001,
     returnType: "object",
     parameters: [],
     documentationId: "P:Example.Outer.Inner.Bounds",

@@ -21,7 +21,7 @@ import type { WorkerOperationCatalog } from "./worker-runtime-realm.ts";
 export interface EngineStartupClient {
   readonly host: Pick<EngineClient["host"], "buildIdentity">;
   readonly catalog: Pick<EngineClient["catalog"], "listVocabulary" | "listHomeDemos">;
-  readonly package: Pick<EngineClient["package"], "listPackageQueryFacets" | "listGalleryDiscoveryCatalog">;
+  readonly package: Pick<EngineClient["package"], "listPackageQueryFacets">;
 }
 
 interface StartupReads {
@@ -29,7 +29,6 @@ interface StartupReads {
   readonly listVocabulary: EngineStartupClient["catalog"]["listVocabulary"];
   readonly listHomeDemos: EngineStartupClient["catalog"]["listHomeDemos"];
   readonly listPackageQueryFacets: EngineStartupClient["package"]["listPackageQueryFacets"];
-  readonly listGalleryDiscoveryCatalog: EngineStartupClient["package"]["listGalleryDiscoveryCatalog"];
 }
 
 interface StartupOperation<TValue> {
@@ -61,7 +60,6 @@ export function registerEngineWorkerStartupOperations(
   register(engineStartupOperations.listVocabulary, reads.listVocabulary);
   register(engineStartupOperations.listHomeDemos, reads.listHomeDemos);
   register(engineStartupOperations.listPackageQueryFacets, reads.listPackageQueryFacets);
-  register(engineStartupOperations.listGalleryDiscoveryCatalog, reads.listGalleryDiscoveryCatalog);
 }
 
 export function bindEngineWorkerStartupClient(
@@ -116,7 +114,6 @@ export function bindEngineWorkerStartupClient(
     },
     package: {
       listPackageQueryFacets: bind(engineStartupOperations.listPackageQueryFacets),
-      listGalleryDiscoveryCatalog: bind(engineStartupOperations.listGalleryDiscoveryCatalog),
     },
   };
 }

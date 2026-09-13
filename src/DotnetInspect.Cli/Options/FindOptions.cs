@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 using DotnetInspector.SourceSelection;
 
 namespace DotnetInspect.Cli.Options;
@@ -10,6 +11,8 @@ namespace DotnetInspect.Cli.Options;
 public record FindOptions : IAssemblySourceOptions, IProjectionOptions
 {
     internal SearchSourceSelection? SourceSelection { get; init; }
+
+    internal bool PackagePrefixLimitReached { get; init; }
 
     /// <summary>
     /// Type name or glob pattern (positional argument). Comma-separated for multiple.
@@ -66,19 +69,20 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
     public bool Members { get; init; }
 
     /// <summary>
-    /// Limit number of results.
+    /// Internal operational limit used by trusted lookup consumers. The
+    /// <c>find</c> CLI does not lower semantic row selection into this value.
     /// </summary>
     public int? Limit { get; init; }
 
     /// <summary>
-    /// Raw value supplied to <c>-t</c>/<c>--type</c>.
+    /// Raw API type-filter value supplied to <c>--type</c>.
     /// </summary>
     public string? TypeFilter { get; init; }
 
     /// <summary>
-    /// Limit data rows per rendered table.
+    /// Ordered semantic row-selection intent prepared by the shared CLI grammar.
     /// </summary>
-    public RowWindow? Rows { get; init; }
+    public RowSelectionIntent<string>? RowSelection { get; init; }
 
     /// <summary>
     /// Output the number of rendered result rows.
@@ -142,10 +146,6 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
     /// </summary>
     public string[]? Discover { get; init; }
 
-    public string[]? Select { get; init; }
-
-    public PackageQueryOptions? PackageQuery { get; init; }
-
     /// <summary>
     /// Show discovery as a tree.
     /// </summary>
@@ -165,17 +165,6 @@ public record FindOptions : IAssemblySourceOptions, IProjectionOptions
     /// Whether <c>--package-prefix</c> was explicitly supplied.
     /// </summary>
     public bool PackagePrefixSpecified { get; init; }
-
-    internal bool HasPackageProfileGroupScope { get; init; }
-
-    /// <summary>
-    /// True when a patternless package-prefix search projects package manifests
-    /// rather than acquiring package archives for API search.
-    /// </summary>
-    public bool IsPackageProfile =>
-        Literal is null
-        && Pattern.Length == 0
-        && (PackagePrefixSpecified || PackagePrefix is not null);
 
     /// <summary>
     /// Returns true if a scope has been selected, including a normalized empty contribution.

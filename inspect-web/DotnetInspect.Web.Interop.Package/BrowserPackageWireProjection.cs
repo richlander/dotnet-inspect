@@ -109,6 +109,7 @@ internal static class BrowserPackageWireProjection
             member.IsObsolete,
             member.GenericArity,
             member.MetadataToken,
+            member.DeclarationMetadataToken,
             member.ReturnType,
             [
                 .. member.Parameters.Select(parameter => new BrowserParameterSurface(

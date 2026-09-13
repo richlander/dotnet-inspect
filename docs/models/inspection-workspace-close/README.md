@@ -1,6 +1,6 @@
 # Inspection workspace close model
 
-`InspectionWorkspaceClose.tla` models the shipped asynchronous
+`InspectionWorkspaceClose.tla` models the sole
 `InspectionWorkspace` admission, group-release ownership, and asynchronous
 close protocol described by
 [`../../inspection-space.md`](../../inspection-space.md#workspace-close-and-group-release-authority).
@@ -54,13 +54,16 @@ The model does not cover:
 - artifact acquisition identity or content lifetime;
 - `AssemblyContextGroup` image opening, resource ordering, or callback-local
   snapshots beyond the abstract busy state;
-- exception payloads, report serialization, or implementation conformance; or
-- the construction-time synchronous compatibility adapter, whose request-only
-  disposal surface has no awaited close report;
+- exception payloads, report serialization, or implementation conformance;
 - close-caller or report object identity, which is assigned to the named
   implementation gate in the owning design;
 - thread scheduling. The design separately requires awaited progress without
   a blocking wait or background-thread dependency.
+
+The retired synchronous Workspace compatibility path was outside this model.
+Making the existing awaited protocol the sole live lifetime changes no modeled
+transition or join currency. Constructor and caller migration are checked by
+the owning design's Release implementation gates, not inferred from TLC.
 
 ## Checked properties
 

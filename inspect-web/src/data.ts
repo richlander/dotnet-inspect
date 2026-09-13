@@ -40,7 +40,6 @@ export const libraryLenses = [
   ["overview", "Overview"],
   ["references", "References"],
   ["integrations", "Integrations"],
-  ["opportunities", "Opportunities"],
   ["analysis", "Analysis"],
   ["metadata", "Metadata"]
 ] as const;
@@ -934,6 +933,24 @@ export function uniqueTypeByQueryId<T extends QueryIdentifiedType>(
   return matches.length === 1 ? matches[0] ?? null : null;
 }
 
+export interface QueryTypePackage<T extends QueryIdentifiedType> {
+  types?: readonly T[];
+}
+
+export function uniqueWorkspaceTypeByQueryId<
+  TType extends QueryIdentifiedType,
+  TPackage extends QueryTypePackage<TType>,
+>(
+  packages: readonly TPackage[],
+  queryId: string,
+): { pkg: TPackage; type: TType } | null {
+  const matches = packages.flatMap(pkg =>
+    (pkg.types ?? [])
+      .filter(type => (type.queryId ?? type.id) === queryId)
+      .map(type => ({ pkg, type })));
+  return matches.length === 1 ? matches[0] ?? null : null;
+}
+
 export interface CallGraphAssembly {
   name?: string;
   version?: string;
@@ -1541,45 +1558,6 @@ export function sourceRequestNeedsLoad(
   error: unknown,
 ): boolean {
   return !sameRequest || (!loading && !result && !error);
-}
-
-export interface SourceRequestState {
-  sourceRequestGeneration?: number;
-  memberSourceLoading?: boolean;
-  memberSourceKey?: string;
-  memberSourceError?: string;
-  typeSourceLoading?: boolean;
-  typeSourceKey?: string;
-  typeSourceError?: string;
-}
-
-export function beginSourceRequestState(state: SourceRequestState): number {
-  state.sourceRequestGeneration = (state.sourceRequestGeneration ?? 0) + 1;
-  clearInFlightSourceState(state);
-  return state.sourceRequestGeneration;
-}
-
-export function cancelSourceRequestState(state: SourceRequestState): boolean {
-  if (!state.memberSourceLoading
-    && !state.typeSourceLoading) {
-    return false;
-  }
-  state.sourceRequestGeneration = (state.sourceRequestGeneration ?? 0) + 1;
-  clearInFlightSourceState(state);
-  return true;
-}
-
-function clearInFlightSourceState(state: SourceRequestState): void {
-  if (state.memberSourceLoading) {
-    state.memberSourceLoading = false;
-    state.memberSourceKey = "";
-    state.memberSourceError = "";
-  }
-  if (state.typeSourceLoading) {
-    state.typeSourceLoading = false;
-    state.typeSourceKey = "";
-    state.typeSourceError = "";
-  }
 }
 
 export interface SectionableMember {

@@ -44,7 +44,10 @@ call-graph reachability.
 The
 [Workspace Ecosystem Registration Handoff](workspace-ecosystem-registration-handoff.md)
 owns the explicit projection from one selected pack and the application-owned
-curated manifest into one newly constructed Workspace. This catalog retains
+platform or all-known manifest into one resource-free `WorkspacePlan`. Pack
+projection was implemented under #6786; #6791 replaces its live factories with
+two plan factories and leaves live construction explicit at the caller. Their CLI and
+Browser activation remains staged. This catalog retains
 application identity and contribution authorship; the handoff does not make
 Queries or browser Core depend on this assembly, and Workspace exposes no
 curated option.
@@ -154,7 +157,7 @@ It does not own:
 The lower Workspace projection is not another catalog capability implemented
 by copying descriptor fields at selection time. This owner explicitly pairs a
 pack with one handoff-owned immutable declaration and separately authors the
-ordered current curated-Workspace identities. The handoff defines projection,
+ordered current platform/all-known Workspace identities. The handoff defines projection,
 construction validation, and lower shape; this owner decides which shipped
 packs and contributions are paired.
 
@@ -450,12 +453,12 @@ pack's lower declaration returns only retained immutable handoff values. It
 does not resolve a package set, run a prefix query, inspect a platform catalog,
 invoke a scanner, construct a Workspace, or acquire content.
 
-The separate curated-Workspace API validates the complete authored manifest,
-passes the projected registrations as one complete explicit initialization to
-the public Workspace API, and returns the resulting Workspace. That operation
-adds no acquisition, prefix query, platform inspection, or scanner invocation.
-Repeated calls return independent Workspaces; raw Workspace construction
-remains outside this catalog and defaults to empty.
+The separate curated-plan API validates the complete authored manifest and
+passes the projected registrations to the public `WorkspacePlan` constructor.
+It adds no acquisition, prefix query, platform inspection or scanner invocation.
+The catalog may reuse that immutable plan; each explicit
+`new InspectionWorkspace(plan)` creates an independent live owner.
+Raw plan construction remains outside this catalog and defaults to empty.
 
 The pattern does not require constructing an ecosystem object at any stage.
 The scanner binding statically roots its method and may materialize one
@@ -649,11 +652,12 @@ selection, missing-capability results, and discovery materialization remain
 unchanged. Hosts must not infer executable traversal from a nonempty hint or
 core sequence, a curated set, or the presence of a pack identity.
 
-In particular, `ecosystem.platform` already groups product demos. It can retain
-that identity without pretending that its package-backed demos supply
-platform-source-owned traversal. This slice neither creates a Platform
-package set nor substitutes a `System.*` package prefix for a platform target.
-The catalog can expose the
+Ecosystem grouping and source provenance are orthogonal. `ecosystem.platform`
+groups Runtime Platform demos, while `ecosystem.microsoft-extensions` retains
+the Microsoft.Extensions demos whose exact implementation sources are ASP.NET
+Core Platform libraries. Neither grouping creates a Platform package set,
+changes curated package-set membership, or substitutes a package prefix for a
+Platform target. The catalog can expose the
 [resource-free population declaration](platform-library-population-declaration.md)
 independently; source realization and acquisition remain separate
 prerequisites.
@@ -959,18 +963,20 @@ Platform deliberately contributes no package coordinate as a substitute for
 its future platform-source-owned discovery/acquisition binding. This metadata
 is not derived from package-set membership or demo records.
 
-The initial Workspace projection is staged under
+The initial Workspace projection is implemented under
 [the focused handoff](workspace-ecosystem-registration-handoff.md). Its
-application-owned curated order is Platform, ASP.NET Core, then
+application-owned platform order is Platform, ASP.NET Core, then
 Microsoft.Extensions, which deliberately differs from ordinary pack discovery
 order. Platform requires a source-owned runtime population declaration;
 ASP.NET Core requires both its source-owned shared-framework population and
 the recorded `Microsoft.AspNetCore.` prefix; Microsoft.Extensions requires the
 recorded `Microsoft.Extensions.` prefix. Retrieval knowledge alone cannot make
-one of those curated registrations population-complete. This is the current
-product composition rather than a permanent set of named Workspace presets;
-later product builds may change the one curated manifest without changing raw
-Workspace construction or existing expanded registration sets.
+one of those registrations population-complete. A separate all-known manifest
+uses that order followed by Aspire, retaining its `Aspire.` prefix and exact
+scanner binding. The handoff owns completeness and fresh-construction semantics
+for the two intents approved in #6763; this is not a compatibility catalog of
+earlier manifests. Later product builds may change either manifest without
+changing raw Workspace construction or existing expanded registration sets.
 
 | Global order | Scenario ID | Pack |
 | ---: | --- | --- |
@@ -1147,16 +1153,16 @@ The flat product-demo projection preserves current order and appends Aspire:
 ```text
 Demos
 
-System.Text.Json                     Browse the Runtime Platform API
-Cross-package call graph             Trace calls across three packages
-Serialize call graph                 Trace the Runtime STJ implementation
-Configuration Bind                  Recursive binder call graph
-Options hub                         Inbound fan-in at AddOptions
-DI TryAdd hub                       Keyed/scoped Try* fan-in
-AddHttpClient                       HttpClient factory registration
-JsonElement.GetDecimal              Trace the Runtime number parse path
-Aspire AddPostgres                  PostgreSQL resource registration graph
-Aspire AddRedis                     Redis resource registration graph
+System.Text.Json                    Browse the Runtime Platform API
+Cross-library call graph            Trace calls across three Platform libraries
+Serialize call graph                Trace the Runtime STJ implementation
+Configuration Bind                 Recursive binder call graph
+Options hub                        Inbound fan-in at AddOptions
+DI TryAdd hub                      Keyed/scoped Try* fan-in
+AddHttpClient                      HttpClient factory registration
+JsonElement.GetDecimal             Trace the Runtime number parse path
+Aspire AddPostgres                 PostgreSQL resource registration graph
+Aspire AddRedis                    Redis resource registration graph
 ```
 
 The grouped ecosystem projection uses the same registrations:
@@ -1259,15 +1265,17 @@ gating the generic registry path's no-lookup behavior.
 ten scenario IDs, pack mapping, metadata, and global order without deriving
 expectations from source records.
 `ProductEcosystemPackTests.ExistingDemoSourcesPreserveDonorRecordsAndRunPlans`
-resolves the transferred eight sources and pins their package coordinates,
-navigation shape, type and member selection, section, and run-plan lowering to
-the donor behavior.
+resolves the transferred eight sources and pins their Runtime or ASP.NET Core
+Platform coordinates, navigation shape, type and member selection, section,
+and run-plan lowering to the donor behavior while retaining their ecosystem
+grouping.
 `ProductEcosystemPackTests.AspireDemoSourcesMatchLiteralPinsAndAnchors` gates
 the two exact package IDs, versions, TFMs, types, member anchors, and Call Graph
 bindings.
 `DemoCommandTests.Cli_EveryCallGraphDemo_Table_EmitsNonEmptyRows` gates
 nonempty ordinary CLI Call Graph execution through the existing section
-pipeline, including both Aspire scenarios.
+pipeline, including multi-library ASP.NET Core Platform caller scope and both
+package-backed Aspire scenarios.
 `DemoCommandTests.ListUsesCatalogDescriptorMetadata` and
 `BrowserProductHomeDemosTests.CatalogProjectionUsesEcosystemDescriptorMetadata`
 prove both hosts use application-catalog title and summary even when the

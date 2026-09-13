@@ -469,7 +469,9 @@ public class ILDisassemblerTests
     {
         var testDir = Path.GetDirectoryName(typeof(ILDisassemblerTests).Assembly.Location)!;
         string[] assemblyNames = [
+            "DotnetInspector.Cache.dll",
             "DotnetInspector.Core.dll",
+            "UntrustedDocuments.dll",
             "ILInspector.Metadata.dll",
             "DotnetInspector.Packages.dll",
             "DotnetInspector.Services.dll",

@@ -1,4 +1,4 @@
-using DotnetInspector.Core;
+using DotnetInspector.Cache;
 using DotnetInspector.MetadataRendering;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Inspectors;
@@ -779,7 +779,7 @@ public class LibraryCommand
                 }
 
                 AssemblyContextIntegrationsBatch? integrations =
-                    AssemblyContextIntegrationsRunner.RunIfRequested(
+                    await AssemblyContextIntegrationsRunner.RunIfRequestedAsync(
                         queries,
                         groupQueryCatalog,
                         [
@@ -932,7 +932,7 @@ public class LibraryCommand
                     ? [assemblyPaths[0]]
                     : assemblyPaths;
                 AssemblyContextIntegrationsBatch? integrations =
-                    AssemblyContextIntegrationsRunner.RunIfRequested(
+                    await AssemblyContextIntegrationsRunner.RunIfRequestedAsync(
                         queries,
                         groupQueryCatalog,
                         inspectionPaths.Select(path =>
@@ -1172,7 +1172,7 @@ public class LibraryCommand
                 }
 
                 AssemblyContextIntegrationsBatch? integrations =
-                    AssemblyContextIntegrationsRunner.RunIfRequested(
+                    await AssemblyContextIntegrationsRunner.RunIfRequestedAsync(
                         queries,
                         groupQueryCatalog,
                         [
@@ -2872,13 +2872,13 @@ public class LibraryCommand
 
     static LibraryCommand()
     {
-        CoreCache.RegisterVersionedCategory("effective-v", EffectiveCategory);
+        PersistentCache.RegisterVersionedCategory("effective-v", EffectiveCategory);
     }
 
     private static (List<string> Sections, DocumentSchema Schema)? TryGetCachedEffective(string assemblyPath, string contentHash, bool hasSourceLink)
     {
         string key = BuildEffectiveCacheKey(assemblyPath, contentHash, hasSourceLink);
-        var cached = CoreCache.TryGet(EffectiveCategory, key, extension: "tsv");
+        var cached = PersistentCache.TryGet(EffectiveCategory, key, extension: "tsv");
         if (cached == null) return null;
 
         var sections = new List<string>();
@@ -2936,7 +2936,7 @@ public class LibraryCommand
             else
                 sb.Append(name).Append('\n');
         }
-        CoreCache.Set(EffectiveCategory, key, sb.ToString(), extension: "tsv");
+        PersistentCache.Set(EffectiveCategory, key, sb.ToString(), extension: "tsv");
     }
 
     /// <summary>

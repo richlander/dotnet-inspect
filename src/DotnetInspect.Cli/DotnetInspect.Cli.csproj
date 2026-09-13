@@ -85,6 +85,7 @@
     <Using Include="CSharpText" />
     <Using Include="DotnetInspector.Networking" />
     <Using Include="ILInspector.SourceLink" />
+    <ProjectReference Include="..\DotnetInspector.Cache\DotnetInspector.Cache.csproj" />
     <ProjectReference Include="..\CSharpText\CSharpText.csproj" />
     <ProjectReference Include="..\DotnetInspector.SourceSelection\DotnetInspector.SourceSelection.csproj" />
     <ProjectReference Include="..\ILInspector.Analysis\ILInspector.Analysis.csproj" />

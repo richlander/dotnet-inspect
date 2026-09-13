@@ -987,12 +987,6 @@ public sealed partial class InspectionWorkspace
     {
         ArgumentNullException.ThrowIfNull(selectedPackages);
         ArgumentNullException.ThrowIfNull(yieldAsync);
-        if (_lifetimeMode
-            != InspectionWorkspaceLifetimeMode.Asynchronous)
-        {
-            throw new InvalidOperationException(
-                "A shareable package-role completion requires a workspace created by CreateAsynchronous.");
-        }
         ImmutableArray<PackageRootBinding> bindings =
             [.. selectedPackages];
         if (bindings.IsEmpty)

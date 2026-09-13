@@ -26,6 +26,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\DotnetInspector.Cache\DotnetInspector.Cache.csproj" />
     <ProjectReference Include="../../src/NuGetFetch/NuGetFetch.csproj" />
     <ProjectReference Include="../DotnetInspector.FixtureInfrastructure/DotnetInspector.FixtureInfrastructure.csproj" />
     <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.AttributeEnumFixtures/ILInspector.Metadata.AttributeEnumFixtures.csproj" />

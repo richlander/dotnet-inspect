@@ -81,21 +81,30 @@ static class ValidityCheck
         bool IsFull,
         ImmutableArray<ValidityDiagnostic> MalformedDiagnostics,
         bool SemanticChecked,
-        ImmutableArray<ValidityDiagnostic> SemanticDiagnostics)
+        ImmutableArray<ValidityDiagnostic> SemanticDiagnostics,
+        string? CompileBackUnavailableReason = null)
     {
         public string Id => $"{TypeName}::{MethodName}";
         public bool IsMalformed => MalformedDiagnostics.Length > 0;
         public bool HasSemanticDefect => SemanticDiagnostics.Length > 0;
+        public bool CompileBackUnavailable =>
+            CompileBackUnavailableReason is not null;
     }
 
     internal sealed record RenderedBodyResult(
         ImmutableArray<ValidityDiagnostic> MalformedDiagnostics,
         bool SemanticChecked,
-        ImmutableArray<ValidityDiagnostic> SemanticDiagnostics)
+        ImmutableArray<ValidityDiagnostic> SemanticDiagnostics,
+        string? CompileBackUnavailableReason = null)
     {
         public bool IsMalformed => MalformedDiagnostics.Length > 0;
         public bool HasSemanticDefect => SemanticDiagnostics.Length > 0;
-        public bool IsValid => !IsMalformed && SemanticChecked && !HasSemanticDefect;
+        public bool CompileBackUnavailable =>
+            CompileBackUnavailableReason is not null;
+        public bool IsValid => !CompileBackUnavailable
+            && !IsMalformed
+            && SemanticChecked
+            && !HasSemanticDefect;
     }
 
     internal readonly record struct MethodShellContext(
@@ -116,8 +125,12 @@ static class ValidityCheck
     {
         var results = Evaluate(assemblies, cap, lowered);
         int total = results.Count;
-        int fullTotal = results.Count(r => r.IsFull);
-        int partialTotal = total - fullTotal;
+        int compileBackUnavailable =
+            results.Count(r => r.CompileBackUnavailable);
+        int renderedTotal = total - compileBackUnavailable;
+        int fullTotal = results.Count(
+            r => !r.CompileBackUnavailable && r.IsFull);
+        int partialTotal = renderedTotal - fullTotal;
         int fullMalformed = results.Count(r => r.IsFull && r.IsMalformed);
         int partialMalformed = results.Count(r => !r.IsFull && r.IsMalformed);
         int semanticEligible = results.Count(r => r.IsFull && !r.IsMalformed);
@@ -135,6 +148,11 @@ static class ValidityCheck
             .Where(r => r.HasSemanticDefect)
             .Take(maxExamples)
             .Select(r => $"{r.Id}\n    {r.SemanticDiagnostics[0].Id}: {r.SemanticDiagnostics[0].Message}")
+            .ToList();
+        var unavailableExamples = results
+            .Where(r => r.CompileBackUnavailable)
+            .Take(maxExamples)
+            .Select(r => $"{r.Id}\n    {r.CompileBackUnavailableReason}")
             .ToList();
 
         // When emitting or diffing, record the error-code set per Full method so a
@@ -155,7 +173,8 @@ static class ValidityCheck
         }
 
         Report(total, fullTotal, partialTotal, fullMalformed, partialMalformed,
-            semanticEligible, semChecked, cap, semDefect, defectCodes, malformedExamples, defectExamples);
+            compileBackUnavailable, semanticEligible, semChecked, cap, semDefect,
+            defectCodes, malformedExamples, defectExamples, unavailableExamples);
 
         if (methodDefects is not null && emitDefectsPath is not null)
             EmitDefects(emitDefectsPath, methodDefects);
@@ -179,7 +198,8 @@ static class ValidityCheck
 
         foreach (var path in assemblies)
         {
-            var parseOptions = CompilerFeatureOptions.ParseOptions(path);
+            CompilerFeatureOptions.Resolution featureOptions =
+                CompilerFeatureOptions.Resolve(path);
 
             MetadataSource source;
             try { source = MetadataSource.Open(path, context: metadata); }
@@ -213,6 +233,27 @@ static class ValidityCheck
                     candidates.Add(new ValidityCandidate(typeName, methodName, function, productParameterList));
                 }
 
+                if (featureOptions is CompilerFeatureOptions.Resolution.Unavailable unavailable)
+                {
+                    foreach (var candidate in candidates)
+                    {
+                        results.Add(new MethodResult(
+                            candidate.TypeName,
+                            candidate.MethodName,
+                            CorpusMethodIdentity.SignatureText(
+                                candidate.Function.Signature),
+                            IsFull: false,
+                            [],
+                            SemanticChecked: false,
+                            [],
+                            unavailable.Reason));
+                    }
+                    continue;
+                }
+
+                var parseOptions =
+                    ((CompilerFeatureOptions.Resolution.Available)featureOptions)
+                    .Options;
                 var evaluationTargets = candidates;
                 var semanticEligible =
                     new ConcurrentBag<RenderedValidityCandidate>();
@@ -549,12 +590,17 @@ static class ValidityCheck
 
     static void Report(
         int total, int fullTotal, int partialTotal, int fullMalformed, int partialMalformed,
-        int semanticEligible, int semChecked, int cap, int semDefect, SortedDictionary<string, int> defectCodes,
-        List<string> malformedExamples, List<string> defectExamples)
+        int compileBackUnavailable, int semanticEligible, int semChecked, int cap,
+        int semDefect, SortedDictionary<string, int> defectCodes,
+        List<string> malformedExamples, List<string> defectExamples,
+        List<string> unavailableExamples)
     {
         string Pct(int n, int d) => d == 0 ? "0" : $"{100.0 * n / d:F2}%";
         string capText = cap == int.MaxValue ? "all" : cap.ToString();
-        Console.WriteLine($"COMPILE-CHECK over {total} rendered methods ({fullTotal} Full, {partialTotal} Partial)");
+        Console.WriteLine(
+            $"COMPILE-CHECK over {total} methods "
+            + $"({fullTotal} Full, {partialTotal} Partial, "
+            + $"{compileBackUnavailable} compile-back unavailable)");
         Console.WriteLine();
         Console.WriteLine("Syntactic validity (parse + statement legality — false-positive-free):");
         Console.WriteLine($"  Full malformed   : {fullMalformed} ({Pct(fullMalformed, fullTotal)} of Full) — the \"claimed good but won't parse\" set");
@@ -582,6 +628,13 @@ static class ValidityCheck
             Console.WriteLine();
             Console.WriteLine("Semantic-defect examples (Full):");
             foreach (var e in defectExamples)
+                Console.WriteLine($"  {e}");
+        }
+        if (unavailableExamples.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Compile-back unavailable examples:");
+            foreach (var e in unavailableExamples)
                 Console.WriteLine($"  {e}");
         }
     }

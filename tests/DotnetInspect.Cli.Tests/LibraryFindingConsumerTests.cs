@@ -1,10 +1,10 @@
+using DotnetInspector.Cache;
 using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json;
 using DotnetInspect.Cli.Commands;
-using DotnetInspector.Core;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Output;
@@ -20,7 +20,7 @@ using InertText;
 
 namespace DotnetInspect.Cli.Tests;
 
-// Mutates the process-global CoreCache root; serialize with in-process CLI/cache tests (#3471).
+// Mutates the process-global PersistentCache root; serialize with in-process CLI/cache tests (#3471).
 [Collection("Console")]
 public class LibraryFindingConsumerTests
 {
@@ -796,7 +796,7 @@ public class LibraryFindingConsumerTests
     }
 
     [Fact]
-    public void AssemblyContextIntegrationsRunner_ExecutesOneGroupAndRetainsProvenance()
+    public async Task AssemblyContextIntegrationsRunner_ExecutesOneGroupAndRetainsProvenance()
     {
         string firstPath = typeof(LibraryFindingConsumerTests).Assembly.Location;
         string secondPath = typeof(LibraryInspection).Assembly.Location;
@@ -806,7 +806,7 @@ public class LibraryFindingConsumerTests
 
         AssemblyContextIntegrationsBatch batch =
             Assert.IsType<AssemblyContextIntegrationsBatch>(
-                AssemblyContextIntegrationsRunner.RunIfRequested(
+                await AssemblyContextIntegrationsRunner.RunIfRequestedAsync(
                     queries,
                     LibrarySections.CreateGroupQueryRegistry(),
                     [
@@ -838,7 +838,7 @@ public class LibraryFindingConsumerTests
     }
 
     [Fact]
-    public void AssemblyContextIntegrationsRunner_ExecutesOpportunityClosureOnce()
+    public async Task AssemblyContextIntegrationsRunner_ExecutesOpportunityClosureOnce()
     {
         string path = typeof(LibraryFindingConsumerTests).Assembly.Location;
         HashSet<InspectionQueryDefinition> queries =
@@ -847,7 +847,7 @@ public class LibraryFindingConsumerTests
 
         AssemblyContextIntegrationsBatch batch =
             Assert.IsType<AssemblyContextIntegrationsBatch>(
-                AssemblyContextIntegrationsRunner.RunIfRequested(
+                await AssemblyContextIntegrationsRunner.RunIfRequestedAsync(
                     queries,
                     LibrarySections.CreateGroupQueryRegistry(),
                     [
@@ -883,7 +883,7 @@ public class LibraryFindingConsumerTests
     }
 
     [Fact]
-    public void AssemblyContextIntegrationsRunner_ProjectsBudgetFailureBesideAvailableEntry()
+    public async Task AssemblyContextIntegrationsRunner_ProjectsBudgetFailureBesideAvailableEntry()
     {
         string firstPath = typeof(LibraryFindingConsumerTests).Assembly.Location;
         string secondPath = typeof(LibraryInspection).Assembly.Location;
@@ -892,7 +892,7 @@ public class LibraryFindingConsumerTests
 
         AssemblyContextIntegrationsBatch batch =
             Assert.IsType<AssemblyContextIntegrationsBatch>(
-                AssemblyContextIntegrationsRunner.RunIfRequested(
+                await AssemblyContextIntegrationsRunner.RunIfRequestedAsync(
                     queries,
                     LibrarySections.CreateGroupQueryRegistry(),
                     [
@@ -940,14 +940,14 @@ public class LibraryFindingConsumerTests
     }
 
     [Fact]
-    public void AssemblyIntegrationOpportunitiesFailure_ProjectsToItsSection()
+    public async Task AssemblyIntegrationOpportunitiesFailure_ProjectsToItsSection()
     {
         string path = typeof(LibraryFindingConsumerTests).Assembly.Location;
         HashSet<InspectionQueryDefinition> queries =
             [AssemblyContextIntegrationsQuery.Definition];
         AssemblyContextIntegrationsBatch batch =
             Assert.IsType<AssemblyContextIntegrationsBatch>(
-                AssemblyContextIntegrationsRunner.RunIfRequested(
+                await AssemblyContextIntegrationsRunner.RunIfRequestedAsync(
                     queries,
                     LibrarySections.CreateGroupQueryRegistry(),
                     [
@@ -996,7 +996,7 @@ public class LibraryFindingConsumerTests
     }
 
     [Fact]
-    public void AssemblyContextIntegrationsRunner_PreservesNonManagedInputBehavior()
+    public async Task AssemblyContextIntegrationsRunner_PreservesNonManagedInputBehavior()
     {
         string path = Path.GetTempFileName();
         try
@@ -1006,7 +1006,7 @@ public class LibraryFindingConsumerTests
 
             AssemblyContextIntegrationsBatch batch =
                 Assert.IsType<AssemblyContextIntegrationsBatch>(
-                    AssemblyContextIntegrationsRunner.RunIfRequested(
+                    await AssemblyContextIntegrationsRunner.RunIfRequestedAsync(
                         queries,
                         LibrarySections.CreateGroupQueryRegistry(),
                         [
@@ -1027,7 +1027,7 @@ public class LibraryFindingConsumerTests
     }
 
     [Fact]
-    public void AssemblyContextIntegrationsRunner_SkipsInvalidFileBesideManagedInput()
+    public async Task AssemblyContextIntegrationsRunner_SkipsInvalidFileBesideManagedInput()
     {
         string invalidPath = Path.GetTempFileName();
         string managedPath =
@@ -1039,7 +1039,7 @@ public class LibraryFindingConsumerTests
 
             AssemblyContextIntegrationsBatch batch =
                 Assert.IsType<AssemblyContextIntegrationsBatch>(
-                    AssemblyContextIntegrationsRunner.RunIfRequested(
+                    await AssemblyContextIntegrationsRunner.RunIfRequestedAsync(
                         queries,
                         LibrarySections.CreateGroupQueryRegistry(),
                         [
@@ -1066,7 +1066,7 @@ public class LibraryFindingConsumerTests
     }
 
     [Fact]
-    public void AssemblyContextIntegrationsRunner_SkipsMissingFileBesideManagedInput()
+    public async Task AssemblyContextIntegrationsRunner_SkipsMissingFileBesideManagedInput()
     {
         string missingPath = Path.Combine(
             Path.GetTempPath(),
@@ -1078,7 +1078,7 @@ public class LibraryFindingConsumerTests
 
         AssemblyContextIntegrationsBatch batch =
             Assert.IsType<AssemblyContextIntegrationsBatch>(
-                AssemblyContextIntegrationsRunner.RunIfRequested(
+                await AssemblyContextIntegrationsRunner.RunIfRequestedAsync(
                     queries,
                     LibrarySections.CreateGroupQueryRegistry(),
                     [
@@ -1100,7 +1100,7 @@ public class LibraryFindingConsumerTests
     }
 
     [Fact]
-    public void AssemblyContextIntegrationsRunner_SkipsMalformedManagedFileBesideManagedInput()
+    public async Task AssemblyContextIntegrationsRunner_SkipsMalformedManagedFileBesideManagedInput()
     {
         string malformedPath = Path.GetTempFileName();
         string managedPath =
@@ -1120,7 +1120,7 @@ public class LibraryFindingConsumerTests
 
             AssemblyContextIntegrationsBatch batch =
                 Assert.IsType<AssemblyContextIntegrationsBatch>(
-                    AssemblyContextIntegrationsRunner.RunIfRequested(
+                    await AssemblyContextIntegrationsRunner.RunIfRequestedAsync(
                         queries,
                         LibrarySections.CreateGroupQueryRegistry(),
                         [
@@ -1147,7 +1147,7 @@ public class LibraryFindingConsumerTests
     }
 
     [Fact]
-    public void AssemblyContextIntegrationsRunner_SkipsMetadataOverflowBesideManagedInput()
+    public async Task AssemblyContextIntegrationsRunner_SkipsMetadataOverflowBesideManagedInput()
     {
         string malformedPath = Path.GetTempFileName();
         string managedPath =
@@ -1168,7 +1168,7 @@ public class LibraryFindingConsumerTests
 
             AssemblyContextIntegrationsBatch batch =
                 Assert.IsType<AssemblyContextIntegrationsBatch>(
-                    AssemblyContextIntegrationsRunner.RunIfRequested(
+                    await AssemblyContextIntegrationsRunner.RunIfRequestedAsync(
                         queries,
                         LibrarySections.CreateGroupQueryRegistry(),
                         [
@@ -1217,7 +1217,7 @@ public class LibraryFindingConsumerTests
                 [AssemblyContextIntegrationOpportunitiesQuery.Definition];
             AssemblyContextIntegrationsBatch batch =
                 Assert.IsType<AssemblyContextIntegrationsBatch>(
-                    AssemblyContextIntegrationsRunner.RunIfRequested(
+                    await AssemblyContextIntegrationsRunner.RunIfRequestedAsync(
                         queries,
                         LibrarySections.CreateGroupQueryRegistry(),
                         [
@@ -1237,7 +1237,7 @@ public class LibraryFindingConsumerTests
             File.Copy(replacementPath, targetPath, overwrite: true);
             File.SetLastWriteTimeUtc(targetPath, replacementTimestamp);
 
-            CoreCache.Initialize("dotnet-inspect-test");
+            PersistentCache.Initialize("dotnet-inspect-test");
             using var httpClient = new HttpClient();
             LibraryInspection inspection = Assert.IsType<LibraryInspection>(
                 await LibraryMetadataService.InspectAsync(

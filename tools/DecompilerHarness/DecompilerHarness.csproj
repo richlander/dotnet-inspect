@@ -13,6 +13,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="DecompilerHarness.Tests" />
     <Using Include="CSharpText" />
     <Using Include="DotnetInspector.Networking" />
     <Using Include="ILInspector.SourceLink" />
@@ -22,6 +23,7 @@
     <ProjectReference Include="../../src/ILInspector.ILDiff/ILInspector.ILDiff.csproj" />
     <ProjectReference Include="../../src/ILInspector.Instructions/ILInspector.Instructions.csproj" />
     <ProjectReference Include="../../src/ILInspector.Research/ILInspector.Research.csproj" />
+    <ProjectReference Include="../../src/DotnetInspector.DependencyManifests/DotnetInspector.DependencyManifests.csproj" />
     <ProjectReference Include="../../src/DotnetInspector.ResearchQueries/DotnetInspector.ResearchQueries.csproj" />
     <ProjectReference Include="../../src/DotnetInspector.Services/DotnetInspector.Services.csproj" />
     <ProjectReference Include="../../src/Inspector.Artifacts.Workspaces/Inspector.Artifacts.Workspaces.csproj" />

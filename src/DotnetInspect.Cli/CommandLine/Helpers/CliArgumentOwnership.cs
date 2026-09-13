@@ -22,6 +22,57 @@ internal static class CliArgumentOwnership
         return results;
     }
 
+    public static IReadOnlyDictionary<Token, Option> GetOptionValueOwners(
+        ParseResult parseResult)
+    {
+        var owners =
+            new Dictionary<Token, Option>(ReferenceEqualityComparer.Instance);
+        foreach (OptionResult option in GetOptionResults(parseResult))
+        foreach (Token token in option.Tokens.Where(
+            static token => token.Type == TokenType.Argument))
+            owners.Add(token, option.Option);
+        return owners;
+    }
+
+    public static Option? FindOption(
+        CommandResult scope,
+        string alias)
+    {
+        for (CommandResult? current = scope;
+            current is not null;
+            current = current.Parent as CommandResult)
+        {
+            Option? option = current.Children.OfType<OptionResult>()
+                .Select(result => result.Option)
+                .FirstOrDefault(option =>
+                    option.Name == alias
+                    || option.Aliases.Contains(alias));
+            if (option is not null)
+                return option;
+        }
+
+        return null;
+    }
+
+    public static Option? FindDeclaredOption(
+        CommandResult scope,
+        string alias)
+    {
+        for (CommandResult? current = scope;
+            current is not null;
+            current = current.Parent as CommandResult)
+        {
+            Option? option = current.Command.Options.FirstOrDefault(
+                option =>
+                    option.Name == alias
+                    || option.Aliases.Contains(alias));
+            if (option is not null)
+                return option;
+        }
+
+        return null;
+    }
+
     public static ParsedArgument[] MapArguments(
         ParseResult parseResult,
         IReadOnlyList<string> arguments)

@@ -1,9 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using DotnetInspector.Cache;
 using System.Net;
 using System.Text;
-using DotnetInspector.Core;
 using DotnetInspector.Packages;
 using NuGetSource = NuGetFetch.PackageSource;
 
@@ -14,20 +14,20 @@ namespace DotnetInspector.Services.Tests;
 /// must not crash version resolution / package download with
 /// `System.NotSupportedException: net_http_unsupported_requesturi_scheme, file`.
 /// </summary>
-[Collection(CoreCacheCollection.Name)]
+[Collection(PersistentCacheCollection.Name)]
 public class LocalFolderSourceTests : IDisposable
 {
     private const string VersionCacheCategory = "versions-v5";
 
     public LocalFolderSourceTests()
     {
-        CoreCache.Initialize("dotnet-inspect-test");
-        CoreCache.Clear(VersionCacheCategory);
+        PersistentCache.Initialize("dotnet-inspect-test");
+        PersistentCache.Clear(VersionCacheCategory);
     }
 
     public void Dispose()
     {
-        CoreCache.Clear(VersionCacheCategory);
+        PersistentCache.Clear(VersionCacheCategory);
     }
 
     public static TheoryData<string> LocalFolderUrls() => new()

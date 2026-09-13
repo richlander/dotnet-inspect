@@ -204,13 +204,21 @@ its different questions separate.
 
 | Location | Role |
 | --- | --- |
-| [`tests/ILInspector.Decompiler.Tests`](../tests/ILInspector.Decompiler.Tests) | Executable xUnit suite: importer, IR, passes, proof atoms, printer, annotation/document contracts, body production, and harness regression tests. |
+| [`tests/ILInspector.Decompiler.Tests`](../tests/ILInspector.Decompiler.Tests) | Product-owned executable xUnit suite: importer, IR, passes, proof atoms, printer, annotation/document contracts, and body production. Existing linked harness sources and regressions are migration debt, not placement precedent. |
+| [`tests/DecompilerHarness.Tests`](../tests/DecompilerHarness.Tests) | Harness-owned executable xUnit suite: ReturnToSender, compile-back, corpus, and other harness orchestration contracts. It consumes `tools/DecompilerHarness`, which in turn consumes product libraries. |
 | [`fixtures/decompiler`](../fixtures/decompiler) | Independently compiled inputs where compiler features, module attributes, assembly identity, or cross-assembly relationships matter. |
 | [`tests/DotnetInspector.FixtureInfrastructure`](../tests/DotnetInspector.FixtureInfrastructure) | `FixtureCatalog` registration and resolution shared by tests and harnesses. |
 | [`tools/DecompilerHarness`](../tools/DecompilerHarness) | Single-method diagnostics, compile-back, generated-fixture catalog, source oracles, and corpus measurements. |
 | [`tools/RoundTripCompilation`](../tools/RoundTripCompilation) | Tools-side compilation and comparison support used by harness/tests. |
 | [`tools/HarnessReportProtocol`](../tools/HarnessReportProtocol), [`tools/HarnessReportDiff`](../tools/HarnessReportDiff) | Stored typed reports and goal-aware before/after report comparison. |
 | Adjacent suites | Metadata/Analysis/IL round-trip owner tests; Queries, CLI, and browser-engine tests for their integration boundaries. |
+
+New ReturnToSender and harness behavior belongs in `tools/DecompilerHarness`;
+its focused tests belong in `tests/DecompilerHarness.Tests`. The harness may
+depend on product libraries and exercise their public contracts, but product
+projects and product-owned test suites do not acquire harness-only behavior.
+Existing harness tests can move to that boundary incrementally rather than
+making a feature change carry an unrelated suite migration.
 
 The decompiler test project links selected harness source files so xUnit gates
 exercise the same measurement implementation. It also builds the harness

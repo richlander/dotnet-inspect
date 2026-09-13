@@ -21,22 +21,11 @@ namespace DotnetInspect.Cli.Commands;
 public class FindCommand
 {
     public const string Name = "find";
-    internal const int PackageProfileDefaultLimit = 500;
-    internal const int PackageProfileMaximumLimit = 1_000;
 
     public static async Task<int> ExecuteAsync(
         FindOptions options,
         CancellationToken cancellationToken = default)
     {
-        if (options.IsPackageProfile
-            && options.Count
-            && options.Limit is not null)
-        {
-            CommandError.Write(
-                "--count cannot be combined with -t for a package-prefix search.");
-            return 1;
-        }
-
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
 
@@ -54,40 +43,9 @@ public class FindCommand
                         json: options.JsonOutput,
                         tsv: options.Tsv,
                         jsonl: options.Jsonl,
-                        projection: options);
-                }
-
-                if (options.IsPackageProfile)
-                {
-                    if (options.PackageQuery is not null)
-                    {
-                        return DiscoverOutput.Execute(
-                            options.Discover,
-                            PackageQuerySections.CreateSchema(),
-                            tree: options.Tree,
-                            json: options.JsonOutput,
-                            tsv: options.Tsv,
-                            jsonl: options.Jsonl,
-                            sectionCostAnnotations: PackageQuerySections.Catalog.Pipeline.GetCostAnnotations(),
-                            sectionCategories: PackageQuerySections.Catalog.SelectionCategoryMap,
-                            projection: options);
-                    }
-                    PackageProfileSectionCatalog catalog =
-                        PackageProfileSections.CreateCatalog();
-                    SectionPipeline<PackageProfileView> pipeline =
-                        catalog.Pipeline;
-                    return DiscoverOutput.Execute(
-                        options.Discover,
-                        PackageProfileSections.CreateSchema(),
-                        tree: options.Tree,
-                        json: options.JsonOutput,
-                        tsv: options.Tsv,
-                        jsonl: options.Jsonl,
-                        sectionCostAnnotations:
-                            pipeline.GetCostAnnotations(),
-                        sectionCategories:
-                            catalog.Sections.SelectionCategoryMap,
-                        projection: options);
+                        projection: options,
+                        semanticRowSelection: options.RowSelection,
+                        semanticSelectionName: "Find");
                 }
 
                 var schema = options.Members
@@ -97,20 +55,14 @@ public class FindCommand
                         .Add("Results", "column", "Pattern", "Type", "Namespace", "Kind", "Library", "Source", "Match", "Sim");
                 return DiscoverOutput.Execute(options.Discover, schema,
                     tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl,
-                    projection: options);
+                    projection: options,
+                    semanticRowSelection: options.RowSelection,
+                    semanticSelectionName: "Find");
             }
 
             if (options.Literal is not null)
             {
                 return await ExecuteAssemblyLiteralQueryAsync(
-                    options,
-                    context,
-                    cancellationToken);
-            }
-
-            if (options.IsPackageProfile)
-            {
-                return await ExecutePackageProfileAsync(
                     options,
                     context,
                     cancellationToken);
@@ -142,12 +94,26 @@ public class FindCommand
                     cancellationToken);
             }
 
-            var results = await TypeSearchService.FindTypesAsync(
-                options,
-                patterns,
-                logger,
-                context.HttpClient,
-                cancellationToken);
+            FindSearchResult<TypeFindResult> search =
+                await TypeSearchService.FindTypesAsync(
+                    options,
+                    patterns,
+                    logger,
+                    context.HttpClient,
+                    cancellationToken);
+            List<TypeFindResult> results = search.Rows;
+            int observedRowCount = results.Count;
+            if (!TrySelectRows(
+                    options.RowSelection,
+                    results,
+                    "type",
+                    out IReadOnlyList<TypeFindResult> selectedTypes))
+            {
+                WriteUnmatchedPatternWarning(search);
+                return 1;
+            }
+            results = [.. selectedTypes];
+            WriteUnmatchedPatternWarning(search);
             var title = patterns.Length == 1 ? $"Find: {patterns[0]}" : "Find Results";
 
             // --count reduces the payload, so it is resolved before the format flags that
@@ -155,6 +121,17 @@ public class FindCommand
             // with the full unprojected result set.
             if (options.Count)
             {
+                if (search.HasFailures
+                    || !CliSemanticRowSelection.ProvidesExactCount(
+                        options.RowSelection,
+                        observedRowCount,
+                        sourceComplete:
+                            !search.SourceSelectionIncomplete))
+                {
+                    CommandError.Write(
+                        "Cannot count type rows because one or more search sources were incomplete.");
+                    return 1;
+                }
                 if (!WriteCount(results, title, options))
                     return 1;
             }
@@ -191,6 +168,22 @@ public class FindCommand
         }
     }
 
+    private static void WriteUnmatchedPatternWarning(
+        FindSearchResult<TypeFindResult> search)
+    {
+        int unmatchedCount =
+            search.UnmatchedPatterns?.Count ?? 0;
+        if (unmatchedCount == 0 || search.Rows.Count == 0)
+            return;
+
+        CommandError.WriteWarning(
+            $"{unmatchedCount} search "
+            + (unmatchedCount == 1
+                ? "pattern matched"
+                : "patterns matched")
+            + " no types.");
+    }
+
     /// <summary>
     /// Runs the decoded-literal Package Query over an explicit, finite package
     /// selection and renders the shared evaluator's own outcomes.
@@ -224,7 +217,7 @@ public class FindCommand
             CommandError.Write(
                 "--literal searches only explicit ID@VERSION packages; "
                 + "it cannot be combined with a type pattern, API search scopes, "
-                + "--package-prefix, --members, --all, or -t.");
+                + "--package-prefix, --members, --all, or --type.");
             return 1;
         }
 
@@ -305,8 +298,39 @@ public class FindCommand
 
         PackageAssemblyQueryView view =
             PackageAssemblyQuerySections.CreateDocument(plan, events);
+        PackageAssemblyLiteralUseRow[] matchRows =
+            [.. view.Matches ?? []];
+        if (!TrySelectRows(
+                options.RowSelection,
+                matchRows,
+                "literal-use",
+                out IReadOnlyList<PackageAssemblyLiteralUseRow>
+                    selectedMatchRows))
+        {
+            view = PackageAssemblyQuerySections.WithSelectedMatches(
+                plan,
+                view,
+                []);
+            WriteAssemblyQueryOutput(
+                view,
+                options with { Count = false });
+            WriteAssemblyQueryDiagnostics(events);
+            return 1;
+        }
+        view = PackageAssemblyQuerySections.WithSelectedMatches(
+            plan,
+            view,
+            selectedMatchRows);
         WriteAssemblyQueryOutput(view, options);
 
+        WriteAssemblyQueryDiagnostics(events);
+
+        return view.FailureCount == 0 ? 0 : 1;
+    }
+
+    private static void WriteAssemblyQueryDiagnostics(
+        IReadOnlyList<PackageAssemblyQueryEvent> events)
+    {
         foreach (PackageAssemblyQueryEvent.AcquisitionFailed failed
             in events.OfType<PackageAssemblyQueryEvent.AcquisitionFailed>())
         {
@@ -314,8 +338,6 @@ public class FindCommand
                 $"{failed.Value.Coordinate.PackageId}@{failed.Value.Coordinate.Version}: "
                 + failed.Value.Message);
         }
-
-        return view.FailureCount == 0 ? 0 : 1;
     }
 
     internal static void WriteAssemblyQueryOutput(
@@ -336,7 +358,7 @@ public class FindCommand
                     PackageAssemblyQuerySections.Matches,
                     options.Columns,
                     options.Fields,
-                    options.Rows))
+                    rows: null))
             {
                 throw new InvalidOperationException(
                     "The literal Package Query count projection was rejected.");
@@ -356,7 +378,7 @@ public class FindCommand
                         SearchViewContext.Default,
                         ConfigureAssemblyQueryWriterOptions(options.Verbosity, writerOptions)),
                 !options.CompactJson,
-                options.Rows);
+                maxRows: null);
         }
         else if (options.Tabular)
         {
@@ -374,13 +396,13 @@ public class FindCommand
                         formatter,
                         SearchViewContext.Default,
                         ConfigureAssemblyQueryWriterOptions(options.Verbosity, writerOptions)),
-                options.Rows);
+                maxRows: null);
         }
         else
         {
             OutputFormatter.WriteWindowedMarkdown(
                 Console.Out,
-                options.Rows,
+                rows: null,
                 writerOptions => MarkoutSerializer.Serialize(
                     view,
                     SearchViewContext.Default,
@@ -403,218 +425,6 @@ public class FindCommand
         return writerOptions;
     }
 
-    private static async Task<int> ExecutePackageProfileAsync(
-        FindOptions options,
-        CommandContext context,
-        CancellationToken cancellationToken)
-    {
-        if (options.HasPackageProfileGroupScope
-            || options.Packages.Length > 0
-            || options.Assemblies.Length > 0
-            || options.PlatformAssemblies.Length > 0
-            || options.PlatformFrameworks.Length > 0
-            || options.Projects.Length > 0
-            || options.BinPaths.Length > 0
-            || options.Members
-            || options.IncludeAll
-            || options.Tfm is not null)
-        {
-            CommandError.Write(
-                "Patternless --package-prefix cannot be combined with API search scopes, --all, or --tfm.");
-            return 1;
-        }
-
-        if (options.SourceOptions is { } sourceOptions
-            && (sourceOptions.Sources.Length > 0
-                || sourceOptions.AdditionalSources.Length > 0
-                || sourceOptions.ConfigFile is not null))
-        {
-            CommandError.Write(
-                "Package-prefix queries currently use the NuGet Gallery source and cannot be combined with source overrides.");
-            return 1;
-        }
-
-        if (options.PackageQuery is not null)
-            return await PackageQueryCommand.ExecuteAsync(options, context, cancellationToken);
-
-        if (!PackageProfileQuery.IsValidPrefix(options.PackagePrefix))
-        {
-            CommandError.Write(
-                "--package-prefix must be 1 to 100 characters without surrounding whitespace or control characters.");
-            return 1;
-        }
-
-        if (options.TypeFilter is not null
-            && !int.TryParse(options.TypeFilter, out _))
-        {
-            CommandError.Write(
-                $"-t must be an integer between 1 and {PackageProfileMaximumLimit} for a package-prefix profile.");
-            return 1;
-        }
-
-        int maximumPackages =
-            options.Limit ?? PackageProfileDefaultLimit;
-        if (maximumPackages is <= 0
-            or > PackageProfileMaximumLimit)
-        {
-            CommandError.Write(
-                $"-t must be between 1 and {PackageProfileMaximumLimit} for a package-prefix profile (got {maximumPackages}).");
-            return 1;
-        }
-
-        NuGetFetchOptions fetchOptions =
-            NuGetFetchOptions.FromRequestTimeout(
-                context.HttpClient.Timeout);
-        using IPackageSourceClient source =
-            PackageSourceClientFactory.CreateGallery(
-                PackageSourceAssociation.Create(),
-                DotnetInspector.Networking.HttpClientFactory
-                    .CreateCredentialFreeHandler(),
-                fetchOptions);
-        using var operationContext = new NuGetOperationContext(
-            fetchOptions.RequestTimeout,
-            fetchOptions.OperationTimeout,
-            cancellationToken);
-        var request = new PackagePrefixProfileRequest(
-            options.PackagePrefix!,
-            maximumPackages);
-        PackageProfileSectionCatalog catalog =
-            PackageProfileSections.CreateCatalog();
-        HashSet<string> includeSections =
-            [PackageProfileSections.Packages];
-        CompiledInspectionPlan<PackageProfileQueryContext> queryPlan =
-            catalog.Lens.Plan(Verbosity.Normal, includeSections);
-        InspectionQueryResults queryResults =
-            await queryPlan.RunAsync(
-                new PackageProfileQueryContext(
-                    source,
-                    request,
-                    operationContext),
-                cancellationToken: cancellationToken).ConfigureAwait(false);
-        var events = queryResults.Get(PackageProfileQuery.Definition);
-
-        PackageProfileSummary summary = events
-            .OfType<PackageProfileEvent.Completed>()
-            .Single()
-            .Value;
-        var view = PackageProfileSections.CreateDocument(
-            request.Prefix,
-            events,
-            options.Rows);
-        WritePackageProfileOutput(view, options);
-
-        foreach (PackageProfileEvent.Failure failure
-            in events.OfType<PackageProfileEvent.Failure>())
-        {
-            string subject = failure.Value.PackageId is { Length: > 0 } id
-                ? $"{id}: "
-                : "";
-            CommandError.WriteWarning(
-                $"{subject}{failure.Value.Message}");
-        }
-
-        if (summary.Truncated)
-        {
-            CommandError.WriteWarning(
-                summary.TruncationReason
-                    == PackageSearchTruncationReason.RequestedLimit
-                        ? "Package discovery reached the requested package limit."
-                        : "Package discovery was truncated by a pagination limit; narrow the prefix.");
-        }
-
-        return PackageProfileExitCode(summary);
-    }
-
-    internal static void WritePackageProfileOutput(
-        PackageProfileView view,
-        FindOptions options)
-        => WritePackageOutput(
-            view, options, PackageProfileSections.CreateCatalog().Pipeline,
-            PackageProfileSections.CountRows(view));
-
-    internal static void WritePackageOutput<T>(
-        T view,
-        FindOptions options,
-        SectionPipeline<T> pipeline,
-        int rowCount)
-    {
-        HashSet<string> includeSections =
-            pipeline.GetCandidateSections(
-                Verbosity.Normal,
-                [PackageProfileSections.Packages]);
-
-        if (options.Count)
-        {
-            CountOutput.WriteCount(
-                rowCount);
-        }
-        else if (options.JsonOutput)
-        {
-            OutputFormatter.WriteProjectedJson(
-                Console.Out,
-                options.Columns,
-                options.Fields,
-                (writer, formatter, writerOptions) =>
-                {
-                    writerOptions.IncludeSections = includeSections;
-                    MarkoutSerializer.Serialize(
-                        view,
-                        writer,
-                        formatter,
-                        SearchViewContext.Default,
-                        writerOptions);
-                },
-                !options.CompactJson,
-                maxRows: null);
-        }
-        else if (options.Tabular)
-        {
-            OutputFormatter.WriteProjectedTable(
-                Console.Out,
-                !options.NoHeader,
-                options.Tsv,
-                options.Jsonl,
-                options.Columns,
-                options.Fields,
-                (writer, formatter, writerOptions) =>
-                {
-                    writerOptions.IncludeSections = includeSections;
-                    MarkoutSerializer.Serialize(
-                        view,
-                        writer,
-                        formatter,
-                        SearchViewContext.Default,
-                        writerOptions);
-                },
-                maxRows: null);
-        }
-        else
-        {
-            OutputFormatter.WriteWindowedMarkdown(
-                Console.Out,
-                rows: null,
-                writerOptions =>
-                {
-                    writerOptions.IncludeSections = includeSections;
-                    return MarkoutSerializer.Serialize(
-                        view,
-                        SearchViewContext.Default,
-                        writerOptions);
-                },
-                options.Columns,
-                options.Fields);
-        }
-    }
-
-    internal static int PackageProfileExitCode(
-        PackageProfileSummary summary) =>
-        summary.Failures == 0
-        && summary.TruncationReason
-            is PackageSearchTruncationReason.None
-                or PackageSearchTruncationReason.RequestedLimit
-            ? 0
-            : 1;
-
     private static async Task<int> ExecuteMemberSearchAsync(
         FindOptions options,
         string[] patterns,
@@ -635,16 +445,39 @@ public class FindCommand
             return 1;
         }
 
-        var results = await MemberSearchService.FindMembersAsync(
-            options,
-            memberPatterns,
-            logger,
-            httpClient,
-            cancellationToken);
+        FindSearchResult<MemberFindResult> search =
+            await MemberSearchService.FindMembersAsync(
+                options,
+                memberPatterns,
+                logger,
+                httpClient,
+                cancellationToken);
+        List<MemberFindResult> results = search.Rows;
+        int observedRowCount = results.Count;
+        if (!TrySelectRows(
+                options.RowSelection,
+                results,
+                "member",
+                out IReadOnlyList<MemberFindResult> selectedMembers))
+        {
+            return 1;
+        }
+        results = [.. selectedMembers];
         var title = memberPatterns.Length == 1 ? $"Find member: {memberPatterns[0]}" : "Find Members";
 
         if (options.Count)
         {
+            if (search.HasFailures
+                || !CliSemanticRowSelection.ProvidesExactCount(
+                    options.RowSelection,
+                    observedRowCount,
+                    sourceComplete:
+                        !search.SourceSelectionIncomplete))
+            {
+                CommandError.Write(
+                    "Cannot count member rows because one or more search sources were incomplete.");
+                return 1;
+            }
             if (!WriteMemberCount(results, title, options))
                 return 1;
         }
@@ -672,6 +505,47 @@ public class FindCommand
         return 0;
     }
 
+    internal static bool TrySelectRows<T>(
+        RowSelectionIntent<string>? intent,
+        IReadOnlyList<T> rows,
+        string rowKind,
+        out IReadOnlyList<T> selected)
+        => CliSemanticRowSelection.TrySelect(
+            intent,
+            rows,
+            rowKind,
+            failure =>
+                $"Find row selection stage "
+                + $"{failure.Failure.StageNumber} requires "
+                + $"{rowKind} row "
+                + $"{failure.Failure.RequiredPosition}, but only "
+                + $"{failure.Failure.AvailableCount} "
+                + $"{rowKind} rows are available.",
+            out selected);
+
+    internal static bool TrySelectRowsPreservingContext<T>(
+        RowSelectionIntent<string>? intent,
+        IReadOnlyList<T> events,
+        Func<T, bool> isRow,
+        string rowKind,
+        out IReadOnlyList<T> selectedEvents,
+        out int availableRowCount)
+        where T : class
+        => CliSemanticRowSelection.TrySelectPreservingContext(
+            intent,
+            events,
+            isRow,
+            rowKind,
+            failure =>
+                $"Find row selection stage "
+                + $"{failure.Failure.StageNumber} requires "
+                + $"{rowKind} row "
+                + $"{failure.Failure.RequiredPosition}, but only "
+                + $"{failure.Failure.AvailableCount} "
+                + $"{rowKind} rows are available.",
+            out selectedEvents,
+            out availableRowCount);
+
     private static bool IsColumnProjectionRequested(FindOptions options)
         => options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 };
 
@@ -693,7 +567,7 @@ public class FindCommand
             (writer, formatter, writerOptions) =>
                 MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOptions),
             !options.CompactJson,
-            options.Rows);
+            maxRows: null);
     }
 
     /// <summary>
@@ -713,7 +587,7 @@ public class FindCommand
             (writer, formatter, writerOptions) =>
                 MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOptions),
             !options.CompactJson,
-            options.Rows);
+            maxRows: null);
     }
 
     private static void WriteOutput(List<TypeFindResult> rawData, string title, FindOptions options)
@@ -732,11 +606,11 @@ public class FindCommand
                 options.Columns, options.Fields,
                 (writer, formatter, writerOptions) =>
                     MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOptions),
-                options.Rows);
+                maxRows: null);
         }
         else
         {
-            OutputFormatter.WriteWindowedMarkdown(Console.Out, options.Rows,
+            OutputFormatter.WriteWindowedMarkdown(Console.Out, rows: null,
                 opts => MarkoutSerializer.Serialize(view, SearchViewContext.Default, opts));
         }
     }
@@ -750,7 +624,7 @@ public class FindCommand
             "Results",
             options.Columns,
             options.Fields,
-            options.Rows);
+            rows: null);
     }
 
     private static void WriteMemberOutput(List<MemberFindResult> rawData, string title, FindOptions options)
@@ -769,11 +643,11 @@ public class FindCommand
                 options.Columns, options.Fields,
                 (writer, formatter, writerOptions) =>
                     MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOptions),
-                options.Rows);
+                maxRows: null);
         }
         else
         {
-            OutputFormatter.WriteWindowedMarkdown(Console.Out, options.Rows,
+            OutputFormatter.WriteWindowedMarkdown(Console.Out, rows: null,
                 opts => MarkoutSerializer.Serialize(view, SearchViewContext.Default, opts));
         }
     }
@@ -787,7 +661,7 @@ public class FindCommand
             "Members",
             options.Columns,
             options.Fields,
-            options.Rows);
+            rows: null);
     }
 }
 

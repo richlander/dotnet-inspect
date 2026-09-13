@@ -4,9 +4,11 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using System.Xml.Linq;
+using DotnetInspector.Cache;
 using ILInspector.Metadata;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using UntrustedDocuments;
 
 namespace DotnetInspect.Web.Tests;
 
@@ -335,6 +337,38 @@ public sealed class BrowserEngineLayeringTests
     }
 
     [Fact]
+    public void CacheOwnerRemainsInBrowserProductClosure()
+    {
+        Assembly cache = typeof(PersistentCache).Assembly;
+        Type[] ownerTypes =
+        [
+            typeof(PersistentCache),
+            typeof(CacheTelemetry),
+            typeof(CacheObservation),
+            typeof(CacheAccessResult),
+        ];
+
+        Assert.Equal("DotnetInspector.Cache", cache.GetName().Name);
+        Assert.Contains(cache, ProductAssemblies);
+        Assert.All(ownerTypes, type => Assert.Same(cache, type.Assembly));
+    }
+
+    [Fact]
+    public void UntrustedDocumentsOwnerRemainsInBrowserProductClosure()
+    {
+        Assembly owner = typeof(HardenedJson).Assembly;
+        Type[] ownerTypes =
+        [
+            typeof(HardenedJson),
+            typeof(HardenedXml),
+        ];
+
+        Assert.Equal("UntrustedDocuments", owner.GetName().Name);
+        Assert.Contains(owner, ProductAssemblies);
+        Assert.All(ownerTypes, type => Assert.Same(owner, type.Assembly));
+    }
+
+    [Fact]
     public void EveryPublicInspectionStreamOwnerIsBannedOrApprovedAcquisitionSurface()
     {
         IReadOnlyList<string> banned = BannedSymbols();
@@ -343,7 +377,7 @@ public sealed class BrowserEngineLayeringTests
             // Bounded XML transforms over streams acquired and supplied by hosts.
             "CSharpText.XmlDocumentationCatalog",
             "CSharpText.XmlDocumentationReader",
-            "DotnetInspector.Core.HardenedXml",
+            "UntrustedDocuments.HardenedXml",
             "DotnetInspector.Packages.AuthorityScopedFileSystemPackageStore",
             "DotnetInspector.Packages.BoundedContentReader",
             "DotnetInspector.Packages.FileSystemPackageStore",
@@ -454,8 +488,8 @@ public sealed class BrowserEngineLayeringTests
         string[] approvedOwners =
         [
             "CSharpText.XmlDocText",
-            "DotnetInspector.Core.CoreCache",
-            "DotnetInspector.Core.HardenedXml",
+            "DotnetInspector.Cache.PersistentCache",
+            "UntrustedDocuments.HardenedXml",
             "DotnetInspector.Packages.FileSystemPackageContent",
             "DotnetInspector.Packages.HttpRetryHelper",
             "DotnetInspector.Packages.IPackageContent",

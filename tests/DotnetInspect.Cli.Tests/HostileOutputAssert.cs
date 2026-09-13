@@ -122,7 +122,7 @@ internal static class HostileCli
                 // Program.cs initializes the cache before dispatching, and the
                 // resolution paths that produce "not found" diagnostics go
                 // through it. Without this a gate on those diagnostics gets
-                // "CoreCache.Initialize must be called" instead of the message
+                // "PersistentCache.Initialize must be called" instead of the message
                 // it means to inspect, and silently proves nothing. The
                 // production app name is used so this does not repoint the
                 // shared cache for later tests.

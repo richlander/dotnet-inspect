@@ -581,7 +581,7 @@ empty snapshot is a cache miss rather than authoritative candidate metadata.
 | Symbol miss markers | `$LOCAL_APP_DATA/dotnet-inspect/symbol-misses/` | 1 day | dotnet-inspect |
 | Verified SourceLink bytes | `$LOCAL_APP_DATA/dotnet-inspect/source-bytes-v2/` | Permanent when the caller's checksum validator accepts the bytes | dotnet-inspect |
 | [SourceLink availability markers](source-availability-audit.md#cache-subject-and-reuse) | `$LOCAL_APP_DATA/dotnet-inspect/source-audit-v2/` | Permanent for immutable positives, 1 day for mutable positives; no persisted misses | dotnet-inspect |
-| SourceLink integrity markers | `$LOCAL_APP_DATA/dotnet-inspect/source-integrity-v2/` | Permanent for immutable checksum-verified results | dotnet-inspect |
+| [SourceLink integrity markers](source-integrity-audit.md#cache-subject-and-reuse) | `$LOCAL_APP_DATA/dotnet-inspect/source-integrity-v2/` | Permanent for immutable exact or line-ending-normalized results; no mutable or negative entries | dotnet-inspect |
 
 The app package cache carries a `{source}` segment because cached content is
 scoped to the source that supplied it; see

@@ -1,4 +1,9 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
+using DotnetInspector.Core;
+using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Web.Interop.Metadata;
 
@@ -26,6 +31,11 @@ public enum BrowserCompileLibraryStatus
     InvalidImplementationAssets,
 }
 
+public sealed record BrowserWorkspacePackage(
+    string Package,
+    string Version,
+    string Framework);
+
 /// <summary>
 /// One type's metadata projection, adapted from <c>ResearchViews.TypeProjectionResult</c> — the
 /// presentation-neutral seam the CLI consumes — so the browser never reimplements type-fact
@@ -48,6 +58,7 @@ public sealed record BrowserTypeMetadata(
     BrowserTypeComposition? Composition,
     BrowserTypeGraphNode[] GraphNodes,
     BrowserTypeGraphEdge[] GraphEdges,
+    InspectionEnvelope<TypeDependencySectionResult> TypeDependencyInspection,
     string[] InspectionFailures);
 
 public sealed record BrowserTypeParameter(string Name, string? Variance, string[] Constraints);
@@ -218,6 +229,15 @@ public sealed record BrowserGraphMemberSurface(
     BrowserMemberBodySelector SelectedBody);
 
 /// <summary>
+/// One selected C# declaration or its CSharp-owned visible unavailability.
+/// Compatibility is true only for an older surface without typed module facts.
+/// </summary>
+public sealed record BrowserMemberDeclaration(
+    string? Text,
+    string? Unavailable,
+    bool Compatibility);
+
+/// <summary>
 /// One type row projected for a graph target. See the package facade's declaration for the
 /// identity rules these fields carry; this facade owns its own copy of the transport.
 /// </summary>
@@ -254,6 +274,7 @@ public sealed record BrowserMemberSurface(
     bool IsObsolete,
     int GenericArity,
     int? MetadataToken,
+    int? DeclarationMetadataToken,
     string? ReturnType,
     BrowserParameterSurface[] Parameters,
     string? DocumentationId,
@@ -289,5 +310,17 @@ public sealed record BrowserExceptionSurface(
 [JsonSerializable(typeof(BrowserMetadataWindow))]
 [JsonSerializable(typeof(BrowserHeapListing))]
 [JsonSerializable(typeof(BrowserTypeMetadata))]
+[JsonSerializable(typeof(InspectionEnvelope<TypeDependencySectionResult>))]
 [JsonSerializable(typeof(BrowserGraphMemberSurface))]
+[JsonSerializable(typeof(BrowserMemberDeclaration))]
+[JsonSerializable(typeof(BrowserWorkspacePackage[]))]
 internal sealed partial class BrowserMetadataJsonContext : JsonSerializerContext;
+
+internal static class BrowserMetadataJsonSerialization
+{
+    internal static JsonSerializerOptions Options =>
+        BrowserMetadataJsonContext.Default.Options;
+
+    internal static JsonTypeInfo<BrowserTypeMetadata> BrowserTypeMetadata
+        => BrowserMetadataJsonContext.Default.BrowserTypeMetadata;
+}

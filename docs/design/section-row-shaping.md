@@ -416,10 +416,10 @@ consumes two independent typed facts for each participating set:
 - whether the evidence is sufficient for an exact **Count** result.
 
 A source result may be Rows-usable while carrying evidence that the underlying
-candidate set is incomplete and therefore Count-insufficient. Bare
-`package search` is the canonical case: its capped rows remain visible with
-their owner-issued incompleteness evidence, but the cap does not become
-semantic `Head` or prove an exact count. A failed, `Absent`, or otherwise
+candidate set is incomplete and therefore Count-insufficient. Candidate-bounded
+`package query` is the canonical case: its rows remain visible with their
+owner-issued incompleteness evidence, but `--take` does not become semantic
+`Head` or prove an exact count. A failed, `Absent`, or otherwise
 Rows-unavailable result carries no row values into residual shaping.
 
 The execution and failure precedence after successful resolution is:

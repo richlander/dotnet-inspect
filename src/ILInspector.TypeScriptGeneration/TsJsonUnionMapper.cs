@@ -7,6 +7,8 @@ sealed record TsJsonUnionMappingContext(
     ApiAssemblyIdentity? Assembly,
     IReadOnlyDictionary<ApiTypeReferenceIdentity, string> Names,
     IReadOnlyDictionary<ApiTypeReferenceIdentity, int> GenericArities,
+    IReadOnlyDictionary<string, string> GenericNames,
+    IReadOnlyDictionary<string, int> GenericNameArities,
     TsDelegateMappingContext LocalTypes);
 
 static class TsJsonUnionMapper

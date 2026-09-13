@@ -129,25 +129,29 @@ rather than duplicating their internal mechanics.
 
 ## Consumers and host plan
 
-The named consumers are:
-
-- the CLI Package Query surface described by
-  [The package query CLI](package-query-cli.md); and
-- the Inspect Web Browser/Wasm Package Query surface described by
-  [The package query experience](package-query-experience.md).
+The multi-candidate composition consumer is the
+[Find assembly-semantic query](find-assembly-semantic-query.md). It schedules a
+finite exact-package population and preserves this evaluator's typed outcomes
+as body-occurrence Find evidence. The CLI and Inspect Web Browser/Wasm hosts
+both consume that shared query; their gestures and presentations remain
+host-owned. The Browser experience is described by
+[the package query experience](package-query-experience.md).
 
 Both hosts consume the same request and outcome meanings. A host owns the
 explicit cost gesture, operation deadline, cancellation source, and
 presentation. The evaluator contains no CLI, Markout, DOM, JavaScript, worker,
 or callback types.
 
-The first production delivery composes this evaluator through the host-neutral
-`PackageAssemblyQuery` serial event sequence. The CLI enumerates that sequence;
+The current production delivery composes this evaluator through the
+host-neutral `PackageAssemblyQuery` serial event sequence. The Find
+assembly-semantic owner extracts that population composition from its
+literal-specific request and result shapes. The CLI enumerates the sequence;
 Browser adapts it through the existing
 [Engine-to-browser async event stream](engine-browser-async-event-stream.md).
 That composition includes progress, item-failure publication, completion
 accounting, cancellation, and release before delivery. Candidate scheduling
-and later bounded concurrency remain outside this one-candidate owner.
+and later bounded concurrency remain outside this one-candidate owner and are
+owned by the Find assembly-semantic query.
 
 The end-to-end tracker #5766 carries the production-host adoption path. Its 12
 milestones are enumerated under [Delivery sequence](#delivery-sequence).
@@ -503,7 +507,7 @@ selection. Evaluation adds a narrower candidate-scoped realization:
 1. Validate the binding, pattern, asset intent, and budget before requesting
    artifact materialization.
 2. Resolve the selected asset only through the frozen selection.
-3. Create a candidate-scoped asynchronous workspace.
+3. Construct one candidate-scoped `InspectionWorkspace` with awaited close.
 4. Ask the package adapter to attempt projection of only that asset under the
    bounded artifact generation. Only `Available` transfers a one-participant
    group to the candidate workspace.
@@ -1133,8 +1137,10 @@ The first production consumer is part of milestone 9 rather than a final
 integration phase. Owner-sized implementation slices retain their own claims
 and gates; independent prerequisites need not run serially.
 
-1. Lock this focused design and transfer the promoted-tier responsibility from
-   the Package Query CLI proposal.
+1. Lock this focused one-candidate evaluator design. The later
+   [Find assembly-semantic query](find-assembly-semantic-query.md) transfers
+   multi-candidate Find composition from the Package Query CLI owner without
+   changing this evaluator contract.
 2. Implement #5884's Artifact Acquisition-owned phase-scoped retained byte
    access before and after artifact publication.
 3. Implement the #5143/#4857 Metadata-owned artifact admission and query

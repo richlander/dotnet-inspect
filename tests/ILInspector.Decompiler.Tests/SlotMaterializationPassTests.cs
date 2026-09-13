@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using ILInspector.DecompilerHarness;
 using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
@@ -19,6 +20,58 @@ public class SlotMaterializationPassTests
         => new("M", Owner, new MethodSignature(TypeRef.CoreLib("System", "Void"), [
             new Parameter("x", Int32),
         ], HasThis: false, GenericParameterCount: 0), locals, body);
+
+    [Fact]
+    public void CompilerProducedPropertyConditionalMaterializesBooleanIdentity()
+    {
+        // Mirrors the retained Boolean property temporary in Newtonsoft.Json
+        // 13.0.4 DefaultContractResolver.InitializeContract.
+        using var source = MetadataSource.Open(typeof(BooleanSlotIdentitySample).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(BooleanSlotIdentitySample).FullName!,
+            nameof(BooleanSlotIdentitySample.Initialize));
+        Assert.NotNull(function);
+        var context = PassContext.ForImport(method => IrImporter.Import(source, method));
+        foreach (var pass in IrPasses.Default)
+        {
+            if (pass is SlotMaterializationPass)
+                break;
+            pass.Run(function, context);
+        }
+        var recovered = SlotMaterializationPass.Analyze(function)
+            .Where(decision => decision.WillMaterialize && Boolean.Equals(decision.Type))
+            .ToList();
+        Assert.NotEmpty(recovered);
+        var slot = Assert.Single(recovered).Slot;
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(),
+            load => load.Slot == slot && Int32.Equals(load.Type));
+
+        new SlotMaterializationPass().Run(function, context);
+        new CoercionInsertionPass().Run(function, context);
+
+        Assert.DoesNotContain(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == slot);
+        Assert.DoesNotContain(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == slot);
+        Assert.Contains("bool S_", CSharpPrinter.Print(function).Output);
+        Assert.Empty(CoercionInvariant.Check(function));
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    [Trait("Area", "Fidelity")]
+    public void CompilerProducedPropertyConditionalRecompilesWithRetainedTemporary()
+    {
+        var result = Assert.Single(FidelityCheck.Evaluate(
+            typeof(BooleanSlotIdentitySample).Assembly.Location,
+            type => type == typeof(BooleanSlotIdentitySample).FullName,
+            method => method.Method == nameof(BooleanSlotIdentitySample.Initialize)));
+
+        // The printer already retained this temporary before materialization.
+        // Pin that compile-back difference rather than claiming exact fidelity.
+        Assert.Equal(FidelityCheck.CompileBackStatus.OpcodeDiff, result.Status);
+        Assert.Equal("ldarg ldarg call callvirt brtrue ldarg call ldsfld callvirt ldnull ceq br ldc.i4 call ret",
+            result.OriginalOpcodes);
+        Assert.Equal("ldarg call callvirt brtrue ldarg call ldsfld callvirt ldnull ceq br ldc.i4 stloc ldarg ldloc call ret",
+            result.RecompiledOpcodes);
+    }
 
     // Adversarial review (5b-2, CRITICAL): a materialized store whose value
     // nests a load of a slot processed later. Cloning that store before the
@@ -76,11 +129,8 @@ public class SlotMaterializationPassTests
         function.CheckInvariant();
     }
 
-    // The conditional producer and boolean sink can occupy different members
-    // of one direct-copy component. The sink-end veto must keep the whole
-    // component on the printer's boolean identity recovery.
     [Fact]
-    public void DefersBooleanSinkIdentityAcrossDirectCopyComponent()
+    public void MaterializesBooleanSinkIdentityAcrossDirectCopyComponent()
     {
         var body = new BlockContainer();
         var first = new Block(0);
@@ -104,18 +154,19 @@ public class SlotMaterializationPassTests
         var function = Function([Boolean], body);
 
         var decisions = SlotMaterializationPass.Analyze(function);
-        Assert.Contains(decisions, decision => decision.Slot == 0
-            && decision.Vetoes == SlotMaterializationVeto.IncompleteCopyComponent);
-        Assert.Contains(decisions, decision => decision.Slot == 1
-            && decision.Vetoes.HasFlag(SlotMaterializationVeto.BooleanSinkIdentityRecovery)
-            && decision.Vetoes.HasFlag(SlotMaterializationVeto.IncompleteCopyComponent));
+        Assert.Equal(2, decisions.Count);
+        Assert.All(decisions, decision =>
+        {
+            Assert.True(decision.WillMaterialize);
+            Assert.Equal(Boolean, decision.Type);
+        });
 
         new SlotMaterializationPass().Run(function, PassContext.None);
         new CoercionInsertionPass().Run(function, PassContext.None);
 
         var output = CSharpPrinter.Print(function).Output;
-        Assert.Equal(2, function.Descendants.OfType<LoadStackSlot>().Count());
-        Assert.Equal(2, function.Descendants.OfType<StoreStackSlot>().Count());
+        Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
         Assert.Contains("bool S_0", output);
         Assert.Contains("bool S_1", output);
         Assert.DoesNotContain("int S_1", output);
@@ -291,7 +342,7 @@ public class SlotMaterializationPassTests
     }
 
     [Fact]
-    public void DefersIntegerTestimonyWhenConditionalFeedsBooleanProperty()
+    public void MaterializesBooleanIdentityWhenConditionalFeedsBooleanProperty()
     {
         var setter = new MethodRef(
             Owner,
@@ -321,20 +372,20 @@ public class SlotMaterializationPassTests
         var function = Function([], body);
 
         var decision = Assert.Single(SlotMaterializationPass.Analyze(function));
-        Assert.Equal(Int32, decision.Type);
-        Assert.Equal(SlotMaterializationVeto.BooleanSinkIdentityRecovery, decision.Vetoes);
+        Assert.Equal(Boolean, decision.Type);
+        Assert.True(decision.WillMaterialize);
 
         new SlotMaterializationPass().Run(function, PassContext.None);
 
-        Assert.Single(function.Descendants.OfType<LoadStackSlot>());
-        Assert.Single(function.Descendants.OfType<StoreStackSlot>());
-        Assert.Empty(function.Locals);
+        Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Equal(Boolean, Assert.Single(function.Locals));
         Assert.Contains("bool S_0", CSharpPrinter.Print(function).Output);
         function.CheckInvariant();
     }
 
     [Fact]
-    public void DefersIntegerTestimonyWhenConditionalFeedsBooleanLocal()
+    public void MaterializesBooleanIdentityWhenConditionalFeedsBooleanLocal()
     {
         var body = new BlockContainer();
         var block = new Block(0);
@@ -351,15 +402,128 @@ public class SlotMaterializationPassTests
         var function = Function([Boolean], body);
 
         var decision = Assert.Single(SlotMaterializationPass.Analyze(function));
-        Assert.Equal(Int32, decision.Type);
-        Assert.Equal(SlotMaterializationVeto.BooleanSinkIdentityRecovery, decision.Vetoes);
+        Assert.Equal(Boolean, decision.Type);
+        Assert.True(decision.WillMaterialize);
 
         new SlotMaterializationPass().Run(function, PassContext.None);
 
-        Assert.Single(function.Descendants.OfType<LoadStackSlot>());
-        Assert.Single(function.Descendants.OfType<StoreStackSlot>());
-        Assert.Single(function.Locals);
+        Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Equal(2, function.Locals.Length);
         Assert.Contains("bool S_0", CSharpPrinter.Print(function).Output);
+        function.CheckInvariant();
+    }
+
+    [Theory]
+    [InlineData("return")]
+    [InlineData("not")]
+    [InlineData("and")]
+    [InlineData("conditional")]
+    [InlineData("branch")]
+    [InlineData("argument")]
+    [InlineData("field")]
+    [InlineData("element")]
+    [InlineData("indirect")]
+    public void BooleanIdentityUsesTheSameSinkRuleAsThePrinter(string consumer)
+    {
+        var load = new LoadStackSlot(0, Int32);
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new LoadArgument(0, "flag", Boolean)));
+        block.Add(consumer switch
+        {
+            "return" => new Return(load),
+            "not" => new Return(new LogicalNot(load)),
+            "and" => new Return(new LogicalBinary(LogicalKind.And, load, new Constant(true, Boolean))),
+            "conditional" => new Return(new Conditional(load, new Constant(true, Boolean), new Constant(false, Boolean))),
+            "branch" => new ConditionalBranch(load, 4),
+            "argument" => new StoreArgument(0, "flag", Boolean, load),
+            "field" => new StoreField(new FieldRef(Owner, "Flag", Boolean), null, load),
+            "element" => new StoreElement(Boolean, new LoadArgument(1, "values", TypeRef.SzArray(Boolean)), new Constant(0, Int32), load),
+            "indirect" => new StoreIndirect(Boolean, new LoadArgument(1, "address", TypeRef.ByRef(Boolean)), load),
+            _ => throw new ArgumentOutOfRangeException(nameof(consumer)),
+        });
+        var body = new BlockContainer();
+        body.Add(block);
+        var exit = new Block(4);
+        exit.Add(new Return(new Constant(false, Boolean)));
+        body.Add(exit);
+        var function = new IrFunction("M", Owner,
+            new MethodSignature(Boolean, [new Parameter("flag", Boolean)], HasThis: false, GenericParameterCount: 0),
+            [], body);
+
+        Assert.Equal(Int32, CoercionSinks.TestifiedSlotTypes(body, Boolean, function.TypeShapes)[0]);
+        var decision = Assert.Single(SlotMaterializationPass.Analyze(function));
+        Assert.True(decision.WillMaterialize);
+        Assert.Equal(Boolean, decision.Type);
+
+        new SlotMaterializationPass().Run(function, PassContext.None);
+        new CoercionInsertionPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Equal(Boolean, Assert.Single(function.Locals));
+        Assert.Empty(CoercionInvariant.Check(function));
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void ConflictingBooleanAndNumericUsesRemainPrinterOwned()
+    {
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new Constant(true, Boolean)));
+        block.Add(new StoreLocal(0, Boolean, new LoadStackSlot(0, Int32)));
+        block.Add(new StoreLocal(1, Int32, new LoadStackSlot(0, Int32)));
+        body.Add(block);
+        var function = Function([Boolean, Int32], body);
+
+        var decision = Assert.Single(SlotMaterializationPass.Analyze(function));
+        Assert.Equal(SlotMaterializationVeto.ConflictingTypeTestimony, decision.Vetoes);
+        new SlotMaterializationPass().Run(function, PassContext.None);
+        Assert.Single(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Equal(2, function.Descendants.OfType<LoadStackSlot>().Count());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void BooleanSinkDoesNotRetypeMixedBooleanAndIntegerStores()
+    {
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new Constant(true, Boolean)));
+        block.Add(new StoreLocal(0, Boolean, new LoadStackSlot(0, Int32)));
+        block.Add(new StoreStackSlot(0, new Constant(2, Int32)));
+        block.Add(new StoreLocal(0, Boolean, new LoadStackSlot(0, Int32)));
+        body.Add(block);
+        var function = Function([Boolean], body);
+
+        var decision = Assert.Single(SlotMaterializationPass.Analyze(function));
+        Assert.Equal(Int32, decision.Type);
+        Assert.Equal(SlotMaterializationVeto.BooleanSinkIdentityRecovery, decision.Vetoes);
+        new SlotMaterializationPass().Run(function, PassContext.None);
+        Assert.Equal(2, function.Descendants.OfType<StoreStackSlot>().Count());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void IntegerConditionKeepsItsNumericIdentity()
+    {
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new Constant(2, Int32)));
+        block.Add(new ConditionalBranch(new LoadStackSlot(0, Int32), 4));
+        body.Add(block);
+        var exit = new Block(4);
+        exit.Add(new Return(null));
+        body.Add(exit);
+        var function = Function([], body);
+
+        var decision = Assert.Single(SlotMaterializationPass.Analyze(function));
+        Assert.True(decision.WillMaterialize);
+        Assert.Equal(Int32, decision.Type);
+        new SlotMaterializationPass().Run(function, PassContext.None);
+        Assert.Equal(Int32, Assert.Single(function.Locals));
+        Assert.Contains("S_0 != 0", CSharpPrinter.Print(function).Output);
         function.CheckInvariant();
     }
 

@@ -100,6 +100,13 @@ public sealed class PackageHouseOperation
                 timeout,
                 "A PackageHouse timeout must be finite and positive.");
         }
+        if (timeout > NuGetOperationContext.MaximumTimeout)
+        {
+            throw new ArgumentOutOfRangeException(
+                parameterName,
+                timeout,
+                $"A PackageHouse timeout cannot exceed {NuGetOperationContext.MaximumTimeout}.");
+        }
     }
 }
 
@@ -122,7 +129,9 @@ public abstract class PackageHouseDemand
         public PackageSourceCoordinate Coordinate { get; }
     }
 
-    /// <summary>One exact candidate already authorized by the supplied source lease.</summary>
+    /// <summary>
+    /// One exact candidate issued by the supplied operation's root generation.
+    /// </summary>
     public sealed class Candidate : PackageHouseDemand
     {
         public Candidate(PackageAcquisitionCandidate value)

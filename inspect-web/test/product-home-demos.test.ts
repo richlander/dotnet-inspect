@@ -290,6 +290,7 @@ test("home demo entry reflects catalog readiness", () => {
   ]);
   const ready = homeDemosEntryHtml(false, "", value => value);
   assert.match(ready, /id="home-demos"/);
+  assert.match(ready, /Browse demos →/);
   assert.match(ready, /2 available/);
   assert.doesNotMatch(ready, /disabled/);
 

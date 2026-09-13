@@ -102,7 +102,7 @@ public class UnsafeAsyncBoundaryTests
     [InlineData(true, nameof(NewUnsafeAsync.DoWhileUnsafeConditionAwaitBody))]
     [InlineData(true, nameof(NewUnsafeAsync.SwitchUnsafeSelectorAwaitArms))]
     [InlineData(true, nameof(NewUnsafeAsync.UsingUnsafeResourceAwaitBody))]
-    public void RuntimeUnsafeAwaitBoundary_CompileBackRemainsValid(
+    public async Task RuntimeUnsafeAwaitBoundary_CompileBackRemainsValid(
         bool usesUpdatedMemorySafetyRules,
         string methodName)
     {
@@ -110,7 +110,7 @@ public class UnsafeAsyncBoundaryTests
             ? typeof(NewUnsafeAsync)
             : typeof(LegacyUnsafeAsync);
         string assembly = fixtureType.Assembly.Location;
-        var result = Assert.Single(ReturnToSender.CompileBackTargets(
+        var result = Assert.Single(await ReturnToSender.CompileBackTargets(
             assembly,
             [new ReturnToSender.RequestedTarget(
                 fixtureType.FullName!.Replace('+', '.'),

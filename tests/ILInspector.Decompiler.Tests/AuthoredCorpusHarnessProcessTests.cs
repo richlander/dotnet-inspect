@@ -6,8 +6,13 @@ using ILInspector.Instructions;
 using ILInspector.Research;
 using System.Diagnostics;
 using System.Reflection;
+using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Text.Json;
+
+using DotnetInspector.Fixtures;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -1781,6 +1786,75 @@ public partial class AuthoredCorpusHarnessProcessTests
     }
 
     [Fact]
+    public void AggregatePassReportsRefuseUnavailableMemorySafetyMode()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"aggregate-mode-admission-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string assembly = Path.Combine(directory, "UnsupportedRules.dll");
+            File.WriteAllBytes(
+                assembly,
+                WithMemorySafetyRulesVersion(
+                    File.ReadAllBytes(
+                        FixtureCatalog.DecompilerUnsafeNew.AssemblyPath()),
+                    version: 99));
+            string snapshot = Path.Combine(directory, "corpus.json");
+
+            string[][] commands =
+            [
+                [assembly],
+                [assembly, "--gaps"],
+                [assembly, "--unsupported-nodes", "--json"],
+                [assembly, "--type-check"],
+                [assembly, "--bind-check"],
+                [
+                    assembly,
+                    "--emit-corpus-snapshot",
+                    snapshot,
+                    "--corpus-method-cap",
+                    "1",
+                ],
+            ];
+
+            foreach (string[] command in commands)
+            {
+                HarnessRun run = RunHarness(command);
+
+                Assert.Equal(1, run.ExitCode);
+                Assert.Contains(
+                    DiagnosticIds.MemorySafetyModeUnavailable,
+                    run.Output,
+                    StringComparison.Ordinal);
+                Assert.Contains(
+                    "module memory-safety rules are Unsupported",
+                    run.Output,
+                    StringComparison.Ordinal);
+                Assert.Contains(
+                    "aggregate report was not run",
+                    run.Output,
+                    StringComparison.Ordinal);
+                Assert.DoesNotContain(
+                    "next:",
+                    run.Output,
+                    StringComparison.Ordinal);
+                Assert.DoesNotContain(
+                    "\"TotalMethods\"",
+                    run.Output,
+                    StringComparison.Ordinal);
+            }
+
+            Assert.False(File.Exists(snapshot));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     [Trait("Speed", "Slow")]
     public void Harness_SourceCorrespondenceCensusPopulatesPdbSource()
     {
@@ -1891,5 +1965,30 @@ public partial class AuthoredCorpusHarnessProcessTests
                 + "`dotnet build tools/DecompilerHarness -c Release`.");
 
         return path;
+    }
+
+    static byte[] WithMemorySafetyRulesVersion(byte[] image, int version)
+    {
+        using var stream = new MemoryStream(image, writable: false);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        MemorySafetyRulesObservation observation = Assert.Single(
+            MemorySafetyMetadataIndex.Create(reader)
+                .Rules
+                .Observations);
+        CustomAttribute attribute = reader.GetCustomAttribute(
+            (CustomAttributeHandle)MetadataTokens.EntityHandle(
+                observation.AttributeToken));
+        byte[] original = reader.GetBlobBytes(attribute.Value);
+        int valueOffset = Assert.Single(
+            Enumerable.Range(0, image.Length - original.Length + 1),
+            offset => image
+                .AsSpan(offset, original.Length)
+                .SequenceEqual(original));
+        byte[] rewritten = [.. image];
+        BitConverter.TryWriteBytes(
+            rewritten.AsSpan(valueOffset + 2, sizeof(int)),
+            version);
+        return rewritten;
     }
 }

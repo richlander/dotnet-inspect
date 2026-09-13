@@ -128,7 +128,8 @@ public sealed class SlotMaterializationPass : IIrPass
         var testimony = CoercionSinks.AnalyzeSlotTypeTestimony(
             function.Body,
             function.Signature.ReturnType,
-            function.TypeShapes);
+            function.TypeShapes,
+            recoverBooleanIdentity: true);
         // Materializable slots retain the prior first-testimony order so
         // AddLocal preserves existing local indices and declaration order.
         var candidates = testimony.Keys

@@ -1,7 +1,8 @@
-import { pdbSourceLimitationHtml } from "./data.ts";
+import { assertNever, pdbSourceLimitationHtml } from "./data.ts";
 import { renderContentNavigationCloseButton } from "./content-frame.ts";
 import { typeGraphLegendHtml } from "./graph-legends.ts";
 import type { KeybindingRegistry } from "./keybinding-registry.ts";
+import type { SourceResultState } from "./source-inspection.ts";
 import { WORKBENCH_KEYBINDING_PRIORITY } from "./workbench-keybindings.ts";
 
 export const TYPE_RELATIONSHIPS_GRAPH_SUMMARY =
@@ -504,10 +505,12 @@ export function typeMetadataSignature(
   item: TypeSummary,
   packageContext: TypePanelPackageContext,
   libraryIdentity = "",
+  workspaceIdentity = "",
 ): string {
-  const signature =
+  let signature =
     `${packageContext.id}@${packageContext.version}/${packageContext.activeFramework}/${item.assembly}/${item.id}`;
-  return libraryIdentity ? `${signature}/${libraryIdentity}` : signature;
+  if (libraryIdentity) signature = `${signature}/${libraryIdentity}`;
+  return workspaceIdentity ? `${signature}#${workspaceIdentity}` : signature;
 }
 
 export interface TypeMetadataStateSlice {
@@ -521,6 +524,7 @@ export interface RenderTypeMetadataOptions {
   item: TypeSummary;
   packageContext: TypePanelPackageContext;
   libraryIdentity?: string;
+  workspaceIdentity?: string;
   metadataState: TypeMetadataStateSlice;
   memberCompositionHtml: string;
   escapeHtml: EscapeHtml;
@@ -530,13 +534,15 @@ export interface RenderTypeMetadataOptions {
 
 export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
   const {
-    item, packageContext, libraryIdentity, metadataState, memberCompositionHtml,
+    item, packageContext, libraryIdentity, workspaceIdentity, metadataState,
+    memberCompositionHtml,
     escapeHtml, relatedTypeChip, factRows,
   } = options;
   const current = typeMetadataSignature(
     item,
     packageContext,
-    libraryIdentity);
+    libraryIdentity,
+    workspaceIdentity);
   const fresh = metadataState.typeMetadataKey === current;
   const meta = fresh ? metadataState.typeMetadata : null;
   const renderSurface = (content: string) => {
@@ -656,12 +662,7 @@ export function typeSourceSignature(
   ], taste);
 }
 
-export interface TypeSourceStateSlice {
-  typeSourceKey: string;
-  typeSourceLoading: boolean;
-  typeSource: TypeSourceResult | null;
-  typeSourceError: string | null;
-}
+export type TypeSourceStateSlice = SourceResultState<TypeSourceResult>;
 
 export interface RenderTypeSourceOptions {
   item: TypeSummary;
@@ -709,19 +710,22 @@ export function renderTypeSource(options: RenderTypeSourceOptions): string {
     escapeHtml,
     highlightCSharp,
   } = options;
-  const fresh = sourceState.typeSourceKey === currentSignature;
-  if (sourceState.typeSourceLoading && fresh) {
+  if (sourceState.status === "idle"
+    || sourceState.signature !== currentSignature) {
     return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving type source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p></section>`;
   }
-  if (fresh && sourceState.typeSource) {
-    return renderSourceResult({
-      source: sourceState.typeSource,
-      escapeHtml,
-      highlightCSharp,
-    });
+  switch (sourceState.status) {
+    case "loading":
+      return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving type source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p></section>`;
+    case "ready":
+      return renderSourceResult({
+        source: sourceState.source,
+        escapeHtml,
+        highlightCSharp,
+      });
+    case "failed":
+      return `<section class="document-section empty-document"><span class="large-glyph">⌁</span><h2>Type source failed</h2><p>${escapeHtml(sourceState.error || "No type source result was returned.")}</p></section>`;
+    default:
+      return assertNever(sourceState, "type source result state");
   }
-  if (fresh && sourceState.typeSourceError) {
-    return `<section class="document-section empty-document"><span class="large-glyph">⌁</span><h2>Type source failed</h2><p>${escapeHtml(sourceState.typeSourceError)}</p></section>`;
-  }
-  return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving type source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p></section>`;
 }

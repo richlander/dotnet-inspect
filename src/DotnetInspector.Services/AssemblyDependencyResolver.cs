@@ -6,6 +6,7 @@ using System.Xml.Linq;
 using System.Runtime.InteropServices;
 using System.Reflection.Metadata;
 using DotnetInspector.Core;
+using DotnetInspector.DependencyManifests;
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
 using NuGet.Versioning;
@@ -44,6 +45,11 @@ public sealed record AssemblyDependencyResolutionOptions(string TargetAssemblyPa
     public bool IncludeAspNetCoreSharedFramework { get; init; } = true;
     public bool IncludeSiblingAssemblies { get; init; } = true;
     public bool IncludeDepsJsonAssets { get; init; } = true;
+    /// <summary>
+    /// Supplies an already interpreted manifest for the target application.
+    /// When present, dependency discovery does not reread the matching file.
+    /// </summary>
+    public ApplicationDependencyManifest? DependencyManifest { get; init; }
     /// <summary>
     /// Allows Any-scope resolution to use an installed platform assembly only
     /// when no enabled candidate tier owns the requested simple name.
@@ -278,7 +284,11 @@ public sealed partial class AssemblyDependencyResolver :
                 Path.Combine(targetDirectory, $"{targetName}.deps.json"), () =>
                 {
                     if (DiscoveryDirectoryExists(targetDirectory, strict))
-                        AddDepsJsonReferences(targetDirectory, targetName, path =>
+                        AddDepsJsonReferences(
+                            targetDirectory,
+                            targetName,
+                            _options.DependencyManifest,
+                            path =>
                         {
                             var package = TryReadPackageIdentity(path, _options.PackageRoots);
                             Add(path, AssemblyDependencyProvenance.DepsJsonAsset, package.Id, package.Version);

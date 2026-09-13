@@ -2,8 +2,8 @@
 
 The **CLI Workspace Sharing** design is the normative owner for one public
 gesture: serializing the resolved semantic invocation of an inspection into a
-portable Workspace scenario and emitting that scenario as a canonical packet
-or complete Inspect Web URL.
+portable Workspace scenario and emitting that scenario on stderr alongside the
+command's ordinary content.
 
 The end-to-end adoption tracker is
 [#6150](https://github.com/richlander/dotnet-inspect/issues/6150). The producing
@@ -28,8 +28,8 @@ CLI Workspace Sharing owns:
 - the requirement to serialize the command's resolved semantic invocation
   rather than reconstructing it through another command or serializing the
   inspected content;
-- classification of semantic command inputs, local execution policy, and
-  terminal CLI presentation when sharing;
+- classification of semantic command inputs, local execution policy, content
+  presentation, and Share side output;
 - CLI output, refusal, and exit behavior; and
 - the command-by-command adoption rule.
 
@@ -40,14 +40,14 @@ of its source, focus, selector, query, traversal, and execution semantics.
 Inspect Web remains the owner of URL activation and presentation. This design
 composes those owner-issued contracts without redefining them.
 [Inspection Plan Projections](inspection-plan-projections.md) owns the shared
-resolved basis and the typed split between section execution,
-effective-section discovery, and portable sharing.
+resolved basis, closed content purpose, and required portable-share projection.
 
 The repository convention is that a caller selects source, focus, operation,
 and lens on the command that performs the inspection, then chooses output
 through an option on that same command. `--share` follows that convention. It
-is a terminal projection, like selecting another output representation, not a
-new structural focus or operation arity under the
+adds the portable URL or packet to stderr while leaving ordinary content on
+stdout. It is an additive presentation gesture, not a new structural focus or
+operation arity under the
 [Command Transition Model](command-transition-model.md).
 
 Canonical packet and URL output deliberately bypass Markout. They are
@@ -71,19 +71,19 @@ remains intact until that canonical encoding boundary.
    never persists command names, option spellings, a shell command line,
    acquired artifact bytes, live inspection objects, result rows, or rendered
    text.
-4. **A bare `--share` emits the complete URL.** URL sharing is the primary
-   agent-to-human handoff. `--share packet` explicitly requests only the
-   canonical base64url packet; `--share url` is the explicit spelling of the
-   default.
+4. **A bare `--share` adds the complete URL.** URL sharing is the primary
+   agent-to-human handoff. `--share packet` selects the canonical base64url
+   packet; `--share url` is the explicit spelling of the default. The selected
+   scalar is written to stderr after ordinary diagnostics.
 5. **Sharing preserves semantic choices or refuses.** A command must carry
    every projectable source, context, subject, facet, query, and traversal
    choice that affects the receiving inspection. It never drops an unsupported
    choice, substitutes a default view, or produces a less-specific link.
-6. **Sharing does not execute the selected inspection merely to encode it.**
-   The command performs only the normal resolution needed to establish exact
-   portable identity and projectability. Query, analysis, traversal, source,
-   or rendering work that the receiving host will perform is not run solely
-   because `--share` was selected.
+6. **Sharing adds no second inspection.** The command performs its ordinary
+   Execute or Discover content work whether or not `--share` is present. Share
+   projection may reuse the resulting resolved basis but does not invoke a
+   second query, analysis, traversal, source, or rendering path merely to encode
+   the scenario.
 7. **The receiving host replays a recipe, not a result.** A packet contains no
    rendered rows, analysis findings, graph edges, acquired payloads,
    credentials, or frozen result snapshot. Inspect Web applies its own source
@@ -106,15 +106,17 @@ parse, normalize, and resolve exact portable identity
    |
    v
 resolved semantic invocation
-   |-- --share --------------------> scenario packet or URL
-   `-- execute target observation -> inspection result
+   |-> execute or discover content -> ordinary stdout
+   `-> required share projection
+         `-- --share -------------> URL or packet on stderr
 ```
 
-Sharing takes the upper branch. It serializes what the caller asked the product
-to inspect: acquisition coordinates, Workspace context, structural focus,
-exact subject selectors, selected facets or queries, traversal choices, and
-other portable semantic options. It does not serialize the target being
-inspected or the answer produced by inspecting it.
+Every plan includes the Share projection. `--share` renders that projection
+without changing the content plan or its stdout. It serializes what the caller
+asked the product to inspect: acquisition coordinates, Workspace context,
+structural focus, exact subject selectors, selected facets or queries,
+traversal choices, and other portable semantic options. It does not serialize
+the target being inspected or the answer produced by inspecting it.
 
 The distinction is semantic rather than temporal. A command may need bounded
 acquisition or metadata resolution to establish an exact portable coordinate
@@ -132,9 +134,9 @@ dotnet-inspect member JsonSerializer SerializeAsync:1 \
   --share
 ```
 
-The same invocation without `--share` performs the ordinary CLI inspection.
-Appending `--share` changes only the terminal projection. It must not require a
-second command such as:
+The same invocation without `--share` produces the same ordinary CLI content.
+Appending `--share` adds the URL to stderr. It must not require a second command
+such as:
 
 ```console
 dotnet-inspect workspace create \
@@ -158,18 +160,25 @@ Commands that adopt sharing expose one common option:
 ```
 
 - `--share` and `--share url` write exactly one complete
-  `https://dotnet-inspect.net/?w=<packet>` URL plus the platform newline.
+  `https://dotnet-inspect.net/?w=<packet>` URL plus the platform newline as the
+  final non-empty stderr line.
 - `--share packet` writes exactly the canonical packet plus the platform
-  newline.
-- Successful sharing writes no ordinary inspection report.
-- Diagnostics are written to stderr. Failure writes no packet, partial URL, or
-  success-shaped fallback.
+  newline as the final non-empty stderr line.
+- Stdout is the same ordinary inspection content the invocation would produce
+  without `--share`.
+- Diagnostics, tips, and other normal stderr content retain their existing
+  order before the Share scalar.
+- If content carries an owner-issued non-success but Share is available, the
+  scalar is still written and the command retains the content owner's nonzero
+  exit behavior.
+- If Share is non-projectable, ordinary content remains on stdout, stderr names
+  the projection failure, no packet or partial URL is written, and the command
+  exits nonzero because the explicitly requested side output failed.
 
-`--share` is mutually exclusive with terminal CLI representations and reducers
-such as Markdown, JSON, table, TSV, JSONL, plaintext, Mermaid, URL-list, path,
-print, count, row-window, field, and column output. Those gestures describe how
-the CLI presents an executed result; they do not describe the receiving
-Workspace.
+`--share` may accompany Markdown, JSON, table, TSV, JSONL, plaintext, Mermaid,
+URL-list, path, print, count, row-window, field, column, or Discover output.
+Those gestures describe the CLI content stream; they do not change the
+receiving Workspace scenario.
 
 Source, focus, section, facet, query, filter, relationship, traversal, and
 other semantic options are not rejected merely because sharing was selected.
@@ -210,20 +219,20 @@ rebuilding state from display strings are all prohibited.
 
 ### Work and acquisition
 
-`--share` authorizes the minimum work required to produce an exact portable
-scenario; it does not authorize the observation merely because the ordinary
-command would have rendered it.
+`--share` leaves the command's ordinary content work unchanged. A package
+dependency invocation still acquires and inspects the package when that is what
+its content path normally does. A member Call Graph invocation still executes
+the graph analysis needed for stdout.
 
-For example, a package dependency invocation may resolve an unversioned package
-to one exact version, but it need not acquire the package or walk its dependency
-graph when the packet carries the exact coordinate and Dependencies facet. A
-member invocation may need package metadata and compile-surface resolution to
-mint an exact member identity, but it does not need documentation, PDB, source,
-decompiler, caller, or analysis enrichment solely to emit the link.
+Share projection is separately bounded: it reuses the resolved semantic basis
+and performs only work required to establish exact portable identity and
+projectability. It does not run the ordinary query or analysis a second time,
+request Browser-only enrichment, or serialize the content result.
 
-If exact identity genuinely depends on work that the command normally performs,
-that owner may perform the bounded work and must retain its ordinary failure
-semantics. Sharing does not create a cheaper identity guess.
+If exact portable identity genuinely requires owner-issued resolution not
+otherwise needed by the content plan, that owner may perform the bounded work
+and must retain its ordinary failure semantics. Sharing does not create a
+cheaper identity guess.
 
 ### Projectability and refusal
 
@@ -233,15 +242,16 @@ scenario, the receiving host lacks the required portable query or restoration
 binding, the source cannot be reacquired without excluded authority, or the
 canonical packet exceeds its capacity.
 
-The command reports that typed refusal as a nonzero outcome with actionable
-stderr. It must identify the first unsupported semantic choice or owner-issued
-projection path. It must not:
+When `--share` is present, the command reports that typed refusal as a nonzero
+outcome with actionable stderr while preserving ordinary stdout content. It
+must identify the first unsupported semantic choice or owner-issued projection
+path. It must not:
 
 - omit state and emit a URL anyway;
 - fall back to a landing page, Overview, or another facet;
 - replace an exact subject with a textual search;
 - upload local content or credentials;
-- execute the query and serialize its rendered result; or
+- serialize the executed query result or rendered content; or
 - instruct the user to recreate the same invocation through `workspace`.
 
 Packet and URL output have identical projectability. URL wrapping cannot make a
@@ -268,7 +278,8 @@ because each command owner must issue the typed source, target, facet, and
 query state that sharing consumes. Commands do not independently reconstruct
 the common target and selection plan:
 [Inspection Plan Projections](inspection-plan-projections.md) supplies that
-shared structural basis and purpose-specific lowering.
+shared structural basis, content-purpose lowering, and required Share
+projection.
 
 For each adopting command, #6150's path has three observable steps:
 
@@ -282,14 +293,15 @@ For each adopting command, #6150's path has three observable steps:
 The exact-member adoption completes these steps for its supported package API
 Overview subset. The Package Dependencies adoption in #6394 completes them for
 one exact NuGet.org package coordinate, target framework, and package-root
-Dependencies facet. An unversioned package or `@latest` is resolved and pinned
-before projection; no package body or dependency graph is acquired by the CLI.
-The receiving host preserves the requested framework as the scenario and
-dependency-selection target. When the package has no exact compile group but
-does have a compatible implementation universe, the host may materialize that
-compatible compile universe without rewriting the requested framework in the
-packet, active coordinate, or Dependencies query. Type, package, library,
-call-graph, and later operation/query adoptions remain separate slices under
+Dependencies facet. Under the revised target, an unversioned package or
+`@latest` is resolved and pinned while the command also performs its ordinary
+Dependencies inspection for stdout. The receiving host preserves the requested
+framework as the scenario and dependency-selection target. When the package
+has no exact compile group but does have a compatible implementation universe,
+the host may materialize that compatible compile universe without rewriting
+the requested framework in the packet, active coordinate, or Dependencies
+query. Type, package, library, call-graph, and later operation/query adoptions
+remain separate slices under
 [#6150](https://github.com/richlander/dotnet-inspect/issues/6150); a command
 exposes `--share` only when its first useful scenario closes
 through the receiving host.
@@ -328,7 +340,7 @@ The adoption has three planned steps:
 1. This design records the real asset, observed graph, exact invocation,
    compatibility mapping, boundaries, and required gates.
 2. [#6555](https://github.com/richlander/dotnet-inspect/issues/6555) implements
-   the shared typed plan-purpose model and adopts it in the exact-member CLI
+   the shared typed content/share model and adopts it in the exact-member CLI
    path for execution, effective discovery, and existing Overview sharing.
 3. The final production-adoption PR projects Call Graph through that share
    plan and restores it in Inspect Web, gated against the unchanged committed
@@ -354,15 +366,16 @@ The production slice requires these gates:
 - `--share packet` carries the exact package coordinate, framework, type,
   member anchor, selected library, and packet-v1 section `call-graph`, with no
   graph nodes, edges, or rendered rows;
-- the share path exits before CLI Call Graph analysis, while bare `--share`
-  emits exactly one Inspect Web URL;
+- adding `--share` executes the same CLI Call Graph and produces the same
+  stdout as the ordinary invocation, while writing the Inspect Web URL as the
+  final non-empty stderr line;
 - the published Browser opens that CLI-produced URL against the exact
   committed package archive, selects Call Graph rather than Overview, and
   renders the matching member graph through the normal Browser engine;
 - neighboring member Overview sharing continues to omit the section; and
-- unsupported member sections, caller-scope modifiers, graph rendering
-  choices, and competing terminal-output choices remain visible pre-acquisition
-  projection errors.
+- unsupported member sections and caller-scope modifiers remain visible
+  projection errors, while graph rendering choices continue to affect only the
+  stdout content shape.
 
 ## Pathological and neighboring cases
 
@@ -379,22 +392,23 @@ dotnet-inspect member Utf8JsonWriter WriteStringValue:7 \
 ```
 
 Once the adoption lands, this invocation resolves the package and exact member
-once, preserves the Call Graph facet, and emits the URL without running the
-graph in the CLI. Inspect Web reacquires the package and runs its normal Call
-Graph operation. Before that complete path exists, the invocation fails
-visibly at the unsupported Call Graph projection. It never silently emits
-member Overview and never asks the user to restate the package, type, member,
-and section under `workspace`.
+once, runs the ordinary CLI Call Graph for stdout, preserves the Call Graph
+facet, and writes the URL to stderr. Inspect Web reacquires the package and
+runs its normal Call Graph operation. Before that complete path exists, the
+invocation retains its ordinary content and fails visibly at the unsupported
+Call Graph projection. It never silently emits member Overview and never asks
+the user to restate the package, type, member, and section under `workspace`.
 
 Neighboring cases prove the boundary:
 
 - the equivalent exact package/member Overview invocation succeeds;
 - an ambiguous member selection fails without choosing an overload;
 - a local or private artifact that the public Browser cannot reacquire fails
-  without leaking a path or credential;
+  Share projection without leaking a path or credential while retaining
+  ordinary CLI content;
 - a floating package that resolves uniquely emits the resolved exact version;
-- a command with a competing CLI output format fails rather than producing two
-  outputs; and
+- Markdown, JSON, Count, row selection, and graph formats preserve their
+  ordinary stdout while the URL remains the final stderr line; and
 - packet-capacity overflow emits no URL.
 
 ## Non-goals
@@ -415,49 +429,59 @@ Neighboring cases prove the boundary:
 The common target contract is **partially verified**. Current
 `member --share[=url|packet]` proves canonical packet/URL production for one
 explicitly selected public NuGet member Overview, but it still requires an
-exact overload gesture and rejects all section selection. Package Dependencies
-adoption proves that an omitted or `latest` NuGet.org version can be resolved
-to an exact coordinate without acquiring the package or traversing its graph,
-then restored by Inspect Web as the Dependencies facet. Those restrictions and
-completed slices are implementation status, not the general sharing contract.
-The real-package Member Call Graph adoption is designed and tracked by #6540
-but remains unverified until its CLI-to-Browser production slice lands.
+exact overload gesture, rejects all section selection, and replaces ordinary
+content with scalar stdout. Package Dependencies similarly proves exact
+coordinate projection and Browser restoration through a share-only fast path.
+Those implementations verify projection but do not yet satisfy the additive
+stdout/stderr contract. The real-package Member Call Graph adoption is designed
+and tracked by #6540 but remains unverified until its CLI-to-Browser production
+slice lands. Existing-adopter migration is tracked by
+[#6725](https://github.com/richlander/dotnet-inspect/issues/6725).
 
 Each adoption must add focused Release gates proving:
 
 - appending `--share` consumes the same normalized source, context, subject,
   facet, query, and traversal state as the ordinary command plan;
+- adding `--share` leaves the selected Execute or Discover content and ordinary
+  stdout unchanged;
 - no argv serialization, synthetic command invocation, acquired target
   content, result payload, rendered-text identity, or duplicate source/focus
   grammar participates in the projection;
-- bare `--share`, explicit `url`, and `packet` produce the required scalar and
-  no ordinary report;
+- bare `--share`, explicit `url`, and `packet` write the required scalar as the
+  final non-empty stderr line after ordinary diagnostics;
 - a uniquely resolved floating input is pinned to its exact portable
   coordinate;
 - semantic selections are preserved when projectable and produce a typed
   refusal when not;
-- work unnecessary for exact identity or projectability does not execute;
-- competing terminal output, ambiguous identity, unsupported source,
-  over-capacity state, and Browser-restoration gaps fail nonzero with empty
-  stdout; and
+- Share projection does not cause a second content execution;
+- Markdown, JSON, Count, row selection, Discover, and other content modes
+  coexist with the Share side output;
+- ambiguous identity and content failure retain their ordinary stdout/stderr
+  and exit behavior when no envelope can be constructed;
+- unsupported source, over-capacity state, and Browser-restoration gaps retain
+  ordinary content, write no partial Share scalar, and fail nonzero when
+  `--share` was requested; and
 - the real Inspect Web URL restores the same normalized coordinates, context,
   subject, facet, query, and portable options.
 
 The existing `MemberShare_*` tests gate the narrower member subset.
 `MemberShare_RejectsLegacyLineWindowBeforeScalarOutput` specifically gates
-scalar output against the outer legacy line writer.
+the superseded scalar-only output contract and must be replaced by coexistence
+coverage.
 `DependsShare_PacketProjectsExactPackageDependencyView`,
 `DependsShare_PacketPreservesCompatibleRequestedFramework`,
 `DependsShare_UrlWrapsCanonicalPacket`,
-`DependsShare_FloatingVersionResolvesWithoutPackageAcquisition`,
 `DependsShare_RejectsNonProjectableCoordinate`,
 `DependsShare_RejectsLocalPackage`,
 `DependsShare_RejectsNonNuGetOrgSource`,
 `DependsShare_AcceptsExplicitNuGetOrgSource`,
 `DependsShare_RejectsMappedPrivateEffectiveSource`,
-`DependsShare_RejectsBrowserPlatformPackageId`, and
-`DependsShare_RejectsConflictingOutput` gate the CLI package Dependencies
-projection.
+and `DependsShare_RejectsBrowserPlatformPackageId` remain projection and
+projectability witnesses but need additive stdout-preservation assertions.
+`DependsShare_FloatingVersionResolvesWithoutPackageAcquisition` and
+`DependsShare_RejectsConflictingOutput` encode the superseded fast-path and
+mutual-exclusion behaviors; replace them with ordinary-content execution and
+stdout/stderr coexistence coverage.
 `PackageDependencies_UsesCompatibleAssetsWithoutChangingRequestedFramework`,
 `PackageDependencies_SelectsUngroupedDependenciesWithCompatibleAssets`,
 `QueryPackage_ReferenceOnlyCompatibleFrameworkRetainsDependencies`,

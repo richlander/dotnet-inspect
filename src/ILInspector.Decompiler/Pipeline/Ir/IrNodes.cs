@@ -760,15 +760,26 @@ public sealed class IrFunction : IrNode
     public bool IsDestructor { get; set; }
 
     /// <summary>
-    /// True when the defining module opts into the updated C# memory-safety
-    /// rules — it carries a module-level
-    /// <c>System.Runtime.CompilerServices.MemorySafetyRulesAttribute</c>. Under
-    /// those rules the member <c>unsafe</c> modifier no longer introduces a body
-    /// unsafe context, so the printer must wrap each unsafe operation in an
-    /// explicit, minimally scoped <c>unsafe { }</c> block. Legacy modules (no
-    /// attribute) keep relying on the member modifier and render no blocks.
+    /// The defining module's normalized C# memory-safety language mode. A mode
+    /// is available only for recognized Legacy and Updated rules; rendering and
+    /// compiler replay must refuse an unavailable decision rather than treating
+    /// it as Legacy.
     /// </summary>
-    public bool UsesUpdatedMemorySafetyRules { get; set; }
+    public MemorySafetyModeDecision MemorySafetyMode { get; set; }
+        = MemorySafetyModeDecision.Legacy;
+
+    /// <summary>
+    /// Compatibility view used by mode-sensitive lowering after
+    /// <see cref="MemorySafetyMode"/> has been admitted. Setting the property in
+    /// synthetic tests selects an explicit Legacy or Updated mode.
+    /// </summary>
+    public bool UsesUpdatedMemorySafetyRules
+    {
+        get => MemorySafetyMode.UsesUpdatedRules;
+        set => MemorySafetyMode = value
+            ? MemorySafetyModeDecision.Updated
+            : MemorySafetyModeDecision.Legacy;
+    }
 
     /// <summary>
     /// True when the method body's locals are not zero-initialized — the

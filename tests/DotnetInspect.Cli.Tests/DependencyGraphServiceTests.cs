@@ -40,11 +40,52 @@ public class DependencyGraphServiceTests : IDisposable
         var logger = new VerboseLogger(enabled: false);
 
         var result = await DependencyGraphService.BuildLibraryDependencyTreeAsync(
-            httpClient, assemblyPath, sourceOptions: null, logger);
+            httpClient,
+            assemblyPath,
+            sourceOptions: null,
+            logger,
+            maxDepth: null,
+            cancellationToken: TestContext.Current.CancellationToken);
 
         var graph = Assert.IsType<LibraryDependencyGraphResult.Graph>(result);
         Assert.Equal("DotnetInspect.Cli.Tests", graph.AssemblyName);
         Assert.NotEmpty(graph.References);
+    }
+
+    [Fact]
+    public async Task BuildLibraryDependencyTreeAsync_CancellationReachesPackageAcquisition()
+    {
+        string packageId = $"Depends.Cancel.{Guid.NewGuid():N}";
+        string source =
+            $"https://feed.example.test/{Guid.NewGuid():N}/v3/index.json";
+        var handler = new CancellationObservingHandler();
+        using var httpClient = new HttpClient(handler)
+        {
+            Timeout = Timeout.InfiniteTimeSpan,
+        };
+        using var cancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                TestContext.Current.CancellationToken);
+
+        Task<LibraryDependencyGraphResult> operation =
+            DependencyGraphService.BuildLibraryDependencyTreeAsync(
+                httpClient,
+                $"{packageId}@1.0.0",
+                new NuGetSourceOptions { Sources = [source] },
+                new VerboseLogger(enabled: false),
+                maxDepth: null,
+                cancellationToken: cancellation.Token);
+
+        await handler.RequestStarted.WaitAsync(
+            TestContext.Current.CancellationToken);
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => operation.WaitAsync(
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken));
+        await handler.CancellationObserved.WaitAsync(
+            TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -74,7 +115,9 @@ public class DependencyGraphServiceTests : IDisposable
                 httpClient,
                 packagePath,
                 sourceOptions: null,
-                logger);
+                logger,
+                maxDepth: null,
+                cancellationToken: TestContext.Current.CancellationToken);
 
             var graph = Assert.IsType<LibraryDependencyGraphResult.Graph>(result);
             Assert.Equal("NetStandardRoot", graph.AssemblyName);
@@ -85,16 +128,207 @@ public class DependencyGraphServiceTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task BuildLibraryDependencyTreeAsync_PackageInputHonorsRequestedTfm()
+    {
+        string packageDir =
+            Directory.CreateTempSubdirectory("depends-package-tfm-test")
+                .FullName;
+        string packagePath =
+            Path.Combine(packageDir, "DependsRoot.1.0.0.nupkg");
+
+        try
+        {
+            using (var archive =
+                ZipFile.Open(packagePath, ZipArchiveMode.Create))
+            {
+                WriteAssemblyEntry(
+                    archive,
+                    "lib/net6.0/A.dll",
+                    "Net6Root");
+                WriteAssemblyEntry(
+                    archive,
+                    "lib/netstandard2.0/Z.dll",
+                    "NetStandardRoot");
+            }
+
+            using var httpClient = new HttpClient();
+            var result =
+                await DependencyGraphService.BuildLibraryDependencyTreeAsync(
+                    httpClient,
+                    packagePath,
+                    sourceOptions: null,
+                    new VerboseLogger(enabled: false),
+                    maxDepth: null,
+                    TestContext.Current.CancellationToken,
+                    requestedTfm: "net6.0");
+
+            Assert.Equal(
+                "Net6Root",
+                Assert.IsType<LibraryDependencyGraphResult.Graph>(result)
+                    .AssemblyName);
+        }
+        finally
+        {
+            Directory.Delete(packageDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task BuildLibraryDependencyTreeAsync_PackageInputRejectsMissingTfm()
+    {
+        string packageDir =
+            Directory.CreateTempSubdirectory("depends-package-tfm-miss-test")
+                .FullName;
+        string packagePath =
+            Path.Combine(packageDir, "DependsRoot.1.0.0.nupkg");
+
+        try
+        {
+            using (var archive =
+                ZipFile.Open(packagePath, ZipArchiveMode.Create))
+            {
+                WriteAssemblyEntry(
+                    archive,
+                    "lib/net6.0/A.dll",
+                    "Net6Root");
+            }
+
+            using var httpClient = new HttpClient();
+            var result =
+                await DependencyGraphService.BuildLibraryDependencyTreeAsync(
+                    httpClient,
+                    packagePath,
+                    sourceOptions: null,
+                    new VerboseLogger(enabled: false),
+                    maxDepth: null,
+                    TestContext.Current.CancellationToken,
+                    requestedTfm: "net20.0");
+
+            LibraryDependencyGraphResult.Error error =
+                Assert.IsType<LibraryDependencyGraphResult.Error>(result);
+            Assert.Contains(
+                "target framework 'net20.0'",
+                error.Message,
+                StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(packageDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task BuildLibraryDependencyTreeAsync_PlatformInputHonorsRequestedTfm()
+    {
+        string? originalDotnetRoot =
+            Environment.GetEnvironmentVariable("DOTNET_ROOT");
+        string temporaryRoot = Directory.CreateTempSubdirectory(
+            "depends-platform-tfm-").FullName;
+        try
+        {
+            WriteInstalledPlatformAssembly(
+                temporaryRoot,
+                "42.0.1",
+                "net42.0",
+                "Runtime42");
+            WriteInstalledPlatformAssembly(
+                temporaryRoot,
+                "43.0.1",
+                "net43.0",
+                "Runtime43");
+            Environment.SetEnvironmentVariable(
+                "DOTNET_ROOT",
+                temporaryRoot);
+
+            using var httpClient = new HttpClient();
+            LibraryDependencyGraphResult selected42 =
+                await DependencyGraphService
+                    .BuildLibraryDependencyTreeAsync(
+                        httpClient,
+                        "System.Runtime",
+                        sourceOptions: null,
+                        new VerboseLogger(enabled: false),
+                        maxDepth: null,
+                        TestContext.Current.CancellationToken,
+                        traverseReferences: false,
+                        requestedTfm: "net42.0");
+            LibraryDependencyGraphResult selected43 =
+                await DependencyGraphService
+                    .BuildLibraryDependencyTreeAsync(
+                        httpClient,
+                        "System.Runtime",
+                        sourceOptions: null,
+                        new VerboseLogger(enabled: false),
+                        maxDepth: null,
+                        TestContext.Current.CancellationToken,
+                        traverseReferences: false,
+                        requestedTfm: "net43.0");
+
+            Assert.Equal(
+                "Runtime42",
+                Assert.IsType<LibraryDependencyGraphResult.Empty>(
+                    selected42).AssemblyName);
+            Assert.Equal(
+                "Runtime43",
+                Assert.IsType<LibraryDependencyGraphResult.Empty>(
+                    selected43).AssemblyName);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_ROOT",
+                originalDotnetRoot);
+            Directory.Delete(temporaryRoot, recursive: true);
+        }
+    }
+
     private static void WriteAssemblyEntry(
         ZipArchive archive,
         string entryName,
         string assemblyName)
     {
+        byte[] image = BuildAssemblyImage(
+            Path.GetFileName(entryName),
+            assemblyName,
+            includeSystemRuntimeReference: true);
+        ZipArchiveEntry entry = archive.CreateEntry(entryName);
+        using Stream stream = entry.Open();
+        stream.Write(image);
+    }
+
+    private static void WriteInstalledPlatformAssembly(
+        string dotnetRoot,
+        string version,
+        string targetFramework,
+        string assemblyName)
+    {
+        string refDirectory = Directory.CreateDirectory(
+            Path.Combine(
+                dotnetRoot,
+                "packs",
+                "Microsoft.NETCore.App.Ref",
+                version,
+                "ref",
+                targetFramework)).FullName;
+        File.WriteAllBytes(
+            Path.Combine(refDirectory, "System.Runtime.dll"),
+            BuildAssemblyImage(
+                "System.Runtime.dll",
+                assemblyName,
+                includeSystemRuntimeReference: false));
+    }
+
+    private static byte[] BuildAssemblyImage(
+        string moduleName,
+        string assemblyName,
+        bool includeSystemRuntimeReference)
+    {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
             0,
             metadata.GetOrAddString(
-                Path.GetFileName(entryName)),
+                moduleName),
             metadata.GetOrAddGuid(Guid.NewGuid()),
             default,
             default);
@@ -112,13 +346,16 @@ public class DependencyGraphServiceTests : IDisposable
             default,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
-        metadata.AddAssemblyReference(
-            metadata.GetOrAddString("System.Runtime"),
-            new Version(11, 0, 0, 0),
-            default,
-            default,
-            default,
-            default);
+        if (includeSystemRuntimeReference)
+        {
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Runtime"),
+                new Version(11, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        }
 
         var builder = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
@@ -127,9 +364,7 @@ public class DependencyGraphServiceTests : IDisposable
             flags: CorFlags.ILOnly);
         var image = new BlobBuilder();
         builder.Serialize(image);
-        ZipArchiveEntry entry = archive.CreateEntry(entryName);
-        using Stream stream = entry.Open();
-        image.WriteContentTo(stream);
+        return image.ToArray();
     }
 
     [Fact]
@@ -153,7 +388,9 @@ public class DependencyGraphServiceTests : IDisposable
                 httpClient,
                 packagePath,
                 sourceOptions: null,
-                logger);
+                logger,
+                maxDepth: null,
+                cancellationToken: TestContext.Current.CancellationToken);
 
             var error = Assert.IsType<LibraryDependencyGraphResult.Error>(result);
             Assert.Contains("No libraries found in package", error.Message);
@@ -951,6 +1188,39 @@ public class DependencyGraphServiceTests : IDisposable
             await Task.Delay(
                 Timeout.InfiniteTimeSpan,
                 cancellationToken);
+            throw new InvalidOperationException("Unreachable.");
+        }
+    }
+
+    private sealed class CancellationObservingHandler : HttpMessageHandler
+    {
+        private readonly TaskCompletionSource<bool> _requestStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> _cancellationObserved =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task RequestStarted => _requestStarted.Task;
+
+        public Task CancellationObserved => _cancellationObserved.Task;
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            _requestStarted.TrySetResult(true);
+            try
+            {
+                await Task.Delay(
+                    Timeout.InfiniteTimeSpan,
+                    cancellationToken);
+            }
+            catch (OperationCanceledException)
+                when (cancellationToken.IsCancellationRequested)
+            {
+                _cancellationObserved.TrySetResult(true);
+                throw;
+            }
+
             throw new InvalidOperationException("Unreachable.");
         }
     }

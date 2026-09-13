@@ -35,6 +35,33 @@ function metadataResult(fullName = "Example.Widget"): BrowserTypeMetadata {
     composition: null,
     graphNodes: [],
     graphEdges: [],
+    typeDependencyInspection: {
+      content: {
+        queryResult: {
+          dependency: {
+            found: false,
+            matchedType: null,
+            tree: [],
+            relationships: [],
+            depthBoundaries: [],
+            rejections: [],
+          },
+          participants: [],
+          hasSurvivingParticipant: false,
+          isComplete: true,
+        },
+        rowSelection: {
+          isSuccess: true,
+          relationships: [],
+          failure: null,
+        },
+      },
+      share: {
+        fullUrl: null,
+        packet: null,
+      },
+      diagnostics: [],
+    },
     inspectionFailures: [],
   };
 }
@@ -117,6 +144,8 @@ function typeRequest(
     framework: "net10.0",
     assembly: "Example.Package.dll",
     type: "Example.Widget",
+    workspaceJson:
+      '[{"package":"Example.Package","version":"1.2.3","framework":"net10.0"}]',
     isVisible: () => true,
     ...overrides,
   };
@@ -181,6 +210,7 @@ test("type metadata publishes the current result and restores visible focus", as
             value.framework,
             value.assembly,
             value.type,
+            value.workspaceJson,
           ],
           [
             "Example.Package",
@@ -188,6 +218,7 @@ test("type metadata publishes the current result and restores visible focus", as
             "net10.0",
             "Example.Package.dll",
             "Example.Widget",
+            '[{"package":"Example.Package","version":"1.2.3","framework":"net10.0"}]',
           ]);
         return request.promise;
       },

@@ -140,10 +140,10 @@ duplicates the inventory in prose.
 ## Command participation
 
 Type-search `find`, `implements`, and `extensions` use this normalization to
-select acquisition scope. Patternless `find --package-prefix` instead runs the
-Nuspec-only profile owned by
-[the package query CLI](package-query-cli.md). Its parser retains direct scope
-options and whether a search group was supplied so the command can reject
+select acquisition scope. `find PATTERN --package-prefix PREFIX` remains in
+that type/member search space. Package-row selection is owned by
+[`package query`](package-query-cli.md), which does not consume these API
+search scopes and rejects source overrides before acquisition.
 incompatible API-search scope before network access. It does not apply type
 search normalization or expand the prefix. `depends` uses
 normalization only for type-hierarchy mode; its

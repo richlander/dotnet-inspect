@@ -76,7 +76,14 @@ public static class PackageAssemblyQuerySections
             InertString.Format(
                 TextPolicy.Prose,
                 $"Find literal: {plan.Pattern.Operand.DisplayText}"),
-            Describe(plan, summary, matches.Count))
+            Describe(
+                plan,
+                summary.Candidates,
+                summary.Matches,
+                summary.SemanticMisses,
+                summary.NotApplicable,
+                summary.Failures,
+                matches.Count))
         {
             CandidateCount = summary.Candidates,
             MatchedCandidateCount = summary.Matches,
@@ -88,6 +95,36 @@ public static class PackageAssemblyQuerySections
         };
     }
 
+    public static PackageAssemblyQueryView WithSelectedMatches(
+        PackageAssemblyQueryPlan plan,
+        PackageAssemblyQueryView view,
+        IReadOnlyList<PackageAssemblyLiteralUseRow> matches)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        ArgumentNullException.ThrowIfNull(view);
+        ArgumentNullException.ThrowIfNull(matches);
+
+        return new PackageAssemblyQueryView(
+            view.TitleText,
+            Describe(
+                plan,
+                view.CandidateCount,
+                view.MatchedCandidateCount,
+                view.SemanticMissCount,
+                view.NotApplicableCount,
+                view.FailureCount,
+                matches.Count))
+        {
+            CandidateCount = view.CandidateCount,
+            MatchedCandidateCount = view.MatchedCandidateCount,
+            SemanticMissCount = view.SemanticMissCount,
+            NotApplicableCount = view.NotApplicableCount,
+            FailureCount = view.FailureCount,
+            Matches = matches.Count == 0 ? null : [.. matches],
+            Candidates = view.Candidates,
+        };
+    }
+
     public static int CountMatchRows(PackageAssemblyQueryView view)
     {
         ArgumentNullException.ThrowIfNull(view);
@@ -96,16 +133,20 @@ public static class PackageAssemblyQuerySections
 
     static InertString Describe(
         PackageAssemblyQueryPlan plan,
-        PackageAssemblyQuerySummary summary,
+        int candidates,
+        int matchedCandidates,
+        int semanticMisses,
+        int notApplicable,
+        int failures,
         int matchRows)
     {
         string lead = matchRows == 0
             ? "No matching decoded string literal uses were reported."
-            : $"{Count(matchRows)} decoded string literal uses in {Count(summary.Matches)} of {Count(summary.Candidates)} package candidates.";
+            : $"{Count(matchRows)} decoded string literal uses in {Count(matchedCandidates)} of {Count(candidates)} package candidates.";
         return InertString.Format(
             TextPolicy.Prose,
             $"{lead} {Scope} Target framework {plan.TargetFramework}; "
-            + $"misses {Count(summary.SemanticMisses)}, not applicable {Count(summary.NotApplicable)}, failures {Count(summary.Failures)}.");
+            + $"misses {Count(semanticMisses)}, not applicable {Count(notApplicable)}, failures {Count(failures)}.");
     }
 
     static void AddOutcome(

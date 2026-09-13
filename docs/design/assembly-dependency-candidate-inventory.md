@@ -30,13 +30,23 @@ candidate is evidence, not permission to remove its row.
 One `.deps.json` target asset is one logical candidate even when its manifest
 provides multiple physical locations. Services follows the .NET host's
 location order: a valid application-relative `localPath` first, then the
-valid package-root path. Capture validates every declared path, emits the
-first existing location, and emits one preferred unavailable location when
-none exists. The locations are not independent compiler candidates.
+valid package-root path. For an SDK project library with neither declaration,
+the asset's validated final file name is projected beneath the application
+directory. Capture emits the first existing location and emits one preferred
+unavailable location when none exists. The locations are not independent
+compiler candidates.
 This deliberately matches the hostpolicy behavior introduced by
 [dotnet/runtime#118297](https://github.com/dotnet/runtime/pull/118297);
 only its physical-location semantics transfer. Legacy `ResolveAll` and
 `Select` keep their existing behavior and effective location choice.
+
+The caller may supply the immutable
+[Application Dependency Manifest Format](application-dependency-manifest-format.md)
+result associated with its target. Services consumes that same result during
+capture and later binding selection without rereading or reinterpreting the
+manifest. Format validity, exact runtime/compilation target selection, and
+logical-coordinate validity remain with the format owner; Services owns only
+physical projection, acquisition, and resolver provenance.
 
 This boundary inherits existing package-version, asset-directory, target-
 framework and optional-tier choices. It does not enumerate alternative

@@ -8,6 +8,7 @@ using System.Text.Json.Serialization;
 
 using Inspector.Artifacts;
 using Inspector.Artifacts.Workspaces;
+using DotnetInspector.DependencyManifests;
 using DotnetInspector.Queries;
 using DotnetInspector.Services;
 using DotnetInspector.RoundTripCompilation;
@@ -183,7 +184,7 @@ static class ReturnToSender
         FidelityCheck.CompileBackResult? Current,
         ComparisonDelta Delta);
 
-    public static int Run(IReadOnlyList<string> assemblies, int cap, int maxExamples)
+    public static async Task<int> Run(IReadOnlyList<string> assemblies, int cap, int maxExamples)
     {
         int total = 0, exact = 0, opcodeDiff = 0, operandDiff = 0;
         int fidelityUnavailable = 0, recompileFail = 0, contextFail = 0;
@@ -199,7 +200,7 @@ static class ReturnToSender
             IReadOnlyList<Result> results;
             try
             {
-                results = CompileBackPropertyGetters(assemblyPath, cap - total);
+                results = await CompileBackPropertyGetters(assemblyPath, cap - total);
             }
             catch (NoSupportedReturnToSenderTargetsException)
             {
@@ -302,7 +303,7 @@ static class ReturnToSender
         return recompileFail + contextFail == 0 ? 0 : 1;
     }
 
-    public static int RunComparison(IReadOnlyList<string> assemblies, int cap, int maxExamples)
+    public static async Task<int> RunComparison(IReadOnlyList<string> assemblies, int cap, int maxExamples)
     {
         int total = 0, rescued = 0, same = 0, worse = 0, changed = 0, currentMissing = 0;
         var examples = new List<ComparisonResult>();
@@ -315,7 +316,7 @@ static class ReturnToSender
             IReadOnlyList<Result> rtsResults;
             try
             {
-                rtsResults = CompileBackPropertyGetters(
+                rtsResults = await CompileBackPropertyGetters(
                     assemblyPath,
                     cap - total,
                     applyCompileBackFloor: false,
@@ -486,21 +487,21 @@ static class ReturnToSender
         return ("identity transform + target type shell", "resolved");
     }
 
-    public static Result CompileBackFirstPropertyGetter(string assemblyPath)
-        => CompileBackPropertyGetters(assemblyPath, maxTargets: 1).First();
+    public static async Task<Result> CompileBackFirstPropertyGetter(string assemblyPath)
+        => (await CompileBackPropertyGetters(assemblyPath, maxTargets: 1)).First();
 
-    public static IReadOnlyList<Result> CompileBackPropertyGetters(string assemblyPath, int maxTargets = int.MaxValue)
+    public static Task<IReadOnlyList<Result>> CompileBackPropertyGetters(string assemblyPath, int maxTargets = int.MaxValue)
         => CompileBackPropertyGetters(
             assemblyPath, maxTargets, applyCompileBackFloor: true, compilationClosure: null);
 
-    internal static IReadOnlyList<Result> CompileBackPropertyGetters(
+    internal static Task<IReadOnlyList<Result>> CompileBackPropertyGetters(
         string assemblyPath,
         int maxTargets,
         CompilationClosure compilationClosure) =>
         CompileBackPropertyGetters(
             assemblyPath, maxTargets, applyCompileBackFloor: true, compilationClosure);
 
-    static IReadOnlyList<Result> CompileBackPropertyGetters(
+    static async Task<IReadOnlyList<Result>> CompileBackPropertyGetters(
         string assemblyPath,
         int maxTargets,
         bool applyCompileBackFloor,
@@ -563,7 +564,7 @@ static class ReturnToSender
                     if (getter.RelativeVirtualAddress == 0)
                         continue;
 
-                    results.Add(CompileBackPropertyGetterOrContextFail(
+                    results.Add(await CompileBackPropertyGetterOrContextFail(
                         assemblyPath,
                         compilationClosure,
                         pe,
@@ -593,7 +594,7 @@ static class ReturnToSender
         }
     }
 
-    public static IReadOnlyList<Result> CompileBackTargets(string assemblyPath, IReadOnlyList<RequestedTarget> targets)
+    public static Task<IReadOnlyList<Result>> CompileBackTargets(string assemblyPath, IReadOnlyList<RequestedTarget> targets)
         => CompileBackTargets(
             assemblyPath,
             targets,
@@ -602,7 +603,7 @@ static class ReturnToSender
             RoundTripScope.Cluster,
             RoundTripBodyPolicy.Selected);
 
-    public static IReadOnlyList<Result> CompileBackTargets(
+    public static Task<IReadOnlyList<Result>> CompileBackTargets(
         string assemblyPath,
         IReadOnlyList<RequestedTarget> targets,
         RoundTripScope scope)
@@ -614,7 +615,7 @@ static class ReturnToSender
             scope,
             RoundTripBodyPolicy.Selected);
 
-    public static IReadOnlyList<Result> CompileBackTargets(
+    public static Task<IReadOnlyList<Result>> CompileBackTargets(
         string assemblyPath,
         IReadOnlyList<RequestedTarget> targets,
         RoundTripScope scope,
@@ -627,14 +628,14 @@ static class ReturnToSender
             scope,
             bodyPolicy);
 
-    public static ScopePairResult CompileBackScopes(
+    public static async Task<ScopePairResult> CompileBackScopes(
         string assemblyPath,
         RequestedTarget target)
     {
         var sourceIndex = ReturnToSenderSourceIndex.TryCreate(assemblyPath);
         using CompilationClosure compilationClosure =
             CreateCompilationClosure(assemblyPath);
-        var cluster = AssertSingleScope(CompileBackTargets(
+        var cluster = AssertSingleScope(await CompileBackTargets(
             assemblyPath,
             [target],
             sourceIndex,
@@ -642,7 +643,7 @@ static class ReturnToSender
             RoundTripScope.Cluster,
             RoundTripBodyPolicy.Selected,
             compilationClosure));
-        var all = AssertSingleScope(CompileBackTargets(
+        var all = AssertSingleScope(await CompileBackTargets(
             assemblyPath,
             [target],
             sourceIndex,
@@ -654,7 +655,7 @@ static class ReturnToSender
         var allRequest = CreateRoundTripRequest(assemblyPath, all, RoundTripScope.All);
         var comparison = cluster.Compilation is not null && cluster.DonorPe is not null
             && all.Compilation is not null && all.DonorPe is not null
-                ? RoundTripScopeComparison.Compare(
+                ? await RoundTripScopeComparison.CompareAsync(
                     clusterRequest,
                     cluster.Compilation,
                     cluster.DonorPe,
@@ -726,7 +727,7 @@ static class ReturnToSender
             [replacement]);
     }
 
-    static Result AttachRoundTripComparison(string assemblyPath, Result result)
+    static async Task<Result> AttachRoundTripComparisonAsync(string assemblyPath, Result result)
     {
         if (result.BodyPolicy != RoundTripBodyPolicy.Full
             || result.Compilation is null
@@ -735,7 +736,7 @@ static class ReturnToSender
             || result.MemberAnchor is null)
             return result;
         var request = CreateRoundTripRequest(assemblyPath, result, result.Scope);
-        var comparison = RoundTripComparison.Compare(request, result.DonorPe, result.Compilation);
+        var comparison = await RoundTripComparison.CompareAsync(request, result.DonorPe, result.Compilation);
         var productionFailures = result.FullBodies
             .Where(body => body.Status != MemberBodyProductionStatus.Complete)
             .GroupBy(body => body.Method)
@@ -768,7 +769,7 @@ static class ReturnToSender
         };
     }
 
-    public static IReadOnlyList<Result> CompileBackTargets(
+    public static Task<IReadOnlyList<Result>> CompileBackTargets(
         string assemblyPath,
         IReadOnlyList<RequestedTarget> targets,
         IReadOnlyList<string> sourcePaths)
@@ -780,7 +781,7 @@ static class ReturnToSender
             RoundTripScope.Cluster,
             RoundTripBodyPolicy.Selected);
 
-    internal static IReadOnlyList<Result> CompileBackTargets(
+    internal static Task<IReadOnlyList<Result>> CompileBackTargets(
         string assemblyPath,
         IReadOnlyList<RequestedTarget> targets,
         ReturnToSenderSourceIndex? sourceIndex,
@@ -793,7 +794,7 @@ static class ReturnToSender
             RoundTripScope.Cluster,
             RoundTripBodyPolicy.Selected);
 
-    public static IReadOnlyList<Result> CompileBackTargets(
+    public static Task<IReadOnlyList<Result>> CompileBackTargets(
         string assemblyPath,
         IReadOnlyList<RequestedTarget> targets,
         bool applyCompileBackFloor)
@@ -805,7 +806,7 @@ static class ReturnToSender
             RoundTripScope.Cluster,
             RoundTripBodyPolicy.Selected);
 
-    static IReadOnlyList<Result> CompileBackTargets(
+    static async Task<IReadOnlyList<Result>> CompileBackTargets(
         string assemblyPath,
         IReadOnlyList<RequestedTarget> targets,
         ReturnToSenderSourceIndex? sourceIndex,
@@ -857,7 +858,7 @@ static class ReturnToSender
 
                 if (TryFindPropertyGetter(reader, typeDef, target) is { } propertyTarget)
                 {
-                    results.Add(CompileBackPropertyGetterOrContextFail(
+                    results.Add(await CompileBackPropertyGetterOrContextFail(
                         assemblyPath,
                         compilationClosure,
                         pe,
@@ -875,7 +876,7 @@ static class ReturnToSender
 
                 if (TryFindPropertySetter(reader, typeDef, target) is { } setterTarget)
                 {
-                    results.Add(CompileBackPropertySetterOrContextFail(
+                    results.Add(await CompileBackPropertySetterOrContextFail(
                         assemblyPath,
                         compilationClosure,
                         pe,
@@ -893,7 +894,7 @@ static class ReturnToSender
 
                 if (TryFindEventAccessor(reader, typeDef, target, bodyPolicy == RoundTripBodyPolicy.Full) is { } eventTarget)
                 {
-                    results.Add(CompileBackEventAccessorOrContextFail(
+                    results.Add(await CompileBackEventAccessorOrContextFail(
                         assemblyPath,
                         compilationClosure,
                         pe,
@@ -911,7 +912,7 @@ static class ReturnToSender
 
                 if (TryFindMethod(reader, typeDef, target) is { } methodHandle)
                 {
-                    results.Add(CompileBackMethodOrContextFail(
+                    results.Add(await CompileBackMethodOrContextFail(
                         assemblyPath,
                         compilationClosure,
                         pe,
@@ -942,8 +943,12 @@ static class ReturnToSender
                     BodyPolicy = bodyPolicy,
                     UnsupportedDeclarations = unsupportedDeclarations,
                 })
-                .Select(result => AttachRoundTripComparison(assemblyPath, result))
                 .ToArray();
+            for (int index = 0; index < scopedResults.Length; index++)
+            {
+                scopedResults[index] = await AttachRoundTripComparisonAsync(
+                    assemblyPath, scopedResults[index]);
+            }
             return applyCompileBackFloor ? ApplyCompileBackFloor(assemblyPath, scopedResults) : scopedResults;
         }
         finally
@@ -1306,7 +1311,7 @@ static class ReturnToSender
         return null;
     }
 
-    static Result CompileBackPropertyGetterOrContextFail(
+    static async Task<Result> CompileBackPropertyGetterOrContextFail(
         string assemblyPath,
         CompilationClosure compilationClosure,
         PEReader pe,
@@ -1322,15 +1327,17 @@ static class ReturnToSender
     {
         try
         {
-            return CompileBackPropertyGetter(assemblyPath, compilationClosure, pe, reader, source, typeHandle, propertyHandle, getterHandle, memberAnchor, sourceIndex, scope, bodyPolicy);
+            return await CompileBackPropertyGetter(assemblyPath, compilationClosure, pe, reader, source, typeHandle, propertyHandle, getterHandle, memberAnchor, sourceIndex, scope, bodyPolicy);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
-            return ContextFailResult(assemblyPath, reader, typeHandle, propertyHandle, getterHandle, $"{ex.GetType().Name}: {ex.Message}", memberAnchor);
+            return PreserveSourceUnavailability(
+                ContextFailResult(assemblyPath, reader, typeHandle, propertyHandle, getterHandle, $"{ex.GetType().Name}: {ex.Message}", memberAnchor),
+                ex);
         }
     }
 
-    static Result CompileBackMethodOrContextFail(
+    static async Task<Result> CompileBackMethodOrContextFail(
         string assemblyPath,
         CompilationClosure compilationClosure,
         PEReader pe,
@@ -1345,15 +1352,17 @@ static class ReturnToSender
     {
         try
         {
-            return CompileBackMethod(assemblyPath, compilationClosure, pe, reader, source, typeHandle, methodHandle, memberAnchor, sourceIndex, scope, bodyPolicy);
+            return await CompileBackMethod(assemblyPath, compilationClosure, pe, reader, source, typeHandle, methodHandle, memberAnchor, sourceIndex, scope, bodyPolicy);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
-            return ContextFailResult(assemblyPath, reader, typeHandle, methodHandle, $"{ex.GetType().Name}: {ex.Message}", memberAnchor);
+            return PreserveSourceUnavailability(
+                ContextFailResult(assemblyPath, reader, typeHandle, methodHandle, $"{ex.GetType().Name}: {ex.Message}", memberAnchor),
+                ex);
         }
     }
 
-    static Result CompileBackEventAccessorOrContextFail(
+    static async Task<Result> CompileBackEventAccessorOrContextFail(
         string assemblyPath,
         CompilationClosure compilationClosure,
         PEReader pe,
@@ -1369,7 +1378,7 @@ static class ReturnToSender
     {
         try
         {
-            return CompileBackEventAccessor(
+            return await CompileBackEventAccessor(
                 assemblyPath,
                 compilationClosure,
                 pe,
@@ -1385,17 +1394,19 @@ static class ReturnToSender
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
-            return ContextFailResult(
-                assemblyPath,
-                reader,
-                typeHandle,
-                accessorHandle,
-                $"{ex.GetType().Name}: {ex.Message}",
-                memberAnchor);
+            return PreserveSourceUnavailability(
+                ContextFailResult(
+                    assemblyPath,
+                    reader,
+                    typeHandle,
+                    accessorHandle,
+                    $"{ex.GetType().Name}: {ex.Message}",
+                    memberAnchor),
+                ex);
         }
     }
 
-    static Result CompileBackPropertySetterOrContextFail(
+    static async Task<Result> CompileBackPropertySetterOrContextFail(
         string assemblyPath,
         CompilationClosure compilationClosure,
         PEReader pe,
@@ -1411,15 +1422,17 @@ static class ReturnToSender
     {
         try
         {
-            return CompileBackPropertySetter(assemblyPath, compilationClosure, pe, reader, source, typeHandle, propertyHandle, setterHandle, memberAnchor, sourceIndex, scope, bodyPolicy);
+            return await CompileBackPropertySetter(assemblyPath, compilationClosure, pe, reader, source, typeHandle, propertyHandle, setterHandle, memberAnchor, sourceIndex, scope, bodyPolicy);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
-            return ContextFailResult(assemblyPath, reader, typeHandle, propertyHandle, setterHandle, $"{ex.GetType().Name}: {ex.Message}", memberAnchor);
+            return PreserveSourceUnavailability(
+                ContextFailResult(assemblyPath, reader, typeHandle, propertyHandle, setterHandle, $"{ex.GetType().Name}: {ex.Message}", memberAnchor),
+                ex);
         }
     }
 
-    static Result CompileBackPropertyGetter(
+    static Task<Result> CompileBackPropertyGetter(
         string assemblyPath,
         CompilationClosure compilationClosure,
         PEReader pe,
@@ -1482,7 +1495,7 @@ static class ReturnToSender
             bodyPolicy: bodyPolicy);
     }
 
-    static Result CompileBackMethod(
+    static Task<Result> CompileBackMethod(
         string assemblyPath,
         CompilationClosure compilationClosure,
         PEReader pe,
@@ -1543,7 +1556,7 @@ static class ReturnToSender
             bodyPolicy: bodyPolicy);
     }
 
-    static Result CompileBackEventAccessor(
+    static Task<Result> CompileBackEventAccessor(
         string assemblyPath,
         CompilationClosure compilationClosure,
         PEReader pe,
@@ -1641,7 +1654,7 @@ static class ReturnToSender
             bodyPolicy);
     }
 
-    static Result CompileBackPropertySetter(
+    static Task<Result> CompileBackPropertySetter(
         string assemblyPath,
         CompilationClosure compilationClosure,
         PEReader pe,
@@ -1704,7 +1717,7 @@ static class ReturnToSender
             bodyPolicy: bodyPolicy);
     }
 
-    static Result CompileBackTarget(
+    static async Task<Result> CompileBackTarget(
         string assemblyPath,
         CompilationClosure compilationClosure,
         PEReader originalPe,
@@ -1722,8 +1735,11 @@ static class ReturnToSender
         Func<IReadOnlySet<TypeDefinitionHandle>, IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>>, ArtifactRequest> createRequest,
         (string MethodName, string[] OriginalOpcodes)? sibling = null,
         RoundTripScope scope = RoundTripScope.Cluster,
-        RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected) =>
-        compilationClosure.Use(context => CompileBackTargetCore(
+        RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected)
+    {
+        await using var workspace = new InspectionWorkspace();
+        return compilationClosure.Use(context => CompileBackTargetCore(
+            workspace,
             assemblyPath,
             compilationClosure,
             originalPe,
@@ -1743,8 +1759,10 @@ static class ReturnToSender
             sibling,
             scope,
             bodyPolicy));
+    }
 
     static Result CompileBackTargetCore(
+        InspectionWorkspace workspace,
         string assemblyPath,
         CompilationClosure compilationClosure,
         PEReader originalPe,
@@ -1949,7 +1967,7 @@ static class ReturnToSender
         var recompiledOps = FindAndDisassemble(recompiled, fullType, methodName, overload: 0)
             ?.Select(instruction => CanonicalOpcode(instruction.OpCodeName))
             .ToArray();
-        var memberComparison = CompareMemberBodies(assemblyPath, reader, methodHandle, recompiledBytes, fullType, methodName, overload: 0);
+        var memberComparison = CompareMemberBodies(workspace, assemblyPath, reader, methodHandle, recompiledBytes, fullType, methodName, overload: 0);
         var ilDiff = GetIlDiff(memberComparison);
         var ilDiffDiagnostic = ToDisplayDiagnostic(ilDiff);
         var fidelityDiff = BuildIlDiff(
@@ -2144,6 +2162,14 @@ static class ReturnToSender
         return new Result(plan, "", FidelityCheck.CompileBackStatus.ContextFail, "", "", detail, MemberAnchor: memberAnchor);
     }
 
+    static Result PreserveSourceUnavailability(Result result, Exception exception)
+        => exception is CompileBackSourceUnavailableException
+            ? result with
+            {
+                Status = FidelityCheck.CompileBackStatus.FidelityUnavailable,
+            }
+            : result;
+
     static IReadOnlyDictionary<int, MemberAnchor> MemberAnchorsByMethodToken(PEReader pe)
     {
         var surface = ApiSurfaceExtractor.Extract(pe, includeAll: true);
@@ -2316,7 +2342,24 @@ static class ReturnToSender
             normalization: normalization);
     }
 
+    internal static async Task<LocalComparisonQueryResult> CompareMemberBodiesAsync(
+        string assemblyPath,
+        MetadataReader originalReader,
+        MethodDefinitionHandle originalMethod,
+        byte[] recompiledAssembly,
+        string fullType,
+        string methodName,
+        int overload,
+        IEnumerable<ResearchProducerKind>? producers = null)
+    {
+        await using var workspace = new InspectionWorkspace();
+        return CompareMemberBodies(
+            workspace, assemblyPath, originalReader, originalMethod,
+            recompiledAssembly, fullType, methodName, overload, producers);
+    }
+
     internal static LocalComparisonQueryResult CompareMemberBodies(
+        InspectionWorkspace workspace,
         string assemblyPath,
         MetadataReader originalReader,
         MethodDefinitionHandle originalMethod,
@@ -2368,8 +2411,7 @@ static class ReturnToSender
                 }
             }
         }
-        using var workspace = new InspectionWorkspace();
-        var group = workspace.CreateAssemblyContextGroup(participants);
+        using var group = workspace.CreateAssemblyContextGroup(participants);
         var recompiled = FindMethodDefinition(
             recompiledIdentityReader.GetMetadataReader(), fullType, methodName, overload);
 
@@ -2432,11 +2474,23 @@ static class ReturnToSender
         ArtifactQueryLease? lease = null;
         try
         {
+            ApplicationDependencyManifest? dependencyManifest =
+                ReadDependencyManifest(targetPath);
             var resolver = new AssemblyDependencyResolver(new AssemblyDependencyResolutionOptions(targetPath)
             {
                 ExcludeTargetAssembly = true,
                 SnapshotAssemblyImages = true,
                 AllowPlatformAssemblyVersionRollForward = true,
+                DependencyManifest = dependencyManifest,
+                // The process TPA describes the harness closure, not platform
+                // authority for the inspected artifact. Resolve platform
+                // references from their actual binding requests instead.
+                IncludeTrustedPlatformAssemblies = false,
+                IncludeInstalledPlatformFallback = true,
+                // A matching application manifest already defines the local
+                // dependency graph; sibling scanning would register its assets
+                // again with unrelated provenance.
+                IncludeSiblingAssemblies = dependencyManifest is null,
             });
             ResolvedAssemblyReference targetAssembly =
                 resolver.AcquireTargetAssembly()
@@ -2458,12 +2512,8 @@ static class ReturnToSender
                     .OfType<AssemblyDependencyAcquisition.Acquired>()
                     .Select(acquired => acquired.Assembly)
                     .DistinctBy(assembly => assembly.Registration)];
-            AssemblyReferenceIdentity[] platformFamilies =
-                [.. candidates
-                    .Where(candidate => candidate.Provenance is AssemblyResolutionProvenance.PlatformAsset)
-                    .Select(candidate => candidate.Identity)];
             AssemblyBindingRequest[] platformRequests =
-                PlatformRequests(targetAssembly, candidates, platformFamilies);
+                PlatformRequests(resolver, targetAssembly, candidates);
 
             CompileReferencePlatformPolicy policy = RequireReady(
                 CompileReferencePlatformPolicy.PrepareAsync(
@@ -2478,14 +2528,17 @@ static class ReturnToSender
             lease = owner.IssueLease(owner.CreateQueryAuthorization());
             CompileReferenceInventory frozenInventory =
                 RequireReady(policy.Discover(lease, static _ => { }));
-            AssemblyReferenceIdentity[] preparedPlatformFamilies =
-                [.. policy.Bindings.Select(binding =>
-                    ((AssemblyBindingTarget.AssemblyReference)binding.Request.Target).Identity)];
+            ArtifactIdentity[] preparedPlatformArtifacts =
+                [.. policy.Bindings
+                    .SelectMany(binding =>
+                        new[] { binding.PlatformArtifact, binding.AgreementArtifact })
+                    .Distinct()];
             CompileReferenceRequest[] exactRequests =
                 [.. frozenInventory.Candidates
                     .Where(candidate =>
                         !candidate.IsSameModuleAs(frozenInventory.Source)
-                        && !IsPlatformFamily(candidate.Identity, preparedPlatformFamilies))
+                        && !preparedPlatformArtifacts.Any(
+                            artifact => ReferenceEquals(artifact, candidate.InventoryId)))
                     .Select(candidate => new CompileReferenceRequest(candidate.Identity))];
             CompileReferenceSet referenceSet =
                 RequireReady(policy.Select(frozenInventory, exactRequests));
@@ -2499,10 +2552,51 @@ static class ReturnToSender
         }
     }
 
+    static ApplicationDependencyManifest? ReadDependencyManifest(
+        string targetPath)
+    {
+        string manifestPath =
+            Path.ChangeExtension(targetPath, ".deps.json");
+        if (!File.Exists(manifestPath))
+            return null;
+
+        byte[] bytes;
+        using (FileStream stream = File.OpenRead(manifestPath))
+        {
+            if (stream.Length
+                > ApplicationDependencyManifestParseBudget.Default.MaxBytes)
+            {
+                throw new InvalidOperationException(
+                    "The application dependency manifest exceeds the format-reader byte limit.");
+            }
+
+            bytes = new byte[checked((int)stream.Length)];
+            stream.ReadExactly(bytes);
+        }
+
+        ApplicationDependencyManifestParseOutcome outcome =
+            ApplicationDependencyManifestReader.Parse(bytes);
+        return outcome switch
+        {
+            ApplicationDependencyManifestParseOutcome.Succeeded succeeded =>
+                succeeded.Value,
+            ApplicationDependencyManifestParseOutcome.Rejected rejected =>
+                throw new InvalidOperationException(
+                    "The application dependency manifest was rejected: "
+                    + $"{rejected.Diagnostic.Kind}."),
+            ApplicationDependencyManifestParseOutcome.Incomplete incomplete =>
+                throw new InvalidOperationException(
+                    "The application dependency manifest was incomplete: "
+                    + $"{incomplete.Diagnostic.Kind}."),
+            _ => throw new InvalidOperationException(
+                "Unknown application dependency manifest outcome."),
+        };
+    }
+
     static AssemblyBindingRequest[] PlatformRequests(
+        AssemblyDependencyResolver resolver,
         ResolvedAssemblyReference source,
-        IReadOnlyList<ResolvedAssemblyReference> candidates,
-        IReadOnlyList<AssemblyReferenceIdentity> platformFamilies)
+        IReadOnlyList<ResolvedAssemblyReference> candidates)
     {
         var requests = new List<AssemblyBindingRequest>();
         var pending = new Queue<ResolvedAssemblyReference>();
@@ -2522,49 +2616,91 @@ static class ReturnToSender
             foreach (AssemblyReferenceHandle handle in reader.AssemblyReferences)
             {
                 AssemblyReferenceIdentity identity = AssemblyReferenceIdentity.From(reader, handle);
-                if (IsPlatformFamily(identity, platformFamilies))
+                ResolvedAssemblyReference[] exactCandidates =
+                    [.. candidates.Where(candidate =>
+                        candidate.Provenance is not AssemblyResolutionProvenance.PlatformAsset
+                        && identity.IsEquivalentTo(candidate.Identity))];
+                var request = new AssemblyBindingRequest(
+                    AssemblyBindingTarget.Reference(identity),
+                    AssemblyBindingOrigin.FromAssembly(origin),
+                    AssemblyResolutionScope.Platform);
+                AssemblyBindingSelection.Selected? platform =
+                    SelectPlatform(resolver, request);
+                if (exactCandidates.Length != 0)
                 {
-                    if (!requests.Any(request =>
-                        request.Origin is AssemblyBindingOrigin.RequestingAssembly existing
-                        && ReferenceEquals(existing.Registration, origin.Registration)
-                        && request.Target is AssemblyBindingTarget.AssemblyReference target
-                        && target.Identity.IsEquivalentTo(identity)))
+                    // An exact package or application asset precedes platform
+                    // roll-forward. Preserve agreement checks only when the
+                    // owner selected the same complete identity as platform.
+                    foreach (ResolvedAssemblyReference candidate in exactCandidates)
+                        pending.Enqueue(candidate);
+                    if (platform is not null
+                        && identity.IsEquivalentTo(platform.Assembly.Identity))
                     {
-                        requests.Add(new(
-                            AssemblyBindingTarget.Reference(identity),
-                            AssemblyBindingOrigin.FromAssembly(origin),
-                            AssemblyResolutionScope.Platform));
+                        AddPlatformRequest(requests, request, origin.Registration);
                     }
                     continue;
                 }
-                foreach (ResolvedAssemblyReference candidate in candidates.Where(candidate =>
-                    identity.IsEquivalentTo(candidate.Identity)))
+
+                if (platform is not null)
                 {
-                    pending.Enqueue(candidate);
+                    AddPlatformRequest(requests, request, origin.Registration);
+                    pending.Enqueue(platform.Assembly);
                 }
             }
         }
 
-        foreach (ResolvedAssemblyReference platform in candidates.Where(candidate =>
-            candidate.Provenance is AssemblyResolutionProvenance.PlatformAsset))
+        foreach (ResolvedAssemblyReference candidate in candidates.Where(candidate =>
+            candidate.Provenance is not AssemblyResolutionProvenance.PlatformAsset))
         {
-            if (requests.Any(request =>
-                    request.Target is AssemblyBindingTarget.AssemblyReference target
-                    && IsPlatformFamily(target.Identity, [platform.Identity]))
-                || !candidates.Any(candidate =>
-                    candidate.Provenance is not AssemblyResolutionProvenance.PlatformAsset
-                    && candidate.Identity.IsEquivalentTo(platform.Identity)))
+            var request = new AssemblyBindingRequest(
+                AssemblyBindingTarget.Reference(candidate.Identity),
+                AssemblyBindingOrigin.Global(),
+                AssemblyResolutionScope.Platform);
+            if (requests.Any(existingRequest =>
+                    existingRequest.Target is AssemblyBindingTarget.AssemblyReference target
+                    && IsPlatformFamily(target.Identity, [candidate.Identity]))
+                || resolver.Select(request).Selection
+                    is not AssemblyBindingSelection.Selected
+                    {
+                        Assembly.Provenance: AssemblyResolutionProvenance.PlatformAsset,
+                    } selected
+                || !candidate.Identity.IsEquivalentTo(selected.Assembly.Identity))
             {
                 continue;
             }
 
-            requests.Add(new(
-                AssemblyBindingTarget.Reference(platform.Identity),
-                AssemblyBindingOrigin.Global(),
-                AssemblyResolutionScope.Platform));
+            requests.Add(request);
         }
 
         return [.. requests];
+    }
+
+    static AssemblyBindingSelection.Selected? SelectPlatform(
+        AssemblyDependencyResolver resolver,
+        AssemblyBindingRequest request) =>
+        resolver.Select(request).Selection
+            is AssemblyBindingSelection.Selected
+            {
+                Assembly.Provenance: AssemblyResolutionProvenance.PlatformAsset,
+            } selected
+                ? selected
+                : null;
+
+    static void AddPlatformRequest(
+        ICollection<AssemblyBindingRequest> requests,
+        AssemblyBindingRequest request,
+        AssemblyAcquisitionRegistration origin)
+    {
+        AssemblyReferenceIdentity identity =
+            ((AssemblyBindingTarget.AssemblyReference)request.Target).Identity;
+        if (!requests.Any(existingRequest =>
+            existingRequest.Origin is AssemblyBindingOrigin.RequestingAssembly existing
+            && ReferenceEquals(existing.Registration, origin)
+            && existingRequest.Target is AssemblyBindingTarget.AssemblyReference target
+            && target.Identity.IsEquivalentTo(identity)))
+        {
+            requests.Add(request);
+        }
     }
 
     static bool IsPlatformFamily(

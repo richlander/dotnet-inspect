@@ -14,6 +14,8 @@ export type BrowserTypeSourceFailureKind = "Expected" | "Unexpected" | number;
 
 export type BrowserTypeSourceResultKind = "Succeeded" | "Failed" | "Canceled" | number;
 
+export type JsonValueKind = number;
+
 export interface BrowserAnnotatedSource {
   readonly document: unknown;
   readonly viewerCatalog: BrowserAnnotatedSourceViewerCatalog;

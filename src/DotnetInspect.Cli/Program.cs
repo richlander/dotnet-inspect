@@ -1,3 +1,4 @@
+using DotnetInspector.Cache;
 using DotnetInspect.Cli;
 using DotnetInspect.Cli.Commands;
 using DotnetInspector.Core;
@@ -171,6 +172,12 @@ try
 
     var rootCommand = CommandLineBuilder.CreateRootCommand();
 
+    if (CommandLineBuilder.TryGetRemovedCommandError(args, out var removedCommandError))
+    {
+        CommandError.Write(removedCommandError!);
+        return 1;
+    }
+
     if (CommandLineBuilder.TryGetStaleArgumentError(
             args,
             rootCommand,
@@ -235,7 +242,7 @@ try
         #pragma warning restore RS0030
     }
 
-    _ = CoreCache.CancelAndWaitForMaintenance(TimeSpan.FromMilliseconds(100));
+    _ = PersistentCache.CancelAndWaitForMaintenance(TimeSpan.FromMilliseconds(100));
 
     return exitCode;
 }

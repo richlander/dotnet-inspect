@@ -1,7 +1,7 @@
+using DotnetInspector.Cache;
 using System.Security.Cryptography;
 using System.Text.Json;
 using DotnetInspect.Cli.Commands;
-using DotnetInspector.Core;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
@@ -106,13 +106,13 @@ public partial class CommandExecutionTests
             assemblyPath,
             hash,
             hasSourceLink: true);
-        string legacyCache = CoreCache.GetFilePath(legacyCategory, key, extension: "tsv");
-        string currentCache = CoreCache.GetFilePath(currentCategory, key, extension: "tsv");
+        string legacyCache = PersistentCache.GetFilePath(legacyCategory, key, extension: "tsv");
+        string currentCache = PersistentCache.GetFilePath(currentCategory, key, extension: "tsv");
 
         try
         {
             DeleteIfPresent(currentCache);
-            CoreCache.Set(legacyCategory, key, "Library Info\n", extension: "tsv");
+            PersistentCache.Set(legacyCategory, key, "Library Info\n", extension: "tsv");
 
             var (exit, output, error) = await RunAppAsync(
                 "library", assemblyPath,

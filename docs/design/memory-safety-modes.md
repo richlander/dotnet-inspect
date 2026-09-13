@@ -22,18 +22,48 @@ There are two coherent ways for the decompiler to treat the new rules:
 ## Decision
 
 **Conservative is the default; optimistic is an opt-in mode.** Conservative is
-principled and self-gating: new-rules behavior keys off the module-level
-`MemorySafetyRulesAttribute` (`IrImporter.ModuleUsesUpdatedMemorySafetyRules`),
-so a legacy module's output is byte-identical to what it was before the feature
-existed, and a new-rules module synthesizes only the `unsafe` contexts justified
-by recoverable contracts and reconstructed operations.
+principled and self-gating. Metadata's normalized `MemorySafetyRulesResult`
+feeds one typed language-mode decision shared by rendering and compile-back:
+
+- `Legacy` selects legacy reconstruction and compiler replay.
+- `Updated` selects updated-rules reconstruction and compiler replay.
+- `Unsupported`, `Malformed`, `Conflicting`, or metadata `Unavailable` selects
+  neither language mode. Conservative rendering fails with an explicit
+  unavailable-mode diagnostic before mode-sensitive raising, and compile-back
+  reports the artifact unavailable without invoking the compiler.
+
+Production hosts preserve that diagnostic at their source boundary. An
+explicitly requested CLI source section fails instead of disappearing from a
+successful command, and the browser's source-unavailable result retains the
+decompiler reason instead of replacing it with only a generic acquisition
+failure. Whole-type and member composition admit the module decision before
+type-kind and body-presence branches, so enums, delegates, empty interfaces,
+and abstract members cannot bypass the same refusal. Harness reports admit the
+same decision before mode-sensitive passes instead of silently omitting them or
+measuring them under an invented mode.
+Compile-back and portfolio reports retain unavailable methods as explicit
+coverage. Aggregate harness analyses whose result shapes have no
+unavailable-row contract fail before composing source or running passes when
+an input mode is unavailable.
+
+This distinction is module-wide. An invalid consumed-member contract can keep a
+body visible at Partial fidelity when the caller's own language mode is known;
+an invalid defining-module mode cannot, because every context-placement decision
+would otherwise be made under an invented Legacy or Updated model. A legacy
+module's output remains byte-identical to what it was before the feature
+existed, and an updated-rules module synthesizes only the `unsafe` contexts
+justified by recoverable contracts and reconstructed operations.
 
 Optimistic ("simulate") mode is selected explicitly
 (`MetadataSource.SimulateNewRules`; the decompiler harness exposes it as
 `--simulate-new-rules`). It forces new-rules rendering for *any* input, so a
 legacy module is shown as the new rules *would* require — a migration preview
 that deliberately overlaps a source fixer. It must stay opt-in and clearly
-labeled, because it can invent contexts the original binary never had to satisfy.
+labeled, because it can invent contexts the original binary never had to
+satisfy. The explicit override also permits a preview for an unsupported,
+malformed, conflicting, or unavailable module marker: the result is a simulated
+Updated render, never replay or compile-back evidence for the artifact's unknown
+compiler mode.
 
 ## What forces the split: recoverability
 
@@ -114,10 +144,11 @@ This slice adds neither a host-local policy nor a new adoption stage.
 ## What the optimistic mode adds
 
 Optimistic mode (`MetadataSource.SimulateNewRules`; harness `--simulate-new-rules`)
-forces `IrFunction.UsesUpdatedMemorySafetyRules` true regardless of the module
-attribute, so the printer applies `unsafe` contexts to legacy code wherever the
-new rules *would* require them. What it can recover is bounded by recoverability
-(above): a context is added only where the binary still carries a trace.
+forces the shared mode decision to Updated regardless of the normalized module
+result, so the printer applies `unsafe` contexts to legacy or otherwise
+unreplayable code wherever the new rules *would* require them. What it can
+recover is bounded by recoverability (above): a context is added only where the
+binary still carries a trace.
 
 Recoverable, so simulate wraps them for legacy input (mirroring a source fixer,
 cf. the ILLink `unsafe` evolution codefix, diagnostics IL5005/IL5006):

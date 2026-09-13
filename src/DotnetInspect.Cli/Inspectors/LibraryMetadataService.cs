@@ -907,7 +907,24 @@ internal static class LibraryMetadataService
         ManagedMetadataIdentity rootIdentity,
         VerboseLogger logger,
         int? maxDepth = null,
-        bool failOnReadError = false)
+        bool failOnReadError = false) =>
+        BuildTransitiveReferenceGraph(
+            references,
+            assemblyPath,
+            rootIdentity,
+            logger,
+            maxDepth,
+            failOnReadError,
+            CancellationToken.None);
+
+    internal static AssemblyReferenceGraph BuildTransitiveReferenceGraph(
+        IReadOnlyList<AssemblyReferenceIdentity> references,
+        string assemblyPath,
+        ManagedMetadataIdentity rootIdentity,
+        VerboseLogger logger,
+        int? maxDepth,
+        bool failOnReadError,
+        CancellationToken cancellationToken)
     {
         string fullAssemblyPath = Path.GetFullPath(assemblyPath);
         StringComparer pathComparer = ReferenceTreePathComparer(
@@ -921,6 +938,7 @@ internal static class LibraryMetadataService
             fullAssemblyPath,
         };
         var relationships = new List<AssemblyReferenceRelationship>();
+        var traversalState = new AssemblyReferenceTraversalState();
         List<AssemblyReferenceNode> nodes =
             BuildDeduplicatedTransitiveReferences(
                 references,
@@ -940,11 +958,19 @@ internal static class LibraryMetadataService
                 failOnReadError,
                 rootIdentity,
                 relationships,
-                retainRevisits: true);
+                retainRevisits: true,
+                traversalState: traversalState,
+                cancellationToken: cancellationToken);
         return new AssemblyReferenceGraph(
             rootIdentity,
             nodes,
-            relationships);
+            relationships,
+            traversalState.DepthBounded,
+            traversalState.HasFailures,
+            traversalState.HasInspectionFailures)
+        {
+            DepthBoundaries = traversalState.DepthBoundaries,
+        };
     }
 
     private static IAssemblyBindingPolicy ReferenceTreeBindingPolicyFor(
@@ -996,12 +1022,61 @@ internal static class LibraryMetadataService
         AssemblyReferenceIdentity RequestedTarget,
         bool IsResolved,
         AssemblyReferenceResolutionFailure? ResolutionFailure,
+        AssemblyBindingMissDisposition? MissingDisposition,
         int Ordinal);
+
+    internal sealed record AssemblyReferenceDepthBoundary(
+        ManagedMetadataIdentity Identity,
+        int MaximumDepth);
 
     internal sealed record AssemblyReferenceGraph(
         ManagedMetadataIdentity Root,
         IReadOnlyList<AssemblyReferenceNode> Nodes,
-        IReadOnlyList<AssemblyReferenceRelationship> Relationships);
+        IReadOnlyList<AssemblyReferenceRelationship> Relationships,
+        bool DepthBounded = false,
+        bool HasFailures = false,
+        bool HasInspectionFailures = false)
+    {
+        public IReadOnlyList<AssemblyReferenceDepthBoundary> DepthBoundaries
+        {
+            get;
+            init;
+        } = [];
+    }
+
+    private sealed class AssemblyReferenceTraversalState
+    {
+        private readonly List<AssemblyReferenceDepthBoundary>
+            _depthBoundaries = [];
+
+        public bool DepthBounded { get; set; }
+
+        public bool HasFailures { get; set; }
+
+        public bool HasInspectionFailures { get; set; }
+
+        public IReadOnlyList<AssemblyReferenceDepthBoundary> DepthBoundaries =>
+            _depthBoundaries;
+
+        public void AddDepthBoundary(
+            ManagedMetadataIdentity identity,
+            int maximumDepth)
+        {
+            DepthBounded = true;
+            if (_depthBoundaries.Any(boundary =>
+                    ManagedMetadataIdentityEquals(
+                        boundary.Identity,
+                        identity)))
+            {
+                return;
+            }
+
+            _depthBoundaries.Add(
+                new AssemblyReferenceDepthBoundary(
+                    identity,
+                    maximumDepth));
+        }
+    }
 
     private static List<AssemblyReferenceNode>
         BuildDeduplicatedTransitiveReferences(
@@ -1017,7 +1092,9 @@ internal static class LibraryMetadataService
             bool failOnReadError,
             ManagedMetadataIdentity? rootIdentity,
             List<AssemblyReferenceRelationship>? relationships,
-            bool retainRevisits)
+            bool retainRevisits,
+            AssemblyReferenceTraversalState? traversalState = null,
+            CancellationToken cancellationToken = default)
     {
         List<DeduplicatedReferenceNode> roots = [];
         var seen = new HashSet<AssemblyReferenceTraversalKey>(
@@ -1037,6 +1114,7 @@ internal static class LibraryMetadataService
 
         while (pending.Count > 0)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             PendingAssemblyReference next = pending.Dequeue();
             AssemblyReferenceIdentity reference = next.Reference;
             var node = new AssemblyReferenceNode
@@ -1056,9 +1134,18 @@ internal static class LibraryMetadataService
             ResolvedAssemblyReference? resolved =
                 (selection as AssemblyBindingSelection.Selected)
                     ?.Assembly;
-            if (selection is AssemblyBindingSelection.Unavailable
+            AssemblyBindingMissDisposition? missingDisposition = null;
+            if (selection is AssemblyBindingSelection.Missing missing)
+            {
+                if (traversalState is not null)
+                    traversalState.HasFailures = true;
+                missingDisposition = missing.Disposition;
+            }
+            else if (selection is AssemblyBindingSelection.Unavailable
                 unavailable)
             {
+                if (traversalState is not null)
+                    traversalState.HasFailures = true;
                 node.ResolutionFailure =
                     AssemblyReferenceResolutionFailure.Unavailable;
                 IdentifierConfusionAuditFailureKind failure =
@@ -1076,6 +1163,8 @@ internal static class LibraryMetadataService
             else if (selection is AssemblyBindingSelection.Rejected
                 rejected)
             {
+                if (traversalState is not null)
+                    traversalState.HasFailures = true;
                 node.ResolutionFailure =
                     AssemblyReferenceResolutionFailure.Rejected;
                 IdentifierConfusionAuditFailureKind failure =
@@ -1135,6 +1224,7 @@ internal static class LibraryMetadataService
                         reference,
                         resolved is not null,
                         node.ResolutionFailure,
+                        missingDisposition,
                         relationships.Count));
             }
 
@@ -1168,11 +1258,21 @@ internal static class LibraryMetadataService
                     AssemblyInspector
                         .ExtractReferenceIdentitiesAndCompany(
                             resolved);
+                cancellationToken.ThrowIfCancellationRequested();
                 node.Company = company;
-                if (childReferences.Count == 0
-                    || (maxDepth is not null
-                        && next.Depth + 1 >= maxDepth.Value))
+                if (childReferences.Count == 0)
                 {
+                    continue;
+                }
+                if (maxDepth is not null
+                    && next.Depth + 1 >= maxDepth.Value)
+                {
+                    if (traversalState is not null)
+                    {
+                        traversalState.AddDepthBoundary(
+                            targetIdentity,
+                            maxDepth.Value);
+                    }
                     continue;
                 }
 
@@ -1192,6 +1292,7 @@ internal static class LibraryMetadataService
                         childReference =>
                             childReference.Name))
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     pending.Enqueue(
                         new PendingAssemblyReference(
                             childReference,
@@ -1227,6 +1328,11 @@ internal static class LibraryMetadataService
                     "Could not inspect a resolved assembly reference: "
                     + IdentifierConfusionAudit.DescribeFailure(
                         ClassifyIdentifierConfusionReferenceFailure(ex)));
+                if (traversalState is not null)
+                {
+                    traversalState.HasFailures = true;
+                    traversalState.HasInspectionFailures = true;
+                }
             }
         }
 
@@ -1246,6 +1352,21 @@ internal static class LibraryMetadataService
                 module.Name,
             _ => throw new InvalidOperationException(
                 "Unknown managed metadata identity."),
+        };
+
+    private static bool ManagedMetadataIdentityEquals(
+        ManagedMetadataIdentity left,
+        ManagedMetadataIdentity right) =>
+        (left, right) switch
+        {
+            (ManagedMetadataIdentity.Assembly leftAssembly,
+                ManagedMetadataIdentity.Assembly rightAssembly) =>
+                    leftAssembly.Identity.IsEquivalentTo(
+                        rightAssembly.Identity),
+            (ManagedMetadataIdentity.Module leftModule,
+                ManagedMetadataIdentity.Module rightModule) =>
+                    leftModule == rightModule,
+            _ => false,
         };
 
     private static void FlattenDeduplicatedReferenceTree(

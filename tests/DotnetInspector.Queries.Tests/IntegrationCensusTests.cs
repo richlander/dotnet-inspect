@@ -1058,9 +1058,9 @@ public sealed class IntegrationCensusTests
     }
 
     [Fact]
-    public void IntegrationCapability_ExecutableHandoffProvidesTypedContextIncidence()
+    public async Task IntegrationCapability_ExecutableHandoffProvidesTypedContextIncidence()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         IntegrationSourceParticipantIdentity participant = Portable();
         IContext context = new Context();
         var contextAccess = new IntegrationBindingContextAccess(

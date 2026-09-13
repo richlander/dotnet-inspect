@@ -32,7 +32,7 @@ static class AuthoredCorpusBenchmark
     /// writer so that capturing a run does not mutate process-global console state,
     /// which raced other test classes under xunit's parallel runner.
     /// </param>
-    public static int Run(
+    public static async Task<int> Run(
         IReadOnlyList<string> assemblies,
         string corpusPath,
         bool json,
@@ -136,11 +136,9 @@ static class AuthoredCorpusBenchmark
             var group = byAssembly[pool.Identities[i]];
             matchedGroups.Add(pool.Identities[i]);
 
-            if (!AuthoredCorpusSourceEvaluator.TryEvaluate(
-                    assemblyPath,
-                    group,
-                    out IReadOnlyList<AuthoredSourceOracleManifest.EvaluatedRow> groupRows,
-                    out string? evaluationError))
+            var (groupRows, evaluationError) =
+                await AuthoredCorpusSourceEvaluator.EvaluateAsync(assemblyPath, group);
+            if (evaluationError is not null)
             {
                 Console.Error.WriteLine(evaluationError);
                 return 1;
@@ -1097,19 +1095,16 @@ static class AuthoredCorpusSourceEvaluator
     ///
     /// <para>A correlation failure or a result count that does not match the input count
     /// is a measurement-integrity failure, never a shortened denominator: the caller gets
-    /// <see langword="false"/> and the message, and must not proceed.</para>
+    /// an error message and must not proceed.</para>
     /// </summary>
-    internal static bool TryEvaluate(
+    internal static async Task<(
+        IReadOnlyList<AuthoredSourceOracleManifest.EvaluatedRow> Rows,
+        string? Error)> EvaluateAsync(
         string assemblyPath,
-        IReadOnlyList<AuthoredSourceHarvest.CorpusRecord> records,
-        out IReadOnlyList<AuthoredSourceOracleManifest.EvaluatedRow> rows,
-        out string? error)
+        IReadOnlyList<AuthoredSourceHarvest.CorpusRecord> records)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(assemblyPath);
         ArgumentNullException.ThrowIfNull(records);
-
-        rows = [];
-        error = null;
 
         ReturnToSenderSourceIndex index;
         try
@@ -1125,27 +1120,24 @@ static class AuthoredCorpusSourceEvaluator
             or InvalidOperationException
             or ArgumentException)
         {
-            error = $"Corpus correlation failed for '{assemblyPath}': {ex.Message}";
-            return false;
+            return ([], $"Corpus correlation failed for '{assemblyPath}': {ex.Message}");
         }
 
         var targets = records.Select(ToTarget).ToArray();
-        var results = ReturnToSenderSourceProbe.EvaluateWithIndex(
+        var results = await ReturnToSenderSourceProbe.EvaluateWithIndex(
             assemblyPath,
             targets,
             index);
         if (results.Count != records.Count)
         {
-            error = $"Corpus evaluation returned {results.Count} result(s) for "
-                + $"{records.Count} target(s) in '{assemblyPath}'.";
-            return false;
+            return ([], $"Corpus evaluation returned {results.Count} result(s) for "
+                + $"{records.Count} target(s) in '{assemblyPath}'.");
         }
 
-        rows = [.. records.Zip(
+        return ([.. records.Zip(
             results,
             static (record, result) =>
-                new AuthoredSourceOracleManifest.EvaluatedRow(record, result))];
-        return true;
+                new AuthoredSourceOracleManifest.EvaluatedRow(record, result))], null);
     }
 
     static ReturnToSenderSourceMember ToSourceMember(AuthoredSourceHarvest.CorpusRecord record)

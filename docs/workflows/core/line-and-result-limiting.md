@@ -169,10 +169,10 @@ Tips:
 
 > Goal: Return only the first N matches from a find search.
 
-### 5a. Using `find -t N`
+### 5a. Using `find -n N`
 
 ```bash
-dotnet-inspect find "Json*" -t 3 -v:q
+dotnet-inspect find "Json*" -n 3 -v:q
 ```
 
 ```expect

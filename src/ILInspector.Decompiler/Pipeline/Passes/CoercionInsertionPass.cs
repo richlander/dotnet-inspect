@@ -108,17 +108,30 @@ public static class CoercionSinks
     /// <summary>
     /// The product-owned testimony decision behind <see cref="TestifiedSlotTypes"/>.
     /// Measurement consumers use the status to distinguish an untyped load with
-    /// no derivable sink from loads that actively disagree.
+    /// no derivable sink from loads that actively disagree. At materialization,
+    /// Boolean-valued stores may recover integer-typed loads at Boolean sinks;
+    /// earlier passes retain the importer's testimony until raising is complete.
     /// </summary>
     public static Dictionary<int, SlotTypeTestimony> AnalyzeSlotTypeTestimony(
         IrNode scope,
         TypeRef? returnType,
-        IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+        IReadOnlyDictionary<TypeRef, TypeShape> shapes,
+        bool recoverBooleanIdentity = false)
     {
+        var booleanSlots = recoverBooleanIdentity
+            ? ScopeNodes(scope).OfType<StoreStackSlot>()
+                .GroupBy(static store => store.Slot)
+                .Where(static stores => stores.All(store => TypeFamilies.IsBoolean(store.Value.ResultType)))
+                .Select(static stores => stores.Key)
+                .ToHashSet()
+            : null;
         var testimony = new Dictionary<int, SlotTypeTestimony>();
         foreach (var load in ScopeNodes(scope).OfType<LoadStackSlot>())
         {
-            var evidence = BitwiseEnumSinkType(load, shapes) ?? load.Type ?? LoadSinkTargetType(load, returnType, shapes);
+            var booleanType = booleanSlots?.Contains(load.Slot) == true
+                ? BooleanSlotLoadType(load, returnType, shapes)
+                : null;
+            var evidence = booleanType ?? BitwiseEnumSinkType(load, shapes) ?? load.Type ?? LoadSinkTargetType(load, returnType, shapes);
             if (evidence is null)
             {
                 testimony[load.Slot] = new(null, SlotTypeTestimonyStatus.Underivable);
@@ -140,7 +153,7 @@ public static class CoercionSinks
         return testimony;
     }
 
-    /// <summary>The target type of the sink directly consuming an untyped slot load, where one is derivable — the printer's StackSlotLoadTargetType vocabulary.</summary>
+    /// <summary>The target type of the sink directly consuming an untyped slot load, where one is derivable.</summary>
     static TypeRef? LoadSinkTargetType(LoadStackSlot load, TypeRef? returnType, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
         => load.Parent switch
         {
@@ -168,6 +181,30 @@ public static class CoercionSinks
             && store.Accessor.ParameterTypes is { IsDefault: false, Length: > 0 } setter
                 ? setter[^1]
                 : LoadSinkTargetType(load, returnType, shapes);
+
+    internal static TypeRef? BooleanSlotLoadType(
+        LoadStackSlot load,
+        TypeRef? returnType,
+        IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+    {
+        if (load.Type is not { } type || !TypeFamilies.IsIntegerLike(type))
+            return null;
+        if (SemanticLoadSinkTargetType(load, returnType, shapes) is { } target
+            && TypeFamilies.IsBoolean(target))
+            return target;
+        return load.Parent switch
+        {
+            LogicalNot not when ReferenceEquals(not.Operand, load) => TypeRef.CoreLib("System", "Boolean"),
+            LogicalBinary logical when ReferenceEquals(logical.Left, load) || ReferenceEquals(logical.Right, load) => TypeRef.CoreLib("System", "Boolean"),
+            Conditional conditional when ReferenceEquals(conditional.Condition, load) => TypeRef.CoreLib("System", "Boolean"),
+            ConditionalBranch branch when ReferenceEquals(branch.Condition, load) => TypeRef.CoreLib("System", "Boolean"),
+            IfStatement statement when ReferenceEquals(statement.Condition, load) => TypeRef.CoreLib("System", "Boolean"),
+            WhileLoop loop when ReferenceEquals(loop.Condition, load) => TypeRef.CoreLib("System", "Boolean"),
+            DoWhileLoop loop when ReferenceEquals(loop.Condition, load) => TypeRef.CoreLib("System", "Boolean"),
+            ForLoop loop when ReferenceEquals(loop.Condition, load) => TypeRef.CoreLib("System", "Boolean"),
+            _ => null,
+        };
+    }
 
     /// <summary>
     /// The enum family a slot load contributes when its contiguous flags-enum

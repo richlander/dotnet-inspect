@@ -96,9 +96,13 @@ public sealed partial class BrowserEngineBoundaryTests
                     [
                         PackageQuery.ToolFacetId,
                         PackageQuery.NoDependenciesFacetId,
-                    ]))).Plan;
+                    ],
+                    MaximumCandidates:
+                        PackageQuery.MaximumPackageContentCandidates))).Plan;
 
-        Assert.Equal(PackageQueryFacetTier.Nuspec, plan.Facets[0].Tier);
+        Assert.Equal(
+            PackageQueryFacetTier.PackageContent,
+            plan.Facets[0].Tier);
         Assert.Equal(
             [
                 PackageQuery.ToolFacetId,
@@ -147,7 +151,7 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public void QueryFailureAdapters_DoNotEmitArtifactAuthoredText()
+    public async Task QueryFailureAdapters_DoNotEmitArtifactAuthoredText()
     {
         const string artifactText = "Artifact\u202e";
         var identity = new AssemblyReferenceIdentity(
@@ -168,7 +172,7 @@ public sealed partial class BrowserEngineBoundaryTests
         var participant = new AssemblyContextParticipant(
             assembly,
             new RejectingBindingPolicy());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup([participant]);
 
@@ -2124,6 +2128,82 @@ public sealed partial class BrowserEngineBoundaryTests
         BrowserSource typeSource =
             DotnetInspect.Web.Interop.Source.SourceExports.Adapt(typeEntry, participant);
         Assert.Equal(TypeLimitation, typeSource.PdbSourceLimitation);
+    }
+
+    [Fact]
+    public async Task SourceUnavailable_PreservesDecompilerDiagnostic()
+    {
+        byte[] image =
+            File.ReadAllBytes(
+                typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageCoordinate coordinate = await Coordinate(
+            "Source.Decompiler.Failure",
+            Package(
+                image,
+                "lib/net11.0/DotnetInspect.Web.Tests.dll"));
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                [coordinate],
+                TestContext.Current.CancellationToken);
+        BrowserInspectionScope scope = scopeLease.Scope;
+        BrowserWorkspaceParticipant participant =
+            Assert.Single(scope.ImplementationParticipants);
+        AssemblyContextApiSurfaceResult result =
+            scope.UseImplementation(
+                group => AssemblyContextApiSurfaceQuery.Execute(group));
+        var available =
+            Assert.IsType<AssemblyContextEntry<AssemblyApiSurface>.Available>(
+                Assert.Single(result.Assemblies.Assemblies));
+        ApiType type = Assert.Single(
+            available.Value.Surface.Types,
+            candidate => candidate.FullName
+                == typeof(BrowserEngineBoundaryTests).FullName);
+        ApiMember member = Assert.Single(
+            type.Members,
+            candidate => candidate.Name
+                == nameof(SourceUnavailable_PreservesDecompilerDiagnostic));
+        const string DecompilerDetail =
+            "DEC0016: module memory-safety rules are Unsupported";
+        var memberEntry = new AssemblyMemberSourceEntry.Unavailable(
+            available.Subject,
+            AssemblyMemberSourceRequest.From(type, member),
+            new AssemblySourceFailure(
+                AssemblySourceFailureKind.PdbAndDecompiledUnavailable,
+                "Neither source form is available."),
+            DecompiledAttempt: new MemberRenderResult(
+                MemberBodyProductionStatus.Failed,
+                DecompilerDetail,
+                []));
+
+        var memberError = Assert.Throws<InvalidOperationException>(
+            () => DotnetInspect.Web.Interop.Source.SourceExports.Adapt(
+                memberEntry,
+                participant));
+        Assert.Contains(
+            DecompilerDetail,
+            memberError.Message,
+            StringComparison.Ordinal);
+
+        var decompiledAttempt = DecompilerResult.Failure(
+            DiagnosticIds.MemorySafetyModeUnavailable,
+            "module memory-safety rules are Unsupported");
+        var entry = new AssemblyTypeSourceEntry.Unavailable(
+            available.Subject,
+            AssemblyTypeSourceRequest.From(type),
+            new AssemblySourceFailure(
+                AssemblySourceFailureKind.PdbAndDecompiledUnavailable,
+                "Neither source form is available."),
+            DecompiledAttempt: decompiledAttempt);
+
+        var error = Assert.ThrowsAny<InvalidOperationException>(
+            () => DotnetInspect.Web.Interop.Source.SourceExports.Adapt(
+                entry,
+                participant));
+
+        Assert.Contains(
+            DecompilerDetail,
+            error.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -5395,6 +5475,28 @@ public sealed partial class BrowserEngineBoundaryTests
                 $"{surfaceAsset.AssemblyName}:{typeof(BrowserEngineBoundaryTests).FullName}",
                 type.GetProperty("id").GetString());
             Assert.Single(type.GetProperty("api").EnumerateArray());
+
+            string declarationJson =
+                await DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryMemberDeclaration(
+                    PackageId,
+                    "1.0.0",
+                    "net11.0",
+                    surfaceAsset.Id,
+                    typeof(BrowserEngineBoundaryTests).FullName!,
+                    method.Name,
+                    "stale-selector",
+                    method.MetadataToken,
+                    implementationMember: true);
+            using JsonDocument declarationDocument =
+                JsonDocument.Parse(declarationJson);
+            Assert.Equal(
+                JsonValueKind.String,
+                declarationDocument.RootElement
+                    .GetProperty("text").ValueKind);
+            Assert.Equal(
+                JsonValueKind.Null,
+                declarationDocument.RootElement
+                    .GetProperty("unavailable").ValueKind);
         }
     }
 
@@ -6546,7 +6648,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 TimeSpan.FromSeconds(5));
 
         BrowserWorkspacePackageOccurrenceView view =
-            BrowserWorkspaceOccurrenceOperations.ReplaceCurrent(
+            await BrowserWorkspaceOccurrenceOperations.ReplaceCurrent(
                 [coordinate, coordinate]);
 
         Assert.Equal(2, view.Occurrences.Length);
@@ -6571,16 +6673,16 @@ public sealed partial class BrowserEngineBoundaryTests
                     view.Occurrences[1].Action));
         Assert.Same(coordinate, selection.Coordinate);
 
-        BrowserWorkspaceOccurrenceOperations.ReplaceCurrent([]);
+        await BrowserWorkspaceOccurrenceOperations.ReplaceCurrent([]);
 
         Assert.Null(
             BrowserWorkspaceOccurrenceOperations.Activate(
                 view.Occurrences[0].Action));
 
         BrowserWorkspacePackageOccurrenceView replacement =
-            BrowserWorkspaceOccurrenceOperations.ReplaceCurrent(
+            await BrowserWorkspaceOccurrenceOperations.ReplaceCurrent(
                 [coordinate]);
-        BrowserWorkspaceOccurrenceOperations.ClearCurrent();
+        await BrowserWorkspaceOccurrenceOperations.ClearCurrent();
 
         Assert.Null(
             BrowserWorkspaceOccurrenceOperations.Activate(
@@ -6630,7 +6732,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 });
         await resolutionStarted.Task;
         BrowserWorkspacePackageOccurrenceView replacement =
-            BrowserWorkspaceOccurrenceOperations.ReplaceCurrent(
+            await BrowserWorkspaceOccurrenceOperations.ReplaceCurrent(
                 [coordinate]);
         continueResolution.SetResult();
 
@@ -6694,7 +6796,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 });
         await secondResolutionStarted.Task;
 
-        BrowserWorkspaceOccurrenceOperations.ClearCurrent();
+        await BrowserWorkspaceOccurrenceOperations.ClearCurrent();
         using (
             await BrowserPackageWorkspace.ReservePackageDownloadAsync(
                 $"workspace.lease.pressure.{Guid.NewGuid():N}@1.0.0",
@@ -8023,7 +8125,7 @@ public sealed partial class BrowserEngineBoundaryTests
     [Fact]
     public async Task WorkspaceOccurrences_LeaseAcquiredDuringRetirementKeepsArchiveResident()
     {
-        BrowserWorkspaceOccurrenceOperations.ClearCurrent();
+        await BrowserWorkspaceOccurrenceOperations.ClearCurrent();
         (await BrowserPackageWorkspace.ReservePackageDownloadAsync(
             $"artifact.occurrence.drain.{Guid.NewGuid():N}@1.0.0",
             128L * MiB)).Dispose();
@@ -8081,7 +8183,7 @@ public sealed partial class BrowserEngineBoundaryTests
         finally
         {
             release.TrySetResult();
-            BrowserWorkspaceOccurrenceOperations.ClearCurrent();
+            await BrowserWorkspaceOccurrenceOperations.ClearCurrent();
             await BrowserPackageWorkspace.RemoveScopeAsync(closing);
         }
     }
@@ -8661,7 +8763,7 @@ public sealed partial class BrowserEngineBoundaryTests
             Package(image, "lib/net11.0/Artifact.Activation.dll"),
             TestContext.Current.CancellationToken);
         BrowserWorkspacePackageOccurrenceView view =
-            BrowserWorkspaceOccurrenceOperations.ReplaceCurrent([coordinate]);
+            await BrowserWorkspaceOccurrenceOperations.ReplaceCurrent([coordinate]);
         await using ScopeAdmissionGate admission =
             await ScopeAdmissionGate.CreateAsync();
 
@@ -8671,9 +8773,9 @@ public sealed partial class BrowserEngineBoundaryTests
         {
             Assert.False(activation.IsCompleted);
             if (replace)
-                BrowserWorkspaceOccurrenceOperations.ReplaceCurrent([coordinate]);
+                await BrowserWorkspaceOccurrenceOperations.ReplaceCurrent([coordinate]);
             else
-                BrowserWorkspaceOccurrenceOperations.ClearCurrent();
+                await BrowserWorkspaceOccurrenceOperations.ClearCurrent();
 
             admission.Release();
             BrowserWorkspacePackageOccurrenceActivation result =
@@ -8689,7 +8791,7 @@ public sealed partial class BrowserEngineBoundaryTests
         {
             admission.Release();
             await activation;
-            BrowserWorkspaceOccurrenceOperations.ClearCurrent();
+            await BrowserWorkspaceOccurrenceOperations.ClearCurrent();
         }
     }
 

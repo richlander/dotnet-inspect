@@ -10,11 +10,11 @@ namespace ILInspector.Decompiler.Tests;
 public class ReturnToSenderEvidenceTests
 {
     [Fact]
-    public void FromCatalog_PreservesExactRtsStatusAndMemberAnchor()
+    public async Task FromCatalog_PreservesExactRtsStatusAndMemberAnchor()
     {
         Assert.True(ResearchChangeMechanism.AllAvailable.HasFlag(ResearchChangeMechanism.ReturnToSender));
 
-        var run = GeneratedFixtureRunner.RunReturnToSenderCatalog(
+        var run = await GeneratedFixtureRunner.RunReturnToSenderCatalog(
             [GeneratedFixtureCatalog.MinimalPropertyLiteral]);
 
         var evidence = ReturnToSenderEvidence.FromCatalog(run);

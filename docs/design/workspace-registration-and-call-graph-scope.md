@@ -9,15 +9,21 @@ one-Workspace tracker
 platform-first tracker
 [#6228](https://github.com/richlander/dotnet-inspect/issues/6228). The
 construction-ownership replacement is tracked by
-[#6570](https://github.com/richlander/dotnet-inspect/issues/6570). It is **not
-implemented**; the target behavior and acceptance scenarios below remain
-**unverified**.
+[#6570](https://github.com/richlander/dotnet-inspect/issues/6570).
+[Workspace Scope](workspace-scope-and-expansion.md#inert-registration-adoption)
+implements the inert registration state, empty/explicit initialization and
+revision-bound replacement subset under #6577. The
+[ecosystem handoff](workspace-ecosystem-registration-handoff.md) implements pack
+projection and platform/all-known construction under #6786. Population
+realization, persistence and the joined host experience below remain
+**unimplemented and unverified**.
 
 The operator explicitly approved this bounded cross-owner replacement:
 
 - the Workspace API defaults to an empty Workspace and has no curated option;
-- the Ecosystems API owns the product's one curated Workspace composition,
-  initially Platform, ASP.NET Core, and Microsoft.Extensions;
+- the Ecosystems API owns product curation: the initial platform composition
+  contains Platform, ASP.NET Core, and Microsoft.Extensions; #6763 subsequently
+  approved separate all-known construction, including Aspire;
 - callers explicitly choose raw or curated construction according to their
   operation;
 - registration describes what the Workspace is about and supplies typed
@@ -44,7 +50,7 @@ This document is the normative owner of one joined experience claim:
 > prefix, or ecosystem without granting reachability. A call-graph request
 > independently chooses how far beyond its focal subject to traverse. The
 > Workspace API defaults to no registrations, while the Ecosystems API may
-> construct the product's one curated Workspace. Call graphs default to every
+> supply a product-curated plan for explicit live construction. Call graphs default to every
 > resolvable participant within the Workspace that the caller actually chose,
 > under explicit operation bounds.
 
@@ -132,9 +138,9 @@ Registering an ecosystem makes its contribution available to a consumer that
 selects registered ecosystems. It does not execute a scanner, add curated
 packages, or load an entire ecosystem.
 
-The application catalog also owns the single curated product manifest. It
-uses Platform, ASP.NET Core, and Microsoft.Extensions to construct the one
-curated product Workspace through the shared ecosystem-registration handoff.
+The application catalog also authors the platform and all-known manifests
+adopted by the shared ecosystem-registration handoff. The latter construction
+intent comes from the approved Subject Relations composition (#6763).
 Scope owns neither those product choices nor a duplicate identity table.
 
 ## Workspace construction
@@ -147,28 +153,31 @@ constructor, preset, flag, callback, or catalog hook. Raw construction performs
 no acquisition or analysis and never consults
 `DotnetInspector.Ecosystems`.
 
-The Ecosystems API owns one current curated Workspace composition. Its initial
+The Ecosystems API owns the current product manifests. The platform-curated
 registration sequence is:
 
 1. Platform
 2. ASP.NET Core
 3. Microsoft.Extensions
 
-Curated construction passes that complete sequence to the Workspace API's
-atomic explicit-initialization path and returns a new independent Workspace.
-It is not a singleton Workspace instance and does not confer special
-registration, acquisition, traversal, persistence, or lifetime semantics.
+Curated construction returns that complete sequence in a validated,
+resource-free `WorkspacePlan`. The caller explicitly constructs
+`InspectionWorkspace(plan)` when it needs a live owner. A shared immutable plan
+is not a shared live Workspace and confers no special registration,
+acquisition, traversal, persistence, or lifetime semantics.
 
-There is one curated composition, not a family of named presets or a
-compatibility catalog of earlier compositions. The Ecosystems owner may change
-it over time as product policy. A change affects only later curated
+The separate all-known plan factory includes Aspire, as required by
+[Subject Relations](subject-relations-workflows.md#broad-discovery-by-default).
+The focused handoff owns validation and construction for both choices. Neither
+is a compatibility catalog of earlier compositions. The catalog may change
+its manifests over time as product policy. A change affects only later curated
 construction. It does not mutate an existing Workspace or reinterpret a saved
 or shared definition.
 
 Callers choose the construction owner according to their purpose:
 
-- a discovery experience such as `find` may request the curated Workspace from
-  Ecosystems;
+- a discovery experience such as the new `find` workflow chooses the all-known
+  Workspace; a consumer that wants platform curation selects it explicitly;
 - a high-fidelity or explicitly scoped operation may construct a raw Workspace
   and add only its declared inputs; and
 - restoration constructs a raw Workspace and applies the complete persisted
@@ -209,6 +218,68 @@ declarations include `System.Text.Json@11.0.0-preview.7.26381.103`.
 These commands are named consumers, not contracts redefined here. Search Scope
 Resolution, Dependency Inspection, and Platform/package Pruning retain their
 request, evidence, comparison, and result semantics.
+
+### End-to-end product scenario
+
+The primary product scenario begins with one subject and grows into a
+cross-library question without making product curation an ambient Workspace
+default:
+
+1. A discovery-oriented CLI or Inspect Web operation selects a package or
+   Library. With no reusable active Workspace, the host may explicitly ask
+   Ecosystems for a fresh curated Workspace; raw callers do not take this
+   path. Inspect Web Spotlight instead preserves an active Workspace when the
+   exact destination is already admitted or covered by its current
+   registration-bearing Scope revision, as owned by
+   [Spotlight destination
+   activation](inspect-web-spotlight-destination-activation.md).
+2. Ecosystems passes the complete Platform, ASP.NET Core, and
+   Microsoft.Extensions registration sequence through Workspace's neutral
+   explicit-initialization API. Construction performs no source work.
+3. The selected package becomes explicit Workspace membership and its selected
+   Library, type, or member becomes the inspection subject. Membership,
+   registration, and focus remain independent.
+4. A call-graph request defaults to `Everything`. It may therefore use all
+   registered and already admitted populations available through that
+   Workspace, while the request still supplies finite discovery, acquisition,
+   traversal, and result bounds.
+5. Resolution retains the exact route and evidence selected for each edge.
+   Platform registration makes target-applicable Platform candidates and
+   pruning available; it does not convert package-authored evidence into
+   Platform evidence or require every consumer to prefer Platform.
+6. Saving or sharing the resulting configuration records the exact expanded
+   membership and registration intent selected for that Workspace. Restoration
+   uses raw construction and never re-evaluates the product's later curated
+   manifest.
+
+For example, a user may discover `System.Memory.Data`, focus a member whose
+dependency path reaches `System.Text.Json`, and ask for a graph that continues
+through relevant Platform or ecosystem Libraries. Curated construction supplies
+the population context that makes that broader question useful. Package-mode
+`depends` asks a different question and therefore starts raw, preserving the
+package-authored `System.Text.Json` route as its high-fidelity evidence.
+
+The shared evidence can therefore support two explicit policies:
+
+```text
+System.Memory.Data (package membership)
+└─ System.Text.Json
+   ├─ dependency definition: retain the package-authored route
+   └─ curated traversal: an exact target-applicable Platform route may prune
+      the package edge when ecosystem.platform is registered
+      └─ continuation remains available to System.Text.Encodings.Web
+```
+
+The declaration and resolution layers preserve both possible routes and their
+source identities. `depends` and graph traversal select policy from the
+question being answered; neither reconstructs source intent from assembly
+display names.
+
+This scenario is the reason construction choice belongs to the caller,
+registration belongs to Workspace configuration, and focal length belongs to
+the operation. Combining any two would either hide product policy inside
+Workspace, make registration a traversal permission, or make saved Workspaces
+drift when product curation changes.
 
 ## Call-graph focal lengths
 
@@ -405,6 +476,7 @@ and per-operation bounds keep that broader model explicit.
 | [Inspection Graph Modes](inspection-graph-modes.md) | Single-seed versus induced-set request meaning, focus roles, endpoint admission, and disconnected-input retention |
 | [Call Graph projection](call-graph-projection.md) and Queries | Focal-length request, participant population, call traversal or induction, bounds, completeness, and typed graph result |
 | [Workspace Definitions](workspace-definitions.md) | Portable complete registrations, including an empty set, and view-intent projection |
+| [Inspect Web Spotlight Destination Activation](inspect-web-spotlight-destination-activation.md) | Exact current-Workspace coverage classification and Browser activation settlement; not registration construction or traversal permission |
 | CLI host | Per-command raw-versus-curated choice, request binding, Markout lowering, and CLI disclosure |
 | Inspect Web | Raw-versus-curated experience choice, editor and focal-length controls, and host-native interaction |
 
@@ -417,13 +489,14 @@ There are ten counted production-adoption stages, tracked by #6012:
 3. Define the lower-layer ecosystem-registration declaration and Ecosystem
    Packs projection under #6307, then extend catalog and source owners with the
    exact typed platform, exact-library, and package-prefix contributions and
-   one curated manifest for Platform, ASP.NET Core, and
-   Microsoft.Extensions.
+   separate platform and all-known manifests under the focused handoff.
 4. Revise Workspace Scope from expansion permission to inert registration,
    make default Workspace API construction empty, accept complete explicit
-   initial registrations, and expose no curated option.
-5. Have Ecosystems construct one fresh independent Workspace from its current
-   complete curated manifest through the public Workspace API.
+   initial registrations, and expose no curated option. The registration-state
+   subset is adopted in #6577; population realization remains separate.
+5. Have Ecosystems construct a resource-free plan from its complete curated
+   manifest; consumers explicitly construct independent live Workspaces from
+   that plan through the public Workspace API.
 6. Add the three typed focal lengths to the host-neutral call-graph request and
    result, with `Everything` as the default. Adopt both member-seeded
    neighborhoods and registration-seeded induced call graphs through Inspection
@@ -432,9 +505,9 @@ There are ten counted production-adoption stages, tracked by #6012:
    including an empty set, plus any focused portable call-graph view intent.
 8. Have each CLI command explicitly choose raw or Ecosystems-curated
    construction, then adopt registration disclosure and focal-length selection.
-9. Adopt the same explicit construction choice, Workspace editing, and
-   focal-length selection in Inspect Web, removing permission-oriented controls
-   and copy.
+9. Adopt the same explicit construction choice, Workspace editing, Spotlight
+   destination activation, and focal-length selection in Inspect Web, removing
+   permission-oriented controls and copy.
 10. Complete separately authorized product release and website deployment.
 
 Each implementation PR adopts this pattern in one owning component. This
@@ -448,12 +521,13 @@ The following are required future outcome-level scenarios:
 | Scenario | Required observation |
 | --- | --- |
 | Construct directly through the Workspace API | The registration set is empty; no catalog lookup, acquisition, or analysis occurs |
-| Construct through the Ecosystems curated API | A new independent Workspace contains Platform, ASP.NET Core, and Microsoft.Extensions in order; no registration-triggered acquisition or analysis occurs |
+| Construct through the Ecosystems factories | The platform variant contains Platform, ASP.NET Core, and Microsoft.Extensions in order; all-known construction additionally contains Aspire. Neither performs registration-triggered acquisition or analysis. |
 | Remove one or all curated registrations, then navigate, open another subject, save, and restore | The exact registration set survives; the current curated composition does not reappear |
 | Change the curated manifest in a later product build | Later curated construction uses the new complete manifest; existing and restored Workspaces retain their exact registrations |
 | Run `find` for the real `System.Text.Json` overlap | The command explicitly chooses curated construction and can discover the Platform library without making curation intrinsic to Workspace |
 | Run a raw package-focused operation | The operation receives no ambient ecosystem registration and adds only its explicit scope |
 | Register an exact library, package prefix, or ecosystem | Registration is visible and inert until selected operation demand |
+| Adopt Inspect Web Spotlight destination activation | Current-Workspace coverage classification and external-package restoration conform to their focused owner without making registration eager |
 | Run one member-seeded graph at all three focal lengths | The seed stays fixed; `Self` remains local, the middle mode adds registered ecosystems, and `Everything` admits all Workspace populations |
 | Run the same graph without an explicit focal length in either host | The request uses `Everything` |
 | Start with no admitted libraries and use a package prefix or ecosystem as `Self` | Discovery and realization are bounded; the result is an induced graph with no fabricated focal member |

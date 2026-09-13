@@ -4,7 +4,9 @@ using ILInspector.Metadata;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
+using DotnetInspector.Sections;
 using DotnetInspect.Cli.Services;
 using DotnetInspect.Cli.Views;
 using Markout;
@@ -13,12 +15,13 @@ using Markout.Formatting;
 namespace DotnetInspect.Cli.Commands;
 
 /// <summary>
-/// Walks dependency graphs upward: type hierarchies, library references, or package dependencies.
+/// Walks dependency graphs upward for positional types and explicit asset roots.
 /// </summary>
-public class DependsCommand
+public partial class DependsCommand
 {
     /// <summary>
-    /// Returned when the target type was not found. The caller can fall back to library mode.
+    /// Returned when the target type was not found so the command boundary can
+    /// report a type-specific diagnostic.
     /// </summary>
     internal const int TypeNotFoundExitCode = 2;
 
@@ -31,8 +34,8 @@ public class DependsCommand
 
     /// <summary>
     /// The outcome of a type dependency scan. <see cref="ExitCode"/> reports
-    /// what the scan found, so the caller can still fall back to library mode
-    /// or diagnose an absence. <see cref="Uncertified"/> reports separately
+    /// what the scan found so the caller can diagnose an absence.
+    /// <see cref="Uncertified"/> reports separately
     /// that a candidate was excluded. The two must stay separate: folding
     /// uncertainty into the exit code hides the outcome the caller dispatches
     /// on, which silently withholds an answer the caller would otherwise emit.
@@ -45,6 +48,71 @@ public class DependsCommand
         DependsOptions options,
         CancellationToken cancellationToken = default)
     {
+        SectionCatalog<DependsAssetProjection> catalog =
+            DependsAssetSections.GraphCatalog;
+        SelectResult selection = SelectResolver.ResolveSelectAsSections(
+            options.Select,
+            catalog.SelectableSectionNames,
+            catalog.InfoSectionNames,
+            catalog.SelectionCategoryMap,
+            options.SelectDefault);
+        if (SelectOutput.WriteUnresolved(selection))
+            return new TypeDependsOutcome(1, false);
+
+        if (options.Discover is { } discover)
+        {
+            return new TypeDependsOutcome(
+                DiscoverOutput.Execute(
+                    discover,
+                    DependsAssetSections.CreateGraphSchema(),
+                    tree: options.Tree,
+                    json: options.JsonOutput,
+                    tsv: options.Tsv,
+                    jsonl: options.Jsonl,
+                    sectionCostAnnotations:
+                        catalog.Pipeline.GetCostAnnotations(),
+                    sectionCategories: catalog.SelectionCategoryMap,
+                    projection: options),
+                false);
+        }
+
+        if (options.Schema)
+        {
+            CommandError.Write("--schema requires -D/--discover.");
+            return new TypeDependsOutcome(1, false);
+        }
+        if (IsColumnProjectionRequested(options))
+        {
+            CommandError.Write(
+                "--columns and --fields are not supported in positional type mode.");
+            return new TypeDependsOutcome(1, false);
+        }
+
+        HashSet<string> requestedSections =
+            catalog.Pipeline.GetCandidateSections(
+                options.Verbosity,
+                selection.Sections,
+                fixedOverview: options.SelectDefault);
+        bool emptyQuietSelection =
+            requestedSections.Count == 0
+            && options.Verbosity == Verbosity.Quiet;
+        if (options.Depth is not null
+            && !requestedSections.Contains(
+                DependsAssetSections.DependencyGraph))
+        {
+            CommandError.Write(
+                "--depth requires the Dependency Graph section.");
+            return new TypeDependsOutcome(1, false);
+        }
+        if (!emptyQuietSelection
+            && !requestedSections.Contains(
+                DependsAssetSections.DependencyGraph))
+        {
+            CommandError.Write(
+                $"Type relationship mode currently produces only the '{DependsAssetSections.DependencyGraph}' section.");
+            return new TypeDependsOutcome(1, false);
+        }
+
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
 
@@ -64,7 +132,12 @@ public class DependsCommand
                 context.HttpClient,
                 options,
                 logger,
-                cancellationToken);
+                cancellationToken,
+                options.ShareFormat is not null
+                    ? typeName => DependsShareProjection.ProjectType(
+                        options,
+                        typeName)
+                    : null);
 
             // A rejected participant scopes to itself and leaves the rest of
             // the scan intact, but the resulting graph is uncertified: it may
@@ -80,37 +153,63 @@ public class DependsCommand
                     CommandError.Write(
                         "Dependency scan unavailable because every selected assembly was rejected.");
                 }
-                return new TypeDependsOutcome(1, false);
+                return WithTypeShare(result, options, 1, false);
             }
 
             if (!result.Dependency.Found)
             {
-                // Report the absence as an absence so the caller can still fall
-                // back or diagnose it, and carry the uncertainty alongside.
-                return new TypeDependsOutcome(TypeNotFoundExitCode, uncertified);
+                // Report the absence as an absence and carry the uncertainty
+                // alongside it.
+                return WithTypeShare(
+                    result,
+                    options,
+                    TypeNotFoundExitCode,
+                    uncertified);
             }
+
+            if (result.RowSelectionFailure is { } rowFailure)
+            {
+                CommandError.Write(
+                    $"Type dependency row selection stage "
+                    + $"{rowFailure.Failure.StageNumber} requires row "
+                    + $"{rowFailure.Failure.RequiredPosition}, but "
+                    + $"{rowFailure.Identity} has "
+                    + $"{rowFailure.Failure.AvailableCount} rows.");
+                return WithTypeShare(result, options, 1, uncertified);
+            }
+            if (emptyQuietSelection)
+                return WithTypeShare(result, options, 0, uncertified);
 
             DependencyGraphDocument document =
                 DependencyGraphProjection.Type(result.Dependency);
+            HashSet<int> selectedRelationshipOrdinals =
+                [
+                    .. result.Relationships.Select(
+                        static relationship => relationship.Ordinal),
+                ];
+            TypeDependencyRelationship[] orderedRelationships =
+            [
+                .. result.Dependency.Relationships.OrderBy(
+                    static relationship => relationship.Ordinal),
+            ];
+            List<DependencyGraphEdgeRow> allRows =
+                DependencyGraphOutputAdapter.EdgeRows(document);
+            if (allRows.Count != orderedRelationships.Length)
+            {
+                throw new InvalidOperationException(
+                    "The type dependency graph projection did not preserve "
+                        + "the query relationship count.");
+            }
             IReadOnlyList<DependencyGraphEdgeRow> rows =
-                RowWindow.Apply(
-                    options.Rows,
-                    DependencyGraphOutputAdapter.EdgeRows(document));
+            [
+                .. allRows.Where(
+                    (_, index) =>
+                        selectedRelationshipOrdinals.Contains(
+                            orderedRelationships[index].Ordinal)),
+            ];
             if (options.Count)
             {
                 CountOutput.WriteCount(rows.Count);
-            }
-            else if (options.JsonOutput && !options.Tree)
-            {
-                var visibleNodes = TreeRowWindow.Apply(
-                    result.Dependency.Tree,
-                    options.Rows,
-                    node => node.Children,
-                    (node, children) => node with { Children = children });
-                JsonOutputHelper.Write(visibleNodes,
-                    DependsJsonContext.Default.ListTypeDependencyNode,
-                    DependsCompactJsonContext.Default.ListTypeDependencyNode,
-                    options.CompactJson);
             }
             else
             {
@@ -124,7 +223,7 @@ public class DependsCommand
                     options.CompactJson);
             }
 
-            return Certified(0, uncertified);
+            return WithTypeShare(result, options, 0, uncertified);
         }
         catch (Exception ex)
         {
@@ -133,54 +232,42 @@ public class DependsCommand
         }
     }
 
-    public static async Task<int> ExecuteLibraryDependsAsync(DependsOptions options)
+    internal static bool ValidateTypeDepthSelectionBeforeAcquisition(
+        DependsOptions options)
     {
-        var context = new CommandContext(options.Verbose);
-        var logger = context.Logger;
-
-        try
+        if (options.Depth is null
+            || options.Discover is not null
+            || options.Schema
+            || IsColumnProjectionRequested(options))
         {
-            var libraryName = options.LibraryName!;
-            var result = await DependencyGraphService.BuildLibraryDependencyTreeAsync(
-                context.HttpClient, libraryName, options.SourceOptions, logger);
-            if (result is LibraryDependencyGraphResult.Error error)
-            {
-                CommandError.Write($"{error.Message}");
-                if (error.HintInput != null)
-                    NamespacePrefixHints.WriteIfLikelyNamespacePrefix(error.HintInput);
-                return 1;
-            }
-            if (result is LibraryDependencyGraphResult.Empty empty)
-            {
-                WriteGraph(
-                    DependencyGraphProjection.Library(empty),
-                    options);
-                return 0;
-            }
-            if (result is LibraryDependencyGraphResult.NoMetadata noMetadata)
-            {
-                if (options.Count)
-                {
-                    CountOutput.WriteCount(0);
-                    return 0;
-                }
-
-                CommandError.WriteLine(
-                    $"No assembly references found in '{noMetadata.AssemblyName}'.");
-                return 0;
-            }
-
-            var graph = (LibraryDependencyGraphResult.Graph)result;
-            WriteGraph(
-                DependencyGraphProjection.Library(graph),
-                options);
-            return 0;
+            return true;
         }
-        catch (Exception ex)
+
+        SectionCatalog<DependsAssetProjection> catalog =
+            DependsAssetSections.GraphCatalog;
+        SelectResult selection = SelectResolver.ResolveSelectAsSections(
+            options.Select,
+            catalog.SelectableSectionNames,
+            catalog.InfoSectionNames,
+            catalog.SelectionCategoryMap,
+            options.SelectDefault);
+        if (SelectOutput.WriteUnresolved(selection))
+            return false;
+
+        HashSet<string> requestedSections =
+            catalog.Pipeline.GetCandidateSections(
+                options.Verbosity,
+                selection.Sections,
+                fixedOverview: options.SelectDefault);
+        if (requestedSections.Contains(
+                DependsAssetSections.DependencyGraph))
         {
-            CommandError.Write(ex);
-            return 1;
+            return true;
         }
+
+        CommandError.Write(
+            "--depth requires the Dependency Graph section.");
+        return false;
     }
 
     public static async Task<int> ExecutePackageDependsAsync(
@@ -272,6 +359,25 @@ public class DependsCommand
         => new(
             uncertified && exitCode == 0 ? UncertifiedScanExitCode : exitCode,
             uncertified);
+
+    private static TypeDependsOutcome WithTypeShare(
+        TypeDependencyExecutionResult result,
+        DependsOptions options,
+        int exitCode,
+        bool uncertified)
+    {
+        if (options.ShareFormat is { } format)
+        {
+            int shareExitCode =
+                WorkspaceShareOutput.Write(
+                    result.Share,
+                    format);
+            if (shareExitCode != 0)
+                exitCode = shareExitCode;
+        }
+
+        return Certified(exitCode, uncertified);
+    }
 
     private static string ContainLabel(string label)
         => CSharpIdentifier.ContainRenderedText(label);

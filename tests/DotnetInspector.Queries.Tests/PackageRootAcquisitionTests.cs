@@ -210,7 +210,7 @@ public sealed class PackageRootAcquisitionTests
         string token = acquired.Request.Encode();
 
         await using (InspectionWorkspace candidate =
-            InspectionWorkspace.CreateAsynchronous())
+            new InspectionWorkspace())
         {
             using SparsePackageAssemblyRealization realization =
                 await ProjectAsync(candidate, acquired.Binding);
@@ -234,7 +234,7 @@ public sealed class PackageRootAcquisitionTests
                     TestContext.Current.CancellationToken));
 
         await using InspectionWorkspace reopened =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         using SparsePackageAssemblyRealization second =
             await ProjectAsync(reopened, replacement.Binding);
         Assert.Equal(AssemblyName, Named(second));

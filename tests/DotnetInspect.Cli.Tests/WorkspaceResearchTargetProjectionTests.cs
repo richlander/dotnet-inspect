@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.Json;
 
 using Inspector.Artifacts;
+using Inspector.Findings;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
 using ILInspector.Research;
@@ -43,19 +44,20 @@ public sealed class WorkspaceResearchTargetProjectionTests
     }
 
     [Fact]
-    public void WorkspaceResearchTarget_AvailableProjectionPreservesEveryMetadataOutcome()
+    [Trait("Speed", "Slow")]
+    public async Task WorkspaceResearchTarget_AvailableProjectionPreservesEveryMetadataOutcome()
     {
         var audit = new WorkspaceProjectionContractAudit();
         audit.ValidateInventory();
-        WorkspaceProjectionFixture.ExerciseAll(audit);
+        await WorkspaceProjectionFixture.ExerciseAll(audit);
         WorkspaceProjectionFixture.AssertCoverage(audit);
     }
 
     [Fact]
-    public void WorkspaceResearchTarget_ImageOpenFailureIsUnavailable()
+    public async Task WorkspaceResearchTarget_ImageOpenFailureIsUnavailable()
     {
         var audit = new WorkspaceProjectionContractAudit();
-        WorkspaceProjectionFixture.ExerciseQueryResults(audit);
+        await WorkspaceProjectionFixture.ExerciseQueryResults(audit);
         WorkspaceProjectionSchema schema = audit.Sources[typeof(CandidateOpenFailure)];
         Assert.Equal(3, schema.Properties.Length);
         foreach (WorkspaceProjectionProperty property in schema.Properties)
@@ -135,6 +137,42 @@ public sealed class WorkspaceResearchTargetProjectionTests
                 Assert.Contains(arm, walker.Visited);
         foreach (Type currency in M.RetainedOwnerCurrency)
             Assert.Contains(currency, walker.Visited);
+    }
+
+    [Fact]
+    public void WorkspaceTypeForwarderUse_RetainsOnlyNativeFindingValues()
+    {
+        Type[] findingValues =
+        [
+            typeof(Finding<TypeForwarderInfo>),
+            typeof(FindingSubject),
+            typeof(FindingDescriptor),
+            typeof(FindingKey),
+            typeof(FindingSoftKey),
+            typeof(FindingMatchTier),
+            typeof(TypeForwarderInfo),
+        ];
+        var walker = new WorkspaceCapabilitySurfaceWalker(findingValues);
+
+        walker.Visit(typeof(WorkspaceTypeForwarderUse), "forwarder use");
+
+        Assert.All(findingValues, type => Assert.Contains(type, walker.Visited));
+        Assert.Contains(typeof(QueryComparisonInputId), walker.Visited);
+    }
+
+    [Fact]
+    public void WorkspaceImplementationComparison_ImageFailureRetainsNoAssemblyCapability()
+    {
+        var walker = new WorkspaceCapabilitySurfaceWalker(
+            [typeof(CandidateOpenFailure)]);
+
+        walker.VisitMembers(
+            typeof(WorkspaceImplementationComparisonResult
+                .ParticipantImageUnavailable),
+            "participant image failure");
+
+        Assert.Contains(typeof(AssemblyReferenceIdentity), walker.Visited);
+        Assert.DoesNotContain(typeof(ResolvedAssemblyReference), walker.Visited);
     }
 
     public static TheoryData<Type, string> ProhibitedCarriers => new()

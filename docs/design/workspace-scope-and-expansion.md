@@ -121,6 +121,298 @@ The historical-state gate retains both a Preparing snapshot and a committed
 result, awaits actual product retirement settlement, and then checks collection
 of package bindings, content, sessions, and realization resources.
 
+### Inert registration adoption
+
+Issue [#6577](https://github.com/richlander/dotnet-inspect/issues/6577) adds
+one independent, resource-free registration revision to `InspectionWorkspace`.
+It consumes the approved registration experience in
+[Workspace registration and call-graph focal length](workspace-registration-and-call-graph-scope.md)
+and the already implemented
+[ecosystem declaration handoff](workspace-ecosystem-registration-handoff.md).
+This section owns the registration-state contract; acquisition and package
+publication remain unchanged.
+
+The claim is:
+
+> For one exact open Workspace, construction or replacement retains one
+> complete ordered registration revision. Replacement either publishes the
+> entire validated request against the exact current revision, reports a
+> no-op, or leaves that revision unchanged.
+
+`WorkspaceRegistration` is a closed union of exact-library coordinates,
+package-prefix declarations, and lower ecosystem declarations. Each arm
+retains its source owner's value rather than interpreting display text or
+reconstructing ecosystem contributions. Registration describes possible
+populations, not permission, acquisition, Package membership or query results.
+
+#### WorkspacePlan construction
+
+The primary distinction is **altitude**, not wire versus memory as competing
+models of one object. `WorkspaceDefinition` is a portable request;
+`WorkspacePlan` is its invokable in-process construction representation;
+`InspectionWorkspace` is the live owner. The request expresses intent in the
+Definitions-owned vocabulary. The plan supplies typed construction intent to
+the ordinary Workspace and acquisition APIs without asking a host to interpret
+that document vocabulary again.
+
+| Representation | Responsibility |
+| --- | --- |
+| `WorkspaceDefinition` | Portable, versioned request with document references and authoring metadata, under [Workspace Definitions](workspace-definitions.md). |
+| `WorkspacePlan` | Validated, immutable, resource-free construction intent, with owner-issued coordinates and in-process declaration bindings. |
+| `InspectionWorkspace` | Independent live identity, operation authority and resource lifetime, under [Inspection Space](../inspection-space.md#workspace-close-and-group-release-authority). |
+
+This section is the normative owner of the plan boundary, not of the wire
+grammar, acquisition policy or live close protocol. It consumes those adjacent
+contracts. The target claim is:
+
+> Equivalent supported construction intent, whether lowered from a portable
+> request or authored programmatically, can invoke the same Workspace
+> construction path. The retained plan is reusable data, not an acquired
+> resource or a live Workspace's authority.
+
+Issue [#6802](https://github.com/richlander/dotnet-inspect/issues/6802) specifies
+this distinction. The full request-to-plan path is **unverified and not
+implemented**. The
+registration-only profile below exists; context plans, definition lowering and
+host adoption follow the counted plan below. This is not a second JSON format
+or a requirement that every in-process plan have a portable representation.
+
+##### Current registration-only profile
+
+Issue [#6790](https://github.com/richlander/dotnet-inspect/issues/6790)
+separates the registration data from the live owner. This owner issues
+the current `WorkspacePlan` profile as a complete validated immutable
+registration sequence, usable without constructing or disposing a Workspace.
+Its implemented claim is:
+
+> A retained plan can seed independent live Workspaces. Each initial revision
+> retains the exact supplied plan; replacement and close cannot mutate that
+> plan or transfer another Workspace's revision authority.
+
+```csharp
+WorkspacePlan empty = new();
+WorkspacePlan plan = new(
+[
+    new WorkspaceRegistration.PackagePrefix(new("Microsoft.Extensions.")),
+]);
+await using var first = new InspectionWorkspace(plan);
+await using var second = new InspectionWorkspace(plan);
+```
+
+Only the live owners require disposal. A plan chooses no lifetime, acquires
+no population, and issues no Workspace or revision identity. The reused
+registration arms retain their source owners' values, including exact ecosystem
+declaration instances. A plan remains readable and reusable after a consuming
+Workspace closes.
+
+The current profile is the dry form of registration construction, **not** a
+snapshot of acquired Package membership, assembly groups or query authority.
+The existing portable `WorkspaceDefinition` remains the
+[Definitions-owned JSON composition record](workspace-definitions.md), with
+contexts, group subscriptions and display metadata. This plan introduces no
+second wire format or definition loader; portable lowering remains separate
+owner work.
+
+The existing convenience forms lower to the same plan boundary:
+
+```csharp
+ImmutableArray<WorkspaceRegistration> registrations =
+[
+    new WorkspaceRegistration.PackagePrefix(new("Microsoft.Extensions.")),
+];
+await using var empty = new InspectionWorkspace();
+await using var explicitWorkspace = new InspectionWorkspace(registrations);
+```
+
+The no-argument constructor starts with an empty registration revision. Explicit
+construction validates the entire immutable input before exposing a Workspace;
+default arrays, null entries and duplicate registration identities are
+argument errors, never partial initialization. Every constructed Workspace
+has an independent Workspace identity and initial registration revision.
+No constructor chooses product curation or executes a contribution.
+Construction is synchronous; the live owner's complete close must be awaited
+through `CloseAsync()` or `DisposeAsync()`.
+
+`GetRegistrationSnapshot()` returns the current complete
+`WorkspaceRegistrationRevision`, including its exact Workspace identity,
+opaque revision identity and `Plan`. `Registrations` is the same plan's ordered
+sequence, not parallel state. A closing or closed
+Workspace instead returns `Unavailable` with its historical last revision
+and the existing Workspace lifetime failure. It does not return that revision
+as current.
+
+`ReplaceRegistrations(expectedRevision, registrations)` is a synchronous,
+in-memory operation. It shares the existing Workspace
+runtime gate with close; there is no preparation phase, background work,
+deadline, cancellation protocol or acquired resource. The result is one of:
+
+- `Committed`: a fresh revision and plan contain the entire requested sequence;
+- `NoEffect`: an equal ordered sequence retains the exact current revision and plan;
+- `Rejected`: malformed input, a foreign Workspace, a stale revision or
+  duplicate identities retain the current revision; or
+- `Unavailable`: close has started, and the returned last revision is
+  historical.
+
+Lifetime unavailability wins before request validation. Otherwise expected
+revision validity precedes candidate-set validation, and all validation
+precedes equality/no-op classification. Two replacements using the same
+current revision cannot both publish: after one changes the revision, the
+other is stale. An empty replacement is the explicit registration-clear
+gesture, including an empty-to-empty no-op.
+
+##### Planned context profile
+
+The expanded plan keeps two kinds of construction intent distinct:
+**registrations** describe relevant discovery populations; **contexts** request
+assembly compositions under explicit target constraints. Registering Aspire
+does not request loading every Aspire package. A context naming
+`Aspire.Hosting` requests that composition, not a package-prefix registration.
+
+Context intent consumes the acquisition owner's existing
+`WorkspaceContextInput` and member-coordinate contracts. The plan
+preserves each context's members and target together as a distinct composition;
+it does not invent another coordinate grammar, flatten multiple contexts into
+one binding universe, or issue substitute acquisition identities. Context
+selection remains explicit where the requesting owner requires it.
+Definitions retains the association to its own `WorkspaceContextDescriptor`
+and activation-relative address. Programmatic plans need neither a Definition
+record nor a synthetic document address merely to supply context intent.
+
+The expanded plan remains immutable and resource-free. Registration replacement
+changes only its registration component and preserves its context intent;
+registration equality and revision authority remain as defined below. Retaining
+contexts does not turn a registration revision into an atomic snapshot of
+acquired Package membership, physical groups or query results.
+
+**Invokable does not mean already acquired or guaranteed to succeed.** The
+plan is ready for the ordinary construction and preparation APIs, not a cache
+of their results. Construction remains synchronous. Explicit preparation or
+inspection uses the existing asynchronous acquisition path and its current
+capabilities, authorization and failure outcomes. A floating coordinate remains
+floating until its source owner selects it; a supplied exact pin remains exact.
+Reusing a floating plan is not a promise of identical selected content later.
+
+Declaration bindings retained in a plan are in-process inputs, not serialized
+delegates or portable authorization. Document identity and display metadata,
+scenario composition, query/view/navigation state and their associations remain
+with their existing owners rather than becoming plan execution state.
+
+##### Request-to-plan adoption and evidence
+
+This is a five-step construction subplan of the overall
+[#6761 adoption tracker](https://github.com/richlander/dotnet-inspect/issues/6761),
+following the #6789, #6790 and #6791 lifetime/plan separation. It is a composition
+map, not authority over the adopting owners' internals. Each owner adoption
+requires its own focused contract and implementation; this specification
+updates only the Workspace Plan boundary.
+
+| Step | Owning effort and observable result |
+| --- | --- |
+| 1 | Lock this request/invokable-plan distinction and its current-versus-planned support boundary. |
+| 2 | Workspace Scope adopts context intent in `WorkspacePlan`, retaining the existing acquisition inputs and independent live construction; public consumer gates exercise plan invocation through ordinary owner APIs. |
+| 3 | Workspace Definitions adopts lowering into the common plan for its currently supported inline package/platform/embedded profile; record syntax, metadata and scenario associations retain their owner. Unsupported subscriptions remain explicit failures until separately supported. |
+| 4 | CLI adopts the common construction path for the existing System.Text.Json demo and a programmatic equivalent; retire its parallel construction recipe in the same adoption. |
+| 5 | Browser/Wasm adopts the same shared lowering and invocation through its existing demo activation; retire its alternate construction recipe and any superseded shared recipe once its final consumer moves. |
+
+The existing `InspectionDefinitionRegistry.ResolveScenario` lowering to
+`ResolvedWorkspaceContext`, and `WorkspaceContextLoader` consuming typed
+context inputs, are implementation evidence for this separation. Reuse their
+owner-issued boundary rather than add another parser or loader. This follows
+the conventional request/lowering/invocation distinction; those implementations
+are supporting evidence, not additional normative owners. Resolved scenario
+and presentation records need not retire merely because construction intent
+uses the common plan.
+
+The motivating asset is the existing real System.Text.Json Platform demo.
+The mockup shows the architectural path, not an available lowering API:
+
+```text
+System.Text.Json WorkspaceDefinition --lower--+
+                                             +--> WorkspacePlan --> live Workspace
+Equivalent typed programmatic intent --------+
+
+Empty plan --> independent live Workspace with empty initial scope
+```
+
+Each implementation/adoption slice must supply its named Release gate before
+claiming the corresponding property. The planned gates are:
+
+| Required outcome | Enforcing adoption gate and current status |
+| --- | --- |
+| Pinned equivalent inline document and programmatic intent preserve the same context/target associations and inspect the same System.Text.Json subject. | Definitions lowering plus CLI and Browser demo conformance; **unverified**. |
+| A context-bearing plan remains reusable after close; a registration replacement preserves context intent and does not alter another live owner. | Expanded `WorkspacePlanTests` and public non-friend consumer; **unverified**. |
+| Incompatible target declarations or an unsupported subscription remain explicit failures, not a successful partial composition or a silently selected context. | Existing loader/Definitions failure contracts exercised through the new plan path; **unverified**. |
+| Raw and definition-authored construction do not receive implicit Ecosystems curation; explicit catalog plans retain their authored registrations. | Definitions lowering and both host adoption gates; **unverified** for the new path. |
+
+The wire owner's grammar/version decisions, floating selection, group
+subscription implementation and restoration coordinator remain separate
+efforts. This subplan introduces no new rendering domain or format lowering;
+CLI Markout output and Browser presentation continue to consume their existing
+typed results. It adds no temporal protocol, so the existing registration and
+close models are not evidence for the new lowering path.
+
+#### Identity and equality
+
+Duplicate identity is arm-specific: exact-library source equality,
+package-prefix declaration equality, or canonical lower ecosystem ID.
+Different arms are not coalesced merely because their populations overlap.
+Prefix equality retains the source declaration's literal equality; this
+owner does not introduce package-discovery matching semantics.
+
+No-op comparison is ordered registration-value equality. Exact-library and
+prefix arms use their owners' equality. The ecosystem declaration owner does
+not issue structural value equality, so this arm retains exact declaration
+instance identity. A new declaration with an existing ecosystem ID is a
+replacement contribution, even if its visible fields look equal; two such
+declarations in one requested set are duplicate identities and are rejected.
+This preserves newly issued contribution correspondence rather than
+discarding it through a display-derived equivalence.
+
+Historical revisions stay immutable. Reordering is an effective change;
+replacing an equal sequence does not create a new revision. Removed then
+re-added registrations do not revive an old revision identity.
+
+#### Independence and consumers
+
+The registration revision and the existing Package `WorkspaceScopeRevision`
+are separate currencies belonging to the same Workspace. Registration edits
+do not publish a Package revision, advance an Artifact epoch, supersede a
+preparing Package edit, or evict admitted content. Package edits do not
+reinterpret or clear registrations. This slice does not issue an atomic
+combined Package/registration snapshot.
+
+The 64-Package membership limit is unchanged and is not a registration-count
+limit. A registration for a population larger than that limit does not promise
+that it can be realized completely. Population planning, capacity/coverage
+outcomes, persistence and host queries remain later owner adoptions.
+
+The next consumers are Ecosystems-owned construction and Workspace Definitions
+restoration under #6570, #6012 and #6761, followed by both CLI and Inspect Web.
+The plan separation is the second follow-up slice after the sole live lifetime
+in [#6789](https://github.com/richlander/dotnet-inspect/issues/6789).
+[#6791](https://github.com/richlander/dotnet-inspect/issues/6791) then adopts
+plans in Ecosystems and retires its four live factories. The shared plan's
+CLI/H2H and Browser/Wasm production adoption remain counted in #6761.
+A public non-friend consumer exercises construction, reading, pattern matching
+and replacement in this slice. No host-specific registration registry, product
+factory, CLI flag or browser behavior is introduced here.
+
+`WorkspacePlanTests`, `WorkspaceRegistrationTests` and the registration/Package interaction cases in
+`WorkspaceScopeTests` are the Release conformance gates. They retain a real
+`System.Text.Json@11.0.0-preview.7.26381.103` exact-library coordinate alongside
+Platform and `Microsoft.Extensions.` declarations. They cover complete initial
+state, identity/equality boundaries, stale/foreign requests, close, historical
+revisions, competing replacements, and unchanged physical/Package state.
+The plan cases also exercise non-friend construction, sharing across independent
+owners, exact revision-to-plan association, unchanged historical plans, and
+reuse after close without transferring revision authority.
+The [registration revision model](models/workspace-registration-revisions/README.md)
+provides separate bounded evidence for revision and close interleavings,
+including stale/foreign requests and no-op/correspondence negative controls.
+The older Package-publication model does not establish this new revision's
+correctness. Registered-population realization and joined host behavior remain
+**unverified** by these gates.
+
 ### Package membership terminology
 
 The logical Scope concept is **Package**, not Root. The target host-neutral
@@ -181,14 +473,14 @@ conformance gates.
 
 [Workspace registration and call-graph focal
 length](workspace-registration-and-call-graph-scope.md) supersedes the
-unimplemented expansion-permission target in this document. The implemented
-Package membership and mutation contract above remains current. A
-focused Workspace Scope revision must replace proposed `ExpansionScopes`,
-closed/selectively-open permission semantics, and Browser-only defaults with
-inert exact-library/prefix/ecosystem registration and empty-only Workspace API
-construction. Ecosystems separately owns the one curated Workspace
-composition. Until that revision lands, those later expansion sections are
-historical design context, not an implementation claim.
+unimplemented expansion-permission target in this document. The Package
+membership profile and inert-registration contract above are current.
+Later material involving `ExpansionScopes`, permission-based closed/selectively
+open boundaries, or expansion operations is retained as superseded design
+history, not registration authority or an implementation claim. The existing
+Package-only `ClosedBoundary` observation does not grant or deny use of a
+registered population. Ecosystems separately adopts product construction
+policy, including the two intents approved by #6763.
 
 ## Authority and exact claim
 
@@ -198,11 +490,11 @@ logical inspection scope of one exact Workspace.
 It owns:
 
 - one immutable current `WorkspaceScopeRevision` per exact open Workspace;
+- one independent immutable current `WorkspaceRegistrationRevision`;
 - ordered committed Package occurrences, typed Package descriptors, and their
   Workspace-bound identities;
 - explicit Package addition, replacement, removal, and Clear operations;
-- registered typed dependency-expansion scopes;
-- the derived closed or selectively open boundary;
+- complete ordered inert registration and exact-revision replacement;
 - finite logical-scope limits;
 - exact closure-completeness and boundary-failure evidence;
 - revision-bound mutation admission, supersession, and publication; and
@@ -225,9 +517,8 @@ It does not own:
 
 The owner answers:
 
-> Which exact Packages are committed in this Workspace revision, which external
-> dependencies may be admitted next, and what complete snapshot resulted from
-> this one scope operation?
+> Which exact Packages are committed, which inert populations are registered,
+> and what complete owner-issued revision resulted from this operation?
 
 ## Consumers and proportionality
 

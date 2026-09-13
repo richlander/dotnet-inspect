@@ -1,7 +1,7 @@
+using DotnetInspector.Cache;
 using System.IO.Compression;
 using System.Net;
 using System.Text;
-using DotnetInspector.Core;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
@@ -17,7 +17,7 @@ using InertText;
 
 namespace DotnetInspect.Cli.Tests;
 
-// Mutates the process-global CoreCache root; serialize with in-process CLI/cache tests (#3471).
+// Mutates the process-global PersistentCache root; serialize with in-process CLI/cache tests (#3471).
 [Collection("Console")]
 public sealed class PackageInspectorMetadataSourceTests : IDisposable
 {
@@ -28,7 +28,7 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
     public PackageInspectorMetadataSourceTests()
     {
         Directory.CreateDirectory(_root);
-        CoreCache.Initialize("dotnet-inspect-test");
+        PersistentCache.Initialize("dotnet-inspect-test");
     }
 
     [Theory]
@@ -36,7 +36,7 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
     [InlineData(true)]
     public async Task InspectAsync_ConfiguredAuthoritiesDoNotShareProducerIndexes(bool local)
     {
-        CoreCache.Initialize("dotnet-inspect-test", Path.Combine(_root, "cache"));
+        PersistentCache.Initialize("dotnet-inspect-test", Path.Combine(_root, "cache"));
         const string packageId = "Authority.Index";
         const string version = "1.0.0";
         const string producer = "shared-test-producer";

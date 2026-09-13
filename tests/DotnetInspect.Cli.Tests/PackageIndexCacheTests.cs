@@ -1,6 +1,6 @@
+using DotnetInspector.Cache;
 using System.Security.Cryptography;
 using System.IO.Compression;
-using DotnetInspector.Core;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
 using DotnetInspector.Packages;
@@ -14,7 +14,7 @@ namespace DotnetInspect.Cli.Tests;
 public sealed class PackageIndexCacheTests
 {
     public PackageIndexCacheTests()
-        => CoreCache.Initialize("dotnet-inspect-test");
+        => PersistentCache.Initialize("dotnet-inspect-test");
 
     [Fact]
     public void PackageIndexCache_SubjectControlsPersistentReuse()
@@ -46,11 +46,11 @@ public sealed class PackageIndexCacheTests
         Assert.Null(PackageIndexCache.TryGet(otherVersion));
         Assert.Null(PackageIndexCache.TryGet(otherDigest));
 
-        byte[] bytes = CoreCache.TryGetBytes(
+        byte[] bytes = PersistentCache.TryGetBytes(
             PackageIndexCache.Category,
             PackageIndexCache.CacheKey(subject),
             extension: "bin")!;
-        CoreCache.SetBytes(
+        PersistentCache.SetBytes(
             PackageIndexCache.Category,
             PackageIndexCache.CacheKey(otherAuthority),
             bytes,
@@ -325,7 +325,7 @@ public sealed class PackageIndexCacheTests
         PackageIndexCacheSubject subject = Subject(packageId);
         PackageIndexCache.Set(Complete(subject, Result(packageId)));
         string key = PackageIndexCache.CacheKey(subject);
-        byte[] bytes = CoreCache.TryGetBytes(
+        byte[] bytes = PersistentCache.TryGetBytes(
             PackageIndexCache.Category,
             key,
             extension: "bin")!;
@@ -335,21 +335,21 @@ public sealed class PackageIndexCacheTests
             .IndexOf(new byte[] { 0x50, 0x4D, 0x4F, 0x43 });
         Assert.True(completionOffset >= 0);
         missingCompletion[completionOffset] = 0;
-        CoreCache.SetBytes(
+        PersistentCache.SetBytes(
             PackageIndexCache.Category,
             key,
             missingCompletion,
             extension: "bin");
         Assert.Null(PackageIndexCache.TryGet(subject));
 
-        CoreCache.SetBytes(
+        PersistentCache.SetBytes(
             PackageIndexCache.Category,
             key,
             [.. bytes, 0],
             extension: "bin");
         Assert.Null(PackageIndexCache.TryGet(subject));
 
-        CoreCache.SetBytes(
+        PersistentCache.SetBytes(
             PackageIndexCache.Category,
             key,
             bytes[..^sizeof(int)],
@@ -358,7 +358,7 @@ public sealed class PackageIndexCacheTests
 
         byte[] malformed = [.. bytes];
         malformed[0] ^= 0xFF;
-        CoreCache.SetBytes(
+        PersistentCache.SetBytes(
             PackageIndexCache.Category,
             key,
             malformed,
@@ -369,7 +369,7 @@ public sealed class PackageIndexCacheTests
         for (int i = 0; i < 4; i++)
             oversizedString[12 + i] = 0xFF;
         oversizedString[16] = 0x7F;
-        CoreCache.SetBytes(
+        PersistentCache.SetBytes(
             PackageIndexCache.Category,
             key,
             oversizedString,
@@ -378,7 +378,7 @@ public sealed class PackageIndexCacheTests
 
         PackageIndexCacheSubject predecessorSubject = Subject(
             $"{packageId}.predecessor");
-        CoreCache.SetBytes(
+        PersistentCache.SetBytes(
             "pkg-index-v16",
             PackageIndexCache.CacheKey(predecessorSubject),
             bytes,

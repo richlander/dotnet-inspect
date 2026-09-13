@@ -109,8 +109,16 @@ public class SharedOptions
 
     public SharedOptions()
     {
-        Verbosity.AcceptOnlyFromAmong(StringComparer.OrdinalIgnoreCase, OptionParsers.ValidVerbosityValues);
-        PerformanceTriageMinConfidence.AcceptOnlyFromAmong(StringComparer.OrdinalIgnoreCase, "low", "medium", "high");
+        CliOptionValueValidation.AcceptOnlyFromAmong(
+            Verbosity,
+            StringComparer.OrdinalIgnoreCase,
+            OptionParsers.ValidVerbosityValues);
+        CliOptionValueValidation.AcceptOnlyFromAmong(
+            PerformanceTriageMinConfidence,
+            StringComparer.OrdinalIgnoreCase,
+            "low",
+            "medium",
+            "high");
 
         Limit = new Option<int?>("-n")
         {

@@ -1,5 +1,6 @@
 using System.CommandLine;
 using System.CommandLine.Invocation;
+using System.CommandLine.Parsing;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
@@ -17,18 +18,6 @@ internal static class QueryDiscoveryCommand
             command.Name is "library" or "type" or "member" or "package" or "find"))
         {
             command.Options.Add(options.QueryHelp);
-            if (command.Name == "find")
-                command.Options.Add(options.Select);
-            command.Validators.Add(result =>
-            {
-                if (result.GetResult(options.QueryHelp) is not { Implicit: false })
-                    return;
-                foreach (Option option in new Option[] { options.Select, options.Discover })
-                {
-                    if (result.GetResult(option) is { Implicit: false })
-                        result.AddError($"-Q cannot be combined with {option.Name}; use -Q <section> on its own.");
-                }
-            });
             WrapAction(command, options);
         }
     }
@@ -68,7 +57,8 @@ internal static class QueryDiscoveryCommand
             return false;
         }
 
-        if (result.CommandResult.Command.Name is not ("library" or "type" or "member" or "package" or "find"))
+        string command = CommandIdentity(result);
+        if (command is not ("library" or "type" or "member" or "package" or "package query" or "find"))
         {
             CommandError.Write($"Query discovery is not supported by the '{result.CommandResult.Command.Name}' subcommand.");
             exitCode = 1;
@@ -79,6 +69,24 @@ internal static class QueryDiscoveryCommand
             CommandError.Write(parseError);
             exitCode = 1;
             return true;
+        }
+        if (query is not null)
+        {
+            foreach (Option option in new Option[]
+            {
+                options.Select,
+                options.Discover,
+            })
+            {
+                if (result.GetResult(option) is { Implicit: false })
+                {
+                    CommandError.Write(
+                        $"-Q cannot be combined with {option.Name}; "
+                        + "use -Q <section> on its own.");
+                    exitCode = 1;
+                    return true;
+                }
+            }
         }
         if (companionDiscover && result.GetValue(options.Count))
         {
@@ -103,10 +111,10 @@ internal static class QueryDiscoveryCommand
                 return true;
             }
         }
-        if (result.CommandResult.Command.Name == "find")
+        if (command == "package query")
         {
             foreach (Option option in result.CommandResult.Command.Options.Where(option =>
-                option.Name is "--candidates" or "--matches" or "--package-content"))
+                option.Name is "--take" or "--nuspec-only"))
             {
                 if (result.GetResult(option) is { Implicit: false })
                 {
@@ -123,7 +131,7 @@ internal static class QueryDiscoveryCommand
             return true;
         }
 
-        SectionQueryCatalog catalog = SectionQueryCatalog.Create(result.CommandResult.Command.Name);
+        SectionQueryCatalog catalog = SectionQueryCatalog.Create(command);
         if (companionSelect || companionDiscover)
         {
             string[] selectors = (companionSelect ? select : discover)!;
@@ -147,10 +155,22 @@ internal static class QueryDiscoveryCommand
                 .Where(name => selection.Sections!.Contains($"Query: {name}"))];
         }
         exitCode = QueryDiscoverOutput.Execute(
-            result, options, catalog, query!, companionDiscover);
+            result,
+            options,
+            catalog,
+            query!,
+            companionDiscover,
+            command);
         return true;
     }
 
     private static bool IsCompanionName(string name)
         => name.StartsWith("Query:", StringComparison.OrdinalIgnoreCase);
+
+    private static string CommandIdentity(ParseResult result) =>
+        result.CommandResult.Command.Name == "query"
+        && result.CommandResult.Parent is CommandResult parent
+        && parent.Command.Name == "package"
+            ? "package query"
+            : result.CommandResult.Command.Name;
 }

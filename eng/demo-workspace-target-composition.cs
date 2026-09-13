@@ -16,6 +16,7 @@ using ILInspector.Research;
 Run("Forwarded both sides", includeAfterImplementation: true, divergent: false);
 Run("Missing participant", includeAfterImplementation: false, divergent: false);
 Run("Divergent domains", includeAfterImplementation: true, divergent: true);
+RunComparison();
 
 static void Run(string scenario, bool includeAfterImplementation, bool divergent)
 {
@@ -92,6 +93,73 @@ static void Run(string scenario, bool includeAfterImplementation, bool divergent
     Console.WriteLine();
 }
 
+static void RunComparison()
+{
+    Console.WriteLine("=== Targeted implementation comparison ===");
+    using var before = new DemoContext(
+        "before",
+        "ContractsImplementation",
+        includeImplementation: true);
+    using var after = new DemoContext(
+        "after",
+        "ContractsImplementation",
+        includeImplementation: true);
+    var type = Require<MetadataTypeDefinitionNameResult.Valid>(
+        MetadataTypeDefinitionName.Create("N", ["Type"])).Name;
+    var publication =
+        Require<WorkspaceImplementationComparisonResult.Published>(
+            WorkspaceImplementationComparisonQuery.Execute(
+                new(
+                    new(before.Group, before.Root, before.Bindings),
+                    new(after.Group, after.Root, after.Bindings),
+                    type,
+                    MemberTargetSelector.Parse("Value"),
+                    ResearchProducerCatalog.Kinds)))
+        .Publication;
+
+    Print("Before", publication.Before, null);
+    Console.WriteLine();
+    Print("After", publication.After, null);
+    Console.WriteLine();
+    foreach (WorkspaceTypeForwarderUse use in publication.Forwarders)
+    {
+        Console.WriteLine(
+            $"Forwarder use: {use.Side} hop {use.HopIndex} "
+            + $"{use.Finding.Descriptor.Id} "
+            + $"{use.Finding.Payload.TypeName} -> "
+            + use.Finding.Payload.TargetAssembly);
+    }
+
+    ResearchProducerCompletion completion =
+        Require<ResearchProducerSessionOutcome.Completed>(
+            publication.Outcome).Completion;
+    ResearchProducerWorkResult csharp = completion.Results.Single(result =>
+        result.Item.Producer == ResearchProducerKind.CSharp
+        && result.Item.Basis is ResearchProducerWorkBasis.Correspondence basis
+        && ReferenceEquals(
+            basis.Outcome,
+            publication.WorkItem.Correspondence));
+    ResearchProducerWorkResult il = completion.Results.Single(result =>
+        result.Item.Producer == ResearchProducerKind.IlBody
+        && result.Item.Basis is ResearchProducerWorkBasis.Correspondence basis
+        && ReferenceEquals(
+            basis.Outcome,
+            publication.WorkItem.Correspondence));
+    Console.WriteLine(
+        "C# body exact: "
+        + Require<ResearchProducerWorkOutcome.ProducedCSharp>(
+            csharp.Outcome).Result.BodyDiff!.IsExact);
+    Console.WriteLine(
+        "IL body exact: "
+        + Require<ResearchProducerWorkOutcome.ProducedIlBody>(
+            il.Outcome).Result.MemberDiff!.Diff.IsExact);
+    Console.WriteLine(
+        "Supplemental acquisition requests: "
+        + (before.Policy.AcquisitionRequests
+            + after.Policy.AcquisitionRequests));
+    Console.WriteLine();
+}
+
 static WorkspaceResearchTargetCompositionResult Compose(
     WorkspaceResearchTargetPlan plan, DemoContext context, QueryComparisonSide side)
 {
@@ -109,17 +177,22 @@ static WorkspaceResearchTargetCompositionResult Compose(
 
 static void Print(
     string side, WorkspaceResearchTargetCompositionReceipt receipt,
-    QueryComparisonPopulation<ImplementationComparisonBinding> population)
+    QueryComparisonPopulation<ImplementationComparisonBinding>? population)
 {
-    var root = population.Inputs.Single(item => ReferenceEquals(item.Id, receipt.RootInput));
-    var terminal = population.Inputs.Single(item => ReferenceEquals(item.Id, receipt.TerminalInput));
+    string root = population?.Inputs.Single(item =>
+        ReferenceEquals(item.Id, receipt.RootInput)).Binding.Assembly.Identity.Name
+        ?? receipt.Evidence.Outcome.Hops[0].SourceAssembly.Assembly.Identity.Name;
+    string terminal = population?.Inputs.Single(item =>
+        ReferenceEquals(item.Id, receipt.TerminalInput)).Binding.Assembly.Identity.Name
+        ?? Require<WorkspaceMetadataEvidence.Outcome.Resolved>(
+            receipt.Evidence.Outcome).Definition.Assembly.Assembly.Identity.Name;
     var local = Require<WorkspaceResearchTargetAttemptEvidence.Unavailable>(receipt.RootAttempt);
     var address = receipt.EffectiveAttempt.Address
         ?? throw new InvalidOperationException("The effective method has no durable address.");
-    Console.WriteLine($"{side} root: {root.Binding.Assembly.Identity.Name}");
+    Console.WriteLine($"{side} root: {root}");
     Console.WriteLine($"{side} local attempt: {local.Kind} / {local.Diagnostic}");
     Console.WriteLine($"{side} route: {Route(receipt.Evidence.Outcome)}");
-    Console.WriteLine($"{side} effective target: {terminal.Binding.Assembly.Identity.Name}");
+    Console.WriteLine($"{side} effective target: {terminal}");
     Console.WriteLine($"{side} address: {address.ModuleVersionId:D}:0x{address.Token:X8}");
 }
 

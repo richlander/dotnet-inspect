@@ -26,7 +26,11 @@ public static class JsExportSurfaceBuilder
     public static JsExportSurface Build(ApiSurface surface) =>
         Build(surface, bodyIndex: null);
 
-    public static JsExportSurface Build(ApiSurface surface, LibraryBodyIndex? bodyIndex)
+    public static JsExportSurface Build(
+        ApiSurface surface,
+        LibraryBodyIndex? bodyIndex,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>?
+            referencedTypeDefinitions = null)
     {
         var typesByIdentity = surface.Types
             .SelectMany(type =>
@@ -51,6 +55,15 @@ public static class JsExportSurfaceBuilder
                             type.FullName,
                             type.DefinitionName),
                         Type: type))
+                    .Concat(
+                        (referencedTypeDefinitions
+                            ?? new Dictionary<
+                                ApiTypeReferenceIdentity,
+                                ApiType>())
+                        .Select(candidate => (
+                            Identity: candidate.Key,
+                            Type: candidate.Value))
+                        .AsEnumerable())
                     .GroupBy(candidate => candidate.Identity)
                     .Where(group => group
                         .Select(candidate => candidate.Type)
@@ -59,7 +72,10 @@ public static class JsExportSurfaceBuilder
                     .ToDictionary(
                         group => group.Key,
                         group => group.First().Type)
-                : [];
+                : referencedTypeDefinitions
+                    ?? new Dictionary<
+                        ApiTypeReferenceIdentity,
+                        ApiType>();
 
         var incompleteBodyTokens = new HashSet<int>();
         if (bodyIndex is not null)
@@ -591,6 +607,8 @@ public static class JsExportSurfaceBuilder
             Enums = enums,
             Unions = DescribeUnions(unionTypes, bodyIndex),
             AllTypes = surface.Types,
+            ReferencedTypeDefinitions = referencedTypeDefinitions
+                ?? new Dictionary<ApiTypeReferenceIdentity, ApiType>(),
             WireDirections = wireDirections,
         };
     }
@@ -629,7 +647,8 @@ public static class JsExportSurfaceBuilder
     static Dictionary<ApiType, JsonWireDirection> ResolveWireDirections(
         List<JsExportFunction> functions,
         ApiAssemblyIdentity? assemblyIdentity,
-        Dictionary<ApiTypeReferenceIdentity, ApiType> typesByScopedIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity,
         HashSet<ApiType> discovered,
         bool bodyEvidenceAvailable)
     {
@@ -716,7 +735,8 @@ public static class JsExportSurfaceBuilder
         IReadOnlyList<JsExportFunction> functions,
         IReadOnlyDictionary<ApiType, JsonWireDirection> wireDirections,
         ApiAssemblyIdentity? assemblyIdentity,
-        Dictionary<ApiTypeReferenceIdentity, ApiType> typesByScopedIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity,
         HashSet<ApiType> discovered,
         IReadOnlyDictionary<string, MetadataTypeDefinitionName>
             contextDefinitionNamesByScopeKey)
@@ -785,7 +805,8 @@ public static class JsExportSurfaceBuilder
         ResolveReachedContextScopes(
         IReadOnlyList<JsExportFunction> functions,
         ApiAssemblyIdentity assemblyIdentity,
-        Dictionary<ApiTypeReferenceIdentity, ApiType> typesByScopedIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity,
         HashSet<ApiType> discovered)
     {
         var reachedContextScopesByType =

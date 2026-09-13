@@ -442,7 +442,7 @@ current-category write. Pre/post hashes around a separately reopened mutable
 path are not a substitute because W-to-S-to-W replacement can mislabel the
 successor entry. A supported hit still avoids an assembly `MetadataReader` and
 full discovery. This is one application of the repository-wide
-[persistent-cache cutover rule](../inspection-space.md#corecache); dynamic
+[persistent-cache cutover rule](../inspection-space.md#persistentcache); dynamic
 authorization and liveness still require fresh enforcement rather than a
 version bump.
 

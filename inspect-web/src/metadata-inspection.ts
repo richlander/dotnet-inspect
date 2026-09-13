@@ -25,6 +25,7 @@ export interface TypeMetadataLoadRequest {
   framework: string;
   assembly: string;
   type: string;
+  workspaceJson: string;
   isVisible(): boolean;
 }
 

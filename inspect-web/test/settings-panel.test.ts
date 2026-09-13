@@ -64,6 +64,7 @@ class FakeRoot {
         "one:#home-settings",
         "one:#settings-backdrop",
         "one:#settings-close",
+        "one:#settings-diagnostics-open",
         "one:#settings-dialog",
         "one:#settings-taste-clear",
       ].sort());
@@ -73,6 +74,7 @@ class FakeRoot {
 function recordingActions(calls: string[]): SettingsPanelBindingActions {
   return {
     onClose: () => calls.push("close"),
+    onOpenDiagnostics: () => calls.push("diagnostics"),
     onOpen: from => calls.push(`open:${from}`),
     onTasteClear: () => calls.push("clear"),
     onTasteToggle: taste => calls.push(`taste:${taste}`),
@@ -136,6 +138,8 @@ test("settings bindings dispatch valid settings-page controls", () => {
   const missingTaste = new FakeElement();
   root.addAll(".settings-taste [data-taste]", taste, missingTaste);
   const clear = root.add("#settings-taste-clear", new FakeElement());
+  const diagnostics =
+    root.add("#settings-diagnostics-open", new FakeElement());
   const calls: string[] = [];
   bindSettingsPanel(
     fakeDom.parentNode(root),
@@ -149,6 +153,7 @@ test("settings bindings dispatch valid settings-page controls", () => {
   taste.dispatch("change");
   missingTaste.dispatch("change");
   clear.dispatch("click");
+  diagnostics.dispatch("click");
 
   assert.deepEqual(calls, [
     "close",
@@ -156,6 +161,7 @@ test("settings bindings dispatch valid settings-page controls", () => {
     "theme:light",
     "taste:readable-locals",
     "clear",
+    "diagnostics",
   ]);
 });
 
@@ -178,6 +184,24 @@ test("style catalog groups render tiers, byte-divergent badges, and checked stat
   assert.match(html, /data-taste="readable-locals" checked/);
   assert.doesNotMatch(html, /data-taste="expanded-braces" checked/);
   assert.match(html, /oracle/);
+});
+
+test("settings renders the routed Diagnostics entry", () => {
+  const html = renderSettingsView({
+    theme: "dark",
+    settingsReturn: "workbench",
+    styleCatalog: {
+      styleTiers,
+      styleOptions,
+      styleCatalogError: "",
+      taste: [],
+    },
+    escapeHtml,
+  });
+
+  assert.match(html, /<h2>Diagnostics<\/h2>/);
+  assert.match(html, /id="settings-diagnostics-open"/);
+  assert.match(html, /Open Diagnostics/);
 });
 
 test("style catalog groups escape untrusted tier and option text", () => {

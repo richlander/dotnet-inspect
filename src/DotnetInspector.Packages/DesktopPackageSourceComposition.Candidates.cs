@@ -13,11 +13,19 @@ public sealed partial class DesktopPackageSourceComposition
         PackageSourceCoordinate coordinate,
         NuGetSourceOptions? sourceOptions = null,
         CancellationToken cancellationToken = default,
+        NuGetOperationContext? operationContext = null) =>
+        PackageSourceSettlementCompatibility.Run(
+            _sourceLease,
+            generation => ResolvePinnedCandidateCore(
+                generation, coordinate, sourceOptions, cancellationToken, operationContext));
+
+    private PackageAcquisitionCandidateResult ResolvePinnedCandidateCore(
+        PackageSourceSettlementGeneration generation,
+        PackageSourceCoordinate coordinate,
+        NuGetSourceOptions? sourceOptions,
+        CancellationToken cancellationToken = default,
         NuGetOperationContext? operationContext = null)
     {
-        ObjectDisposedException.ThrowIf(
-            Volatile.Read(ref _disposed) != 0,
-            this);
         ArgumentNullException.ThrowIfNull(coordinate);
         cancellationToken = operationContext?.ResolveInvocationToken(
             cancellationToken) ?? cancellationToken;
@@ -47,7 +55,7 @@ public sealed partial class DesktopPackageSourceComposition
 
             PackageAcquisitionCandidate? candidate = authorities.Count == 0
                 ? null
-                : _sourceLease.CreatePinnedCandidate(
+                : generation.CreatePinnedCandidate(
                     coordinate,
                     authorities);
             return new PackageAcquisitionCandidateResult(

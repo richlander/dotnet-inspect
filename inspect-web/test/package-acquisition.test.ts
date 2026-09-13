@@ -90,6 +90,7 @@ function memberSurface(): BrowserMemberSurface {
     isObsolete: false,
     genericArity: 0,
     metadataToken: null,
+    declarationMetadataToken: 0x17000001,
     returnType: "int",
     parameters: [],
     documentationId: "P:Example.Widget.Value",

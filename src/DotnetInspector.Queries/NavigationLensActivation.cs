@@ -206,9 +206,25 @@ public static class NavigationLensActivation
                 new NavigationLensRejection.SubjectMismatch(activeSubject));
         }
 
+        return ResolveExact(request, registry, facts);
+    }
+
+    /// <summary>
+    /// Resolves and maps one exact subject-bound lens without changing or
+    /// recommending a subject.
+    /// </summary>
+    public static NavigationLensActivationResult ResolveExact(
+        NavigationLensIdentity request,
+        ViewFacetRegistry registry,
+        IViewFacetAvailabilityFacts facts)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(registry);
+        ArgumentNullException.ThrowIfNull(facts);
+
         ViewFacetResolution result = registry.Resolve(
             request.Facet.Value,
-            Target(activeSubject),
+            Target(request.Subject),
             facts);
         return result switch
         {

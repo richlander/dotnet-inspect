@@ -332,7 +332,14 @@ public static partial class SourceExports
                     unavailable.Failure,
                     unavailable.PdbAttempt is { } pdb
                         ? PdbSourceLimitation(pdb.Lines)
-                        : null),
+                        : null,
+                    unavailable.DecompiledAttempt is
+                        {
+                            Status: MemberBodyProductionStatus.Failed,
+                            Text: { Length: > 0 } detail,
+                        }
+                            ? detail
+                            : null),
             _ => throw new InvalidOperationException(
                 "Unknown assembly member source result."),
         };
@@ -352,6 +359,12 @@ public static partial class SourceExports
                     unavailable.Failure,
                     unavailable.PdbAttempt is { } pdb
                         ? PdbSourceLimitation(pdb.Lines)
+                        : null,
+                    unavailable.DecompiledAttempt is { Succeeded: false } attempt
+                        ? string.Join(
+                            "; ",
+                            attempt.Diagnostics.Select(
+                                static diagnostic => diagnostic.ToString()))
                         : null).Message, unavailable.Failure.Error),
             _ => throw new InvalidOperationException(
                 "Unknown assembly type source result."),
@@ -435,11 +448,15 @@ public static partial class SourceExports
 
     internal static InvalidOperationException SourceUnavailable(
         AssemblySourceFailure failure,
-        string? pdbSourceLimitation = null) =>
+        string? pdbSourceLimitation = null,
+        string? decompiledSourceLimitation = null) =>
         new(
             $"{failure.Kind}: {failure.Detail}"
             + (pdbSourceLimitation is { Length: > 0 }
                 ? $" PDB source unavailable: {pdbSourceLimitation}"
+                : "")
+            + (decompiledSourceLimitation is { Length: > 0 }
+                ? $" Decompiled source unavailable: {decompiledSourceLimitation}"
                 : ""),
             failure.Error);
 }

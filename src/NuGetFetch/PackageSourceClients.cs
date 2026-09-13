@@ -568,7 +568,7 @@ public static partial class PackageSourceClientFactory
     /// Creates the built-in Gallery client with an isolated, credential-free
     /// transport owned by the returned client.
     /// </summary>
-    public static INuGetGalleryPackageSourceClient CreateGallery(
+    public static IPackageSourceClient CreateGallery(
         PackageSourceAssociation association,
         NuGetFetchOptions? options = null) =>
         new NuGetGalleryPackageSourceClient(
@@ -583,7 +583,7 @@ public static partial class PackageSourceClientFactory
     /// Creates the built-in Gallery client over a caller-created,
     /// credential-free transport owned by the returned client.
     /// </summary>
-    public static INuGetGalleryPackageSourceClient CreateGallery(
+    public static IPackageSourceClient CreateGallery(
         PackageSourceAssociation association,
         HttpMessageHandler ownedCredentialFreeTransport,
         NuGetFetchOptions? options = null)

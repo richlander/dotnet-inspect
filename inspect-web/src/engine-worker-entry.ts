@@ -49,9 +49,6 @@ registerEngineWorkerStartupOperations(operations, {
   async listPackageQueryFacets() {
     return (await import("/inspect-web-package.js")).listPackageQueryFacets();
   },
-  async listGalleryDiscoveryCatalog() {
-    return (await import("/inspect-web-package.js")).listGalleryDiscoveryCatalog();
-  },
 });
 let sourceFacade: EngineWorkerTypeSourceFacade | undefined;
 registerEngineWorkerTypeSourceOperation(operations, () => {

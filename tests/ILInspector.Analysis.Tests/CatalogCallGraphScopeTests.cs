@@ -54,6 +54,7 @@ public class CatalogCallGraphScopeTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void BothDirectionsAndProjectionReuseOneFrozenGraph()
     {
         LibraryBodyIndex analysis = LibraryBodyIndex.Open(
@@ -900,6 +901,7 @@ public class CatalogCallGraphScopeTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void UnavailableCorrespondenceRemainsVisibleWithoutFabricatedJoins()
     {
         LibraryBodyIndex analysis = LibraryBodyIndex.Open(
@@ -942,6 +944,7 @@ public class CatalogCallGraphScopeTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void ReleaseGraphStartsANewGenerationWithoutReopeningIndexes()
     {
         LibraryBodyIndex index = LibraryBodyIndex.Open(

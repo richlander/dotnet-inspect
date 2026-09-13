@@ -22,7 +22,7 @@ public sealed class ArtifactRootPublicationTests
     [Fact]
     public async Task PackageArtifactRootPreparation_DefaultOptionsAdmitTwoSmallPackages()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         var scope = new ScopeState(workspace.Identity);
         var authority = Authority(workspace);
         ArtifactRootResult<ArtifactRootPreparationReceipt> result =
@@ -42,7 +42,7 @@ public sealed class ArtifactRootPublicationTests
     [Fact]
     public async Task PackageArtifactRootPreparation_DefaultOptionsPrepareReplacementWhileOldRootRemainsCurrent()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         var scope = new ScopeState(workspace.Identity);
         var initialAuthority = Authority(workspace);
         ArtifactRootPreparationReceipt initialReceipt = Available(
@@ -77,7 +77,7 @@ public sealed class ArtifactRootPublicationTests
     [Fact]
     public async Task PackageArtifactRootPublication_ReplacesRetainsAndClearsCompleteComposition()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         var scope = new ScopeState(workspace.Identity);
         ArtifactRootPublishedComposition initial =
             await PublishPackages(workspace, scope, "First.Root", "Second.Root");
@@ -116,7 +116,7 @@ public sealed class ArtifactRootPublicationTests
     [Fact]
     public async Task PackageArtifactRootPreparation_IsCompleteOrReleasesAll()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         PackageRootBinding good = Binding("Good.Root");
         PackageRootBinding bad = Binding("Bad.Root", malformed: true);
         ArtifactRootPreparationAuthority authority = Authority(workspace);
@@ -138,7 +138,7 @@ public sealed class ArtifactRootPublicationTests
     [Fact]
     public async Task PackageArtifactRootPreparation_PreservesRootOnlyAndExplicitEmptyInputs()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         var scope = new ScopeState(workspace.Identity);
         ArtifactRootPreparationAuthority authority = Authority(workspace);
         PackageRootBinding rootOnly = Binding("Root.Only", entry: "README.txt");
@@ -161,7 +161,7 @@ public sealed class ArtifactRootPublicationTests
     [Fact]
     public async Task PackageArtifactRootPreparation_RejectsUnmatchedSelectionRatherThanDroppingInput()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         var authority = Authority(workspace);
         PackageRootBinding unmatched = Binding("No.Target", entry: "lib/net99.0/No.Target.dll");
         Assert.Equal(ArtifactRootFailure.PreparationFailed, Rejected(
@@ -171,7 +171,7 @@ public sealed class ArtifactRootPublicationTests
     [Fact]
     public async Task PackageArtifactRootPublication_ValidatesCompleteDesiredSetBeforeConsumption()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         var scope = new ScopeState(workspace.Identity);
         var authority = Authority(workspace);
         ArtifactRootPreparationReceipt receipt = await Prepare(
@@ -200,8 +200,8 @@ public sealed class ArtifactRootPublicationTests
     [Fact]
     public async Task PackageArtifactRootPreparation_BindsExactWorkspaceCandidateAndDeadline()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
-        await using InspectionWorkspace foreign = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
+        await using InspectionWorkspace foreign = new InspectionWorkspace();
         var authority = Authority(workspace);
         var scope = new ScopeState(workspace.Identity);
         ArtifactRootPreparationReceipt receipt = await Prepare(workspace, authority, Binding("Exact.Root"));
@@ -224,7 +224,7 @@ public sealed class ArtifactRootPublicationTests
     [Fact]
     public async Task PackageArtifactRootPublication_IndependentBatchesHaveDistinctCandidatesAndPublishTogether()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         var authority = Authority(workspace);
         var scope = new ScopeState(workspace.Identity);
         ArtifactRootPreparationReceipt first = await Prepare(workspace, authority, Binding("Batch.One"));
@@ -242,7 +242,7 @@ public sealed class ArtifactRootPublicationTests
     [Fact]
     public async Task PackageArtifactRootPublication_DuplicateCorrespondencePreservesBothReceipts()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         var authority = Authority(workspace);
         var scope = new ScopeState(workspace.Identity);
         ArtifactRootPreparationReceipt first = await Prepare(workspace, authority, Binding("Duplicate.Root"));
@@ -257,7 +257,7 @@ public sealed class ArtifactRootPublicationTests
     [Fact]
     public async Task PackageArtifactRootPreparation_ReleaseIsIdempotentAndTerminal()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         var authority = Authority(workspace);
         ArtifactRootPreparationReceipt receipt = await Prepare(workspace, authority, Binding("Release.Root"));
         ArtifactRootPublicationPlan plan = await Plan(workspace, new(workspace.Identity), authority, [receipt]);
@@ -271,7 +271,7 @@ public sealed class ArtifactRootPublicationTests
     [Fact]
     public async Task PackageArtifactRootPublication_StalePhysicalCandidateReleasesCompleteBatch()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         var scope = new ScopeState(workspace.Identity);
         var authority = Authority(workspace);
         ArtifactRootPreparationReceipt receipt = await Prepare(workspace, authority, Binding("Stale.Root"));
@@ -287,7 +287,7 @@ public sealed class ArtifactRootPublicationTests
     [Fact]
     public async Task PackageArtifactRootPublication_ParticipantRefusalReleasesStaging()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         var scope = new ScopeState(workspace.Identity);
         ArtifactRootPublishedComposition old = await PublishPackages(workspace, scope, "Old.Root");
         var authority = Authority(workspace);
@@ -306,7 +306,7 @@ public sealed class ArtifactRootPublicationTests
     [Fact]
     public async Task PackageArtifactRootPublication_ReceiptFreePlanCommitsOrRefusesOnce()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         var scope = new ScopeState(workspace.Identity);
         var authority = Authority(workspace);
         var candidate = new Candidate(scope, authority);
@@ -333,7 +333,7 @@ public sealed class ArtifactRootPublicationTests
     [Fact]
     public async Task PackageArtifactRootPublication_RetainOnlyAdvancesCompositionButNotRootGeneration()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         var scope = new ScopeState(workspace.Identity);
         ArtifactRootPublishedComposition first = await PublishPackages(workspace, scope, "Retained.Root");
         var authority = Authority(workspace);
@@ -347,7 +347,7 @@ public sealed class ArtifactRootPublicationTests
     [Fact]
     public async Task PackageArtifactRootPublication_ReceiptStatePrecedenceReleasesOtherPreparedReceipts()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         var scope = new ScopeState(workspace.Identity);
         var authority = Authority(workspace);
         ArtifactRootPreparationReceipt published = await Prepare(workspace, authority, Binding("Published.Root"));
@@ -366,7 +366,7 @@ public sealed class ArtifactRootPublicationTests
     [Fact]
     public async Task PackageArtifactRootPublication_CancellationAtFinalRecheckPreservesOldStates()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         using var cancellation = new CancellationTokenSource();
         var scope = new ScopeState(workspace.Identity);
         var authority = CancellableAuthority(workspace, cancellation.Token);
@@ -385,7 +385,7 @@ public sealed class ArtifactRootPublicationTests
     [Fact]
     public async Task PackageArtifactRootPublication_CommittedCancellationCannotRewriteSuccess()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         using var cancellation = new CancellationTokenSource();
         var scope = new ScopeState(workspace.Identity);
         var authority = CancellableAuthority(workspace, cancellation.Token);
@@ -401,7 +401,7 @@ public sealed class ArtifactRootPublicationTests
     [Fact]
     public async Task PackageArtifactRootPublication_DeadlineWhileWaitingReleasesBeforeGateEntry()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         var time = new AdvancingTimeProvider();
         workspace.ConfigureArtifactRootAdmission(new(), time);
         var authority = new ArtifactRootPreparationAuthority(
@@ -426,7 +426,7 @@ public sealed class ArtifactRootPublicationTests
     [Fact]
     public async Task PackageArtifactRootPublication_DeadlineAfterStagingDiscardsCandidateIdentity()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         var time = new AdvancingTimeProvider();
         workspace.ConfigureArtifactRootAdmission(new(), time);
         var authority = new ArtifactRootPreparationAuthority(
@@ -448,7 +448,7 @@ public sealed class ArtifactRootPublicationTests
     [Fact]
     public async Task PackageArtifactRootPublication_OldOrNewCompositionIsObserved()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         var scope = new ScopeState(workspace.Identity);
         var authority = Authority(workspace);
         ArtifactRootPreparationReceipt receipt = await Prepare(workspace, authority, Binding("Atomic.Root"));
@@ -474,7 +474,7 @@ public sealed class ArtifactRootPublicationTests
     [Fact]
     public async Task PackageArtifactRootPublication_RetirementStopsNewEntryAndDrainsLeases()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         var scope = new ScopeState(workspace.Identity);
         ArtifactRootPublishedComposition first = await PublishPackages(workspace, scope, "Drain.Root");
         ArtifactRootScopeProjection old = first.Roots[0];
@@ -500,7 +500,7 @@ public sealed class ArtifactRootPublicationTests
     [Fact]
     public async Task PackageArtifactRootProjection_RefreshReturnsCurrentPointInTimeStatus()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         var scope = new ScopeState(workspace.Identity);
         ArtifactRootPublishedComposition first = await PublishPackages(workspace, scope, "Status.Root");
         ArtifactRootScopeProjection ready = first.Roots[0];
@@ -534,8 +534,8 @@ public sealed class ArtifactRootPublicationTests
     [Fact]
     public async Task PackageArtifactRootGenerationReference_StaleForeignAndUnknownPrecedePolicyChecks()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
-        await using InspectionWorkspace foreign = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
+        await using InspectionWorkspace foreign = new InspectionWorkspace();
         var scope = new ScopeState(workspace.Identity);
         ArtifactRootPublishedComposition first = await PublishPackages(workspace, scope, "Foreign.Root");
         ArtifactRootPublishedComposition other = await PublishPackages(foreign, new(foreign.Identity), "Foreign.Root");
@@ -563,7 +563,7 @@ public sealed class ArtifactRootPublicationTests
     [Fact]
     public async Task PackageArtifactRootPublication_RuntimeCloseRefusesWaitingPublicationAndDrainsPreparation()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         var scope = new ScopeState(workspace.Identity);
         var authority = Authority(workspace);
         ArtifactRootPreparationReceipt receipt = await Prepare(workspace, authority, Binding("Closing.Root"));
@@ -587,7 +587,7 @@ public sealed class ArtifactRootPublicationTests
     [Fact]
     public async Task PackageArtifactRootPublication_ActiveGroupWorkDrainsAfterItsEntryLeaseEnds()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         var scope = new ScopeState(workspace.Identity);
         ArtifactRootPublishedComposition first = await PublishPackages(workspace, scope, "Active.Root");
         using InspectionWorkspace.ArtifactRootQueryLease query = Available(
@@ -618,7 +618,7 @@ public sealed class ArtifactRootPublicationTests
     [Fact]
     public async Task PackageArtifactRootPublication_OpenArtifactStreamDrainsAfterRetirement()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         var scope = new ScopeState(workspace.Identity);
         ArtifactRootPublishedComposition first = await PublishPackages(workspace, scope, "Stream.Root");
         using InspectionWorkspace.ArtifactRootQueryLease query = Available(
@@ -638,7 +638,7 @@ public sealed class ArtifactRootPublicationTests
     [Fact]
     public async Task PackageArtifactRootPreparation_DeadlineReleasesAbandonedReceipt()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         var time = new AdvancingTimeProvider();
         workspace.ConfigureArtifactRootAdmission(new(), time);
         var authority = new ArtifactRootPreparationAuthority(
@@ -653,7 +653,7 @@ public sealed class ArtifactRootPublicationTests
     [Fact]
     public async Task PackageArtifactRootPreparation_AggregateReservationIncludesPreparedAndDrainingRoots()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         workspace.ConfigureArtifactRootAdmission(new()
         {
             MaxRoots = 1,
@@ -673,7 +673,7 @@ public sealed class ArtifactRootPublicationTests
     [Fact]
     public async Task PackageArtifactRootPreparation_ChargesActualBytesAcrossPreparedCurrentAndDrainingRoots()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         long imageBytes = new FileInfo(typeof(AssemblyReferenceIdentity).Assembly.Location).Length;
         workspace.ConfigureArtifactRootAdmission(new() { MaxRetainedImageBytes = 4 * imageBytes });
         var scope = new ScopeState(workspace.Identity);
@@ -715,7 +715,7 @@ public sealed class ArtifactRootPublicationTests
     [Fact]
     public async Task PackageArtifactRootPreparation_InsufficientBatchEnvelopeReleasesEveryRootAndReservation()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         long imageBytes = new FileInfo(typeof(AssemblyReferenceIdentity).Assembly.Location).Length;
         workspace.ConfigureArtifactRootAdmission(new() { MaxRetainedImageBytes = 3 * imageBytes });
         var authority = Authority(workspace);
@@ -737,7 +737,7 @@ public sealed class ArtifactRootPublicationTests
     [InlineData("participants")]
     public async Task PackageArtifactRootPreparation_BatchEnvelopePreservesExplicitCallerLimits(string limit)
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         long imageBytes = new FileInfo(typeof(AssemblyReferenceIdentity).Assembly.Location).Length;
         PackageAssemblyContextRealizationOptions options = limit switch
         {
@@ -754,7 +754,7 @@ public sealed class ArtifactRootPublicationTests
     [Fact]
     public async Task PackageArtifactRootPreparation_ReentrantAdmissionCannotSpendReservedEnvelope()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         var authority = Authority(workspace);
         Task<ArtifactRootResult<ArtifactRootPreparationReceipt>>? overlapping = null;
         PackageRootBinding other = Binding("Concurrent.Other");
@@ -779,7 +779,7 @@ public sealed class ArtifactRootPublicationTests
     [InlineData(true)]
     public async Task PackageArtifactRootPreparation_TerminalReceiptAndProjectionRetainNoPackageResources(bool publish)
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         (ArtifactRootPreparationReceipt receipt, ArtifactRootScopeProjection? projection,
             ImmutableArray<WeakReference> resources) =
             await PrepareWeak(workspace, publish);

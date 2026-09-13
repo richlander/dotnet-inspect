@@ -85,8 +85,7 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                 nameof(request));
         }
 
-        InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+        InspectionWorkspace workspace = new();
         try
         {
             if (!InspectionGraphCommand.TryCreateMembers(

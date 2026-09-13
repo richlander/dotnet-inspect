@@ -1,23 +1,23 @@
+using DotnetInspector.Cache;
 using System.Text.Json;
 using System.Net.Http.Headers;
 using System.Text;
-using DotnetInspector.Core;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.Services.Tests;
 
-[Collection(CoreCacheCollection.Name)]
+[Collection(PersistentCacheCollection.Name)]
 public class PackageMetadataServiceTests : IDisposable
 {
     public PackageMetadataServiceTests()
     {
-        CoreCache.Initialize("dotnet-inspect-test");
-        CoreCache.Clear("metadata");
+        PersistentCache.Initialize("dotnet-inspect-test");
+        PersistentCache.Clear("metadata");
     }
 
     public void Dispose()
     {
-        CoreCache.Clear("metadata");
+        PersistentCache.Clear("metadata");
     }
 
     [Fact]

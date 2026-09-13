@@ -9,6 +9,15 @@ public sealed record WidgetDto(string Name, int Count);
 
 public sealed record RuntimeAPI(string Value);
 
+public sealed record GenericNested<TValue>(TValue Value);
+
+public sealed record GenericRecord<TValue>(
+    TValue Content,
+    GenericNested<TValue> Nested,
+    TValue[] Items,
+    IReadOnlyDictionary<string, TValue> Lookup,
+    Boxed<TValue> Choice);
+
 public sealed record BlobDto(
     byte[] Blob,
     byte[]? MaybeBlob,
@@ -49,6 +58,11 @@ internal sealed partial class FixtureJsonContext : JsonSerializerContext;
 [JsonSerializable(typeof(BlobDto))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal sealed partial class BlobFixtureJsonContext : JsonSerializerContext;
+
+[JsonSerializable(typeof(GenericRecord<int>))]
+[JsonSerializable(typeof(GenericRecord<WidgetDto>))]
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+internal sealed partial class GenericRecordJsonContext : JsonSerializerContext;
 
 [SupportedOSPlatform("browser")]
 public static partial class TypeScriptFixtureExports
@@ -162,6 +176,38 @@ public static partial class TypeScriptFixtureExports
                     ["none"] = null,
                 }),
             BlobFixtureJsonContext.Default.BlobDto);
+    }
+
+    [JSExport]
+    public static async Task<string> GetGenericRecordIntAsync()
+    {
+        await Task.Yield();
+        return JsonSerializer.Serialize(
+            new GenericRecord<int>(
+                7,
+                new GenericNested<int>(8),
+                [1, 2],
+                new Dictionary<string, int> { ["missing"] = 0 },
+                new Boxed<int>(9)),
+            GenericRecordJsonContext.Default.GenericRecordInt32);
+    }
+
+    [JSExport]
+    public static async Task<string> GetGenericRecordWidgetAsync(
+        string name)
+    {
+        await Task.Yield();
+        return JsonSerializer.Serialize(
+            new GenericRecord<WidgetDto>(
+                new WidgetDto(name, 10),
+                new GenericNested<WidgetDto>(new WidgetDto(name, 11)),
+                [new WidgetDto(name, 12)],
+                new Dictionary<string, WidgetDto>
+                {
+                    ["missing"] = null!,
+                },
+                new Boxed<WidgetDto>(new WidgetDto(name, 13))),
+            GenericRecordJsonContext.Default.GenericRecordWidgetDto);
     }
 
     [JSExport]

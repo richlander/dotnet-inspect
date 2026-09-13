@@ -20,6 +20,10 @@ public sealed class NuGetCatalogAcquisitionTests
         "https://feed.example/v3/catalog/page2.json";
     private const string Page3 =
         "https://feed.example/v3/catalog/page3.json";
+    private const string DetailsLeaf =
+        "https://feed.example/v3/catalog/leaf/details.json";
+    private const string ExternalDetailsLeaf =
+        "https://metadata.example/catalog/leaf/details.json";
 
     private static readonly DateTimeOffset Day0 = Utc(2026, 1, 1);
     private static readonly DateTimeOffset Day1 = Utc(2026, 1, 2);
@@ -81,7 +85,9 @@ public sealed class NuGetCatalogAcquisitionTests
         {
             typeof(NuGetCatalogEvent),
             typeof(NuGetCatalogPage),
+            typeof(NuGetCatalogPackageReceipt),
             typeof(PackageSourceOperationResult<NuGetCatalogPage>),
+            typeof(PackageSourceOperationResult<NuGetCatalogPackageReceipt>),
         })
         {
             ConstructorInfo constructor = Assert.Single(
@@ -1772,6 +1778,459 @@ public sealed class NuGetCatalogAcquisitionTests
         Assert.Equal(PackageSourceFailureKind.InvalidResponse, failure.Kind);
     }
 
+    [Fact]
+    public async Task NuGetOrgPackageDetailsLeafReturnsCreatedReceipt()
+    {
+        const string commitId =
+            "616117f5-d9dd-4664-82b9-74d87169bbe9";
+        DateTimeOffset from = DateTimeOffset.Parse(
+            "2017-10-31T00:00:00Z",
+            CultureInfo.InvariantCulture);
+        DateTimeOffset commitTimestamp = DateTimeOffset.Parse(
+            "2017-10-31T23:30:32.4197849Z",
+            CultureInfo.InvariantCulture);
+        DateTimeOffset created = DateTimeOffset.Parse(
+            "2017-10-31T23:29:22.387Z",
+            CultureInfo.InvariantCulture);
+        var handler = StandardHandler(
+            IndexDocument(
+                commitTimestamp,
+                Page(Page1, commitTimestamp)),
+            PageDocument(
+                Catalog,
+                commitTimestamp,
+                Item(
+                    DetailsLeaf,
+                    "Util.Biz.Payments",
+                    "0.0.4-preview",
+                    commitTimestamp,
+                    "nuget:PackageDetails",
+                    commitId: commitId)));
+        handler[DetailsLeaf] = Json(
+            """
+            {
+              "@type": ["PackageDetails", "catalog:Permalink"],
+              "catalog:commitId": "616117f5-d9dd-4664-82b9-74d87169bbe9",
+              "catalog:commitTimeStamp": "2017-10-31T23:30:32.4197849Z",
+              "created": "2017-10-31T23:29:22.387Z",
+              "id": "Util.Biz.Payments",
+              "published": "2017-10-31T23:29:22.387Z",
+              "version": "0.0.4-preview"
+            }
+            """);
+        using INuGetCatalogPackageSourceClient source =
+            CreateSource(handler);
+        NuGetCatalogEvent detailsEvent =
+            await AcquireSingleEventAsync(
+                source,
+                new NuGetCatalogRequest(
+                    from,
+                    commitTimestamp));
+
+        NuGetCatalogPackageReceipt receipt = SucceededReceipt(
+            await source.GetPackageReceiptAsync(
+                detailsEvent,
+                TestContext.Current.CancellationToken));
+
+        Assert.Same(source.Source, receipt.Source);
+        Assert.Same(detailsEvent, receipt.DetailsEvent);
+        Assert.Equal(created, receipt.ReceivedAt);
+        Assert.Equal(
+            NuGetCatalogPackageReceiptBasis.Created,
+            receipt.Basis);
+        Assert.Equal(
+            [ServiceIndex, Catalog, Page1, DetailsLeaf],
+            handler.Requested);
+    }
+
+    [Fact]
+    public async Task PackageDetailsLeafUsesPublishedFallbackAndNormalizesUtc()
+    {
+        DateTimeOffset published = new(
+            2026,
+            1,
+            1,
+            2,
+            0,
+            0,
+            TimeSpan.FromHours(2));
+        var handler = StandardHandler(
+            IndexDocument(Day1, Page(Page1, Day1)),
+            PageDocument(
+                Catalog,
+                Day1,
+                Item(
+                    DetailsLeaf,
+                    "Contoso",
+                    "1.0.0",
+                    Day1,
+                    "nuget:PackageDetails")));
+        handler[DetailsLeaf] = Json(
+            DetailsDocument(
+                "Contoso",
+                "1.0.0",
+                Day1,
+                published,
+                created: null));
+        using INuGetCatalogPackageSourceClient source =
+            CreateSource(handler);
+        NuGetCatalogEvent detailsEvent =
+            await AcquireSingleEventAsync(source);
+
+        NuGetCatalogPackageReceipt receipt = SucceededReceipt(
+            await source.GetPackageReceiptAsync(
+                detailsEvent,
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(published.ToUniversalTime(), receipt.ReceivedAt);
+        Assert.Equal(TimeSpan.Zero, receipt.ReceivedAt.Offset);
+        Assert.Equal(
+            NuGetCatalogPackageReceiptBasis.PublishedFallback,
+            receipt.Basis);
+    }
+
+    [Theory]
+    [InlineData("kind")]
+    [InlineData("type-shape")]
+    [InlineData("package")]
+    [InlineData("version")]
+    [InlineData("commit")]
+    [InlineData("commit-time")]
+    [InlineData("created")]
+    [InlineData("published")]
+    [InlineData("duplicate")]
+    public async Task MalformedOrMismatchedDetailsLeafIsInvalidResponse(
+        string fault)
+    {
+        var handler = StandardHandler(
+            IndexDocument(Day1, Page(Page1, Day1)),
+            PageDocument(
+                Catalog,
+                Day1,
+                Item(
+                    DetailsLeaf,
+                    "Contoso",
+                    "1.0.0",
+                    Day1,
+                    "nuget:PackageDetails")));
+        handler[DetailsLeaf] = Json(
+            FaultedDetailsDocument(fault));
+        using INuGetCatalogPackageSourceClient source =
+            CreateSource(handler);
+        NuGetCatalogEvent detailsEvent =
+            await AcquireSingleEventAsync(source);
+
+        PackageSourceFailure failure = Assert.IsType<PackageSourceFailure>(
+            (await source.GetPackageReceiptAsync(
+                detailsEvent,
+                TestContext.Current.CancellationToken)).Failure);
+
+        Assert.Equal(PackageSourceFailureKind.InvalidResponse, failure.Kind);
+        Assert.Equal(PackageSourceCapabilities.Catalog, failure.Capability);
+        Assert.Equal(detailsEvent.Coordinate, failure.Coordinate);
+        Assert.Same(source.Source, failure.Source);
+    }
+
+    [Fact]
+    public async Task MissingRetainedLeafIsInvalidRatherThanCoordinateAbsence()
+    {
+        var handler = StandardHandler(
+            IndexDocument(Day1, Page(Page1, Day1)),
+            PageDocument(
+                Catalog,
+                Day1,
+                Item(
+                    DetailsLeaf,
+                    "Contoso",
+                    "1.0.0",
+                    Day1,
+                    "nuget:PackageDetails")));
+        using INuGetCatalogPackageSourceClient source =
+            CreateSource(handler);
+        NuGetCatalogEvent detailsEvent =
+            await AcquireSingleEventAsync(source);
+
+        PackageSourceFailure failure = Assert.IsType<PackageSourceFailure>(
+            (await source.GetPackageReceiptAsync(
+                detailsEvent,
+                TestContext.Current.CancellationToken)).Failure);
+
+        Assert.Equal(PackageSourceFailureKind.InvalidResponse, failure.Kind);
+        Assert.NotEqual(PackageSourceFailureKind.NotFound, failure.Kind);
+        Assert.Equal(detailsEvent.Coordinate, failure.Coordinate);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    public async Task DetailsLeafAuthenticationFailureIsTyped(
+        HttpStatusCode statusCode)
+    {
+        var handler = StandardHandler(
+            IndexDocument(Day1, Page(Page1, Day1)),
+            PageDocument(
+                Catalog,
+                Day1,
+                Item(
+                    DetailsLeaf,
+                    "Contoso",
+                    "1.0.0",
+                    Day1,
+                    "nuget:PackageDetails")));
+        handler[DetailsLeaf] = new RouteResponse(statusCode, "");
+        using INuGetCatalogPackageSourceClient source =
+            CreateSource(handler);
+        NuGetCatalogEvent detailsEvent =
+            await AcquireSingleEventAsync(source);
+
+        PackageSourceFailure failure = Assert.IsType<PackageSourceFailure>(
+            (await source.GetPackageReceiptAsync(
+                detailsEvent,
+                TestContext.Current.CancellationToken)).Failure);
+
+        Assert.Equal(
+            PackageSourceFailureKind.AuthenticationRequired,
+            failure.Kind);
+        Assert.Equal(PackageSourceCapabilities.Catalog, failure.Capability);
+        Assert.Equal(detailsEvent.Coordinate, failure.Coordinate);
+        Assert.Same(source.Source, failure.Source);
+    }
+
+    [Fact]
+    public async Task DetailsLeafTransportFailureIsTyped()
+    {
+        var handler = StandardHandler(
+            IndexDocument(Day1, Page(Page1, Day1)),
+            PageDocument(
+                Catalog,
+                Day1,
+                Item(
+                    DetailsLeaf,
+                    "Contoso",
+                    "1.0.0",
+                    Day1,
+                    "nuget:PackageDetails")));
+        handler.Set(
+            DetailsLeaf,
+            (_, _) => Task.FromException<HttpResponseMessage>(
+                new HttpRequestException(
+                    "Rejected by intermediary.",
+                    inner: null,
+                    HttpStatusCode.BadRequest)));
+        using INuGetCatalogPackageSourceClient source =
+            CreateSource(handler);
+        NuGetCatalogEvent detailsEvent =
+            await AcquireSingleEventAsync(source);
+
+        PackageSourceFailure failure = Assert.IsType<PackageSourceFailure>(
+            (await source.GetPackageReceiptAsync(
+                detailsEvent,
+                TestContext.Current.CancellationToken)).Failure);
+
+        Assert.Equal(PackageSourceFailureKind.Transport, failure.Kind);
+        Assert.Equal(PackageSourceCapabilities.Catalog, failure.Capability);
+        Assert.Equal(detailsEvent.Coordinate, failure.Coordinate);
+        Assert.Same(source.Source, failure.Source);
+    }
+
+    [Fact]
+    public async Task OffOriginDetailsLeafDoesNotReceiveSourceCredential()
+    {
+        var handler = StandardHandler(
+            IndexDocument(Day1, Page(Page1, Day1)),
+            PageDocument(
+                Catalog,
+                Day1,
+                Item(
+                    ExternalDetailsLeaf,
+                    "Contoso",
+                    "1.0.0",
+                    Day1,
+                    "nuget:PackageDetails")));
+        handler[ExternalDetailsLeaf] = Json(
+            DetailsDocument(
+                "Contoso",
+                "1.0.0",
+                Day1,
+                Day0 + TimeSpan.FromHours(1),
+                Day0));
+        using INuGetCatalogPackageSourceClient source =
+            CreateSource(
+                handler,
+                credential: new PackageSourceCredential(
+                    "user",
+                    "token"));
+        NuGetCatalogEvent detailsEvent =
+            await AcquireSingleEventAsync(source);
+
+        _ = SucceededReceipt(
+            await source.GetPackageReceiptAsync(
+                detailsEvent,
+                TestContext.Current.CancellationToken));
+
+        Assert.Null(handler.AuthFor(ExternalDetailsLeaf));
+        Assert.Equal("user:token", handler.DecodedAuthFor(ServiceIndex));
+    }
+
+    [Fact]
+    public async Task DeleteAndForeignEventsAreRejectedBeforeNetworkWork()
+    {
+        var deleteHandler = StandardHandler(
+            IndexDocument(Day1, Page(Page1, Day1)),
+            PageDocument(
+                Catalog,
+                Day1,
+                Item(
+                    DetailsLeaf,
+                    "Contoso",
+                    "1.0.0",
+                    Day1,
+                    "nuget:PackageDelete")));
+        using INuGetCatalogPackageSourceClient first =
+            CreateSource(deleteHandler);
+        NuGetCatalogEvent deleteEvent =
+            await AcquireSingleEventAsync(first);
+        int requestsBeforeDelete = deleteHandler.Requested.Count;
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => first.GetPackageReceiptAsync(
+                deleteEvent,
+                TestContext.Current.CancellationToken));
+        Assert.Equal(requestsBeforeDelete, deleteHandler.Requested.Count);
+
+        var otherHandler = new RouteHandler();
+        using INuGetCatalogPackageSourceClient other =
+            CreateSource(otherHandler);
+        int requestsBeforeForeign = otherHandler.Requested.Count;
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => other.GetPackageReceiptAsync(
+                deleteEvent,
+                TestContext.Current.CancellationToken));
+        Assert.Equal(requestsBeforeForeign, otherHandler.Requested.Count);
+    }
+
+    [Fact]
+    public async Task DetailsLeafHonorsMetadataResponseBound()
+    {
+        var handler = StandardHandler(
+            IndexDocument(Day1, Page(Page1, Day1)),
+            PageDocument(
+                Catalog,
+                Day1,
+                Item(
+                    DetailsLeaf,
+                    "Contoso",
+                    "1.0.0",
+                    Day1,
+                    "nuget:PackageDetails")));
+        handler[DetailsLeaf] = Json(
+            DetailsDocument(
+                "Contoso",
+                "1.0.0",
+                Day1,
+                Day0,
+                Day0,
+                new string('x', 1_024)));
+        using INuGetCatalogPackageSourceClient source =
+            CreateSource(
+                handler,
+                new NuGetFetchOptions
+                {
+                    MaxMetadataResponseBytes = 512,
+                });
+        NuGetCatalogEvent detailsEvent =
+            await AcquireSingleEventAsync(source);
+
+        PackageSourceFailure failure = Assert.IsType<PackageSourceFailure>(
+            (await source.GetPackageReceiptAsync(
+                detailsEvent,
+                TestContext.Current.CancellationToken)).Failure);
+
+        Assert.Equal(
+            PackageSourceFailureKind.ResponseRejected,
+            failure.Kind);
+        Assert.Equal(detailsEvent.Coordinate, failure.Coordinate);
+    }
+
+    [Fact]
+    public async Task DetailsLeafOperationDeadlineIsTypedTimeout()
+    {
+        var handler = StandardHandler(
+            IndexDocument(Day1, Page(Page1, Day1)),
+            PageDocument(
+                Catalog,
+                Day1,
+                Item(
+                    DetailsLeaf,
+                    "Contoso",
+                    "1.0.0",
+                    Day1,
+                    "nuget:PackageDetails")));
+        handler.Set(
+            DetailsLeaf,
+            async (_, cancellationToken) =>
+            {
+                await Task.Delay(
+                    Timeout.InfiniteTimeSpan,
+                    cancellationToken);
+                throw new InvalidOperationException("Unreachable.");
+            });
+        using INuGetCatalogPackageSourceClient source =
+            CreateSource(
+                handler,
+                new NuGetFetchOptions
+                {
+                    RequestTimeout = TimeSpan.FromMilliseconds(20),
+                    OperationTimeout = TimeSpan.FromMilliseconds(80),
+                });
+        NuGetCatalogEvent detailsEvent =
+            await AcquireSingleEventAsync(source);
+
+        PackageSourceFailure failure = Assert.IsType<PackageSourceFailure>(
+            (await source.GetPackageReceiptAsync(
+                detailsEvent,
+                TestContext.Current.CancellationToken)).Failure);
+
+        Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
+        Assert.Equal(detailsEvent.Coordinate, failure.Coordinate);
+    }
+
+    [Fact]
+    public async Task CallerCancellationPropagatesFromDetailsLeaf()
+    {
+        var handler = StandardHandler(
+            IndexDocument(Day1, Page(Page1, Day1)),
+            PageDocument(
+                Catalog,
+                Day1,
+                Item(
+                    DetailsLeaf,
+                    "Contoso",
+                    "1.0.0",
+                    Day1,
+                    "nuget:PackageDetails")));
+        handler.Set(
+            DetailsLeaf,
+            async (_, cancellationToken) =>
+            {
+                await Task.Delay(
+                    Timeout.InfiniteTimeSpan,
+                    cancellationToken);
+                throw new InvalidOperationException("Unreachable.");
+            });
+        using INuGetCatalogPackageSourceClient source =
+            CreateSource(handler);
+        NuGetCatalogEvent detailsEvent =
+            await AcquireSingleEventAsync(source);
+        using var cancellation = new CancellationTokenSource(
+            TimeSpan.FromMilliseconds(20));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => source.GetPackageReceiptAsync(
+                detailsEvent,
+                cancellation.Token));
+    }
+
     private static INuGetCatalogPackageSourceClient CreateSource(
         RouteHandler handler,
         NuGetFetchOptions? options = null,
@@ -1791,6 +2250,18 @@ public sealed class NuGetCatalogAcquisitionTests
             source.Capabilities.HasFlag(PackageSourceCapabilities.Catalog));
         return Assert.IsAssignableFrom<INuGetCatalogPackageSourceClient>(
             source);
+    }
+
+    private static async Task<NuGetCatalogEvent> AcquireSingleEventAsync(
+        INuGetCatalogPackageSourceClient source,
+        NuGetCatalogRequest? request = null)
+    {
+        IReadOnlyList<PackageSourceOperationResult<NuGetCatalogPage>> outcomes =
+            await ReadAllAsync(
+                source,
+                request ?? new NuGetCatalogRequest(Day0, Day1));
+        NuGetCatalogPage page = Succeeded(Assert.Single(outcomes));
+        return Assert.Single(page.Events);
     }
 
     private static async Task<
@@ -1820,6 +2291,13 @@ public sealed class NuGetCatalogAcquisitionTests
     {
         Assert.Null(outcome.Failure);
         return Assert.IsType<NuGetCatalogPage>(outcome.Value);
+    }
+
+    private static NuGetCatalogPackageReceipt SucceededReceipt(
+        PackageSourceOperationResult<NuGetCatalogPackageReceipt> outcome)
+    {
+        Assert.Null(outcome.Failure);
+        return Assert.IsType<NuGetCatalogPackageReceipt>(outcome.Value);
     }
 
     private static RouteHandler StandardHandler(
@@ -1946,12 +2424,68 @@ public sealed class NuGetCatalogAcquisitionTests
         string version,
         DateTimeOffset timestamp,
         string kind,
-        string suffix = "") =>
+        string suffix = "",
+        string commitId = "commit") =>
         $$"""
-        {"@id":"{{leafUrl}}","@type":"{{kind}}","commitId":"commit",
+        {"@id":"{{leafUrl}}","@type":"{{kind}}","commitId":"{{commitId}}",
         "commitTimeStamp":"{{Stamp(timestamp)}}","nuget:id":"{{packageId}}",
         "nuget:version":"{{version}}"{{suffix}}}
         """;
+
+    private static string DetailsDocument(
+        string packageId,
+        string version,
+        DateTimeOffset commitTimestamp,
+        DateTimeOffset published,
+        DateTimeOffset? created,
+        string? padding = null)
+    {
+        string createdProperty = created is { } value
+            ? ",\"created\":\"" + Stamp(value) + "\""
+            : "";
+        string paddingProperty = padding is null
+            ? ""
+            : ",\"padding\":\"" + padding + "\"";
+        return $$"""
+        {"@type":["PackageDetails","catalog:Permalink"],
+        "catalog:commitId":"commit",
+        "catalog:commitTimeStamp":"{{Stamp(commitTimestamp)}}",
+        "id":"{{packageId}}","version":"{{version}}",
+        "published":"{{published:yyyy-MM-dd'T'HH:mm:ss.FFFFFFFzzz}}"
+        {{createdProperty}}{{paddingProperty}}}
+        """;
+    }
+
+    private static string FaultedDetailsDocument(string fault)
+    {
+        string type = fault switch
+        {
+            "kind" => "\"PackageDelete\"",
+            "type-shape" => "[\"PackageDetails\",42]",
+            _ => "[\"PackageDetails\",\"catalog:Permalink\"]",
+        };
+        string packageId =
+            fault == "package" ? "Other.Package" : "Contoso";
+        string version = fault == "version" ? "2.0.0" : "1.0.0";
+        string commit = fault == "commit" ? "other" : "commit";
+        string commitTimestamp = fault == "commit-time"
+            ? Stamp(Day0)
+            : Stamp(Day1);
+        string created = fault == "created"
+            ? "2026-01-01"
+            : Stamp(Day0);
+        string published = fault == "published"
+            ? "2026-01-01T00:00:00"
+            : Stamp(Day0);
+        string duplicate =
+            fault == "duplicate" ? ",\"id\":\"Contoso\"" : "";
+        return $$"""
+        {"@type":{{type}},"catalog:commitId":"{{commit}}",
+        "catalog:commitTimeStamp":"{{commitTimestamp}}",
+        "id":"{{packageId}}","version":"{{version}}",
+        "created":"{{created}}","published":"{{published}}"{{duplicate}}}
+        """;
+    }
 
     private static string Stamp(DateTimeOffset value) =>
         value.ToString("O", CultureInfo.InvariantCulture);

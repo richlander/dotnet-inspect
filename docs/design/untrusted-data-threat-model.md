@@ -115,16 +115,16 @@ rather than an argument. A rule enforced by *calling a function* is a rule a
 new path can forget, and `string` is the type of both a checked and an
 unchecked value.
 
-`HardenedJson` is the repository's closest existing move in this direction, and
-it is worth being precise about how far it actually goes: it is a `static
-class` whose `Parse` returns an ordinary `JsonDocument`, so it is a single
-named entry point that centralizes the policy — not a type whose construction
-enforces it. Choosing it grants the capability; nothing stops a new call site
-from reaching for `JsonDocument.Parse` instead, and some already do (see open
-work). A centralized entry point is a real improvement over per-call-site
-options and is cheap to audit by grep, but it is the weaker of the two shapes,
-and new hardening should prefer the stronger one where the value crosses a
-layer boundary.
+`UntrustedDocuments.HardenedJson` is the repository's closest existing move in
+this direction, and it is worth being precise about how far it actually goes:
+it is a `static class` whose `Parse` returns an ordinary `JsonDocument`, so it
+is a single named entry point that centralizes the policy — not a type whose
+construction enforces it. Choosing it grants the capability; nothing stops a
+new call site from reaching for `JsonDocument.Parse` instead, and some already
+do (see open work). A centralized entry point is a real improvement over
+per-call-site options and is cheap to audit by grep, but it is the weaker of
+the two shapes, and new hardening should prefer the stronger one where the
+value crosses a layer boundary.
 
 The stronger shape now exists. `InertText.InertString` (#3636) is a type whose
 construction *is* the encoding, so treated text has a different type from
@@ -685,7 +685,7 @@ vector where `Path.Combine(root, "C:..", ...)` would discard the root, while
 still permitting the interior dots of a real PDB or assembly file name. A PDB
 file name recovered from untrusted PE debug metadata that is not a usable single
 segment yields a graceful "no symbols" miss rather than an output path. General
-cache entries use SHA-256-derived keys through `CoreCache`.
+cache entries use SHA-256-derived keys through `PersistentCache`.
 
 The Browser-Wasm package path is filesystem-free but uses the shared
 `PackageCoordinateResolver`, `PackagePayloadAcquisition`,
@@ -1002,7 +1002,7 @@ gates reservation ownership.
 ### Untrusted JSON rejects duplicate properties
 
 JSON does not define how duplicate object keys resolve, so two readers of one
-payload can disagree. `DotnetInspector.Core.HardenedJson` and
+payload can disagree. `UntrustedDocuments.HardenedJson` and
 `ILInspector.SourceLink.SourceLinkDocumentMap` rejects duplicate properties, while
 `ILInspector.SourceLink.SourceLinkJsonContext` applies the same rule to its
 persistent type-index cache. Such payloads fail visibly instead of binding one
@@ -1685,7 +1685,7 @@ land in temporary files and become visible atomically after validation.
 
 A cache entry created before a content-validation gate existed is not evidence
 that the gate passed. Persistent cache cutovers follow the
-[`CoreCache` contract](../inspection-space.md#corecache): either revalidate on
+[`PersistentCache` contract](../inspection-space.md#persistentcache): either revalidate on
 every hit or select a successor contract version before lookup, and pair the
 newly rejected case with a still-valid recomputation case. Dynamic network,
 capability, and liveness policy is always rechecked and cannot be replaced by a

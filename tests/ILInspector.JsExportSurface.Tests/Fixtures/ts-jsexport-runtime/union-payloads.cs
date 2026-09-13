@@ -32,6 +32,12 @@ if (args is not [string outputPath])
     ("boxedWidget", TypeScriptFixtureExports.GetBoxedWidget("boxed")),
     ("wrappedBlob", TypeScriptFixtureExports.GetWrappedBlob()),
     (
+        "genericRecordInt",
+        await TypeScriptFixtureExports.GetGenericRecordIntAsync()),
+    (
+        "genericRecordWidget",
+        await TypeScriptFixtureExports.GetGenericRecordWidgetAsync("sample")),
+    (
         "selectionEnvelope",
         await TypeScriptFixtureExports.GetSelectionEnvelopeAsync("envelope")),
 ];

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetInspector.Ecosystems;
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
@@ -70,31 +71,19 @@ public static class DemoCommand
 
         IReadOnlyList<EcosystemDemoDescriptor> demos =
             EcosystemPackCatalog.DiscoverDemos();
-        if (rowSelection is not null)
-        {
-            RowsCohortResult<string, EcosystemDemoDescriptor> result =
-                RowsCohortExecutor.ApplyUnordered(
-                    [
-                        RowsCohortSequence<string, EcosystemDemoDescriptor>
-                            .Create(
-                                "Home demos",
-                                demos)
-                    ],
-                    rowSelection);
-            if (!result.IsSuccess)
-            {
-                RowsCohortSemanticFailure<string> failure =
-                    result.Failure!;
-                CommandError.Write(
+        if (!CliSemanticRowSelection.TrySelect(
+                rowSelection,
+                demos,
+                "Home demos",
+                failure =>
                     $"Demo row selection stage "
                     + $"{failure.Failure.StageNumber} requires row "
                     + $"{failure.Failure.RequiredPosition}, but only "
                     + $"{failure.Failure.AvailableCount} demo rows are "
-                    + "available.");
-                return 1;
-            }
-
-            demos = result.RowSets[0].Values;
+                    + "available.",
+                out demos))
+        {
+            return 1;
         }
 
         if (format == OutputFormat.Json)
@@ -173,9 +162,20 @@ public static class DemoCommand
         ApiOptions options)
     {
         ProductDemoRunPlan plan = ProductDemoRunPlan.Create(resolved);
-        WorkspaceMemberCoordinate.PlatformMember? platform = plan.Context.Members
-            .OfType<WorkspaceMemberCoordinate.PlatformMember>()
-            .FirstOrDefault(member => string.Equals(
+        WorkspaceMemberCoordinate.PlatformMember[] platformMembers =
+        [
+            .. plan.Context.Members
+                .OfType<WorkspaceMemberCoordinate.PlatformMember>(),
+        ];
+        if (platformMembers.Length != plan.Context.Members.Count)
+        {
+            CommandError.Write(
+                $"Home demo '{resolved.ScenarioId}' cannot mix package and Platform members.");
+            return 1;
+        }
+
+        WorkspaceMemberCoordinate.PlatformMember? platform =
+            platformMembers.FirstOrDefault(member => string.Equals(
                 member.Assembly,
                 options.PlatformAssembly,
                 StringComparison.OrdinalIgnoreCase));
@@ -186,14 +186,14 @@ public static class DemoCommand
             return 1;
         }
 
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         WorkspaceContextLoadOutcome outcome =
             await WorkspaceContextLoader.LoadAsync(
                 workspace,
                 new WorkspaceContextInput
                 {
                     Framework = options.Tfm ?? plan.Context.Framework,
-                    Members = [platform],
+                    Members = platformMembers,
                 },
                 new WorkspaceContextLoadOptions
                 {
@@ -220,20 +220,62 @@ public static class DemoCommand
 
         WorkspaceContextLoadOutcome.Loaded loaded =
             (WorkspaceContextLoadOutcome.Loaded)outcome;
-        var implementation = loaded.Members
-            .Select(static member => member.Participant.Assembly)
-            .Single();
+        using AssemblyContextGroup group = loaded.Group;
+        if (loaded.Members.Length != platformMembers.Length)
+        {
+            CommandError.Write(
+                $"Home demo '{resolved.ScenarioId}' did not load every declared Platform member.");
+            return 1;
+        }
+
         string tempDirectory =
             Directory.CreateTempSubdirectory("inspect-demo-platform").FullName;
         try
         {
-            string assemblyPath = Path.Combine(
-                tempDirectory,
-                $"{platform.Assembly}.dll");
-            await using (Stream sourceStream = implementation.OpenRead())
-            await using (FileStream destination = File.Create(assemblyPath))
+            string? assemblyPath = null;
+            var materializedPaths =
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (int index = 0; index < loaded.Members.Length; index++)
             {
-                await sourceStream.CopyToAsync(destination);
+                WorkspaceContextMember loadedMember = loaded.Members[index];
+                WorkspaceMemberCoordinate.PlatformMember declared =
+                    platformMembers[index];
+                if (!Equals(loadedMember.Declared, declared))
+                {
+                    CommandError.Write(
+                        $"Home demo '{resolved.ScenarioId}' loaded Platform members out of declaration order.");
+                    return 1;
+                }
+
+                string materializedPath = Path.Combine(
+                    tempDirectory,
+                    $"{declared.Assembly}.dll");
+                if (!materializedPaths.Add(materializedPath))
+                {
+                    CommandError.Write(
+                        $"Home demo '{resolved.ScenarioId}' has Platform members that map to the same local image name.");
+                    return 1;
+                }
+
+                await using (
+                    Stream sourceStream =
+                        loadedMember.Participant.Assembly.OpenRead())
+                await using (
+                    FileStream destination =
+                        File.Create(materializedPath))
+                {
+                    await sourceStream.CopyToAsync(destination);
+                }
+
+                if (Equals(declared, platform))
+                    assemblyPath = materializedPath;
+            }
+
+            if (assemblyPath is null)
+            {
+                CommandError.Write(
+                    $"Home demo '{resolved.ScenarioId}' did not materialize its focused Platform member.");
+                return 1;
             }
 
             var context = new CommandContext(options.Verbose);
@@ -266,7 +308,15 @@ public static class DemoCommand
             return await (options switch
             {
                 MemberOptions member =>
-                    MemberCommand.ExecuteResolvedAsync(member, source, surface),
+                    MemberCommand.ExecuteResolvedAsync(
+                        loaded.Members.Length > 1
+                            ? member with
+                            {
+                                CallerScopeDirectories = [tempDirectory],
+                            }
+                            : member,
+                        source,
+                        surface),
                 TypeOptions type =>
                     TypeCommand.ExecuteResolvedAsync(type, source, surface),
                 _ => throw new InvalidOperationException(
@@ -326,8 +376,9 @@ public static class DemoCommand
 /// <see cref="MemberOptions"/> so run uses the existing section pipeline.
 /// Multi-package workspaces map extra package members to
 /// <see cref="MemberOptions.CallerScopePackages"/> (CLI encoding of the same
-/// closed preset). Platform demos retain their typed coordinate for exact
-/// implementation-pack activation before entering the same section pipeline.
+/// closed preset). Platform demos retain their typed coordinates for exact
+/// implementation-pack activation; additional Platform members enter the
+/// same caller-scope pipeline through one temporary directory.
 /// </summary>
 public static class DemoScenarioRunner
 {
@@ -466,14 +517,18 @@ public static class DemoScenarioRunner
             return false;
 
         // Extra package members become caller-scope packages (CLI encoding of multi-package graph).
-        if (!TryCollectCallerPackages(resolved, context, source.PackagePath, out var callers, out error))
+        if (!TryCollectCallerPackages(context, source.PackagePath, out var callers))
             return false;
+        bool hasCallerScope = callers.Length > 0
+            || HasAdditionalPlatformMembers(
+                context,
+                source.PlatformAssembly);
 
         if (!TryResolveRunSections(
                 section,
                 format,
                 embeddedMermaid,
-                hasCallerScope: callers.Length > 0,
+                hasCallerScope,
                 out var runSections,
                 out error))
             return false;
@@ -670,14 +725,11 @@ public static class DemoScenarioRunner
     }
 
     private static bool TryCollectCallerPackages(
-        ResolvedScenario resolved,
         ResolvedWorkspaceContext context,
         string? primaryPackagePath,
-        out string[] callers,
-        out string? error)
+        out string[] callers)
     {
         callers = [];
-        error = null;
 
         string? primaryId = null;
         if (primaryPackagePath is { Length: > 0 })
@@ -700,10 +752,23 @@ public static class DemoScenarioRunner
                 : member.PackageId);
         }
 
-        // Platform-only extras are not expressible as --caller-package; ignore for this encoding.
-        _ = resolved;
         callers = list.ToArray();
         return true;
+    }
+
+    private static bool HasAdditionalPlatformMembers(
+        ResolvedWorkspaceContext context,
+        string? primaryAssembly)
+    {
+        if (primaryAssembly is null)
+            return false;
+
+        return context.Members
+            .OfType<WorkspaceMemberCoordinate.PlatformMember>()
+            .Any(member => !string.Equals(
+                member.Assembly,
+                primaryAssembly,
+                StringComparison.OrdinalIgnoreCase));
     }
 
     private static TypeOptions ApplyFormat(

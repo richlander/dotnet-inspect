@@ -30,6 +30,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\DotnetInspector.Cache\DotnetInspector.Cache.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Services\DotnetInspector.Services.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Networking\DotnetInspector.Networking.csproj" />
     <ProjectReference Include="..\..\src\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />

@@ -73,7 +73,7 @@ internal sealed class PackageIntegrationsWorkspace : IAsyncDisposable
                     .Replace('\\', '/'),
                 assembly.TargetFramework,
                 assembly.ContextKey)));
-        InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        InspectionWorkspace workspace = new();
         try
         {
             PackageInspectionAssemblyContext realization =
@@ -140,8 +140,7 @@ internal sealed class PackageIntegrationsWorkspace : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(package);
 
         PackageIntegrationAssembly[] requested = [.. assemblies];
-        InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+        InspectionWorkspace workspace = new();
         try
         {
             PackageAssemblyContextRealization realization =

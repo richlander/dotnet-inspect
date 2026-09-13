@@ -232,7 +232,7 @@ public class LibraryIntegrationQueryTests
         {
             HashSet<InspectionQueryDefinition> queries = [AssemblyContextIntegrationsQuery.Definition];
             var batch = Assert.IsType<AssemblyContextIntegrationsBatch>(
-                AssemblyContextIntegrationsRunner.RunIfRequested(
+                await AssemblyContextIntegrationsRunner.RunIfRequestedAsync(
                     queries, LibrarySections.CreateGroupQueryRegistry(),
                     [new(path, AssemblyResolutionProvenance.Local("ecosystem query test"))]));
             var entry = Assert.IsType<AssemblyIntegrationsEntry.Available>(batch.EntryFor(path));
@@ -257,11 +257,11 @@ public class LibraryIntegrationQueryTests
     [Fact]
     public async Task AdmittedParticipantFailureCannotBecomeAFilteredEmptySuccess()
     {
-        await WithFixtureAsync(true, path =>
+        await WithFixtureAsync(true, async path =>
         {
             HashSet<InspectionQueryDefinition> queries = [AssemblyContextIntegrationsQuery.Definition];
             var batch = Assert.IsType<AssemblyContextIntegrationsBatch>(
-                AssemblyContextIntegrationsRunner.RunIfRequested(
+                await AssemblyContextIntegrationsRunner.RunIfRequestedAsync(
                     queries, LibrarySections.CreateGroupQueryRegistry(),
                     [new(path, AssemblyResolutionProvenance.Local("ecosystem budget test"))],
                     groupOptions: new AssemblyContextGroupOptions { MaxRetainedImageBytes = 1 }));
@@ -279,7 +279,6 @@ public class LibraryIntegrationQueryTests
             Assert.NotEmpty(inspection.InspectionFailures!);
             Assert.Equal(1, LibraryCommand.SelectedInspectionFailureExitCode(
                 options, LibrarySections.CreateCatalog().Pipeline, inspection));
-            return Task.CompletedTask;
         });
     }
 

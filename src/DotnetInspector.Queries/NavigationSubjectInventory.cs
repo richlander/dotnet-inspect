@@ -139,15 +139,25 @@ public sealed record NavigationMemberInventoryRow
 {
     internal NavigationMemberInventoryRow(
         ApiMember producerRow,
+        StructuralSubjectIdentity.TypeSubject containingType,
         StructuralSubjectIdentity.MemberSubject subject)
     {
         ArgumentNullException.ThrowIfNull(producerRow);
+        ArgumentNullException.ThrowIfNull(containingType);
         ArgumentNullException.ThrowIfNull(subject);
+        if (containingType.Library != subject.DeclaringType.Library)
+        {
+            throw new ArgumentException(
+                "Containing and declaring Types must belong to the same exact Library.",
+                nameof(containingType));
+        }
         ProducerRow = producerRow;
+        ContainingType = containingType;
         Subject = subject;
     }
 
     public ApiMember ProducerRow { get; }
+    public StructuralSubjectIdentity.TypeSubject ContainingType { get; }
     public StructuralSubjectIdentity.MemberSubject Subject { get; }
 }
 
@@ -172,6 +182,7 @@ public sealed record NavigationTypeInventoryRow
         foreach (NavigationMemberInventoryRow? member in members)
         {
             if (member is null
+                || member.ContainingType != subject
                 || member.Subject.DeclaringType.Library != subject.Library)
             {
                 throw new ArgumentException(
@@ -843,6 +854,7 @@ public static class NavigationSubjectInventoryClassification
                     members.Add(
                         new NavigationMemberInventoryRow(
                             member,
+                            typeSubject,
                             StructuralSubjectIdentity.ForMember(
                                 subjectByType[declaringType],
                                 ApiMemberIdentity.GetMemberAnchor(
@@ -853,6 +865,7 @@ public static class NavigationSubjectInventoryClassification
                 members.Add(
                     new NavigationMemberInventoryRow(
                         member,
+                        typeSubject,
                         StructuralSubjectIdentity.ForMember(
                             typeSubject,
                             ApiMemberIdentity.GetMemberAnchor(type, member))));

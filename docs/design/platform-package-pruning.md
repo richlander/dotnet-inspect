@@ -24,7 +24,7 @@ remains a separate effort with its own design; none is specified here.
 
 A project targets `net10.0` and something in its graph depends on
 `System.Text.Json` 9.0.0. The SDK removes that dependency, because the platform
-already supplies `System.Text.Json` 10.0.11. The package is never downloaded,
+already supplies `System.Text.Json` 10.0.12. The package is never downloaded,
 never appears in the assets file, and nothing binds to it. The application uses
 the platform's copy.
 
@@ -169,8 +169,8 @@ The SDK ships the decision as `PackageId|Version` pairs, in the reference
 pack under `data/PackageOverrides.txt`:
 
 ```text
-System.Text.Json|10.0.11
-System.Reflection.Metadata|10.0.11
+System.Text.Json|10.0.12
+System.Reflection.Metadata|10.0.12
 System.Memory|5.0.0
 Microsoft.CSharp|4.7.0
 ```
@@ -524,8 +524,8 @@ Pruning decides package identities. It does not decide assemblies, files,
 types, asset-group selection, or graph policy, and it never compares an
 assembly version with a package version.
 
-The distinction is observable in `System.Text.Json` 10.0.11: the package
-version is 10.0.11 while the assembly version is 10.0.0.0. Comparing the
+The distinction is observable in `System.Text.Json` 10.0.12: the package
+version is 10.0.12 while the assembly version is 10.0.0.0. Comparing the
 assembly reference to the package ceiling would use the wrong identity and
 version currency even though the leading major happens to match.
 
@@ -665,8 +665,8 @@ The first implementation slice is #6239. Its gates live in
 | Family composition decides inventory membership | `FamilyCompositionDecidesInventoryMembership` | implemented — #6239 |
 | Composition refuses mismatched targets and prefers the lower supplied version | `CompositionRefusesMismatchedTargetsAndPrefersTheLowerSuppliedVersion` | implemented — #6239 |
 | An empty inventory subsumes nothing | `EmptyInventorySubsumesNothing` | implemented — #6239 |
-| The browser catalog projects exact pack-owned supply rows | `StjPlatformDemos_JoinExactSupplyAndCatalogEvidence` in `DotnetInspect.Web.Tests` and `platform-index.test.ts` | implemented — first Inspect Web adoption |
-| A demo migrates only when exact policy delegation and explicit implementation-library correspondence both hold | `StjPlatformDemos_JoinExactSupplyAndCatalogEvidence` | implemented — first Inspect Web adoption |
+| The browser catalog projects exact pack-owned supply rows | `StjPlatformDemos_JoinExactSupplyAndCatalogEvidence` and `ExtensionsPlatformDemos_JoinExactSupplyAndCatalogEvidence` in `DotnetInspect.Web.Tests`, plus `platform-index.test.ts` | implemented — Inspect Web adoption |
+| A demo migrates only when exact policy delegation and explicit implementation-library correspondence both hold | `StjPlatformDemos_JoinExactSupplyAndCatalogEvidence` and `ExtensionsPlatformDemos_JoinExactSupplyAndCatalogEvidence` | implemented — Runtime and ASP.NET Core demo adoption |
 | Only an exact selected `ecosystem.platform` registration activates pruning; absent, unselected, and ASP.NET-Core-only registrations do not | `PruningActivation_RequiresSelectedPlatformRegistration` in `DotnetInspector.Queries.Tests` | pending — Workspace pruning adoption under #6012 and #6570 |
 | The selected Platform registration activates comparison only with its associated exact target inventory | `PruningActivation_RequiresExactTargetInventoryCorrespondence` in `DotnetInspector.Queries.Tests` | pending — Workspace pruning adoption under #6012 and #6570 |
 | An acquired exact pack replaces projected supplied versions | `Pruning_ExactPackReplacesProjectedVersions` | pending — projection slice |

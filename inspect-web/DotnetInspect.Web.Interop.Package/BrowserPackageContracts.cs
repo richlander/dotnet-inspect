@@ -140,6 +140,7 @@ public sealed record BrowserMemberSurface(
     bool IsObsolete,
     int GenericArity,
     int? MetadataToken,
+    int? DeclarationMetadataToken,
     string? ReturnType,
     BrowserParameterSurface[] Parameters,
     string? DocumentationId,
@@ -275,25 +276,6 @@ public sealed record BrowserPackageAssemblyQueryPattern(
     int MaximumOperandLength,
     int MaximumPackages);
 
-public sealed record BrowserGalleryPackageTypeSuggestion(
-    string Value,
-    string Label);
-
-public sealed record BrowserGalleryPackageTypeFacet(
-    string Id,
-    string Label,
-    string Summary,
-    BrowserGalleryPackageTypeSuggestion[] Suggestions);
-
-public sealed record BrowserGalleryDiscoveryOrder(
-    string Id,
-    string Label,
-    string Summary);
-
-public sealed record BrowserGalleryDiscoveryCatalog(
-    BrowserGalleryPackageTypeFacet PackageType,
-    BrowserGalleryDiscoveryOrder[] Orders);
-
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryEvidenceScope>))]
 public enum BrowserPackageQueryEvidenceScope
 {
@@ -366,7 +348,6 @@ public enum BrowserPackageQueryCompletionKind
     SourcePageLimitReached,
     ClientPageLimitReached,
     Failed,
-    GalleryResponseComplete,
     ExactPackageComplete,
     ExplicitCandidatesComplete,
 }
@@ -381,7 +362,6 @@ public sealed record BrowserPackageQueryCompletion(
     int Failures,
     BrowserPackageQueryCompletionKind Kind,
     int? SourceCandidates = null,
-    long? EstimatedTotalHits = null,
     int? SemanticMisses = null,
     int? NotApplicable = null,
     string? Scope = null);
@@ -611,7 +591,6 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPlatformCatalog))]
 [JsonSerializable(typeof(BrowserPackageQueryFacetCatalog))]
 [JsonSerializable(typeof(BrowserPackageAssemblyQueryPattern[]))]
-[JsonSerializable(typeof(BrowserGalleryDiscoveryCatalog))]
 [JsonSerializable(typeof(BrowserPackageQueryEvent))]
 [JsonSerializable(typeof(BrowserPackageQueryResult))]
 [JsonSerializable(typeof(BrowserPackageQueryCancellation))]

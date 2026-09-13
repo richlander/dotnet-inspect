@@ -25,7 +25,7 @@ internal static class WorkspaceProjectionFixture
     static readonly LibraryBodyIndex BodyIndex = LibraryBodyIndex.OpenFromPrefetchedImage(
         "SealingOnly.dll", [.. BodyIndexImage], LibraryBodyAnalysisFeatures.None);
 
-    internal static void ExerciseAll(WorkspaceProjectionContractAudit audit)
+    internal static async Task ExerciseAll(WorkspaceProjectionContractAudit audit)
     {
         for (int variant = 0; variant < 2; variant++)
         {
@@ -41,7 +41,7 @@ internal static class WorkspaceProjectionFixture
             ExerciseIdentityValues(audit, variant);
             ProjectModuleHash(audit, SentinelImage(variant), variant);
         }
-        ExerciseQueryResults(audit);
+        await ExerciseQueryResults(audit);
         ExerciseSentinelOpenRead(audit);
         ExerciseOrderedCollections(audit);
     }
@@ -453,7 +453,7 @@ internal static class WorkspaceProjectionFixture
         }
     }
 
-    internal static void ExerciseQueryResults(WorkspaceProjectionContractAudit audit)
+    internal static async Task ExerciseQueryResults(WorkspaceProjectionContractAudit audit)
     {
         foreach (int variant in new[] { 0, 1 })
         {
@@ -461,7 +461,7 @@ internal static class WorkspaceProjectionFixture
             var root = Descriptor(Image($"QueryRoot-{variant}", metadata => Define(metadata)), variant: variant);
             foreach (var failed in FailureDescriptors(variant))
             {
-                using var workspace = new InspectionWorkspace();
+                await using var workspace = new InspectionWorkspace();
                 var participant = new AssemblyContextParticipant(root, policy);
                 AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
                     [participant, new(failed.Assembly, policy)]);
@@ -475,7 +475,7 @@ internal static class WorkspaceProjectionFixture
                 audit.Compare(M.QueryResult, source, evidence, context, inputs);
                 Assert.Same(inputs[failed.Assembly.Registration], evidence.Input);
             }
-            using var availableWorkspace = new InspectionWorkspace();
+            await using var availableWorkspace = new InspectionWorkspace();
             var rootParticipant = new AssemblyContextParticipant(root, policy);
             var availableGroup = availableWorkspace.CreateAssemblyContextGroup([rootParticipant]);
             var available = Assert.IsType<AssemblyContextTypeResolutionResult.Available>(

@@ -24,6 +24,10 @@ namespace DotnetInspect.Cli.CommandLine;
 /// </remarks>
 public sealed class PrefixResolutionException(string message) : Exception(message);
 
+internal sealed record PrefixPackageResolution(
+    SourceSelector.PackageReference[] Packages,
+    IReadOnlyList<PrefixSearchCompletion> Limits);
+
 /// <summary>
 /// Shared helper methods for command-line argument processing.
 /// Provides file path classification and version number detection.
@@ -101,7 +105,7 @@ public static class CommandLineHelpers
     /// <summary>
     /// Resolves a package ID prefix to a list of matching package names via NuGet search.
     /// </summary>
-    internal static async Task<SourceSelector.PackageReference[]> ResolvePrefixPackagesAsync(
+    internal static async Task<PrefixPackageResolution> ResolvePrefixPackagesAsync(
         PackagePrefixRequest request,
         HttpClient client,
         bool verbose,
@@ -112,11 +116,11 @@ public static class CommandLineHelpers
 
         log?.Invoke($"Resolving packages with prefix: {prefix}");
 
-        List<NuGetSearchResult> results;
+        NuGetSearchOutcome outcome;
         SourceSelector.PackageReference[] packages;
         try
         {
-            results = await NuGetSearchService.SearchByPrefixAsync(
+            outcome = await NuGetSearchService.SearchByPrefixWithStateAsync(
                 client,
                 prefix,
                 take: request.MaxPackages,
@@ -137,7 +141,11 @@ public static class CommandLineHelpers
 
         try
         {
-            packages = results.Select(result => new SourceSelector.PackageReference(result.PackageId)).ToArray();
+            packages = outcome.Results
+                .Select(result =>
+                    new SourceSelector.PackageReference(
+                        result.PackageId))
+                .ToArray();
         }
         catch (ArgumentException)
         {
@@ -145,27 +153,58 @@ public static class CommandLineHelpers
                 $"Could not resolve packages for prefix \"{prefix}\": the source returned an invalid package ID.");
         }
 
-        if (results.Count == 0)
+        WarnIfPackagePrefixSearchIncomplete(
+            outcome.PrefixSearchLimits,
+            request);
+
+        if (outcome.Results.Count == 0)
         {
             CommandError.WriteWarning($"No packages found matching prefix \"{prefix}\"");
-            return [];
+            return new([], outcome.PrefixSearchLimits);
         }
 
-        WarnIfPackagePrefixLimitReached(results.Count, request);
-        log?.Invoke($"Found {results.Count} package(s) matching prefix \"{prefix}\"");
+        log?.Invoke($"Found {outcome.Results.Count} package(s) matching prefix \"{prefix}\"");
         foreach (var package in packages)
             log?.Invoke($"  {package.PackageId}");
 
-        return packages;
+        return new(packages, outcome.PrefixSearchLimits);
     }
 
     internal static void WarnIfPackagePrefixLimitReached(int resultCount, PackagePrefixRequest request)
     {
-        if (resultCount < request.MaxPackages)
-            return;
+        if (resultCount >= request.MaxPackages)
+        {
+            WarnIfPackagePrefixSearchIncomplete(
+                [PrefixSearchCompletion.TakeReached],
+                request);
+        }
+    }
 
-        CommandError.WriteWarning(
-            $"Package prefix \"{request.Prefix}\" reached the {request.MaxPackages}-package search limit; additional matches may be omitted.");
+    internal static void WarnIfPackagePrefixSearchIncomplete(
+        IReadOnlyList<PrefixSearchCompletion> limits,
+        PackagePrefixRequest request)
+    {
+        foreach (PrefixSearchCompletion limit in limits.Distinct())
+        {
+            string description = limit switch
+            {
+                PrefixSearchCompletion.TakeReached =>
+                    $"the {request.MaxPackages}-package search limit",
+                PrefixSearchCompletion.SourcePageLimitReached =>
+                    "the source pagination limit",
+                PrefixSearchCompletion.ClientPageLimitReached =>
+                    "the client pagination limit",
+                PrefixSearchCompletion.Complete =>
+                    throw new ArgumentException(
+                        "Complete prefix searches have no limit to disclose.",
+                        nameof(limits)),
+                _ => throw new InvalidOperationException(
+                    "Unknown prefix-search completion."),
+            };
+            CommandError.WriteWarning(
+                $"Package prefix \"{request.Prefix}\" reached {description}; "
+                + "additional matches may be omitted.");
+        }
     }
 
     internal static bool IsPrefixResolutionFailure(Exception error) =>

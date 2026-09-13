@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
@@ -432,6 +433,9 @@ internal sealed class DependencyEvidenceSourceTokens
 {
     private readonly Dictionary<PackageSourceAssociation, int> _tokens =
         new(AssociationComparer.Instance);
+    private readonly Dictionary<
+        PackageAcquisitionCandidateCorrespondence,
+        int> _candidateTokens = [];
 
     private DependencyEvidenceSourceTokens()
     {
@@ -440,12 +444,21 @@ internal sealed class DependencyEvidenceSourceTokens
     public static DependencyEvidenceSourceTokens Create(
         DependencyEvidenceProjection projection)
     {
+        return Create(
+            [
+                projection.Summary.PackagePrefix?.Source,
+                .. projection.Roots.Select(static root => root.Source),
+                .. projection.Failures.Select(static failure =>
+                    failure.Source),
+            ]);
+    }
+
+    internal static DependencyEvidenceSourceTokens Create(
+        IEnumerable<PackageSourceResultIdentity?> sources)
+    {
         var tokens = new DependencyEvidenceSourceTokens();
-        tokens.Reserve(projection.Summary.PackagePrefix?.Source);
-        foreach (DependencyEvidenceRootRow root in projection.Roots)
-            tokens.Reserve(root.Source);
-        foreach (DependencyEvidenceFailureRow failure in projection.Failures)
-            tokens.Reserve(failure.Source);
+        foreach (PackageSourceResultIdentity? source in sources)
+            tokens.Reserve(source);
         return tokens;
     }
 
@@ -460,6 +473,27 @@ internal sealed class DependencyEvidenceSourceTokens
                 ProducerDisplay = source.Producer.Display,
                 TransportKind = source.TransportKind,
             };
+
+    internal int ProjectAssociation(PackageSourceAssociation association)
+    {
+        ArgumentNullException.ThrowIfNull(association);
+        if (_tokens.TryGetValue(association, out int token))
+            return token;
+        token = _tokens.Count + 1;
+        _tokens[association] = token;
+        return token;
+    }
+
+    internal int ProjectCorrespondence(
+        PackageAcquisitionCandidateCorrespondence correspondence)
+    {
+        ArgumentNullException.ThrowIfNull(correspondence);
+        if (_candidateTokens.TryGetValue(correspondence, out int token))
+            return token;
+        token = _candidateTokens.Count + 1;
+        _candidateTokens[correspondence] = token;
+        return token;
+    }
 
     private int Reserve(PackageSourceResultIdentity? source)
     {

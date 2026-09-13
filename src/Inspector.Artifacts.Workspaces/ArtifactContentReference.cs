@@ -1,49 +1,52 @@
+using System.Collections.Immutable;
 using Inspector.Artifacts;
 
 namespace Inspector.Artifacts.Workspaces;
 
 /// <summary>
-/// An owner-issued reference to one published artifact's identity,
-/// registration, roles, and retained content.
+/// Owner-issued resource-free evidence for one published immutable artifact.
 /// </summary>
 /// <remarks>
-/// The query lease remains caller-owned. Registration and role observations
-/// and content opens revalidate it against the issuing session. Binding
-/// integrity is gated by
-/// <c>ArtifactContentReference_BindsIdentityRegistrationRoleAndContent</c>.
+/// Content and digest access require separate explicit query or content-lease
+/// authority.
 /// </remarks>
 public sealed class ArtifactContentReference
 {
-    private readonly ArtifactSetSession _owner;
-    private readonly ArtifactQueryLease _lease;
-
     internal ArtifactContentReference(
-        ArtifactSetSession owner,
         ArtifactDescriptor descriptor,
-        ArtifactQueryLease lease)
+        ArtifactAcquisitionRegistration registration,
+        ImmutableArray<ArtifactWorkspaceRole> roles)
     {
-        _owner = owner;
+        if (!ReferenceEquals(
+                descriptor.Identity,
+                registration.Artifact))
+        {
+            throw new ArgumentException(
+                "The artifact descriptor and registration must name the same identity.",
+                nameof(registration));
+        }
+
         Descriptor = descriptor;
-        _lease = lease;
+        Registration = registration;
+        Roles = roles;
     }
 
+    public ArtifactIdentity Artifact => Descriptor.Identity;
+    public ArtifactGenerationIdentity Generation => Artifact.Generation;
     public ArtifactDescriptor Descriptor { get; }
+    public ArtifactAcquisitionRegistration Registration { get; }
+    public IArtifactProvenance Provenance => Registration.Provenance;
+    public ImmutableArray<ArtifactWorkspaceRole> Roles { get; }
 
-    public ArtifactAcquisitionRegistration Registration =>
-        _owner.GetRegistration(Descriptor.Identity, _lease);
+    public bool HasRole(ArtifactWorkspaceRole role)
+    {
+        ArgumentNullException.ThrowIfNull(role);
+        foreach (ArtifactWorkspaceRole candidate in Roles)
+        {
+            if (ReferenceEquals(candidate, role))
+                return true;
+        }
 
-    public bool HasRole(ArtifactWorkspaceRole role) =>
-        _owner.HasRole(Descriptor.Identity, role, _lease);
-
-    public Stream OpenRead() =>
-        _owner.OpenRead(Descriptor.Identity, _lease);
-
-    public ArtifactContentAccessOutcome<ArtifactContentDigest> GetContentDigest(
-        Action<long> chargeWork,
-        CancellationToken cancellationToken = default) =>
-        _owner.GetContentDigest(
-            Descriptor.Identity,
-            _lease,
-            chargeWork,
-            cancellationToken);
+        return false;
+    }
 }

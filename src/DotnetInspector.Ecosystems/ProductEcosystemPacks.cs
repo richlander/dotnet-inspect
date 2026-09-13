@@ -1,4 +1,7 @@
+using DotnetInspector.Platforms;
+using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
+using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Ecosystems;
@@ -7,7 +10,7 @@ internal static class ProductEcosystemPacks
 {
     internal static EcosystemPackRegistry Registry { get; } = new(
     [
-        new(
+        ProjectWorkspace(new(
             EcosystemPackIds.Platform,
             "Platform",
             "Core .NET product demos.",
@@ -20,15 +23,19 @@ internal static class ProductEcosystemPacks
             ])
         {
             NamespaceRoots = ["System"],
-        },
-        new(
+        }, "ecosystem.platform",
+        [
+            new WorkspaceEcosystemPopulationDeclaration.Platform(
+                new PlatformLibraryPopulationDeclaration(PlatformFamily.DotNetRuntime)),
+        ]),
+        ProjectWorkspace(new(
             EcosystemPackIds.MicrosoftExtensions,
             "Microsoft.Extensions",
-            "Microsoft.Extensions package and demo content.",
+            "Microsoft.Extensions package discovery and product demos.",
             200,
             PackageSetIds.MicrosoftExtensions,
             [
-                Demo(ProductDemoIds.ExtensionsCallGraph, "Cross-package call graph", "Trace calls across three packages", 200, CreateExtensionsCallGraphRecords),
+                Demo(ProductDemoIds.ExtensionsCallGraph, "Cross-library call graph", "Trace calls across three Platform libraries", 200, CreateExtensionsCallGraphRecords),
                 Demo(ProductDemoIds.ConfigBindCallGraph, "Configuration Bind", "Recursive binder call graph", 400, CreateConfigBindCallGraphRecords),
                 Demo(ProductDemoIds.OptionsAddCallGraph, "Options hub", "Inbound fan-in at AddOptions", 500, CreateOptionsAddCallGraphRecords),
                 Demo(ProductDemoIds.DiTryAddCallGraph, "DI TryAdd hub", "Keyed/scoped Try* fan-in", 600, CreateDiTryAddCallGraphRecords),
@@ -42,8 +49,12 @@ internal static class ProductEcosystemPacks
                 new("Microsoft.Extensions.Configuration.Abstractions"),
                 new("Microsoft.Extensions.Logging.Abstractions"),
             ],
-        },
-        new(
+        }, "ecosystem.microsoft-extensions",
+        [
+            new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
+                new PackagePrefixDeclaration("Microsoft.Extensions.")),
+        ]),
+        ProjectWorkspace(new(
             EcosystemPackIds.AspNetCore,
             "ASP.NET Core",
             "ASP.NET Core package content.",
@@ -57,8 +68,14 @@ internal static class ProductEcosystemPacks
                 new("Microsoft.AspNetCore.OpenApi"),
                 new("Microsoft.AspNetCore.Authentication.JwtBearer"),
             ],
-        },
-        new(
+        }, "ecosystem.aspnetcore",
+        [
+            new WorkspaceEcosystemPopulationDeclaration.Platform(
+                new PlatformLibraryPopulationDeclaration(PlatformFamily.AspNetCore)),
+            new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
+                new PackagePrefixDeclaration("Microsoft.AspNetCore.")),
+        ]),
+        ProjectWorkspace(new(
             EcosystemPackIds.Aspire,
             "Aspire",
             "Aspire package and demo content.",
@@ -73,8 +90,44 @@ internal static class ProductEcosystemPacks
             NamespaceRoots = ["Aspire"],
             CorePackages = [new("Aspire.Hosting")],
             ToolPackages = [new("Aspire.Cli")],
-        },
+        }, "ecosystem.aspire",
+        [
+            new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
+                new PackagePrefixDeclaration("Aspire.")),
+        ]),
     ]);
+
+    internal static WorkspacePlan PlatformWorkspacePlan { get; } = EcosystemWorkspacePlanFactory.Create(
+        Registry,
+        [
+            EcosystemPackIds.Platform,
+            EcosystemPackIds.AspNetCore,
+            EcosystemPackIds.MicrosoftExtensions,
+        ]);
+
+    internal static WorkspacePlan AllKnownWorkspacePlan { get; } = EcosystemWorkspacePlanFactory.Create(
+        Registry,
+        [
+            EcosystemPackIds.Platform,
+            EcosystemPackIds.AspNetCore,
+            EcosystemPackIds.MicrosoftExtensions,
+            EcosystemPackIds.Aspire,
+        ],
+        requireAllPacks: true);
+
+    private static EcosystemPackRegistration ProjectWorkspace(
+        EcosystemPackRegistration pack,
+        string lowerIdentity,
+        WorkspaceEcosystemPopulationDeclaration[] populations) =>
+        pack with
+        {
+            WorkspaceRegistration = new(
+                WorkspaceEcosystemRegistrationId.Create(lowerIdentity),
+                pack.NamespaceRoots,
+                pack.CorePackages,
+                populations,
+                pack.Scanner),
+        };
 
     private static EcosystemDemoRegistration Demo(
         string scenarioId,
@@ -134,12 +187,21 @@ internal static class ProductEcosystemPacks
     private static InspectionDefinitionRecord[] CreateExtensionsCallGraphRecords()
     {
         const int v = InspectionDefinitionJson.CurrentSchemaVersion;
-        var diAbstractions = Package(
+        var diAbstractions = Platform(
+            "aspnetcore",
             "Microsoft.Extensions.DependencyInjection.Abstractions",
-            "10.0.0",
+            "10.0.12",
             "net10.0");
-        var logging = Package("Microsoft.Extensions.Logging", "10.0.0", "net10.0");
-        var http = Package("Microsoft.Extensions.Http", "10.0.0", "net10.0");
+        var logging = Platform(
+            "aspnetcore",
+            "Microsoft.Extensions.Logging",
+            "10.0.12",
+            "net10.0");
+        var http = Platform(
+            "aspnetcore",
+            "Microsoft.Extensions.Http",
+            "10.0.12",
+            "net10.0");
         return
         [
             new WorkspaceDefinition(
@@ -151,8 +213,8 @@ internal static class ProductEcosystemPacks
                         framework: "net10.0",
                         members: [diAbstractions, logging, http]),
                 ],
-                title: "Extensions cross-package call graph",
-                description: "DI Abstractions + Logging + Http for multi-package call graph."),
+                title: "Extensions cross-library call graph",
+                description: "DI Abstractions + Logging + Http from the ASP.NET Core Platform."),
             new ViewDefinition(
                 v,
                 "try-add-enumerable-call-graph",
@@ -172,8 +234,8 @@ internal static class ProductEcosystemPacks
             new ScenarioDefinition(
                 v,
                 ProductDemoIds.ExtensionsCallGraph,
-                title: "Cross-package call graph",
-                description: "Trace calls across three packages",
+                title: "Cross-library call graph",
+                description: "Trace calls across three Platform libraries",
                 workspace: "extensions-callgraph",
                 context: "extensions",
                 view: "try-add-enumerable-call-graph",
@@ -231,13 +293,17 @@ internal static class ProductEcosystemPacks
     }
 
     /// <summary>
-    /// Single-package dense recursive graph: <c>ConfigurationBinder.Bind</c>.
+    /// Platform-library dense recursive graph: <c>ConfigurationBinder.Bind</c>.
     /// High fan-out into binder internals (arrays, conversion, BindingPoint).
     /// </summary>
     private static InspectionDefinitionRecord[] CreateConfigBindCallGraphRecords()
     {
         const int v = InspectionDefinitionJson.CurrentSchemaVersion;
-        var binder = Package("Microsoft.Extensions.Configuration.Binder", "10.0.0", "net10.0");
+        var binder = Platform(
+            "aspnetcore",
+            "Microsoft.Extensions.Configuration.Binder",
+            "10.0.12",
+            "net10.0");
         return
         [
             new WorkspaceDefinition(
@@ -276,13 +342,17 @@ internal static class ProductEcosystemPacks
     }
 
     /// <summary>
-    /// Single-package inbound hub: <c>AddOptions(IServiceCollection)</c>.
+    /// Platform-library inbound hub: <c>AddOptions(IServiceCollection)</c>.
     /// Sibling Configure/PostConfigure/ValidateOnStart methods fan into the hub.
     /// </summary>
     private static InspectionDefinitionRecord[] CreateOptionsAddCallGraphRecords()
     {
         const int v = InspectionDefinitionJson.CurrentSchemaVersion;
-        var options = Package("Microsoft.Extensions.Options", "10.0.0", "net10.0");
+        var options = Platform(
+            "aspnetcore",
+            "Microsoft.Extensions.Options",
+            "10.0.12",
+            "net10.0");
         return
         [
             new WorkspaceDefinition(
@@ -321,15 +391,16 @@ internal static class ProductEcosystemPacks
     }
 
     /// <summary>
-    /// Package-local inbound hub: <c>TryAdd(IServiceCollection, ServiceDescriptor)</c>.
+    /// Platform-library inbound hub: <c>TryAdd(IServiceCollection, ServiceDescriptor)</c>.
     /// Keyed/scoped/singleton/transient Try* overloads fan into the hub (high fan-in).
     /// </summary>
     private static InspectionDefinitionRecord[] CreateDiTryAddCallGraphRecords()
     {
         const int v = InspectionDefinitionJson.CurrentSchemaVersion;
-        var di = Package(
+        var di = Platform(
+            "aspnetcore",
             "Microsoft.Extensions.DependencyInjection.Abstractions",
-            "10.0.0",
+            "10.0.12",
             "net10.0");
         return
         [
@@ -376,7 +447,11 @@ internal static class ProductEcosystemPacks
     private static InspectionDefinitionRecord[] CreateHttpAddHttpClientCallGraphRecords()
     {
         const int v = InspectionDefinitionJson.CurrentSchemaVersion;
-        var http = Package("Microsoft.Extensions.Http", "10.0.0", "net10.0");
+        var http = Platform(
+            "aspnetcore",
+            "Microsoft.Extensions.Http",
+            "10.0.12",
+            "net10.0");
         return
         [
             new WorkspaceDefinition(

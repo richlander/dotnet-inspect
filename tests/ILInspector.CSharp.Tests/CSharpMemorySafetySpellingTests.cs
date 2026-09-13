@@ -79,6 +79,80 @@ public sealed class CSharpMemorySafetySpellingTests
     }
 
     [Fact]
+    public void SingleDeclarationOutcomeCarriesModelAwareSpelling()
+    {
+        ApiType type = Type(MemorySafetyRulesState.Updated);
+        ApiMember member = Method(
+            "Run",
+            MemorySafetyRulesState.Updated,
+            ContractKind.Explicit,
+            MemorySafetyPointerEvidence.Absent);
+
+        CSharpMemberDeclarationOutcome.Rendered rendered = Assert.IsType<
+            CSharpMemberDeclarationOutcome.Rendered>(
+                Formatter(CSharpMemorySafetyLanguage.UpdatedCallerContracts)
+                    .FormatMemberOutcome(type, member));
+
+        Assert.True(HasWord(rendered.Declaration.Text, "unsafe"));
+        Assert.False(rendered.UsesCompatibilitySpelling);
+    }
+
+    [Fact]
+    public void SingleDeclarationOutcomeCarriesVisibleUnavailability()
+    {
+        ApiType type = Type(MemorySafetyRulesState.Updated);
+        ApiMember property = Method(
+            "Value",
+            MemorySafetyRulesState.Updated,
+            ContractKind.None,
+            MemorySafetyPointerEvidence.Absent);
+        property.Kind = "property";
+        property.SignatureModel!.ReturnType = "int";
+
+        CSharpMemberDeclarationOutcome.NotRendered notRendered = Assert.IsType<
+            CSharpMemberDeclarationOutcome.NotRendered>(
+                Formatter(CSharpMemorySafetyLanguage.UpdatedCallerContracts)
+                    .FormatMemberOutcome(type, property));
+
+        Assert.Equal(type.FullName, notRendered.Diagnostic.TypeName);
+        Assert.Equal(property.Name, notRendered.Diagnostic.MemberName);
+        Assert.Contains(
+            "not supported",
+            notRendered.Diagnostic.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void SingleDeclarationOutcomeDistinguishesOlderSurfaceCompatibility()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Older",
+            Kind = "class",
+        };
+        var member = new ApiMember
+        {
+            Name = "Run",
+            Kind = "method",
+            IsUnsafe = true,
+            SignatureModel = new ApiSignature
+            {
+                MemberName = "Run",
+                ReturnType = "void",
+            },
+        };
+
+        CSharpMemberDeclarationOutcome.Rendered rendered = Assert.IsType<
+            CSharpMemberDeclarationOutcome.Rendered>(
+                Formatter(CSharpMemorySafetyLanguage.UpdatedCallerContracts)
+                    .FormatMemberOutcome(type, member));
+
+        Assert.True(HasWord(rendered.Declaration.Text, "unsafe"));
+        Assert.True(rendered.UsesCompatibilitySpelling);
+    }
+
+    [Fact]
     public void UpdatedNoneIgnoresCompatibilityIsUnsafe()
     {
         ApiType type = Type(MemorySafetyRulesState.Updated);

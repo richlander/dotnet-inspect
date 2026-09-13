@@ -1,3 +1,4 @@
+using DotnetInspector.Cache;
 using System.IO.Compression;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Output;
@@ -97,7 +98,7 @@ public sealed class PackageExtractorOfflineTests : IDisposable
         string sourceKey = NuGetCache.GetSourceKey(SourceUrl);
         CommitPackage(packageName, Version, sourceKey);
         var source = new NuGetFetch.PackageSource("private", SourceUrl);
-        Core.CoreCache.Set(
+        DotnetInspector.Cache.PersistentCache.Set(
             "versions-v5",
             PackageExtractor.GetLatestVersionCacheKey(packageName, source),
             Version,
@@ -172,7 +173,7 @@ public sealed class PackageExtractorOfflineTests : IDisposable
         string sourceKey = NuGetCache.GetSourceKey(
             "https://private.invalid/v3/index.json");
         string oldEntry = Path.Combine(
-            Core.CoreCache.GetCategoryPath("package-content-v4"),
+            DotnetInspector.Cache.PersistentCache.GetCategoryPath("package-content-v4"),
             packageName.ToLowerInvariant(),
             Version,
             sourceKey);

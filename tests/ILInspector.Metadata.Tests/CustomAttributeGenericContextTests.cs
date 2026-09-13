@@ -112,7 +112,12 @@ public sealed class CustomAttributeGenericContextTests
         Assert.Equal([false, false, false, false], fixedFlags);
         Assert.Empty(namedFlags);
         Assert.Equal([64, 5, 32, 4], measuredCharges);
-        Assert.Equal(measuredCharges, ordinaryCharges);
+        Assert.Equal(
+            [
+                reader.GetBlobReader(attribute.Value).Length,
+                .. measuredCharges,
+            ],
+            ordinaryCharges);
         Assert.Equal(3, work.BytesSkipped);
     }
 

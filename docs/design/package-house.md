@@ -25,8 +25,8 @@ through their package and Workspace paths.
 
 The current host-neutral implementation floor is `PackageHouse` in
 `DotnetInspector.Packages`. It executes exact, candidate-bound, and typed
-selecting `Settle` and `Acquire` requests through one Package Source
-Model-issued settlement lease. `PackageHouseDependencyInputAdapter` in
+selecting `Settle` and `Acquire` requests by consuming one Package Source
+Model-issued operation lease. `PackageHouseDependencyInputAdapter` in
 `DotnetInspector.PackageQueries` adopts normalized declaration or produced-
 relationship evidence without copying its authorship or processing semantics.
 `DesktopPackageSourceComposition` still constructs desktop capabilities and
@@ -142,24 +142,27 @@ PackageHouse does not accept transport URLs, rendered dependency rows, asset
 paths, assembly names, or package labels as substitutes for those typed
 inputs.
 
-## Source-settlement lease
+## Package Source operation lease
 
-PackageHouse is the clearing house where source-owner-issued leases are
-acquired or borrowed and source-owner receipts are settled. For the first
-operational slice in
-[#6477](https://github.com/richlander/dotnet-inspect/issues/6477), the Package
-Source Model issues one `PackageSourceSettlementLease` over an injected
-configured-authority-to-`IPackageSourceClient` capability and a lower-owner
-operation-context factory. PackageHouse consumes that lease; it does not mint,
-rename, or reinterpret it.
+PackageHouse consumes one already-issued `PackageSourceOperationLease` for each
+operation. The Package Source Model issues that resource from its root
+settlement lifetime over host-supplied configured-authority clients.
+PackageHouse does not issue, rename, wrap, retain, or publish either lease.
 
-The lease owns one package acquisition candidate-issuer identity. It settles:
+The root settlement generation owns one package acquisition candidate-issuer
+identity. Each operation lease owns one lower-owner operation context and
+exercises that generation's candidate authority. PackageHouse owns the exact
+operation lease throughout settlement, complete discovery, selection, and
+payload acquisition, including every asynchronous suspension. It releases the
+lease synchronously on every terminal result, invalid request or plan,
+unsupported profile, cancellation, timeout, and exception. The lease settles:
 
 - caller-pinned exact candidate authorization;
 - complete version discovery across one explicit discovery contract and
   `PackageSourceAuthorization`;
-- exact manifest acquisition through a candidate issued by that lease; and
-- exact payload acquisition through a candidate issued by that lease,
+- exact manifest acquisition through a candidate issued by its root
+  generation; and
+- exact payload acquisition through a candidate issued by its root generation,
   retaining the exact source-result identity and content generation.
 
 The authorization value remains package-source-owner evidence. The source
@@ -168,26 +171,21 @@ the exact configured-authority association and the exact client that performed
 the operation. PackageHouse neither discovers a broader authority set nor
 reconstructs source identity from endpoints.
 
-When a caller omits `NuGetOperationContext`, the lease uses that injected
-factory and disposes the created context after the settlement. A
-caller-supplied context remains caller-owned.
-
-Retiring the lease rejects new settlement and candidate use. Completed
-candidate, discovery, manifest, failure, and timeout evidence remains valid as
-data after retirement. Retirement does not dispose source clients,
-authentication contexts, transports, caller-supplied `NuGetOperationContext`
-instances, payload streams, package stores, artifact content, or Workspace
-participants.
+Releasing the operation lease ends its context and root registration.
+Completed candidate, discovery, failure, timeout, receipt, and payload evidence
+remains valid as data after release. Results and receipts retain no live source
+lease authority. Release does not dispose source clients, authentication
+contexts, transports, payload streams, package stores, artifact content, or
+Workspace participants.
 
 `DesktopPackageSourceComposition` owns its desktop capabilities and supplies
 them to one Package Source Model-issued settlement lease for its lifetime.
 Browser/Wasm and query adapters supply their host-created clients through the
 same lease contract.
 
-The current step-4 floor routes exact and selecting settlement and acquisition
-through this substrate. Borrowing or transfer across an `await` boundary
-remains owned by
-[#6544](https://github.com/richlander/dotnet-inspect/issues/6544).
+This is the adopted PackageHouse operation-ownership step 17b under
+[#6544](https://github.com/richlander/dotnet-inspect/issues/6544). Library
+ownership and `Realize` adoption remain separate focused steps.
 
 ## Package demand
 
@@ -217,11 +215,12 @@ PackageHouse does not interpret selector text or reproduce semantic version
 ordering.
 
 The candidate-bound arm accepts one `PackageAcquisitionCandidate` already
-issued by the supplied source-settlement lease. Execution retains that exact
-candidate and its reporting-authority correspondence rather than
+issued by the supplied operation lease's root generation. A candidate may be
+issued by an earlier operation from that same generation. Execution retains
+that exact candidate and its reporting-authority correspondence rather than
 reauthorizing its coordinate as a broader caller-pinned demand. Every
-candidate authority must remain authorized by the House; another lease's
-candidate is rejected as foreign correspondence.
+candidate authority must remain authorized by the House; another root
+generation's candidate is rejected as foreign correspondence.
 
 `PackageHouseDependencyInputAdapter` binds that lower demand to the exact
 normalized root plus one declaration or produced relationship. It retains the
@@ -278,9 +277,12 @@ not own graph scheduling, cycle termination, depth, or traversal work budgets.
 
 The current `PackageHouse.ExecuteAsync` floor supports `Settle` and `Acquire`.
 One `PackageHouse` instance retains the host's package-source authorization and
-an optional `PackagePayloadAcquisitionPlan`. Each operation separately accepts
-the request and explicitly receives the source-settlement lease, caller
-cancellation, and optional request-matched operation context. `Realize` is
+an optional `PackagePayloadAcquisitionPlan`. Each invocation accepts the
+request and consumes one request-deadline-matched
+`PackageSourceOperationLease` by ordinary resource-parameter ownership
+transfer. Caller cancellation and the operation ceiling are carried only by
+the lease's Package Source-owned context. House operation declarations accept
+only deadlines representable by that lower-owner context. `Realize` is
 rejected until the realization owner is composed in its adoption step.
 
 Execution returns the `PackageHouseSettlement` union. Both arms carry one
@@ -298,8 +300,8 @@ The host supplies:
 - any permitted package input capability;
 - network and local-source permission;
 - cache and payload limits;
-- one owner-issued package operation context;
-- caller cancellation; and
+- one owner-issued package source operation lease carrying caller cancellation
+  and request/operation deadlines; and
 - any policy generation required by the focused owners.
 
 The plan is capability, not result. Registration does not prove a source
@@ -309,14 +311,10 @@ or a payload is authorized.
 The current execution floor binds stable host capabilities to the
 `PackageHouse` instance. `PackagePayloadAcquisitionPlan` groups the
 authority-and-producer-scoped store provider, payload limits, transfer policy,
-and payload diagnostics. It carries no source-settlement lease, operation
-context, payload, or release obligation and does not take ownership of stores
-returned by its provider. The resource-owner-issued
-`PackageSourceSettlementLease` and any caller-owned operation context remain
-explicit invocation inputs rather than hidden fields of a House-named plan.
-This is the current Package Source Model compatibility lifetime, not a claim
-that its async use has completed the declaration and Analysis adoption tracked
-by #6544.
+and payload diagnostics. It carries no source lease, operation context,
+payload, or release obligation and does not take ownership of stores returned
+by its provider. The resource-owner-issued operation lease remains an explicit
+consumed invocation input rather than a hidden field of a House-named plan.
 
 One House operation consumes one shared operation identity and ceiling across
 all selected authorities, source routes, compatibility requests, payload
@@ -362,6 +360,13 @@ In particular:
 
 ## House result and receipts
 
+This section applies the detached-value and receipt distinctions from
+[Resource Ownership and Borrowing](resource-ownership-and-borrowing.md). The
+[resource-owner type map](resource-owner-type-map.md) records the corresponding
+implemented PackageHouse shapes. A House receipt preserves a completed
+cross-owner join; it does not mint identity merely to distinguish one object
+occurrence from another.
+
 Every terminal House result retains:
 
 - the original request and operation profile;
@@ -375,7 +380,8 @@ Every terminal House result retains:
 - selected package assets and their package-relative identities;
 - dependency-edge correspondence when the request came from traversal;
 - completion and every typed failure; and
-- one owner-issued settlement identity that consumers retain opaquely.
+- the exact request and its operation identity for request- and failure-scoped
+  correspondence.
 
 The result contains four separable receipts when the corresponding work ran:
 
@@ -386,11 +392,11 @@ The result contains four separable receipts when the corresponding work ran:
 - a **package acquisition receipt** binds the retained decision and candidate
   to the selected configured authority, source result and producer, payload
   origin, and package-content generation; and
-- a **package realization receipt** binds that acquisition to an
+- a **package realization receipt** directly binds that acquisition to one
   asset-selection-owner receipt and any library-focused handoffs.
 
 Every terminal arm retains one common immutable evidence envelope containing
-the settlement identity, every completed receipt, and every typed failure.
+the exact request, every completed receipt, and every typed failure.
 A later no-match, rejection, incompleteness, or failure does not rewrite or
 discard an earlier package-retention decision or successful acquisition.
 Recovered request-scoped failures may accompany `Settled`; operation timeout
@@ -405,9 +411,17 @@ Consumers may retain the decision without retaining payload bytes. A disposed
 payload or expired artifact session does not erase the historical decision
 evidence, but it does make content access visibly unavailable.
 
-The settlement identity does not replace package coordinate, content
-generation, Workspace membership, or dependency-edge identity. It associates
-them for this operation.
+The evidence envelope and package-to-library handoffs do not add synthetic
+settlement or handoff identities. The exact request, decision, source
+association, content generation, selector receipt, and selected asset already
+provide the owner-issued correspondence required by the operation. A future
+consumer that needs another durable cross-operation join must obtain it from
+the owner of that new boundary rather than extending PackageHouse evidence
+preemptively.
+
+The operation identity associates request-scoped deadlines and failures. It is
+not a claim that repeated execution of one reusable request has a separate
+durable settlement-occurrence identity.
 
 The implemented selecting-demand floor does not yet permit pruning or platform
 delegation after version resolution. That composition remains in the pruning
@@ -740,13 +754,13 @@ authority-bearing package evidence under their owner contracts. PackageHouse
 applies the same candidate, version, pruning, and realization semantics while
 retaining their distinct producer and transport provenance.
 
-### Retired source-settlement lease retains evidence
+### Released source operation retains evidence
 
-A Package Source Model-issued lease issues an exact candidate and settles a
-manifest failure. The host retires the lease. The candidate and failure retain
-their existing evidence semantics, but another candidate resolution or
-manifest operation through that lease is rejected. The source client remains
-alive because its host, not PackageHouse, owns it.
+A Package Source Model-issued operation lease issues an exact candidate and
+settles a manifest failure. Its consumer releases the operation. The candidate
+and failure retain their existing evidence semantics, but another candidate
+resolution or manifest operation through that lease is rejected. The source
+client remains alive because its host, not PackageHouse, owns it.
 
 ### Direct library bypasses PackageHouse
 
@@ -818,12 +832,13 @@ every supported host that uses it.
 | Claim | Required Release evidence |
 | --- | --- |
 | Execution floor | Exact, candidate-bound, and typed selecting `Settle` and `Acquire` operations produce closed House results; `Realize` remains unavailable until its owner is composed. |
-| Request association | A result retains the exact demand, operation, target context, and owner-issued settlement identity without reconstructing them from display values. |
+| Request association | A result retains the exact demand, operation identity, and target context without reconstructing them from display values or adding a second settlement identity. |
 | Normalized input adoption | One exact declaration or produced relationship, its root, authorship, processing result, candidate, target context, and House association remain linked without policy interpretation. |
 | Terminal evidence | Every terminal arm retains the same immutable evidence envelope, completed receipts, and typed failures; direct and owner-adapted operation timeouts cannot produce success. |
-| Source lease authority | One lease owns one candidate issuer; candidate-bound demands preserve the issued authority subset, while candidates from another lease and clients or results from another configured-authority association are rejected. |
-| Source lease retirement | Retirement rejects new source settlement while completed source evidence remains readable. |
-| Source capability ownership | Retiring a package-source settlement lease does not dispose caller-owned clients or caller-supplied operation contexts. |
+| Source lease authority | One operation lease acts for one root-generation candidate issuer; candidate-bound demands preserve the issued authority subset, while candidates from another root generation and clients or results from another configured-authority association are rejected. |
+| Source operation ownership | House execution releases its transferred operation after success, typed failure, invalid plan or deadline, unsupported profile, caller cancellation, operation timeout, and source exception; root settlement can then complete. |
+| Source result independence | House results, decisions, candidates, evidence, receipts, and acquired payloads retain no operation lease or live source authority. |
+| Source capability ownership | Releasing an operation or settling its root does not dispose caller-owned clients, stores, or retained payload content. |
 | Source completeness | Partial authority evidence cannot settle latest, wildcard, range, or authoritative absence, and cannot reach package-store or payload work. |
 | Pruning order | `Subsumed` skips payload acquisition and every other pruning state cannot issue platform delegation. |
 | Pruning correspondence | Platform delegation consumes the policy-issued inventory/coordinate/supply receipt, compares the coordinate through the package owner's normalization, and matches the actual supplier family and exact target version. |
@@ -843,6 +858,21 @@ owner outcomes; they do not manufacture package evidence or inspect private
 test seams.
 
 ## Demo
+
+### Evidence follows owner-issued correspondence
+
+```text
+System.Text.Json@10.0.0 request + operation identity
+  -> decision retains the exact candidate
+  -> acquisition adds authority, source, origin, and content generation
+  -> realization adds the selector-issued receipt
+  -> each library handoff adds one selected package asset
+```
+
+PackageHouse does not copy the candidate into the acquisition receipt, wrap
+the selector receipt in a second asset-selection receipt, or mint settlement
+and handoff identities that no owner consumes. Live payload and later Library
+ownership remain separate from this resource-free evidence.
 
 ### Target context crosses a dependency edge
 

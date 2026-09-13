@@ -1,15 +1,10 @@
 using DotnetInspect.Cli.Output;
-using DotnetInspector.Packages;
 
 namespace DotnetInspect.Cli.Options;
 
 public record ProjectOptions : IProjectionOptions
 {
     public string ProjectPath { get; init; } = ".";
-
-    public bool AgentsIndex { get; init; }
-
-    public string? ReadmePackageId { get; init; }
 
     public bool Print { get; init; }
 
@@ -33,13 +28,7 @@ public record ProjectOptions : IProjectionOptions
 
     public string? OutputPath { get; init; }
 
-    public bool JsonOutput { get; init; }
-
-    public bool Tabular { get; init; }
-
-    public bool Tsv { get; init; }
-
-    public bool Jsonl { get; init; }
+    public OutputFormat Format { get; init; } = OutputFormat.Markdown;
 
     public bool NoHeader { get; init; }
 
@@ -69,6 +58,4 @@ public record ProjectOptions : IProjectionOptions
     public RowWindow? Rows { get; init; }
 
     public bool Verbose { get; init; }
-
-    public NuGetSourceOptions? SourceOptions { get; init; }
 }

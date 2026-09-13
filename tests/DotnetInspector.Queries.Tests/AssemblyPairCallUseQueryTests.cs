@@ -13,9 +13,9 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class AssemblyPairCallUseQueryTests
 {
     [Fact]
-    public void ExecuteReturnsExactCallsAcrossBothPairDirections()
+    public async Task ExecuteReturnsExactCallsAcrossBothPairDirections()
     {
-        using PairContext context = PairContext.Create(
+        await using PairContext context = PairContext.Create(
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
             FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
 
@@ -70,9 +70,145 @@ public sealed class AssemblyPairCallUseQueryTests
     }
 
     [Fact]
-    public void ExecuteRejectsARegistrationOutsideTheGroup()
+    public async Task ProjectionRetainsEveryOccurrenceInBothSummaryViews()
     {
-        using PairContext context = PairContext.Create(
+        await using PairContext context = PairContext.Create(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        AssemblyPairCallUseResult result =
+            AssemblyPairCallUseQuery.Execute(
+                context.Group,
+                context.First,
+                context.Second);
+
+        AssemblyPairCallUseProjection projection =
+            AssemblyPairCallUseProjection.Create(result);
+
+        Assert.Same(result, projection.Pair);
+        Assert.True(projection.IsComplete);
+        Assert.Equal(
+            Enumerable.Range(0, result.Occurrences.Length),
+            projection.ConsumerUseSites
+                .SelectMany(site => site.OccurrenceIndexes)
+                .Order());
+        Assert.Equal(
+            Enumerable.Range(0, result.Occurrences.Length),
+            projection.ProviderApiTypes
+                .SelectMany(type => type.OccurrenceIndexes)
+                .Order());
+        Assert.All(
+            projection.ConsumerUseSites,
+            site =>
+            {
+                AssemblyPairCallUseOccurrence[] occurrences =
+                [.. site.OccurrenceIndexes.Select(
+                    index => result.Occurrences[index])];
+                Assert.All(
+                    occurrences,
+                    occurrence =>
+                    {
+                        Assert.Same(
+                            site.Source.Registration,
+                            occurrence.Source.Registration);
+                        Assert.Equal(
+                            site.SourceModuleVersionId,
+                            occurrence.SourceModuleVersionId);
+                        Assert.Equal(
+                            site.SourceMethod.MetadataToken,
+                            occurrence.SourceMethod.MetadataToken);
+                        Assert.Same(
+                            site.Target.Registration,
+                            occurrence.Target.Registration);
+                    });
+                Assert.Equal(
+                    occurrences
+                        .Select(occurrence =>
+                            occurrence.TargetMethod.DeclaringType)
+                        .Distinct(),
+                    site.TargetTypes);
+                Assert.Equal(
+                    occurrences
+                        .Select(occurrence => occurrence.TargetMethod)
+                        .Distinct(),
+                    site.TargetMethods);
+            });
+        Assert.All(
+            projection.ProviderApiTypes,
+            type =>
+            {
+                AssemblyPairCallUseOccurrence[] occurrences =
+                [.. type.OccurrenceIndexes.Select(
+                    index => result.Occurrences[index])];
+                Assert.All(
+                    occurrences,
+                    occurrence =>
+                    {
+                        Assert.Same(
+                            type.Source.Registration,
+                            occurrence.Source.Registration);
+                        Assert.Same(
+                            type.Target.Registration,
+                            occurrence.Target.Registration);
+                        Assert.Equal(
+                            type.TargetModuleVersionId,
+                            occurrence.TargetModuleVersionId);
+                        Assert.Equal(
+                            type.TargetType,
+                            occurrence.TargetMethod.DeclaringType);
+                    });
+                Assert.Equal(
+                    occurrences
+                        .Select(occurrence => occurrence.SourceMethod)
+                        .Distinct(),
+                    type.SourceMethods);
+                Assert.Equal(
+                    occurrences
+                        .Select(occurrence => occurrence.TargetMethod)
+                        .Distinct(),
+                    type.TargetMethods);
+            });
+
+        AssemblyPairCallUseConsumerUseSite repeated =
+            Assert.Single(
+                projection.ConsumerUseSites,
+                site => site.SourceMethod.Name == "RunTwice");
+        Assert.Equal(2, repeated.CallSiteCount);
+        Assert.Single(repeated.TargetTypes);
+        Assert.Single(repeated.TargetMethods);
+    }
+
+    [Fact]
+    public async Task ProjectionOrderIsIndependentOfRequestArgumentOrder()
+    {
+        await using PairContext context = PairContext.Create(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+
+        AssemblyPairCallUseProjection forward =
+            AssemblyPairCallUseProjection.Create(
+                AssemblyPairCallUseQuery.Execute(
+                    context.Group,
+                    context.First,
+                    context.Second));
+        AssemblyPairCallUseProjection reverse =
+            AssemblyPairCallUseProjection.Create(
+                AssemblyPairCallUseQuery.Execute(
+                    context.Group,
+                    context.Second,
+                    context.First));
+
+        Assert.Equal(
+            forward.ConsumerUseSites.Select(ConsumerFingerprint),
+            reverse.ConsumerUseSites.Select(ConsumerFingerprint));
+        Assert.Equal(
+            forward.ProviderApiTypes.Select(ProviderFingerprint),
+            reverse.ProviderApiTypes.Select(ProviderFingerprint));
+    }
+
+    [Fact]
+    public async Task ExecuteRejectsARegistrationOutsideTheGroup()
+    {
+        await using PairContext context = PairContext.Create(
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
             FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
         ResolvedAssemblyReference outside =
@@ -90,9 +226,9 @@ public sealed class AssemblyPairCallUseQueryTests
     }
 
     [Fact]
-    public void ExecuteDoesNotTurnVersionSkewIntoAnAbsenceClaim()
+    public async Task ExecuteDoesNotTurnVersionSkewIntoAnAbsenceClaim()
     {
-        using PairContext context = PairContext.Create(
+        await using PairContext context = PairContext.Create(
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
             FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath());
 
@@ -109,9 +245,9 @@ public sealed class AssemblyPairCallUseQueryTests
     }
 
     [Fact]
-    public void SameNameParticipantsDoNotTurnLocalCallsIntoPairGaps()
+    public async Task SameNameParticipantsDoNotTurnLocalCallsIntoPairGaps()
     {
-        using PairContext context = PairContext.Create(
+        await using PairContext context = PairContext.Create(
             FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
             FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath());
 
@@ -166,11 +302,11 @@ public sealed class AssemblyPairCallUseQueryTests
     }
 
     [Fact]
-    public void ExecuteRejectsDistinctRegistrationsForTheSamePhysicalImage()
+    public async Task ExecuteRejectsDistinctRegistrationsForTheSamePhysicalImage()
     {
         string path =
             FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
-        using PairContext context = PairContext.Create(path, path);
+        await using PairContext context = PairContext.Create(path, path);
 
         AssemblyPairCallUseRequestException exception =
             Assert.Throws<AssemblyPairCallUseRequestException>(
@@ -186,7 +322,7 @@ public sealed class AssemblyPairCallUseQueryTests
     }
 
     [Fact]
-    public void ExecuteCarriesRejectedParticipantBesideAvailableEvidence()
+    public async Task ExecuteCarriesRejectedParticipantBesideAvailableEvidence()
     {
         string callerPath =
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
@@ -209,7 +345,7 @@ public sealed class AssemblyPairCallUseQueryTests
                 () => new MemoryStream([0x00, 0x01, 0x02]),
                 AssemblyResolutionProvenance.Local(
                     "malformed pairwise call-use test"));
-        using PairContext context =
+        await using PairContext context =
             PairContext.Create(caller, malformed, callerPath);
 
         AssemblyPairCallUseResult result =
@@ -226,8 +362,46 @@ public sealed class AssemblyPairCallUseQueryTests
         Assert.Empty(result.Occurrences);
     }
 
+    static string ConsumerFingerprint(
+        AssemblyPairCallUseConsumerUseSite site) =>
+        string.Join(
+        "|",
+        site.Source.Identity.Name,
+        site.SourceModuleVersionId,
+        site.SourceMethod.MetadataToken,
+        site.Target.Identity.Name,
+        site.TargetModuleVersionId,
+        string.Join(
+            ",",
+            site.TargetTypes.Select(
+                type => type.ToQualifiedDisplayString())),
+        string.Join(
+            ",",
+            site.TargetMethods.Select(
+                method => method.MetadataToken)),
+        string.Join(",", site.OccurrenceIndexes));
+
+    static string ProviderFingerprint(
+        AssemblyPairCallUseProviderApiType type) =>
+        string.Join(
+        "|",
+        type.Source.Identity.Name,
+        type.SourceModuleVersionId,
+        type.Target.Identity.Name,
+        type.TargetModuleVersionId,
+        type.TargetType.ToQualifiedDisplayString(),
+        string.Join(
+            ",",
+            type.SourceMethods.Select(
+                method => method.MetadataToken)),
+        string.Join(
+            ",",
+            type.TargetMethods.Select(
+                method => method.MetadataToken)),
+        string.Join(",", type.OccurrenceIndexes));
+
     [Fact]
-    public void ExecuteSeparatesFunctionPointerDependenciesInPlanCache()
+    public async Task ExecuteSeparatesFunctionPointerDependenciesInPlanCache()
     {
         string directory = Path.Combine(
             Path.GetTempPath(),
@@ -261,7 +435,7 @@ public sealed class AssemblyPairCallUseQueryTests
                 BuildFunctionPointerCaller(
                     dependencyV1,
                     dependencyV2));
-            using PairContext context = PairContext.Create(
+            await using PairContext context = PairContext.Create(
                 callerPath,
                 providerPath);
 
@@ -567,7 +741,7 @@ public sealed class AssemblyPairCallUseQueryTests
         return image.ToArray();
     }
 
-    sealed class PairContext : IDisposable
+    sealed class PairContext : IAsyncDisposable
     {
         PairContext(
             InspectionWorkspace workspace,
@@ -644,6 +818,6 @@ public sealed class AssemblyPairCallUseQueryTests
             return new(workspace, group, first, second);
         }
 
-        public void Dispose() => Workspace.Dispose();
+        public ValueTask DisposeAsync() => Workspace.DisposeAsync();
     }
 }

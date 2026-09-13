@@ -29,12 +29,10 @@ new version-resolution policy or CLI adoption.
 ## Basis and consumers
 
 The design follows immutable request values and separate interpretation, as
-demonstrated by the repository's `RowSelectionPlan` and `RowSelectionExecutor`.
-`NuGetGalleryDiscoveryRequest` is supporting evidence for bounded inert source
-intent; its Gallery-specific provider, order, and response-capacity semantics
-do not transfer here. The current `ScopeResolver` supplies the search default,
-direct-package precedence, and first-occurrence oracle. Its loose flags and
-presence parameters are deliberately not the new declaration.
+demonstrated by the repository's `RowSelectionPlan`, `RowSelectionExecutor`,
+and bounded `PackagePrefixRequest`. The current `ScopeResolver` supplies the
+search default, direct-package precedence, and first-occurrence oracle. Its
+loose flags and presence parameters are deliberately not the new declaration.
 
 `PackageExtractor` and its existing `AssemblySetResolverTests` supply the
 package-reference and explicit-archive compatibility oracle. The package

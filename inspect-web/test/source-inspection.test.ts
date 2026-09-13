@@ -5,8 +5,11 @@ import test from "node:test";
 import {
   createSourceInspectionCoordinator,
   graphSourceAutoLoadRequest,
+  normalizeSourceResultSnapshot,
+  sourceResultNeedsLoad,
   type SourceInspectionDependencies,
   type SourceInspectionState,
+  type SourceResultState,
 } from "../src/source-inspection.ts";
 import type {
   BrowserSource,
@@ -49,8 +52,8 @@ function focusSnapshot(selector = "#member-filter"): MemberFocusSnapshot {
   };
 }
 
-function sourceText(value: BrowserSource | null): string | undefined {
-  return value?.text;
+function sourceText(value: SourceResultState): string | undefined {
+  return value.status === "ready" ? value.source.text : undefined;
 }
 
 function inspectionState(
@@ -67,15 +70,8 @@ function inspectionState(
     lens: "api",
     selectedMemberKey: "method:Build",
     memberSection: "source",
-    sourceRequestGeneration: 0,
-    memberSource: null,
-    memberSourceLoading: false,
-    memberSourceError: "",
-    memberSourceKey: "",
-    typeSource: null,
-    typeSourceLoading: false,
-    typeSourceError: "",
-    typeSourceKey: "",
+    memberSource: { status: "idle" },
+    typeSource: { status: "idle" },
     graphSource: { status: "closed" },
     taste: [],
     ...overrides,
@@ -144,7 +140,7 @@ test("Source composition uses shell actions and a full-area loaded surface", () 
     /case "source":\s*return renderTypeSourceHtml\(item\);/);
   assert.match(
     appSource,
-    /state\.memberSource\s*\?\s*renderSourceResult\(\{/);
+    /function renderMemberSourceHtml\(\) \{[\s\S]*switch \(state\.memberSource\.status\)[\s\S]*case "ready":[\s\S]*return renderSourceResult\(\{[\s\S]*source: state\.memberSource\.source/);
 });
 
 async function promiseSettled(promise: Promise<unknown>): Promise<boolean> {
@@ -161,8 +157,7 @@ test("hidden source work is cancelled through the shared engine boundary", () =>
   let cancellations = 0;
   const state = inspectionState({
     settings: true,
-    memberSourceLoading: true,
-    memberSourceKey: "member",
+    memberSource: { status: "loading", signature: "member" },
   });
   const coordinator = createSourceInspectionCoordinator(
     inspectionDependencies(state, {
@@ -172,22 +167,21 @@ test("hidden source work is cancelled through the shared engine boundary", () =>
   coordinator.cancelHiddenRequest();
 
   assert.equal(cancellations, 1);
-  assert.equal(state.sourceRequestGeneration, 1);
-  assert.equal(state.memberSourceLoading, false);
-  assert.equal(state.memberSourceKey, "");
+  assert.deepEqual(state.memberSource, { status: "idle" });
 
   state.settings = false;
-  state.memberSourceLoading = true;
+  state.memberSource = { status: "loading", signature: "member" };
   coordinator.cancelHiddenRequest();
   assert.equal(cancellations, 1);
-  assert.equal(state.memberSourceLoading, true);
+  assert.deepEqual(
+    state.memberSource,
+    { status: "loading", signature: "member" });
 });
 
 test("canonical transitions cancel visible source work before snapshot", () => {
   let cancellations = 0;
   const state = inspectionState({
-    memberSourceLoading: true,
-    memberSourceKey: "member",
+    memberSource: { status: "loading", signature: "member" },
   });
   const coordinator = createSourceInspectionCoordinator(
     inspectionDependencies(state, {
@@ -196,9 +190,7 @@ test("canonical transitions cancel visible source work before snapshot", () => {
 
   assert.equal(coordinator.cancelCurrentRequest(), true);
   assert.equal(cancellations, 1);
-  assert.equal(state.sourceRequestGeneration, 1);
-  assert.equal(state.memberSourceLoading, false);
-  assert.equal(state.memberSourceKey, "");
+  assert.deepEqual(state.memberSource, { status: "idle" });
   assert.equal(coordinator.cancelCurrentRequest(), false);
   assert.equal(cancellations, 1);
 });
@@ -207,8 +199,7 @@ test("member picker releases source ownership before taste invalidation", () => 
   let cancellations = 0;
   let hasConcreteOverload = true;
   const state = inspectionState({
-    memberSourceLoading: true,
-    memberSourceKey: "member",
+    memberSource: { status: "loading", signature: "member" },
   });
   const coordinator = createSourceInspectionCoordinator(
     inspectionDependencies(state, {
@@ -220,14 +211,11 @@ test("member picker releases source ownership before taste invalidation", () => 
   coordinator.cancelHiddenRequest();
 
   assert.equal(cancellations, 1);
-  assert.equal(state.sourceRequestGeneration, 1);
-  assert.equal(state.memberSourceLoading, false);
-  assert.equal(state.memberSourceKey, "");
+  assert.deepEqual(state.memberSource, { status: "idle" });
 
-  state.memberSourceKey = "";
   coordinator.cancelHiddenRequest();
   assert.equal(cancellations, 1);
-  assert.equal(state.memberSourceLoading, false);
+  assert.deepEqual(state.memberSource, { status: "idle" });
 });
 
 test("canonical commit clears a settled graph source without rendering", () => {
@@ -292,13 +280,14 @@ test("member source publishes only for the current member selection", async () =
     taste: "[\"expression-bodied-members\"]",
     isCurrent: () => current,
   });
-  assert.equal(state.memberSourceLoading, true);
+  assert.deepEqual(
+    state.memberSource,
+    { status: "loading", signature: "member-signature" });
   current = false;
   query.resolve(source("stale"));
   await load;
 
-  assert.equal(state.memberSource, null);
-  assert.equal(state.memberSourceLoading, false);
+  assert.deepEqual(state.memberSource, { status: "idle" });
   assert.deepEqual(focusRenders, [null]);
 });
 
@@ -330,9 +319,46 @@ test("current member source failures remain visible and restore focus", async ()
     isCurrent: () => true,
   });
 
-  assert.equal(state.memberSourceError, "source unavailable");
-  assert.equal(state.memberSourceLoading, false);
+  assert.deepEqual(state.memberSource, {
+    status: "failed",
+    signature: "member-signature",
+    error: "source unavailable",
+  });
   assert.deepEqual(renders, [null, "#type-list"]);
+});
+
+test("empty member source failure remains settled", async () => {
+  let queries = 0;
+  const state = inspectionState();
+  const coordinator = createSourceInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryMemberSource: async () => {
+        queries++;
+        throw new Error("");
+      },
+    }));
+
+  await coordinator.loadMemberSource({
+    signature: "member-signature",
+    packageId: "Example.Package",
+    version: "1.2.3",
+    framework: "net10.0",
+    assembly: "Example.Package",
+    type: "Example.Widget",
+    member: "Build",
+    selectorKey: "method",
+    metadataToken: 42,
+    taste: "[]",
+    isCurrent: () => true,
+  });
+
+  assert.deepEqual(state.memberSource, {
+    status: "failed",
+    signature: "member-signature",
+    error: "",
+  });
+  assert.equal(sourceResultNeedsLoad(state.memberSource, "member-signature"), false);
+  assert.equal(queries, 1);
 });
 
 test("type source caches an owned result without repainting a hidden surface", async () => {
@@ -366,8 +392,7 @@ test("type source caches an owned result without repainting a hidden surface", a
   };
 
   await coordinator.loadTypeSource(request);
-  assert.equal(state.typeSource?.text, "type");
-  assert.equal(state.typeSourceLoading, false);
+  assert.equal(sourceText(state.typeSource), "type");
   assert.equal(renders, 1);
 
   await coordinator.loadTypeSource(request);
@@ -413,16 +438,18 @@ test("type source replacement suppresses stale publication without cancelling th
   });
 
   assert.equal(cancellations, 1);
-  assert.equal(state.typeSourceKey, "second");
+  assert.deepEqual(
+    state.typeSource,
+    { status: "loading", signature: "second" });
   firstQuery.resolve(typeSource("stale"));
   await firstLoad;
-  assert.equal(state.typeSource, null);
-  assert.equal(state.typeSourceLoading, true);
+  assert.deepEqual(
+    state.typeSource,
+    { status: "loading", signature: "second" });
 
   secondQuery.resolve(typeSource("current"));
   await secondLoad;
   assert.equal(sourceText(state.typeSource), "current");
-  assert.equal(state.typeSourceLoading, false);
 });
 
 test("synchronous type source failure cannot cancel a reentrant replacement", async () => {
@@ -468,13 +495,13 @@ test("synchronous type source failure cannot cancel a reentrant replacement", as
   });
 
   assert.equal(cancellations, 1);
-  assert.equal(state.typeSourceKey, "second");
-  assert.equal(state.typeSourceLoading, true);
+  assert.deepEqual(
+    state.typeSource,
+    { status: "loading", signature: "second" });
   replacementQuery.resolve(typeSource("replacement"));
   assert.ok(replacementLoad);
   await replacementLoad;
   assert.equal(sourceText(state.typeSource), "replacement");
-  assert.equal(state.typeSourceLoading, false);
 });
 
 test("synchronous type source failure does not repeat reentrant cancellation", async () => {
@@ -506,9 +533,7 @@ test("synchronous type source failure does not repeat reentrant cancellation", a
   });
 
   assert.equal(cancellations, 1);
-  assert.equal(state.typeSourceKey, "");
-  assert.equal(state.typeSourceLoading, false);
-  assert.equal(state.typeSourceError, "");
+  assert.deepEqual(state.typeSource, { status: "idle" });
 });
 
 test("legacy member source takeover cancels the authoritative type operation first", async () => {
@@ -550,11 +575,11 @@ test("legacy member source takeover cancels the authoritative type operation fir
   });
 
   assert.equal(cancellations, 1);
-  assert.equal(state.memberSource?.text, "member");
-  assert.equal(state.typeSource, null);
+  assert.equal(sourceText(state.memberSource), "member");
+  assert.deepEqual(state.typeSource, { status: "idle" });
   typeQuery.resolve(typeSource("stale type"));
   await typeLoad;
-  assert.equal(state.typeSource, null);
+  assert.deepEqual(state.typeSource, { status: "idle" });
 });
 
 test("current type source failures remain visible and restore focus", async () => {
@@ -586,8 +611,11 @@ test("current type source failures remain visible and restore focus", async () =
     isVisible: () => true,
   });
 
-  assert.equal(state.typeSourceError, "type source unavailable");
-  assert.equal(state.typeSourceLoading, false);
+  assert.deepEqual(state.typeSource, {
+    status: "failed",
+    signature: "type",
+    error: "type source unavailable",
+  });
   assert.deepEqual(renders, [null, "#type-list"]);
 });
 
@@ -617,13 +645,12 @@ test("type cancellation completes logically before the query quiesces", async ()
 
   assert.equal(coordinator.cancelCurrentRequest(), true);
   assert.equal(cancellations, 1);
-  assert.equal(state.typeSourceLoading, false);
-  assert.equal(state.typeSourceKey, "");
+  assert.deepEqual(state.typeSource, { status: "idle" });
   assert.equal(await promiseSettled(load), false);
 
   query.resolve(typeSource("late"));
   await load;
-  assert.equal(state.typeSource, null);
+  assert.deepEqual(state.typeSource, { status: "idle" });
   assert.equal(coordinator.cancelCurrentRequest(), false);
   assert.equal(cancellations, 1);
 });
@@ -763,7 +790,6 @@ test("cancelled graph source retains the sole automatic reload request", async (
 
   const load = coordinator.openGraphSource(request, "Example.Widget.Build");
   assert.equal(coordinator.cancelCurrentRequest(), true);
-  assert.equal(state.sourceRequestGeneration, 2);
   assert.deepEqual(graphSourceAutoLoadRequest(state.graphSource), {
     request,
     title: "Example.Widget.Build",
@@ -771,6 +797,29 @@ test("cancelled graph source retains the sole automatic reload request", async (
   query.resolve(source("stale graph"));
   await load;
   assert.equal(state.graphSource.status, "cancelled");
+});
+
+test("source result loading eligibility and snapshots distinguish settled failure", () => {
+  const emptyFailure = {
+    status: "failed",
+    signature: "same",
+    error: "",
+  } as const;
+  assert.equal(sourceResultNeedsLoad({ status: "idle" }, "same"), true);
+  assert.equal(
+    sourceResultNeedsLoad(
+      { status: "loading", signature: "same" },
+      "same"),
+    false);
+  assert.equal(sourceResultNeedsLoad(emptyFailure, "same"), false);
+  assert.equal(sourceResultNeedsLoad(emptyFailure, "other"), true);
+  assert.deepEqual(
+    normalizeSourceResultSnapshot({
+      status: "loading",
+      signature: "same",
+    }),
+    { status: "idle" });
+  assert.equal(normalizeSourceResultSnapshot(emptyFailure), emptyFailure);
 });
 
 test("missing graph source payload settles without automatic reload", async () => {

@@ -22,7 +22,6 @@ type PackageOperations =
   | "getPlatformCatalog"
   | "getPlatformVersions"
   | "getPackageDocument"
-  | "listGalleryDiscoveryCatalog"
   | "listPackageAssemblyQueryPatterns"
   | "listPackageQueryFacets"
   | "loadRuntimePack"
@@ -42,6 +41,8 @@ type PackageOperations =
   | "searchTypes";
 
 type MetadataOperations =
+  | "queryMemberDeclaration"
+  | "queryPlatformMemberDeclaration"
   | "queryGraphMemberSurface"
   | "queryPackageHeapEntries"
   | "queryPackageMetadata"

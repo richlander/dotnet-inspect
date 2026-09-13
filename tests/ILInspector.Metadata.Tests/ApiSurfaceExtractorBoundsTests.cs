@@ -611,6 +611,96 @@ public sealed class ApiSurfaceExtractorBoundsTests
             BuildLargeAttributeImage(valueLength: 4_000_000));
     }
 
+    [Theory]
+    [InlineData(1, 4_096)]
+    [InlineData(512, 1)]
+    [InlineData(512, 4_096)]
+    public void SharedCustomAttributeBlob_DecodeWorkIsAdditive(
+        int attributeCount,
+        int elementCount)
+    {
+        AssertSharedCustomAttributeBlobExtracts(attributeCount, elementCount);
+    }
+
+    [Theory]
+    [Trait("Speed", "Slow")]
+    [InlineData(1, 1)]
+    [InlineData(1, 64)]
+    [InlineData(1, 512)]
+    [InlineData(1, 4_096)]
+    [InlineData(8, 1)]
+    [InlineData(8, 64)]
+    [InlineData(8, 512)]
+    [InlineData(8, 4_096)]
+    [InlineData(64, 1)]
+    [InlineData(64, 64)]
+    [InlineData(64, 512)]
+    [InlineData(64, 4_096)]
+    [InlineData(512, 1)]
+    [InlineData(512, 64)]
+    [InlineData(512, 512)]
+    [InlineData(512, 4_096)]
+    public void SharedCustomAttributeBlob_JointCostMatrix(
+        int attributeCount,
+        int elementCount)
+    {
+        AssertSharedCustomAttributeBlobExtracts(attributeCount, elementCount);
+    }
+
+    [Fact]
+    public void DecodeLocalBudgetRefusal_DoesNotBecomeSharedBlobRefusal()
+    {
+        ApiSurface cold = ExtractSharedBudgetLifecycleImage(warmIndex: false);
+        Assert.Empty(
+            Assert.Single(cold.Types, type => type.Name == "Target1")
+                .Attributes);
+        Assert.Single(
+            Assert.Single(cold.Types, type => type.Name == "Target2")
+                .Attributes);
+
+        ApiSurface warm = ExtractSharedBudgetLifecycleImage(warmIndex: true);
+        Assert.Single(
+            Assert.Single(warm.Types, type => type.Name == "Target1")
+                .Attributes);
+        Assert.Single(
+            Assert.Single(warm.Types, type => type.Name == "Target2")
+                .Attributes);
+    }
+
+    static ApiSurface ExtractSharedBudgetLifecycleImage(bool warmIndex)
+    {
+        byte[] image = BuildSharedBudgetLifecycleImage(warmIndex);
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        return ApiSurfaceExtractor.Extract(peReader);
+    }
+
+    static void AssertSharedCustomAttributeBlobExtracts(
+        int attributeCount,
+        int elementCount)
+    {
+        byte[] image = BuildSharedCustomAttributeArrayImage(
+            attributeCount,
+            elementCount);
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+
+        var extracted = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(
+            ApiSurfaceExtractor.ExtractBounded(
+                peReader,
+                ApiSurfaceExtractionScope.Public,
+                new ApiSurfaceExtractionBounds(
+                    maxTypes: attributeCount + 1,
+                    maxMembers: 0,
+                    maxInspectionFailures: 0,
+                    maxTypeForwarders: 0,
+                    maxMetadataRows: attributeCount * 2 + 16,
+                    maxRetainedTextCharacters: 8_000_000)));
+
+        Assert.Equal(attributeCount, extracted.Surface.Types.Count);
+        Assert.All(extracted.Surface.Types, type => Assert.Empty(type.Attributes));
+    }
+
     [Fact]
     public void RepeatedEnumAttributeLookups_DoNotAllocateQuadratically()
     {
@@ -3559,6 +3649,195 @@ public sealed class ApiSurfaceExtractorBoundsTests
             metadata.AddCustomAttribute(type, constructor, valueHandle);
         }
 
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildSharedCustomAttributeArrayImage(
+        int attributeCount,
+        int elementCount)
+    {
+        var metadata = Metadata("SharedAttributeBlob");
+        AssemblyReferenceHandle assembly = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Other"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle attributeType = metadata.AddTypeReference(
+            assembly,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("SampleAttribute"));
+        var constructorSignature = new BlobBuilder();
+        new BlobEncoder(constructorSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                1,
+                returnType => returnType.Void(),
+                parameters => parameters.AddParameter().Type().SZArray().Int32());
+        MemberReferenceHandle constructor = metadata.AddMemberReference(
+            attributeType,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(constructorSignature));
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteInt32(elementCount);
+        for (int index = 0; index < elementCount; index++)
+            value.WriteInt32(index);
+        value.WriteUInt16(0);
+        BlobHandle valueHandle = metadata.GetOrAddBlob(value);
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        for (int index = 0; index < attributeCount; index++)
+        {
+            TypeDefinitionHandle type = metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Abstract,
+                metadata.GetOrAddString("Samples"),
+                metadata.GetOrAddString($"Attributed{index}"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            metadata.AddCustomAttribute(type, constructor, valueHandle);
+        }
+
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildSharedBudgetLifecycleImage(bool warmIndex)
+    {
+        const int DefinitionCount = 700;
+        const int NameLength = 2_048;
+        MetadataBuilder metadata = Metadata("SharedBudgetLifecycle");
+        AssemblyReferenceHandle external = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("External.Enums"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle attributeType = metadata.AddTypeReference(
+            external,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("SampleAttribute"));
+        StringHandle longName = metadata.GetOrAddString(
+            new string('E', NameLength));
+        StringHandle longNamespace = metadata.GetOrAddString(
+            new string('N', NameLength));
+        TypeReferenceHandle enumReference = metadata.AddTypeReference(
+            external,
+            metadata.GetOrAddString("Match"),
+            longName);
+
+        var warmSignature = new BlobBuilder();
+        new BlobEncoder(warmSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                1,
+                returnType => returnType.Void(),
+                parameters => parameters.AddParameter().Type().Object());
+        MemberReferenceHandle warmConstructor = metadata.AddMemberReference(
+            attributeType,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(warmSignature));
+
+        var targetSignature = new BlobBuilder();
+        new BlobEncoder(targetSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                2,
+                returnType => returnType.Void(),
+                parameters =>
+                {
+                    parameters.AddParameter().Type().Object();
+                    parameters.AddParameter().Type().Type(
+                        enumReference,
+                        isValueType: true);
+                });
+        MemberReferenceHandle targetConstructor =
+            metadata.AddMemberReference(
+                attributeType,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(targetSignature));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        for (int index = 0; index < DefinitionCount; index++)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                longNamespace,
+                longName,
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        }
+
+        TypeDefinitionHandle warm = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Warm"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle target1 = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Target1"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle target2 = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Target2"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var warmValue = new BlobBuilder();
+        warmValue.WriteUInt16(1);
+        warmValue.WriteByte(0x55);
+        warmValue.WriteSerializedString("Missing.Enum");
+        warmValue.WriteInt32(0);
+        warmValue.WriteUInt16(0);
+        if (warmIndex)
+        {
+            metadata.AddCustomAttribute(
+                warm,
+                warmConstructor,
+                metadata.GetOrAddBlob(warmValue));
+        }
+
+        var targetValue = new BlobBuilder();
+        targetValue.WriteUInt16(1);
+        targetValue.WriteByte(0x55);
+        targetValue.WriteSerializedString("Missing.Enum");
+        targetValue.WriteInt32(0);
+        targetValue.WriteInt32(0);
+        targetValue.WriteUInt16(0);
+        BlobHandle sharedTargetValue = metadata.GetOrAddBlob(targetValue);
+        metadata.AddCustomAttribute(
+            target1,
+            targetConstructor,
+            sharedTargetValue);
+        metadata.AddCustomAttribute(
+            target2,
+            targetConstructor,
+            sharedTargetValue);
         return Serialize(metadata);
     }
 

@@ -13,7 +13,9 @@ public sealed class PackageQueryView
     [MarkoutIgnore] public string Title => TitleText.ToString();
     [MarkoutIgnore] public string Description =>
         $"Candidates: {Summary.Candidates}/{Summary.CandidateLimit}; "
-        + $"matches: {Summary.Matches}/{Summary.MatchLimit}; "
+        + (Summary.MatchLimit is int matchLimit
+            ? $"matches: {Summary.Matches}/{matchLimit}; "
+            : $"matches: {Summary.Matches}; ")
         + $"failures: {Summary.Failures}; completion: {Summary.Completion}.";
 
     [MarkoutSection(Name = "Packages")]

@@ -1189,6 +1189,33 @@ public class NuGetSearchSourcesTests
     }
 
     [Fact]
+    public async Task SearchAsync_PerFeedTakeDoesNotCapAggregateResults()
+    {
+        const string indexA = "https://a.example/v3/index.json";
+        const string indexB = "https://b.example/v3/index.json";
+        const string searchA = "https://a.example/v3/query";
+        const string searchB = "https://b.example/v3/query";
+
+        var handler = new RouteHandler
+        {
+            [indexA] = $$"""{"resources":[{"@id":"{{searchA}}","@type":"SearchQueryService"}]}""",
+            [indexB] = $$"""{"resources":[{"@id":"{{searchB}}","@type":"SearchQueryService"}]}""",
+            [searchA] = """{"data":[{"id":"A.Package","version":"1.0.0"}]}""",
+            [searchB] = """{"data":[{"id":"B.Package","version":"1.0.0"}]}"""
+        };
+        using var client = new HttpClient(handler);
+
+        NuGetSearchOutcome outcome = await NuGetSearchService.SearchAsync(
+            client,
+            "q",
+            take: 1,
+            sourceOptions: new NuGetSourceOptions { Sources = [indexA, indexB] });
+
+        Assert.Equal(["A.Package", "B.Package"], outcome.Results.Select(r => r.PackageId));
+        Assert.True(outcome.SearchLimitReached);
+    }
+
+    [Fact]
     public async Task SearchAsync_PackageSourceMappingFiltersEachResultByReportingAlias()
     {
         const string indexA = "https://a.example/v3/index.json";
@@ -1298,6 +1325,96 @@ public class NuGetSearchSourcesTests
 
         NuGetSearchResult result = Assert.Single(results);
         Assert.Equal("Contoso.Tools", result.PackageId);
+    }
+
+    [Fact]
+    public async Task SearchByPrefixAsync_AppliesAggregateLimitAcrossSources()
+    {
+        const string indexA = "https://a.example/v3/index.json";
+        const string indexB = "https://b.example/v3/index.json";
+        const string searchA = "https://a.example/v3/query";
+        const string searchB = "https://b.example/v3/query";
+        var handler = new RouteHandler
+        {
+            [indexA] = $$"""{"resources":[{"@id":"{{searchA}}","@type":"SearchQueryService"}]}""",
+            [indexB] = $$"""{"resources":[{"@id":"{{searchB}}","@type":"SearchQueryService"}]}""",
+            [searchA] = """{"data":[{"id":"Contoso.A","version":"1.0.0"}]}""",
+            [searchB] = """{"data":[{"id":"Contoso.B","version":"1.0.0"}]}""",
+        };
+        using var client = new HttpClient(handler);
+
+        List<NuGetSearchResult> results =
+            await NuGetSearchService.SearchByPrefixAsync(
+                client,
+                "Contoso.",
+                take: 1,
+                sourceOptions: new NuGetSourceOptions { Sources = [indexA, indexB] });
+
+        Assert.Single(results);
+    }
+
+    [Fact]
+    public async Task SearchByPrefixWithStateAsync_PreservesLimitBeforeSourceMapping()
+    {
+        const string index = "https://a.example/v3/index.json";
+        const string search = "https://a.example/v3/query";
+        using var config = new TempNuGetConfig(
+            [("a", index)],
+            mappings: [("a", "Contoso.Allowed")]);
+        var handler = new RouteHandler
+        {
+            [index] =
+                $$"""{"resources":[{"@id":"{{search}}","@type":"SearchQueryService"}]}""",
+            [search] = """
+                {"data":[
+                    {"id":"Contoso.Unmapped1","version":"1.0.0"},
+                    {"id":"Contoso.Unmapped2","version":"1.0.0"},
+                    {"id":"Contoso.Allowed","version":"1.0.0"}
+                ]}
+                """,
+        };
+        using var client = new HttpClient(handler);
+
+        NuGetSearchOutcome outcome =
+            await NuGetSearchService.SearchByPrefixWithStateAsync(
+                client,
+                "Contoso.",
+                take: 2,
+                sourceOptions:
+                    new NuGetSourceOptions
+                    {
+                        ConfigFile = config.Path,
+                    });
+
+        Assert.Empty(outcome.Results);
+        Assert.True(outcome.SourceSelectionIncomplete);
+        Assert.Equal(
+            [PrefixSearchCompletion.TakeReached],
+            outcome.PrefixSearchLimits);
+    }
+
+    [Fact]
+    public async Task SearchByPrefixWithStateAsync_PreservesClientPageLimit()
+    {
+        using var handler = new EndlessPrefixSearchHandler();
+        using var client = new HttpClient(handler);
+
+        NuGetSearchOutcome outcome =
+            await NuGetSearchService.SearchByPrefixWithStateAsync(
+                client,
+                "Contoso.",
+                take: 2,
+                sourceOptions:
+                    new NuGetSourceOptions
+                    {
+                        Sources = [IndexUrl],
+                    });
+
+        Assert.Empty(outcome.Results);
+        Assert.Equal(
+            [PrefixSearchCompletion.ClientPageLimitReached],
+            outcome.PrefixSearchLimits);
+        Assert.Equal(100, handler.SearchRequestCount);
     }
 
     [Fact]
@@ -2515,6 +2632,44 @@ public class NuGetSearchSourcesTests
         {
             int q = url.IndexOf('?', StringComparison.Ordinal);
             return q < 0 ? url : url[..q];
+        }
+    }
+
+    private sealed class EndlessPrefixSearchHandler : HttpMessageHandler
+    {
+        public int SearchRequestCount { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Uri uri = request.RequestUri!;
+            string body;
+            if (RouteHandler.WithoutQuery(uri.ToString())
+                .Equals(IndexUrl, StringComparison.OrdinalIgnoreCase))
+            {
+                body = ServiceIndex(SearchUrl);
+            }
+            else
+            {
+                SearchRequestCount++;
+                int skip = int.Parse(
+                    QueryParameters(uri)["skip"],
+                    System.Globalization.CultureInfo.InvariantCulture);
+                string results = string.Join(
+                    ',',
+                    Enumerable.Range(skip, 100)
+                        .Select(index =>
+                            $$"""{"id":"Other.Package{{index}}","version":"1.0.0"}"""));
+                body = $$"""{"data":[{{results}}]}""";
+            }
+
+            return Task.FromResult(
+                new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(body),
+                    RequestMessage = request,
+                });
         }
     }
 

@@ -723,11 +723,66 @@ public sealed class PolicyEvaluatorTests
     }
 
     [Fact]
+    public void CheckedInPolicyKeepsUntrustedDocumentsIndependent()
+    {
+        string repository = FindRepositoryRoot();
+        DependencyPolicyDocument policy = PolicyLoader.Load(
+            Path.Combine(repository, "eng", "dependency-policy.json"));
+        DependencyRule rule = Assert.Single(
+            policy.Rules,
+            candidate => candidate.Id
+                == "untrusted-documents-stays-independent");
+        Assert.Equal(
+            [
+                DependencyGraphKind.Project,
+                DependencyGraphKind.Assembly,
+            ],
+            rule.Graphs);
+        Assert.NotNull(rule.AllowOnly);
+        Assert.Equal(["$platform"], rule.AllowOnly);
+
+        AssertCheckedInRuleRejectsRepositoryDependency(
+            "untrusted-documents-stays-independent",
+            "UntrustedDocuments",
+            "DotnetInspector.Core");
+    }
+
+    [Fact]
     public void CheckedInPolicyKeepsNetworkingBelowCoreAndHosts()
     {
         AssertCheckedInRuleRejectsRepositoryDependency(
             "networking-stays-below-core-and-hosts",
             "DotnetInspector.Networking",
+            "DotnetInspector.Core");
+    }
+
+    [Fact]
+    public void CheckedInPolicyKeepsCacheWithinOwnerBoundary()
+    {
+        string repository = FindRepositoryRoot();
+        DependencyPolicyDocument policy = PolicyLoader.Load(
+            Path.Combine(repository, "eng", "dependency-policy.json"));
+        DependencyRule rule = Assert.Single(
+            policy.Rules,
+            candidate => candidate.Id == "cache-stays-within-owner-boundary");
+        Assert.Equal(
+            [
+                DependencyGraphKind.Project,
+                DependencyGraphKind.Assembly,
+            ],
+            rule.Graphs);
+        Assert.NotNull(rule.AllowOnly);
+        Assert.Equal(
+            [
+                "$platform",
+                "InertText",
+                "DotnetInspector.Networking",
+            ],
+            rule.AllowOnly);
+
+        AssertCheckedInRuleRejectsRepositoryDependency(
+            "cache-stays-within-owner-boundary",
+            "DotnetInspector.Cache",
             "DotnetInspector.Core");
     }
 

@@ -8,7 +8,9 @@ namespace Inspector.Resources;
 /// provide compiler-enforced move, borrow, or release semantics.
 /// </remarks>
 [AttributeUsage(
-    AttributeTargets.Class | AttributeTargets.Struct,
+    AttributeTargets.Class
+        | AttributeTargets.Struct
+        | AttributeTargets.Interface,
     AllowMultiple = false,
     Inherited = false)]
 public sealed class ResourceOwnershipAttribute : Attribute

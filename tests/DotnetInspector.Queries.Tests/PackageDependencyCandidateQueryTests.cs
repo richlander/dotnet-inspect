@@ -295,7 +295,7 @@ public sealed class PackageDependencyCandidateQueryTests
         var authorization = new DelayedPackageSourceAuthorization(
             configuredSource,
             TimeSpan.FromMilliseconds(100));
-        using PackageSourceSettlementLease lease =
+        await using PackageSourceSettlementLease lease =
             PackageSourceSettlementService.IssueLease(
                 _ => throw new InvalidOperationException(
                     "Pinned authorization must not create a source client."));
@@ -334,7 +334,7 @@ public sealed class PackageDependencyCandidateQueryTests
         var configuredSource = new PackageSource(
             "browser",
             "https://browser.example/v3/index.json");
-        using PackageSourceSettlementLease lease =
+        await using PackageSourceSettlementLease lease =
             PackageSourceSettlementService.IssueLease(
                 authority => CreateVersionSourceClient(
                     authority,
@@ -369,7 +369,7 @@ public sealed class PackageDependencyCandidateQueryTests
         var configuredSource = new PackageSource(
             "gallery",
             "https://api.nuget.org/v3/index.json");
-        using PackageSourceSettlementLease lease =
+        await using PackageSourceSettlementLease lease =
             PackageSourceSettlementService.IssueLease(
                 authority => CreateVersionSourceClient(
                     authority,
@@ -411,7 +411,7 @@ public sealed class PackageDependencyCandidateQueryTests
             new("second", "https://second.example/v3/index.json"),
         ];
         var observedContexts = new List<NuGetOperationContext?>();
-        using PackageSourceSettlementLease lease =
+        await using PackageSourceSettlementLease lease =
             PackageSourceSettlementService.IssueLease(
                 authority => CreateVersionSourceClient(
                     authority,
@@ -446,7 +446,7 @@ public sealed class PackageDependencyCandidateQueryTests
             new("later", "https://later.example/v3/index.json"),
         ];
         int clientCount = 0;
-        using PackageSourceSettlementLease lease =
+        await using PackageSourceSettlementLease lease =
             PackageSourceSettlementService.IssueLease(
                 authority =>
                 {
@@ -505,7 +505,7 @@ public sealed class PackageDependencyCandidateQueryTests
         var configuredSource = new PackageSource(
             "browser",
             "https://browser.example/v3/index.json");
-        using PackageSourceSettlementLease lease =
+        await using PackageSourceSettlementLease lease =
             PackageSourceSettlementService.IssueLease(
                 authority => CreateVersionSourceClient(
                     authority,

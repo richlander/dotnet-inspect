@@ -1,6 +1,6 @@
+using DotnetInspector.Cache;
 using System.Net;
 
-using DotnetInspector.Core;
 using DotnetInspector.Packages;
 using NuGetFetch;
 
@@ -183,7 +183,7 @@ public class PackageVersionVectorTests
     public async Task ResolveAsync_SkipsNonHttpSource(
         string localSource)
     {
-        CoreCache.Initialize("dotnet-inspect-test");
+        PersistentCache.Initialize("dotnet-inspect-test");
         Assert.True(
             PackageVersionRange.TryParse(
                 "Example@1.0.0..2.0.0",
@@ -219,7 +219,7 @@ public class PackageVersionVectorTests
     public async Task ResolveAsync_FallsThroughFailedHttpSource(
         HttpStatusCode statusCode)
     {
-        CoreCache.Initialize("dotnet-inspect-test");
+        PersistentCache.Initialize("dotnet-inspect-test");
         Assert.True(
             PackageVersionRange.TryParse(
                 "Example@1.0.0..2.0.0",
