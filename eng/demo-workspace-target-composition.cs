@@ -13,16 +13,22 @@ using ILInspector.Analysis;
 using ILInspector.Metadata;
 using ILInspector.Research;
 
-Run("Forwarded both sides", includeAfterImplementation: true, divergent: false);
-Run("Missing participant", includeAfterImplementation: false, divergent: false);
-Run("Divergent domains", includeAfterImplementation: true, divergent: true);
-RunComparison();
+await Run("Forwarded both sides", includeAfterImplementation: true, divergent: false);
+await Run("Missing participant", includeAfterImplementation: false, divergent: false);
+await Run("Divergent domains", includeAfterImplementation: true, divergent: true);
+await RunComparison();
 
-static void Run(string scenario, bool includeAfterImplementation, bool divergent)
+static async Task Run(
+    string scenario,
+    bool includeAfterImplementation,
+    bool divergent)
 {
     Console.WriteLine($"=== {scenario} ===");
-    using var before = new DemoContext("before", "ContractsImplementation", includeImplementation: true);
-    using var after = new DemoContext("after",
+    await using var before = new DemoContext(
+        "before",
+        "ContractsImplementation",
+        includeImplementation: true);
+    await using var after = new DemoContext("after",
         divergent ? "ReplacementImplementation" : "ContractsImplementation", includeAfterImplementation);
     var sealedPopulation = Require<QueryPopulationSealingOutcome.Sealed>(
         QueryComparisonPopulationSealer.Execute(new ImplementationComparisonPopulationRequest(
@@ -93,14 +99,14 @@ static void Run(string scenario, bool includeAfterImplementation, bool divergent
     Console.WriteLine();
 }
 
-static void RunComparison()
+static async Task RunComparison()
 {
     Console.WriteLine("=== Targeted implementation comparison ===");
-    using var before = new DemoContext(
+    await using var before = new DemoContext(
         "before",
         "ContractsImplementation",
         includeImplementation: true);
-    using var after = new DemoContext(
+    await using var after = new DemoContext(
         "after",
         "ContractsImplementation",
         includeImplementation: true);
@@ -204,7 +210,7 @@ static T Require<T>(object? value) where T : class =>
     value as T ?? throw new InvalidOperationException(
         $"Expected {typeof(T).FullName}, received {value?.GetType().FullName ?? "null"}.");
 
-sealed class DemoContext : IDisposable
+sealed class DemoContext : IAsyncDisposable
 {
     readonly InspectionWorkspace workspace = new();
 
@@ -242,7 +248,7 @@ sealed class DemoContext : IDisposable
     public AssemblyContextGroup Group { get; }
     public AssemblyContextParticipant Root { get; }
     public ImplementationComparisonBinding[] Bindings { get; }
-    public void Dispose() => workspace.Dispose();
+    public ValueTask DisposeAsync() => workspace.DisposeAsync();
 
     static byte[] BuildAssembly(string name, string side, string? forwardsTo = null)
     {
