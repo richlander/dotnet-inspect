@@ -568,6 +568,30 @@ a name-only search.
 
 ### How shortcut flags and --where combine
 
+A flag can be a **compound shortcut: which results + where constraint**.
+For example, `--returns Foo` selects member results and requires their declared
+return type to match `Foo`. The proposed equivalence is:
+
+```console
+dotnet-inspect find --returns Foo
+
+dotnet-inspect find --members --where "returns=Foo"
+```
+
+The same decomposition applies to the other signature shortcuts:
+
+| Shortcut | Which results | Where constraint |
+| --- | --- | --- |
+| `--returns Foo` | Members | `returns=Foo` |
+| `--signature Foo` | Members | `signature=Foo` |
+| `--span` | Members | `signature-family=span`, the Span/ReadOnlySpan union |
+
+This is a query-meaning expansion, not a requirement to rewrite command-line
+text. One flag can supply several parts of the shared declarative query
+without introducing a separate execution path. Population selection remains
+distinct: `--ecosystem` chooses where to look, not which semantic associations
+to report.
+
 For these proposed signature queries, the short flags and `--where` contribute
 to **one typed request**. Expand the shortcuts, then combine the constraints
 with **AND** on the same exact result. Neither spelling takes precedence;
