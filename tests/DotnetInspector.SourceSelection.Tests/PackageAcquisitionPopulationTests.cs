@@ -281,6 +281,138 @@ public sealed class PackageAcquisitionPopulationTests
         Assert.Empty(fixture.Client.VersionRequests);
     }
 
+    [Fact]
+    public async Task PrefixPopulationRejectsNonCanonicalSourceId()
+    {
+        await using var fixture = new SourceFixture
+        {
+            SearchResults =
+            [
+                new SearchResult("Contoso.\u00e9", "1.0.0"),
+            ],
+            SearchTruncation =
+                PackageSearchTruncationReason.RequestedLimit,
+        };
+        using PackageSourceOperationLease operation =
+            fixture.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken);
+
+        PackageAcquisitionPopulation population =
+            await PackageAcquisitionPopulationResolver
+                .ResolveGalleryPrefixAsync(
+                    operation,
+                    new PackagePrefixDeclaration("Contoso."),
+                    maximumCandidates: 1,
+                    fixture.Authorization);
+
+        Assert.False(population.IsRequestedPopulationComplete);
+        Assert.Empty(population.Candidates);
+        Assert.Equal(
+            PackageAcquisitionPopulationCompletionKind.SourceFailed,
+            population.Completion);
+        Assert.Equal(
+            PackageAuthorityFailureKind.InvalidResponse,
+            Assert.Single(population.Failures).Failure.Kind);
+        Assert.Empty(fixture.Client.VersionRequests);
+    }
+
+    [Theory]
+    [InlineData(
+        PackageSearchTruncationReason.RequestedLimit,
+        PackageAcquisitionPopulationCompletionKind.CandidateLimitReached,
+        true)]
+    [InlineData(
+        PackageSearchTruncationReason.SourcePageLimit,
+        PackageAcquisitionPopulationCompletionKind.SourcePageLimitReached,
+        false)]
+    [InlineData(
+        PackageSearchTruncationReason.ClientPageLimit,
+        PackageAcquisitionPopulationCompletionKind.ClientPageLimitReached,
+        false)]
+    public async Task PrefixPopulationConsumesTerminalPageAfterFillingBound(
+        PackageSearchTruncationReason terminalReason,
+        PackageAcquisitionPopulationCompletionKind expectedCompletion,
+        bool expectedComplete)
+    {
+        await using var fixture = new SourceFixture
+        {
+            SearchPages =
+            [
+                new(
+                    [new SearchResult("Contoso.One", "1.0.0")],
+                    PackageSearchTruncationReason.None),
+                new([], terminalReason),
+            ],
+            Versions =
+            {
+                ["contoso.one"] = ["1.0.0"],
+            },
+        };
+        using PackageSourceOperationLease operation =
+            fixture.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken);
+
+        PackageAcquisitionPopulation population =
+            await PackageAcquisitionPopulationResolver
+                .ResolveGalleryPrefixAsync(
+                    operation,
+                    new PackagePrefixDeclaration("Contoso."),
+                    maximumCandidates: 1,
+                    fixture.Authorization);
+
+        Assert.Equal(2, fixture.Client.SearchPagesRead);
+        Assert.Equal(
+            expectedComplete,
+            population.IsRequestedPopulationComplete);
+        Assert.Equal(expectedCompletion, population.Completion);
+        Assert.Empty(population.Failures);
+        Assert.Equal(
+            "contoso.one",
+            Assert.Single(population.Candidates).Coordinate.PackageId);
+    }
+
+    [Fact]
+    public async Task PrefixPopulationPreservesTerminalFailureAfterFillingBound()
+    {
+        await using var fixture = new SourceFixture
+        {
+            SearchPages =
+            [
+                new(
+                    [new SearchResult("Contoso.One", "1.0.0")],
+                    PackageSearchTruncationReason.None),
+                SearchPage.Failed(PackageSourceFailureKind.Transport),
+            ],
+            Versions =
+            {
+                ["contoso.one"] = ["1.0.0"],
+            },
+        };
+        using PackageSourceOperationLease operation =
+            fixture.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken);
+
+        PackageAcquisitionPopulation population =
+            await PackageAcquisitionPopulationResolver
+                .ResolveGalleryPrefixAsync(
+                    operation,
+                    new PackagePrefixDeclaration("Contoso."),
+                    maximumCandidates: 1,
+                    fixture.Authorization);
+
+        Assert.Equal(2, fixture.Client.SearchPagesRead);
+        Assert.False(population.IsRequestedPopulationComplete);
+        Assert.Equal(
+            PackageAcquisitionPopulationCompletionKind.SourceFailed,
+            population.Completion);
+        Assert.Equal(
+            PackageAuthorityFailureKind.Transport,
+            Assert.Single(population.Failures).Failure.Kind);
+        Assert.Equal(
+            "contoso.one",
+            Assert.Single(population.Candidates).Coordinate.PackageId);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -617,6 +749,7 @@ public sealed class PackageAcquisitionPopulationTests
             VersionFailures { get; } =
             new(StringComparer.OrdinalIgnoreCase);
         internal int SearchTake { get; private set; }
+        internal int SearchPagesRead { get; private set; }
         internal List<string> VersionRequests { get; } = [];
         internal Func<string, Task>? BeforeVersion { get; set; }
 
@@ -665,10 +798,13 @@ public sealed class PackageAcquisitionPopulationTests
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 operationContext?.ThrowIfExpired();
-                yield return results.SucceededSearch(
-                    results.Search(
-                        page.Results,
-                        page.Truncation));
+                SearchPagesRead++;
+                yield return page.Failure is { } failure
+                    ? results.FailedSearch(failure)
+                    : results.SucceededSearch(
+                        results.Search(
+                            page.Results,
+                            page.Truncation));
             }
         }
 
@@ -761,5 +897,10 @@ public sealed class PackageAcquisitionPopulationTests
 
     private sealed record SearchPage(
         IReadOnlyList<SearchResult> Results,
-        PackageSearchTruncationReason Truncation);
+        PackageSearchTruncationReason Truncation,
+        PackageSourceFailureKind? Failure = null)
+    {
+        internal static SearchPage Failed(PackageSourceFailureKind failure) =>
+            new([], PackageSearchTruncationReason.None, failure);
+    }
 }

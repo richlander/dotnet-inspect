@@ -282,6 +282,7 @@ internal sealed class PackageSourceSettlementGeneration
                             != PackageDiscoveryContract.KeywordSearch
                         || observation.ListingState
                             != PackageListingState.Listed
+                        || !PackageExtractor.IsValidPackageId(packageId)
                         || !packageId.StartsWith(
                             prefix,
                             StringComparison.OrdinalIgnoreCase)
@@ -337,11 +338,8 @@ internal sealed class PackageSourceSettlementGeneration
                     _ => throw new InvalidOperationException(
                         "Unknown package-prefix search completion."),
                 };
-                if (page.Truncated
-                    || packageIds.Count == maximumCandidates)
-                {
+                if (page.Truncated)
                     break;
-                }
             }
         }
         catch (NuGetOperationTimeoutException)
