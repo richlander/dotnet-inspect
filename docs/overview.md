@@ -185,10 +185,12 @@ substrates, and inspection producers that will extend that space.
 - [Resource Effect Language](design/resource-effect-language.md) owns the
   portable compiled-attribute and JSON declaration language, structural
   selectors, bounded source admission, local declaration validation and
-  provenance, and immutable admitted declarations. Concrete metadata matching
-  and occurrence-local compatibility are assigned to the planned Analysis-owned
-  [Resolved Resource Effects](https://github.com/richlander/dotnet-inspect/issues/6728)
-  successor; the language owns no control-flow or Finding policy.
+  provenance, and immutable admitted declarations.
+  [Resolved Resource Effects](design/resolved-resource-effects.md) owns
+  generation-bound matching to exact metadata definitions and direct-call
+  occurrences, occurrence-local generic substitution, compatibility, and
+  visible resolution incompleteness. Neither owner defines control-flow or
+  Finding policy.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction,
   package/source caches, feeds, symbol package acquisition, and version
   resolution. Its internal `AsyncCache<TKey, TValue>` lives beside its sole
