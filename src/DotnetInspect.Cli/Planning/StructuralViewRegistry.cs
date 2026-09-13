@@ -1,7 +1,6 @@
 using System.Collections.Immutable;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
-using DotnetInspector.Core;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Sections;

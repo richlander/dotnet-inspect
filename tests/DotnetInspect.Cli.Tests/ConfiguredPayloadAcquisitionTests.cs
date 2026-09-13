@@ -8,7 +8,6 @@ using System.Xml.Linq;
 
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
-using DotnetInspector.Core;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using NuGetFetch;

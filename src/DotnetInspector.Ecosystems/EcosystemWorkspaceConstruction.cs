@@ -40,32 +40,18 @@ public static partial class EcosystemPackCatalog
         EcosystemPackId id) =>
         ProductEcosystemPacks.Registry.SelectWorkspaceRegistration(id);
 
-    /// <summary>Synchronously creates an independent Workspace registering every shipped ecosystem; close must be awaited.</summary>
-    /// <remarks>This transitional factory is retired by the upcoming Ecosystems plan factories.</remarks>
-    public static InspectionWorkspace CreateWorkspace() =>
-        ProductEcosystemPacks.AllKnownWorkspace.Create();
+    /// <summary>Returns a resource-free plan registering every shipped ecosystem.</summary>
+    public static WorkspacePlan CreateWorkspacePlan() =>
+        ProductEcosystemPacks.AllKnownWorkspacePlan;
 
-    /// <summary>Synchronously creates the same awaited-lifetime all-known Workspace as <see cref="CreateWorkspace"/>.</summary>
-    /// <remarks>This transitional factory is retired by the upcoming Ecosystems plan factories.</remarks>
-    public static InspectionWorkspace CreateWorkspaceAsynchronous() =>
-        ProductEcosystemPacks.AllKnownWorkspace.CreateAsynchronous();
-
-    /// <summary>Synchronously creates an independent Workspace with platform-curated registrations; close must be awaited.</summary>
-    /// <remarks>This transitional factory is retired by the upcoming Ecosystems plan factories.</remarks>
-    public static InspectionWorkspace CreatePlatformWorkspace() =>
-        ProductEcosystemPacks.PlatformWorkspace.Create();
-
-    /// <summary>Synchronously creates the same awaited-lifetime platform Workspace as <see cref="CreatePlatformWorkspace"/>.</summary>
-    /// <remarks>This transitional factory is retired by the upcoming Ecosystems plan factories.</remarks>
-    public static InspectionWorkspace CreatePlatformWorkspaceAsynchronous() =>
-        ProductEcosystemPacks.PlatformWorkspace.CreateAsynchronous();
+    /// <summary>Returns a resource-free plan with platform-curated registrations.</summary>
+    public static WorkspacePlan CreatePlatformWorkspacePlan() =>
+        ProductEcosystemPacks.PlatformWorkspacePlan;
 }
 
-internal sealed class EcosystemWorkspaceFactory
+internal static class EcosystemWorkspacePlanFactory
 {
-    private readonly ImmutableArray<WorkspaceRegistration> _registrations;
-
-    internal EcosystemWorkspaceFactory(
+    internal static WorkspacePlan Create(
         EcosystemPackRegistry registry,
         IEnumerable<EcosystemPackId> manifest,
         bool requireAllPacks = false)
@@ -123,10 +109,6 @@ internal sealed class EcosystemWorkspaceFactory
                 nameof(manifest));
         }
 
-        _registrations = registrations.MoveToImmutable();
+        return new WorkspacePlan(registrations.MoveToImmutable());
     }
-
-    internal InspectionWorkspace Create() => new(_registrations);
-
-    internal InspectionWorkspace CreateAsynchronous() => Create();
 }

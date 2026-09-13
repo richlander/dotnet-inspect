@@ -1,4 +1,3 @@
-#:project ../src/DotnetInspector.Core/DotnetInspector.Core.csproj
 #:project ../src/DotnetInspector.Networking/DotnetInspector.Networking.csproj
 #:project ../src/DotnetInspector.Packages/DotnetInspector.Packages.csproj
 #:project ../src/DotnetInspector.Services/DotnetInspector.Services.csproj
@@ -7,7 +6,6 @@ using System.Text;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using DotnetInspector.Core;
 using DotnetInspector.Networking;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;

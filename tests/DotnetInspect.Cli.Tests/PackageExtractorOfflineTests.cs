@@ -3,7 +3,6 @@ using System.IO.Compression;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
-using Core = DotnetInspector.Core;
 
 namespace DotnetInspect.Cli.Tests;
 

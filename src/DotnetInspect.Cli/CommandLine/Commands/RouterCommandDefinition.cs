@@ -2,7 +2,6 @@ using System.CommandLine;
 using System.CommandLine.Parsing;
 using CSharpText;
 using DotnetInspect.Cli.Commands;
-using DotnetInspector.Core;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;

@@ -113,10 +113,10 @@ npm run lint
 ```
 
 The managed suite is an xUnit in-process executable. It covers the
-`DotnetInspect.Web` host, Core and Networking implementation, and domain-specific
-`DotnetInspect.Web.Interop.*` export assemblies. The frontend gates cover the
-generated public facade contracts and browser application without renaming the
-published `inspect-web-*` modules.
+`DotnetInspect.Web` host, shared Sections and Networking implementation, and
+domain-specific `DotnetInspect.Web.Interop.*` export assemblies. The frontend
+gates cover the generated public facade contracts and browser application
+without renaming the published `inspect-web-*` modules.
 
 ### Network tests
 
@@ -130,9 +130,21 @@ dotnet run --project tests/DotnetInspector.Networking.Tests -c Release
 `NetworkAccess.Tests` pins the shared IPv4 and IPv6 destination classification
 used by independent desktop transports. `DotnetInspector.Networking.Tests`
 pins product HTTP composition, Browser/Wasm-safe handler setup, network policy,
-and request telemetry. The Cache suite pins cache behavior; Core retains
+and request telemetry. The Cache suite pins cache behavior; the CLI suite owns
 combined request-diagram integration tests, and NuGetFetch retains NuGet
 transport and feed-failure tests.
+
+### Section-contract tests
+
+Run the shared section-contract suite from the repository root:
+
+```bash
+dotnet run --project tests/DotnetInspector.Sections.Tests -c Release
+```
+
+This Microsoft Testing Platform executable owns semantic row shaping and the
+cross-host completed-inspection envelope, portable-share, contained-diagnostic,
+and JSON round-trip contracts.
 
 ### Persistent-cache tests
 

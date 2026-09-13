@@ -2,7 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using InertText;
 
-namespace DotnetInspector.Core;
+namespace DotnetInspector.Sections;
 
 public sealed class InertStringJsonConverter : JsonConverter<InertString>
 {

@@ -1,6 +1,5 @@
 using System.Collections.ObjectModel;
 using System.Runtime.ExceptionServices;
-using DotnetInspector.Core;
 using InertText;
 using NuGet.Versioning;
 using NuGetFetch;

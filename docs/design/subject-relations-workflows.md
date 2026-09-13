@@ -746,18 +746,20 @@ known to that product build registered**. At the design baseline those are
 Platform, ASP.NET Core, Microsoft.Extensions and Aspire. It does not mean all
 ecosystems or packages that exist on nuget.org.
 
-The operator clarified three construction gestures. Names below are
-illustrative, not a commitment to concrete API spelling:
+The operator clarified three construction gestures. The
+[registration handoff](workspace-ecosystem-registration-handoff.md) now returns
+resource-free plans; a caller explicitly constructs `InspectionWorkspace(plan)`
+when it needs a live owner:
 
 | Gesture | Construction intent |
 | --- | --- |
-| `Workspace.Create()` | Empty host-neutral Workspace, without product curation. |
-| `Ecosystem.CreatePlatformWorkspace()` | Application-curated Workspace with the platform-related ecosystems registered. |
-| `Ecosystem.CreateWorkspace()` | Application-curated Workspace with all product-known ecosystems registered. |
+| `new WorkspacePlan()` | Empty host-neutral plan, without product curation. |
+| `EcosystemPackCatalog.CreatePlatformWorkspacePlan()` | Application-curated plan with the platform-related ecosystem registrations. |
+| `EcosystemPackCatalog.CreateWorkspacePlan()` | Application-curated plan with all product-known ecosystem registrations. |
 
 The broad ecosystem factory is the natural default on the Ecosystems owner;
 the narrower platform variant earns the qualifier. A name such as
-`CreateWorkspaceWithAllEcosystems` adds little distinction.
+`CreateWorkspacePlanWithAllEcosystems` adds little distinction.
 This preserves the platform-curated policy, currently Platform, ASP.NET Core
 and Microsoft.Extensions, rather than changing its meaning to include Aspire.
 New `find` and Relations operations choose the broader factory. The platform

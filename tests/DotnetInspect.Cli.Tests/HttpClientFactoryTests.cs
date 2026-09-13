@@ -2,7 +2,7 @@ using DotnetInspector.Cache;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
-using DotnetInspector.Core;
+using DotnetInspect.Cli;
 using DotnetInspector.Packages;
 
 namespace DotnetInspect.Cli.Tests;

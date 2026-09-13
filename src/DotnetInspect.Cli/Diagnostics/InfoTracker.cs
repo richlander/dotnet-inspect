@@ -2,13 +2,13 @@ using System.Diagnostics;
 using DotnetInspector.Cache;
 using DotnetInspector.Networking;
 
-namespace DotnetInspector.Core;
+namespace DotnetInspect.Cli;
 
 /// <summary>
 /// Static ambient tracker for operational metrics (output bytes, duration, HTTP calls, cache).
 /// Call <see cref="Start"/> once at startup to begin tracking.
 /// </summary>
-public static class InfoTracker
+internal static class InfoTracker
 {
     private static bool _enabled;
     private static readonly Stopwatch _stopwatch = new();

@@ -2,7 +2,6 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-using DotnetInspector.Core;
 using DotnetInspector.Services;
 using Inspector.Findings;
 
