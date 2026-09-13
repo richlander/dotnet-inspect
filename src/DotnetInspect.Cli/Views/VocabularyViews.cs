@@ -27,10 +27,18 @@ public sealed class VocabularyView
 public sealed class VocabularySectionView
 {
     [MarkoutIgnore]
-    public string Name { get; init; } = "";
+    public string Name
+    {
+        get;
+        init => field = LibraryViewText.Contain(value) ?? "";
+    } = "";
 
     [MarkoutIgnore]
-    public string Summary { get; init; } = "";
+    public string Summary
+    {
+        get;
+        init => field = LibraryViewText.Contain(value) ?? "";
+    } = "";
 
     [MarkoutIgnoreInTable]
     public MarkoutTable? Values { get; init; }
