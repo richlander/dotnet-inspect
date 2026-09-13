@@ -527,14 +527,10 @@ public class SlotMaterializationPassTests
         function.CheckInvariant();
     }
 
-    // Adversarial review (5b-2 round 2, blocking): a typed-int slot feeding a
-    // char[] element store is the printer's #1751 identity recovery — the
-    // slot RE-TYPES to char ('+' / '-'), which a materialized int local
-    // forecloses. Slots whose element-store target disagrees with the
-    // testified type stay on the unifier.
     [Fact]
     public void DefersSlotWhoseElementStoreTargetDisagreesWithTestimony()
     {
+        // Scalar producers remain outside conditional element identity recovery.
         var body = new BlockContainer();
         var block = new Block(0);
         block.Add(new StoreStackSlot(0, new Constant(43, Int32)));
