@@ -6,7 +6,6 @@ using Inspector.Findings;
 
 namespace ILInspector.Research.Tests;
 
-[Collection(AnalysisIndexCacheCollection.Name)]
 public class AnnotatedSourceDocumentProjectionTests
 {
     [Fact]
