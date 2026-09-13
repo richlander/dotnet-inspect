@@ -31,11 +31,6 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
     public string TargetType { get; init; } = "";
 
     /// <summary>
-    /// Library mode: show assembly reference dependencies.
-    /// </summary>
-    public string? LibraryName { get; init; }
-
-    /// <summary>
     /// Package mode: show NuGet package dependencies.
     /// </summary>
     public string? PackageName { get; init; }
@@ -203,21 +198,4 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
             or OutputFormat.Tsv
             or OutputFormat.Jsonl;
 
-    /// <summary>
-    /// True when in type dependency mode (default when no --library/--package).
-    /// </summary>
-    public bool IsTypeMode =>
-        !string.IsNullOrEmpty(TargetType)
-        && LibraryName is null
-        && PackageName is null;
-
-    /// <summary>
-    /// True when in library dependency mode.
-    /// </summary>
-    public bool IsLibraryMode => LibraryName != null;
-
-    /// <summary>
-    /// True when in package dependency mode.
-    /// </summary>
-    public bool IsPackageMode => PackageName != null;
 }
