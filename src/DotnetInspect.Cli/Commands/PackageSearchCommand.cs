@@ -2,6 +2,8 @@ using System.Text.Json.Serialization;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Views;
 using Markout;
 using NuGetFetch;
@@ -73,17 +75,39 @@ public class PackageSearchCommand
                 NuGetFetchOptions.FromRequestTimeout(
                     context.HttpClient.Timeout));
 
-            var results = RowWindow.Apply(options.Rows, outcome.Results);
-
             // Sources that could not be searched are reported even when other sources
             // succeeded: a partial answer must not read like a complete one.
             foreach (var failure in outcome.Failures)
             {
                 CommandError.WriteWarning($"could not search {failure}");
             }
+            if (outcome.SearchLimitReached)
+            {
+                CommandError.WriteWarning(
+                    $"Package search reached the {options.Take}-result per-feed "
+                    + "source limit; additional matches may be omitted.");
+            }
 
             // A genuine zero-result search succeeded; an incomplete one did not.
-            var exitCode = outcome.Failures.Count > 0 ? 1 : 0;
+            var exitCode =
+                outcome.Failures.Count > 0 || outcome.SourceSelectionIncomplete
+                    ? 1
+                    : 0;
+
+            if (!CliSemanticRowSelection.TrySelectOrApplyLegacy(
+                    options.RowSelection,
+                    options.Rows,
+                    outcome.Results,
+                    "PackageSearch",
+                    failure =>
+                        $"Package search row selection stage "
+                        + $"{failure.Failure.StageNumber} requires row "
+                        + $"{failure.Failure.RequiredPosition}, but only "
+                        + $"{failure.Failure.AvailableCount} rows are available.",
+                    out IReadOnlyList<NuGetSearchResult> results))
+            {
+                return 1;
+            }
 
             // --count reduces the payload, so it is resolved before the format flags that
             // render it. Ordering these the other way lets --json answer a count request
@@ -146,7 +170,7 @@ public record PackageSearchOptions : IProjectionOptions
     /// <summary>Search query (keyword or package name prefix).</summary>
     public string Query { get; init; } = "";
 
-    /// <summary>Maximum number of results.</summary>
+    /// <summary>Maximum number of source results to obtain per feed.</summary>
     public int Take { get; init; } = 20;
 
     /// <summary>Include prerelease versions.</summary>
@@ -181,6 +205,9 @@ public record PackageSearchOptions : IProjectionOptions
 
     /// <summary>Inherited result-row window.</summary>
     public RowWindow? Rows { get; init; }
+
+    /// <summary>Typed semantic selection of package-search rows.</summary>
+    public RowSelectionIntent<string>? RowSelection { get; init; }
 
     /// <summary>Field projection inherited from the package command.</summary>
     public string[]? Fields { get; init; }
