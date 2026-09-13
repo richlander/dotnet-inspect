@@ -541,6 +541,53 @@ and issues the same candidate currency without requiring desktop
 configuration or credential-provider services. Host adapters invoke source
 clients; they do not reproduce candidate aggregation or correspondence.
 
+### Bounded acquisition populations
+
+`PackageAcquisitionPopulation` is the resource-free handoff for one frozen
+ordered set of one to five authority-bearing candidates. It retains the
+requested candidate count, immutable candidates, candidate-correlated typed
+authority failures, and the source completion that formed the set.
+`CandidateLimitReached` establishes the requested bounded population only when
+the bound was actually filled; it does not claim that the wider package prefix
+was exhausted. Provider and client page limits remain distinct incomplete
+completions.
+
+`PackageSourceOperationLease.ResolvePinnedPopulationAsync` resolves one to five
+unique exact coordinates in caller order. Each coordinate retains its own
+package-ID authorization result; a denied coordinate remains a typed failure
+beside any candidates that were issued successfully.
+
+`PackageAcquisitionPopulationResolver.ResolveGalleryPrefixAsync` is the first
+prefix adapter. It accepts one validated `PackagePrefixDeclaration`, a bound
+from one to five, and exactly one credential-free NuGet Gallery authority.
+Prefix search establishes package-ID order and source completion. The adapter
+then performs complete version discovery for each selected ID through the same
+operation lease, applies the package-owned latest stable or prerelease
+selection contract, and retains the resulting discovered candidate. Search
+metadata and source-less ID/version pairs never become acquisition authority.
+
+The returned population does not own or alias the operation lease. The caller
+retains that still-live same-issuer lease and transfers both values together to
+the consuming query. Candidate payload acquisition therefore continues to
+enforce the existing foreign-generation and disposed-operation rejection
+contract.
+
+`ExactPopulationFreezesUniqueCoordinatesInCallerOrder`,
+`ExactPopulationRetainsAuthorizationFailureBesideResolvedCandidates`,
+`PrefixPopulationSelectsLatestEligibleVersionsInSearchOrder`,
+`PrefixPopulationPreservesSourceLimitAndVersionFailure`,
+`PrefixPopulationRejectsDuplicateSourceRows`,
+`PrefixPopulationRejectsNonCanonicalSourceId`,
+`PrefixPopulationRejectsUnderfilledCandidateLimit`,
+`PrefixPopulationConsumesTerminalPageAfterFillingBound`,
+`PrefixPopulationPreservesTerminalFailureAfterFillingBound`,
+`PrefixPopulationContinuesAfterRequestTimeout`,
+`PrefixPopulationStopsAfterOperationTimeout`,
+`PrefixPopulationRequiresCredentialFreeGalleryAuthority`,
+`PrefixPopulationRequiresGalleryTransport`, and
+`PopulationCancellationRetainsCallerToken` are the Release gates for this
+handoff.
+
 The
 [Package Dependency Candidate Query](package-dependency-candidate-resolution.md)
 uses that currency for NuGet dependency constraints. It may choose a version

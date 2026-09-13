@@ -20,6 +20,20 @@ public sealed record PackagePrefixDeclaration
 
     public string Prefix { get; }
 
+    /// <summary>Tests whether a canonical package ID has this literal prefix.</summary>
+    public bool MatchesPackageId(string packageId)
+    {
+        ArgumentNullException.ThrowIfNull(packageId);
+        if (!PackageCoordinateResolver.IsCanonicalPackageId(packageId))
+        {
+            throw new ArgumentException(
+                "Package-prefix matching requires a canonical package ID.",
+                nameof(packageId));
+        }
+
+        return packageId.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static bool IsPackagePrefix(string prefix) =>
         PackageCoordinateResolver.IsCanonicalPackageId(prefix)
         || (prefix.Length is > 1 and < PackageCoordinateResolver.MaxPackageIdLength
