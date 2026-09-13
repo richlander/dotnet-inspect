@@ -8,6 +8,7 @@ using DotnetInspector.Cache;
 using ILInspector.Metadata;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using UntrustedDocuments;
 
 namespace DotnetInspect.Web.Tests;
 
@@ -353,6 +354,21 @@ public sealed class BrowserEngineLayeringTests
     }
 
     [Fact]
+    public void UntrustedDocumentsOwnerRemainsInBrowserProductClosure()
+    {
+        Assembly owner = typeof(HardenedJson).Assembly;
+        Type[] ownerTypes =
+        [
+            typeof(HardenedJson),
+            typeof(HardenedXml),
+        ];
+
+        Assert.Equal("UntrustedDocuments", owner.GetName().Name);
+        Assert.Contains(owner, ProductAssemblies);
+        Assert.All(ownerTypes, type => Assert.Same(owner, type.Assembly));
+    }
+
+    [Fact]
     public void EveryPublicInspectionStreamOwnerIsBannedOrApprovedAcquisitionSurface()
     {
         IReadOnlyList<string> banned = BannedSymbols();
@@ -361,7 +377,7 @@ public sealed class BrowserEngineLayeringTests
             // Bounded XML transforms over streams acquired and supplied by hosts.
             "CSharpText.XmlDocumentationCatalog",
             "CSharpText.XmlDocumentationReader",
-            "DotnetInspector.Core.HardenedXml",
+            "UntrustedDocuments.HardenedXml",
             "DotnetInspector.Packages.AuthorityScopedFileSystemPackageStore",
             "DotnetInspector.Packages.BoundedContentReader",
             "DotnetInspector.Packages.FileSystemPackageStore",
@@ -473,7 +489,7 @@ public sealed class BrowserEngineLayeringTests
         [
             "CSharpText.XmlDocText",
             "DotnetInspector.Cache.PersistentCache",
-            "DotnetInspector.Core.HardenedXml",
+            "UntrustedDocuments.HardenedXml",
             "DotnetInspector.Packages.FileSystemPackageContent",
             "DotnetInspector.Packages.HttpRetryHelper",
             "DotnetInspector.Packages.IPackageContent",

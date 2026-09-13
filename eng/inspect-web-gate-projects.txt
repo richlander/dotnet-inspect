@@ -38,5 +38,6 @@ src/ILInspector.TypeScriptGeneration
 src/InertText
 src/NetworkAccess
 src/NuGetFetch
+src/UntrustedDocuments
 src/TsJsExport.Contracts
 src/ts-jsexport

@@ -21,6 +21,7 @@
     <ProjectReference Include="..\DotnetInspector.Platforms\DotnetInspector.Platforms.csproj" />
     <ProjectReference Include="..\NuGetFetch\NuGetFetch.csproj" />
     <ProjectReference Include="..\Inspector.Resources\Inspector.Resources.csproj" />
+    <ProjectReference Include="..\UntrustedDocuments\UntrustedDocuments.csproj" />
     <PackageReference Include="NuGet.Versioning" />
     <InternalsVisibleTo Include="DotnetInspector.Queries.Tests" />
     <InternalsVisibleTo Include="DotnetInspector.Packages.Tests" />

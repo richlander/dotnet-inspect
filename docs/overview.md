@@ -336,6 +336,13 @@ substrates, and inspection producers that will extend that space.
   used by product HTTP composition and NuGet feed transports. Its project and
   compiled assembly dependencies are restricted to the platform by
   `network-access-stays-independent`.
+- `src/UntrustedDocuments/` owns the shared duplicate-rejecting JSON and
+  DTD-prohibiting XML parsing entry points. It depends only on the platform;
+  consumers retain schema, semantic validation, domain limits, acquisition,
+  and error projection. This is step 4 of the `DotnetInspector.Core`
+  decomposition under
+  [#6334](https://github.com/richlander/dotnet-inspect/issues/6334), tracked by
+  [#6770](https://github.com/richlander/dotnet-inspect/issues/6770).
 - `src/DotnetInspector.Networking/` owns cross-host HTTP composition, request
   currency and breadcrumbs, traffic policy, observations, and network
   diagnostics. Its project and compiled assembly dependencies are restricted
@@ -353,8 +360,8 @@ substrates, and inspection producers that will extend that space.
   Packages, Services, and the CLI. `RequestMermaidDiagram` composes network,
   cache, and breadcrumb observations; `InfoTracker` subscribes to network and
   cache telemetry and counts hits and misses while excluding stores.
-  `CountingTextWriter` and the hardened JSON/XML readers remain. Later
-  subject-owned moves continue under
+  `InspectionEnvelope`, its JSON converter, `Downloader`, and
+  `CountingTextWriter` remain. The final subject-owned moves continue under
   [#6334](https://github.com/richlander/dotnet-inspect/issues/6334).
 - `src/ILInspector.Decompiler/` emits lowered C#, raw IL, and structural annotated IL from method bodies.
 - `src/ILInspector.Research/` owns the offset-keyed fact overlay above Analysis

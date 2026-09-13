@@ -1,5 +1,5 @@
 using System.Text.Json;
-using DotnetInspector.Core;
+using UntrustedDocuments;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.Services;

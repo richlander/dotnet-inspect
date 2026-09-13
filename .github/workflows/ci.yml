@@ -1038,6 +1038,9 @@ jobs:
       - name: Run NetworkAccess tests
         run: dotnet run --project tests/NetworkAccess.Tests -c Release
 
+      - name: Run UntrustedDocuments tests
+        run: dotnet run --project tests/UntrustedDocuments.Tests -c Release
+
       - name: Run DotnetInspector.Networking tests
         run: dotnet run --project tests/DotnetInspector.Networking.Tests -c Release
 
