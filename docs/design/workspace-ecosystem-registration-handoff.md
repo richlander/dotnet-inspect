@@ -11,7 +11,7 @@ the construction-ownership replacement
 [#6570](https://github.com/richlander/dotnet-inspect/issues/6570).
 
 The first production consumers are the Ecosystems-owned curated Workspace
-constructor and explicit ecosystem-registration editing in both the CLI and
+plan factories and explicit ecosystem-registration editing in both the CLI and
 Inspect Web. The handoff is shared substrate between the application ecosystem
 catalog and reusable Workspace registration. It is not a new ecosystem
 catalog, source resolver, Workspace state model, call-graph request, or
@@ -24,8 +24,9 @@ public consumer canary are implemented by
 [Workspace Scope](workspace-scope-and-expansion.md#inert-registration-adoption)
 adopts retention, empty/explicit initialization and exact-revision replacement
 under #6577. Application pack correspondence and platform-curated/all-known
-construction are implemented under #6786. Persistence and host activation
-remain in their separately owned slices.
+construction were implemented under #6786. Issue #6791 adopts the
+Workspace-Scope-owned `WorkspacePlan` and retires the four live factories.
+Persistence and host activation remain in their separately owned slices.
 
 [Subject Relations](subject-relations-workflows.md#broad-discovery-by-default),
 approved in #6763, supplies the two construction intents adopted here. The
@@ -41,8 +42,8 @@ one-composition restriction without adding product policy to Workspace.
 > immutable set of owner-issued Workspace-relevant contributions, construct
 > one resource-free lower-layer ecosystem-registration declaration or one
 > typed rejection. The application catalog may project a selected pack and use
-> either separately authored ordered product manifest to construct a new
-> independent Workspace through the neutral Workspace API, without lower
+> either separately authored ordered product manifest to construct a complete
+> resource-free WorkspacePlan through the neutral plan API, without lower
 > layers referencing or rediscovering the catalog.
 
 The owner defines:
@@ -53,7 +54,7 @@ The owner defines:
 - the closed version-1 contribution slots crossing this boundary;
 - complete declaration, correspondence, and product-manifest validation;
 - single-pack projection outcomes; and
-- curated Workspace construction and the non-action rules for projection.
+- curated Workspace plan construction and the non-action rules for projection.
 
 It consumes without redefining:
 
@@ -64,7 +65,7 @@ It consumes without redefining:
   `PlatformLibraryPopulationDeclaration`;
 - Packages' `PackageCoordinate`;
 - Integration's `EcosystemIntegrationScannerBinding`; and
-- Workspace Scope's registration revision, mutation and snapshot contracts.
+- Workspace Scope's plan, registration revision, mutation and snapshot contracts.
 
 ## Why this owner is needed
 
@@ -84,14 +85,14 @@ curated manifests, two identity maps, and host-specific decisions about which
 prefixes or platform populations belong to an ecosystem.
 
 The handoff instead performs one application-owned projection. Ecosystems uses
-that projection to construct the curated product Workspace. Lower consumers
+that projection to construct the curated product Workspace plan. Lower consumers
 retain the resulting declarations and never call back into
 `DotnetInspector.Ecosystems`.
 
 The Workspace API does not ask the catalog for defaults. It defaults to an
 empty Workspace and accepts ordinary explicit registration, including a
 complete explicit initial set. This reverses the former relationship: the
-product-specific Ecosystems layer depends on and invokes neutral Workspace
+product-specific Ecosystems layer depends on and invokes neutral plan
 construction; Workspace never depends on, invokes, or offers an option for
 Ecosystems curation.
 
@@ -103,10 +104,10 @@ length](workspace-registration-and-call-graph-scope.md#end-to-end-product-scenar
 
 ```text
 discovery-oriented command or Spotlight selection
-  -> Ecosystems creates the current curated Workspace
+  -> Ecosystems creates the current curated WorkspacePlan
      -> project Platform, ASP.NET Core, and Microsoft.Extensions
         into complete lower ecosystem declarations
-        -> initialize one fresh neutral Workspace explicitly
+        -> caller constructs one fresh InspectionWorkspace from the plan
            -> add the selected package as membership
               -> focus a Library, type, or member
                  -> run a bounded graph over the requested focal length
@@ -147,13 +148,16 @@ EcosystemWorkspaceRegistrationProjection
   WorkspaceEcosystemRegistrationDeclaration
         |
         v
-Ecosystems Workspace constructors
+Ecosystems Workspace plan factories
   authored platform and all-known manifests
         |
         v
-neutral Workspace API
-  empty default construction
-  complete explicit initial registration
+neutral WorkspacePlan
+  complete validated registration data
+        |
+        v
+caller constructs InspectionWorkspace(plan)
+  independent live identity and awaited lifetime
   later explicit registration
 ```
 
@@ -165,10 +169,8 @@ SelectWorkspaceRegistration(EcosystemPackId)
    | Unavailable(EcosystemPackId)
    | Unknown(EcosystemPackId)
 
-CreatePlatformWorkspace()             -> new awaited-lifetime InspectionWorkspace
-CreatePlatformWorkspaceAsynchronous() -> new awaited-lifetime InspectionWorkspace
-CreateWorkspace()                     -> new awaited-lifetime InspectionWorkspace
-CreateWorkspaceAsynchronous()         -> new awaited-lifetime InspectionWorkspace
+CreatePlatformWorkspacePlan() -> WorkspacePlan
+CreateWorkspacePlan()         -> WorkspacePlan
 ```
 
 Grammar-invalid external text is rejected before exact lookup by the existing
@@ -176,20 +178,26 @@ application identity boundary. `Unavailable` means the pack is known but the
 product build contributes no lower Workspace declaration. `Unknown` means no
 pack registration has that exact application identity.
 
-All four calls synchronously return their newly initialized live Workspace.
-Every returned owner has the same complete awaited close; the `Asynchronous`
-suffix no longer selects a lifetime mode. These four public factories remain
-temporarily as source surface until the upcoming focused Ecosystems plan-factory
-adoption retires them. This slice adds no plan API. No factory awaits or starts
-downloads. Discovery exposes `HasWorkspaceRegistration`, and single-pack
-selection returns the exact retained declaration rather than constructing it.
+Both calls synchronously return complete resource-free plans. They require no
+disposal and start no downloads. The former `CreateWorkspace`,
+`CreateWorkspaceAsynchronous`, `CreatePlatformWorkspace` and
+`CreatePlatformWorkspaceAsynchronous` methods are retired, not retained as
+aliases. Live ownership is explicit at the caller:
+
+```csharp
+WorkspacePlan raw = new();
+WorkspacePlan platform = EcosystemPackCatalog.CreatePlatformWorkspacePlan();
+WorkspacePlan all = EcosystemPackCatalog.CreateWorkspacePlan();
+await using var workspace = new InspectionWorkspace(all);
+```
+
+Discovery exposes `HasWorkspaceRegistration`, and single-pack selection returns
+the exact retained declaration rather than constructing it.
 
 Curated construction has no partial or unavailable success shape. The static
 product manifest is invalid if any authored entry cannot project a complete
-population declaration. The catalog may retain an internal immutable
-declaration sequence for validation and construction, but public callers obtain
-the curated Workspace rather than a default list that they could reinterpret
-or apply inconsistently.
+population declaration. Public callers receive one validated `WorkspacePlan`,
+not an unvalidated default list or a partly initialized live Workspace.
 
 ## Lower identity and issued correspondence
 
@@ -387,7 +395,7 @@ All-known validation additionally requires every registered application pack
 to occur in its manifest, including packs whose projection is unavailable.
 Such a pack fails complete construction; it is not silently filtered out.
 Unknown, unavailable, duplicate and hints-only rows are product-construction
-errors, not shorter successful Workspaces.
+errors, not shorter successful plans.
 
 These sequences are the current product policy, not a permanent closed grammar.
 Ecosystems may add, remove, or reorder entries in a later product build with
@@ -418,35 +426,32 @@ Scope default embedded in CLI, Browser, Queries, or persisted data. All-known
 means all shipped ecosystem declarations, not every package that might integrate
 with those ecosystems or every matching package acquired.
 
-The catalog offers the same construction choices for the CLI and through the
+The catalog offers the same plan choices for the CLI and through the
 Inspect Web application boundary. Browser Core receives only the resulting
-lower Workspace state. Hosts consume that construction result rather than
+lower plan or live Workspace. Hosts consume that construction result rather than
 determining curation from ordinary pack discovery or asking Workspace to
 discover defaults.
 
-The curated API is a factory, not a singleton. Every successful call returns a
-new Workspace with independent identity, lifetime, registrations, content, and
-revision history. Existing Workspaces do not observe later catalog changes.
-Each intent's two transitional entry points construct the same awaited-lifetime
-owner through `new InspectionWorkspace(registrations)`. Ecosystems selects no new close,
-cleanup, or artifact-session behavior; callers close the returned Workspace
-under its ordinary owner-issued contract.
+The catalog may reuse its immutable plans. Plan object identity is not live
+Workspace identity or authority. Each explicit `new InspectionWorkspace(plan)`
+creates an independent live owner under the Workspace contract. Closing or
+editing one live owner cannot mutate its original plan or another owner.
+Existing plans do not observe later manifest changes. Ecosystems owns no close,
+cleanup or artifact-session behavior.
 
 ## Construction, completeness, and failure
 
-Declaration, catalog, and curated Workspace construction are deterministic over
+Declaration, catalog, and curated plan construction are deterministic over
 static immutable values. They perform no I/O and have no operation-level
 `Incomplete` outcome. An invalid declaration, correspondence, or curated
 manifest is a product-build defect and fails complete construction visibly.
 
-Curated construction first validates the complete static manifest, then passes
-the complete ordered registration set to the Workspace owner's atomic explicit
-initialization path. That Workspace API is raw,
-not curated: an empty input constructs empty, and no option names or discovers
-the product manifest. The Workspace owner retains registration validation,
-initial revision, failure, and cleanup semantics. Ecosystems returns one fully
-initialized Workspace or propagates the owner-issued failure; it never returns
-a partially registered Workspace or substitutes a shorter manifest.
+Curated construction validates the complete static manifest and passes the
+ordered registrations to Workspace Scope's validated plan constructor. That
+API is raw: empty input constructs an empty plan, with no product lookup.
+Ecosystems returns one complete plan or propagates the owner-issued failure;
+it never substitutes a shorter manifest. Live construction, revision
+authority and cleanup remain with Workspace and its explicit consumer.
 
 Runtime work begins only after a consumer selects a contribution. Platform or
 package-prefix owners retain their own `Unavailable`, `Rejected`,
@@ -536,13 +541,13 @@ The product manifest does not encode either bound.
 
 The curated manifest names Platform, but the pack registration lacks its
 source-owned platform population declaration. Curated construction fails
-visibly. It does not omit Platform and return a shorter Workspace.
+visibly. It does not omit Platform and return a shorter plan.
 
 ### Product curation changes
 
-One product build constructs the initial three-registration Workspace. A later
-build changes its platform manifest. New platform construction uses the later
-complete sequence; an existing Workspace and a restored definition retain
+One product build constructs the initial three-registration plan. A later
+build changes its platform manifest. New platform planning uses the later
+complete sequence; an existing plan, Workspace and restored definition retain
 their exact expanded registrations. Neither carries a `curated` mode that is
 re-evaluated against the later catalog.
 
@@ -578,7 +583,7 @@ operation behavior.
 | [Typed Source Intent](search-scope-domain.md) | Package-prefix declaration validation and later request policy |
 | Platform source owner | Platform population identity, inventory, target selection, acquisition, completion, and failures |
 | [Integrations](integrations.md) | Scanner execution, observations, concepts, evidence, completion, and failures |
-| [Workspace Scope](workspace-scope-and-expansion.md) | Empty construction, explicit registration revisions, edits, complete snapshots, and retained declarations |
+| [Workspace Scope](workspace-scope-and-expansion.md) | Validated resource-free plans, explicit live construction, registration revisions, edits, complete snapshots, and retained declarations |
 | [Workspace Definitions](workspace-definitions.md) | Portable complete expanded registrations, including an empty set |
 | Call Graph and resolution owners | Population selection, finite work, graph construction, binding, completion, and results |
 | CLI | Per-command raw-versus-curated choice, disclosure, and rendering |
@@ -598,12 +603,12 @@ There are nine counted adoption steps:
 5. Adopt retained ecosystem declarations, empty default construction, and
    complete explicit initialization in Workspace Scope without adding
    application-catalog dependencies or a curated option.
-6. Have Ecosystems construct a fresh independent Workspace from either complete
-   manifest through the public Workspace API (#6786).
+6. Have Ecosystems construct a complete plan from either manifest through the
+   public WorkspacePlan API (#6791), replacing the live factories from #6786.
 7. Adopt portable declarations and exact expanded registration state,
    including an empty set, in Workspace Definitions.
 8. Have each CLI command explicitly choose raw Workspace construction or the
-   Ecosystems curated constructor.
+   Ecosystems plan factory followed by explicit live construction.
 9. Have the Inspect Web application boundary make the same explicit choice,
    then adopt Workspace editing without another curated table.
 
@@ -635,36 +640,30 @@ Reading this result does not inspect installed packs or query NuGet.
 Construction through `EcosystemPackCatalog` obtains:
 
 ```text
-CreatePlatformWorkspace()
-  -> awaited-lifetime InspectionWorkspace
+CreatePlatformWorkspacePlan()
+  -> WorkspacePlan
      Registrations
        1. ecosystem.platform
        2. ecosystem.aspnetcore
        3. ecosystem.microsoft-extensions
 
-CreatePlatformWorkspaceAsynchronous()
-  -> awaited-lifetime InspectionWorkspace
-     same initial registrations
-
-CreateWorkspace()
-  -> awaited-lifetime InspectionWorkspace
+CreateWorkspacePlan()
+  -> WorkspacePlan
      Registrations
        1. ecosystem.platform
        2. ecosystem.aspnetcore
        3. ecosystem.microsoft-extensions
        4. ecosystem.aspire
 
-CreateWorkspaceAsynchronous()
-  -> awaited-lifetime InspectionWorkspace
-     same four registrations
 ```
 
-Direct Workspace construction instead returns an empty registration set.
+Direct `new WorkspacePlan()` instead returns an empty registration set.
 Restoring an explicitly empty registration sequence constructs raw and remains
 empty; neither host calls curated construction during restoration.
 
 The neighboring Aspire pack has a selectable lower declaration and appears only
-in the all-known sequence. All four calls leave Package membership empty.
+in the all-known sequence. Plans create no live Package membership; explicit
+live construction from either plan starts with empty acquired membership.
 
 ## Required gates
 
@@ -676,8 +675,8 @@ in the all-known sequence. All four calls leave Package membership empty.
 | Resource-free projection | Discovery and selection invoke no prefix query, platform source, package-set lookup, scanner, acquisition, or Workspace mutation. |
 | Curated product Workspace | The current Platform, ASP.NET Core, Microsoft.Extensions order and required population contributions are enforced without filtering ordinary pack discovery. |
 | All-known product Workspace | The separate current four-row order includes Aspire and every known pack; missing or unavailable projections cannot be silently omitted. |
-| Independent construction | Repeated curated calls return distinct Workspace identities and lifetimes with equal initial registrations. |
-| Lifetime preservation | All four transitional factories preserve the single Workspace awaited close, cleanup, artifact-session, and report contracts without an Ecosystems-owned variant. |
+| Independent construction | One curated plan can seed distinct live Workspace identities; edits and close preserve the original plan and other owners. |
+| Lifetime preservation | Plans require no disposal; explicit live construction consumes the single Workspace awaited lifetime without an Ecosystems-owned variant. |
 | Empty lower-layer default | Direct Workspace construction without explicit registrations is empty and has no path that consults Ecosystems or requests curation. |
 | Complete failure | Invalid or unavailable curated entries return no partial Workspace and retain the product defect visibly. |
 | Product-policy evolution | Changing the curated manifest affects new curated construction only; existing and restored expanded registration sets remain unchanged. |

@@ -125,7 +125,6 @@
     <Project Path="src/DotnetInspector.Cache/DotnetInspector.Cache.csproj" />
     <Project Path="src/DotnetInspector.DependencyManifests/DotnetInspector.DependencyManifests.csproj" />
     <Project Path="src/DotnetInspector.Ecosystems/DotnetInspector.Ecosystems.csproj" />
-    <Project Path="src/DotnetInspector.Core/DotnetInspector.Core.csproj" />
     <Project Path="src/DotnetInspector.Libraries/DotnetInspector.Libraries.csproj" />
     <Project Path="src/DotnetInspector.MetadataRendering/DotnetInspector.MetadataRendering.csproj" />
     <Project Path="src/DotnetInspector.Networking/DotnetInspector.Networking.csproj" />

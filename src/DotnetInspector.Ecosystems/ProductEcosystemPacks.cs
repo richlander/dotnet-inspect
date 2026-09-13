@@ -97,7 +97,7 @@ internal static class ProductEcosystemPacks
         ]),
     ]);
 
-    internal static EcosystemWorkspaceFactory PlatformWorkspace { get; } = new(
+    internal static WorkspacePlan PlatformWorkspacePlan { get; } = EcosystemWorkspacePlanFactory.Create(
         Registry,
         [
             EcosystemPackIds.Platform,
@@ -105,7 +105,7 @@ internal static class ProductEcosystemPacks
             EcosystemPackIds.MicrosoftExtensions,
         ]);
 
-    internal static EcosystemWorkspaceFactory AllKnownWorkspace { get; } = new(
+    internal static WorkspacePlan AllKnownWorkspacePlan { get; } = EcosystemWorkspacePlanFactory.Create(
         Registry,
         [
             EcosystemPackIds.Platform,

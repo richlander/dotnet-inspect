@@ -44,8 +44,9 @@ call-graph reachability.
 The
 [Workspace Ecosystem Registration Handoff](workspace-ecosystem-registration-handoff.md)
 owns the explicit projection from one selected pack and the application-owned
-platform or all-known manifest into one newly constructed Workspace. Pack
-projection and both factory paths are implemented under #6786; their CLI and
+platform or all-known manifest into one resource-free `WorkspacePlan`. Pack
+projection was implemented under #6786; #6791 replaces its live factories with
+two plan factories and leaves live construction explicit at the caller. Their CLI and
 Browser activation remains staged. This catalog retains
 application identity and contribution authorship; the handoff does not make
 Queries or browser Core depend on this assembly, and Workspace exposes no
@@ -452,12 +453,12 @@ pack's lower declaration returns only retained immutable handoff values. It
 does not resolve a package set, run a prefix query, inspect a platform catalog,
 invoke a scanner, construct a Workspace, or acquire content.
 
-The separate curated-Workspace API validates the complete authored manifest,
-passes the projected registrations as one complete explicit initialization to
-the public Workspace API, and returns the resulting Workspace. That operation
-adds no acquisition, prefix query, platform inspection, or scanner invocation.
-Repeated calls return independent Workspaces; raw Workspace construction
-remains outside this catalog and defaults to empty.
+The separate curated-plan API validates the complete authored manifest and
+passes the projected registrations to the public `WorkspacePlan` constructor.
+It adds no acquisition, prefix query, platform inspection or scanner invocation.
+The catalog may reuse that immutable plan; each explicit
+`new InspectionWorkspace(plan)` creates an independent live owner.
+Raw plan construction remains outside this catalog and defaults to empty.
 
 The pattern does not require constructing an ecosystem object at any stage.
 The scanner binding statically roots its method and may materialize one
