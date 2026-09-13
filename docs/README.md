@@ -30,6 +30,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Inspection Space Architecture](inspection-space.md) | Target core workspace, query, acquisition, join, cache, and safety architecture organized around Rich, Fast, and Safe. |
 | [Overview](overview.md) | Minimum system and architecture context for humans and agents. |
 | [Architecture](architecture.md) | Current host-neutral composition, logical layers, project regions, currencies, and code-navigation map. |
+| [Stateless Core Services](design/stateless-core-services.md) | Target composition with resource-free Workspace definitions, one active realization, explicit request authority, detached envelopes, and admitted persistent caching. |
 | [Library Family Boundaries](design/library-family-boundaries.md) | Meaning of the `Inspector`, `ILInspector`, `DotnetInspector`, independent-domain, and host namespace families, independent of dependency altitude and component role. |
 | [Resource Ownership and Borrowing](design/resource-ownership-and-borrowing.md) | Host-neutral lifecycle semantics for service-issued leases, transfer, direct and snapshot-callback borrowing, release, and current-versus-future enforcement. |
 | [Resource Effect Language](design/resource-effect-language.md) | Portable attribute and JSON language for bounded admission of immutable resource API declarations before concrete metadata resolution and lifecycle Analysis. |
