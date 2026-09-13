@@ -1,11 +1,13 @@
 using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using DotnetInspect.Cli.Views;
@@ -1381,9 +1383,17 @@ public static class TimelineCommand
                 return 1;
             }
 
+            if (!TryApplyRowSelection(
+                    view,
+                    selectedSections,
+                    options.RowSelection,
+                    out view))
+            {
+                return 1;
+            }
+
             var writerOptions = OutputFormatter.CreateProjectedWriterOptions(
                 options.Columns, options.Fields);
-            writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
             var projection = new CountProjection();
             if (selectedSections.Contains(EvaluationsSection))
             {
@@ -1417,6 +1427,15 @@ public static class TimelineCommand
             return 0;
         }
 
+        if (!TryApplyRowSelection(
+                view,
+                selectedSections,
+                options.RowSelection,
+                out view))
+        {
+            return 1;
+        }
+
         if (options.JsonOutput)
         {
             if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
@@ -1447,7 +1466,7 @@ public static class TimelineCommand
                             formatter,
                             TimelineViewContext.Default,
                             writerOptions),
-                    options.Rows);
+                    maxRows: null);
             }
             else
             {
@@ -1466,16 +1485,71 @@ public static class TimelineCommand
                             formatter,
                             TimelineViewContext.Default,
                             writerOptions),
-                    options.Rows);
+                    maxRows: null);
             }
             return 0;
         }
 
-        var writer = new MarkoutWriter(new MarkdownFormatter(), OutputFormatter.CreateWindowedOptions(options.Rows));
+        var writer = new MarkoutWriter(new MarkdownFormatter());
         TimelineViewContext.Default.Serialize(view, writer);
         Console.WriteLine(writer.ToString().TrimEnd());
         return 0;
     }
+
+    private static bool TryApplyRowSelection(
+        TimelineDocumentView view,
+        HashSet<string> selectedSections,
+        RowSelectionIntent<string>? rowSelection,
+        out TimelineDocumentView selectedView)
+    {
+        selectedView = view;
+        if (rowSelection is not { Operations.Count: > 0 })
+            return true;
+
+        IReadOnlyList<TimelineEvaluationRow>? evaluations = view.Evaluations;
+        if (selectedSections.Contains(EvaluationsSection)
+            && !CliSemanticRowSelection.TrySelect(
+                rowSelection,
+                view.Evaluations ?? [],
+                EvaluationsSection,
+                FormatRowSelectionFailure,
+                out evaluations))
+        {
+            return false;
+        }
+
+        IReadOnlyList<TimelineTransitionRow>? transitions = view.Transitions;
+        if (selectedSections.Contains(TransitionsSection)
+            && !CliSemanticRowSelection.TrySelect(
+                rowSelection,
+                view.Transitions ?? [],
+                TransitionsSection,
+                FormatRowSelectionFailure,
+                out transitions))
+        {
+            return false;
+        }
+
+        selectedView = new TimelineDocumentView
+        {
+            Title = view.Title,
+            Range = view.Range,
+            Type = view.Type,
+            Member = view.Member,
+            Finding = view.Finding,
+            Recommendation = view.Recommendation,
+            Evaluations = evaluations is null ? null : [.. evaluations],
+            Transitions = transitions is null ? null : [.. transitions],
+        };
+        return true;
+    }
+
+    private static string FormatRowSelectionFailure(
+        RowsCohortSemanticFailure<string> failure) =>
+        $"Timeline row selection stage {failure.Failure.StageNumber} "
+        + $"for '{failure.Identity}' requires row "
+        + $"{failure.Failure.RequiredPosition}, but only "
+        + $"{failure.Failure.AvailableCount} rows are available.";
 
     internal sealed record TimelineEvaluation(
         PackageVersionAddress Address,
@@ -1509,7 +1583,7 @@ public sealed record TimelineOptions : IProjectionOptions
     public bool Jsonl { get; init; }
     public bool NoHeader { get; init; }
     public bool Count { get; init; }
-    public RowWindow? Rows { get; init; }
+    public RowSelectionIntent<string>? RowSelection { get; init; }
     public string[]? Select { get; init; }
     public bool SelectDefault { get; init; }
     public string[]? Columns { get; init; }
