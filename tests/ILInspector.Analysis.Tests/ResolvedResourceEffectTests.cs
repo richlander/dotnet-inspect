@@ -235,6 +235,146 @@ public sealed class ResolvedResourceEffectTests
     }
 
     [Fact]
+    public void EquivalentBoundGenericLocationsCoalesce()
+    {
+        ResourceEffectGenericVariable typeVariable = new(
+            ResourceEffectGenericVariableKind.Type,
+            0);
+        ResourceEffectGenericVariable methodVariable = new(
+            ResourceEffectGenericVariableKind.Method,
+            0);
+        ResourceTypeExpression.Named declaringType = new(
+            new ResourceAssemblySelector(
+                "ILInspector.Analysis.OwnershipFlowFixtures",
+                publicKeyToken: null,
+                ResourceAssemblyVersionPolicy.Any),
+            "Ownership",
+            [new ResourceTypeNameSegment("GenericHost", 1)],
+            [new ResourceTypeExpression.Variable(typeVariable)]);
+        ResourceEffectTargetSelector target =
+            new ResourceEffectTargetSelector.Member(
+                new ResourceEffectMemberSelector(
+                    declaringType,
+                    "Target",
+                    ResourceEffectMemberKind.Method,
+                    isStatic: true,
+                    genericArity: 1,
+                    ResourceEffectCallingConvention.Default,
+                    hasThis: false,
+                    explicitThis: false,
+                    [
+                        new ResourceEffectParameterSelector(
+                            new ResourceTypeExpression.Variable(typeVariable),
+                            ResourceEffectRefKind.Value),
+                    ],
+                    CoreLibraryType("System", "Void")));
+        ResourceKindIdentity kindIdentity = new(
+            "example.generic-equivalence.resource");
+
+        ResourceEffectModelDefinition Model(
+            string name,
+            ResourceEffectGenericVariable variable)
+        {
+            ResourceKindReference kind = new(kindIdentity, [variable]);
+            return new ResourceEffectModelDefinition(
+                ResourceEffectLanguageIdentity.Version1,
+                new ResourceEffectModelIdentity(name),
+                [
+                    new ResourceKindDefinition(
+                        kindIdentity,
+                        1,
+                        [Provenance(name, 0)]),
+                ],
+                [],
+                [
+                    new ResourceEffectTypedDeclaration(
+                        target,
+                        new ResourceEffect.Consume(
+                            new ResourceEffectLocation.Parameter(0),
+                            new ResourceEffectLocation.OperationSlot(
+                                new ResourceEffectLocation.Parameter(0),
+                                kind),
+                            kind),
+                        [Provenance(name, 1)]),
+                ]);
+        }
+
+        ResourceEffectResolutionOutcome.Complete complete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
+                Resolve(
+                    Admit(
+                        Model(
+                            "example.generic-equivalence.type",
+                            typeVariable),
+                        Model(
+                            "example.generic-equivalence.method",
+                            methodVariable))));
+
+        ResolvedResourceEffect effect =
+            Assert.Single(complete.Snapshot.Effects);
+        Assert.Equal(2, effect.Sources.Length);
+        Assert.All(
+            effect.Bindings,
+            binding => Assert.Equal(
+                "Byte",
+                binding.Value.Type.Name));
+    }
+
+    [Fact]
+    public void VarargSelectorMatchesFixedParameterPrefix()
+    {
+        var identity = new ResourceEffectModelIdentity(
+            "example.vararg-marker");
+        ResourceTypeExpression.Named declaringType = new(
+            new ResourceAssemblySelector(
+                "ILInspector.Analysis.OwnershipFlowFixtures",
+                publicKeyToken: null,
+                ResourceAssemblyVersionPolicy.Any),
+            "Ownership",
+            [new ResourceTypeNameSegment("Entry", 0)]);
+        ResourceEffectAdmission admission = Admit(
+            new ResourceEffectModelDefinition(
+                ResourceEffectLanguageIdentity.Version1,
+                identity,
+                [],
+                [],
+                [
+                    new ResourceEffectTypedDeclaration(
+                        new ResourceEffectTargetSelector.Member(
+                            new ResourceEffectMemberSelector(
+                                declaringType,
+                                "VarargMarker",
+                                ResourceEffectMemberKind.Method,
+                                isStatic: true,
+                                genericArity: 0,
+                                ResourceEffectCallingConvention.VarArgs,
+                                hasThis: false,
+                                explicitThis: false,
+                                [
+                                    new ResourceEffectParameterSelector(
+                                        CoreLibraryType("System", "Int32"),
+                                        ResourceEffectRefKind.Value),
+                                ],
+                                CoreLibraryType("System", "Void"))),
+                        new ResourceEffect.Operation(
+                            ResourceOperationBoundary.Ordinary,
+                            ResourceOperationThrows.Possible,
+                            Guard: null),
+                        [Provenance(identity.Value, 0)]),
+                ]));
+
+        ResourceEffectResolutionOutcome.Complete complete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
+                Resolve(admission));
+        ResourceEffectTargetEvaluation evaluation =
+            Assert.Single(complete.Evaluations);
+        Assert.Equal(
+            ResourceEffectTargetEvaluationKind.Resolved,
+            evaluation.Kind);
+        Assert.Single(evaluation.Effects);
+    }
+
+    [Fact]
     public void RefSelectorDoesNotMatchOutParameter()
     {
         ResourceEffectAdmission admission = MethodModel(

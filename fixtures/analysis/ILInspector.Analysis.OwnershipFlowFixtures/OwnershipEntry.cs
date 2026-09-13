@@ -190,6 +190,16 @@ public static class Entry
     {
     }
 
+    public static void CallEquivalentGenericMarker() =>
+        GenericHost<byte>.Target<byte>(0);
+
+    public static void CallVarargMarker() =>
+        VarargMarker(1, __arglist(2));
+
+    public static void VarargMarker(int value, __arglist)
+    {
+    }
+
     public static void CallRefMarker()
     {
         int value = 0;
@@ -260,5 +270,12 @@ public static class Entry
 
         internal void Return(int marker, byte[] buffer) =>
             ArrayPool<byte>.Shared.Return(buffer);
+    }
+}
+
+public static class GenericHost<T>
+{
+    public static void Target<U>(T value)
+    {
     }
 }

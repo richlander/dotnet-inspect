@@ -1192,7 +1192,7 @@ public static class ResourceEffectResolver
                     ResourceEffectTargetEvaluationKind.Incomplete);
                 continue;
             }
-            if (issued.Key.Equals(callKey))
+            if (MemberKeysMatch(callKey, issued.Key))
                 matches.Add(candidate);
         }
         if (failureKind is not null)
@@ -1228,16 +1228,63 @@ public static class ResourceEffectResolver
 
     static bool CouldMatch(
         CatalogMemberJoinKey expected,
-        MemberRef candidate) =>
-        string.Equals(
+        MemberRef candidate)
+    {
+        return string.Equals(
             expected.Name,
             candidate.Name,
             StringComparison.Ordinal)
         && expected.MemberKind == candidate.Kind
         && expected.GenericArity == candidate.GenericArity
         && expected.HasThis == candidate.HasThis
-        && expected.ParameterTypes.Length
-            == candidate.ParameterTypes.Length;
+        && ParameterCountsCouldMatch(
+            expected.SignatureHeader,
+            expected.RequiredParameterCount,
+            expected.ParameterTypes.Length,
+            candidate.SignatureHeader,
+            candidate.RequiredParameterCount,
+            candidate.ParameterTypes.Length);
+    }
+
+    static bool MemberKeysMatch(
+        CatalogMemberJoinKey call,
+        CatalogMemberJoinKey definition)
+    {
+        if (!IsVarArgs(call.SignatureHeader)
+            || !IsVarArgs(definition.SignatureHeader))
+        {
+            return call.Equals(definition);
+        }
+        if (call.Catalog != definition.Catalog
+            || !ReferenceEquals(call.Generation, definition.Generation)
+            || call.Kind != definition.Kind
+            || call.DeclaringType != definition.DeclaringType
+            || !string.Equals(
+                call.Name,
+                definition.Name,
+                StringComparison.Ordinal)
+            || call.MemberKind != definition.MemberKind
+            || call.GenericArity != definition.GenericArity
+            || call.HasThis != definition.HasThis
+            || call.SignatureHeader != definition.SignatureHeader
+            || call.RequiredParameterCount
+                != definition.RequiredParameterCount
+            || call.RequiredParameterCount < 0
+            || call.ParameterTypes.Length
+                < call.RequiredParameterCount
+            || definition.ParameterTypes.Length
+                < definition.RequiredParameterCount
+            || call.ReturnType != definition.ReturnType)
+        {
+            return false;
+        }
+        for (int i = 0; i < call.RequiredParameterCount; i++)
+        {
+            if (call.ParameterTypes[i] != definition.ParameterTypes[i])
+                return false;
+        }
+        return true;
+    }
 
     static ResourceEffectTargetEvaluationKind StrongerFailure(
         ResourceEffectTargetEvaluationKind? current,
@@ -1618,7 +1665,10 @@ public static class ResourceEffectResolver
         {
             return false;
         }
-        if (selector.Parameters.Length != member.ParameterTypes.Length
+        if (!ParameterCountsCouldMatch(
+                selector.CallingConvention,
+                selector.Parameters.Length,
+                member)
             || selector.GenericArity != member.GenericArity)
         {
             return false;
@@ -1698,8 +1748,7 @@ public static class ResourceEffectResolver
             || selector.HasThis != member.HasThis
             || selector.ExplicitThis
                 != ((member.SignatureHeader & 0x40) != 0)
-            || selector.GenericArity != member.GenericArity
-            || selector.Parameters.Length != member.ParameterTypes.Length)
+            || selector.GenericArity != member.GenericArity)
         {
             return TypeMatchResult.NoMatch;
         }
@@ -1708,6 +1757,20 @@ public static class ResourceEffectResolver
         if (callingConvention is null)
             return TypeMatchResult.Unsupported;
         if (callingConvention != selector.CallingConvention)
+            return TypeMatchResult.NoMatch;
+        if (callingConvention
+                == ResourceEffectCallingConvention.VarArgs
+            && (member.RequiredParameterCount < 0
+                || member.RequiredParameterCount
+                    > member.ParameterTypes.Length))
+        {
+            return TypeMatchResult.Unsupported;
+        }
+        int matchedParameterCount = callingConvention
+                == ResourceEffectCallingConvention.VarArgs
+            ? member.RequiredParameterCount
+            : member.ParameterTypes.Length;
+        if (selector.Parameters.Length != matchedParameterCount)
             return TypeMatchResult.NoMatch;
 
         if (!member.TypeArguments.IsEmpty)
@@ -2412,10 +2475,7 @@ public static class ResourceEffectResolver
         IEnumerable<ResolvedResourceEffect> effects)
     {
         var groups = effects.GroupBy(
-            effect => new BoundEffectKey(
-                effect.Occurrence,
-                effect.Effect,
-                effect.Bindings));
+            effect => new BoundEffectKey(effect));
         var result = ImmutableArray.CreateBuilder<ResolvedResourceEffect>();
         foreach (IGrouping<BoundEffectKey, ResolvedResourceEffect> group
             in groups)
@@ -2509,7 +2569,7 @@ public static class ResourceEffectResolver
         ResolvedResourceEffect left,
         ResolvedResourceEffect right)
     {
-        if (left.Effect == right.Effect
+        if (BoundEffectEquals(left, right)
             && BindingSequenceEqual(left.Bindings, right.Bindings))
         {
             return false;
@@ -2532,13 +2592,17 @@ public static class ResourceEffectResolver
         if (left.Effect is ResourceEffect.Independent leftIndependent)
         {
             return ConflictsWithIndependence(
+                left,
                 leftIndependent,
+                right,
                 right.Effect);
         }
         if (right.Effect is ResourceEffect.Independent rightIndependent)
         {
             return ConflictsWithIndependence(
+                right,
                 rightIndependent,
+                left,
                 left.Effect);
         }
         if (!TryOwnershipClaim(
@@ -2547,7 +2611,11 @@ public static class ResourceEffectResolver
             || !TryOwnershipClaim(
                 right,
                 out OwnershipClaim? rightClaim)
-            || leftClaim!.Source != rightClaim!.Source
+            || !BoundLocationEquals(
+                left,
+                leftClaim!.Source,
+                right,
+                rightClaim!.Source)
             || !KindDomainsOverlap(
                 leftClaim.Kind,
                 rightClaim.Kind))
@@ -2559,48 +2627,122 @@ public static class ResourceEffectResolver
             return leftClaim.Borrow != rightClaim.Borrow
                 || (!leftClaim.Borrow
                     && !SameTransition(
+                        left,
                         leftClaim.Transition,
+                        right,
                         rightClaim.Transition));
         }
         return CompletionDomainsOverlap(
-                leftClaim.Completion,
-                rightClaim.Completion)
+            left,
+            leftClaim.Completion,
+            right,
+            rightClaim.Completion)
             && (!SameCompletion(
-                    leftClaim.Completion,
-                    rightClaim.Completion)
+                left,
+                leftClaim.Completion,
+                right,
+                rightClaim.Completion)
                 || !SameTransition(
+                    left,
                     leftClaim.Transition,
+                    right,
                     rightClaim.Transition));
     }
 
     static bool ConflictsWithIndependence(
+        ResolvedResourceEffect independenceEffect,
         ResourceEffect.Independent independence,
+        ResolvedResourceEffect otherEffect,
         ResourceEffect other) =>
         other switch
         {
             ResourceEffect.Borrow borrow =>
-                (borrow.Source == independence.Source
-                    && borrow.Target == independence.Target)
-                || (borrow.Lender == independence.Source
-                    && borrow.Target == independence.Target),
+                (BoundLocationEquals(
+                        otherEffect,
+                        borrow.Source,
+                        independenceEffect,
+                        independence.Source)
+                    && BoundLocationEquals(
+                        otherEffect,
+                        borrow.Target,
+                        independenceEffect,
+                        independence.Target))
+                || (BoundOptionalLocationEquals(
+                        otherEffect,
+                        borrow.Lender,
+                        independenceEffect,
+                        independence.Source)
+                    && BoundLocationEquals(
+                        otherEffect,
+                        borrow.Target,
+                        independenceEffect,
+                        independence.Target)),
             ResourceEffect.Derive derive =>
-                derive.Source == independence.Source
-                && derive.Target == independence.Target,
+                BoundLocationEquals(
+                    otherEffect,
+                    derive.Source,
+                    independenceEffect,
+                    independence.Source)
+                && BoundLocationEquals(
+                    otherEffect,
+                    derive.Target,
+                    independenceEffect,
+                    independence.Target),
             ResourceEffect.Pass pass =>
-                pass.Source == independence.Source
-                && pass.Target == independence.Target,
+                BoundLocationEquals(
+                    otherEffect,
+                    pass.Source,
+                    independenceEffect,
+                    independence.Source)
+                && BoundLocationEquals(
+                    otherEffect,
+                    pass.Target,
+                    independenceEffect,
+                    independence.Target),
             ResourceEffect.Move move =>
-                move.Source == independence.Source
-                && move.Target == independence.Target,
+                BoundLocationEquals(
+                    otherEffect,
+                    move.Source,
+                    independenceEffect,
+                    independence.Source)
+                && BoundLocationEquals(
+                    otherEffect,
+                    move.Target,
+                    independenceEffect,
+                    independence.Target),
             ResourceEffect.Consume consume =>
-                consume.Source == independence.Source
-                && consume.Target == independence.Target,
+                BoundLocationEquals(
+                    otherEffect,
+                    consume.Source,
+                    independenceEffect,
+                    independence.Source)
+                && BoundLocationEquals(
+                    otherEffect,
+                    consume.Target,
+                    independenceEffect,
+                    independence.Target),
             ResourceEffect.Accept accept =>
-                accept.Source == independence.Source
-                && accept.Target == independence.Target,
+                BoundLocationEquals(
+                    otherEffect,
+                    accept.Source,
+                    independenceEffect,
+                    independence.Source)
+                && BoundLocationEquals(
+                    otherEffect,
+                    accept.Target,
+                    independenceEffect,
+                    independence.Target),
             ResourceEffect.Acquire acquire =>
-                acquire.Lender == independence.Source
-                && acquire.Target == independence.Target,
+                BoundOptionalLocationEquals(
+                    otherEffect,
+                    acquire.Lender,
+                    independenceEffect,
+                    independence.Source)
+                && BoundLocationEquals(
+                    otherEffect,
+                    acquire.Target,
+                    independenceEffect,
+                    independence.Target),
             _ => false,
         };
 
@@ -2736,6 +2878,297 @@ public static class ResourceEffectResolver
         return new(reference.Identity, arguments);
     }
 
+    static bool BoundEffectEquals(
+        ResolvedResourceEffect left,
+        ResolvedResourceEffect right)
+    {
+        if (left.Effect == right.Effect)
+            return true;
+        return (left.Effect, right.Effect) switch
+        {
+            (ResourceEffect.Resource a, ResourceEffect.Resource b) =>
+                BoundKindEquals(left, a.Kind, right, b.Kind)
+                && a.Value == b.Value
+                && a.Selector == b.Selector,
+            (ResourceEffect.Authority a, ResourceEffect.Authority b) =>
+                BoundKindEquals(left, a.Kind, right, b.Kind)
+                && BoundLocationEquals(
+                    left,
+                    a.Target,
+                    right,
+                    b.Target)
+                && BoundAuthorityKeyEquals(
+                    left,
+                    a.Key,
+                    right,
+                    b.Key),
+            (ResourceEffect.Acquire a, ResourceEffect.Acquire b) =>
+                BoundKindEquals(left, a.Kind, right, b.Kind)
+                && BoundLocationEquals(
+                    left,
+                    a.Target,
+                    right,
+                    b.Target)
+                && SameCompletion(left, a.When, right, b.When)
+                && BoundOptionalLocationEquals(
+                    left,
+                    a.Correspondence,
+                    right,
+                    b.Correspondence)
+                && BoundOptionalLocationEquals(
+                    left,
+                    a.Lender,
+                    right,
+                    b.Lender),
+            (ResourceEffect.Move a, ResourceEffect.Move b) =>
+                BoundLocationEquals(left, a.Source, right, b.Source)
+                && BoundLocationEquals(left, a.Target, right, b.Target)
+                && SameCompletion(left, a.When, right, b.When)
+                && BoundOptionalKindEquals(
+                    left,
+                    a.Kind,
+                    right,
+                    b.Kind),
+            (ResourceEffect.Consume a, ResourceEffect.Consume b) =>
+                BoundLocationEquals(left, a.Source, right, b.Source)
+                && BoundLocationEquals(left, a.Target, right, b.Target)
+                && BoundOptionalKindEquals(
+                    left,
+                    a.Kind,
+                    right,
+                    b.Kind),
+            (ResourceEffect.Release a, ResourceEffect.Release b) =>
+                BoundLocationEquals(left, a.Source, right, b.Source)
+                && SameCompletion(left, a.When, right, b.When)
+                && BoundOptionalKindEquals(
+                    left,
+                    a.Kind,
+                    right,
+                    b.Kind)
+                && BoundOptionalLocationEquals(
+                    left,
+                    a.Correspondence,
+                    right,
+                    b.Correspondence)
+                && BoundOptionalLocationEquals(
+                    left,
+                    a.Observation,
+                    right,
+                    b.Observation),
+            (ResourceEffect.Borrow a, ResourceEffect.Borrow b) =>
+                BoundLocationEquals(left, a.Source, right, b.Source)
+                && BoundLocationEquals(left, a.Target, right, b.Target)
+                && a.Access == b.Access
+                && a.Scope == b.Scope
+                && BoundOptionalKindEquals(
+                    left,
+                    a.Kind,
+                    right,
+                    b.Kind)
+                && BoundOptionalLocationEquals(
+                    left,
+                    a.Lender,
+                    right,
+                    b.Lender)
+                && a.Materialization == b.Materialization,
+            (ResourceEffect.Derive a, ResourceEffect.Derive b) =>
+                BoundLocationEquals(left, a.Source, right, b.Source)
+                && BoundLocationEquals(left, a.Target, right, b.Target)
+                && a.Relation == b.Relation
+                && BoundGuardEquals(left, a.Guard, right, b.Guard),
+            (ResourceEffect.Pass a, ResourceEffect.Pass b) =>
+                BoundLocationEquals(left, a.Source, right, b.Source)
+                && BoundLocationEquals(left, a.Target, right, b.Target)
+                && a.Identity == b.Identity,
+            (ResourceEffect.Independent a,
+                ResourceEffect.Independent b) =>
+                BoundLocationEquals(left, a.Source, right, b.Source)
+                && BoundLocationEquals(left, a.Target, right, b.Target),
+            (ResourceEffect.Callback a, ResourceEffect.Callback b) =>
+                a.Delegate == b.Delegate
+                && a.Scope == b.Scope
+                && a.Execution == b.Execution
+                && a.Cardinality == b.Cardinality,
+            (ResourceEffect.Accept a, ResourceEffect.Accept b) =>
+                BoundLocationEquals(left, a.Source, right, b.Source)
+                && BoundLocationEquals(left, a.Target, right, b.Target)
+                && SameCompletion(left, a.When, right, b.When)
+                && BoundOptionalKindEquals(
+                    left,
+                    a.Kind,
+                    right,
+                    b.Kind)
+                && a.Order == b.Order,
+            (ResourceEffect.Operation a, ResourceEffect.Operation b) =>
+                a.Boundary == b.Boundary
+                && a.Throws == b.Throws
+                && BoundGuardEquals(left, a.Guard, right, b.Guard),
+            (ResourceEffect.Outcome a, ResourceEffect.Outcome b) =>
+                a.Identity == b.Identity
+                && BoundLocationEquals(left, a.Source, right, b.Source)
+                && a.Test == b.Test,
+            _ => false,
+        };
+    }
+
+    static bool BoundAuthorityKeyEquals(
+        ResolvedResourceEffect leftEffect,
+        ResourceAuthorityKey left,
+        ResolvedResourceEffect rightEffect,
+        ResourceAuthorityKey right) =>
+        (left, right) switch
+        {
+            (ResourceAuthorityKey.Value,
+                ResourceAuthorityKey.Value) => true,
+            (ResourceAuthorityKey.Singleton a,
+                ResourceAuthorityKey.Singleton b) =>
+                BoundVariableSequenceEquals(
+                    leftEffect,
+                    a.Arguments,
+                    rightEffect,
+                    b.Arguments),
+            _ => false,
+        };
+
+    static bool BoundVariableSequenceEquals(
+        ResolvedResourceEffect leftEffect,
+        ImmutableArray<ResourceEffectGenericVariable> left,
+        ResolvedResourceEffect rightEffect,
+        ImmutableArray<ResourceEffectGenericVariable> right)
+    {
+        if (left.Length != right.Length)
+            return false;
+        for (int i = 0; i < left.Length; i++)
+        {
+            ResolvedResourceEffectGenericBinding? leftBinding =
+                leftEffect.Bindings.FirstOrDefault(
+                    binding => binding.Variable == left[i]);
+            ResolvedResourceEffectGenericBinding? rightBinding =
+                rightEffect.Bindings.FirstOrDefault(
+                    binding => binding.Variable == right[i]);
+            if (leftBinding is null
+                || rightBinding is null
+                || !leftBinding.Value.Equals(rightBinding.Value))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static bool BoundOptionalKindEquals(
+        ResolvedResourceEffect leftEffect,
+        ResourceKindReference? left,
+        ResolvedResourceEffect rightEffect,
+        ResourceKindReference? right) =>
+        left is null
+            ? right is null
+            : right is not null
+                && BoundKindEquals(
+                    leftEffect,
+                    left,
+                    rightEffect,
+                    right);
+
+    static bool BoundKindEquals(
+        ResolvedResourceEffect leftEffect,
+        ResourceKindReference left,
+        ResolvedResourceEffect rightEffect,
+        ResourceKindReference right) =>
+        SameKind(
+            BoundKind(leftEffect, left),
+            BoundKind(rightEffect, right));
+
+    static bool BoundOptionalLocationEquals(
+        ResolvedResourceEffect leftEffect,
+        ResourceEffectLocation? left,
+        ResolvedResourceEffect rightEffect,
+        ResourceEffectLocation? right) =>
+        left is null
+            ? right is null
+            : right is not null
+                && BoundLocationEquals(
+                    leftEffect,
+                    left,
+                    rightEffect,
+                    right);
+
+    static bool BoundLocationEquals(
+        ResolvedResourceEffect leftEffect,
+        ResourceEffectLocation left,
+        ResolvedResourceEffect rightEffect,
+        ResourceEffectLocation right) =>
+        (left, right) switch
+        {
+            (ResourceEffectLocation.Receiver,
+                ResourceEffectLocation.Receiver) => true,
+            (ResourceEffectLocation.Return,
+                ResourceEffectLocation.Return) => true,
+            (ResourceEffectLocation.Constructed,
+                ResourceEffectLocation.Constructed) => true,
+            (ResourceEffectLocation.Parameter a,
+                ResourceEffectLocation.Parameter b) =>
+                a.Index == b.Index,
+            (ResourceEffectLocation.Operation a,
+                ResourceEffectLocation.Operation b) =>
+                a.Index == b.Index,
+            (ResourceEffectLocation.OperationSlot a,
+                ResourceEffectLocation.OperationSlot b) =>
+                BoundLocationEquals(
+                    leftEffect,
+                    a.Source,
+                    rightEffect,
+                    b.Source)
+                && BoundOptionalKindEquals(
+                    leftEffect,
+                    a.Kind,
+                    rightEffect,
+                    b.Kind),
+            (ResourceEffectLocation.CallbackParameter a,
+                ResourceEffectLocation.CallbackParameter b) =>
+                a.CallbackIndex == b.CallbackIndex
+                && a.ParameterIndex == b.ParameterIndex,
+            (ResourceEffectLocation.CallbackReturn a,
+                ResourceEffectLocation.CallbackReturn b) =>
+                a.CallbackIndex == b.CallbackIndex,
+            (ResourceEffectLocation.Field a,
+                ResourceEffectLocation.Field b) =>
+                BoundLocationEquals(
+                    leftEffect,
+                    a.Root,
+                    rightEffect,
+                    b.Root)
+                && a.Selector == b.Selector,
+            (ResourceEffectLocation.StructuralField a,
+                ResourceEffectLocation.StructuralField b) =>
+                BoundLocationEquals(
+                    leftEffect,
+                    a.Root,
+                    rightEffect,
+                    b.Root)
+                && a.Selector == b.Selector,
+            _ => false,
+        };
+
+    static bool BoundGuardEquals(
+        ResolvedResourceEffect leftEffect,
+        ResourceEffectGuard? left,
+        ResolvedResourceEffect rightEffect,
+        ResourceEffectGuard? right) =>
+        (left, right) switch
+        {
+            (null, null) => true,
+            (ResourceEffectGuard.ExactRuntimeType a,
+                ResourceEffectGuard.ExactRuntimeType b) =>
+                BoundLocationEquals(
+                    leftEffect,
+                    a.Subject,
+                    rightEffect,
+                    b.Subject)
+                && a.Expected == b.Expected,
+            _ => false,
+        };
+
     static bool KindDomainsOverlap(
         ResolvedResourceKindReference? left,
         ResolvedResourceKindReference? right) =>
@@ -2750,7 +3183,9 @@ public static class ResourceEffectResolver
         && left.Arguments.SequenceEqual(right.Arguments);
 
     static bool CompletionDomainsOverlap(
+        ResolvedResourceEffect leftEffect,
         ResourceEffectCompletion? left,
+        ResolvedResourceEffect rightEffect,
         ResourceEffectCompletion? right)
     {
         if (left is null || right is null)
@@ -2760,7 +3195,11 @@ public static class ResourceEffectResolver
             return true;
         if (left is ResourceEffectCompletion.OutcomeCase leftOutcome
             && right is ResourceEffectCompletion.OutcomeCase rightOutcome
-            && leftOutcome.Source == rightOutcome.Source)
+            && BoundLocationEquals(
+                leftEffect,
+                leftOutcome.Source,
+                rightEffect,
+                rightOutcome.Source))
         {
             return !OutcomeTestsAreDisjoint(
                 leftOutcome.Test,
@@ -2798,38 +3237,125 @@ public static class ResourceEffectResolver
         };
 
     static bool SameCompletion(
+        ResolvedResourceEffect leftEffect,
         ResourceEffectCompletion? left,
+        ResolvedResourceEffect rightEffect,
         ResourceEffectCompletion? right) =>
-        left == right;
+        (left, right) switch
+        {
+            (null, null) => true,
+            (ResourceEffectCompletion.Entry,
+                ResourceEffectCompletion.Entry) => true,
+            (ResourceEffectCompletion.NormalReturn,
+                ResourceEffectCompletion.NormalReturn) => true,
+            (ResourceEffectCompletion.ExceptionalExit,
+                ResourceEffectCompletion.ExceptionalExit) => true,
+            (ResourceEffectCompletion.SuccessfulAwait,
+                ResourceEffectCompletion.SuccessfulAwait) => true,
+            (ResourceEffectCompletion.Outcome a,
+                ResourceEffectCompletion.Outcome b) =>
+                a.Identity == b.Identity,
+            (ResourceEffectCompletion.OutcomeCase a,
+                ResourceEffectCompletion.OutcomeCase b) =>
+                BoundLocationEquals(
+                    leftEffect,
+                    a.Source,
+                    rightEffect,
+                    b.Source)
+                && a.Test == b.Test,
+            _ => false,
+        };
 
     static bool SameTransition(
+        ResolvedResourceEffect leftEffect,
         ResourceEffect left,
+        ResolvedResourceEffect rightEffect,
         ResourceEffect right) =>
         (left, right) switch
         {
             (ResourceEffect.Borrow a, ResourceEffect.Borrow b) =>
-                a.Source == b.Source
-                && a.Target == b.Target
+                BoundLocationEquals(
+                    leftEffect,
+                    a.Source,
+                    rightEffect,
+                    b.Source)
+                && BoundLocationEquals(
+                    leftEffect,
+                    a.Target,
+                    rightEffect,
+                    b.Target)
                 && a.Access == b.Access
                 && a.Scope == b.Scope
-                && a.Lender == b.Lender
+                && BoundOptionalLocationEquals(
+                    leftEffect,
+                    a.Lender,
+                    rightEffect,
+                    b.Lender)
                 && a.Materialization == b.Materialization,
             (ResourceEffect.Consume a, ResourceEffect.Consume b) =>
-                a.Source == b.Source
-                && a.Target == b.Target,
+                BoundLocationEquals(
+                    leftEffect,
+                    a.Source,
+                    rightEffect,
+                    b.Source)
+                && BoundLocationEquals(
+                    leftEffect,
+                    a.Target,
+                    rightEffect,
+                    b.Target),
             (ResourceEffect.Move a, ResourceEffect.Move b) =>
-                a.Source == b.Source
-                && a.Target == b.Target
-                && a.When == b.When,
+                BoundLocationEquals(
+                    leftEffect,
+                    a.Source,
+                    rightEffect,
+                    b.Source)
+                && BoundLocationEquals(
+                    leftEffect,
+                    a.Target,
+                    rightEffect,
+                    b.Target)
+                && SameCompletion(
+                    leftEffect,
+                    a.When,
+                    rightEffect,
+                    b.When),
             (ResourceEffect.Release a, ResourceEffect.Release b) =>
-                a.Source == b.Source
-                && a.When == b.When
-                && a.Correspondence == b.Correspondence
-                && a.Observation == b.Observation,
+                BoundLocationEquals(
+                    leftEffect,
+                    a.Source,
+                    rightEffect,
+                    b.Source)
+                && SameCompletion(
+                    leftEffect,
+                    a.When,
+                    rightEffect,
+                    b.When)
+                && BoundOptionalLocationEquals(
+                    leftEffect,
+                    a.Correspondence,
+                    rightEffect,
+                    b.Correspondence)
+                && BoundOptionalLocationEquals(
+                    leftEffect,
+                    a.Observation,
+                    rightEffect,
+                    b.Observation),
             (ResourceEffect.Accept a, ResourceEffect.Accept b) =>
-                a.Source == b.Source
-                && a.Target == b.Target
-                && a.When == b.When
+                BoundLocationEquals(
+                    leftEffect,
+                    a.Source,
+                    rightEffect,
+                    b.Source)
+                && BoundLocationEquals(
+                    leftEffect,
+                    a.Target,
+                    rightEffect,
+                    b.Target)
+                && SameCompletion(
+                    leftEffect,
+                    a.When,
+                    rightEffect,
+                    b.When)
                 && a.Order == b.Order,
             _ => false,
         };
@@ -2846,7 +3372,11 @@ public static class ResourceEffectResolver
                 is not ResourceEffectGuard.ExactRuntimeType leftExact
             || rightGuard
                 is not ResourceEffectGuard.ExactRuntimeType rightExact
-            || leftExact.Subject != rightExact.Subject)
+            || !BoundLocationEquals(
+                left,
+                leftExact.Subject,
+                right,
+                rightExact.Subject))
         {
             return true;
         }
@@ -2899,6 +3429,52 @@ public static class ResourceEffectResolver
                     == ResourceEffectSelectedMemberSemantics.PropertySetter,
             _ => false,
         };
+
+    static bool ParameterCountsCouldMatch(
+        ResourceEffectCallingConvention selectorConvention,
+        int selectorParameterCount,
+        MemberRef member)
+    {
+        ResourceEffectCallingConvention? memberConvention =
+            CallingConvention(member.SignatureHeader);
+        if (memberConvention is null)
+            return true;
+        if (selectorConvention
+                == ResourceEffectCallingConvention.VarArgs
+            && memberConvention
+                == ResourceEffectCallingConvention.VarArgs)
+        {
+            return member.RequiredParameterCount < 0
+                || member.RequiredParameterCount
+                    > member.ParameterTypes.Length
+                || selectorParameterCount
+                    == member.RequiredParameterCount;
+        }
+        return selectorParameterCount == member.ParameterTypes.Length;
+    }
+
+    static bool ParameterCountsCouldMatch(
+        byte leftHeader,
+        int leftRequiredParameterCount,
+        int leftParameterCount,
+        byte rightHeader,
+        int rightRequiredParameterCount,
+        int rightParameterCount)
+    {
+        if (!IsVarArgs(leftHeader) || !IsVarArgs(rightHeader))
+            return leftParameterCount == rightParameterCount;
+        if (leftRequiredParameterCount < 0
+            || leftRequiredParameterCount > leftParameterCount
+            || rightRequiredParameterCount < 0
+            || rightRequiredParameterCount > rightParameterCount)
+        {
+            return true;
+        }
+        return leftRequiredParameterCount == rightRequiredParameterCount;
+    }
+
+    static bool IsVarArgs(byte signatureHeader) =>
+        (signatureHeader & 0x0F) == 0x05;
 
     static ResourceEffectCallingConvention? CallingConvention(byte header) =>
         (header & 0x0F) switch
@@ -3433,25 +4009,20 @@ public static class ResourceEffectResolver
                     : Incomplete(pending, gap);
     }
 
-    sealed record BoundEffectKey(
-        ResourceEffectInvocationOccurrence Occurrence,
-        ResourceEffect Effect,
-        ImmutableArray<ResolvedResourceEffectGenericBinding> Bindings)
+    sealed record BoundEffectKey(ResolvedResourceEffect Effect)
     {
         public bool Equals(BoundEffectKey? other) =>
             other is not null
-            && Occurrence.Equals(other.Occurrence)
-            && Effect == other.Effect
-            && Bindings.SequenceEqual(other.Bindings);
+            && Effect.Occurrence.Equals(other.Effect.Occurrence)
+            && BoundEffectEquals(Effect, other.Effect)
+            && BindingSequenceEqual(
+                Effect.Bindings,
+                other.Effect.Bindings);
 
         public override int GetHashCode()
-        {
-            var hash = new HashCode();
-            hash.Add(Occurrence);
-            hash.Add(Effect);
-            ImmutableArrayValueEquality.AddToHash(ref hash, Bindings);
-            return hash.ToHashCode();
-        }
+            => HashCode.Combine(
+                Effect.Occurrence,
+                Effect.Effect.GetType());
     }
 
     sealed record OwnershipClaim(
