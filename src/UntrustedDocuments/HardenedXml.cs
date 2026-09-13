@@ -2,7 +2,7 @@ using System.IO;
 using System.Xml;
 using System.Xml.Linq;
 
-namespace DotnetInspector.Core;
+namespace UntrustedDocuments;
 
 /// <summary>
 /// Loads XML from untrusted package contents (.nuspec, compiler .xml docs, tool settings) with

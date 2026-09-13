@@ -6,7 +6,7 @@ This document is the normative owner for Artifact resource classification,
 resource-free content references, transferable retained-content ownership, and
 synchronous scoped content borrowing.
 
-It expands step 9 of
+It expands step 14 of
 [Resource Ownership and Borrowing](resource-ownership-and-borrowing.md) and is
 tracked end to end by
 [#6647](https://github.com/richlander/dotnet-inspect/issues/6647).

@@ -17,6 +17,8 @@ public class ILDisassemblerComparisonTests
 {
     static readonly string CoreDll = FindAssembly("DotnetInspector.Core.dll");
     static readonly string CacheDll = FindAssembly("DotnetInspector.Cache.dll");
+    static readonly string UntrustedDocumentsDll =
+        FindAssembly("UntrustedDocuments.dll");
     static readonly string MetadataDll = FindAssembly("ILInspector.Metadata.dll");
     static readonly string TestDll = typeof(ILDisassemblerComparisonTests).Assembly.Location;
 
@@ -86,6 +88,7 @@ public class ILDisassemblerComparisonTests
     {
         yield return ["Core"];
         yield return ["Cache"];
+        yield return ["UntrustedDocuments"];
         yield return ["Test"];
     }
 
@@ -310,6 +313,7 @@ public class ILDisassemblerComparisonTests
     {
         "Core" => CoreDll,
         "Cache" => CacheDll,
+        "UntrustedDocuments" => UntrustedDocumentsDll,
         "Metadata" => MetadataDll,
         "Test" => TestDll,
         _ => throw new ArgumentException($"Unknown assembly key: {key}")

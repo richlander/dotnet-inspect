@@ -162,6 +162,19 @@ the Services suite.
 remain with their existing CLI, `DotnetInspector.Services`,
 `ILInspector.Metadata`, and `NuGetFetch` owner suites.
 
+### Untrusted-document tests
+
+Run the independent parsing-owner suite from the repository root:
+
+```bash
+dotnet run --project tests/UntrustedDocuments.Tests -c Release
+```
+
+This Microsoft Testing Platform executable pins duplicate-property rejection,
+malformed JSON failure shape, XML DTD and external-entity rejection, explicit
+decoded-character budgets, and ordinary string, stream, and file parsing. The
+schema and semantic tests remain with their consuming owners.
+
 ### Text-library tests
 
 Run the complete text-library suites from the repository root:

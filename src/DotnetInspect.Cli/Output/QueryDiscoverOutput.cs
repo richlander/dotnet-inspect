@@ -24,7 +24,8 @@ internal static class QueryDiscoverOutput
         SharedOptions options,
         SectionQueryCatalog catalog,
         string[] query,
-        bool discoverSchema)
+        bool discoverSchema,
+        string? commandName = null)
     {
         bool bare = query.Length == 0;
         SelectResult selection = SelectResolver.ResolveSelectAsSections(
@@ -39,10 +40,16 @@ internal static class QueryDiscoverOutput
                 .Select(name => catalog.Queries.FirstOrDefault(item => item.Section == name)
                     ?? new SectionQueryDescriptor(name, NoOperators, []))];
         RowSelectionIntent<string>? semanticRowSelection = null;
-        if (result.CommandResult.Command.Name == "find"
+        string? semanticSelectionName = commandName switch
+        {
+            "find" => "Find",
+            "package query" => "Package Query",
+            _ => null,
+        };
+        if (semanticSelectionName is not null
             && !CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
                 result,
-                "Find",
+                semanticSelectionName,
                 out semanticRowSelection,
                 out string? rowSelectionError))
         {
@@ -71,7 +78,8 @@ internal static class QueryDiscoverOutput
                 plainText: format == OutputFormat.PlainText,
                 projection: projection,
                 semanticRowSelection: semanticRowSelection,
-                semanticSelectionName: "Find");
+                semanticSelectionName:
+                    semanticSelectionName ?? "Discovery");
         }
 
         string[] headers = bare ? CatalogColumns : FacetColumns;
@@ -91,6 +99,7 @@ internal static class QueryDiscoverOutput
                     selected,
                     window,
                     semanticRowSelection,
+                    semanticSelectionName,
                     "query section",
                     out IReadOnlyList<SectionQueryDescriptor> selectedRows))
             {
@@ -109,6 +118,7 @@ internal static class QueryDiscoverOutput
                         section.Facets,
                         window,
                         semanticRowSelection,
+                        semanticSelectionName,
                         "query facet",
                         out IReadOnlyList<SectionQueryFacet> selectedFacets))
                 {
@@ -160,7 +170,7 @@ internal static class QueryDiscoverOutput
             else
             {
                 var document = new QueryDiscoveryDocument(
-                    result.CommandResult.Command.Name,
+                    commandName ?? result.CommandResult.Command.Name,
                     message,
                     [.. selected.Select(section => new QueryDiscoverySection(
                         section.Section,
@@ -208,6 +218,7 @@ internal static class QueryDiscoverOutput
         IReadOnlyList<T> rows,
         RowWindow? legacyWindow,
         RowSelectionIntent<string>? semanticRowSelection,
+        string? semanticSelectionName,
         string rowKind,
         out IReadOnlyList<T> selectedRows)
         => CliSemanticRowSelection.TrySelectOrApplyLegacy(
@@ -216,7 +227,7 @@ internal static class QueryDiscoverOutput
             rows,
             rowKind,
             failure =>
-                $"Find row selection stage "
+                $"{semanticSelectionName ?? "Query discovery"} row selection stage "
                 + $"{failure.Failure.StageNumber} requires {rowKind} row "
                 + $"{failure.Failure.RequiredPosition}, but only "
                 + $"{failure.Failure.AvailableCount} {rowKind} rows are available.",

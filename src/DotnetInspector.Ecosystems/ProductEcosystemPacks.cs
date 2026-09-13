@@ -1,4 +1,7 @@
+using DotnetInspector.Platforms;
+using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
+using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Ecosystems;
@@ -7,7 +10,7 @@ internal static class ProductEcosystemPacks
 {
     internal static EcosystemPackRegistry Registry { get; } = new(
     [
-        new(
+        ProjectWorkspace(new(
             EcosystemPackIds.Platform,
             "Platform",
             "Core .NET product demos.",
@@ -20,8 +23,12 @@ internal static class ProductEcosystemPacks
             ])
         {
             NamespaceRoots = ["System"],
-        },
-        new(
+        }, "ecosystem.platform",
+        [
+            new WorkspaceEcosystemPopulationDeclaration.Platform(
+                new PlatformLibraryPopulationDeclaration(PlatformFamily.DotNetRuntime)),
+        ]),
+        ProjectWorkspace(new(
             EcosystemPackIds.MicrosoftExtensions,
             "Microsoft.Extensions",
             "Microsoft.Extensions package discovery and product demos.",
@@ -42,8 +49,12 @@ internal static class ProductEcosystemPacks
                 new("Microsoft.Extensions.Configuration.Abstractions"),
                 new("Microsoft.Extensions.Logging.Abstractions"),
             ],
-        },
-        new(
+        }, "ecosystem.microsoft-extensions",
+        [
+            new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
+                new PackagePrefixDeclaration("Microsoft.Extensions.")),
+        ]),
+        ProjectWorkspace(new(
             EcosystemPackIds.AspNetCore,
             "ASP.NET Core",
             "ASP.NET Core package content.",
@@ -57,8 +68,14 @@ internal static class ProductEcosystemPacks
                 new("Microsoft.AspNetCore.OpenApi"),
                 new("Microsoft.AspNetCore.Authentication.JwtBearer"),
             ],
-        },
-        new(
+        }, "ecosystem.aspnetcore",
+        [
+            new WorkspaceEcosystemPopulationDeclaration.Platform(
+                new PlatformLibraryPopulationDeclaration(PlatformFamily.AspNetCore)),
+            new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
+                new PackagePrefixDeclaration("Microsoft.AspNetCore.")),
+        ]),
+        ProjectWorkspace(new(
             EcosystemPackIds.Aspire,
             "Aspire",
             "Aspire package and demo content.",
@@ -73,8 +90,44 @@ internal static class ProductEcosystemPacks
             NamespaceRoots = ["Aspire"],
             CorePackages = [new("Aspire.Hosting")],
             ToolPackages = [new("Aspire.Cli")],
-        },
+        }, "ecosystem.aspire",
+        [
+            new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
+                new PackagePrefixDeclaration("Aspire.")),
+        ]),
     ]);
+
+    internal static EcosystemWorkspaceFactory PlatformWorkspace { get; } = new(
+        Registry,
+        [
+            EcosystemPackIds.Platform,
+            EcosystemPackIds.AspNetCore,
+            EcosystemPackIds.MicrosoftExtensions,
+        ]);
+
+    internal static EcosystemWorkspaceFactory AllKnownWorkspace { get; } = new(
+        Registry,
+        [
+            EcosystemPackIds.Platform,
+            EcosystemPackIds.AspNetCore,
+            EcosystemPackIds.MicrosoftExtensions,
+            EcosystemPackIds.Aspire,
+        ],
+        requireAllPacks: true);
+
+    private static EcosystemPackRegistration ProjectWorkspace(
+        EcosystemPackRegistration pack,
+        string lowerIdentity,
+        WorkspaceEcosystemPopulationDeclaration[] populations) =>
+        pack with
+        {
+            WorkspaceRegistration = new(
+                WorkspaceEcosystemRegistrationId.Create(lowerIdentity),
+                pack.NamespaceRoots,
+                pack.CorePackages,
+                populations,
+                pack.Scanner),
+        };
 
     private static EcosystemDemoRegistration Demo(
         string scenarioId,

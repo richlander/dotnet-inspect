@@ -51,7 +51,13 @@ public record NuGetSearchOutcome(
     /// selection before package-source mapping.
     /// </summary>
     public bool SourceSelectionIncomplete =>
-        PrefixSearchLimits.Count > 0;
+        SearchLimitReached || PrefixSearchLimits.Count > 0;
+
+    /// <summary>
+    /// Whether an ordinary keyword-search source returned its requested page
+    /// maximum, so additional matches may have been omitted.
+    /// </summary>
+    public bool SearchLimitReached { get; init; }
 }
 
 /// <summary>
@@ -134,6 +140,7 @@ public static class NuGetSearchService
         bool operationTimedOut = false;
         var prefixSearchLimits =
             new HashSet<PrefixSearchCompletion>();
+        bool searchLimitReached = false;
         bool useFactoryClients =
             ReferenceEquals(client, HttpClientFactory.Shared);
         _ = NuGetFetchOptions.RequestTimeoutForClient(
@@ -288,6 +295,8 @@ public static class NuGetSearchService
                             prerelease,
                             auth,
                             operationCancellation.Token);
+                        if (found.Count >= take)
+                            searchLimitReached = true;
                     }
                     else
                     {
@@ -359,7 +368,11 @@ public static class NuGetSearchService
             var sourceKeys = new HashSet<(string Id, NuGetVersion Version)>(
                 SearchResultKeyComparer.Instance);
             bool aggregationTimedOut = false;
-            foreach (SearchResult result in found)
+            IEnumerable<SearchResult> resultsToAggregate =
+                resultFilter is null
+                    ? found.Take(take)
+                    : found;
+            foreach (SearchResult result in resultsToAggregate)
             {
                 if (HasOperationExpired(
                         operationStarted,
@@ -437,8 +450,6 @@ public static class NuGetSearchService
             prefixSearchLimits.Add(
                 PrefixSearchCompletion.TakeReached);
         }
-        List<NuGetSearchResult> finalResults =
-            eligibleResults.Take(take).ToList();
         if (!operationTimedOut)
         {
             ThrowIfOperationExpired(
@@ -446,8 +457,13 @@ public static class NuGetSearchService
                 fetchOptions.OperationTimeout,
                 operationCancellation.Token);
         }
+        IReadOnlyList<NuGetSearchResult> finalResults =
+            resultFilter is null
+                ? eligibleResults
+                : eligibleResults.Take(take).ToList();
         return new NuGetSearchOutcome(finalResults, failures)
         {
+            SearchLimitReached = searchLimitReached,
             PrefixSearchLimits =
                 [.. prefixSearchLimits.Order()],
         };

@@ -18,7 +18,9 @@ public static class SearchCommandDefinitions
 {
     public static Command CreateFindCommand(SharedOptions opts)
     {
-        var findCommand = new Command(FindCommand.Name, "Search package facets or types across packages and libraries");
+        var findCommand = new Command(
+            FindCommand.Name,
+            "Search types or members across packages and libraries");
 
         var patternArg = new Argument<string?>("pattern")
         {
@@ -69,23 +71,14 @@ public static class SearchCommandDefinitions
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
         var packagePrefixOption = new Option<string?>("--package-prefix")
         {
-            Description = $"With a type pattern, search up to {ScopeConstants.PackagePrefixExpansionLimit} matching package IDs; without one, inspect {FindCommand.PackageProfileDefaultLimit} latest manifests by default (--take up to {FindCommand.PackageProfileMaximumLimit}). Use -Q Packages for facet queries."
+            Description =
+                $"With a type or member pattern, search up to "
+                + $"{ScopeConstants.PackagePrefixExpansionLimit} matching package IDs"
         };
         var typeFilterOption = new Option<string?>("--type")
         {
             Description = "Filter API types by glob (for example --type *Json*)"
         };
-        var takeOption = new Option<string[]>("--take")
-        {
-            Description = "Maximum package candidates or manifest enrichments to attempt (default 200 for Package Query, 20 with --package-content, or 500 for Package Profile; maximum 1000)",
-            Arity = ArgumentArity.OneOrMore,
-            AllowMultipleArgumentsPerToken = false
-        };
-        var packageContentOption = new Option<bool>("--package-content")
-        {
-            Description = "Permit Package Query archive-content facets (at most 20 candidates)"
-        };
-
         findCommand.Arguments.Add(patternArg);
         findCommand.Options.Add(packageOption);
         findCommand.Options.Add(assemblyOption);
@@ -100,9 +93,6 @@ public static class SearchCommandDefinitions
         findCommand.Options.Add(membersOption);
         findCommand.Options.Add(literalOption);
         findCommand.Options.Add(typeFilterOption);
-        findCommand.Options.Add(opts.RowWhere);
-        findCommand.Options.Add(takeOption);
-        findCommand.Options.Add(packageContentOption);
         findCommand.Options.Add(opts.Json);
         findCommand.Options.Add(compactOption);
         opts.AddTableOptionsTo(findCommand);
@@ -121,8 +111,7 @@ public static class SearchCommandDefinitions
             patternArg, packageOption, assemblyOption, platformOption, platformLibraryOption,
             extensionsOption, aspnetcoreOption, projectOption, binOption, tfmOption, allOption,
             typeFilterOption, compactOption, opts.NoHeaders, packagePrefixOption, membersOption,
-            literalOption,
-            takeOption, packageContentOption);
+            literalOption);
 
         findCommand.SetAction(async (parseResult, ct) =>
         {
@@ -138,8 +127,6 @@ public static class SearchCommandDefinitions
                         "find Chat* --extensions                   # Microsoft.Extensions packages",
                         "find Chat* --aspnetcore                   # ASP.NET Core packages",
                         "find Chat* --package Newtonsoft.Json       # specific package",
-                        "find --package-prefix Azure.AI            # stream package manifests",
-                        "find -Q Packages                          # discover package query facets",
                         "find --literal Json --package System.Text.Json@10.0.0 --tfm net10.0",
                         "find Chat* --platform --extensions         # combine scopes");
 
@@ -150,7 +137,6 @@ public static class SearchCommandDefinitions
 
                     if (exitCode == 0
                         && success.Options.Literal is null
-                        && !success.Options.IsPackageProfile
                         && !success.Options.FormatExplicitlySet
                         && !success.Options.IsRawOutput)
                     {
@@ -181,14 +167,6 @@ public static class SearchCommandDefinitions
             CliRowSelectionCapabilities.HeadTail
                 | CliRowSelectionCapabilities.Window,
             isActive: static _ => true);
-        CliExecutionBoundCommandRegistry.Register(
-            findCommand,
-            takeOption,
-            result => result.GetValue(packageContentOption)
-                ? PackageQuery.MaximumPackageContentCandidates
-                : FindCommand.PackageProfileMaximumLimit,
-            isActive: static _ => true);
-
         return findCommand;
     }
 
@@ -532,7 +510,7 @@ public static class SearchCommandDefinitions
 
         var packageOption = new Option<string[]>("--package")
         {
-            Description = "Type mode: package search scope. Asset mode: package root ID, ID@VERSION, or local .nupkg (repeatable).",
+            Description = "Type mode: package-ID scope. Asset mode: package root ID, ID@VERSION, or local .nupkg (repeatable).",
             Arity = ArgumentArity.OneOrMore,
             AllowMultipleArgumentsPerToken = false
         };

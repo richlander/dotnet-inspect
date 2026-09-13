@@ -420,7 +420,7 @@ namespace DotnetInspect.Web.Interop.Package
                         completed.Value.CandidateLimit,
                         completed.Value.MatchLimit
                             ?? throw new InvalidOperationException(
-                                "Browser Package Query requires a match limit."),
+                                "Browser Package Query requires a match budget."),
                         completed.Value.Candidates,
                         completed.Value.Matches,
                         completed.Value.Failures,

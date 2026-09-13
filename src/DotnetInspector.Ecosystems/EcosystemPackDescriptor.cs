@@ -18,7 +18,8 @@ public sealed class EcosystemPackDescriptor
         bool hasScanner,
         ImmutableArray<string> namespaceRoots,
         ImmutableArray<PackageCoordinate> corePackages,
-        ImmutableArray<PackageCoordinate> toolPackages)
+        ImmutableArray<PackageCoordinate> toolPackages,
+        bool hasWorkspaceRegistration)
     {
         Id = id;
         Title = title;
@@ -30,6 +31,7 @@ public sealed class EcosystemPackDescriptor
         NamespaceRoots = namespaceRoots;
         CorePackages = corePackages;
         ToolPackages = toolPackages;
+        HasWorkspaceRegistration = hasWorkspaceRegistration;
     }
 
     public EcosystemPackId Id { get; }
@@ -45,6 +47,8 @@ public sealed class EcosystemPackDescriptor
     public ImmutableArray<EcosystemDemoDescriptor> Demos { get; }
 
     public bool HasScanner { get; }
+
+    public bool HasWorkspaceRegistration { get; }
 
     /// <summary>Literal namespace-subtree hints in authored order, not an exhaustive inventory.</summary>
     public ImmutableArray<string> NamespaceRoots { get; }

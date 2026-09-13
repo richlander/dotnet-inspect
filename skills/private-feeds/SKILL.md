@@ -32,10 +32,12 @@ Use a source-only config when a credential provider supplies authentication:
 
 ```bash
 dnx dotnet-inspect -y -- package MyCompany.Widget --nugetconfig ./NuGet.Config
-dnx dotnet-inspect -y -- package search Widget --nugetconfig ./NuGet.Config
 dnx dotnet-inspect -y -- package MyCompany.Widget --versions-with-feed \
   --nugetconfig ./NuGet.Config
 ```
+
+`package query` currently uses NuGet.org only; it rejects private-feed source
+overrides rather than silently querying the wrong authority.
 
 Version discovery combines all eligible sources and chooses the highest
 semantic version; source order is not precedence. Pin `Package@Version` when

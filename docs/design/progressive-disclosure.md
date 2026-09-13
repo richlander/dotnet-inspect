@@ -232,11 +232,12 @@ turn capability discovery into target acquisition or advertise deferred work.
 
 Package acquisition and symbol/source acquisition are separate.
 
-In the Browser package query, selecting a product-issued package-content facet
-is the explicit package-acquisition gesture. The product planner caps that
-request at 20 candidates, and execution requires the host to supply an
+In Browser and CLI Package Query, selecting a product-issued package-content
+facet is the explicit package-acquisition gesture. The product planner caps
+that request at 20 candidates, and execution requires the host to supply an
 `IPackageQueryContentProvider`; merely discovering that an archive is
-available grants no authority to open it.
+available grants no authority to open it. The CLI's `--nuspec-only` option
+rejects a planned package-content facet before acquisition.
 
 Capability-bearing gestures carry **request provenance**, not authority.
 Argument parsing retains the user's original verbosity, explicit
@@ -332,17 +333,19 @@ dotnet-inspect library System.Private.CoreLib -S "Async*" --rows 11..20
   windows. An upstream-bounded source may return Count only when it proves
   exact completion for the logical request; a provider, work, page, time, or
   memory cap is not semantic selection and must remain disclosed rather than
-  becoming a corpus total. Bare `package search`'s default provider and merged
-  caps remain non-semantic, so Count requires exact completion evidence for the
-  full candidate set rather than reporting `20`; an explicit `-n 20` is
-  semantic `Head(20)` and may prove the exact result `20` without exhausting
-  the tail. A Rows request may still render the capped search rows with their
-  bound incompleteness disclosure; that does not make the cap semantic or
-  Count-sufficient.
+  becoming a corpus total. `package query`'s candidate `--take` remains
+  non-semantic, so Count requires exact completion evidence for the authorized
+  candidate population rather than reporting the work ceiling; an explicit
+  `-n 20` is semantic `Head(20)`. Without explicit `--take`, Package Query may
+  push a lone Head into direct candidate or filtered match execution; reaching
+  that derived Head is complete for the selected rows rather than a candidate
+  truncation. A Rows request may still render rows from an explicitly
+  candidate-bounded query with its incompleteness disclosure; that does not
+  make the candidate cap semantic or Count-sufficient.
 - `-n N` and numeric shorthand such as `-6` limit declared items independently
-  within each row set after filtering and ordering. Bare `package search` uses
-  a default provider and global merged-row cap of 20; an explicit N sets both
-  caps to N.
+  within each row set after filtering and ordering. `package query` keeps this
+  semantic selection separate from explicit `--take`; without explicit
+  `--take`, a lone Head may be delegated into query execution.
 - `--tail` takes items from the end.
 - `--rows` selects absolute stable row ranges such as `11..20`, `11+10`, or
   `11..`; it carries no count-only form.

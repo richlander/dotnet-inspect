@@ -346,44 +346,50 @@ dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --versions
 dotnet-inspect package System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Artifact Text"
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Findings"
-dotnet-inspect find --package-prefix Azure.AI --take 100 --rows 2..4 -n 2 --tsv
+dotnet-inspect package query 'Azure.AI*' --take 100 --tsv
 ```
 
-Patternless `find --package-prefix PREFIX` streams latest listed package
-metadata and exact `.nuspec` manifests without downloading package archives.
-`--take` bounds the package candidates that may be attempted. `--rows` and
-`-n` then select successful package rows in authored order; dependencies are
-not expanded into separate rows. Supplying a pattern keeps API-search behavior
-and may acquire package archives. Add `--type GLOB` to constrain type matches
-or member matches by declaring type:
+`package query ID` selects one exact package ID. A single terminal `*` selects
+a literal package-ID prefix. Explicit `--take` bounds candidate work before
+`-n` selects final package rows. Without explicit `--take`, a simple `-n N`
+also bounds direct package-row acquisition to N, up to the 1,000-candidate
+execution ceiling. Larger semantic heads remain valid and use that ceiling.
+`find PATTERN --package-prefix PREFIX` remains API search across
+packages matching the prefix:
 
 ```bash
 dotnet-inspect find Serialize --members --type System.Text.Json.JsonSerializer \
   --package-prefix System.Text
 ```
 
-Add `--where "facet=<ID>"` to run the shared Package Query engine instead,
-with one matched package per row and product-authored evidence. Discover the
-executable IDs before constructing a query:
+Add `--where "facet=<ID>"` to select a host-neutral Package Query facet, with
+one matched package per row and product-authored evidence. The initial CLI
+facet set identifies .NET tool packages and their CLI v1/v2 format. Discover
+the admitted IDs before constructing a query:
 
 ```bash
-dotnet-inspect find -Q Packages
-dotnet-inspect find --package-prefix dotnet-inspect --package-content -S Packages \
-  --where "facet=package.query.dotnet-tool" --take 5 -n 5
-dotnet-inspect find --package-prefix dotnet-inspect --package-content \
-  --where "facet=package.query.dotnet-tool-v2" --take 5 -n 5 --jsonl
+dotnet-inspect package query -Q Packages
+dotnet-inspect package query Azure.Mcp \
+  --where "facet=package.query.dotnet-tool"
+dotnet-inspect package query 'dotnet-*' \
+  --where "facet=package.query.dotnet-tool-v2" --take 20 -n 5 --jsonl
 ```
 
 Repeat `--where` to combine facets; the engine rejects incompatible selections.
 The broad tool facet reports CLI v1, CLI v2, or unrecognized settings from
 `DotnetToolSettings.xml`; tool v1 and v2 are compatible filtering alternatives.
-`--take` bounds candidate work (default 200, maximum 1,000), while `-n` and
-`--rows` select final matched package rows after candidate evaluation. Content
-facets require
-`--package-content`, which defaults to and permits at most 20 candidates.
-Reached work bounds and partial failures are reported explicitly. `--count`
-counts selected matching package rows only when completion or the semantic
-selection proves the count exact.
+Selecting a content facet authorizes the required archive acquisition and
+defaults to at most 20 candidates. Use `--nuspec-only` to reject a query that
+would require package content. Without explicit `--take`, a simple `-n N`
+query pushes that semantic head into execution; explicit `--take` instead
+fixes the candidate population before row selection. Reached candidate limits
+and partial failures are reported explicitly. `--count` counts selected
+matching package rows only when completion or the semantic selection proves
+the count exact.
+
+**Breaking change:** `package search` and patternless
+`find --package-prefix PREFIX` have been removed. Use `package query` with an
+exact package ID or an explicit terminal-star prefix.
 
 ### Package Queries over explicit packages
 

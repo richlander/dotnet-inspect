@@ -5,12 +5,19 @@
 This document is the normative owner for Analysis resolution of admitted
 resource-effect declarations against concrete .NET metadata. It is tracked by
 [#6728](https://github.com/richlander/dotnet-inspect/issues/6728) as step 5 of
-the 23-step production-adoption plan in
+the 26-step production-adoption plan in
 [#6544](https://github.com/richlander/dotnet-inspect/issues/6544).
 
 The first production consumer is the existing
 `LibraryMethodAnalysisRunner` path. Implementation is assigned to
 [#6729](https://github.com/richlander/dotnet-inspect/issues/6729).
+
+This version resolves terminal-resource obligations and their borrows,
+transfers, and release effects. It does not yet resolve non-terminal exclusive
+mutable ownership, mutation, or immutable-detachment effects.
+[#6780](https://github.com/richlander/dotnet-inspect/issues/6780) owns that
+focused extension after #6778 defines the admitted declarations and before
+issue #6779 adopts them in Analysis flow.
 
 [Resource Effect Language](resource-effect-language.md) owns admitted
 selectors, effects, provenance, and the admission receipt. Metadata owns
@@ -179,7 +186,7 @@ method identity, resolved direct-call evidence, and optional external Metadata
 resolution context needed to request occurrence-bound effects without a second
 body or metadata traversal.
 
-The production path remains the 23-step #6544 plan:
+The production path remains the 26-step #6544 plan:
 
 1. #6728 locks this resolution contract.
 2. #6729 implements it and the shipped typed ArrayPool mapping.
@@ -190,6 +197,10 @@ The production path remains the 23-step #6544 plan:
 5. #6732 migrates Research ownership-flow consumers.
 6. Later focused slices adopt repository ownership declarations, the CLI, and
    Inspect Web Browser/Wasm.
+7. #6778 later extends declaration support for non-terminal exclusive mutable
+   ownership.
+8. #6780 extends this resolution owner for those admitted effects.
+9. #6779 adopts the resolved effects in Analysis.
 
 This host-neutral Analysis boundary therefore reaches both production hosts
 through the already enumerated adoption plan. It adds no rendering surface;

@@ -43,6 +43,17 @@ records the approved resolve-first recovery after #6669 showed that unresolved
 catalog composition was not a proportionate declaration-admission
 responsibility.
 
+This version of the language covers **terminal resources**: acquisition creates
+an obligation that must be released, settled, or transferred. The broader
+ownership protocol also recognizes exclusive mutable values whose correctness
+requires one current mutation owner but no release operation. This language
+does not yet represent that category.
+[Issue #6778](https://github.com/richlander/dotnet-inspect/issues/6778) owns
+the focused declaration-language extension; #6780 owns concrete effect
+resolution; and #6779 owns later Analysis adoption. Until those issues land, a
+non-terminal mutable value must not be modeled by inventing a fake release
+effect.
+
 ## Purpose
 
 The current architecture has two incompatible extension points:
@@ -1421,8 +1432,9 @@ operator choice. No source-text or hostile-repository gate is added for it.
 
 [#6544](https://github.com/richlander/dotnet-inspect/issues/6544) remains the
 overall ownership-adoption tracker. The resolve-first replacement expands its
-enumerated plan from 21 to 23 steps. This language reaches production through
-these focused slices:
+enumerated plan from 21 to 23 steps; the later exclusive-mutable extension
+brings the current plan to 26. This language reaches production through these
+focused slices:
 
 1. #6726 narrows this owner to declaration admission;
 2. #6727 implements the bounded parser, admitted model, provenance, and
@@ -1440,7 +1452,10 @@ these focused slices:
 9. a focused runtime slice implements the host-neutral snapshot callback and
    its conformance evidence;
 10. a CLI slice exposes generalized Resource Triage; and
-11. an Inspect Web Browser/Wasm slice exposes the same typed contract.
+11. an Inspect Web Browser/Wasm slice exposes the same typed contract;
+12. #6778 extends this language to non-terminal exclusive mutable ownership;
+13. #6780 resolves those effects to concrete metadata occurrences; and
+14. #6779 adopts that resolved contract in Analysis.
 
 A future, separately approved product issue may accept caller-supplied JSON
 models for unannotated third-party packages or binaries; that capability is

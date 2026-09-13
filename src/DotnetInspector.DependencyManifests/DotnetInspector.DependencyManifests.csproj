@@ -15,7 +15,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../DotnetInspector.Core/DotnetInspector.Core.csproj" />
+    <ProjectReference Include="../UntrustedDocuments/UntrustedDocuments.csproj" />
   </ItemGroup>
 
 </Project>

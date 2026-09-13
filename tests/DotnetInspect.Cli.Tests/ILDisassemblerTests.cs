@@ -471,6 +471,7 @@ public class ILDisassemblerTests
         string[] assemblyNames = [
             "DotnetInspector.Cache.dll",
             "DotnetInspector.Core.dll",
+            "UntrustedDocuments.dll",
             "ILInspector.Metadata.dll",
             "DotnetInspector.Packages.dll",
             "DotnetInspector.Services.dll",

@@ -1,7 +1,5 @@
 using System.Collections;
 using System.Collections.Immutable;
-using System.Reflection.Metadata;
-using System.Reflection.PortableExecutable;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
 using DotnetInspector.QueriesConsumer;
@@ -13,9 +11,6 @@ namespace DotnetInspector.Queries.Tests;
 
 public sealed class WorkspaceEcosystemRegistrationDeclarationTests
 {
-    private const string RealPackageVersion =
-        "11.0.0-preview.7.26381.103";
-
     [Theory]
     [InlineData("ecosystem.platform")]
     [InlineData("ecosystem.aspnetcore")]
@@ -70,7 +65,7 @@ public sealed class WorkspaceEcosystemRegistrationDeclarationTests
             new("System.Text.Encodings.Web"),
         ];
         ExactLibrarySourceCoordinate exactLibrary =
-            RealPackageSystemTextJson();
+            WorkspaceRegistrationTestData.RealPackageSystemTextJson();
         var platform = new PlatformLibraryPopulationDeclaration(
             PlatformFamily.DotNetRuntime);
         var prefix = new PackagePrefixDeclaration("System.Text.");
@@ -377,25 +372,6 @@ public sealed class WorkspaceEcosystemRegistrationDeclarationTests
             corePackages ?? [],
             populations ?? [],
             scanner);
-
-    private static ExactLibrarySourceCoordinate RealPackageSystemTextJson()
-    {
-        using var stream = File.OpenRead(
-            Path.Combine(
-                AppContext.BaseDirectory,
-                "RealAssets",
-                "BindingComposition",
-                "package",
-                "System.Text.Json.dll"));
-        using var pe = new PEReader(stream);
-        MetadataReader reader = pe.GetMetadataReader();
-        return new ExactLibrarySourceCoordinate.Package(
-            PackageSourceCoordinate.Create(
-                "System.Text.Json",
-                RealPackageVersion),
-            new(
-                AssemblyReferenceIdentity.FromAssemblyDefinition(reader)));
-    }
 
     private static ExactLibrarySourceCoordinate ExactLibrary(
         string assemblyName,

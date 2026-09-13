@@ -169,14 +169,24 @@ substrates, and inspection producers that will extend that space.
   `TextFindings` API for exact, ordered line inspection and generic text
   comparison on the shared Finding spine, plus deterministic LF construction.
 - [Resource Ownership and Borrowing](design/resource-ownership-and-borrowing.md)
-  is the host-neutral resource protocol for service-issued leases, explicit
-  transfer, direct and snapshot-callback borrowing, resource-free references
-  and receipts, C# representation, the residual enforcement overhang before
-  compiler ownership, and the lifecycle semantics declarations must express.
-  Resource issuers retain their acquisition and cleanup semantics; Analysis
-  retains IL interpretation and Finding semantics; Houses compose and settle
-  scenarios without issuing adjacent-owner leases. Adoption and retirement are
-  tracked by #6544.
+  is the host-neutral ownership protocol for exclusive mutable values,
+  terminal resources, explicit transfer, direct and snapshot-callback
+  borrowing, detached immutable results, C# representation, the residual
+  enforcement overhang before compiler ownership, and the semantics
+  declarations must express. `IDisposable` is one terminal-resource encoding,
+  not the definition of ownership. Ownership governs a live value, a lease
+  carries issuer-scoped authority and terminal responsibility, and a receipt
+  preserves durable evidence without authority when an operation needs that
+  evidence after live authority ends. Ownership and a lease compose for live
+  external-resource operations; a receipt or other detached owner-issued
+  outcome completes the pattern when later stateless work needs the result.
+  Focused owners retain their mutation, acquisition, and cleanup semantics;
+  Analysis retains IL interpretation and Finding semantics; Houses compose and
+  settle scenarios without issuing adjacent-owner leases. Adoption and
+  retirement are tracked by #6544. The non-normative
+  [resource-owner type map](design/resource-owner-type-map.md) records each
+  focused owner's current or approved types, maturity, evidence, and future
+  compiler correspondence without becoming another owner.
 - [Artifact Ownership and Borrowing](design/artifact-ownership-and-borrowing.md)
   applies that protocol to Artifact: resource-free content references remain
   separate from current query authority and transferable per-content child
@@ -336,6 +346,13 @@ substrates, and inspection producers that will extend that space.
   used by product HTTP composition and NuGet feed transports. Its project and
   compiled assembly dependencies are restricted to the platform by
   `network-access-stays-independent`.
+- `src/UntrustedDocuments/` owns the shared duplicate-rejecting JSON and
+  DTD-prohibiting XML parsing entry points. It depends only on the platform;
+  consumers retain schema, semantic validation, domain limits, acquisition,
+  and error projection. This is step 4 of the `DotnetInspector.Core`
+  decomposition under
+  [#6334](https://github.com/richlander/dotnet-inspect/issues/6334), tracked by
+  [#6770](https://github.com/richlander/dotnet-inspect/issues/6770).
 - `src/DotnetInspector.Networking/` owns cross-host HTTP composition, request
   currency and breadcrumbs, traffic policy, observations, and network
   diagnostics. Its project and compiled assembly dependencies are restricted
@@ -353,8 +370,8 @@ substrates, and inspection producers that will extend that space.
   Packages, Services, and the CLI. `RequestMermaidDiagram` composes network,
   cache, and breadcrumb observations; `InfoTracker` subscribes to network and
   cache telemetry and counts hits and misses while excluding stores.
-  `CountingTextWriter` and the hardened JSON/XML readers remain. Later
-  subject-owned moves continue under
+  `InspectionEnvelope`, its JSON converter, `Downloader`, and
+  `CountingTextWriter` remain. The final subject-owned moves continue under
   [#6334](https://github.com/richlander/dotnet-inspect/issues/6334).
 - `src/ILInspector.Decompiler/` emits lowered C#, raw IL, and structural annotated IL from method bodies.
 - `src/ILInspector.Research/` owns the offset-keyed fact overlay above Analysis
