@@ -1143,14 +1143,10 @@ public static class ResourceEffectResolver
                 propertyRows.Add(propertyRow);
                 PropertyDefinition property =
                     reader.GetPropertyDefinition(propertyHandle);
-                if (!SignatureBlobGuard.IsSafeToDecode(
+                if (SignatureBlobGuard.IsSafeToDecode(
                     reader,
                     property.Signature,
                     SignatureBlobGuard.Kind.Method))
-                {
-                    invalidPropertyRows.Add(propertyRow);
-                }
-                else
                 {
                     MethodSignature<TypeRef> propertySignature =
                         property.DecodeSignature(
@@ -1188,6 +1184,10 @@ public static class ResourceEffectResolver
                             propertyRow,
                             propertySignature);
                     }
+                }
+                else
+                {
+                    invalidPropertyRows.Add(propertyRow);
                 }
                 if (!semanticsIndex.PropertyRows.TryGetValue(
                         propertyRow,
