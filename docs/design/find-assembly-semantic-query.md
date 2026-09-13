@@ -476,23 +476,23 @@ The counted delivery path under #6769 is:
 1. **Owner lock:** this document establishes the Package Assembly-Semantic Find
    Query and transfers multi-candidate semantic Find meaning out of the package
    query CLI owner.
-2. **Authority-bearing population prerequisite:** the package/source owner
-   exposes the bounded exact-ID/prefix selection handoff as ordered
+2. **Authority-bearing population prerequisite — #6793:** the package/source
+   owner exposes the bounded exact-ID/prefix selection handoff as ordered
    `PackageAcquisitionCandidate` values plus typed completion and failures.
    Package-row events and source-less coordinates do not satisfy this step.
-3. **Shared extraction:** refactor the current literal-specific
+3. **Shared extraction — #6794:** refactor the current literal-specific
    `PackageAssemblyQuery` orchestration into this owner without changing the
    one-candidate evaluator or exact-package semantics.
-4. **CLI adoption:** in a focused CLI-owner change, add Gallery-only bounded
-   prefix population, adopt the candidate execution bound, bind semantic row
-   selection and Count to occurrences, decide and classify the
+4. **CLI adoption — #6795:** in a focused CLI-owner change, add Gallery-only
+   bounded prefix population, adopt the candidate execution bound, bind
+   semantic row selection and Count to occurrences, decide and classify the
    Candidates-first default and single-row-format behavior, and render the
    result through Sections/Markout.
-5. **Browser/Wasm adoption:** in a focused Package Query experience change,
-   consume the shared candidate and occurrence counts and typed outcomes while
-   retaining package cards and bounded occurrence previews.
-6. **Legacy retirement:** remove the literal-specific orchestration and DTO
-   shapes made redundant by the shared result. Keep
+5. **Browser/Wasm adoption — #6796:** in a focused Package Query experience
+   change, consume the shared candidate and occurrence counts and typed
+   outcomes while retaining package cards and bounded occurrence previews.
+6. **Legacy retirement — #6797:** remove the literal-specific orchestration
+   and DTO shapes made redundant by the shared result. Keep
    `StringLiteralUsePatternAnalysis` and the one-candidate evaluator as their
    respective owner implementations.
 
