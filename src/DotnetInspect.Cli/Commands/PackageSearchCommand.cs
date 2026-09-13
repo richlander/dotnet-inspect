@@ -75,21 +75,6 @@ public class PackageSearchCommand
                 NuGetFetchOptions.FromRequestTimeout(
                     context.HttpClient.Timeout));
 
-            if (!CliSemanticRowSelection.TrySelectOrApplyLegacy(
-                    options.RowSelection,
-                    options.Rows,
-                    outcome.Results,
-                    "PackageSearch",
-                    failure =>
-                        $"Package search row selection stage "
-                        + $"{failure.Failure.StageNumber} requires row "
-                        + $"{failure.Failure.RequiredPosition}, but only "
-                        + $"{failure.Failure.AvailableCount} rows are available.",
-                    out IReadOnlyList<NuGetSearchResult> results))
-            {
-                return 1;
-            }
-
             // Sources that could not be searched are reported even when other sources
             // succeeded: a partial answer must not read like a complete one.
             foreach (var failure in outcome.Failures)
@@ -108,6 +93,21 @@ public class PackageSearchCommand
                 outcome.Failures.Count > 0 || outcome.SourceSelectionIncomplete
                     ? 1
                     : 0;
+
+            if (!CliSemanticRowSelection.TrySelectOrApplyLegacy(
+                    options.RowSelection,
+                    options.Rows,
+                    outcome.Results,
+                    "PackageSearch",
+                    failure =>
+                        $"Package search row selection stage "
+                        + $"{failure.Failure.StageNumber} requires row "
+                        + $"{failure.Failure.RequiredPosition}, but only "
+                        + $"{failure.Failure.AvailableCount} rows are available.",
+                    out IReadOnlyList<NuGetSearchResult> results))
+            {
+                return 1;
+            }
 
             // --count reduces the payload, so it is resolved before the format flags that
             // render it. Ordering these the other way lets --json answer a count request

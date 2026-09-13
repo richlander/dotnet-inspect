@@ -12593,6 +12593,19 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchSelectionFailureKeepsBoundEvidence()
+    {
+        var (exit, output, error) = await RunPackageSearchFixtureAsync(
+            "package", "--rows", "3..6",
+            "search", "Fixture", "--take", "2");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("requested row window", error);
+        Assert.Contains("per-feed source limit", error);
+    }
+
+    [Fact]
     public async Task ProjectedJsonRoutingAudit_PackageSearchOutputPathFailsBeforeNetwork()
     {
         var outputPath = Path.Combine(

@@ -368,7 +368,11 @@ public static class NuGetSearchService
             var sourceKeys = new HashSet<(string Id, NuGetVersion Version)>(
                 SearchResultKeyComparer.Instance);
             bool aggregationTimedOut = false;
-            foreach (SearchResult result in found.Take(take))
+            IEnumerable<SearchResult> resultsToAggregate =
+                resultFilter is null
+                    ? found.Take(take)
+                    : found;
+            foreach (SearchResult result in resultsToAggregate)
             {
                 if (HasOperationExpired(
                         operationStarted,
@@ -453,7 +457,11 @@ public static class NuGetSearchService
                 fetchOptions.OperationTimeout,
                 operationCancellation.Token);
         }
-        return new NuGetSearchOutcome(eligibleResults, failures)
+        IReadOnlyList<NuGetSearchResult> finalResults =
+            resultFilter is null
+                ? eligibleResults
+                : eligibleResults.Take(take).ToList();
+        return new NuGetSearchOutcome(finalResults, failures)
         {
             SearchLimitReached = searchLimitReached,
             PrefixSearchLimits =

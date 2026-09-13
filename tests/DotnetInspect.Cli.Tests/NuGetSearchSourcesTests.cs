@@ -1328,6 +1328,32 @@ public class NuGetSearchSourcesTests
     }
 
     [Fact]
+    public async Task SearchByPrefixAsync_AppliesAggregateLimitAcrossSources()
+    {
+        const string indexA = "https://a.example/v3/index.json";
+        const string indexB = "https://b.example/v3/index.json";
+        const string searchA = "https://a.example/v3/query";
+        const string searchB = "https://b.example/v3/query";
+        var handler = new RouteHandler
+        {
+            [indexA] = $$"""{"resources":[{"@id":"{{searchA}}","@type":"SearchQueryService"}]}""",
+            [indexB] = $$"""{"resources":[{"@id":"{{searchB}}","@type":"SearchQueryService"}]}""",
+            [searchA] = """{"data":[{"id":"Contoso.A","version":"1.0.0"}]}""",
+            [searchB] = """{"data":[{"id":"Contoso.B","version":"1.0.0"}]}""",
+        };
+        using var client = new HttpClient(handler);
+
+        List<NuGetSearchResult> results =
+            await NuGetSearchService.SearchByPrefixAsync(
+                client,
+                "Contoso.",
+                take: 1,
+                sourceOptions: new NuGetSourceOptions { Sources = [indexA, indexB] });
+
+        Assert.Single(results);
+    }
+
+    [Fact]
     public async Task SearchByPrefixWithStateAsync_PreservesLimitBeforeSourceMapping()
     {
         const string index = "https://a.example/v3/index.json";
