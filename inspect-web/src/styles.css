@@ -445,62 +445,8 @@ body:has(:not([hidden]) > [role="dialog"][aria-modal="true"])
   margin-right: 7px;
   color: var(--shell-accent);
 }
-.slide-strip {
-  position: relative;
-  flex: none;
-  min-width: 0;
-  height: 100%;
-  overflow: hidden;
-  box-sizing: border-box;
-}
-.slide-strip-items {
-  display: flex;
-  align-items: center;
-  width: max-content;
-  height: 100%;
-  gap: 2px;
-}
-.slide-strip[data-fallback="true"][data-oversized-alignment="end"] .slide-strip-items {
-  position: absolute;
-  right: 0;
-}
-.slide-strip-item[hidden] { display: none; }
-.slide-strip [data-slide-strip-representation] { display: none; }
-.slide-strip[data-mode="label"] [data-slide-strip-representation="label"],
-.slide-strip[data-mode="short-label"] [data-slide-strip-representation="short-label"],
-.slide-strip[data-mode="icon"] [data-slide-strip-representation="icon"],
-.slide-strip[data-mode="index"] [data-slide-strip-representation="index"] {
-  display: inline;
-}
-.slide-strip button {
-  height: 34px;
-  padding: 0 10px;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: transparent;
-  color: var(--muted);
-  font-size: 12px;
-}
 .lensbar button:hover { color: var(--text); background: rgba(255,255,255,.015); }
 .lensbar button.active { color: var(--text); border-bottom-color: var(--shell-accent); }
-.slide-strip-edge {
-  position: absolute;
-  z-index: 2;
-  top: 6px;
-  bottom: 6px;
-  width: 8px;
-  pointer-events: none;
-}
-.slide-strip-edge.before {
-  left: 0;
-  border-left: 2px solid var(--shell-accent);
-  background: linear-gradient(90deg, var(--panel), transparent);
-}
-.slide-strip-edge.after {
-  right: 0;
-  border-right: 2px solid var(--shell-accent);
-  background: linear-gradient(270deg, var(--panel), transparent);
-}
 .home-lens { color: var(--text) !important; font-weight: 600; cursor: pointer; }
 .home-lens.active { border-bottom-color: var(--shell-accent); }
 .home-lens span { color: var(--shell-accent); margin-right: 6px; }

@@ -34,7 +34,6 @@ boundary. It does not own:
 | Document | Owns |
 | -------- | ---- |
 | [Inspect Web Presentation Language](inspect-web-presentation-language.md) | Reusable visual and accessibility language: selector-control states, progressive filter disclosure, shared subject-heading rules, and compact source-provenance presentation. |
-| [Inspect Web SlideStrip](inspect-web-slide-strip.md) | Reusable one-region ordered-item presentation: Label, optional Short Label and Icon, derived Index, whole-strip modes, contiguous sliding windows, edge disclosure, and focus preservation. |
 | [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md) | Rendering and interacting with product-issued coordinate, workspace, subject, hierarchy, Library, lens, and activation descriptors, including adaptive full-label Tabs or current-label Choosers for subject and inspector navigation. |
 | [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) | The browser-side navigation-result consumer model: canonical location and refresh, browser history, product transition lifecycle, effect authority, synchronization debt, and renderer/destination lifetimes. |
 | [Inspect Web Shell Interaction](inspect-web-shell-interaction.md) | The persistent shell and shared transient/routed surface interaction: shell actions, shared menu/modal semantics, Spotlight Search, Open, Settings entry, the command palette, and routed-versus-modal classification. |
@@ -122,11 +121,10 @@ inventories, and other navigation remain inside the working surface rather
 than consuming persistent chrome.
 
 Navigation Presentation owns this adaptive pair, its measured fit, widget
-semantics, and subject-driven inspector replacement. SlideStrip remains a
-separate reusable-control owner pending the focused
-[#6277](https://github.com/richlander/dotnet-inspect/issues/6277) retention or
-retirement decision under #6158; its windowing contract is no longer part of
-the target subject/inspector composition.
+semantics, and subject-driven inspector replacement. The previous reusable
+windowing control was retired by
+[#6277](https://github.com/richlander/dotnet-inspect/issues/6277) after the
+production adoption left it without a justified consumer.
 
 The page-level action line keeps working-surface actions distinct from the
 Application menu: Source, Annotated Source, and Member Diff supply contextual
@@ -208,9 +206,7 @@ Carbon demonstrates full-label tabs with directional overflow controls. Inspect
 Web deliberately uses a current-label Chooser instead of per-group scroll
 buttons when a complete tablist does not fit. The accepted extra disclosure
 keeps both committed identities readable and every hidden choice one menu away.
-SlideStrip remains a separately owned reusable control rather than the
-subject/inspector model. The CLI correspondence does not turn the title line
-into editable command text;
+The CLI correspondence does not turn the title line into editable command text;
 Visual Studio Code does not imply an editor workbench, command center, Activity
 Bar, file Explorer, editor tabs, movable regions, or desktop-window
 assumptions; and Chrome DevTools does not imply a browser-debugging information
