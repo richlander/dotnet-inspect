@@ -779,6 +779,85 @@ public sealed class ResolvedResourceEffectTests
                     == ResourceEffectResolutionGapKind.UnsupportedSignature);
     }
 
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public void OrdinaryMethodStaticnessMismatchIsUnsupported(
+        bool metadataStatic,
+        bool signatureHasThis)
+    {
+        const string AssemblyName = "InvalidMethodStaticness";
+        byte signatureHeader =
+            signatureHasThis ? (byte)0x20 : (byte)0x00;
+        byte[] image = BuildDirectCallAssembly(
+            AssemblyName,
+            "Target",
+            MethodAttributes.Public
+                | (metadataStatic
+                    ? MethodAttributes.Static
+                    : 0),
+            [signatureHeader, 0x00, 0x01]);
+
+        ResourceEffectResolutionOutcome.Incomplete incomplete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Incomplete>(
+                ResolveSynthetic(
+                    image,
+                    AssemblyName,
+                    SyntheticMethodModel(
+                        AssemblyName,
+                        "Target",
+                        ResourceEffectMemberKind.Method,
+                        parameters: [],
+                        isStatic: !signatureHasThis)));
+
+        Assert.Empty(incomplete.Effects);
+        Assert.Contains(
+            incomplete.Evaluations.SelectMany(
+                evaluation => evaluation.Gaps),
+            gap =>
+                gap.Kind
+                    == ResourceEffectResolutionGapKind.UnsupportedSignature);
+    }
+
+    [Fact]
+    public void UnreadableDirectCallSignatureIsUnsupported()
+    {
+        const string AssemblyName = "UnreadableDirectCallSignature";
+        byte[] signature = new byte[
+            SignatureBlobGuard.DefaultMaxDepth + 4];
+        signature[0] = 0x00;
+        signature[1] = 0x00;
+        signature.AsSpan(
+                2,
+                SignatureBlobGuard.DefaultMaxDepth + 1)
+            .Fill(0x1D);
+        signature[^1] = 0x1C;
+        byte[] image = BuildDirectCallAssembly(
+            AssemblyName,
+            "Target",
+            MethodAttributes.Public | MethodAttributes.Static,
+            signature);
+
+        ResourceEffectResolutionOutcome.Incomplete incomplete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Incomplete>(
+                ResolveSynthetic(
+                    image,
+                    AssemblyName,
+                    SyntheticMethodModel(
+                        AssemblyName,
+                        "Target",
+                        ResourceEffectMemberKind.Method,
+                        parameters: [])));
+
+        Assert.Empty(incomplete.Effects);
+        Assert.Contains(
+            incomplete.Evaluations.SelectMany(
+                evaluation => evaluation.Gaps),
+            gap =>
+                gap.Kind
+                    == ResourceEffectResolutionGapKind.UnsupportedSignature);
+    }
+
     [Fact]
     public void ProvenanceAssociationWorkLimitIsVisible()
     {

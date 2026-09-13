@@ -1858,10 +1858,17 @@ public static class ResourceEffectResolver
 
                     if (declaration.Target
                             is not ResourceEffectTargetSelector.Member
-                                memberTarget
-                        || !CouldMatch(
+                                memberTarget)
+                    {
+                        continue;
+                    }
+
+                    MemberRef callMember =
+                        candidate.Pending.Call.Callee;
+                    if (callMember.Kind != MemberKind.Unsupported
+                        && !CouldMatch(
                             memberTarget.Selector,
-                            candidate.Pending.Call.Callee))
+                            callMember))
                     {
                         continue;
                     }
@@ -4398,7 +4405,10 @@ public static class ResourceEffectResolver
             return ResourceEffectSelectedMemberSemantics.PropertyGetter;
         if (isPropertySetter)
             return ResourceEffectSelectedMemberSemantics.PropertySetter;
-        return member.GenericArity == genericParameterRows
+        bool methodIsStatic =
+            (attributes & MethodAttributes.Static) != 0;
+        return methodIsStatic != member.HasThis
+            && member.GenericArity == genericParameterRows
             && GenericReferencesAreValid(
                 member,
                 typeGenericParameterRows,
