@@ -12757,21 +12757,31 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("NuGet source", error);
     }
 
-    [Theory]
-    [InlineData("--count", "--count cannot be combined with -n")]
-    [InlineData("--take=3", "--take and -n both limit package search results")]
-    public async Task ProjectedJsonRoutingAudit_PackageSearchItemLimitConflictsFailBeforeNetwork(
-        string conflict,
-        string expected)
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchSourceAndItemLimitsCompose()
+    {
+        var (exit, output, error) = await RunPackageSearchFixtureAsync(
+            "package", "-n2",
+            "search", "Fixture", "--take=3", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(2, output.Split(
+            '\n',
+            StringSplitOptions.RemoveEmptyEntries).Length);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchCountStillConflictsWithItemLimit()
     {
         var (exit, output, error) = await RunAppAsync(
             "package", "-n2",
-            "search", "ThisQueryMustNotReachTheNetwork", conflict,
+            "search", "ThisQueryMustNotReachTheNetwork", "--count",
             "--source", "http://127.0.0.1:9/index.json");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains(expected, error);
+        Assert.Contains("--count cannot be combined with -n", error);
         Assert.DoesNotContain("NuGet source", error);
     }
 

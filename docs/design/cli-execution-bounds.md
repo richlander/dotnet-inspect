@@ -26,8 +26,13 @@ The end-to-end tracker has four steps:
    with `--take` and the universal row-selection grammar;
 3. adopt the result command-wide for `find`, with selective Package Query and
    package profiling exposing both `--take` and `-n`; and
-4. retire plain `package search --take`, using semantic `-n` plus proven source
-   delegation only where the full multi-source result remains equivalent.
+4. complete package-search source delegation, eventually retiring plain
+   `package search --take` in favor of semantic `-n` plus a proven source
+   strategy only where the full multi-source result remains equivalent. The
+   current adoption is deliberately narrower: package search lowers `-n`
+   through the shared semantic row path and uses it as the default upstream
+   demand, while an explicit `--take` remains an independent per-feed work
+   bound. The source-completion and exact early-stop proof remain future work.
 
 Steps 1 through 3 are implemented: #6489 reconciles Package Query and adopts
 the command-wide `find` surface. Step 4 remains separate future work.

@@ -254,7 +254,9 @@ public static class PackageCommandDefinitions
 
         var takeOption = new Option<int>("--take")
         {
-            Description = "Maximum number of results (default: 20)",
+            Description =
+                "Maximum number of source results to obtain per feed "
+                + "(default: 20); use -n for final package rows",
             DefaultValueFactory = _ => 20
         };
         var prereleaseOption = new Option<bool>("--preview") { Description = "Include prerelease versions" };
@@ -298,6 +300,13 @@ public static class PackageCommandDefinitions
                     "-n requires a positive package search result limit greater than zero.");
             }
 
+            if (result.GetResult(takeOption) is { Implicit: false }
+                && result.GetValue(takeOption) <= 0)
+            {
+                result.AddError(
+                    "--take requires a positive package search source limit greater than zero.");
+            }
+
             bool hasDirection =
                 result.GetValue(opts.Head) || result.GetValue(opts.Tail);
             bool hasRows =
@@ -322,16 +331,38 @@ public static class PackageCommandDefinitions
                     + "because bounded remote pages do not establish a suffix.");
             }
 
-            if (result.GetResult(takeOption) is { Implicit: false }
-                && resultLimit > 0)
-            {
-                result.AddError(
-                    "--take and -n both limit package search results; choose one.");
-            }
         });
+
+        CliRowSelectionCommandRegistry.Register(
+            searchCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                new Option<bool>("--lines"),
+                new Option<bool>("--tail-lines")),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window,
+            result =>
+                result.GetResult(opts.Limit) is { Implicit: false }
+                || result.GetValue(opts.Head)
+                || result.GetValue(opts.Tail));
 
         searchCommand.SetAction(async (parseResult, ct) =>
         {
+            if (!CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
+                    parseResult,
+                    "Package search",
+                    out var rowSelection,
+                    out string? rowSelectionError))
+            {
+                CommandError.Write(rowSelectionError!);
+                return 1;
+            }
+
             var acceptedParentOptions = new HashSet<Option>
             {
                 opts.Json,
@@ -388,11 +419,15 @@ public static class PackageCommandDefinitions
             }
 
             var projection = ProjectionAudit.Requested(parseResult, opts);
+            bool explicitSourceTake =
+                parseResult.GetResult(takeOption) is { Implicit: false };
             var options = new PackageSearchOptions
             {
                 Query = query,
-                Take = parseResult.GetValue(opts.Limit)
-                    ?? parseResult.GetValue(takeOption),
+                Take = explicitSourceTake
+                    ? parseResult.GetValue(takeOption)
+                    : parseResult.GetValue(opts.Limit)
+                        ?? parseResult.GetValue(takeOption),
                 Prerelease =
                     parseResult.GetValue(inheritedPrereleaseOption)
                     || parseResult.GetValue(prereleaseOption),
@@ -406,6 +441,7 @@ public static class PackageCommandDefinitions
                 Paths = projection.Paths,
                 OutputPath = parseResult.GetValue(inheritedOutOption),
                 Rows = projection.Rows,
+                RowSelection = rowSelection,
                 Fields = projection.Fields,
                 Columns = projection.Columns,
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
