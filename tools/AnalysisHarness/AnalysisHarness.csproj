@@ -17,7 +17,6 @@
     <ProjectReference Include="..\..\src\DotnetInspector.Cache\DotnetInspector.Cache.csproj" />
     <ProjectReference Include="../../src/ILInspector.Analysis/ILInspector.Analysis.csproj" />
     <ProjectReference Include="../../src/ILInspector.Instructions/ILInspector.Instructions.csproj" />
-    <ProjectReference Include="../../src/DotnetInspector.Core/DotnetInspector.Core.csproj" />
     <ProjectReference Include="../../src/DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
   </ItemGroup>
 

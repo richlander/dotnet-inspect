@@ -1,4 +1,4 @@
-namespace DotnetInspector.Core;
+namespace DotnetInspector.Services;
 
 /// <summary>
 /// Runs async downloads concurrently and yields results in completion order.
@@ -12,7 +12,7 @@ namespace DotnetInspector.Core;
 /// The caller can break early; remaining downloads continue to completion
 /// (e.g., for cache warming).
 /// </summary>
-public class Downloader<T> : IAsyncEnumerable<T> where T : class
+internal sealed class Downloader<T> : IAsyncEnumerable<T> where T : class
 {
     private readonly List<Func<Task<T?>>> _work = [];
 

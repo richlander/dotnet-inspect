@@ -147,10 +147,43 @@ populations, not permission, acquisition, Package membership or query results.
 
 #### WorkspacePlan construction
 
+The primary distinction is **altitude**, not wire versus memory as competing
+models of one object. `WorkspaceDefinition` is a portable request;
+`WorkspacePlan` is its invokable in-process construction representation;
+`InspectionWorkspace` is the live owner. The request expresses intent in the
+Definitions-owned vocabulary. The plan supplies typed construction intent to
+the ordinary Workspace and acquisition APIs without asking a host to interpret
+that document vocabulary again.
+
+| Representation | Responsibility |
+| --- | --- |
+| `WorkspaceDefinition` | Portable, versioned request with document references and authoring metadata, under [Workspace Definitions](workspace-definitions.md). |
+| `WorkspacePlan` | Validated, immutable, resource-free construction intent, with owner-issued coordinates and in-process declaration bindings. |
+| `InspectionWorkspace` | Independent live identity, operation authority and resource lifetime, under [Inspection Space](../inspection-space.md#workspace-close-and-group-release-authority). |
+
+This section is the normative owner of the plan boundary, not of the wire
+grammar, acquisition policy or live close protocol. It consumes those adjacent
+contracts. The target claim is:
+
+> Equivalent supported construction intent, whether lowered from a portable
+> request or authored programmatically, can invoke the same Workspace
+> construction path. The retained plan is reusable data, not an acquired
+> resource or a live Workspace's authority.
+
+Issue [#6802](https://github.com/richlander/dotnet-inspect/issues/6802) specifies
+this distinction. The full request-to-plan path is **unverified and not
+implemented**. The
+registration-only profile below exists; context plans, definition lowering and
+host adoption follow the counted plan below. This is not a second JSON format
+or a requirement that every in-process plan have a portable representation.
+
+##### Current registration-only profile
+
 Issue [#6790](https://github.com/richlander/dotnet-inspect/issues/6790)
 separates the registration data from the live owner. This owner issues
-`WorkspacePlan`: a complete validated immutable registration sequence, usable
-without constructing or disposing a Workspace. Its claim is:
+the current `WorkspacePlan` profile as a complete validated immutable
+registration sequence, usable without constructing or disposing a Workspace.
+Its implemented claim is:
 
 > A retained plan can seed independent live Workspaces. Each initial revision
 > retains the exact supplied plan; replacement and close cannot mutate that
@@ -226,6 +259,97 @@ precedes equality/no-op classification. Two replacements using the same
 current revision cannot both publish: after one changes the revision, the
 other is stale. An empty replacement is the explicit registration-clear
 gesture, including an empty-to-empty no-op.
+
+##### Planned context profile
+
+The expanded plan keeps two kinds of construction intent distinct:
+**registrations** describe relevant discovery populations; **contexts** request
+assembly compositions under explicit target constraints. Registering Aspire
+does not request loading every Aspire package. A context naming
+`Aspire.Hosting` requests that composition, not a package-prefix registration.
+
+Context intent consumes the acquisition owner's existing
+`WorkspaceContextInput` and member-coordinate contracts. The plan
+preserves each context's members and target together as a distinct composition;
+it does not invent another coordinate grammar, flatten multiple contexts into
+one binding universe, or issue substitute acquisition identities. Context
+selection remains explicit where the requesting owner requires it.
+Definitions retains the association to its own `WorkspaceContextDescriptor`
+and activation-relative address. Programmatic plans need neither a Definition
+record nor a synthetic document address merely to supply context intent.
+
+The expanded plan remains immutable and resource-free. Registration replacement
+changes only its registration component and preserves its context intent;
+registration equality and revision authority remain as defined below. Retaining
+contexts does not turn a registration revision into an atomic snapshot of
+acquired Package membership, physical groups or query results.
+
+**Invokable does not mean already acquired or guaranteed to succeed.** The
+plan is ready for the ordinary construction and preparation APIs, not a cache
+of their results. Construction remains synchronous. Explicit preparation or
+inspection uses the existing asynchronous acquisition path and its current
+capabilities, authorization and failure outcomes. A floating coordinate remains
+floating until its source owner selects it; a supplied exact pin remains exact.
+Reusing a floating plan is not a promise of identical selected content later.
+
+Declaration bindings retained in a plan are in-process inputs, not serialized
+delegates or portable authorization. Document identity and display metadata,
+scenario composition, query/view/navigation state and their associations remain
+with their existing owners rather than becoming plan execution state.
+
+##### Request-to-plan adoption and evidence
+
+This is a five-step construction subplan of the overall
+[#6761 adoption tracker](https://github.com/richlander/dotnet-inspect/issues/6761),
+following the #6789, #6790 and #6791 lifetime/plan separation. It is a composition
+map, not authority over the adopting owners' internals. Each owner adoption
+requires its own focused contract and implementation; this specification
+updates only the Workspace Plan boundary.
+
+| Step | Owning effort and observable result |
+| --- | --- |
+| 1 | Lock this request/invokable-plan distinction and its current-versus-planned support boundary. |
+| 2 | Workspace Scope adopts context intent in `WorkspacePlan`, retaining the existing acquisition inputs and independent live construction; public consumer gates exercise plan invocation through ordinary owner APIs. |
+| 3 | Workspace Definitions adopts lowering into the common plan for its currently supported inline package/platform/embedded profile; record syntax, metadata and scenario associations retain their owner. Unsupported subscriptions remain explicit failures until separately supported. |
+| 4 | CLI adopts the common construction path for the existing System.Text.Json demo and a programmatic equivalent; retire its parallel construction recipe in the same adoption. |
+| 5 | Browser/Wasm adopts the same shared lowering and invocation through its existing demo activation; retire its alternate construction recipe and any superseded shared recipe once its final consumer moves. |
+
+The existing `InspectionDefinitionRegistry.ResolveScenario` lowering to
+`ResolvedWorkspaceContext`, and `WorkspaceContextLoader` consuming typed
+context inputs, are implementation evidence for this separation. Reuse their
+owner-issued boundary rather than add another parser or loader. This follows
+the conventional request/lowering/invocation distinction; those implementations
+are supporting evidence, not additional normative owners. Resolved scenario
+and presentation records need not retire merely because construction intent
+uses the common plan.
+
+The motivating asset is the existing real System.Text.Json Platform demo.
+The mockup shows the architectural path, not an available lowering API:
+
+```text
+System.Text.Json WorkspaceDefinition --lower--+
+                                             +--> WorkspacePlan --> live Workspace
+Equivalent typed programmatic intent --------+
+
+Empty plan --> independent live Workspace with empty initial scope
+```
+
+Each implementation/adoption slice must supply its named Release gate before
+claiming the corresponding property. The planned gates are:
+
+| Required outcome | Enforcing adoption gate and current status |
+| --- | --- |
+| Pinned equivalent inline document and programmatic intent preserve the same context/target associations and inspect the same System.Text.Json subject. | Definitions lowering plus CLI and Browser demo conformance; **unverified**. |
+| A context-bearing plan remains reusable after close; a registration replacement preserves context intent and does not alter another live owner. | Expanded `WorkspacePlanTests` and public non-friend consumer; **unverified**. |
+| Incompatible target declarations or an unsupported subscription remain explicit failures, not a successful partial composition or a silently selected context. | Existing loader/Definitions failure contracts exercised through the new plan path; **unverified**. |
+| Raw and definition-authored construction do not receive implicit Ecosystems curation; explicit catalog plans retain their authored registrations. | Definitions lowering and both host adoption gates; **unverified** for the new path. |
+
+The wire owner's grammar/version decisions, floating selection, group
+subscription implementation and restoration coordinator remain separate
+efforts. This subplan introduces no new rendering domain or format lowering;
+CLI Markout output and Browser presentation continue to consume their existing
+typed results. It adds no temporal protocol, so the existing registration and
+close models are not evidence for the new lowering path.
 
 #### Identity and equality
 

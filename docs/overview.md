@@ -361,7 +361,7 @@ substrates, and inspection producers that will extend that space.
   currency and breadcrumbs, traffic policy, observations, and network
   diagnostics. Its project and compiled assembly dependencies are restricted
   to the platform, `InertText`, and `NetworkAccess` by
-  `networking-stays-below-core-and-hosts`.
+  `networking-stays-within-owner-boundary`.
 - `src/DotnetInspector.Cache/` owns
   `DotnetInspector.Cache.PersistentCache` and `CacheTelemetry`: shared cache
   roots, path-safe hashed keys, maintenance, atomic file publication, and
@@ -370,13 +370,15 @@ substrates, and inspection producers that will extend that space.
   `DotnetInspector.Core` decomposition under
   [#6334](https://github.com/richlander/dotnet-inspect/issues/6334), tracked by
   [#6671](https://github.com/richlander/dotnet-inspect/issues/6671).
-- `src/DotnetInspector.Core/` remains a transitional runtime bucket beneath
-  Packages, Services, and the CLI. `RequestMermaidDiagram` composes network,
-  cache, and breadcrumb observations; `InfoTracker` subscribes to network and
-  cache telemetry and counts hits and misses while excluding stores.
-  `InspectionEnvelope`, its JSON converter, `Downloader`, and
-  `CountingTextWriter` remain. The final subject-owned moves continue under
-  [#6334](https://github.com/richlander/dotnet-inspect/issues/6334).
+- `src/DotnetInspector.Sections/` also owns the cross-host completed-inspection
+  envelope, portable-share outcome, and contained supplemental diagnostics.
+  CLI and Inspect Web consume the same contract without either host owning it.
+- `src/DotnetInspect.Cli/Diagnostics/` owns CLI-only output, duration, network,
+  cache, and request-diagram measurement. The completion-order helper used only
+  by `PlatformPackService` lives beside that consumer in Services.
+  `DotnetInspector.Core` was deleted in step 5 of
+  [#6334](https://github.com/richlander/dotnet-inspect/issues/6334), tracked by
+  [#6801](https://github.com/richlander/dotnet-inspect/issues/6801).
 - `src/ILInspector.Decompiler/` emits lowered C#, raw IL, and structural annotated IL from method bodies.
 - `src/ILInspector.Research/` owns the offset-keyed fact overlay above Analysis
   and Decompiler: its registry orders fact producers, joins R1 analysis

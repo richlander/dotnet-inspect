@@ -1,5 +1,4 @@
 using System.Globalization;
-using DotnetInspector.Core;
 
 namespace DotnetInspect.Cli;
 

@@ -1,4 +1,4 @@
-using DotnetInspector.Core;
+using DotnetInspect.Cli;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Views;
 using Markout;

@@ -5,7 +5,6 @@ using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json.Serialization;
 
-using DotnetInspector.Core;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.RoundTripCompilation;

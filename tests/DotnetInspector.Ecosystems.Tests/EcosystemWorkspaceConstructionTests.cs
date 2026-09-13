@@ -46,7 +46,7 @@ public sealed class EcosystemWorkspaceConstructionTests
     }
 
     [Fact]
-    public async Task ProjectionRetainsTheAuthoredPairWithoutExecutingNeighboringCapabilities()
+    public void ProjectionRetainsTheAuthoredPairWithoutExecutingNeighboringCapabilities()
     {
         var prefix = new PackagePrefixDeclaration("Aspire.");
         var scanner = EcosystemIntegrationScannerBinding.Create(FailIfScannerInvoked);
@@ -64,9 +64,10 @@ public sealed class EcosystemWorkspaceConstructionTests
 
         Assert.Same(declaration, Assert.IsType<EcosystemWorkspaceRegistrationSelectionResult.Known>(
             registry.SelectWorkspaceRegistration(EcosystemPackIds.Aspire)).Declaration);
-        await using InspectionWorkspace workspace = new EcosystemWorkspaceFactory(
-            registry, [EcosystemPackIds.Aspire]).Create();
-        var retained = Assert.Single(Declarations(Read(workspace)));
+        WorkspacePlan plan = EcosystemWorkspacePlanFactory.Create(
+            registry, [EcosystemPackIds.Aspire]);
+        var retained = Assert.IsType<WorkspaceRegistration.Ecosystem>(
+            Assert.Single(plan.Registrations)).Declaration;
         Assert.Same(declaration, retained);
         Assert.Same(prefix, Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
             Assert.Single(retained.Populations)).Prefix);
@@ -103,7 +104,7 @@ public sealed class EcosystemWorkspaceConstructionTests
     }
 
     [Fact]
-    public void InvalidManifestsCannotProduceAFactory()
+    public void InvalidManifestsCannotProduceAPlan()
     {
         var registry = new EcosystemPackRegistry(
             [Pack(EcosystemPackIds.Aspire, Declaration(EcosystemPackIds.Aspire))]);
@@ -115,13 +116,13 @@ public sealed class EcosystemWorkspaceConstructionTests
             [EcosystemPackIds.Platform],
         ];
         foreach (EcosystemPackId[] manifest in invalid)
-            Assert.Throws<ArgumentException>(() => new EcosystemWorkspaceFactory(registry, manifest));
-        Assert.Throws<ArgumentNullException>(() => new EcosystemWorkspaceFactory(registry, null!));
+            Assert.Throws<ArgumentException>(() => EcosystemWorkspacePlanFactory.Create(registry, manifest));
+        Assert.Throws<ArgumentNullException>(() => EcosystemWorkspacePlanFactory.Create(registry, null!));
 
         var unavailable = new EcosystemPackRegistry(
             [Pack(EcosystemPackIds.Aspire, null) with { PackageSet = PackageSetIds.Aspire }]);
         Assert.Throws<ArgumentException>(() =>
-            new EcosystemWorkspaceFactory(unavailable, [EcosystemPackIds.Aspire]));
+            EcosystemWorkspacePlanFactory.Create(unavailable, [EcosystemPackIds.Aspire]));
         var hintsOnly = new EcosystemPackRegistry(
         [
             Pack(EcosystemPackIds.Aspire, new(
@@ -130,7 +131,7 @@ public sealed class EcosystemWorkspaceConstructionTests
         Assert.IsType<EcosystemWorkspaceRegistrationSelectionResult.Known>(
             hintsOnly.SelectWorkspaceRegistration(EcosystemPackIds.Aspire));
         Assert.Throws<ArgumentException>(() =>
-            new EcosystemWorkspaceFactory(hintsOnly, [EcosystemPackIds.Aspire]));
+            EcosystemWorkspacePlanFactory.Create(hintsOnly, [EcosystemPackIds.Aspire]));
     }
 
     [Fact]
@@ -142,8 +143,8 @@ public sealed class EcosystemWorkspaceConstructionTests
             Pack(EcosystemPackIds.Aspire, null) with { Order = 200, PackageSet = PackageSetIds.Aspire },
         ]);
         Assert.Throws<ArgumentException>(() =>
-            new EcosystemWorkspaceFactory(registry, [EcosystemPackIds.Platform], requireAllPacks: true));
-        Assert.Throws<ArgumentException>(() => new EcosystemWorkspaceFactory(
+            EcosystemWorkspacePlanFactory.Create(registry, [EcosystemPackIds.Platform], requireAllPacks: true));
+        Assert.Throws<ArgumentException>(() => EcosystemWorkspacePlanFactory.Create(
             registry, [EcosystemPackIds.Platform, EcosystemPackIds.Aspire], requireAllPacks: true));
     }
 
@@ -156,19 +157,22 @@ public sealed class EcosystemWorkspaceConstructionTests
             Pack(EcosystemPackIds.Aspire, Declaration(EcosystemPackIds.Aspire)) with { Order = 200 },
         ]);
         EcosystemPackId[] manifest = [EcosystemPackIds.Platform];
-        var firstFactory = new EcosystemWorkspaceFactory(registry, manifest);
+        WorkspacePlan firstPlan = EcosystemWorkspacePlanFactory.Create(registry, manifest);
         manifest[0] = EcosystemPackIds.Aspire;
-        var laterFactory = new EcosystemWorkspaceFactory(registry, manifest);
-        await using InspectionWorkspace first = firstFactory.Create();
-        await using InspectionWorkspace later = laterFactory.Create();
+        WorkspacePlan laterPlan = EcosystemWorkspacePlanFactory.Create(registry, manifest);
+        await using InspectionWorkspace first = new(firstPlan);
+        await using InspectionWorkspace later = new(laterPlan);
         WorkspaceRegistrationRevision initial = Read(first);
-        await using InspectionWorkspace restored = new(initial.Registrations);
+        await using InspectionWorkspace restored = new(initial.Plan);
         await using InspectionWorkspace empty = new([]);
 
         Assert.Equal("ecosystem.platform", Assert.Single(Declarations(initial)).Id.Value);
         Assert.Equal("ecosystem.aspire", Assert.Single(
             Declarations(Read(later))).Id.Value);
         Assert.Same(initial, Read(first));
+        Assert.Same(firstPlan, initial.Plan);
+        Assert.Same(laterPlan, Read(later).Plan);
+        Assert.Same(firstPlan, Read(restored).Plan);
         Assert.Same(Assert.Single(Declarations(initial)),
             Assert.Single(Declarations(Read(restored))));
         Assert.NotSame(first.Identity, restored.Identity);

@@ -28,6 +28,15 @@ demos, and role realization listed under
 below is **unverified** until the gates named in
 [Status and gates](#status-and-gates) exist.
 
+The planned common construction target is the
+[Workspace-Scope-owned `WorkspacePlan`](workspace-scope-and-expansion.md#workspaceplan-construction):
+this document's portable request and that invokable in-process representation
+sit at different altitudes, rather than compete as workspace descriptions.
+Current registry lowering still produces `ResolvedWorkspaceContext`; adoption
+of the common plan is a separate, unimplemented Definitions effort in the
+linked five-step construction subplan. This reference changes neither this
+owner's wire grammar nor its restoration contract.
+
 ## Purpose
 
 The initiative began with three consumers needing a portable workspace
