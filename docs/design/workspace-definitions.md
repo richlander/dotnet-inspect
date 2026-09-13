@@ -843,7 +843,33 @@ for the existing CLI section renderers. The focused image remains the command
 root; additional selected images enter the ordinary member caller-scope path
 through one temporary directory. The CLI does not inspect reference-pack stubs
 as implementation bodies or fabricate package coordinates for Platform
-members. **inspect-web** loads home-demo metadata and exact scenario IDs from the
+members.
+
+The CLI common-plan adoption (#6836) constructs the live owner from the exact
+`ResolvedScenario.WorkspacePlan` and loads only the explicitly selected
+context's `ResolvedWorkspaceContext.Input`. That input is the exact immutable
+context retained by the plan, associated by Definitions with its document
+address and descriptor. Hosts need not reconstruct that association or
+rebuild acquisition inputs from display metadata or command options.
+Programmatically authored plans enter the same CLI Platform execution path;
+they do not need synthetic Definitions records. The live owner still has one
+awaited lifetime, and target failures remain the normal loader's visible
+failures. Package demos retain their existing ordinary package-command path.
+This adoption adds no new command syntax and does not complete Browser/Wasm
+plan adoption.
+
+`DemoCommandTests.ExecuteScenario_StjDefinitionAndProgrammaticPlanReturnSameMethods`
+gates equal real System.Text.Json Methods output for a JSON-defined scenario,
+an equivalent programmatic plan, and the shipped demo. Its second-context
+selection leaves an incompatible unselected context inert.
+`ExecutePlatformScenario_PreservesPlanTargetFailures` gates visible framework
+and runtime-identifier failures rather than repairing or dropping plan inputs.
+`ExecuteScenario_CallGraph_ReturnsDeclaredSectionSet` preserves the neighboring
+multi-Platform section pipeline.
+`InspectionDefinitionTests.ResolveScenario_LowersSupportedContextsIntoReusableWorkspacePlan`
+also gates exact context-input association.
+
+**inspect-web** loads home-demo metadata and exact scenario IDs from the
 ecosystem catalog through the browser engine (`ListHomeDemos` /
 `RunHomeDemo`; `ResolveHomeDemo` remains a tooling/debug projection).
 Every selected home demo executes through `RunHomeDemo`; the host does not
@@ -2012,7 +2038,8 @@ Definition records and product demos (this slice):
   those ordered contexts. The selected `WorkspaceDefinition`, plan, context
   addresses, and compact target descriptors remain associated in that one
   resource-free result; constructing a live Workspace from the plan uses the
-  ordinary `InspectionWorkspace(WorkspacePlan)` API;
+  ordinary `InspectionWorkspace(WorkspacePlan)` API.
+  `ResolvedWorkspaceContext.Input` retains its exact context in that plan;
 - `ProductDemoSourceBinding` is the Workspace-owned target-free static
   method-group binding. It validates exactly one matching scenario record,
   resolves that exact scenario, and enforces `ProductDemoSections`; the
@@ -2029,6 +2056,9 @@ Definition records and product demos (this slice):
   metadata and **runs** the bound section through `TypeCommand` /
   `MemberCommand` (not a resolve-only plan dump), with orthogonal formats
   including `--mermaid` and fail-closed Call Graph `--json`;
+  Platform demo construction now consumes the retained plan and selected
+  context input directly, retiring the CLI's empty-Workspace plus rebuilt-input
+  recipe under #6836;
 - `InspectionDefinitionTests.JsonRoundTrip_PreservesEveryRecordKind` and
   `InspectionDefinitionTests.Parse_RejectsCrossKindRecordAndCoordinateFields`
   gate portable round-trip and record-kind separation.
