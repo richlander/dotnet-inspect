@@ -3426,8 +3426,17 @@ for (const width of [1440, 800, 390]) {
     await expect(diffTarget.locator("option:checked")).toHaveText("Automatic: 0.9.0");
     await expect(overview.locator(".comparison-target-policy"))
       .toHaveText("Session only. Choosing a target does not run a comparison or change shared links.");
+    await expect(overview.locator(
+      ".package-overview-resources .section-title h2"))
+      .toHaveText(["Comparison targets"]);
     if (width === 1440) {
-      expect((await diffTarget.boundingBox())!.width).toBeGreaterThan(500);
+      const inventory = await overview.locator(".package-overview-inventory").boundingBox();
+      const resources = await overview.locator(".package-overview-resources").boundingBox();
+      expect(inventory).not.toBeNull();
+      expect(resources).not.toBeNull();
+      expect(resources!.x).toBeGreaterThanOrEqual(inventory!.x + inventory!.width);
+      expect(resources!.y).toBeCloseTo(inventory!.y, 0);
+      expect((await diffTarget.boundingBox())!.width).toBeGreaterThan(250);
       expect(await diffTarget.evaluate(select => {
         if (!(select instanceof HTMLSelectElement)) return false;
         const canvas = document.createElement("canvas");
@@ -3438,6 +3447,12 @@ for (const width of [1440, 800, 390]) {
           <= select.clientWidth;
       })).toBe(true);
     } else {
+      const inventory = await overview.locator(".package-overview-inventory").boundingBox();
+      const resources = await overview.locator(".package-overview-resources").boundingBox();
+      expect(inventory).not.toBeNull();
+      expect(resources).not.toBeNull();
+      expect(resources!.x).toBeCloseTo(inventory!.x, 0);
+      expect(resources!.y).toBeGreaterThanOrEqual(inventory!.y + inventory!.height);
       const row = await overview.locator(".comparison-target-row").first().boundingBox();
       const heading = await overview.locator(".comparison-target-heading").first().boundingBox();
       const selection = await overview.locator(".comparison-target-selection").first().boundingBox();
