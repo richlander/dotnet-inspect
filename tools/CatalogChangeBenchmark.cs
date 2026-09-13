@@ -1,4 +1,4 @@
-#:project ../src/DotnetInspector.Core/DotnetInspector.Core.csproj
+#:project ../src/UntrustedDocuments/UntrustedDocuments.csproj
 #:property EnablePreviewFeatures=true
 
 using System.Diagnostics;
@@ -9,7 +9,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using DotnetInspector.Core;
+using UntrustedDocuments;
 
 CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
 if (args is ["--self-test"])

@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using DotnetInspector.Core;
+using UntrustedDocuments;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using InertText;

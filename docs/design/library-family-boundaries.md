@@ -147,7 +147,7 @@ both inspection families and the shorter name is established by the subject:
 - `InertText` owns construction-time containment of untrusted text.
 - `NetworkAccess` owns network-destination admission shared by
   otherwise independent transport owners.
-- Target `UntrustedDocuments` owns hardened JSON and XML parsing entry points.
+- `UntrustedDocuments` owns hardened JSON and XML parsing entry points.
 
 An independent root is not an escape from ownership. It must name a focused
 domain, expose a contract that does not depend on the `Inspector`,
@@ -278,7 +278,7 @@ implementation belongs to separately tracked owner-scoped work.
 | IL program inspection and action | `ILInspector.Metadata`, `ILInspector.SourceLink`, `ILInspector.Instructions`, `ILInspector.Analysis`, `ILInspector.Decompiler`, `ILInspector.ILDiff`, `ILInspector.Research` |
 | Ecosystem and reusable product composition | `DotnetInspector.Cache`, `DotnetInspector.DependencyManifests`, `DotnetInspector.Packages`, `DotnetInspector.Networking`, `DotnetInspector.Queries`, `DotnetInspector.PackageQueries`, `DotnetInspector.SourceSelection`, `DotnetInspector.Sections`, `DotnetInspector.Presentation`, `DotnetInspector.MetadataRendering` |
 | Subject-neutral inspection substrate | `Inspector.Artifacts`, `Inspector.Artifacts.Local`, `Inspector.Artifacts.Workspaces`, `Inspector.Findings`, `Inspector.Text` |
-| Independent domain roots | `NuGetFetch`, `NetworkAccess`, `CSharpText`, `InertText`; target `SourceFetch` and `UntrustedDocuments` |
+| Independent domain roots | `NuGetFetch`, `NetworkAccess`, `UntrustedDocuments`, `CSharpText`, `InertText`; target `SourceFetch` |
 | Product hosts and host boundary | `DotnetInspect.Cli`, `DotnetInspect.Web`; child `DotnetInspect.Web.Interop` |
 
 The following dispositions close the existing ambiguous names:
@@ -289,6 +289,7 @@ The following dispositions close the existing ambiguous names:
 | `CSharpText.MemberSlicing` | Keep as adopted under [#6332](https://github.com/richlander/dotnet-inspect/issues/6332). | It consumes only the public `CSharpText` contract and operates on C# source structure. Its separate assembly preserves the enforced boundary that prevents access to lexer internals. “Member” is more accurate than “Body” because the result includes the complete declaration. |
 | `Inspector.Artifacts*` | Keep as adopted under [#6333](https://github.com/richlander/dotnet-inspect/issues/6333). | The family is source-neutral and the base artifact contract floor depends only on the lower `Inspector.Resources` declaration floor. `ILInspector.Metadata` consumes its scoped content and identities to construct artifact-to-assembly correspondence without creating an engine-to-tool dependency exception. |
 | `DotnetInspector.Cache` | Keep as adopted by step 3 of [#6334](https://github.com/richlander/dotnet-inspect/issues/6334), tracked by [#6671](https://github.com/richlander/dotnet-inspect/issues/6671). | Persistent cache mechanisms and cache-access telemetry form one focused reusable product subject. The library depends only on the platform, `InertText`, and `DotnetInspector.Networking`; semantic cache identity, authorization, freshness, and validation remain with each consumer. |
+| `UntrustedDocuments` | Keep as adopted by step 4 of [#6334](https://github.com/richlander/dotnet-inspect/issues/6334), tracked by [#6770](https://github.com/richlander/dotnet-inspect/issues/6770). | Duplicate-rejecting JSON and DTD-prohibiting XML entry points form one focused independent parsing subject. The library depends only on the platform; schemas, semantic validation, domain limits, acquisition, and error projection remain with consumers. |
 | `DotnetInspector.Core` | Retire without a replacement assembly under [#6334](https://github.com/richlander/dotnet-inspect/issues/6334). | The original bucket grouped unrelated cache, networking, untrusted-document, CLI telemetry, and single-consumer helpers by dependency depth instead of subject. Extracting focused owners does not give the remaining assembly a coherent subject. |
 | `Inspector.Findings` | Keep as adopted under [#6333](https://github.com/richlander/dotnet-inspect/issues/6333). | Its observation, census, matching, transition, comparison, diff, and correlation contracts are a coherent domain-neutral semantic model shared by both inspection families. They do not belong in metadata primitives, which owns mechanical ECMA/SRM operations rather than semantic models. |
 | `Inspector.Text` | Keep as adopted under [#6333](https://github.com/richlander/dotnet-inspect/issues/6333). | Generic text Findings and deterministic LF text construction are host-neutral and Markout-free, but not inherently IL- or C#-specific. The project continues to depend on `Inspector.Findings`. |
@@ -311,17 +312,35 @@ validator checks the actual product closure. Networking grants Cache friend
 access to the existing request and traffic context rather than expanding those
 APIs or making Cache depend on Core.
 
+Step 4 of the `DotnetInspector.Core` decomposition, tracked by
+[#6770](https://github.com/richlander/dotnet-inspect/issues/6770), moves
+`HardenedJson` and `HardenedXml` to `src/UntrustedDocuments/` under the
+`UntrustedDocuments` namespace. This root depends only on the platform.
+Consumers retain their existing document schemas, semantic validation, domain
+limits, acquisition policy, and error projection. Domain-specific readers that
+already combine parsing with additional bounded grammar or retention contracts
+remain with their owners. This placement-only refactor changes no runtime
+behavior or capability.
+
+The `untrusted-documents-stays-independent` rule in
+`eng/dependency-policy.json` enforces the platform-only boundary over both
+evaluated project references and compiled assembly references.
+`CheckedInPolicyKeepsUntrustedDocumentsIndependent` provides non-vacuity
+coverage for both graphs; the Release dependency-policy validator checks the
+actual product closure.
+
 `DotnetInspector.Core` continues decomposing by subject. HTTP composition and
 product network telemetry moved to `DotnetInspector.Networking` under
 [#6572](https://github.com/richlander/dotnet-inspect/issues/6572); the
 destination-admission primitive shared with `NuGetFetch` lives in the
-independent `NetworkAccess` root; hardened JSON and XML entry points target the
+independent `NetworkAccess` root; hardened JSON and XML entry points live in the
 independent `UntrustedDocuments` root; CLI measurement moves to
-`DotnetInspect.Cli`; and single-consumer helpers move beside their consumers.
-Until those later moves, Core retains `RequestMermaidDiagram`, which composes
-network, cache, and breadcrumb telemetry; `InfoTracker`, which subscribes to
-cache telemetry for hit/miss counts while excluding stores;
-`CountingTextWriter`; and the hardened readers.
+`DotnetInspect.Cli`; and remaining single-consumer helpers move beside their
+consumers. Until the final move, Core retains `RequestMermaidDiagram`, which
+composes network, cache, and breadcrumb telemetry; `InfoTracker`, which
+subscribes to cache telemetry for hit/miss counts while excluding stores;
+`InspectionEnvelope`, its JSON converter, `Downloader`, and
+`CountingTextWriter`.
 
 `DotnetInspector.Networking` depends only on `InertText`, `NetworkAccess`, and
 the platform. `NuGetFetch` remains an independent root: package composition

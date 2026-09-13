@@ -11,7 +11,7 @@ using System.Text;
 using System.Text.Json;
 using System.Xml;
 using System.Xml.Linq;
-using DotnetInspector.Core;
+using UntrustedDocuments;
 using InertText;
 using NuGetFetch;
 using NuGet.Versioning;

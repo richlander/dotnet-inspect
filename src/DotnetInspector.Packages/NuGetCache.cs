@@ -2,7 +2,7 @@ using DotnetInspector.Cache;
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
-using DotnetInspector.Core;
+using UntrustedDocuments;
 using NuGet.Versioning;
 using NuGetFetch;
 

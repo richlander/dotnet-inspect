@@ -3,7 +3,7 @@ using System.Buffers.Text;
 using System.Collections.ObjectModel;
 using System.Text;
 using System.Text.Json;
-using DotnetInspector.Core;
+using UntrustedDocuments;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.Queries.Definitions;

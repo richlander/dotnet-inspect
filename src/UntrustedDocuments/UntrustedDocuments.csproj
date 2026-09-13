@@ -10,12 +10,8 @@
 
   <PropertyGroup>
     <Authors>Richard Lander</Authors>
-    <Description>Host-neutral SDK dependency manifest format interpretation</Description>
+    <Description>Hardened JSON and XML parsing entry points for untrusted documents</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="../UntrustedDocuments/UntrustedDocuments.csproj" />
-  </ItemGroup>
 
 </Project>
