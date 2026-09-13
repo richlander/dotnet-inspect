@@ -375,6 +375,73 @@ public sealed class ResolvedResourceEffectTests
     }
 
     [Fact]
+    public void EquivalentResolvedGuardTypesCoalesce()
+    {
+        ResourceTypeExpression byteArray =
+            new ResourceTypeExpression.SzArray(
+                CoreLibraryType("System", "Byte"));
+        ResourceTypeExpression.Named declaringType = new(
+            new ResourceAssemblySelector(
+                "ILInspector.Analysis.OwnershipFlowFixtures",
+                publicKeyToken: null,
+                ResourceAssemblyVersionPolicy.Any),
+            "Ownership",
+            [new ResourceTypeNameSegment("Entry", 0)]);
+        ResourceEffectTargetSelector target =
+            new ResourceEffectTargetSelector.Member(
+                new ResourceEffectMemberSelector(
+                    declaringType,
+                    "ReturnRentedArrayToCaller",
+                    ResourceEffectMemberKind.Method,
+                    isStatic: true,
+                    genericArity: 0,
+                    ResourceEffectCallingConvention.Default,
+                    hasThis: false,
+                    explicitThis: false,
+                    [
+                        new ResourceEffectParameterSelector(
+                            byteArray,
+                            ResourceEffectRefKind.Value),
+                    ],
+                    byteArray));
+
+        ResourceEffectModelDefinition Model(
+            string name,
+            ResourceEffectSignatureLocation expected) =>
+            new(
+                ResourceEffectLanguageIdentity.Version1,
+                new ResourceEffectModelIdentity(name),
+                [],
+                [],
+                [
+                    new ResourceEffectTypedDeclaration(
+                        target,
+                        new ResourceEffect.Operation(
+                            ResourceOperationBoundary.Ordinary,
+                            ResourceOperationThrows.Possible,
+                            new ResourceEffectGuard.ExactRuntimeType(
+                                new ResourceEffectLocation.Parameter(0),
+                                expected)),
+                        [Provenance(name, 0)]),
+                ]);
+
+        ResourceEffectResolutionOutcome.Complete complete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
+                Resolve(
+                    Admit(
+                        Model(
+                            "example.guard-parameter",
+                            new ResourceEffectSignatureLocation.Parameter(0)),
+                        Model(
+                            "example.guard-return",
+                            new ResourceEffectSignatureLocation.Return()))));
+
+        ResolvedResourceEffect effect =
+            Assert.Single(complete.Snapshot.Effects);
+        Assert.Equal(2, effect.Sources.Length);
+    }
+
+    [Fact]
     public void RefSelectorDoesNotMatchOutParameter()
     {
         ResourceEffectAdmission admission = MethodModel(

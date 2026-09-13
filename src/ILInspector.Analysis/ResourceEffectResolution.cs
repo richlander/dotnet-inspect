@@ -3165,9 +3165,30 @@ public static class ResourceEffectResolver
                     a.Subject,
                     rightEffect,
                     b.Subject)
-                && a.Expected == b.Expected,
+                && BoundSignatureLocationEquals(
+                    leftEffect,
+                    a.Expected,
+                    rightEffect,
+                    b.Expected),
             _ => false,
         };
+
+    static bool BoundSignatureLocationEquals(
+        ResolvedResourceEffect leftEffect,
+        ResourceEffectSignatureLocation left,
+        ResolvedResourceEffect rightEffect,
+        ResourceEffectSignatureLocation right)
+    {
+        TypeRef? leftType = SignatureType(
+            leftEffect.Occurrence.Call.Callee,
+            left);
+        TypeRef? rightType = SignatureType(
+            rightEffect.Occurrence.Call.Callee,
+            right);
+        return leftType is not null
+            && rightType is not null
+            && TypeRef.ExactSignatureEquals(leftType, rightType);
+    }
 
     static bool KindDomainsOverlap(
         ResolvedResourceKindReference? left,
