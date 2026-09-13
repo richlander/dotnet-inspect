@@ -2,7 +2,6 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Sockets;
 using System.Text;
-using DotnetInspector.Core;
 using DotnetInspector.Packages;
 using NuGetFetch;
 

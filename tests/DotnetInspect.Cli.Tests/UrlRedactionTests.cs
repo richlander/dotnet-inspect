@@ -1,4 +1,3 @@
-using DotnetInspector.Core;
 using InertText;
 using NuGetFetch;
 

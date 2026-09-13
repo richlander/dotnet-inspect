@@ -1,5 +1,4 @@
 using System.IO.Compression;
-using DotnetInspector.Core;
 
 namespace DotnetInspector.Packages;
 

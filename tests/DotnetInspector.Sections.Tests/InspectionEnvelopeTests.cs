@@ -1,8 +1,8 @@
 using System.Text.Json;
-using DotnetInspector.Core;
+using DotnetInspector.Sections;
 using InertText;
 
-namespace DotnetInspector.Services.Tests;
+namespace DotnetInspector.Sections.Tests;
 
 public sealed class InspectionEnvelopeTests
 {
