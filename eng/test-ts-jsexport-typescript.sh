@@ -69,9 +69,15 @@ import {
   getFlagSelection,
   getGenericRecordIntAsync,
   getGenericRecordWidgetAsync,
+  getGenericNestedEnvelope,
+  getGenericNestedChoice,
   getKindSelection,
+  getMixedNullableValueEnvelope,
+  getNullableGenericNested,
+  getNullableWrappedGenericNestedEnvelope,
   getOutcomeSelection,
   getSelectionEnvelopeAsync,
+  getWrappedGenericNestedEnvelope,
   getWidgetSelection,
   getWrappedBlob,
 } from "./facade.js";
@@ -80,9 +86,15 @@ import type {
   CollectionSelection,
   FlagSelection,
   GenericRecord,
+  GenericNested,
+  GenericNestedEnvelope,
+  GenericNestedChoice,
   KindSelection,
+  MixedNullableValueEnvelope,
+  NullableWrappedGenericNestedEnvelope,
   OutcomeSelection,
   SelectionEnvelope,
+  WrappedGenericNestedEnvelope,
   WidgetDto,
   WidgetKind,
   WidgetSelection,
@@ -101,6 +113,10 @@ type GroupEntries = Extract<SelectionEnvelope["group"], ReadonlyArray<unknown>>;
 export const missingSelectionEntry: SelectionEntries[number] = null;
 export const missingMapEntry: SelectionMap[string] = null;
 export const missingGroupEntry: GroupEntries[number] = null;
+export const missingGenericNestedValue:
+  GenericNested<string | null>["value"] = null;
+export const missingGenericNestedChoiceValue:
+  Extract<GenericNestedChoice, { readonly value: unknown }>["value"] = null;
 
 function isEntryArray(
   selection: CollectionSelection,
@@ -249,21 +265,54 @@ export async function summarizeEnvelope(): Promise<string> {
 
 export async function summarizeGenericRecords(): Promise<string> {
   const numbers: GenericRecord<number> = await getGenericRecordIntAsync();
-  const widgets: GenericRecord<WidgetDto> =
+  const widgets: GenericRecord<WidgetDto | null> =
     await getGenericRecordWidgetAsync("sample");
+  const nullable: GenericNested<string | null> =
+    getNullableGenericNested();
+  const envelope: GenericNestedEnvelope = getGenericNestedEnvelope();
+  const wrappedEnvelope: WrappedGenericNestedEnvelope =
+    getWrappedGenericNestedEnvelope();
+  const nullableWrappedEnvelope: NullableWrappedGenericNestedEnvelope =
+    getNullableWrappedGenericNestedEnvelope();
+  const mixedNullableValueEnvelope: MixedNullableValueEnvelope =
+    getMixedNullableValueEnvelope();
+  const nestedChoice: GenericNestedChoice = getGenericNestedChoice();
   return [
     numbers.content,
     numbers.nested.value,
-    numbers.items.join(","),
+    numbers.items.map(item => item.value).join(","),
     numbers.lookup["missing"],
     numbers.choice,
-    widgets.content.name,
-    widgets.nested.value.count,
-    widgets.items[0]?.count,
+    widgets.content?.name ?? "null",
+    widgets.nested.value?.count ?? "null",
+    widgets.items[0]?.value?.count ?? "null",
     widgets.lookup["missing"]?.name ?? "null",
     typeof widgets.choice === "object" && widgets.choice !== null
       ? widgets.choice.count
       : "unexpected",
+    nullable.value ?? "null",
+    envelope.item.value ?? "null",
+    wrappedEnvelope.item === null
+      || typeof wrappedEnvelope.item === "number"
+      ? wrappedEnvelope.item
+      : wrappedEnvelope.item.value ?? "null",
+    wrappedEnvelope.items === null
+      || typeof wrappedEnvelope.items === "number"
+      ? wrappedEnvelope.items
+      : wrappedEnvelope.items[0]?.value ?? "null",
+    wrappedEnvelope.lookup === null
+      || typeof wrappedEnvelope.lookup === "number"
+      ? wrappedEnvelope.lookup
+      : wrappedEnvelope.lookup["missing"]?.value ?? "null",
+    nullableWrappedEnvelope.item === null
+      || typeof nullableWrappedEnvelope.item === "number"
+      ? nullableWrappedEnvelope.item
+      : nullableWrappedEnvelope.item.value ?? "null",
+    mixedNullableValueEnvelope.item.first ?? "null",
+    mixedNullableValueEnvelope.item.second ?? "null",
+    nestedChoice === null || typeof nestedChoice === "number"
+      ? nestedChoice
+      : nestedChoice.value ?? "null",
   ].join("|");
 }
 TS
@@ -459,6 +508,16 @@ expect_union_facade_compile_failure \
   'GenericRecord<number>' \
   'GenericRecord<string>' \
   '^export async function getGenericRecordIntAsync'
+expect_union_facade_compile_failure \
+  generic-record-direct-reference-null \
+  'GenericNested<string \| null>' \
+  'GenericNested<string>' \
+  '^export function getNullableGenericNested'
+expect_union_facade_compile_failure \
+  generic-record-union-reference-null \
+  'GenericNested<string \| null>' \
+  'GenericNested<string>' \
+  '^export type GenericNestedChoice'
 expect_union_facade_compile_failure \
   union-closed-byte-array-argument \
   'Wrapped<string>' \

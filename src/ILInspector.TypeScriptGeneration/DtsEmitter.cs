@@ -555,7 +555,14 @@ static class DtsEmitter
                             item => item.Type.TypeParameters.Count),
                 GenericTypeNames(declarationTypes, allocatedTypeNames),
                 GenericTypeNameArities(declarationTypes, allocatedTypeNames),
-                delegateMappingContext));
+                delegateMappingContext,
+                typeIdentities
+                    .Where(item =>
+                        item.Type.TypeParameters.Count > 0
+                        && surface.Records.Any(record =>
+                            ReferenceEquals(record, item.Type)))
+                    .Select(item => item.Identity)
+                    .ToHashSet()));
     }
 
     static (ApiTypeReferenceIdentity Identity, ApiType Type)[] TypeIdentities(
@@ -890,6 +897,20 @@ static class DtsEmitter
                 ResolvedName: member.JsonPropertyName ?? ApplyNamingPolicy(member.Name, namingPolicy)))
             .ToArray();
 
+        foreach ((ApiMember member, _) in members)
+        {
+            if (TryGetArrayParameter(
+                    member.SignatureModel,
+                    record.TypeParameters,
+                    out string? parameter))
+            {
+                throw new UnsupportedWireContractException(
+                    $"{record.Name}.{member.Name}",
+                    $"generic record parameter '{parameter}' is embedded "
+                        + "in an array whose JSON mapping is not parametric");
+            }
+        }
+
         sb.Append("export interface ").Append(declarationName);
         if (genericParameters.Length > 0)
             sb.Append('<').AppendJoin(", ", genericParameters).Append('>');
@@ -951,6 +972,50 @@ static class DtsEmitter
         }
 
         sb.Append("}\n\n");
+    }
+
+    static bool TryGetArrayParameter(
+        ApiSignature? signature,
+        IReadOnlyList<TypeParameter> parameters,
+        out string? parameterName)
+    {
+        if (signature?.ReturnTypeShape is not { } returnType)
+        {
+            parameterName = null;
+            return false;
+        }
+
+        var pending = new Stack<ApiTypeShape>();
+        pending.Push(returnType);
+        while (pending.Count > 0)
+        {
+            ApiTypeShape current = pending.Pop();
+            if (current.Kind == ApiTypeShapeKind.SzArray
+                && current.ElementType is
+                {
+                    Kind: ApiTypeShapeKind.GenericParameter,
+                    IsMethodGenericParameter: false,
+                    GenericParameterIndex: var parameterIndex,
+                }
+                && parameterIndex >= 0
+                && parameterIndex < parameters.Count)
+            {
+                parameterName = parameters[parameterIndex].Name;
+                return true;
+            }
+
+            if (current.ElementType is not null)
+                pending.Push(current.ElementType);
+            for (int index = current.TypeArguments.Length - 1;
+                index >= 0;
+                index--)
+            {
+                pending.Push(current.TypeArguments[index]);
+            }
+        }
+
+        parameterName = null;
+        return false;
     }
 
     static void ValidateWireNames(

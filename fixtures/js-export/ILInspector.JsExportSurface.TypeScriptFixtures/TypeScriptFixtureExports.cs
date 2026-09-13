@@ -11,10 +11,32 @@ public sealed record RuntimeAPI(string Value);
 
 public sealed record GenericNested<TValue>(TValue Value);
 
+public sealed record GenericNestedEnvelope(
+    GenericNested<string?> Item);
+
+public sealed record WrappedGenericNestedEnvelope(
+    Wrapped<GenericNested<string?>> Item,
+    Wrapped<GenericNested<string?>[]> Items,
+    Wrapped<IReadOnlyDictionary<string, GenericNested<string?>>> Lookup);
+
+public readonly record struct GenericNestedValue<TValue>(TValue Value);
+
+public sealed record NullableWrappedGenericNestedEnvelope(
+    Wrapped<GenericNestedValue<string?>?> Item);
+
+public readonly record struct NullablePair<TFirst, TSecond>(
+    TFirst First,
+    TSecond Second);
+
+public sealed record MixedNullableValueEnvelope(
+    NullablePair<int?, string?> Item);
+
+public union GenericNestedChoice(GenericNested<string?>, int);
+
 public sealed record GenericRecord<TValue>(
     TValue Content,
     GenericNested<TValue> Nested,
-    TValue[] Items,
+    GenericNested<TValue>[] Items,
     IReadOnlyDictionary<string, TValue> Lookup,
     Boxed<TValue> Choice);
 
@@ -61,6 +83,14 @@ internal sealed partial class BlobFixtureJsonContext : JsonSerializerContext;
 
 [JsonSerializable(typeof(GenericRecord<int>))]
 [JsonSerializable(typeof(GenericRecord<WidgetDto>))]
+[JsonSerializable(
+    typeof(GenericNested<string>),
+    TypeInfoPropertyName = "NullableGenericNested")]
+[JsonSerializable(typeof(GenericNestedEnvelope))]
+[JsonSerializable(typeof(WrappedGenericNestedEnvelope))]
+[JsonSerializable(typeof(NullableWrappedGenericNestedEnvelope))]
+[JsonSerializable(typeof(MixedNullableValueEnvelope))]
+[JsonSerializable(typeof(GenericNestedChoice))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal sealed partial class GenericRecordJsonContext : JsonSerializerContext;
 
@@ -186,7 +216,7 @@ public static partial class TypeScriptFixtureExports
             new GenericRecord<int>(
                 7,
                 new GenericNested<int>(8),
-                [1, 2],
+                [new(1), new(2)],
                 new Dictionary<string, int> { ["missing"] = 0 },
                 new Boxed<int>(9)),
             GenericRecordJsonContext.Default.GenericRecordInt32);
@@ -201,7 +231,7 @@ public static partial class TypeScriptFixtureExports
             new GenericRecord<WidgetDto>(
                 new WidgetDto(name, 10),
                 new GenericNested<WidgetDto>(new WidgetDto(name, 11)),
-                [new WidgetDto(name, 12)],
+                [new(new WidgetDto(name, 12))],
                 new Dictionary<string, WidgetDto>
                 {
                     ["missing"] = null!,
@@ -209,6 +239,60 @@ public static partial class TypeScriptFixtureExports
                 new Boxed<WidgetDto>(new WidgetDto(name, 13))),
             GenericRecordJsonContext.Default.GenericRecordWidgetDto);
     }
+
+    [JSExport]
+    public static string GetNullableGenericNested() =>
+        JsonSerializer.Serialize(
+            new GenericNested<string?>(null),
+            GenericRecordJsonContext.Default.NullableGenericNested);
+
+    [JSExport]
+    public static string GetGenericNestedEnvelope() =>
+        JsonSerializer.Serialize(
+            new GenericNestedEnvelope(
+                new GenericNested<string?>(null)),
+            GenericRecordJsonContext.Default.GenericNestedEnvelope);
+
+    [JSExport]
+    public static string GetWrappedGenericNestedEnvelope() =>
+        JsonSerializer.Serialize(
+            new WrappedGenericNestedEnvelope(
+                new Wrapped<GenericNested<string?>>(
+                    new GenericNested<string?>(null)),
+                new Wrapped<GenericNested<string?>[]>(
+                    [new GenericNested<string?>(null)]),
+                new Wrapped<IReadOnlyDictionary<
+                    string,
+                    GenericNested<string?>>>(
+                        new Dictionary<string, GenericNested<string?>>
+                        {
+                            ["missing"] = new(null),
+                        })),
+            GenericRecordJsonContext.Default
+                .WrappedGenericNestedEnvelope);
+
+    [JSExport]
+    public static string GetNullableWrappedGenericNestedEnvelope() =>
+        JsonSerializer.Serialize(
+            new NullableWrappedGenericNestedEnvelope(
+                new Wrapped<GenericNestedValue<string?>?>(
+                    new GenericNestedValue<string?>(null))),
+            GenericRecordJsonContext.Default
+                .NullableWrappedGenericNestedEnvelope);
+
+    [JSExport]
+    public static string GetMixedNullableValueEnvelope() =>
+        JsonSerializer.Serialize(
+            new MixedNullableValueEnvelope(
+                new NullablePair<int?, string?>(null, null)),
+            GenericRecordJsonContext.Default.MixedNullableValueEnvelope);
+
+    [JSExport]
+    public static string GetGenericNestedChoice() =>
+        JsonSerializer.Serialize(
+            new GenericNestedChoice(
+                new GenericNested<string?>(null)),
+            GenericRecordJsonContext.Default.GenericNestedChoice);
 
     [JSExport]
     public static async Task<string> GetHiddenTypeJsonIncludeAsync()

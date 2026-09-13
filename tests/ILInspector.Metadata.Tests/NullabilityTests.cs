@@ -176,14 +176,27 @@ public sealed class NullabilityTests
     }
 
     [Fact]
-    public void PrimitiveNode_Int_IgnoresNullability()
+    public void PrimitiveNode_Int_DoesNotConsumeNullability()
     {
         var node = new PrimitiveTypeNode("int", isReferenceType: false);
-        byte[] bytes = [2]; // even if byte says 2, value types don't render ?
+        byte[] bytes = [2];
         int pos = 0;
         node.ApplyNullability(bytes, ref pos, 0);
         Assert.Equal("int", node.Render());
-        Assert.Equal(1, pos); // byte still consumed
+        Assert.Equal(0, pos);
+    }
+
+    [Fact]
+    public void NamedValueNode_DoesNotConsumeNullability()
+    {
+        var node = new NamedTypeNode("Choice", isReferenceType: false);
+        byte[] bytes = [2];
+        int pos = 0;
+
+        node.ApplyNullability(bytes, ref pos, 0);
+
+        Assert.Equal("Choice", node.Render());
+        Assert.Equal(0, pos);
     }
 
     [Fact]
@@ -208,6 +221,29 @@ public sealed class NullabilityTests
         int pos = 0;
         node.ApplyNullability(bytes, ref pos, 0);
         Assert.Equal("Task<string>?", node.Render());
+    }
+
+    [Fact]
+    public void NullableValueNode_DoesNotConsumeGenericHeadByte()
+    {
+        var node = new GenericTypeNode(
+            "System.Nullable",
+            isReferenceType: false,
+            [
+                new GenericTypeNode(
+                    "Slot",
+                    isReferenceType: false,
+                    [new PrimitiveTypeNode("string", true)]),
+            ]);
+        byte[] bytes = [0, 2];
+        int pos = 0;
+
+        node.ApplyNullability(bytes, ref pos, 0);
+
+        Assert.Equal(
+            "System.Nullable<Slot<string?>>",
+            node.Render());
+        Assert.Equal(2, pos);
     }
 
     [Fact]

@@ -27,6 +27,18 @@ public sealed record PackageProblem(int Code);
 public sealed record UnionEnvelope(DtoUnion Result, ScalarUnion[] Items);
 public sealed record OrdinaryValue(int Value);
 public sealed record T0(int Value);
+public sealed record NonParametricArrayRecord<T>(T[]? Items);
+public sealed record NonParametricNestedArrayRecord<T>(
+    IReadOnlyDictionary<string, T[]> Items);
+public sealed record NonParametricAnnotatedArrayRecord<T>(T?[] Items);
+public sealed record NonParametricNestedAnnotatedArrayRecord<T>(
+    IReadOnlyDictionary<string, T?[]> Items);
+public sealed record ParametricNullableValueArrayRecord<T>(T?[] Items)
+    where T : struct;
+public sealed record ConcreteArrayRecord<T>(T Value, T0[] Items);
+public sealed record GlobalConcreteArrayRecord<Collision>(
+    Collision Value,
+    global::Collision[] Items);
 
 public static partial class UnionExports
 {
@@ -161,6 +173,58 @@ public static partial class UnionExports
     public static string GetPlain() => "plain";
 
     [JSExport]
+    public static string GetNonParametricArrayRecord() =>
+        JsonSerializer.Serialize(
+            new NonParametricArrayRecord<byte>([1, 2, 3]),
+            UnionJsonContext.Default.NonParametricArrayRecordByte);
+
+    [JSExport]
+    public static string GetNonParametricNestedArrayRecord() =>
+        JsonSerializer.Serialize(
+            new NonParametricNestedArrayRecord<byte>(
+                new Dictionary<string, byte[]>
+                {
+                    ["value"] = [1, 2, 3],
+                }),
+            UnionJsonContext.Default.NonParametricNestedArrayRecordByte);
+
+    [JSExport]
+    public static string GetNonParametricAnnotatedArrayRecord() =>
+        JsonSerializer.Serialize(
+            new NonParametricAnnotatedArrayRecord<byte>([1, 2, 3]),
+            UnionJsonContext.Default.NonParametricAnnotatedArrayRecordByte);
+
+    [JSExport]
+    public static string GetNonParametricNestedAnnotatedArrayRecord() =>
+        JsonSerializer.Serialize(
+            new NonParametricNestedAnnotatedArrayRecord<byte>(
+                new Dictionary<string, byte[]>
+                {
+                    ["value"] = [1, 2, 3],
+                }),
+            UnionJsonContext.Default
+                .NonParametricNestedAnnotatedArrayRecordByte);
+
+    [JSExport]
+    public static string GetParametricNullableValueArrayRecord() =>
+        JsonSerializer.Serialize(
+            new ParametricNullableValueArrayRecord<int>([1, null]),
+            UnionJsonContext.Default
+                .ParametricNullableValueArrayRecordInt32);
+
+    [JSExport]
+    public static string GetConcreteArrayRecord() =>
+        JsonSerializer.Serialize(
+            new ConcreteArrayRecord<int>(7, [new(8)]),
+            UnionJsonContext.Default.ConcreteArrayRecordInt32);
+
+    [JSExport]
+    public static string GetGlobalConcreteArrayRecord() =>
+        JsonSerializer.Serialize(
+            new GlobalConcreteArrayRecord<int>(7, [new(8)]),
+            UnionJsonContext.Default.GlobalConcreteArrayRecordInt32);
+
+    [JSExport]
     public static void ReadScalar(string json) =>
         _ = JsonSerializer.Deserialize(json, UnionJsonContext.Default.ScalarUnion);
 
@@ -202,4 +266,11 @@ public sealed class CustomUnionConverter : JsonConverter<CustomUnion>
 [JsonSerializable(typeof(CustomUnion))]
 [JsonSerializable(typeof(UnionEnvelope))]
 [JsonSerializable(typeof(OrdinaryValue))]
+[JsonSerializable(typeof(NonParametricArrayRecord<byte>))]
+[JsonSerializable(typeof(NonParametricNestedArrayRecord<byte>))]
+[JsonSerializable(typeof(NonParametricAnnotatedArrayRecord<byte>))]
+[JsonSerializable(typeof(NonParametricNestedAnnotatedArrayRecord<byte>))]
+[JsonSerializable(typeof(ParametricNullableValueArrayRecord<int>))]
+[JsonSerializable(typeof(ConcreteArrayRecord<int>))]
+[JsonSerializable(typeof(GlobalConcreteArrayRecord<int>))]
 public sealed partial class UnionJsonContext : JsonSerializerContext;

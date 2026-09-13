@@ -38,6 +38,24 @@ if (args is not [string outputPath])
         "genericRecordWidget",
         await TypeScriptFixtureExports.GetGenericRecordWidgetAsync("sample")),
     (
+        "nullableGenericNested",
+        TypeScriptFixtureExports.GetNullableGenericNested()),
+    (
+        "genericNestedEnvelope",
+        TypeScriptFixtureExports.GetGenericNestedEnvelope()),
+    (
+        "wrappedGenericNestedEnvelope",
+        TypeScriptFixtureExports.GetWrappedGenericNestedEnvelope()),
+    (
+        "nullableWrappedGenericNestedEnvelope",
+        TypeScriptFixtureExports.GetNullableWrappedGenericNestedEnvelope()),
+    (
+        "mixedNullableValueEnvelope",
+        TypeScriptFixtureExports.GetMixedNullableValueEnvelope()),
+    (
+        "genericNestedChoice",
+        TypeScriptFixtureExports.GetGenericNestedChoice()),
+    (
         "selectionEnvelope",
         await TypeScriptFixtureExports.GetSelectionEnvelopeAsync("envelope")),
 ];
