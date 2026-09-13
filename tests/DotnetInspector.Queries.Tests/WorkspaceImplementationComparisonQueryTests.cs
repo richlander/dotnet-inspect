@@ -22,7 +22,7 @@ public sealed class WorkspaceImplementationComparisonQueryTests
         WorkspaceResearchTargetFixture.Selector;
 
     [Fact]
-    public void ForwardedDefinitions_CompareExactTerminalBodiesAndRetainNativeFindings()
+    public async Task ForwardedDefinitions_CompareExactTerminalBodiesAndRetainNativeFindings()
     {
         byte[] beforeTerminal = WorkspaceResearchTargetFixture.BuildAssembly(
             "Terminal",
@@ -43,7 +43,7 @@ public sealed class WorkspaceImplementationComparisonQueryTests
             forwardsTo: WorkspaceResearchTargetFixture.Identity(afterTerminal),
             mvid: new("00000000-0000-0000-0000-000000000201"));
 
-        using var fixture = new WorkspaceResearchTargetFixture(
+        await using var fixture = new WorkspaceResearchTargetFixture(
             beforeFacade,
             beforeTerminal,
             afterFacade,
@@ -122,7 +122,7 @@ public sealed class WorkspaceImplementationComparisonQueryTests
     }
 
     [Fact]
-    public void DirectDefinitions_HaveNoForwarderUses()
+    public async Task DirectDefinitions_HaveNoForwarderUses()
     {
         byte[] before = WorkspaceResearchTargetFixture.BuildAssembly(
             "Direct",
@@ -133,7 +133,7 @@ public sealed class WorkspaceImplementationComparisonQueryTests
             mvid: new("00000000-0000-0000-0000-000000000302"),
             methodResult: 1);
 
-        using var fixture = new WorkspaceResearchTargetFixture(before, after);
+        await using var fixture = new WorkspaceResearchTargetFixture(before, after);
         using AssemblyContextGroup beforeGroup = fixture.CreateGroup([0]);
         using AssemblyContextGroup afterGroup = fixture.CreateGroup([1]);
         fixture.ResetProbes();
@@ -168,7 +168,7 @@ public sealed class WorkspaceImplementationComparisonQueryTests
     }
 
     [Fact]
-    public void GenericForwarders_PreserveNativeFindingPayloadAndKey()
+    public async Task GenericForwarders_PreserveNativeFindingPayloadAndKey()
     {
         byte[] beforeTerminal = WorkspaceResearchTargetFixture.BuildAssembly(
             "Terminal",
@@ -193,7 +193,7 @@ public sealed class WorkspaceImplementationComparisonQueryTests
             mvid: new("00000000-0000-0000-0000-000000000353"),
             typeGenericArity: 1);
 
-        using var fixture = new WorkspaceResearchTargetFixture(
+        await using var fixture = new WorkspaceResearchTargetFixture(
             beforeFacade,
             beforeTerminal,
             afterFacade,
@@ -217,7 +217,7 @@ public sealed class WorkspaceImplementationComparisonQueryTests
     }
 
     [Fact]
-    public void NestedForwarders_PreserveOuterNativeFindingPayloadAndKey()
+    public async Task NestedForwarders_PreserveOuterNativeFindingPayloadAndKey()
     {
         byte[] beforeTerminal = WorkspaceResearchTargetFixture.BuildAssembly(
             "Terminal",
@@ -242,7 +242,7 @@ public sealed class WorkspaceImplementationComparisonQueryTests
             mvid: new("00000000-0000-0000-0000-000000000363"),
             nestedType: true);
 
-        using var fixture = new WorkspaceResearchTargetFixture(
+        await using var fixture = new WorkspaceResearchTargetFixture(
             beforeFacade,
             beforeTerminal,
             afterFacade,
@@ -266,7 +266,7 @@ public sealed class WorkspaceImplementationComparisonQueryTests
     }
 
     [Fact]
-    public void DuplicateForwardersToSameTarget_PublishExactTerminalComparisonAndEveryNativeFinding()
+    public async Task DuplicateForwardersToSameTarget_PublishExactTerminalComparisonAndEveryNativeFinding()
     {
         byte[] beforeTerminal = WorkspaceResearchTargetFixture.BuildAssembly(
             "Terminal",
@@ -289,7 +289,7 @@ public sealed class WorkspaceImplementationComparisonQueryTests
             mvid: new("00000000-0000-0000-0000-000000000373"),
             forwarderCount: 2);
 
-        using var fixture = new WorkspaceResearchTargetFixture(
+        await using var fixture = new WorkspaceResearchTargetFixture(
             beforeFacade,
             beforeTerminal,
             afterFacade,
@@ -352,7 +352,7 @@ public sealed class WorkspaceImplementationComparisonQueryTests
     }
 
     [Fact]
-    public void MissingTerminalParticipant_RetainsFollowedHopAndCompletedSide()
+    public async Task MissingTerminalParticipant_RetainsFollowedHopAndCompletedSide()
     {
         byte[] beforeTerminal = WorkspaceResearchTargetFixture.BuildAssembly(
             "Terminal",
@@ -368,7 +368,7 @@ public sealed class WorkspaceImplementationComparisonQueryTests
             forwardsTo: WorkspaceResearchTargetFixture.Identity(beforeTerminal),
             mvid: new("00000000-0000-0000-0000-000000000403"));
 
-        using var fixture = new WorkspaceResearchTargetFixture(
+        await using var fixture = new WorkspaceResearchTargetFixture(
             beforeFacade,
             beforeTerminal,
             afterFacade);
@@ -400,7 +400,7 @@ public sealed class WorkspaceImplementationComparisonQueryTests
     }
 
     [Fact]
-    public void DivergentTerminalDomains_RetainBothForwarderUsesWithoutRunningProducers()
+    public async Task DivergentTerminalDomains_RetainBothForwarderUsesWithoutRunningProducers()
     {
         byte[] beforeTerminal = WorkspaceResearchTargetFixture.BuildAssembly(
             "BeforeTerminal",
@@ -419,7 +419,7 @@ public sealed class WorkspaceImplementationComparisonQueryTests
             forwardsTo: WorkspaceResearchTargetFixture.Identity(afterTerminal),
             mvid: new("00000000-0000-0000-0000-000000000503"));
 
-        using var fixture = new WorkspaceResearchTargetFixture(
+        await using var fixture = new WorkspaceResearchTargetFixture(
             beforeFacade,
             beforeTerminal,
             afterFacade,
@@ -450,7 +450,7 @@ public sealed class WorkspaceImplementationComparisonQueryTests
     }
 
     [Fact]
-    public void MultiHopForwarding_RetainsOneNativeFindingPerOrderedHop()
+    public async Task MultiHopForwarding_RetainsOneNativeFindingPerOrderedHop()
     {
         byte[] beforeTerminal = WorkspaceResearchTargetFixture.BuildAssembly(
             "Terminal",
@@ -479,7 +479,7 @@ public sealed class WorkspaceImplementationComparisonQueryTests
             forwardsTo: WorkspaceResearchTargetFixture.Identity(afterBridge),
             mvid: new("00000000-0000-0000-0000-000000000701"));
 
-        using var fixture = new WorkspaceResearchTargetFixture(
+        await using var fixture = new WorkspaceResearchTargetFixture(
             beforeFacade,
             beforeBridge,
             beforeTerminal,
@@ -506,11 +506,11 @@ public sealed class WorkspaceImplementationComparisonQueryTests
     }
 
     [Fact]
-    public void ParticipantImageFailure_IsTypedBeforePlanning()
+    public async Task ParticipantImageFailure_IsTypedBeforePlanning()
     {
         byte[] before = WorkspaceResearchTargetFixture.BuildAssembly("Direct");
         byte[] after = WorkspaceResearchTargetFixture.BuildAssembly("Direct");
-        using var fixture = new WorkspaceResearchTargetFixture(before, after);
+        await using var fixture = new WorkspaceResearchTargetFixture(before, after);
         using AssemblyContextGroup beforeGroup = fixture.CreateGroup([0]);
         using AssemblyContextGroup afterGroup = fixture.CreateGroup([1]);
         fixture.Nodes[0].Image = WorkspaceResearchTargetFixture.BuildAssembly("Changed");
@@ -534,11 +534,11 @@ public sealed class WorkspaceImplementationComparisonQueryTests
     }
 
     [Fact]
-    public void Cancellation_IsTypedBeforeImageAcquisition()
+    public async Task Cancellation_IsTypedBeforeImageAcquisition()
     {
         byte[] before = WorkspaceResearchTargetFixture.BuildAssembly("Direct");
         byte[] after = WorkspaceResearchTargetFixture.BuildAssembly("Direct");
-        using var fixture = new WorkspaceResearchTargetFixture(before, after);
+        await using var fixture = new WorkspaceResearchTargetFixture(before, after);
         using AssemblyContextGroup beforeGroup = fixture.CreateGroup([0]);
         using AssemblyContextGroup afterGroup = fixture.CreateGroup([1]);
         WorkspaceImplementationComparisonRequest request = Request(

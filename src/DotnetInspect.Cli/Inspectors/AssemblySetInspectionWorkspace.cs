@@ -10,7 +10,7 @@ namespace DotnetInspect.Cli.Inspectors;
 /// Ordinary scans use one-participant groups so retained image memory is bounded
 /// by the largest current participant rather than the entire search set.
 /// </summary>
-internal sealed class AssemblySetInspectionWorkspace : IDisposable
+internal sealed class AssemblySetInspectionWorkspace : IAsyncDisposable
 {
     private readonly InspectionWorkspace _workspace = new();
 
@@ -174,7 +174,7 @@ internal sealed class AssemblySetInspectionWorkspace : IDisposable
                     : entry.Source),
         };
 
-    public void Dispose() => _workspace.Dispose();
+    public ValueTask DisposeAsync() => _workspace.DisposeAsync();
 }
 
 internal sealed class AssemblyContextEntryMap

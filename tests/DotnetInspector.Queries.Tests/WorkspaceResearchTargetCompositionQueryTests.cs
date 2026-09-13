@@ -12,9 +12,9 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class WorkspaceResearchTargetCompositionQueryTests
 {
     [Fact]
-    public void WorkspaceResearchTarget_DerivesDirectTerminalDomain()
+    public async Task WorkspaceResearchTarget_DerivesDirectTerminalDomain()
     {
-        using var fixture = Direct();
+        await using var fixture = Direct();
         WorkspaceResearchTargetPlan plan = fixture.PublicPlan();
         fixture.RetainAll();
 
@@ -35,9 +35,9 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
     }
 
     [Fact]
-    public void WorkspaceResearchTarget_DerivesForwardedTerminalDomain()
+    public async Task WorkspaceResearchTarget_DerivesForwardedTerminalDomain()
     {
-        using var fixture = Forwarded();
+        await using var fixture = Forwarded();
         WorkspaceResearchTargetPlan plan = fixture.PublicPlan();
         fixture.RetainAll();
 
@@ -59,9 +59,9 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
     }
 
     [Fact]
-    public void WorkspaceResearchTarget_DirectDefinitionRetainsRootAttempt()
+    public async Task WorkspaceResearchTarget_DirectDefinitionRetainsRootAttempt()
     {
-        using var fixture = Direct();
+        await using var fixture = Direct();
         WorkspaceResearchTargetPlan plan = fixture.PublicPlan();
         fixture.RetainAll();
         int[] opens = fixture.Nodes.Select(node => node.Opens).ToArray();
@@ -82,9 +82,9 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
     }
 
     [Fact]
-    public void WorkspaceResearchTarget_ForwardedDefinitionSelectsExactTerminalAttempt()
+    public async Task WorkspaceResearchTarget_ForwardedDefinitionSelectsExactTerminalAttempt()
     {
-        using var fixture = Forwarded();
+        await using var fixture = Forwarded();
         WorkspaceResearchTargetPlan plan = fixture.PublicPlan();
         fixture.RetainAll();
         int[] opens = fixture.Nodes.Select(node => node.Opens).ToArray();
@@ -102,9 +102,9 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
     }
 
     [Fact]
-    public void WorkspaceResearchTarget_ForwardedRootAttemptRemainsUnavailable()
+    public async Task WorkspaceResearchTarget_ForwardedRootAttemptRemainsUnavailable()
     {
-        using var fixture = Forwarded();
+        await using var fixture = Forwarded();
         WorkspaceResearchTargetPlan plan = fixture.PublicPlan();
         var root = plan.Resolution.Attempts.Single(item =>
             item.Request.Input == plan.Resolution.Domains.Single(domain =>
@@ -119,11 +119,11 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
     }
 
     [Fact]
-    public void WorkspaceResearchTarget_MultiHopRetainsCompleteMetadataPath()
+    public async Task WorkspaceResearchTarget_MultiHopRetainsCompleteMetadataPath()
     {
         byte[] terminal = BuildAssembly("Terminal");
         byte[] bridge = BuildAssembly("Bridge", false, Identity(terminal));
-        using var fixture = new WorkspaceResearchTargetFixture(
+        await using var fixture = new WorkspaceResearchTargetFixture(
             BuildAssembly("Facade", false, Identity(bridge)), bridge, terminal);
         var receipt = ComposePublic(fixture, fixture.PublicPlan(), 2);
         var resolved = Resolved(receipt);
@@ -141,10 +141,10 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
     }
 
     [Fact]
-    public void WorkspaceResearchTarget_UnboundTerminalIsUnavailable()
+    public async Task WorkspaceResearchTarget_UnboundTerminalIsUnavailable()
     {
         byte[] missing = BuildAssembly("Missing");
-        using var fixture = new WorkspaceResearchTargetFixture(
+        await using var fixture = new WorkspaceResearchTargetFixture(
             BuildAssembly("Facade", false, Identity(missing)), BuildAssembly("Unrelated", false));
         var plan = fixture.Plan();
         var result = Assert.IsType<WorkspaceResearchTargetCompositionResult.Unavailable>(
@@ -155,9 +155,9 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
     }
 
     [Fact]
-    public void WorkspaceResearchTarget_ImageOpenFailureIsUnavailable()
+    public async Task WorkspaceResearchTarget_ImageOpenFailureIsUnavailable()
     {
-        using var fixture = Direct();
+        await using var fixture = Direct();
         var plan = fixture.Plan();
         fixture.Nodes[1].OnOpen = () => throw new IOException("image-open-sentinel");
         var query = Assert.IsType<AssemblyContextTypeResolutionResult.Rejected>(
@@ -177,11 +177,11 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
     }
 
     [Fact]
-    public void WorkspaceResearchTarget_MissingAnyGroupParticipantIsRejected()
+    public async Task WorkspaceResearchTarget_MissingAnyGroupParticipantIsRejected()
     {
         byte[] terminal = BuildAssembly("Terminal");
         byte[] bridge = BuildAssembly("Bridge", false, Identity(terminal));
-        using var fixture = new WorkspaceResearchTargetFixture(
+        await using var fixture = new WorkspaceResearchTargetFixture(
             BuildAssembly("Facade", false, Identity(bridge)), bridge, terminal, BuildAssembly("Unused", false));
         foreach (int missing in Enumerable.Range(0, fixture.Nodes.Length))
         {
@@ -193,19 +193,19 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
     }
 
     [Fact]
-    public void WorkspaceResearchTarget_DuplicatePopulationMemberIsRejected()
+    public async Task WorkspaceResearchTarget_DuplicatePopulationMemberIsRejected()
     {
-        using var fixture = Direct();
+        await using var fixture = Direct();
         var plan = fixture.Plan(fixture.Population([0, 0]));
         AssertPreQueryRejected(fixture, plan.Request(fixture),
             WorkspaceResearchTargetCompositionRejection.PopulationMismatch);
     }
 
     [Fact]
-    public void WorkspaceResearchTarget_UnrelatedSameNameParticipantCannotSatisfyRoute()
+    public async Task WorkspaceResearchTarget_UnrelatedSameNameParticipantCannotSatisfyRoute()
     {
         byte[] actual = BuildAssembly("Terminal");
-        using var fixture = new WorkspaceResearchTargetFixture(
+        await using var fixture = new WorkspaceResearchTargetFixture(
             BuildAssembly("Facade", false, Identity(actual)),
             BuildAssembly("Terminal", version: new Version(2, 0, 0, 0)));
         fixture.Nodes[0].Policy.Target = Descriptor(actual,
@@ -217,9 +217,9 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
     }
 
     [Fact]
-    public void WorkspaceResearchTarget_ReferenceOnlyTerminalIsUnavailable()
+    public async Task WorkspaceResearchTarget_ReferenceOnlyTerminalIsUnavailable()
     {
-        using var fixture = Forwarded();
+        await using var fixture = Forwarded();
         var plan = fixture.Plan(referenceOnly: 1);
         Assert.Equal(0, fixture.Nodes[1].Opens);
         var result = Assert.IsType<WorkspaceResearchTargetCompositionResult.Unavailable>(
@@ -231,10 +231,10 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
     }
 
     [Fact]
-    public void WorkspaceResearchTarget_BlockedTerminalDomainIsUnavailable()
+    public async Task WorkspaceResearchTarget_BlockedTerminalDomainIsUnavailable()
     {
         byte[] terminal = BuildAssembly("Terminal");
-        using var fixture = new WorkspaceResearchTargetFixture(
+        await using var fixture = new WorkspaceResearchTargetFixture(
             BuildAssembly("Facade", false, Identity(terminal)), terminal, BuildAssembly("Terminal"));
         var plan = fixture.Plan();
         Assert.True(plan.Scope.Domains.Single(domain => domain.Key.Identity.Name == "Terminal").IsAmbiguous);
@@ -246,18 +246,18 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
     }
 
     [Fact]
-    public void WorkspaceResearchTarget_RejectsExactAddressScope()
+    public async Task WorkspaceResearchTarget_RejectsExactAddressScope()
     {
-        using var fixture = new WorkspaceResearchTargetFixture(BuildAssembly("Direct"));
+        await using var fixture = new WorkspaceResearchTargetFixture(BuildAssembly("Direct"));
         var plan = fixture.Plan(exact: true);
         AssertPreQueryRejected(fixture, plan.Request(fixture),
             WorkspaceResearchTargetCompositionRejection.UnsupportedRequestKind);
     }
 
     [Fact]
-    public void WorkspaceResearchTarget_RejectsWrongSideScopeAndDomainMappings()
+    public async Task WorkspaceResearchTarget_RejectsWrongSideScopeAndDomainMappings()
     {
-        using var fixture = Direct();
+        await using var fixture = Direct();
         var plan = fixture.Plan(fixture.Population(after: [0, 1]));
         ResearchTargetDomain domain = plan.Scope.Domains[0];
         ResearchTargetDomainSideCensus afterCensus = plan.Resolution.Censuses.Single(census =>
@@ -274,9 +274,9 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
     }
 
     [Fact]
-    public void WorkspaceResearchTarget_RejectsCrossSelectionScopeAttemptAndCensus()
+    public async Task WorkspaceResearchTarget_RejectsCrossSelectionScopeAttemptAndCensus()
     {
-        using var fixture = Direct();
+        await using var fixture = Direct();
         var plan = fixture.Plan(selections: 2);
         ResearchTargetScope other = plan.Resolution.Scopes[1];
         ResearchTargetDomain otherDomain = other.Domains[0];
@@ -308,9 +308,9 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
     }
 
     [Fact]
-    public void WorkspaceResearchTarget_RejectsForeignOrIncompletePopulationReceipt()
+    public async Task WorkspaceResearchTarget_RejectsForeignOrIncompletePopulationReceipt()
     {
-        using var fixture = Direct();
+        await using var fixture = Direct();
         var plan = fixture.Plan();
         var foreign = fixture.Plan(plan.Population);
         AssertPreQueryRejected(fixture, plan.Request(fixture, projected: foreign.Projected),
@@ -334,9 +334,9 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
     }
 
     [Fact]
-    public void WorkspaceResearchTarget_RejectsExtraForeignPopulationMember()
+    public async Task WorkspaceResearchTarget_RejectsExtraForeignPopulationMember()
     {
-        using var fixture = Direct();
+        await using var fixture = Direct();
         var plan = fixture.Plan();
         using var narrow = fixture.CreateGroup([0]);
         AssertPreQueryRejected(fixture, plan.Request(fixture, group: narrow),
@@ -347,9 +347,9 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
     }
 
     [Fact]
-    public void WorkspaceResearchTarget_RejectsBroaderResearchPopulation()
+    public async Task WorkspaceResearchTarget_RejectsBroaderResearchPopulation()
     {
-        using var fixture = Direct();
+        await using var fixture = Direct();
         var narrow = fixture.Plan(fixture.Population([0]));
         var broader = fixture.Plan();
         using var group = fixture.CreateGroup([0]);
@@ -371,10 +371,10 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void WorkspaceResearchTarget_RequiresTerminalAssemblyModuleAndAddressAgreement(bool differentTypeRow)
+    public async Task WorkspaceResearchTarget_RequiresTerminalAssemblyModuleAndAddressAgreement(bool differentTypeRow)
     {
         Guid originalMvid = Guid.NewGuid();
-        using var fixture = new WorkspaceResearchTargetFixture(
+        await using var fixture = new WorkspaceResearchTargetFixture(
             BuildAssembly("Terminal", mvid: originalMvid), BuildAssembly("Unused", false));
         var plan = fixture.Plan();
         var target = Assert.IsType<ResearchTargetOutcome.Resolved>(plan.Resolution.Attempts[0].Outcome);
@@ -384,7 +384,7 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
 
         // A second owner-produced plan proves the other image is a genuine resolved
         // MethodDef at the same row, not a manually altered Research result.
-        using var neighboring = new WorkspaceResearchTargetFixture(fixture.Nodes[0].Image);
+        await using var neighboring = new WorkspaceResearchTargetFixture(fixture.Nodes[0].Image);
         var other = Assert.IsType<ResearchTargetOutcome.Resolved>(
             neighboring.PublicPlan().Resolution.Attempts[0].Outcome);
         Assert.Equal(target.Address.Value.Token, other.Address!.Value.Token);
@@ -399,11 +399,11 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
     }
 
     [Fact]
-    public void WorkspaceResearchTarget_DivergentTerminalDomainsDoNotPair()
+    public async Task WorkspaceResearchTarget_DivergentTerminalDomainsDoNotPair()
     {
         byte[] before = BuildAssembly("BeforeTerminal");
         byte[] after = BuildAssembly("AfterTerminal");
-        using var fixture = new WorkspaceResearchTargetFixture(
+        await using var fixture = new WorkspaceResearchTargetFixture(
             BuildAssembly("BeforeFacade", false, Identity(before)), before,
             BuildAssembly("AfterFacade", false, Identity(after)), after);
         using var beforeGroup = fixture.CreateGroup([0, 1]);
@@ -425,9 +425,9 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
     }
 
     [Fact]
-    public void WorkspaceResearchTarget_Direct()
+    public async Task WorkspaceResearchTarget_Direct()
     {
-        using var fixture = Direct();
+        await using var fixture = Direct();
         WorkspaceResearchTargetPlan plan = fixture.PublicPlan(fixture.Population(after: [0, 1]));
         var before = ComposePublic(fixture, plan, 0);
         var after = ComposePublic(fixture, plan, 0, QueryComparisonSide.After);
@@ -440,9 +440,9 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
     }
 
     [Fact]
-    public void WorkspaceResearchTarget_Direct_TypedProjectionAndAdmissionFailures()
+    public async Task WorkspaceResearchTarget_Direct_TypedProjectionAndAdmissionFailures()
     {
-        using var fixture = Direct();
+        await using var fixture = Direct();
         var population = fixture.Population();
         QueryComparisonPopulation<ImplementationComparisonBinding> With(
             QueryComparisonInput<ImplementationComparisonBinding> input) =>
@@ -470,9 +470,9 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
     }
 
     [Fact]
-    public void WorkspaceResearchTarget_Direct_TypedPlanningFailurePreservesOwnerRejection()
+    public async Task WorkspaceResearchTarget_Direct_TypedPlanningFailurePreservesOwnerRejection()
     {
-        using var fixture = Direct();
+        await using var fixture = Direct();
         var plan = fixture.Plan();
         var failed = Assert.IsType<ResearchTargetPlanningOutcome.Rejected>(ResearchTargetResolver.Resolve(
             new(plan.Projected.Admission, [],
@@ -491,9 +491,9 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
     }
 
     [Fact]
-    public void WorkspaceResearchTarget_RejectsForeignRootAndUnsupportedResolutionScope()
+    public async Task WorkspaceResearchTarget_RejectsForeignRootAndUnsupportedResolutionScope()
     {
-        using var fixture = Direct();
+        await using var fixture = Direct();
         var plan = fixture.Plan();
         using var group = fixture.CreateGroup([1]);
         AssertPreQueryRejected(fixture, plan.Request(fixture, group: group),
@@ -503,9 +503,9 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
     }
 
     [Fact]
-    public void AssemblyContextTypeResolutionQuery_GroupScopedResolution()
+    public async Task AssemblyContextTypeResolutionQuery_GroupScopedResolution()
     {
-        using var fixture = Forwarded();
+        await using var fixture = Forwarded();
         fixture.RetainAll();
         int[] opens = fixture.Nodes.Select(node => node.Opens).ToArray();
         var result = Assert.IsType<AssemblyContextTypeResolutionResult.Available>(
@@ -518,9 +518,9 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
     }
 
     [Fact]
-    public void AssemblyContextTypeResolutionQuery_CandidateOpenRejection()
+    public async Task AssemblyContextTypeResolutionQuery_CandidateOpenRejection()
     {
-        using var fixture = Direct();
+        await using var fixture = Direct();
         fixture.Nodes[1].OnOpen = () => throw new IOException("candidate-open-sentinel");
         var result = Assert.IsType<AssemblyContextTypeResolutionResult.Rejected>(
             AssemblyContextTypeResolutionQuery.Execute(
@@ -534,10 +534,10 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
     [InlineData("selected")]
     [InlineData("ambiguous")]
     [InlineData("shadow")]
-    public void AssemblyContextTypeResolutionQuery_DoesNotAcquireOutsideGroup(string selectionKind)
+    public async Task AssemblyContextTypeResolutionQuery_DoesNotAcquireOutsideGroup(string selectionKind)
     {
         byte[] external = BuildAssembly("External");
-        using var fixture = new WorkspaceResearchTargetFixture(
+        await using var fixture = new WorkspaceResearchTargetFixture(
             BuildAssembly("Facade", false, Identity(external)), BuildAssembly("Unused", false));
         int opens = 0;
         var descriptor = Descriptor(external, () =>
@@ -570,10 +570,10 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
     [InlineData(0, 2)]
     [InlineData(1, 1)]
     [InlineData(1, 2)]
-    public void AssemblyContextTypeResolutionQuery_ParticipantVersionsCheckedOnCandidateRejection(
+    public async Task AssemblyContextTypeResolutionQuery_ParticipantVersionsCheckedOnCandidateRejection(
         int participant, int read)
     {
-        using var fixture = Direct();
+        await using var fixture = Direct();
         fixture.Nodes[1].OnOpen = () => throw new IOException("candidate-rejection-version-check");
         fixture.ResetProbes();
         fixture.Nodes[participant].Policy.DriftOnRead = read;
@@ -588,33 +588,33 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void AssemblyContextTypeResolutionQuery_RootBindingPolicyVersionDriftThrows(bool postQuery) =>
+    public Task AssemblyContextTypeResolutionQuery_RootBindingPolicyVersionDriftThrows(bool postQuery) =>
         AssertQueryDrift(0, postQuery);
 
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void AssemblyContextTypeResolutionQuery_NonRootBindingPolicyVersionDriftThrows(bool postQuery) =>
+    public Task AssemblyContextTypeResolutionQuery_NonRootBindingPolicyVersionDriftThrows(bool postQuery) =>
         AssertQueryDrift(1, postQuery);
 
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void WorkspaceResearchTarget_RootBindingPolicyVersionDriftThrows(bool postQuery) =>
+    public Task WorkspaceResearchTarget_RootBindingPolicyVersionDriftThrows(bool postQuery) =>
         AssertCompositionDrift(0, postQuery);
 
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void WorkspaceResearchTarget_NonRootBindingPolicyVersionDriftThrows(bool postQuery) =>
+    public Task WorkspaceResearchTarget_NonRootBindingPolicyVersionDriftThrows(bool postQuery) =>
         AssertCompositionDrift(1, postQuery);
 
     [Theory]
     [MemberData(nameof(PublicationPaths))]
-    public void WorkspaceResearchTarget_PrePublicationBindingPolicyVersionDriftThrows(
+    public async Task WorkspaceResearchTarget_PrePublicationBindingPolicyVersionDriftThrows(
         PublicationPath path, int participant)
     {
-        using var fixture = CreatePublicationPath(path, out var request);
+        await using var fixture = CreatePublicationPath(path, out var request);
         fixture.ResetProbes();
         WorkspaceResearchTargetCompositionResult baseline = ExecutePublicationPath(path, fixture, request);
         AssertPublicationPath(path, baseline);
@@ -636,9 +636,9 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
     }
 
     [Fact]
-    public void WorkspaceResearchTarget_PublicationTailUsesOnlyInertLocals()
+    public async Task WorkspaceResearchTarget_PublicationTailUsesOnlyInertLocals()
     {
-        using var fixture = Forwarded();
+        await using var fixture = Forwarded();
         var plan = fixture.Plan();
         var request = plan.Request(fixture, terminal: 1);
         fixture.ResetProbes();
@@ -707,18 +707,18 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
     }
 
     [Fact]
-    public void WorkspaceResearchTarget_PublishesNoPartialReceiptOnFailure()
+    public async Task WorkspaceResearchTarget_PublishesNoPartialReceiptOnFailure()
     {
         foreach (PublicationPath path in Enum.GetValues<PublicationPath>().Where(path => path != PublicationPath.Composed))
         {
-            using var fixture = CreatePublicationPath(path, out var request);
+            await using var fixture = CreatePublicationPath(path, out var request);
             var result = ExecutePublicationPath(path, fixture, request);
             AssertPublicationPath(path, result);
             Assert.IsNotType<WorkspaceResearchTargetCompositionResult.Composed>(result);
             Assert.DoesNotContain(result.GetType().GetProperties(),
                 property => property.PropertyType == typeof(WorkspaceResearchTargetCompositionReceipt));
         }
-        using var cancelledFixture = Direct();
+        await using var cancelledFixture = Direct();
         var plan = cancelledFixture.Plan();
         cancelledFixture.ResetProbes();
         WorkspaceResearchTargetCompositionResult? published = null;
@@ -935,9 +935,9 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
         }
     }
 
-    static void AssertQueryDrift(int participant, bool postQuery)
+    static async Task AssertQueryDrift(int participant, bool postQuery)
     {
-        using var fixture = Direct();
+        await using var fixture = Direct();
         fixture.RetainAll();
         fixture.ResetProbes();
         AssemblyContextTypeResolutionResult Run() => AssemblyContextTypeResolutionQuery.Execute(
@@ -955,9 +955,9 @@ public sealed class WorkspaceResearchTargetCompositionQueryTests
         }
     }
 
-    static void AssertCompositionDrift(int participant, bool postQuery)
+    static async Task AssertCompositionDrift(int participant, bool postQuery)
     {
-        using var fixture = Direct();
+        await using var fixture = Direct();
         var plan = fixture.Plan();
         var request = plan.Request(fixture);
         fixture.ResetProbes();

@@ -212,8 +212,7 @@ public enum WorkspaceScopeRejection
     ForeignWorkspace,
     RevisionMismatch,
     PackageCapacityExceeded,
-    AsynchronousWorkspaceRequired,
-    Busy,
+    Busy = 6,
     OccurrenceNotCurrent,
 }
 

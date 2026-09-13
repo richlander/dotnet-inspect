@@ -223,7 +223,7 @@ public sealed class SelectedSourceDiffTests
     {
         string beforePath = FixtureCatalog.SourceDiffPair.OldAssemblyPath();
         string afterPath = FixtureCatalog.SourceDiffPair.NewAssemblyPath();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         var before = Participant(beforePath, "1.0.0");
         var after = Participant(afterPath, "2.0.0");
         using var beforeGroup = workspace.CreateAssemblyContextGroup([before]);

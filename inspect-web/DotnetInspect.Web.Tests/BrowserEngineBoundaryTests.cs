@@ -151,7 +151,7 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public void QueryFailureAdapters_DoNotEmitArtifactAuthoredText()
+    public async Task QueryFailureAdapters_DoNotEmitArtifactAuthoredText()
     {
         const string artifactText = "Artifact\u202e";
         var identity = new AssemblyReferenceIdentity(
@@ -172,7 +172,7 @@ public sealed partial class BrowserEngineBoundaryTests
         var participant = new AssemblyContextParticipant(
             assembly,
             new RejectingBindingPolicy());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup([participant]);
 
@@ -6648,7 +6648,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 TimeSpan.FromSeconds(5));
 
         BrowserWorkspacePackageOccurrenceView view =
-            BrowserWorkspaceOccurrenceOperations.ReplaceCurrent(
+            await BrowserWorkspaceOccurrenceOperations.ReplaceCurrent(
                 [coordinate, coordinate]);
 
         Assert.Equal(2, view.Occurrences.Length);
@@ -6673,16 +6673,16 @@ public sealed partial class BrowserEngineBoundaryTests
                     view.Occurrences[1].Action));
         Assert.Same(coordinate, selection.Coordinate);
 
-        BrowserWorkspaceOccurrenceOperations.ReplaceCurrent([]);
+        await BrowserWorkspaceOccurrenceOperations.ReplaceCurrent([]);
 
         Assert.Null(
             BrowserWorkspaceOccurrenceOperations.Activate(
                 view.Occurrences[0].Action));
 
         BrowserWorkspacePackageOccurrenceView replacement =
-            BrowserWorkspaceOccurrenceOperations.ReplaceCurrent(
+            await BrowserWorkspaceOccurrenceOperations.ReplaceCurrent(
                 [coordinate]);
-        BrowserWorkspaceOccurrenceOperations.ClearCurrent();
+        await BrowserWorkspaceOccurrenceOperations.ClearCurrent();
 
         Assert.Null(
             BrowserWorkspaceOccurrenceOperations.Activate(
@@ -6732,7 +6732,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 });
         await resolutionStarted.Task;
         BrowserWorkspacePackageOccurrenceView replacement =
-            BrowserWorkspaceOccurrenceOperations.ReplaceCurrent(
+            await BrowserWorkspaceOccurrenceOperations.ReplaceCurrent(
                 [coordinate]);
         continueResolution.SetResult();
 
@@ -6796,7 +6796,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 });
         await secondResolutionStarted.Task;
 
-        BrowserWorkspaceOccurrenceOperations.ClearCurrent();
+        await BrowserWorkspaceOccurrenceOperations.ClearCurrent();
         using (
             await BrowserPackageWorkspace.ReservePackageDownloadAsync(
                 $"workspace.lease.pressure.{Guid.NewGuid():N}@1.0.0",
@@ -8125,7 +8125,7 @@ public sealed partial class BrowserEngineBoundaryTests
     [Fact]
     public async Task WorkspaceOccurrences_LeaseAcquiredDuringRetirementKeepsArchiveResident()
     {
-        BrowserWorkspaceOccurrenceOperations.ClearCurrent();
+        await BrowserWorkspaceOccurrenceOperations.ClearCurrent();
         (await BrowserPackageWorkspace.ReservePackageDownloadAsync(
             $"artifact.occurrence.drain.{Guid.NewGuid():N}@1.0.0",
             128L * MiB)).Dispose();
@@ -8183,7 +8183,7 @@ public sealed partial class BrowserEngineBoundaryTests
         finally
         {
             release.TrySetResult();
-            BrowserWorkspaceOccurrenceOperations.ClearCurrent();
+            await BrowserWorkspaceOccurrenceOperations.ClearCurrent();
             await BrowserPackageWorkspace.RemoveScopeAsync(closing);
         }
     }
@@ -8763,7 +8763,7 @@ public sealed partial class BrowserEngineBoundaryTests
             Package(image, "lib/net11.0/Artifact.Activation.dll"),
             TestContext.Current.CancellationToken);
         BrowserWorkspacePackageOccurrenceView view =
-            BrowserWorkspaceOccurrenceOperations.ReplaceCurrent([coordinate]);
+            await BrowserWorkspaceOccurrenceOperations.ReplaceCurrent([coordinate]);
         await using ScopeAdmissionGate admission =
             await ScopeAdmissionGate.CreateAsync();
 
@@ -8773,9 +8773,9 @@ public sealed partial class BrowserEngineBoundaryTests
         {
             Assert.False(activation.IsCompleted);
             if (replace)
-                BrowserWorkspaceOccurrenceOperations.ReplaceCurrent([coordinate]);
+                await BrowserWorkspaceOccurrenceOperations.ReplaceCurrent([coordinate]);
             else
-                BrowserWorkspaceOccurrenceOperations.ClearCurrent();
+                await BrowserWorkspaceOccurrenceOperations.ClearCurrent();
 
             admission.Release();
             BrowserWorkspacePackageOccurrenceActivation result =
@@ -8791,7 +8791,7 @@ public sealed partial class BrowserEngineBoundaryTests
         {
             admission.Release();
             await activation;
-            BrowserWorkspaceOccurrenceOperations.ClearCurrent();
+            await BrowserWorkspaceOccurrenceOperations.ClearCurrent();
         }
     }
 

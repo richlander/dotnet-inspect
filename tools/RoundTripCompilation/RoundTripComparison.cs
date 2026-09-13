@@ -60,7 +60,7 @@ public sealed record RoundTripComparisonResult(
 /// </summary>
 public static class RoundTripComparison
 {
-    public static RoundTripComparisonResult Compare(
+    public static async Task<RoundTripComparisonResult> CompareAsync(
         RoundTripRequest request,
         byte[] donorPe,
         RoundTripCompilationProvenance? compilation = null)
@@ -80,7 +80,7 @@ public static class RoundTripComparison
             File.WriteAllBytes(temporaryPath, donorPe);
             using var original = DecompilerMetadataSource.OpenWithoutSymbols(request.Artifact.Path);
             using var donor = DecompilerMetadataSource.OpenWithoutSymbols(temporaryPath);
-            using var workspace = new InspectionWorkspace();
+            await using var workspace = new InspectionWorkspace();
             var query = new RoundTripComparisonQuery(workspace, original, donor);
             var members = ImmutableArray.CreateBuilder<RoundTripMemberComparison>();
             foreach (var target in request.Targets)

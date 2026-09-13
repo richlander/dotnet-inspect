@@ -20,9 +20,9 @@ public sealed class DirectMemberComparisonQueryTests
     [Theory]
     [InlineData("ConstantValue")]
     [InlineData("Stable")]
-    public void DirectMemberComparison_PreservesDesignatedPair(string afterName)
+    public async Task DirectMemberComparison_PreservesDesignatedPair(string afterName)
     {
-        using var fixture = new Fixture(Image());
+        await using var fixture = new Fixture(Image());
         DirectMemberComparisonEndpoint before = fixture.Endpoint("Stable");
         DirectMemberComparisonEndpoint after = fixture.Endpoint(afterName);
 
@@ -69,9 +69,9 @@ public sealed class DirectMemberComparisonQueryTests
     }
 
     [Fact]
-    public void DirectMemberComparison_DoesNotSubstituteEndpoint()
+    public async Task DirectMemberComparison_DoesNotSubstituteEndpoint()
     {
-        using var fixture = new Fixture(Image(), Image(beforeVersion: true));
+        await using var fixture = new Fixture(Image(), Image(beforeVersion: true));
         DirectMemberComparisonEndpoint selected = fixture.Endpoint("Stable");
         DirectMemberComparisonEndpoint wrongImage = fixture.Endpoint("Stable", 1);
         Assert.Equal(selected.Address!.Value.Token, wrongImage.Address!.Value.Token);
@@ -106,9 +106,9 @@ public sealed class DirectMemberComparisonQueryTests
     }
 
     [Fact]
-    public void DirectMemberComparison_RetainsNativeNonSuccess()
+    public async Task DirectMemberComparison_RetainsNativeNonSuccess()
     {
-        using var bodyless = new Fixture(Image(beforeVersion: true));
+        await using var bodyless = new Fixture(Image(beforeVersion: true));
         ResearchProducerCompletion completion = Completed(Published(
             Compare(bodyless.Group,
                 new(bodyless.Endpoint("BodyState"), bodyless.Endpoint("Stable"),
@@ -128,7 +128,7 @@ public sealed class DirectMemberComparisonQueryTests
 
         byte[] broken = Image();
         BreakBody(broken, "Stable");
-        using var failing = new Fixture(broken);
+        await using var failing = new Fixture(broken);
         ResearchProducerCompletion failed = Completed(Published(
             Compare(failing.Group,
                 new(failing.Endpoint("Stable"), failing.Endpoint("ConstantValue"),
@@ -144,9 +144,9 @@ public sealed class DirectMemberComparisonQueryTests
     }
 
     [Fact]
-    public void DirectMemberComparison_UsesSharedPublication()
+    public async Task DirectMemberComparison_UsesSharedPublication()
     {
-        using var fixture = new Fixture(Image());
+        await using var fixture = new Fixture(Image());
         var request = new DirectMemberComparisonRequest(
             fixture.Endpoint("Stable"), fixture.Endpoint("Stable"), [ResearchProducerKind.IlBody]);
         LocalComparisonQueryResult result = Compare(fixture.Group, request);
@@ -161,11 +161,11 @@ public sealed class DirectMemberComparisonQueryTests
     [InlineData(".ctor", ResearchTargetRelationshipRole.Method)]
     [InlineData("op_Implicit", ResearchTargetRelationshipRole.Method)]
     [InlineData("GenericIdentity", ResearchTargetRelationshipRole.Method)]
-    public void DirectMemberComparison_PreservesPhysicalAccessorAndMethodRoles(
+    public async Task DirectMemberComparison_PreservesPhysicalAccessorAndMethodRoles(
         string name,
         ResearchTargetRelationshipRole expectedRole)
     {
-        using var fixture = new Fixture(Image());
+        await using var fixture = new Fixture(Image());
         DirectMemberComparisonEndpoint endpoint = fixture.Endpoint(name);
         ResearchProducerCompletion completion = Completed(Published(
             Compare(fixture.Group,
@@ -185,9 +185,9 @@ public sealed class DirectMemberComparisonQueryTests
     [InlineData("GenericTypeAritySample`1")]
     [InlineData("GenericTypeAritySample`2")]
     [InlineData("Inner`1")]
-    public void DirectMemberComparison_PreservesGenericDeclaringTypes(string declaringType)
+    public async Task DirectMemberComparison_PreservesGenericDeclaringTypes(string declaringType)
     {
-        using var fixture = new Fixture(Image());
+        await using var fixture = new Fixture(Image());
         DirectMemberComparisonEndpoint endpoint = fixture.Endpoint("M", declaringType: declaringType);
         ResearchProducerCompletion completion = Completed(Published(
             Compare(fixture.Group, new(endpoint, endpoint, ResearchProducerCatalog.Kinds))));
@@ -197,7 +197,7 @@ public sealed class DirectMemberComparisonQueryTests
     [Theory]
     [InlineData("<SharedLambdaOrdinalOwner>b__")]
     [InlineData("<CallsThroughLocalFunction>g__Core|")]
-    public void DirectMemberComparison_PreservesCompilerGeneratedMethods(string prefix)
+    public async Task DirectMemberComparison_PreservesCompilerGeneratedMethods(string prefix)
     {
         byte[] image = File.ReadAllBytes(typeof(ClassicAsyncSiblingFixture).Assembly.Location);
         using var pe = new PEReader(new MemoryStream(image, writable: false));
@@ -205,7 +205,7 @@ public sealed class DirectMemberComparisonQueryTests
         string name = reader.MethodDefinitions
             .Select(handle => reader.GetString(reader.GetMethodDefinition(handle).Name))
             .Single(name => name.StartsWith(prefix, StringComparison.Ordinal));
-        using var fixture = new Fixture(image);
+        await using var fixture = new Fixture(image);
         DirectMemberComparisonEndpoint endpoint = fixture.Endpoint(name);
         ResearchProducerCompletion completion = Completed(Published(
             Compare(fixture.Group, new(endpoint, endpoint, ResearchProducerCatalog.Kinds))));
@@ -232,9 +232,9 @@ public sealed class DirectMemberComparisonQueryTests
     }
 
     [Fact]
-    public void LocalComparisonPublication_RetainsExactInvocation()
+    public async Task LocalComparisonPublication_RetainsExactInvocation()
     {
-        using var fixture = new Fixture(Image());
+        await using var fixture = new Fixture(Image());
         var request = new DirectMemberComparisonRequest(
             fixture.Endpoint("Stable"), fixture.Endpoint("Stable"), ResearchProducerCatalog.Kinds);
         LocalComparisonQueryResult.Published first = Published(
@@ -255,9 +255,9 @@ public sealed class DirectMemberComparisonQueryTests
     }
 
     [Fact]
-    public void LocalComparisonPublication_PreservesQueryNonSuccess()
+    public async Task LocalComparisonPublication_PreservesQueryNonSuccess()
     {
-        using var fixture = new Fixture(Image());
+        await using var fixture = new Fixture(Image());
         DirectMemberComparisonEndpoint endpoint = fixture.Endpoint("Stable");
         var missing = Assert.IsType<LocalComparisonQueryResult.NonSuccess>(
             Compare(fixture.Group,
@@ -279,7 +279,7 @@ public sealed class DirectMemberComparisonQueryTests
         Assert.Equal(cancellation.Token,
             Assert.IsType<LocalComparisonQueryFailure.Cancelled>(cancelled.Failure).Cause.CancellationToken);
 
-        using var rejectedInput = new Fixture(Image(), maxImageBytes: 1);
+        await using var rejectedInput = new Fixture(Image(), maxImageBytes: 1);
         var rejectedEndpoint = new DirectMemberComparisonEndpoint(
             rejectedInput.Group.Participants.Single(), endpoint.Address);
         var rejected = Assert.IsType<LocalComparisonQueryResult.NonSuccess>(
@@ -290,7 +290,7 @@ public sealed class DirectMemberComparisonQueryTests
         Assert.Equal(CandidateOpenFailureKind.ResourceBudget,
             Assert.IsType<LocalComparisonQueryFailure.AccessRejected>(rejected.Failure).Cause.Kind);
 
-        using var foreign = new Fixture(Image());
+        await using var foreign = new Fixture(Image());
         var failed = Assert.IsType<LocalComparisonQueryResult.NonSuccess>(
             Compare(fixture.Group,
                 new(endpoint, foreign.Endpoint("Stable"), ResearchProducerCatalog.Kinds)));
@@ -301,11 +301,11 @@ public sealed class DirectMemberComparisonQueryTests
     }
 
     [Fact]
-    public void LocalComparisonPublication_RemainsUsableAfterInputScopeCloses()
+    public async Task LocalComparisonPublication_RemainsUsableAfterInputScopeCloses()
     {
         LocalComparisonQueryResult.Published result;
         LocalComparisonQueryResult.NonSuccess failure;
-        using (var fixture = new Fixture(Image(), Image(beforeVersion: true)))
+        await using (var fixture = new Fixture(Image(), Image(beforeVersion: true)))
         {
             DirectMemberComparisonEndpoint endpoint = fixture.Endpoint("Stable");
             result = Published(Compare(fixture.Group,
@@ -388,9 +388,9 @@ public sealed class DirectMemberComparisonQueryTests
     }
 
     [Fact]
-    public void DirectMemberComparison_RequiresExplicitNonemptyProducers()
+    public async Task DirectMemberComparison_RequiresExplicitNonemptyProducers()
     {
-        using var fixture = new Fixture(Image());
+        await using var fixture = new Fixture(Image());
         DirectMemberComparisonEndpoint endpoint = fixture.Endpoint("Stable");
         Assert.Throws<ArgumentException>(() => new DirectMemberComparisonRequest(endpoint, endpoint, []));
         Assert.Throws<ArgumentException>(() => new DirectMemberComparisonRequest(endpoint, endpoint,
@@ -404,7 +404,7 @@ public sealed class DirectMemberComparisonQueryTests
     {
         int selectionCount;
         using (var stablePolicy = new ResearchPublicationBindingPolicy())
-        using (var stable = new Fixture(Image(), stablePolicy))
+        await using (var stable = new Fixture(Image(), stablePolicy))
         {
             DirectMemberComparisonEndpoint endpoint = stable.Endpoint("Stable");
             Published(Compare(
@@ -415,7 +415,7 @@ public sealed class DirectMemberComparisonQueryTests
         Assert.True(selectionCount > 0);
 
         using var policy = new ResearchPublicationBindingPolicy(selectionCount);
-        using var fixture = new Fixture(Image(), policy);
+        await using var fixture = new Fixture(Image(), policy);
         DirectMemberComparisonEndpoint driftingEndpoint = fixture.Endpoint("Stable");
         Task<LocalComparisonQueryResult> execution = Task.Run(
             () => Compare(
@@ -478,7 +478,7 @@ public sealed class DirectMemberComparisonQueryTests
         image[section.PointerToRawData + rva - section.VirtualAddress] = 0;
     }
 
-    sealed class Fixture : IDisposable
+    sealed class Fixture : IAsyncDisposable
     {
         readonly InspectionWorkspace _workspace = new();
         readonly byte[][] _images;
@@ -517,7 +517,7 @@ public sealed class DirectMemberComparisonQueryTests
             return new(participant, address);
         }
 
-        public void Dispose() => _workspace.Dispose();
+        public ValueTask DisposeAsync() => _workspace.DisposeAsync();
     }
 
     sealed class PublicationFixture : IDisposable

@@ -1750,7 +1750,7 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
-    public void ReturnToSenderCutover_ContextFailureRetainsEverySelectedTarget()
+    public async Task ReturnToSenderCutover_ContextFailureRetainsEverySelectedTarget()
     {
         FidelityCheck.CompileBackTarget[] targets =
         [
@@ -1758,7 +1758,7 @@ public class CorpusSensorComparisonTests
             new("test.dll", "Fixture", "Two", 0, "() -> corelib:System.Int32"),
         ];
 
-        var results = CorpusSensor.EvaluateReturnToSenderCutoverTargetsForTesting(
+        var results = await CorpusSensor.EvaluateReturnToSenderCutoverTargetsForTesting(
             targets,
             () => throw new InvalidOperationException(
                 "Compilation reference preparation failed with ReferencePlatformSelectionUnavailable."));
@@ -1997,11 +1997,11 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
-    public void SelectThenEvaluateNativeFirst_CompletesEveryPhaseAcrossAssemblies()
+    public async Task SelectThenEvaluateNativeFirst_CompletesEveryPhaseAcrossAssemblies()
     {
         var events = new List<string>();
 
-        var results = CorpusSensor.SelectThenEvaluateNativeFirst(
+        var results = await CorpusSensor.SelectThenEvaluateNativeFirstAsync(
             new[] { "A", "B" },
             assembly =>
             {
@@ -2011,7 +2011,7 @@ public class CorpusSensorComparisonTests
             target =>
             {
                 events.Add($"native:{target}");
-                return $"{target}:native";
+                return Task.FromResult($"{target}:native");
             },
             (target, native) =>
             {
@@ -2121,11 +2121,11 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
-    public void ReturnToSenderCutover_RealFixtureRetainsEveryNativePairWithoutFloor()
+    public async Task ReturnToSenderCutover_RealFixtureRetainsEveryNativePairWithoutFloor()
     {
         string assemblyPath = Path.GetFullPath(FixtureCatalog.DecompilerLadderRung5.AssemblyPath());
 
-        var snapshot = CorpusSensor.CaptureReturnToSenderCutoverForTesting(
+        var snapshot = await CorpusSensor.CaptureReturnToSenderCutoverForTesting(
             [assemblyPath],
             fidelityCap: 2);
         var selected = Assert.IsType<ReturnToSenderCutoverMetrics>(

@@ -135,20 +135,20 @@ static partial class ReturnToSenderSourceProbe
         int MetadataToken,
         int ParameterCount);
 
-    public static int Run(
+    public static async Task<int> Run(
         IReadOnlyList<string> assemblies,
         int cap,
         int maxExamples,
         bool json,
         string? emitHarnessReport = null)
         => WriteResults(
-            Evaluate(assemblies, cap),
+            await Evaluate(assemblies, cap),
             maxExamples,
             json,
             emitHarnessReport,
             "RETURNTOSENDER SOURCE PROBE");
 
-    public static int RunSourceCorrespondenceCensus(
+    public static Task<int> RunSourceCorrespondenceCensus(
         IReadOnlyList<string> assemblies,
         int cap,
         int maxExamples,
@@ -163,7 +163,7 @@ static partial class ReturnToSenderSourceProbe
             json,
             repositoryPaths,
             packageCoordinates,
-            emitHarnessReport).GetAwaiter().GetResult();
+            emitHarnessReport);
 
     static async Task<int> RunSourceCorrespondenceCensusAsync(
         IReadOnlyList<string> assemblies,
@@ -352,7 +352,7 @@ static partial class ReturnToSenderSourceProbe
                 ]));
     }
 
-    public static IReadOnlyList<ReturnToSenderSourceProbeResult> Evaluate(IReadOnlyList<string> assemblies, int cap)
+    public static async Task<IReadOnlyList<ReturnToSenderSourceProbeResult>> Evaluate(IReadOnlyList<string> assemblies, int cap)
     {
         var results = new List<ReturnToSenderSourceProbeResult>();
         foreach (var assemblyPath in assemblies)
@@ -361,7 +361,7 @@ static partial class ReturnToSenderSourceProbe
                 break;
 
             var targets = DiscoverTargets(assemblyPath, cap - results.Count);
-            results.AddRange(EvaluateTargets(assemblyPath, targets.Select(target => target.Target).ToArray()));
+            results.AddRange(await EvaluateTargets(assemblyPath, targets.Select(target => target.Target).ToArray()));
         }
 
         return results.Count > cap ? results.Take(cap).ToArray() : results;
@@ -465,7 +465,7 @@ static partial class ReturnToSenderSourceProbe
 
             ReturnToSenderSourceIndex sourceIndex =
                 ReturnToSenderSourceIndex.FromPdbMappedMembers(sourceMembers);
-            IReadOnlyList<ReturnToSenderSourceProbeResult> evaluated = EvaluateTargets(
+            IReadOnlyList<ReturnToSenderSourceProbeResult> evaluated = await EvaluateTargets(
                 assemblyPath,
                 targets.Select(target => target.Target).ToArray(),
                 sourceIndex,
@@ -623,7 +623,7 @@ static partial class ReturnToSenderSourceProbe
 
     internal sealed record NuGetPackageCoordinate(string Id, string Version);
 
-    public static IReadOnlyList<ReturnToSenderSourceProbeResult> EvaluateTargets(
+    public static async Task<IReadOnlyList<ReturnToSenderSourceProbeResult>> EvaluateTargets(
         string assemblyPath,
         IReadOnlyList<ReturnToSender.RequestedTarget> targets)
     {
@@ -631,10 +631,10 @@ static partial class ReturnToSenderSourceProbe
             return [];
 
         var sourceIndex = ReturnToSenderSourceIndex.TryCreate(assemblyPath);
-        return EvaluateTargets(assemblyPath, targets, sourceIndex);
+        return await EvaluateTargets(assemblyPath, targets, sourceIndex);
     }
 
-    public static IReadOnlyList<ReturnToSenderSourceProbeResult> EvaluateTargets(
+    public static Task<IReadOnlyList<ReturnToSenderSourceProbeResult>> EvaluateTargets(
         string assemblyPath,
         IReadOnlyList<ReturnToSender.RequestedTarget> targets,
         IReadOnlyList<string> sourcePaths)
@@ -644,7 +644,7 @@ static partial class ReturnToSenderSourceProbe
             ReturnToSenderSourceIndex.TryCreate(sourcePaths),
             "source index could not be built from the supplied source paths");
 
-    public static IReadOnlyList<ReturnToSenderSourceProbeResult> EvaluateWithIndex(
+    public static Task<IReadOnlyList<ReturnToSenderSourceProbeResult>> EvaluateWithIndex(
         string assemblyPath,
         IReadOnlyList<ReturnToSender.RequestedTarget> targets,
         ReturnToSenderSourceIndex sourceIndex)
@@ -654,7 +654,7 @@ static partial class ReturnToSenderSourceProbe
             sourceIndex,
             "authored-source corpus row missing for target");
 
-    static IReadOnlyList<ReturnToSenderSourceProbeResult> EvaluateTargets(
+    static async Task<IReadOnlyList<ReturnToSenderSourceProbeResult>> EvaluateTargets(
         string assemblyPath,
         IReadOnlyList<ReturnToSender.RequestedTarget> targets,
         ReturnToSenderSourceIndex? sourceIndex,
@@ -663,7 +663,7 @@ static partial class ReturnToSenderSourceProbe
         if (targets.Count == 0)
             return [];
 
-        var rtsResults = ReturnToSender.CompileBackTargets(assemblyPath, targets.Distinct().ToArray(), sourceIndex)
+        var rtsResults = (await ReturnToSender.CompileBackTargets(assemblyPath, targets.Distinct().ToArray(), sourceIndex))
             .ToDictionary(
                 result => Key(
                     result.Plan.TargetMethod.Type,

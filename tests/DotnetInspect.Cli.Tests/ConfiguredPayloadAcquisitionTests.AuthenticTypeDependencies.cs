@@ -86,7 +86,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         bool includeRelational)
     {
         using var client = new HttpClient(new AuthenticDependencyFeedHandler());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         WorkspaceMemberCoordinate[] members = includeRelational
             ?
             [

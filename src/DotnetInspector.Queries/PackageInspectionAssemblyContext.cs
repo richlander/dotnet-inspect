@@ -33,7 +33,7 @@ public abstract record PackageInspectionAssemblyOutcome(PackageInspectionAssembl
 
 /// <summary>
 /// Exact inspection participants and per-entry failures. Artifact sessions
-/// remain owned by the asynchronous workspace after these groups are disposed.
+/// remain owned by the workspace after these groups are disposed.
 /// </summary>
 public sealed class PackageInspectionAssemblyContext : IDisposable
 {
@@ -89,9 +89,6 @@ public sealed partial class InspectionWorkspace
             CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(selection);
-        if (_lifetimeMode != InspectionWorkspaceLifetimeMode.Asynchronous)
-            throw new InvalidOperationException(
-                "Artifact-backed package inspection requires an asynchronous workspace.");
         options ??= new PackageAssemblyContextRealizationOptions();
         options.Validate();
         groupOptions?.Validate();

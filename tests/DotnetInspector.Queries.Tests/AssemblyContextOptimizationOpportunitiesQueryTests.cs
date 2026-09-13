@@ -13,10 +13,10 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
 {
     [Fact]
-    public void Execute_RanksCompiledOpportunitiesAndAttributesPublicBodies()
+    public async Task Execute_RanksCompiledOpportunitiesAndAttributesPublicBodies()
     {
         var policy = new RecordingBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             ContentGroup(workspace, policy);
 
@@ -65,10 +65,10 @@ public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
     }
 
     [Fact]
-    public void Execute_AttributesLiftedAccessorAndNestedBodiesToPublicOwners()
+    public async Task Execute_AttributesLiftedAccessorAndNestedBodiesToPublicOwners()
     {
         var policy = new RecordingBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             ContentGroup(workspace, policy);
 
@@ -139,10 +139,10 @@ public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
     }
 
     [Fact]
-    public void Execute_AggregatesAllAccessorBodiesUnderOnePublicMember()
+    public async Task Execute_AggregatesAllAccessorBodiesUnderOnePublicMember()
     {
         var policy = new RecordingBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             ContentGroup(workspace, policy);
 
@@ -181,7 +181,7 @@ public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
     }
 
     [Fact]
-    public void Execute_ReportsPhysicalAsyncEvidenceBodyToken()
+    public async Task Execute_ReportsPhysicalAsyncEvidenceBodyToken()
     {
         ImmutableArray<byte> image =
             ImmutableCollectionsMarshal.AsImmutableArray(
@@ -189,7 +189,7 @@ public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
                     typeof(ClassicAsyncSiblingFixture)
                         .Assembly.Location));
         var policy = new RecordingBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
             [
@@ -241,10 +241,10 @@ public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
     }
 
     [Fact]
-    public void Execute_ResolvesThroughTheParticipantBindingPolicy()
+    public async Task Execute_ResolvesThroughTheParticipantBindingPolicy()
     {
         var policy = new RecordingBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             ContentGroup(workspace, policy);
         AssemblyContextParticipant participant =
@@ -264,11 +264,11 @@ public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
     }
 
     [Fact]
-    public void Execute_CarriesRejectedParticipantBesideAvailableRanking()
+    public async Task Execute_CarriesRejectedParticipantBesideAvailableRanking()
     {
         ImmutableArray<byte> image = SelfImage();
         var policy = new RecordingBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
             [
@@ -308,13 +308,13 @@ public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
     }
 
     [Fact]
-    public void ExecuteParticipant_LeavesUnrelatedParticipantUnopenedAndPreservesSelectedFailure()
+    public async Task ExecuteParticipant_LeavesUnrelatedParticipantUnopenedAndPreservesSelectedFailure()
     {
         ImmutableArray<byte> image = SelfImage();
         var policy = new RecordingBindingPolicy();
         int selectedOpens = 0;
         int unrelatedOpens = 0;
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
         [
             Participant(
@@ -362,11 +362,11 @@ public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
     }
 
     [Fact]
-    public void ExecuteParticipant_RejectsForeignParticipantBeforeOpening()
+    public async Task ExecuteParticipant_RejectsForeignParticipantBeforeOpening()
     {
         ImmutableArray<byte> image = SelfImage();
         var policy = new RecordingBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = ContentGroup(workspace, policy);
         int opens = 0;
         AssemblyContextParticipant foreign =
@@ -378,7 +378,7 @@ public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
     }
 
     [Fact]
-    public void Execute_RanksAcrossTwoAvailableParticipants()
+    public async Task Execute_RanksAcrossTwoAvailableParticipants()
     {
         ImmutableArray<byte> firstImage = SelfImage();
         ImmutableArray<byte> secondImage =
@@ -389,7 +389,7 @@ public sealed class AssemblyContextOptimizationOpportunitiesQueryTests
                     .Location),
         ];
         var policy = new RecordingBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
             [

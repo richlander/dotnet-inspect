@@ -229,7 +229,7 @@ internal static class BrowserPlatformCatalog
                         deadline.ThrowIfExpired();
                         // One image at a time keeps catalog work within the same reserved
                         // workspace allowance even for a large runtime pack.
-                        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+                        await using InspectionWorkspace workspace = new();
                         using PackageInspectionAssemblyContext context =
                             await workspace.RealizePackageInspectionAsync(
                                 input.SelectAssemblies([new(path, tfm)]),

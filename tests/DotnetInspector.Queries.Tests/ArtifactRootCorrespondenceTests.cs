@@ -14,12 +14,12 @@ public sealed class ArtifactRootCorrespondenceTests
     const string ExtendedFramework = "net10.0-browser-wasm";
 
     [Fact]
-    public void PackageArtifactRootCorrespondence_IsExactAndResourceFree()
+    public async Task PackageArtifactRootCorrespondence_IsExactAndResourceFree()
     {
         PackageRootBinding binding =
             PackageAssemblyContextCompletionTests.SharedBinding(
                 "Resource.Free");
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         PackageArtifactRootCorrespondence correspondence =
             workspace.CreatePackageArtifactRootCorrespondence(binding);
 
@@ -34,7 +34,7 @@ public sealed class ArtifactRootCorrespondenceTests
     }
 
     [Fact]
-    public void PackageArtifactRootCorrespondence_StableOnlyAcrossCorrespondingReplacement()
+    public async Task PackageArtifactRootCorrespondence_StableOnlyAcrossCorrespondingReplacement()
     {
         PackageRootBinding first =
             PackageAssemblyContextCompletionTests.SeparateBinding(
@@ -88,8 +88,8 @@ public sealed class ArtifactRootCorrespondenceTests
                 producer: "tests",
                 targetFramework: Framework,
                 runtimeIdentifier: "linux-x64");
-        using var workspace = new InspectionWorkspace();
-        using var otherWorkspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
+        await using var otherWorkspace = new InspectionWorkspace();
 
         ArtifactRootCorrespondence firstCorrespondence =
             workspace.CreatePackageArtifactRootCorrespondence(first);
@@ -143,7 +143,7 @@ public sealed class ArtifactRootCorrespondenceTests
     }
 
     [Fact]
-    public void PackageArtifactRootCorrespondence_ExactRequestMatchPerformsNoPhysicalAccess()
+    public async Task PackageArtifactRootCorrespondence_ExactRequestMatchPerformsNoPhysicalAccess()
     {
         PackageArtifactRootRequest omittedRequest =
             PackageArtifactRootRequest.Create(
@@ -199,7 +199,7 @@ public sealed class ArtifactRootCorrespondenceTests
                 payload,
                 ExtendedFramework);
         content.ResetAccessCount();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         PackageArtifactRootCorrespondence omitted =
             workspace.CreatePackageArtifactRootCorrespondence(
@@ -215,16 +215,16 @@ public sealed class ArtifactRootCorrespondenceTests
     }
 
     [Fact]
-    public void PackageArtifactRootCorrespondence_RuntimeCloseStopsIssuance()
+    public async Task PackageArtifactRootCorrespondence_RuntimeCloseStopsIssuance()
     {
         PackageRootBinding binding =
             PackageAssemblyContextCompletionTests.SharedBinding(
                 "Closed.Correspondence");
-        var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         PackageArtifactRootCorrespondence correspondence =
             workspace.CreatePackageArtifactRootCorrespondence(binding);
 
-        workspace.Dispose();
+        await workspace.DisposeAsync();
 
         Assert.Same(
             workspace.Identity,

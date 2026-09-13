@@ -27666,7 +27666,7 @@ public partial class CommandExecutionTests
             [AssemblyContextIntegrationsQuery.Definition];
         AssemblyContextIntegrationsBatch batch =
             Assert.IsType<AssemblyContextIntegrationsBatch>(
-                AssemblyContextIntegrationsRunner.RunIfRequested(
+                await AssemblyContextIntegrationsRunner.RunIfRequestedAsync(
                     queries,
                     LibrarySections.CreateGroupQueryRegistry(),
                     [

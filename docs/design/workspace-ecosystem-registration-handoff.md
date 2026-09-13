@@ -165,10 +165,10 @@ SelectWorkspaceRegistration(EcosystemPackId)
    | Unavailable(EcosystemPackId)
    | Unknown(EcosystemPackId)
 
-CreatePlatformWorkspace()             -> new synchronous InspectionWorkspace
-CreatePlatformWorkspaceAsynchronous() -> new asynchronous InspectionWorkspace
-CreateWorkspace()                     -> new synchronous InspectionWorkspace
-CreateWorkspaceAsynchronous()         -> new asynchronous InspectionWorkspace
+CreatePlatformWorkspace()             -> new awaited-lifetime InspectionWorkspace
+CreatePlatformWorkspaceAsynchronous() -> new awaited-lifetime InspectionWorkspace
+CreateWorkspace()                     -> new awaited-lifetime InspectionWorkspace
+CreateWorkspaceAsynchronous()         -> new awaited-lifetime InspectionWorkspace
 ```
 
 Grammar-invalid external text is rejected before exact lookup by the existing
@@ -176,9 +176,12 @@ application identity boundary. `Unavailable` means the pack is known but the
 product build contributes no lower Workspace declaration. `Unknown` means no
 pack registration has that exact application identity.
 
-The `Asynchronous` suffix selects the Workspace's lifetime mode, not deferred
-construction; all four calls synchronously return their newly initialized
-Workspace. Discovery exposes `HasWorkspaceRegistration`, and single-pack
+All four calls synchronously return their newly initialized live Workspace.
+Every returned owner has the same complete awaited close; the `Asynchronous`
+suffix no longer selects a lifetime mode. These four public factories remain
+temporarily as source surface until the upcoming focused Ecosystems plan-factory
+adoption retires them. This slice adds no plan API. No factory awaits or starts
+downloads. Discovery exposes `HasWorkspaceRegistration`, and single-pack
 selection returns the exact retained declaration rather than constructing it.
 
 Curated construction has no partial or unavailable success shape. The static
@@ -424,8 +427,8 @@ discover defaults.
 The curated API is a factory, not a singleton. Every successful call returns a
 new Workspace with independent identity, lifetime, registrations, content, and
 revision history. Existing Workspaces do not observe later catalog changes.
-Each intent's two construction entry points mirror the Workspace owner's existing
-synchronous and asynchronous lifetime modes. Ecosystems selects no new close,
+Each intent's two transitional entry points construct the same awaited-lifetime
+owner through `new InspectionWorkspace(registrations)`. Ecosystems selects no new close,
 cleanup, or artifact-session behavior; callers close the returned Workspace
 under its ordinary owner-issued contract.
 
@@ -438,7 +441,7 @@ manifest is a product-build defect and fails complete construction visibly.
 
 Curated construction first validates the complete static manifest, then passes
 the complete ordered registration set to the Workspace owner's atomic explicit
-initialization path for the selected lifetime mode. That Workspace API is raw,
+initialization path. That Workspace API is raw,
 not curated: an empty input constructs empty, and no option names or discovers
 the product manifest. The Workspace owner retains registration validation,
 initial revision, failure, and cleanup semantics. Ecosystems returns one fully
@@ -633,18 +636,18 @@ Construction through `EcosystemPackCatalog` obtains:
 
 ```text
 CreatePlatformWorkspace()
-  -> synchronous InspectionWorkspace
+  -> awaited-lifetime InspectionWorkspace
      Registrations
        1. ecosystem.platform
        2. ecosystem.aspnetcore
        3. ecosystem.microsoft-extensions
 
 CreatePlatformWorkspaceAsynchronous()
-  -> asynchronous InspectionWorkspace
+  -> awaited-lifetime InspectionWorkspace
      same initial registrations
 
 CreateWorkspace()
-  -> synchronous InspectionWorkspace
+  -> awaited-lifetime InspectionWorkspace
      Registrations
        1. ecosystem.platform
        2. ecosystem.aspnetcore
@@ -652,7 +655,7 @@ CreateWorkspace()
        4. ecosystem.aspire
 
 CreateWorkspaceAsynchronous()
-  -> asynchronous InspectionWorkspace
+  -> awaited-lifetime InspectionWorkspace
      same four registrations
 ```
 
@@ -674,7 +677,7 @@ in the all-known sequence. All four calls leave Package membership empty.
 | Curated product Workspace | The current Platform, ASP.NET Core, Microsoft.Extensions order and required population contributions are enforced without filtering ordinary pack discovery. |
 | All-known product Workspace | The separate current four-row order includes Aspire and every known pack; missing or unavailable projections cannot be silently omitted. |
 | Independent construction | Repeated curated calls return distinct Workspace identities and lifetimes with equal initial registrations. |
-| Lifetime preservation | Curated synchronous and asynchronous construction preserve the corresponding Workspace close, cleanup, artifact-session, and report contracts without an Ecosystems-owned variant. |
+| Lifetime preservation | All four transitional factories preserve the single Workspace awaited close, cleanup, artifact-session, and report contracts without an Ecosystems-owned variant. |
 | Empty lower-layer default | Direct Workspace construction without explicit registrations is empty and has no path that consults Ecosystems or requests curation. |
 | Complete failure | Invalid or unavailable curated entries return no partial Workspace and retain the product defect visibly. |
 | Product-policy evolution | Changing the curated manifest affects new curated construction only; existing and restored expanded registration sets remain unchanged. |

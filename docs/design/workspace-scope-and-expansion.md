@@ -152,19 +152,18 @@ ImmutableArray<WorkspaceRegistration> registrations =
 [
     new WorkspaceRegistration.PackagePrefix(new("Microsoft.Extensions.")),
 ];
-using var empty = new InspectionWorkspace();
-using var explicitWorkspace = new InspectionWorkspace(registrations);
-await using var emptyAsync = InspectionWorkspace.CreateAsynchronous();
-await using var explicitAsync =
-    InspectionWorkspace.CreateAsynchronous(registrations);
+await using var empty = new InspectionWorkspace();
+await using var explicitWorkspace = new InspectionWorkspace(registrations);
 ```
 
-Both no-argument forms start with an empty registration revision. Explicit
-forms validate the entire immutable input before exposing a Workspace;
+The no-argument constructor starts with an empty registration revision. Explicit
+construction validates the entire immutable input before exposing a Workspace;
 default arrays, null entries and duplicate registration identities are
 argument errors, never partial initialization. Every constructed Workspace
 has an independent Workspace identity and initial registration revision.
-No form chooses product curation or executes a contribution.
+Neither constructor chooses product curation or executes a contribution.
+Construction is synchronous; the live owner's complete close must be awaited
+through `CloseAsync()` or `DisposeAsync()`.
 
 `GetRegistrationSnapshot()` returns the current complete
 `WorkspaceRegistrationRevision`, including its exact Workspace identity,
@@ -174,7 +173,7 @@ and the existing Workspace lifetime failure. It does not return that revision
 as current.
 
 `ReplaceRegistrations(expectedRevision, registrations)` is a synchronous,
-in-memory operation in both lifetime modes. It shares the existing Workspace
+in-memory operation. It shares the existing Workspace
 runtime gate with close; there is no preparation phase, background work,
 deadline, cancellation protocol or acquired resource. The result is one of:
 

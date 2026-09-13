@@ -57,7 +57,7 @@ internal sealed class AssemblyContextIntegrationsBatch
 
 internal static class AssemblyContextIntegrationsRunner
 {
-    internal static AssemblyContextIntegrationsBatch? RunIfRequested(
+    internal static async Task<AssemblyContextIntegrationsBatch?> RunIfRequestedAsync(
         HashSet<InspectionQueryDefinition>? requestedQueries,
         InspectionQueryCatalog<AssemblyContextGroup> queryCatalog,
         IEnumerable<AssemblyContextIntegrationsInput> inputs,
@@ -115,7 +115,7 @@ internal static class AssemblyContextIntegrationsRunner
             .Select(root => new AssemblyContextParticipant(root, groupPolicy))
             .ToArray();
 
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(participants, groupOptions);
         InspectionQueryPlan<AssemblyContextGroup> plan =

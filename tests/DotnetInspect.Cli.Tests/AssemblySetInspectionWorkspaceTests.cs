@@ -20,7 +20,7 @@ public sealed class AssemblySetInspectionWorkspaceTests
                 {
                     Assemblies = [path, path],
                 });
-        using var workspace = new AssemblySetInspectionWorkspace();
+        await using var workspace = new AssemblySetInspectionWorkspace();
         int availableCount = 0;
 
         workspace.RunPerAssembly(

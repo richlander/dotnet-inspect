@@ -66,14 +66,14 @@ public sealed class NavigationSubjectInventoryTests
     }
 
     [Fact]
-    public void ProjectedMemberFromRealProducer_BindsDeclarationTypeAndAnchor()
+    public async Task ProjectedMemberFromRealProducer_BindsDeclarationTypeAndAnchor()
     {
         var participant = new AssemblyContextParticipant(
             ResolvedAssemblyReference.CreateFromPath(
                 typeof(NavigationSubjectInventoryTests).Assembly.Location,
                 AssemblyResolutionProvenance.Local("inventory gate")),
             NoResolverAssemblyBindingPolicy.Instance);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup([participant]);
         RealizedMemberCoordinate.Package coordinate = Coordinate();

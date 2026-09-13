@@ -58,9 +58,9 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_ClassifiesFixtureSourceMatch()
+    public async Task ReturnToSenderSourceProbe_ClassifiesFixtureSourceMatch()
     {
-        var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+        var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
             FixtureCatalog.DiffV1.AssemblyPath(),
             [
                 new ReturnToSender.RequestedTarget(
@@ -97,9 +97,9 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_ClassifiesKnownTasteDifferenceFromProductDecision()
+    public async Task ReturnToSenderSourceProbe_ClassifiesKnownTasteDifferenceFromProductDecision()
     {
-        var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+        var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
             FixtureCatalog.DiffV1.AssemblyPath(),
             [
                 new ReturnToSender.RequestedTarget(
@@ -431,7 +431,7 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderMemberComparison_RetainsMemberScopedCSharpAndIlEvidence()
+    public async Task ReturnToSenderMemberComparison_RetainsMemberScopedCSharpAndIlEvidence()
     {
         string assemblyPath = typeof(ReturnToSenderFixtureCatalogTests).Assembly.Location;
         using var stream = File.OpenRead(assemblyPath);
@@ -440,7 +440,7 @@ public class ReturnToSenderFixtureCatalogTests
         string fullType = typeof(ReturnToSenderFixtureCatalogTests).FullName!;
         var original = FindMethod(reader, fullType, nameof(FixtureCatalog_ExposesCheckedInSourcePaths));
 
-        var comparison = ReturnToSender.CompareMemberBodies(
+        var comparison = await ReturnToSender.CompareMemberBodiesAsync(
             assemblyPath,
             reader,
             original,
@@ -466,7 +466,7 @@ public class ReturnToSenderFixtureCatalogTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void ReturnToSenderMemberComparison_DefaultIsIlOnlyAndRetainsAddresses(bool sameMethod)
+    public async Task ReturnToSenderMemberComparison_DefaultIsIlOnlyAndRetainsAddresses(bool sameMethod)
     {
         string path = typeof(ReturnToSenderFixtureCatalogTests).Assembly.Location;
         using var pe = new PEReader(File.OpenRead(path));
@@ -477,7 +477,7 @@ public class ReturnToSenderFixtureCatalogTests
         var oldMethod = FindMethod(reader, type, oldName);
         var newMethod = FindMethod(reader, type, newName);
 
-        var comparison = ReturnToSender.CompareMemberBodies(
+        var comparison = await ReturnToSender.CompareMemberBodiesAsync(
             path, reader, oldMethod, File.ReadAllBytes(path), type, newName, 0);
 
         var published = Assert.IsType<LocalComparisonQueryResult.Published>(comparison);
@@ -499,7 +499,7 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderMemberComparison_MissingDonorRetainsQueryNonSuccess()
+    public async Task ReturnToSenderMemberComparison_MissingDonorRetainsQueryNonSuccess()
     {
         string path = typeof(ReturnToSenderFixtureCatalogTests).Assembly.Location;
         using var pe = new PEReader(File.OpenRead(path));
@@ -507,7 +507,7 @@ public class ReturnToSenderFixtureCatalogTests
         string type = typeof(ReturnToSenderFixtureCatalogTests).FullName!;
         var original = FindMethod(reader, type, nameof(FixtureCatalog_ExposesCheckedInSourcePaths));
 
-        var comparison = ReturnToSender.CompareMemberBodies(
+        var comparison = await ReturnToSender.CompareMemberBodiesAsync(
             path, reader, original, File.ReadAllBytes(path), type, "MissingDonorMethod", 0);
 
         var failure = Assert.IsType<LocalComparisonQueryResult.NonSuccess>(comparison);
@@ -523,7 +523,7 @@ public class ReturnToSenderFixtureCatalogTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void ReturnToSenderMemberComparison_PreservesSiblingMetadata(bool originalIsSibling)
+    public async Task ReturnToSenderMemberComparison_PreservesSiblingMetadata(bool originalIsSibling)
     {
         string testAssembly = typeof(BoxedReferenceEqualitySpecimens).Assembly.Location;
         var fixture = CompileSourceFixture(
@@ -552,7 +552,7 @@ public class ReturnToSenderFixtureCatalogTests
                 CSharpFindings.Inspect(originalSource, original, new("sibling", "sibling")).Value)
                 .Findings.Select(finding => finding.Payload).ToArray();
 
-            var comparison = ReturnToSender.CompareMemberBodies(
+            var comparison = await ReturnToSender.CompareMemberBodiesAsync(
                 path, reader, original, File.ReadAllBytes(fixture.AssemblyPath), type, name, 0,
                 [ResearchProducerKind.CSharp, ResearchProducerKind.IlBody]);
 
@@ -577,7 +577,7 @@ public class ReturnToSenderFixtureCatalogTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void ReturnToSenderMemberComparison_BodylessEndpointIsNotDifference(bool before)
+    public async Task ReturnToSenderMemberComparison_BodylessEndpointIsNotDifference(bool before)
     {
         string path = typeof(ReturnToSenderFixtureCatalogTests).Assembly.Location;
         using var pe = new PEReader(File.OpenRead(path));
@@ -589,7 +589,7 @@ public class ReturnToSenderFixtureCatalogTests
         var original = FindMethod(reader, before ? bodylessType : completeType,
             before ? bodylessMethod : completeMethod);
 
-        var comparison = ReturnToSender.CompareMemberBodies(
+        var comparison = await ReturnToSender.CompareMemberBodiesAsync(
             path, reader, original, File.ReadAllBytes(path),
             before ? completeType : bodylessType, before ? completeMethod : bodylessMethod, 0);
 
@@ -607,7 +607,7 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderMemberComparison_InvalidBodyIsNotDifference()
+    public async Task ReturnToSenderMemberComparison_InvalidBodyIsNotDifference()
     {
         string path = typeof(ReturnToSenderFixtureCatalogTests).Assembly.Location;
         using var pe = new PEReader(File.OpenRead(path));
@@ -621,7 +621,7 @@ public class ReturnToSenderFixtureCatalogTests
             rva >= section.VirtualAddress && rva < section.VirtualAddress + section.SizeOfRawData);
         donor[section.PointerToRawData + rva - section.VirtualAddress] = 0;
 
-        var comparison = ReturnToSender.CompareMemberBodies(
+        var comparison = await ReturnToSender.CompareMemberBodiesAsync(
             path, reader, original, donor, type, name, 0);
 
         var completion = Assert.IsType<ResearchProducerSessionOutcome.Completed>(
@@ -635,13 +635,13 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderMemberComparison_RejectsWrongOriginalModule()
+    public async Task ReturnToSenderMemberComparison_RejectsWrongOriginalModule()
     {
         string path = typeof(ReturnToSenderFixtureCatalogTests).Assembly.Location;
         using var other = new PEReader(File.OpenRead(FixtureCatalog.DecompilerAuthoredRebuild.AssemblyPath()));
         var reader = other.GetMetadataReader();
 
-        var comparison = ReturnToSender.CompareMemberBodies(
+        var comparison = await ReturnToSender.CompareMemberBodiesAsync(
             path, reader, reader.MethodDefinitions.First(), File.ReadAllBytes(path),
             typeof(ReturnToSenderFixtureCatalogTests).FullName!,
             nameof(FixtureCatalog_ExposesCheckedInSourcePaths), 0);
@@ -674,9 +674,9 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_PreservesUnsafeModifierAfterMemberAttributes()
+    public async Task ReturnToSenderSourceProbe_PreservesUnsafeModifierAfterMemberAttributes()
     {
-        var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+        var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
             FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath(),
             [
                 new ReturnToSender.RequestedTarget(
@@ -690,9 +690,9 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_PreservesFunctionPointerSignatureKeyword()
+    public async Task ReturnToSenderSourceProbe_PreservesFunctionPointerSignatureKeyword()
     {
-        var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+        var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
             FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath(),
             [
                 new ReturnToSender.RequestedTarget(
@@ -734,9 +734,9 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_CompilesGeneratedDynamicClosureShells()
+    public async Task ReturnToSenderSourceProbe_CompilesGeneratedDynamicClosureShells()
     {
-        var results = ReturnToSenderSourceProbe.EvaluateTargets(
+        var results = await ReturnToSenderSourceProbe.EvaluateTargets(
             FixtureCatalog.DecompilerLadderRung9.AssemblyPath(),
             [
                 new ReturnToSender.RequestedTarget("LadderRung9.DynamicAndExpressionTrees", "DynamicAdd", Overload: 0),
@@ -752,9 +752,9 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_ProjectsOpcodeDiffEvidence()
+    public async Task ReturnToSenderSourceProbe_ProjectsOpcodeDiffEvidence()
     {
-        var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+        var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
             FixtureCatalog.DecompilerLadderRung9.AssemblyPath(),
             [
                 new ReturnToSender.RequestedTarget("LadderRung9.DynamicAndExpressionTrees", "DynamicAdd", Overload: 0),
@@ -777,9 +777,9 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_ClassifiesDynamicCallSiteOpcodeDiffs()
+    public async Task ReturnToSenderSourceProbe_ClassifiesDynamicCallSiteOpcodeDiffs()
     {
-        var results = ReturnToSenderSourceProbe.EvaluateTargets(
+        var results = await ReturnToSenderSourceProbe.EvaluateTargets(
             FixtureCatalog.DecompilerLadderRung9.AssemblyPath(),
             [
                 new ReturnToSender.RequestedTarget("LadderRung9.DynamicAndExpressionTrees", "DynamicAdd", Overload: 0),
@@ -839,17 +839,17 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_CompilesGeneratedDynamicDelegateCallSites()
+    public async Task ReturnToSenderSourceProbe_CompilesGeneratedDynamicDelegateCallSites()
     {
         var targets = new[]
         {
             new ReturnToSender.RequestedTarget("LadderRung9.DynamicAndExpressionTrees", "DynamicNamedOut", Overload: 0),
             new ReturnToSender.RequestedTarget("LadderRung9.DynamicAndExpressionTrees", "DynamicRefArgument", Overload: 0),
         };
-        var results = ReturnToSenderSourceProbe.EvaluateTargets(
+        var results = await ReturnToSenderSourceProbe.EvaluateTargets(
             FixtureCatalog.DecompilerLadderRung9.AssemblyPath(),
             targets);
-        var compileBack = ReturnToSender.CompileBackTargets(
+        var compileBack = await ReturnToSender.CompileBackTargets(
             FixtureCatalog.DecompilerLadderRung9.AssemblyPath(),
             targets);
 
@@ -873,11 +873,11 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_CompilesFixedBufferResidualShells()
+    public async Task ReturnToSenderSourceProbe_CompilesFixedBufferResidualShells()
     {
         var results = new[]
         {
-            ReturnToSenderSourceProbe.EvaluateTargets(
+            await ReturnToSenderSourceProbe.EvaluateTargets(
                 FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath(),
                 [
                     new ReturnToSender.RequestedTarget(
@@ -949,7 +949,7 @@ public class ReturnToSenderFixtureCatalogTests
                         "PointerArgument",
                         Overload: 0),
                 ]),
-            ReturnToSenderSourceProbe.EvaluateTargets(
+            await ReturnToSenderSourceProbe.EvaluateTargets(
                 FixtureCatalog.DecompilerUnsafeNew.AssemblyPath(),
                 [
                     new ReturnToSender.RequestedTarget(
@@ -1039,9 +1039,9 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_ClassifiesBodylessSourceMembersAsUnsupported()
+    public async Task ReturnToSenderSourceProbe_ClassifiesBodylessSourceMembersAsUnsupported()
     {
-        var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+        var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
             FixtureCatalog.DecompilerLadderRung9.AssemblyPath(),
             [
                 new ReturnToSender.RequestedTarget(
@@ -1056,9 +1056,9 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_ClassifiesRecordSynthesizedMembersAsUnsupported()
+    public async Task ReturnToSenderSourceProbe_ClassifiesRecordSynthesizedMembersAsUnsupported()
     {
-        var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+        var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
             FixtureCatalog.DecompilerLadderRung5.AssemblyPath(),
             [
                 new ReturnToSender.RequestedTarget(
@@ -1073,9 +1073,9 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_CompilesRecordWithExpressionShell()
+    public async Task ReturnToSenderSourceProbe_CompilesRecordWithExpressionShell()
     {
-        var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+        var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
             FixtureCatalog.DecompilerLadderRung5.AssemblyPath(),
             [
                 new ReturnToSender.RequestedTarget(
@@ -1087,7 +1087,7 @@ public class ReturnToSenderFixtureCatalogTests
         Assert.NotEqual(ReturnToSenderSourceOutcome.Invalid, result.Outcome);
         Assert.DoesNotContain("CS8858", result.Detail, StringComparison.Ordinal);
 
-        var compileBack = Assert.Single(ReturnToSender.CompileBackTargets(
+        var compileBack = Assert.Single(await ReturnToSender.CompileBackTargets(
             FixtureCatalog.DecompilerLadderRung5.AssemblyPath(),
             [
                 new ReturnToSender.RequestedTarget(
@@ -1101,7 +1101,7 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_UsesWithExpressionSetterEvidence()
+    public async Task ReturnToSenderSourceProbe_UsesWithExpressionSetterEvidence()
     {
         var fixture = CompileSourceFixture(
             ("Class1.cs", """
@@ -1116,7 +1116,7 @@ public class ReturnToSenderFixtureCatalogTests
             """));
         try
         {
-            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
                 fixture.AssemblyPath,
                 [
                     new ReturnToSender.RequestedTarget(
@@ -1137,7 +1137,7 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_KeepsStructWithExpressionShellAsStruct()
+    public async Task ReturnToSenderSourceProbe_KeepsStructWithExpressionShellAsStruct()
     {
         var fixture = CompileSourceFixture(
             ("Class1.cs", """
@@ -1156,7 +1156,7 @@ public class ReturnToSenderFixtureCatalogTests
             """));
         try
         {
-            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
                 fixture.AssemblyPath,
                 [
                     new ReturnToSender.RequestedTarget(
@@ -1165,7 +1165,7 @@ public class ReturnToSenderFixtureCatalogTests
                         Overload: 0),
                 ],
                 fixture.SourcePaths));
-            var compileBack = Assert.Single(ReturnToSender.CompileBackTargets(
+            var compileBack = Assert.Single(await ReturnToSender.CompileBackTargets(
                 fixture.AssemblyPath,
                 [
                     new ReturnToSender.RequestedTarget(
@@ -1185,7 +1185,7 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_CompilesTargetRootRecordWithExpressionShell()
+    public async Task ReturnToSenderSourceProbe_CompilesTargetRootRecordWithExpressionShell()
     {
         var fixture = CompileSourceFixture(
             ("Point.cs", """
@@ -1198,7 +1198,7 @@ public class ReturnToSenderFixtureCatalogTests
             """));
         try
         {
-            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
                 fixture.AssemblyPath,
                 [
                     new ReturnToSender.RequestedTarget(
@@ -1207,7 +1207,7 @@ public class ReturnToSenderFixtureCatalogTests
                         Overload: 0),
                 ],
                 fixture.SourcePaths));
-            var compileBack = Assert.Single(ReturnToSender.CompileBackTargets(
+            var compileBack = Assert.Single(await ReturnToSender.CompileBackTargets(
                 fixture.AssemblyPath,
                 [
                     new ReturnToSender.RequestedTarget(
@@ -1227,7 +1227,7 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_CompilesNestedRecordWithExpressionShell()
+    public async Task ReturnToSenderSourceProbe_CompilesNestedRecordWithExpressionShell()
     {
         var fixture = CompileSourceFixture(
             ("Class1.cs", """
@@ -1242,7 +1242,7 @@ public class ReturnToSenderFixtureCatalogTests
             """));
         try
         {
-            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
                 fixture.AssemblyPath,
                 [
                     new ReturnToSender.RequestedTarget(
@@ -1251,7 +1251,7 @@ public class ReturnToSenderFixtureCatalogTests
                         Overload: 0),
                 ],
                 fixture.SourcePaths));
-            var compileBack = Assert.Single(ReturnToSender.CompileBackTargets(
+            var compileBack = Assert.Single(await ReturnToSender.CompileBackTargets(
                 fixture.AssemblyPath,
                 [
                     new ReturnToSender.RequestedTarget(
@@ -1271,7 +1271,7 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_CompilesNestedTargetRecordWithExpressionShell()
+    public async Task ReturnToSenderSourceProbe_CompilesNestedTargetRecordWithExpressionShell()
     {
         var fixture = CompileSourceFixture(
             ("Outer.cs", """
@@ -1287,7 +1287,7 @@ public class ReturnToSenderFixtureCatalogTests
             """));
         try
         {
-            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
                 fixture.AssemblyPath,
                 [
                     new ReturnToSender.RequestedTarget(
@@ -1296,7 +1296,7 @@ public class ReturnToSenderFixtureCatalogTests
                         Overload: 0),
                 ],
                 fixture.SourcePaths));
-            var compileBack = Assert.Single(ReturnToSender.CompileBackTargets(
+            var compileBack = Assert.Single(await ReturnToSender.CompileBackTargets(
                 fixture.AssemblyPath,
                 [
                     new ReturnToSender.RequestedTarget(
@@ -1316,9 +1316,9 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_PreservesPrimaryConstructorShellParameters()
+    public async Task ReturnToSenderSourceProbe_PreservesPrimaryConstructorShellParameters()
     {
-        var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+        var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
             FixtureCatalog.DecompilerLadderRung5.AssemblyPath(),
             [
                 new ReturnToSender.RequestedTarget(
@@ -1332,7 +1332,7 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_PrimaryConstructorShellDoesNotDuplicateConstructorRequirements()
+    public async Task ReturnToSenderSourceProbe_PrimaryConstructorShellDoesNotDuplicateConstructorRequirements()
     {
         var fixture = CompileSourceFixture(
             ("Class1.cs", """
@@ -1348,7 +1348,7 @@ public class ReturnToSenderFixtureCatalogTests
             """));
         try
         {
-            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
                 fixture.AssemblyPath,
                 [
                     new ReturnToSender.RequestedTarget(
@@ -1369,9 +1369,9 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_PreservesExtensionMethodShellParameters()
+    public async Task ReturnToSenderSourceProbe_PreservesExtensionMethodShellParameters()
     {
-        var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+        var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
             FixtureCatalog.DecompilerLadderRung2.AssemblyPath(),
             [
                 new ReturnToSender.RequestedTarget(
@@ -1385,7 +1385,7 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_PlacesReceiverAttributesBeforeExtensionThisModifier()
+    public async Task ReturnToSenderSourceProbe_PlacesReceiverAttributesBeforeExtensionThisModifier()
     {
         var fixture = CompileSourceFixture(("Class1.cs", """
             namespace SourceProbe;
@@ -1409,7 +1409,7 @@ public class ReturnToSenderFixtureCatalogTests
         try
         {
             var target = new ReturnToSender.RequestedTarget("SourceProbe.Class1", "M", Overload: 0);
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(fixture.AssemblyPath, [target]));
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(fixture.AssemblyPath, [target]));
 
             Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
             Assert.DoesNotContain("CS1031", result.Detail, StringComparison.Ordinal);
@@ -1423,9 +1423,9 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_ResolvesCs0234FullTypeClosureRoots()
+    public async Task ReturnToSenderSourceProbe_ResolvesCs0234FullTypeClosureRoots()
     {
-        var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+        var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
             FixtureCatalog.DecompilerLadderRung1.AssemblyPath(),
             [
                 new ReturnToSender.RequestedTarget(
@@ -1439,7 +1439,7 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_ClassifiesKnownTasteDifferenceAcrossMultipleFrameworkImports()
+    public async Task ReturnToSenderSourceProbe_ClassifiesKnownTasteDifferenceAcrossMultipleFrameworkImports()
     {
         var fixture = CompileSourceFixture(
             ("Class1.cs", """
@@ -1456,7 +1456,7 @@ public class ReturnToSenderFixtureCatalogTests
             """));
         try
         {
-            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
                 fixture.AssemblyPath,
                 [new ReturnToSender.RequestedTarget("SourceProbe.Class1", "M", Overload: 0)],
                 fixture.SourcePaths));
@@ -1579,7 +1579,7 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_ClassifiesOpenGenericNestedFrameworkType()
+    public async Task ReturnToSenderSourceProbe_ClassifiesOpenGenericNestedFrameworkType()
     {
         var fixture = CompileSourceFixture(
             ("Class1.cs", """
@@ -1593,7 +1593,7 @@ public class ReturnToSenderFixtureCatalogTests
             """));
         try
         {
-            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
                 fixture.AssemblyPath,
                 [new ReturnToSender.RequestedTarget("SourceProbe.Class1", "M", Overload: 0)],
                 fixture.SourcePaths));
@@ -1641,7 +1641,7 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_IndexesPartialClassOverloadsAcrossSourceFiles()
+    public async Task ReturnToSenderSourceProbe_IndexesPartialClassOverloadsAcrossSourceFiles()
     {
         var fixture = CompileSourceFixture(
             ("Class1.Part1.cs", """
@@ -1662,7 +1662,7 @@ public class ReturnToSenderFixtureCatalogTests
             """));
         try
         {
-            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
                 fixture.AssemblyPath,
                 [new ReturnToSender.RequestedTarget("SourceProbe.Class1", "M", Overload: 1)],
                 fixture.SourcePaths));
@@ -1679,7 +1679,7 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_IndexesBodylessOverloads()
+    public async Task ReturnToSenderSourceProbe_IndexesBodylessOverloads()
     {
         var fixture = CompileSourceFixture(
             ("Class1.cs", """
@@ -1694,7 +1694,7 @@ public class ReturnToSenderFixtureCatalogTests
             """));
         try
         {
-            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
                 fixture.AssemblyPath,
                 [new ReturnToSender.RequestedTarget("SourceProbe.Class1", "M", Overload: 1)],
                 fixture.SourcePaths));
@@ -1711,7 +1711,7 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_MissingSourcePathIsSourceUnavailable()
+    public async Task ReturnToSenderSourceProbe_MissingSourcePathIsSourceUnavailable()
     {
         var fixture = CompileSourceFixture(
             ("Class1.cs", """
@@ -1724,7 +1724,7 @@ public class ReturnToSenderFixtureCatalogTests
             """));
         try
         {
-            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
                 fixture.AssemblyPath,
                 [new ReturnToSender.RequestedTarget("SourceProbe.Class1", "M", Overload: 0)],
                 [Path.Combine(fixture.Directory, "missing.cs")]));
@@ -1741,7 +1741,7 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_DoesNotIndexErasedPartialMethodDefinition()
+    public async Task ReturnToSenderSourceProbe_DoesNotIndexErasedPartialMethodDefinition()
     {
         var fixture = CompileSourceFixture(
             ("Class1.cs", """
@@ -1756,7 +1756,7 @@ public class ReturnToSenderFixtureCatalogTests
             """));
         try
         {
-            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
                 fixture.AssemblyPath,
                 [new ReturnToSender.RequestedTarget("SourceProbe.Class1", "M", Overload: 0)],
                 fixture.SourcePaths));
@@ -1772,7 +1772,7 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_DoesNotIndexExplicitInterfaceImplementationUnderPublicName()
+    public async Task ReturnToSenderSourceProbe_DoesNotIndexExplicitInterfaceImplementationUnderPublicName()
     {
         var fixture = CompileSourceFixture(
             ("Class1.cs", """
@@ -1792,7 +1792,7 @@ public class ReturnToSenderFixtureCatalogTests
             """));
         try
         {
-            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
                 fixture.AssemblyPath,
                 [new ReturnToSender.RequestedTarget("SourceProbe.Class1", "M", Overload: 0)],
                 fixture.SourcePaths));
@@ -1808,7 +1808,7 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_IndexesIndexerGetter()
+    public async Task ReturnToSenderSourceProbe_IndexesIndexerGetter()
     {
         var fixture = CompileSourceFixture(
             ("Class1.cs", """
@@ -1821,7 +1821,7 @@ public class ReturnToSenderFixtureCatalogTests
             """));
         try
         {
-            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
                 fixture.AssemblyPath,
                 [new ReturnToSender.RequestedTarget("SourceProbe.Class1", "get_Item", Overload: 0)],
                 fixture.SourcePaths));
@@ -1836,7 +1836,7 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_IndexesUnsignedRightShiftOperator()
+    public async Task ReturnToSenderSourceProbe_IndexesUnsignedRightShiftOperator()
     {
         var fixture = CompileSourceFixture(
             ("Class1.cs", """
@@ -1857,7 +1857,7 @@ public class ReturnToSenderFixtureCatalogTests
             """));
         try
         {
-            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
                 fixture.AssemblyPath,
                 [new ReturnToSender.RequestedTarget("SourceProbe.Class1", "op_UnsignedRightShift", Overload: 0)],
                 fixture.SourcePaths));
@@ -1872,7 +1872,7 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_SplitsStaticAndInstanceConstructorSlots()
+    public async Task ReturnToSenderSourceProbe_SplitsStaticAndInstanceConstructorSlots()
     {
         var fixture = CompileSourceFixture(
             ("Class1.cs", """
@@ -1896,7 +1896,7 @@ public class ReturnToSenderFixtureCatalogTests
             """));
         try
         {
-            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
                 fixture.AssemblyPath,
                 [new ReturnToSender.RequestedTarget("SourceProbe.Class1", ".ctor", Overload: 0)],
                 fixture.SourcePaths));
@@ -1911,7 +1911,7 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_ConsumesPrimaryConstructorSlot()
+    public async Task ReturnToSenderSourceProbe_ConsumesPrimaryConstructorSlot()
     {
         var fixture = CompileSourceFixture(
             ("Class1.cs", """
@@ -1928,7 +1928,7 @@ public class ReturnToSenderFixtureCatalogTests
             """));
         try
         {
-            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
                 fixture.AssemblyPath,
                 [new ReturnToSender.RequestedTarget("SourceProbe.Class1", ".ctor", Overload: 1)],
                 fixture.SourcePaths));
@@ -1943,7 +1943,7 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_ConsumesStructPrimaryConstructorSlot()
+    public async Task ReturnToSenderSourceProbe_ConsumesStructPrimaryConstructorSlot()
     {
         var fixture = CompileSourceFixture(
             ("Struct1.cs", """
@@ -1960,7 +1960,7 @@ public class ReturnToSenderFixtureCatalogTests
             """));
         try
         {
-            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
                 fixture.AssemblyPath,
                 [new ReturnToSender.RequestedTarget("SourceProbe.Struct1", ".ctor", Overload: 1)],
                 fixture.SourcePaths));
@@ -1975,7 +1975,7 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_DoesNotIndexErasedPartialPropertyDefinition()
+    public async Task ReturnToSenderSourceProbe_DoesNotIndexErasedPartialPropertyDefinition()
     {
         var fixture = CompileSourceFixture(
             ("Class1.cs", """
@@ -1990,7 +1990,7 @@ public class ReturnToSenderFixtureCatalogTests
             """));
         try
         {
-            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
                 fixture.AssemblyPath,
                 [new ReturnToSender.RequestedTarget("SourceProbe.Class1", "get_P", Overload: 0)],
                 fixture.SourcePaths));
@@ -2006,7 +2006,7 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_UsesIndexerNameAttribute()
+    public async Task ReturnToSenderSourceProbe_UsesIndexerNameAttribute()
     {
         var fixture = CompileSourceFixture(
             ("Class1.cs", """
@@ -2020,7 +2020,7 @@ public class ReturnToSenderFixtureCatalogTests
             """));
         try
         {
-            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
                 fixture.AssemblyPath,
                 [new ReturnToSender.RequestedTarget("SourceProbe.Class1", "get_Custom", Overload: 0)],
                 fixture.SourcePaths));
@@ -2035,7 +2035,7 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_UsesIndexerNameFromPartialDefinition()
+    public async Task ReturnToSenderSourceProbe_UsesIndexerNameFromPartialDefinition()
     {
         var fixture = CompileSourceFixture(
             ("Class1.cs", """
@@ -2051,7 +2051,7 @@ public class ReturnToSenderFixtureCatalogTests
             """));
         try
         {
-            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
                 fixture.AssemblyPath,
                 [new ReturnToSender.RequestedTarget("SourceProbe.Class1", "get_Custom", Overload: 0)],
                 fixture.SourcePaths));
@@ -2066,7 +2066,7 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_UsesIndexerNameFromCrossFilePartialDefinition()
+    public async Task ReturnToSenderSourceProbe_UsesIndexerNameFromCrossFilePartialDefinition()
     {
         var fixture = CompileSourceFixture(
             ("Class1.Part1.cs", """
@@ -2088,7 +2088,7 @@ public class ReturnToSenderFixtureCatalogTests
             """));
         try
         {
-            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
                 fixture.AssemblyPath,
                 [new ReturnToSender.RequestedTarget("SourceProbe.Class1", "get_Custom", Overload: 0)],
                 fixture.SourcePaths));
@@ -2319,7 +2319,7 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_PreservesExplicitRecordPropertyBodies()
+    public async Task ReturnToSenderSourceProbe_PreservesExplicitRecordPropertyBodies()
     {
         var fixture = CompileSourceFixture(
             ("Class1.cs", """
@@ -2338,7 +2338,7 @@ public class ReturnToSenderFixtureCatalogTests
             """));
         try
         {
-            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
                 fixture.AssemblyPath,
                 [
                     new ReturnToSender.RequestedTarget(
@@ -2359,7 +2359,7 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_PreservesMethodOverloadIndexesAcrossNonPublicOverloads()
+    public async Task ReturnToSenderSourceProbe_PreservesMethodOverloadIndexesAcrossNonPublicOverloads()
     {
         var fixture = CompileSourceFixture(
             ("Class1.cs", """
@@ -2384,7 +2384,7 @@ public class ReturnToSenderFixtureCatalogTests
             Assert.Equal("Foo", discovered.Target.Method);
             Assert.Equal(1, discovered.Target.Overload);
 
-            var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+            var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
                 fixture.AssemblyPath,
                 [discovered.Target],
                 fixture.SourcePaths));
@@ -2568,9 +2568,9 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderSourceProbe_MapsGenericTypeSourceMembers()
+    public async Task ReturnToSenderSourceProbe_MapsGenericTypeSourceMembers()
     {
-        var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
+        var result = Assert.Single(await ReturnToSenderSourceProbe.EvaluateTargets(
             FixtureCatalog.DiffV1.AssemblyPath(),
             [new ReturnToSender.RequestedTarget("DiffFixtureSample.GenericTypeAritySample`1", "M", Overload: 0)]));
 

@@ -7,15 +7,11 @@ namespace DotnetInspector.Queries.Tests;
 
 public sealed class WorkspaceRegistrationTests
 {
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task DefaultConstructionIsEmptyAndWorkspaceExact(bool asynchronous)
+    [Fact]
+    public async Task DefaultConstructionIsEmptyAndWorkspaceExact()
     {
-        await using InspectionWorkspace first = asynchronous
-            ? InspectionWorkspace.CreateAsynchronous() : new();
-        await using InspectionWorkspace second = asynchronous
-            ? InspectionWorkspace.CreateAsynchronous() : new();
+        await using InspectionWorkspace first = new();
+        await using InspectionWorkspace second = new();
         WorkspaceRegistrationRevision initial = Current(first);
 
         Assert.Empty(initial.Registrations);
@@ -25,10 +21,8 @@ public sealed class WorkspaceRegistrationTests
         Assert.NotSame(initial.Identity, Current(second).Identity);
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task PublicConsumerPreservesCompleteInitialValuesAndReplacement(bool asynchronous)
+    [Fact]
+    public async Task PublicConsumerPreservesCompleteInitialValuesAndReplacement()
     {
         ExactLibrarySourceCoordinate library = WorkspaceRegistrationTestData.RealPackageSystemTextJson();
         var prefix = new PackagePrefixDeclaration("Microsoft.Extensions.");
@@ -39,7 +33,7 @@ public sealed class WorkspaceRegistrationTests
             new WorkspaceRegistration.PackagePrefix(prefix),
             new WorkspaceRegistration.Ecosystem(ecosystem),
         ];
-        await using InspectionWorkspace workspace = WorkspaceRegistrationConsumer.Create(initial, asynchronous);
+        await using InspectionWorkspace workspace = WorkspaceRegistrationConsumer.Create(initial);
         WorkspaceRegistrationObservation observed = WorkspaceRegistrationConsumer.Observe(workspace);
 
         Assert.Equal(initial, observed.Revision.Registrations);
@@ -75,7 +69,6 @@ public sealed class WorkspaceRegistrationTests
         foreach (ImmutableArray<WorkspaceRegistration> registrations in invalid)
         {
             Assert.Throws<ArgumentException>(() => new InspectionWorkspace(registrations));
-            Assert.Throws<ArgumentException>(() => InspectionWorkspace.CreateAsynchronous(registrations));
         }
     }
 
@@ -88,14 +81,14 @@ public sealed class WorkspaceRegistrationTests
     }
 
     [Fact]
-    public void OrderedEqualityKeepsRevisionWhileReorderAndReadditionAreFresh()
+    public async Task OrderedEqualityKeepsRevisionWhileReorderAndReadditionAreFresh()
     {
         var library = new WorkspaceRegistration.ExactLibrary(
             WorkspaceRegistrationTestData.RealPackageSystemTextJson());
         WorkspaceRegistration prefix = Prefix("Microsoft.Extensions.");
         WorkspaceEcosystemRegistrationDeclaration declaration = Platform();
         var ecosystem = new WorkspaceRegistration.Ecosystem(declaration);
-        using var workspace = new InspectionWorkspace([library, prefix, ecosystem]);
+        await using var workspace = new InspectionWorkspace([library, prefix, ecosystem]);
         WorkspaceRegistrationRevision initial = Current(workspace);
         var noEffect = Assert.IsType<WorkspaceRegistrationOperationResult.NoEffect>(
             workspace.ReplaceRegistrations(initial,
@@ -124,13 +117,13 @@ public sealed class WorkspaceRegistrationTests
     }
 
     [Fact]
-    public void SameEcosystemIdWithNewDeclarationReplacesIssuedCorrespondence()
+    public async Task SameEcosystemIdWithNewDeclarationReplacesIssuedCorrespondence()
     {
         WorkspaceEcosystemRegistrationDeclaration first = Platform();
         WorkspaceEcosystemRegistrationDeclaration second = Platform();
         Assert.Equal(first.Id, second.Id);
         Assert.Equal(first.NamespaceRoots, second.NamespaceRoots);
-        using var workspace = new InspectionWorkspace([new WorkspaceRegistration.Ecosystem(first)]);
+        await using var workspace = new InspectionWorkspace([new WorkspaceRegistration.Ecosystem(first)]);
         WorkspaceRegistrationRevision initial = Current(workspace);
         var changed = Assert.IsType<WorkspaceRegistrationOperationResult.Committed>(
             workspace.ReplaceRegistrations(initial, [new WorkspaceRegistration.Ecosystem(second)]));
@@ -149,11 +142,11 @@ public sealed class WorkspaceRegistrationTests
     }
 
     [Fact]
-    public void ExpectedRevisionAndCandidateValidationPrecedeNoop()
+    public async Task ExpectedRevisionAndCandidateValidationPrecedeNoop()
     {
         WorkspaceRegistration prefix = Prefix("Microsoft.Extensions.");
-        using var workspace = new InspectionWorkspace();
-        using var foreign = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
+        await using var foreign = new InspectionWorkspace();
         WorkspaceRegistrationRevision initial = Current(workspace);
         WorkspaceRegistrationRevision current =
             Assert.IsType<WorkspaceRegistrationOperationResult.Committed>(
@@ -180,7 +173,7 @@ public sealed class WorkspaceRegistrationTests
     }
 
     [Fact]
-    public void DifferentArmsAndDistinctLiteralPrefixesKeepTheirOwnedMeaning()
+    public async Task DifferentArmsAndDistinctLiteralPrefixesKeepTheirOwnedMeaning()
     {
         WorkspaceRegistration first = Prefix("Microsoft.Extensions.");
         WorkspaceRegistration second = Prefix("microsoft.extensions.");
@@ -189,7 +182,7 @@ public sealed class WorkspaceRegistrationTests
             ["Microsoft.Extensions"], [],
             [new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
                 new("Microsoft.Extensions."))]));
-        using var workspace = new InspectionWorkspace([first, ecosystem, second]);
+        await using var workspace = new InspectionWorkspace([first, ecosystem, second]);
 
         Assert.Equal([first, ecosystem, second], Current(workspace).Registrations);
     }
@@ -197,7 +190,7 @@ public sealed class WorkspaceRegistrationTests
     [Fact]
     public async Task CompetingReplacementsCannotBothPublishFromOneRevision()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         WorkspaceRegistrationRevision initial = Current(workspace);
         WorkspaceRegistrationOperationResult[] results = await Task.WhenAll(
             Task.Run(() => workspace.ReplaceRegistrations(initial, [Prefix("Microsoft.Extensions.")]),
@@ -213,13 +206,11 @@ public sealed class WorkspaceRegistrationTests
         Assert.Empty(initial.Registrations);
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task ClosedWorkspaceReturnsHistoricalRevisionBeforeInputValidation(bool asynchronous)
+    [Fact]
+    public async Task ClosedWorkspaceReturnsHistoricalRevisionBeforeInputValidation()
     {
-        InspectionWorkspace workspace = WorkspaceRegistrationConsumer.Create(
-            [Prefix("Microsoft.Extensions.")], asynchronous);
+        await using InspectionWorkspace workspace = WorkspaceRegistrationConsumer.Create(
+            [Prefix("Microsoft.Extensions.")]);
         WorkspaceRegistrationRevision initial = Current(workspace);
         await workspace.DisposeAsync();
 

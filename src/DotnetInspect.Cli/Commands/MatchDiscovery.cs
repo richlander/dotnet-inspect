@@ -295,7 +295,7 @@ internal static class MatchDiscovery
                 return 1;
             }
 
-            using var workspace = new InspectionWorkspace();
+            await using var workspace = new InspectionWorkspace();
 
             // One image, guaranteed by the gate above, so one group serves both sides.
             string? rootPackageDirectory =

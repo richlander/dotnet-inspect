@@ -318,7 +318,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         string typeName = "Counter",
         CancellationToken? cancellationToken = null)
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup beforeGroup = workspace.CreateAssemblyContextGroup([before.Participant]);
         AssemblyContextGroup afterGroup = workspace.CreateAssemblyContextGroup([after.Participant]);
         var target = before.MemberTarget(memberName, typeName);

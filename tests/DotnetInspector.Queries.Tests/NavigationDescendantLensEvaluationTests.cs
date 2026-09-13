@@ -265,7 +265,7 @@ public sealed class NavigationDescendantLensEvaluationTests
     static async Task<SnapshotFixture> CreateFixtureAsync(
         string packageId = "Navigation.Descendant")
     {
-        var workspace = InspectionWorkspace.CreateAsynchronous();
+        var workspace = new InspectionWorkspace();
         PackageRootBinding binding =
             NavigationSnapshotTestData.BindingWithAssemblyImages(
                 packageId,

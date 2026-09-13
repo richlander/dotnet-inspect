@@ -840,7 +840,7 @@ public static class MemberCommand
                     var participant = new AssemblyContextParticipant(
                         comparisonAssembly,
                         bindingPolicy);
-                    using var workspace = new InspectionWorkspace();
+                    await using var workspace = new InspectionWorkspace();
                     using AssemblyContextGroup group =
                         workspace.CreateAssemblyContextGroup([participant]);
                     var queryContext = new AssemblyContextSourceQueryContext(

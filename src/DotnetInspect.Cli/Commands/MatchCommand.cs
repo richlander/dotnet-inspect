@@ -174,7 +174,7 @@ public static class MatchCommand
                 MetadataTokens.MethodDefinitionHandle(right.Token!.Value));
 
             MethodBodyDiffDocument? body = options.IncludeBody
-                ? CompareBodies(left, right, result, loaded, source, options, cancellationToken)
+                ? await CompareBodiesAsync(left, right, result, loaded, source, options, cancellationToken)
                 : null;
 
             if (options.JsonOutput)
@@ -582,7 +582,7 @@ public static class MatchCommand
         return false;
     }
 
-    static MethodBodyDiffDocument CompareBodies(
+    static async Task<MethodBodyDiffDocument> CompareBodiesAsync(
         ResolvedSelector left,
         ResolvedSelector right,
         ResearchMatchResult structural,
@@ -668,7 +668,7 @@ public static class MatchCommand
                 policy);
             participants = [participant];
         }
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(participants);
 

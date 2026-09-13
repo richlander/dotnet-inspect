@@ -338,8 +338,8 @@ reaching a lock.
 
 Disposal then disposes published groups. A group may already have an active
 callback that has not performed its first lazy content open. Artifact leases
-therefore outlive `Dispose()` and are released only after every exact dependent
-group reports quiescence. The asynchronous `InspectionWorkspace` records this
+therefore outlive the group's `Dispose()` and are released only after every exact dependent
+group reports quiescence. `InspectionWorkspace` records this
 association from the published `ArtifactSetSession` and its query lease to the
 workspace-owned group objects whose participants carry registrations minted by
 that session. Ownership transfer requires the complete set of current dependent
@@ -394,8 +394,8 @@ concurrent groups. A demand's requested generation is also fixed once it
 arrives; the model does not represent a caller re-deriving a different
 generation when it replans after an incompatible admission terminates.
 
-The admission model checks the design intent stated in the prose above. The
-asynchronous `InspectionWorkspace` now owns the exact
+The admission model checks the design intent stated in the prose above.
+`InspectionWorkspace` now owns the exact
 published-session-to-dependent-group association and disposes the session only
 after all recorded group release receipts complete; the focused group-release
 model checks that shipped interaction. `ArtifactSetSession` still serves one
@@ -2353,7 +2353,7 @@ presentation.
 package-adapter projection used by bounded Package Query assembly evaluation.
 Given one acquisition-issued `PackageRootBinding`, one exact canonical
 `PackageCompileAsset` occurrence from that binding's frozen selection, an
-asynchronous candidate workspace, and explicit entry and aggregate
+candidate workspace with awaited close, and explicit entry and aggregate
 retained-image bounds, the adapter projects only that asset into one
 artifact-backed participant.
 
@@ -2433,9 +2433,9 @@ After caller input validation, the package-owned projection outcome is closed:
 - **ArtifactPublicationFailed** preserves the artifact owner's typed
   publication failures.
 
-Null inputs, an invalid bound, or a workspace that is not asynchronous are
-caller contract violations and retain their existing argument or invalid-
-operation exceptions outside this outcome algebra.
+Null inputs or an invalid bound are caller contract violations and retain
+their existing argument exceptions outside this outcome algebra. Every
+Workspace supports this projection under its single awaited lifetime.
 
 The adapter recognizes its own internal selected-entry-unavailable sentinel
 when `TryOpenEntry` returns `false` inside the one materialization callback.
@@ -2557,7 +2557,7 @@ disposal can silently replace the other's evidence on the same failure.
 
 Workspace close is the candidate release boundary. Disposing a realization
 alone does not release its transferred artifact session, so a streaming caller
-uses one candidate-scoped asynchronous workspace and closes it after all query
+uses one candidate-scoped workspace and awaits its close after all query
 callbacks are quiescent. Reusing one workspace across a corpus would retain
 prior candidate artifact sessions and is outside this sparse contract.
 
@@ -2638,7 +2638,7 @@ boundary while creating groups for selected coordinates only.
 
 `InspectionWorkspace.RealizePackageAssemblyContextRolesAsync` is the
 artifact-backed realization for one acquisition-issued `PackageRootBinding`.
-It requires an asynchronous workspace and uses the binding's package
+It uses the binding's package
 coordinate, content-generation identity, and selection identity as the exact
 join currency. The complete distinct union of selected surface and
 implementation assets enters one `ArtifactSetSession`; an asset selected into
@@ -2669,7 +2669,7 @@ transfer to the exact distinct role groups, and workspace close releases them
 only after those groups report quiescence. Failure before transfer attempts
 group, query-lease, and artifact-session cleanup without replacing the primary
 failure. Disposing the returned role realization releases its groups but not
-the artifact session; the asynchronous workspace remains the session owner
+the artifact session; the workspace remains the session owner
 until close. Callers serialize this realization with other workspace group
 admissions because exact ownership transfer cannot be evaluated while a group
 admission is incomplete.
@@ -2706,7 +2706,7 @@ authority reacquire the same immutable payload through the authorized
 legacy acquisition result for compile-role realization. Configured-authority
 payloads retain their actual producer and use explicit inspection selection
 below, rather than being relabeled as legacy content-cache coordinates.
-Both paths realize their input in an asynchronous `InspectionWorkspace`.
+Both paths realize their input in an `InspectionWorkspace` whose close is awaited.
 `PackageCommand_GroupedIntegrationsUseRetainedAuthorizedPayload` gates the
 configured HTTP and local-source handoff through the real command, including
 one HTTP payload acquisition and no local-source HTTP transport.
@@ -3897,8 +3897,8 @@ keys, and display text do not participate in Workspace identity.
 While its state is `Open`, the Workspace supplies live operation authority to
 the [Workspace Scope and Expansion](workspace-scope-and-expansion.md) owner.
 That owner may issue Workspace-bound occurrence identities only while the
-authority remains valid. Synchronous `Dispose()` and asynchronous
-`CloseAsync()` stop new scope-operation authority in the same critical section
+authority remains valid. `CloseAsync()` and `DisposeAsync()` stop new
+scope-operation authority in the same critical section
 that changes the Workspace state to `Closing`. Existing identities remain
 comparable after close, but neither identity nor equality authorizes later
 scope operations, package-content access, or query entry.
@@ -3932,7 +3932,7 @@ exact coordinate-owner facts returned by the source composition.
 
 The identity and close gates remain
 `WorkspaceIdentity_IsStableAndExactPerInstance`,
-`SynchronousClose_StopsOccurrenceIssuanceButKeepsIdentity`, and
+`DisposeAsync_StopsOccurrenceIssuanceButKeepsIdentity`, and
 `AsynchronousClose_StopsOccurrenceIssuanceImmediately`. Existing
 `PackageOccurrence_*` gates and the order, empty-view, repeated-binding, exact
 activation, foreign-view rejection, and closed-Workspace rejection
@@ -4151,7 +4151,7 @@ The migration is intentionally incremental:
    source policy in an optional companion.
 5. **Separate workspace realization.** Move package/platform realization out of
    core assembly Queries into optional adapters or companion projects. The
-   asynchronous workspace now owns exact sealed artifact sessions through their
+   workspace now owns exact sealed artifact sessions through their
    dependent-group release receipts; package/platform realization migration and
    multi-session host adoption remain outstanding.
 6. **Adapt package acquisition.** Reuse current package stores, source policy,

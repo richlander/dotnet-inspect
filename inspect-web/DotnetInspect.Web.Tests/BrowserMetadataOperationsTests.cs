@@ -12,9 +12,9 @@ namespace DotnetInspect.Web.Tests;
 public sealed class BrowserMetadataOperationsTests
 {
     [Fact]
-    public void MetadataOverview_ProjectsProductQueryResult()
+    public async Task MetadataOverview_ProjectsProductQueryResult()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = Group(workspace);
         var entries = MetadataEntries(group);
 
@@ -41,9 +41,9 @@ public sealed class BrowserMetadataOperationsTests
     }
 
     [Fact]
-    public void MetadataOverview_PreservesVersionTruncation()
+    public async Task MetadataOverview_PreservesVersionTruncation()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = Group(workspace);
         var entries = MetadataEntries(group);
         var cliEntry = Assert.IsType<
@@ -83,9 +83,9 @@ public sealed class BrowserMetadataOperationsTests
     }
 
     [Fact]
-    public void MetadataOverview_ProjectsRuntimeReadyToRunAndManifestRoot()
+    public async Task MetadataOverview_ProjectsRuntimeReadyToRunAndManifestRoot()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = Group(
             workspace,
             typeof(object).Assembly.Location);
@@ -146,9 +146,9 @@ public sealed class BrowserMetadataOperationsTests
     }
 
     [Fact]
-    public void MetadataOverview_PreservesManifestWhenCliProjectionFails()
+    public async Task MetadataOverview_PreservesManifestWhenCliProjectionFails()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = Group(
             workspace,
             typeof(object).Assembly.Location);
@@ -179,9 +179,9 @@ public sealed class BrowserMetadataOperationsTests
     }
 
     [Fact]
-    public void MetadataOverview_PreservesHealthyCliRootBesideIndependentFailures()
+    public async Task MetadataOverview_PreservesHealthyCliRootBesideIndependentFailures()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = Group(workspace);
         var entries = MetadataEntries(group);
         var cli = Assert.IsType<
@@ -214,9 +214,9 @@ public sealed class BrowserMetadataOperationsTests
     }
 
     [Fact]
-    public void MetadataTableWindow_ProjectsTypedRowsAndCoverage()
+    public async Task MetadataTableWindow_ProjectsTypedRowsAndCoverage()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = Group(workspace);
         AssemblyContextEntry<MetadataTableWindow> query =
             AssemblyContextMetadataTableQuery.ExecuteParticipant(
@@ -241,9 +241,9 @@ public sealed class BrowserMetadataOperationsTests
     }
 
     [Fact]
-    public void MetadataHeapListing_PreservesPartiality()
+    public async Task MetadataHeapListing_PreservesPartiality()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = Group(workspace);
         AssemblyContextEntry<MetadataHeapEntrySet> query =
             AssemblyContextMetadataHeapQuery.ExecuteParticipant(
@@ -265,7 +265,7 @@ public sealed class BrowserMetadataOperationsTests
     }
 
     [Fact]
-    public void MetadataProjection_KeepsParticipantFailureVisibleWithoutArtifactText()
+    public async Task MetadataProjection_KeepsParticipantFailureVisibleWithoutArtifactText()
     {
         const char bidi = '\u202E';
         string path = typeof(BrowserMetadataOperationsTests).Assembly.Location;
@@ -279,7 +279,7 @@ public sealed class BrowserMetadataOperationsTests
             path: null,
             () => new MemoryStream(bytes, writable: false),
             AssemblyResolutionProvenance.Local("rejected"));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [

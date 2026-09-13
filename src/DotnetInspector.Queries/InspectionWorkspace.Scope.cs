@@ -28,7 +28,7 @@ public sealed partial class InspectionWorkspace
 
     /// <summary>
     /// Atomically replaces a closed Scope using already-acquired Packages.
-    /// Requires an asynchronous Workspace and a finite deadline. Bindings are
+    /// Requires a finite deadline. Bindings are
     /// transient operation inputs; snapshots retain only resource-free facts.
     /// </summary>
     public ValueTask<WorkspaceScopeOperationResult> ReplaceScopeAsync(
@@ -319,8 +319,7 @@ public sealed partial class InspectionWorkspace
             return WorkspaceScopeRejection.ForeignWorkspace;
         if (!ReferenceEquals(expected.Identity, current.Revision.Identity))
             return WorkspaceScopeRejection.RevisionMismatch;
-        return _lifetimeMode == InspectionWorkspaceLifetimeMode.Asynchronous
-            ? null : WorkspaceScopeRejection.AsynchronousWorkspaceRequired;
+        return null;
     }
 
     ArtifactRootPublicationPlan CreateScopePlan(

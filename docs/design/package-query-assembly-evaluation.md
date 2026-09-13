@@ -507,7 +507,7 @@ selection. Evaluation adds a narrower candidate-scoped realization:
 1. Validate the binding, pattern, asset intent, and budget before requesting
    artifact materialization.
 2. Resolve the selected asset only through the frozen selection.
-3. Create a candidate-scoped asynchronous workspace.
+3. Construct one candidate-scoped `InspectionWorkspace` with awaited close.
 4. Ask the package adapter to attempt projection of only that asset under the
    bounded artifact generation. Only `Available` transfers a one-participant
    group to the candidate workspace.

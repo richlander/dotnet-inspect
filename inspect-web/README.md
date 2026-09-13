@@ -488,10 +488,13 @@ construction and cleanup work settles, including artifact sessions not yet
 transferred to a workspace. Replacement does not require a new query-selection
 algorithm or a host-issued artifact identity.
 
-Registry retirement has an awaitable terminal outcome. Synchronous scope
-disposal is adapted as an already-completed retirement; an asynchronous
-workspace uses `CloseAsync`, never a synchronous wait or request-only
-`Dispose` pretending that reclamation finished. The outcome includes propagated
+Registry retirement has an awaitable terminal outcome. Every product Workspace
+is constructed synchronously and closes through `CloseAsync` or `DisposeAsync`;
+there is no synchronous Workspace disposal mode. Package-role release remains
+synchronous and precedes the awaited Workspace close. Package, composite,
+platform, and occurrence-view owners join that close before returning retained
+capacity or releasing their package leases. No synchronous wait or request-only
+disposal pretends that reclamation finished. The outcome includes propagated
 workspace-close exceptions and `ArtifactSessionCleanupFailures`, not merely
 whether its close task completed. Coordinated role-release diagnostics retain
 their lower-owner representation; converting those diagnostics into Browser

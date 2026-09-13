@@ -10,9 +10,9 @@ public sealed class AssemblyContextMethodAddressQueryTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void IssuesExactOwnerAddressIncludingBodyless(bool bodyless)
+    public async Task IssuesExactOwnerAddressIncludingBodyless(bool bodyless)
     {
-        using var fixture = new Fixture();
+        await using var fixture = new Fixture();
         var method = bodyless
             ? typeof(IDisposable).GetMethod(nameof(IDisposable.Dispose))!
             : typeof(string).GetMethod(nameof(string.ToString), Type.EmptyTypes)!;
@@ -29,9 +29,9 @@ public sealed class AssemblyContextMethodAddressQueryTests
     [InlineData(0x06000000)]
     [InlineData(0x06ffffff)]
     [InlineData(-1)]
-    public void InvalidMethodDefIsFailed(int token)
+    public async Task InvalidMethodDefIsFailed(int token)
     {
-        using var fixture = new Fixture();
+        await using var fixture = new Fixture();
         var failed = Assert.IsType<AssemblyContextEntry<MetadataMethodAddress>.Failed>(
             AssemblyContextMethodAddressQuery.ExecuteParticipant(fixture.Group, fixture.Participant, token));
         Assert.Contains("not a MethodDef", failed.Error.Message);
@@ -39,9 +39,9 @@ public sealed class AssemblyContextMethodAddressQueryTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void MethodAnchorUsesExactDeclaringTypeAndMethodDef()
+    public async Task MethodAnchorUsesExactDeclaringTypeAndMethodDef()
     {
-        using var fixture = new Fixture();
+        await using var fixture = new Fixture();
         var method =
             typeof(string).GetMethod(
                 nameof(string.ToString),
@@ -77,9 +77,9 @@ public sealed class AssemblyContextMethodAddressQueryTests
     }
 
     [Fact]
-    public void MethodAnchorRejectsMethodFromAnotherDeclaringType()
+    public async Task MethodAnchorRejectsMethodFromAnotherDeclaringType()
     {
-        using var fixture = new Fixture();
+        await using var fixture = new Fixture();
         MetadataTypeDefinitionName type =
             Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
                 MetadataTypeDefinitionName.ParseSerialized(
@@ -101,33 +101,33 @@ public sealed class AssemblyContextMethodAddressQueryTests
     }
 
     [Fact]
-    public void MissingImageIsRejected()
+    public async Task MissingImageIsRejected()
     {
-        using var fixture = new Fixture(unavailable: true);
+        await using var fixture = new Fixture(unavailable: true);
         Assert.IsType<AssemblyContextEntry<MetadataMethodAddress>.Rejected>(
             AssemblyContextMethodAddressQuery.ExecuteParticipant(fixture.Group, fixture.Participant, 0x06000001));
     }
 
     [Fact]
-    public void ForeignParticipantCannotBorrowAnotherContext()
+    public async Task ForeignParticipantCannotBorrowAnotherContext()
     {
-        using var first = new Fixture();
-        using var second = new Fixture();
+        await using var first = new Fixture();
+        await using var second = new Fixture();
         Assert.Throws<ArgumentException>(() => AssemblyContextMethodAddressQuery.ExecuteParticipant(
             first.Group, second.Participant, 0x06000001));
     }
 
     [Fact]
-    public void DisposedContextPreservesExistingAccessFailure()
+    public async Task DisposedContextPreservesExistingAccessFailure()
     {
-        using var fixture = new Fixture();
-        fixture.Dispose();
+        await using var fixture = new Fixture();
+        await fixture.DisposeAsync();
         Assert.Throws<ObjectDisposedException>(() =>
             AssemblyContextMethodAddressQuery.ExecuteParticipant(
                 fixture.Group, fixture.Participant, 0x06000001));
     }
 
-    sealed class Fixture : IDisposable
+    sealed class Fixture : IAsyncDisposable
     {
         readonly InspectionWorkspace _workspace = new();
         internal Fixture(bool unavailable = false)
@@ -143,7 +143,7 @@ public sealed class AssemblyContextMethodAddressQueryTests
         }
         internal AssemblyContextGroup Group { get; }
         internal AssemblyContextParticipant Participant { get; }
-        public void Dispose() => _workspace.Dispose();
+        public ValueTask DisposeAsync() => _workspace.DisposeAsync();
     }
 
     sealed class MissingPolicy : IAssemblyBindingPolicy

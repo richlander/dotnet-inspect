@@ -350,8 +350,7 @@ internal static class CloneCandidatesCommand
         if (!ValidateProjection(output.Fields, output.Columns))
             return 1;
 
-        await using InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new();
         WorkspaceScopeReadResult scopeRead =
             await workspace.GetScopeSnapshotAsync().ConfigureAwait(false);
         if (scopeRead is WorkspaceScopeReadResult.Unavailable unavailable)

@@ -5,14 +5,22 @@ namespace DotnetInspector.Ecosystems.Consumer.Tests;
 public sealed class EcosystemWorkspaceConstructionConsumerTests
 {
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(false, true)]
-    [InlineData(true, false)]
-    [InlineData(true, true)]
+    [InlineData(nameof(EcosystemPackCatalog.CreateWorkspace), false)]
+    [InlineData(nameof(EcosystemPackCatalog.CreateWorkspaceAsynchronous), false)]
+    [InlineData(nameof(EcosystemPackCatalog.CreatePlatformWorkspace), true)]
+    [InlineData(nameof(EcosystemPackCatalog.CreatePlatformWorkspaceAsynchronous), true)]
     public async Task PublicFactoriesRetainExactDeclarationsInProductOrder(
-        bool platformOnly, bool asynchronous)
+        string factory, bool platformOnly)
     {
-        await using InspectionWorkspace workspace = Create(platformOnly, asynchronous);
+        await using InspectionWorkspace workspace = factory switch
+        {
+            nameof(EcosystemPackCatalog.CreateWorkspace) => EcosystemPackCatalog.CreateWorkspace(),
+            nameof(EcosystemPackCatalog.CreateWorkspaceAsynchronous) => EcosystemPackCatalog.CreateWorkspaceAsynchronous(),
+            nameof(EcosystemPackCatalog.CreatePlatformWorkspace) => EcosystemPackCatalog.CreatePlatformWorkspace(),
+            nameof(EcosystemPackCatalog.CreatePlatformWorkspaceAsynchronous) =>
+                EcosystemPackCatalog.CreatePlatformWorkspaceAsynchronous(),
+            _ => throw new ArgumentOutOfRangeException(nameof(factory)),
+        };
         WorkspaceRegistrationRevision revision = Read(workspace);
         EcosystemPackId[] expected = platformOnly
             ? [EcosystemPackIds.Platform, EcosystemPackIds.AspNetCore, EcosystemPackIds.MicrosoftExtensions]
@@ -30,18 +38,11 @@ public sealed class EcosystemWorkspaceConstructionConsumerTests
             Assert.Same(selected.Declaration, declarations[index]);
         }
 
-        if (asynchronous)
-        {
-            Assert.Throws<InvalidOperationException>(() => workspace.Dispose());
-            Task<InspectionWorkspaceCloseReport> close = workspace.CloseAsync();
-            Assert.Same(close, workspace.CloseAsync());
-            await close;
-        }
-        else
-        {
-            Assert.Throws<InvalidOperationException>(() => { _ = workspace.CloseAsync(); });
-            workspace.Dispose();
-        }
+        Task<InspectionWorkspaceCloseReport> close = workspace.CloseAsync();
+        Assert.Same(close, workspace.CloseAsync());
+        InspectionWorkspaceCloseReport report = await close;
+        Assert.Empty(report.Groups);
+        Assert.Empty(report.ArtifactSessionCleanupFailures);
 
         var closed = Assert.IsType<WorkspaceRegistrationReadResult.Unavailable>(
             workspace.GetRegistrationSnapshot());
@@ -54,9 +55,9 @@ public sealed class EcosystemWorkspaceConstructionConsumerTests
     [InlineData(true)]
     public async Task ConstructionIsIndependentAndDoesNotAdmitPackages(bool platformOnly)
     {
-        await using InspectionWorkspace first = Create(platformOnly, true);
-        await using InspectionWorkspace second = Create(platformOnly, true);
-        await using InspectionWorkspace raw = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace first = Create(platformOnly);
+        await using InspectionWorkspace second = Create(platformOnly);
+        await using InspectionWorkspace raw = new InspectionWorkspace();
         WorkspaceRegistrationRevision initial = Read(first);
         WorkspaceRegistrationRevision other = Read(second);
         var scope = Assert.IsType<WorkspaceScopeReadResult.Available>(
@@ -77,14 +78,8 @@ public sealed class EcosystemWorkspaceConstructionConsumerTests
         Assert.Same(other, Read(second));
     }
 
-    private static InspectionWorkspace Create(bool platformOnly, bool asynchronous) =>
-        (platformOnly, asynchronous) switch
-        {
-            (true, false) => EcosystemPackCatalog.CreatePlatformWorkspace(),
-            (true, true) => EcosystemPackCatalog.CreatePlatformWorkspaceAsynchronous(),
-            (false, false) => EcosystemPackCatalog.CreateWorkspace(),
-            (false, true) => EcosystemPackCatalog.CreateWorkspaceAsynchronous(),
-        };
+    private static InspectionWorkspace Create(bool platformOnly) =>
+        platformOnly ? EcosystemPackCatalog.CreatePlatformWorkspace() : EcosystemPackCatalog.CreateWorkspace();
 
     private static WorkspaceRegistrationRevision Read(InspectionWorkspace workspace) =>
         Assert.IsType<WorkspaceRegistrationReadResult.Available>(workspace.GetRegistrationSnapshot()).Revision;

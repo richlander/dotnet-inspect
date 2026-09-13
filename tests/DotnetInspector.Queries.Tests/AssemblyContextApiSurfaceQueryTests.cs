@@ -62,9 +62,9 @@ public sealed class AssemblyContextApiSurfaceQueryTests
     }
 
     [Fact]
-    public void PublicScope_ProjectsPublicTypesAndOnlyTheDefaultBucket()
+    public async Task PublicScope_ProjectsPublicTypesAndOnlyTheDefaultBucket()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = SelfGroup(workspace);
 
         AssemblyContextApiSurfaceResult result =
@@ -86,9 +86,9 @@ public sealed class AssemblyContextApiSurfaceQueryTests
     }
 
     [Fact]
-    public void PublicWithNonPublicTypes_AddsOnlyNonPublicTypesAndKeepsPublicMemberLists()
+    public async Task PublicWithNonPublicTypes_AddsOnlyNonPublicTypesAndKeepsPublicMemberLists()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = SelfGroup(workspace);
 
         AssemblyApiSurface composed = Available(
@@ -123,9 +123,9 @@ public sealed class AssemblyContextApiSurfaceQueryTests
     }
 
     [Fact]
-    public void IncludeAll_ProjectsNonPublicMembersOfPublicTypes()
+    public async Task IncludeAll_ProjectsNonPublicMembersOfPublicTypes()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = SelfGroup(workspace);
 
         AssemblyApiSurface surface = Available(
@@ -140,9 +140,9 @@ public sealed class AssemblyContextApiSurfaceQueryTests
     }
 
     [Fact]
-    public void Buckets_AreOrderedAndCountedWithPublicAsTheDefault()
+    public async Task Buckets_AreOrderedAndCountedWithPublicAsTheDefault()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = SelfGroup(workspace);
 
         AssemblyContextApiSurfaceResult result =
@@ -176,12 +176,12 @@ public sealed class AssemblyContextApiSurfaceQueryTests
     }
 
     [Fact]
-    public void Execute_CarriesRejectedParticipantBesideLaterResultsInGroupOrder()
+    public async Task Execute_CarriesRejectedParticipantBesideLaterResultsInGroupOrder()
     {
         byte[] bytes = File.ReadAllBytes(SelfPath);
         AssemblyReferenceIdentity identity = IdentityOf(bytes);
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
             [
                 new AssemblyContextParticipant(
@@ -215,7 +215,7 @@ public sealed class AssemblyContextApiSurfaceQueryTests
     }
 
     [Fact]
-    public void Execute_ReusesOneSnapshotPerParticipantAcrossRuns()
+    public async Task Execute_ReusesOneSnapshotPerParticipantAcrossRuns()
     {
         byte[] bytes = File.ReadAllBytes(SelfPath);
         int opens = 0;
@@ -229,7 +229,7 @@ public sealed class AssemblyContextApiSurfaceQueryTests
                 return new MemoryStream(bytes, writable: false);
             },
             AssemblyResolutionProvenance.Local("snapshot reuse"));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
             [new AssemblyContextParticipant(assembly, policy)]);
 
@@ -242,7 +242,7 @@ public sealed class AssemblyContextApiSurfaceQueryTests
     }
 
     [Fact]
-    public void ExecuteParticipant_ProjectsOnlyTheRequestedParticipant()
+    public async Task ExecuteParticipant_ProjectsOnlyTheRequestedParticipant()
     {
         var policy = new TestBindingPolicy();
         var first = new AssemblyContextParticipant(
@@ -255,7 +255,7 @@ public sealed class AssemblyContextApiSurfaceQueryTests
                 SelfPath,
                 AssemblyResolutionProvenance.Local("second")),
             policy);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup([first, second]);
 
@@ -273,7 +273,7 @@ public sealed class AssemblyContextApiSurfaceQueryTests
     }
 
     [Fact]
-    public void Execute_PreservesApiSurfaceInspectionFailuresBesideHealthyTypes()
+    public async Task Execute_PreservesApiSurfaceInspectionFailuresBesideHealthyTypes()
     {
         string path = Path.Combine(
             Path.GetTempPath(),
@@ -281,7 +281,7 @@ public sealed class AssemblyContextApiSurfaceQueryTests
         File.WriteAllBytes(path, BuildPartialSurfaceImage());
         try
         {
-            using var workspace = new InspectionWorkspace();
+            await using var workspace = new InspectionWorkspace();
             using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
                 [
                     new AssemblyContextParticipant(
@@ -316,9 +316,9 @@ public sealed class AssemblyContextApiSurfaceQueryTests
     // composition answered: the public surface's types with their public member lists, plus the
     // non-public types with their complete ones, and nothing else.
     [Fact]
-    public void PublicWithNonPublicTypes_EqualsThePublicAndNonPublicPartsOfBothScopes()
+    public async Task PublicWithNonPublicTypes_EqualsThePublicAndNonPublicPartsOfBothScopes()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = SelfGroup(workspace);
 
         AssemblyApiSurface composed = Available(
@@ -366,9 +366,9 @@ public sealed class AssemblyContextApiSurfaceQueryTests
     }
 
     [Fact]
-    public void ExecuteBounded_WithGenerousLimitsMatchesTheUnboundedProjection()
+    public async Task ExecuteBounded_WithGenerousLimitsMatchesTheUnboundedProjection()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = SelfGroup(workspace);
 
         AssemblyContextApiSurfaceResult unbounded =
@@ -412,9 +412,9 @@ public sealed class AssemblyContextApiSurfaceQueryTests
     // The exact-fit case: bounds equal to the unbounded projection's own totals must still project
     // the whole surface. An off-by-one in the budget would truncate here.
     [Fact]
-    public void ExecuteBounded_AtExactlyTheProjectionSizeIsNotTruncated()
+    public async Task ExecuteBounded_AtExactlyTheProjectionSizeIsNotTruncated()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = SelfGroup(workspace);
 
         ApiSurface unbounded =
@@ -465,9 +465,9 @@ public sealed class AssemblyContextApiSurfaceQueryTests
     // the only participant does not fit, so it is omitted rather than returned over the bound,
     // IsComplete is false, and the counts describe exactly the rows the result carries.
     [Fact]
-    public void ExecuteBounded_OmitsAParticipantThatCannotFitTheTypeBound()
+    public async Task ExecuteBounded_OmitsAParticipantThatCannotFitTheTypeBound()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = SelfGroup(workspace);
 
         AssemblyContextApiSurfaceResult bounded =
@@ -498,9 +498,9 @@ public sealed class AssemblyContextApiSurfaceQueryTests
     }
 
     [Fact]
-    public void ExecuteBounded_OmitsAParticipantThatCannotFitTheMemberBound()
+    public async Task ExecuteBounded_OmitsAParticipantThatCannotFitTheMemberBound()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = SelfGroup(workspace);
 
         AssemblyContextApiSurfaceResult bounded =
@@ -526,11 +526,11 @@ public sealed class AssemblyContextApiSurfaceQueryTests
     }
 
     [Fact]
-    public void ExecuteBounded_OmitsAParticipantAtTheInspectionFailureBound()
+    public async Task ExecuteBounded_OmitsAParticipantAtTheInspectionFailureBound()
     {
         byte[] image = BuildPartialSurfaceImage(cyclicTypeCount: 2);
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
             [
                 new AssemblyContextParticipant(
@@ -567,13 +567,13 @@ public sealed class AssemblyContextApiSurfaceQueryTests
     }
 
     [Fact]
-    public void ExecuteBounded_OmitsAParticipantAtTheTypeForwarderBound()
+    public async Task ExecuteBounded_OmitsAParticipantAtTheTypeForwarderBound()
     {
         byte[] image = BuildBoundedSurfaceImage(
             typeCount: 1,
             typeForwarderCount: 1);
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
             [
                 new AssemblyContextParticipant(
@@ -610,14 +610,14 @@ public sealed class AssemblyContextApiSurfaceQueryTests
     }
 
     [Fact]
-    public void ExecuteBounded_MetadataRowsBoundNestedInterfaceFanOut()
+    public async Task ExecuteBounded_MetadataRowsBoundNestedInterfaceFanOut()
     {
         byte[] image = BuildBoundedSurfaceImage(
             typeCount: 1,
             interfaceCount: 100);
         int metadataRows = MetadataRows(image);
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
             [
                 new AssemblyContextParticipant(
@@ -650,7 +650,7 @@ public sealed class AssemblyContextApiSurfaceQueryTests
     }
 
     [Fact]
-    public void ExecuteBounded_SpendsMetadataRowsAcrossParticipants()
+    public async Task ExecuteBounded_SpendsMetadataRowsAcrossParticipants()
     {
         byte[] firstImage = BuildBoundedSurfaceImage(
             typeCount: 1,
@@ -663,7 +663,7 @@ public sealed class AssemblyContextApiSurfaceQueryTests
         int metadataRows = MetadataRows(firstImage);
         Assert.Equal(metadataRows, MetadataRows(secondImage));
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
             [
                 new AssemblyContextParticipant(
@@ -704,7 +704,7 @@ public sealed class AssemblyContextApiSurfaceQueryTests
     }
 
     [Fact]
-    public void ExecuteBounded_SpendsRetainedTextAcrossParticipants()
+    public async Task ExecuteBounded_SpendsRetainedTextAcrossParticipants()
     {
         byte[] firstImage = BuildBoundedSurfaceImage(
             typeCount: 1,
@@ -717,7 +717,7 @@ public sealed class AssemblyContextApiSurfaceQueryTests
             retainedTextCharacters,
             RetainedTextCharacters(secondImage));
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
             [
                 new AssemblyContextParticipant(
@@ -767,12 +767,12 @@ public sealed class AssemblyContextApiSurfaceQueryTests
     // projected whole and the one that would overflow it is omitted — the projected rows stay
     // inside both bounds instead of overshooting by one image's worth of surface.
     [Fact]
-    public void ExecuteBounded_ProjectsWhatFitsAndOmitsTheParticipantThatWouldOverflow()
+    public async Task ExecuteBounded_ProjectsWhatFitsAndOmitsTheParticipantThatWouldOverflow()
     {
         byte[] small = BuildBoundedSurfaceImage(typeCount: 2);
         byte[] self = File.ReadAllBytes(SelfPath);
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
             [
                 new AssemblyContextParticipant(
@@ -824,11 +824,11 @@ public sealed class AssemblyContextApiSurfaceQueryTests
     // The bound applies to members as well as types when the type bound is generous: the small
     // image fits its members, the large one does not, and nothing partial is returned.
     [Fact]
-    public void ExecuteBounded_KeepsProjectedMembersWithinTheMemberBound()
+    public async Task ExecuteBounded_KeepsProjectedMembersWithinTheMemberBound()
     {
         byte[] small = BuildBoundedSurfaceImage(typeCount: 2);
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
             [
                 new AssemblyContextParticipant(
@@ -867,11 +867,11 @@ public sealed class AssemblyContextApiSurfaceQueryTests
     }
 
     [Fact]
-    public void ExecuteBounded_StopsFanOutAndReportsUnprojectedParticipants()
+    public async Task ExecuteBounded_StopsFanOutAndReportsUnprojectedParticipants()
     {
         byte[] bytes = File.ReadAllBytes(SelfPath);
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
             [
                 new AssemblyContextParticipant(
@@ -915,7 +915,7 @@ public sealed class AssemblyContextApiSurfaceQueryTests
     // Selecting participants is how a host projects one package out of a multi-package workspace
     // without materializing the rest.
     [Fact]
-    public void ExecuteBounded_ProjectsOnlyTheSelectedParticipants()
+    public async Task ExecuteBounded_ProjectsOnlyTheSelectedParticipants()
     {
         byte[] bytes = File.ReadAllBytes(SelfPath);
         var policy = new TestBindingPolicy();
@@ -943,7 +943,7 @@ public sealed class AssemblyContextApiSurfaceQueryTests
                 },
                 AssemblyResolutionProvenance.Local("other")),
             policy);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup([selected, other]);
 
