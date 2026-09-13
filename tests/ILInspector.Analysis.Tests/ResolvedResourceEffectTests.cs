@@ -916,6 +916,38 @@ public sealed class ResolvedResourceEffectTests
     }
 
     [Fact]
+    public void InterfaceMethodRemainsIncompleteUntilApplicationIsResolved()
+    {
+        const string AssemblyName = "DeferredInterfaceApplication";
+        ResourceEffectResolutionOutcome.Incomplete incomplete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Incomplete>(
+                ResolveSynthetic(
+                    BuildInterfaceAndConcreteCallAssembly(AssemblyName),
+                    AssemblyName,
+                    SyntheticMethodModel(
+                        AssemblyName,
+                        "Target",
+                        ResourceEffectMemberKind.Method,
+                        parameters: [],
+                        isStatic: false,
+                        declaringTypeName: "IResource")));
+
+        ResourceEffectTargetEvaluation evaluation =
+            Assert.Single(incomplete.Evaluations);
+        ResolvedResourceEffect effect =
+            Assert.Single(evaluation.Effects);
+        Assert.Equal(
+            "ThroughInterface",
+            effect.Occurrence.Call.Caller.Name);
+        Assert.Contains(
+            evaluation.Gaps,
+            gap =>
+                gap.Kind
+                    == ResourceEffectResolutionGapKind
+                        .CorrespondenceIncomplete);
+    }
+
+    [Fact]
     public void ProvenanceAssociationWorkLimitIsVisible()
     {
         ResourceEffectTargetSelector target =
@@ -2715,7 +2747,8 @@ public sealed class ResolvedResourceEffectTests
         ResourceEffectMemberKind kind,
         ImmutableArray<ResourceEffectParameterSelector> parameters,
         bool isStatic = true,
-        int genericArity = 0)
+        int genericArity = 0,
+        string declaringTypeName = "Owner")
     {
         var identity = new ResourceEffectModelIdentity(
             $"example.{assemblyName.ToLowerInvariant()}");
@@ -2725,7 +2758,7 @@ public sealed class ResolvedResourceEffectTests
                 publicKeyToken: null,
                 ResourceAssemblyVersionPolicy.Any),
             "N",
-            [new ResourceTypeNameSegment("Owner", 0)]);
+            [new ResourceTypeNameSegment(declaringTypeName, 0)]);
         return Admit(
             new ResourceEffectModelDefinition(
                 ResourceEffectLanguageIdentity.Version1,
@@ -2973,6 +3006,151 @@ public sealed class ResolvedResourceEffectTests
                     eventTargetsCaller ? caller : target);
             }
         }
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildInterfaceAndConcreteCallAssembly(
+        string assemblyName)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            metadata.GetOrAddString(assemblyName + ".dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(assemblyName),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: AssemblyHashAlgorithm.Sha1);
+        AssemblyReferenceHandle systemRuntime =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Runtime"),
+                new Version(11, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: metadata.GetOrAddBlob(
+                    Convert.FromHexString("b03f5f7f11d50a3a")),
+                flags: default,
+                hashValue: default);
+        TypeReferenceHandle objectType =
+            metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle resourceInterface =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("IResource"),
+                baseType: default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle resource =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Class
+                    | TypeAttributes.Sealed,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Resource"),
+                baseType: objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(2));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Class
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Calls"),
+            baseType: objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(3));
+        metadata.AddInterfaceImplementation(
+            resource,
+            resourceInterface);
+
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        var targetIl = new BlobBuilder();
+        targetIl.WriteByte((byte)ILOpCode.Ret);
+        int targetBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(targetIl));
+        var interfaceCallIl = new BlobBuilder();
+        interfaceCallIl.WriteByte((byte)ILOpCode.Ldnull);
+        interfaceCallIl.WriteByte((byte)ILOpCode.Callvirt);
+        interfaceCallIl.WriteInt32(
+            MetadataTokens.GetToken(
+                MetadataTokens.MethodDefinitionHandle(1)));
+        interfaceCallIl.WriteByte((byte)ILOpCode.Ret);
+        int interfaceCallBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(interfaceCallIl));
+        var concreteCallIl = new BlobBuilder();
+        concreteCallIl.WriteByte((byte)ILOpCode.Ldnull);
+        concreteCallIl.WriteByte((byte)ILOpCode.Callvirt);
+        concreteCallIl.WriteInt32(
+            MetadataTokens.GetToken(
+                MetadataTokens.MethodDefinitionHandle(2)));
+        concreteCallIl.WriteByte((byte)ILOpCode.Ret);
+        int concreteCallBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(concreteCallIl));
+
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Target"),
+            metadata.GetOrAddBlob(
+                new byte[] { 0x20, 0x00, 0x01 }),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Final
+                | MethodAttributes.Virtual,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Target"),
+            metadata.GetOrAddBlob(
+                new byte[] { 0x20, 0x00, 0x01 }),
+            targetBody,
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("ThroughInterface"),
+            metadata.GetOrAddBlob(
+                new byte[] { 0x00, 0x00, 0x01 }),
+            interfaceCallBody,
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("ThroughConcrete"),
+            metadata.GetOrAddBlob(
+                new byte[] { 0x00, 0x00, 0x01 }),
+            concreteCallBody,
+            MetadataTokens.ParameterHandle(1));
 
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),

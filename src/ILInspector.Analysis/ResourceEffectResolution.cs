@@ -957,6 +957,7 @@ public static class ResourceEffectResolver
                             value.Definition,
                             value.Member,
                             value.Semantics,
+                            value.IsInterfaceDefinition,
                             resolved.Hops,
                             context),
                     SelectedMemberOutcome.Ambiguous =>
@@ -1374,6 +1375,7 @@ public static class ResourceEffectResolver
                         methodHandle,
                         member,
                         semantics,
+                        (type.Attributes & TypeAttributes.Interface) != 0,
                         CatalogMemberCorrespondencePlan.Create(
                             assembly,
                             member)));
@@ -1651,7 +1653,8 @@ public static class ResourceEffectResolver
         return new SelectedMemberOutcome.Selected(
             selected.Definition,
             selected.Member,
-            selected.Semantics);
+            selected.Semantics,
+            selected.IsInterfaceDefinition);
     }
 
     static bool CouldMatch(
@@ -1956,6 +1959,13 @@ public static class ResourceEffectResolver
                     }
                     if (match != TypeMatchResult.Match)
                         continue;
+                    if (candidate.IsInterfaceDefinition)
+                    {
+                        RetainGap(Gap(
+                            ResourceEffectResolutionGapKind
+                                .CorrespondenceIncomplete,
+                            candidate.Pending));
+                    }
                     if (++boundEffects > limits.MaxBoundEffects)
                     {
                         RetainGap(Gap(
@@ -5183,6 +5193,7 @@ public static class ResourceEffectResolver
         MethodDefinitionHandle Definition,
         MemberRef Member,
         ResourceEffectSelectedMemberSemantics Semantics,
+        bool IsInterfaceDefinition,
         CatalogMemberCorrespondencePlan Plan);
 
     sealed record DefinitionCandidateSet(
@@ -5205,7 +5216,8 @@ public static class ResourceEffectResolver
         internal sealed record Selected(
             MethodDefinitionHandle Definition,
             MemberRef Member,
-            ResourceEffectSelectedMemberSemantics Semantics)
+            ResourceEffectSelectedMemberSemantics Semantics,
+            bool IsInterfaceDefinition)
             : SelectedMemberOutcome;
         internal sealed record Unavailable : SelectedMemberOutcome;
         internal sealed record Ambiguous : SelectedMemberOutcome;
@@ -5225,6 +5237,7 @@ public static class ResourceEffectResolver
             ResourceEffectInvocationOccurrence? occurrence,
             MemberRef? selectedMember,
             ResourceEffectSelectedMemberSemantics semantics,
+            bool isInterfaceDefinition,
             ResourceEffectResolutionGap? gap)
         {
             Pending = pending;
@@ -5232,6 +5245,7 @@ public static class ResourceEffectResolver
             Occurrence = occurrence;
             SelectedMember = selectedMember;
             Semantics = semantics;
+            IsInterfaceDefinition = isInterfaceDefinition;
             Gap = gap;
         }
 
@@ -5240,6 +5254,7 @@ public static class ResourceEffectResolver
         internal ResourceEffectInvocationOccurrence? Occurrence { get; }
         internal MemberRef? SelectedMember { get; }
         internal ResourceEffectSelectedMemberSemantics Semantics { get; }
+        internal bool IsInterfaceDefinition { get; }
         internal ResourceEffectResolutionGap? Gap { get; }
 
         internal static ResolvedInvocationCandidate Resolved(
@@ -5247,6 +5262,7 @@ public static class ResourceEffectResolver
             MethodDefinitionHandle definition,
             MemberRef member,
             ResourceEffectSelectedMemberSemantics semantics,
+            bool isInterfaceDefinition,
             ImmutableArray<TypeForwardingHop> forwarding,
             TypeResolutionContext context)
         {
@@ -5274,6 +5290,7 @@ public static class ResourceEffectResolver
                 occurrence,
                 member,
                 semantics,
+                isInterfaceDefinition,
                 null);
         }
 
@@ -5286,6 +5303,7 @@ public static class ResourceEffectResolver
                 null,
                 null,
                 default,
+                false,
                 gap);
 
         internal static ResolvedInvocationCandidate Ambiguous(
@@ -5297,6 +5315,7 @@ public static class ResourceEffectResolver
                 null,
                 null,
                 default,
+                false,
                 gap);
 
         internal static ResolvedInvocationCandidate Unsupported(
@@ -5308,6 +5327,7 @@ public static class ResourceEffectResolver
                 null,
                 null,
                 default,
+                false,
                 gap);
 
         internal static ResolvedInvocationCandidate FromResolutionFailure(
