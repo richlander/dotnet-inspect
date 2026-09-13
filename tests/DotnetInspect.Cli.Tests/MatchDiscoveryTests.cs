@@ -19,7 +19,6 @@ using DotnetInspector.Packages;
 using DotnetInspect.Cli.Views;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
-using Core = DotnetInspector.Core;
 
 namespace DotnetInspect.Cli.Tests;
 

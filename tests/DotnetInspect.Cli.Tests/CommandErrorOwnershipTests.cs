@@ -112,7 +112,8 @@ public class CommandErrorOwnershipTests
     /// reviewer added <c>Console.Error.WriteLine(untrusted)</c> to
     /// <c>DotnetInspector.Services</c> -- in-process, on a hostile-nuspec path
     /// -- and the suite stayed green. Applying the closure found a real
-    /// uncontained sink in <c>DotnetInspector.Core</c> the moment it was
+    /// uncontained sink in the former <c>DotnetInspector.Core</c> project the
+    /// moment it was
     /// applied.
     ///
     /// <c>OwnsItsOwnStderr</c> is the opt-out, and this is the rule that says
@@ -482,7 +483,7 @@ public class CommandErrorOwnershipTests
             // in the shipped assembly, which is a thing only this rule can say.
             // Its consumer takes containment as a required constructor
             // parameter, and the logged URL carries the package id from argv.
-            ["DotnetInspector.Core!DotnetInspector.Networking.HttpClientFactory.EnableNetworkTrafficLogging(System.Func<string, string>, System.IO.TextWriter)"] = 1,
+            ["DotnetInspector.Networking!DotnetInspector.Networking.HttpClientFactory.EnableNetworkTrafficLogging(System.Func<string, string>, System.IO.TextWriter)"] = 1,
 
             // CommandError.Writer's Encoding override. It reads the stream
             // rather than writing to it; its Write/Flush go through

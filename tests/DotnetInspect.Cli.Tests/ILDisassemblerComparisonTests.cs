@@ -17,7 +17,8 @@ public class ILDisassemblerComparisonTests
 {
     static readonly TimeSpan ToolTimeout = TimeSpan.FromSeconds(30);
 
-    static readonly string CoreDll = FindAssembly("DotnetInspector.Core.dll");
+    static readonly string SectionsDll =
+        FindAssembly("DotnetInspector.Sections.dll");
     static readonly string CacheDll = FindAssembly("DotnetInspector.Cache.dll");
     static readonly string UntrustedDocumentsDll =
         FindAssembly("UntrustedDocuments.dll");
@@ -88,7 +89,7 @@ public class ILDisassemblerComparisonTests
     /// <summary>Assemblies for ILAsm roundtrip validation.</summary>
     public static IEnumerable<object[]> ILAsmAssemblyCases()
     {
-        yield return ["Core"];
+        yield return ["Sections"];
         yield return ["Cache"];
         yield return ["UntrustedDocuments"];
         yield return ["Test"];
@@ -349,7 +350,7 @@ public class ILDisassemblerComparisonTests
 
     static string ResolveAssembly(string key) => key switch
     {
-        "Core" => CoreDll,
+        "Sections" => SectionsDll,
         "Cache" => CacheDll,
         "UntrustedDocuments" => UntrustedDocumentsDll,
         "Metadata" => MetadataDll,

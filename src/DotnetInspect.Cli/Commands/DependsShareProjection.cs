@@ -1,6 +1,6 @@
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
-using DotnetInspector.Core;
+using DotnetInspector.Sections;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries.Definitions;
 using NuGet.Frameworks;

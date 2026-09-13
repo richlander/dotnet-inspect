@@ -1,4 +1,4 @@
-using DotnetInspector.Core;
+using DotnetInspector.Sections;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Queries.Definitions;

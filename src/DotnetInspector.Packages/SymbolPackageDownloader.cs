@@ -1,4 +1,3 @@
-using DotnetInspector.Core;
 
 namespace DotnetInspector.Packages;
 
