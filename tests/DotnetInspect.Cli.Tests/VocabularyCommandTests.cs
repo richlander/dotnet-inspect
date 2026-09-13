@@ -87,6 +87,9 @@ public sealed class VocabularyCommandTests
         Assert.Empty(result.Error);
         Assert.Contains("# Vocabulary", result.Output);
         Assert.Contains("## Vocabulary Sections", result.Output);
+        Assert.Contains(
+            VocabularyCatalog.GetById("vocabulary.sections").Summary,
+            result.Output);
         Assert.Contains("| Section | Summary | Values |", result.Output);
         Assert.Contains("| C# Style Choices |", result.Output);
         Assert.DoesNotContain("| ID |", result.Output);
@@ -343,8 +346,42 @@ public sealed class VocabularyCommandTests
         Assert.Empty(result.Error);
         Assert.Contains("Vocabulary", result.Output);
         Assert.Contains("Accessibility", result.Output);
+        Assert.Contains(
+            VocabularyCatalog.GetById("api.accessibility").Summary,
+            result.Output);
         Assert.DoesNotContain("# Vocabulary", result.Output);
         Assert.DoesNotContain("| ID |", result.Output);
+    }
+
+    [Fact]
+    public async Task Command_JsonlUsesProjectedRuntimeColumns()
+    {
+        var result = await RunCliAsync(
+            "vocabulary",
+            "-S",
+            "Accessibility",
+            "--columns",
+            "ID,Default",
+            "--jsonl");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        JsonElement[] rows =
+        [
+            .. result.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries)
+                .Select(line => JsonDocument.Parse(line).RootElement.Clone()),
+        ];
+        Assert.Equal(4, rows.Length);
+        Assert.All(
+            rows,
+            row =>
+            {
+                Assert.True(row.TryGetProperty("id", out _));
+                Assert.True(row.TryGetProperty("default", out _));
+                Assert.Equal(2, row.EnumerateObject().Count());
+            });
     }
 
     [Fact]

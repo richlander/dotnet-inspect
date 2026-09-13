@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Routes vocabulary Markdown, plain text, table, TSV, JSONL, and projected JSON
+  through one generated Markout serializer view while preserving the
+  schema-versioned unprojected JSON contract (#6811).
 - **Breaking:** Replaces `package search` and patternless
   `find --package-prefix` with host-neutral `package query`. Exact package IDs
   and terminal-star package prefixes share the Package Query engine;
