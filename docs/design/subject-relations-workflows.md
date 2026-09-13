@@ -56,9 +56,29 @@ application. The earlier Aspire Redis, PostgreSQL and RabbitMQ baseline tasks
 all succeeded using ordinary documentation. They did not test discovery of
 relationships in unfamiliar compiled assets.
 
+### Preserve curation, widen the questions
+
+The current Integration experience pairs curated recognition with a specific
+set of queries. That makes its baseline easy: users ask a familiar question
+and get a domain-oriented answer without constructing the underlying query.
+Its reach is also shaped by the questions those views were designed to ask.
+
+The proposed experience separates curated knowledge from query composition.
+Users can combine population, relation, signature position, type shape and
+evidence constraints to ask questions beyond the existing curated views.
+That is potentially much more powerful, but assembling even a baseline query
+may take more work. Expressiveness is not automatically a usability win.
+
+Keep `Integration`, ecosystem guidance and useful shortcuts as curated
+starting points over the shared query capabilities, not as a competing
+pipeline. Preserve producer-issued semantic associations: a raw signature
+predicate is not a replacement for Integration classification. Users should
+be able to start with a useful curated answer, discover its query dimensions,
+and narrow or extend the question without abandoning its evidence.
+
 ### Exploration checkpoints
 
-Evaluate two hypotheses independently before broad adoption or command
+Evaluate these hypotheses independently before broad adoption or command
 retirement:
 
 - **Subject continuity:** with the candidate population held constant, does
@@ -67,13 +87,17 @@ retirement:
 - **Default breadth:** with the query semantics held constant, does the broader
   registered population discover useful additional relations at an acceptable
   latency, acquisition cost and noise level?
+- **Composability:** do the worked signature/middleware combinations answer
+  useful questions beyond the curated baseline, without making that baseline
+  disproportionately harder to construct or understand?
 
 Use three bounded discovery scenarios: HttpClient extension providers;
 interface versus pattern enumeration candidates; and an unfamiliar Aspire
 provider/consumer pair. Record answer correctness and evidence provenance,
-reopening accuracy, command/tool work, time to useful output, packages/bytes
-acquired, and incomplete-result handling. Compare current commands with the
-proposed flow, not an agent's memory of how to build a sample application.
+reopening accuracy, query-construction errors, command/tool work, time to useful
+output, packages/bytes acquired, and incomplete-result handling. Compare
+current commands with the proposed flow, not an agent's memory of how to build
+a sample application.
 Run enough repetitions to distinguish a directional result from a single
 successful attempt; do not infer reliability from one run.
 
@@ -535,12 +559,82 @@ signature-identity codec.
 The flags follow the same shortcut rule as `--depends`. For example, a
 proposed `--span` lowers to member results with a `signature-family=span`
 predicate; `--signature Shape` and `--returns Shape` lower to their respective
-typed predicates on those results. They do not get separate scanners.
-`find -D Results` and `find -Q Results` expose the row shape and adopted
-bindings; `vocabulary` explains the signature family. The same predicates can
-filter member results within an already selected subject without locating it
-again. CLI and browser consume the same match sites, and sharing retains the
-predicate rather than expanding it into a name-only search.
+`signature=Shape` and `returns=Shape` predicates. They do not get separate
+scanners. The same predicates can filter member results within an already
+selected subject without locating it again. CLI and browser consume the same
+match sites, and sharing retains the predicate rather than expanding it into
+a name-only search.
+
+### How shortcut flags and --where combine
+
+For these proposed signature queries, the short flags and `--where` contribute
+to **one typed request**. Expand the shortcuts, then combine the constraints
+with **AND** on the same exact result. Neither spelling takes precedence;
+argument order cannot change the question. A shortcut's default result-kind
+selection is part of its advertised expansion, not a second execution mode.
+
+These two proposed requests mean the same thing:
+
+```console
+dotnet-inspect find 'Use*' --returns IApplicationBuilder \
+  --where "signature=RequestDelegate" --ecosystem aspnetcore
+
+dotnet-inspect find 'Use*' --members \
+  --where "returns=IApplicationBuilder" \
+  --where "signature=RequestDelegate" --ecosystem aspnetcore
+```
+
+Both require a member named `Use*` that returns `IApplicationBuilder` and has
+a `RequestDelegate` occurrence in its signature. The ecosystem selector
+still chooses the candidate population. The return and signature predicates
+do not have to match the same type occurrence, but they must match the same
+member; one overload cannot supply the return while another supplies the
+parameter.
+
+Similarly, `--where` can refine a useful family shortcut:
+
+```console
+# Span or ReadOnlySpan somewhere in the signature, AND a string return.
+dotnet-inspect find --span --where "returns=string"
+
+# Fully expanded spelling.
+dotnet-inspect find --members \
+  --where "signature-family=span" --where "returns=string"
+```
+
+This includes `Convert.ToHexString(ReadOnlySpan<byte>)` but excludes
+`MemoryExtensions.AsSpan(string?)`. The family itself means Span **OR**
+ReadOnlySpan; the extra return predicate narrows that union rather than
+replacing it.
+
+| Combination | Proposed meaning |
+| --- | --- |
+| `--signature HttpContext --where "signature=RequestDelegate"` | Both shapes must occur in one member's signature; they may occupy different sites. Repeating a facet is not implicitly OR. |
+| `--returns Task --where "returns=Task"` | Redundant equivalent constraints; no extra rows or duplicated match evidence. |
+| `--returns Task --where "returns=IApplicationBuilder"` | Both constraints apply. These distinct exact returned types cannot both match, so the result is empty, not last-option-wins. Coverage still determines whether that empty result is complete. |
+| A member-only predicate combined with a type implementation result | Unsupported without an explicit declaring-type/member join; report the incompatible result kind rather than quietly reinterpreting the request. |
+| A malformed shape or unsupported predicate/operator | A visible binding diagnostic, not a successful empty scan or an ignored option. |
+
+An empty answer to a valid conjunction is different from invalid syntax.
+No new constraint solver is required to prove every contradiction before
+execution. OR is available only through an explicitly described family or
+an adopted query operator, not through argument order or choosing the short
+versus long spelling. These rules specify the proposed signature predicates;
+other query families keep their owner-defined combination rules.
+
+Section shortcuts such as `--depends` select a section preset instead of
+adding a predicate. `--where` then constrains the supported query within that
+selection. A preset does not grant new filter bindings: incompatible section
+and predicate combinations are diagnosed, not silently dropped. Neither
+kind of shortcut changes source authority, work bounds or the meaning of
+incomplete coverage.
+
+`find -D Results` exposes the result shape. `find -Q Results` should disclose
+the adopted predicate keys, required result kind, combination rules and
+shortcut equivalents; command help advertises the same expansions, and
+`vocabulary` explains the signature family and its alternatives. Discovery is
+a separate request, not `-Q` combined with execution flags. This keeps the
+easy gesture teachable while exposing how to build a more specific query.
 
 ## One subject, a separate population
 
@@ -906,6 +1000,7 @@ the named adoption gates run in Release:
 | Format and host correspondence | CLI formats and browser consume identical logical edges, occurrence associations and coverage; windowing does not change query completeness or row meaning. |
 | Sharing fidelity | A portable narrowed Relations view restores the same registrations, focus and filters; an unprojectable local/private case reports the actual limitation. |
 | Shortcut equivalence | Each `--depends` request and its `-S @Dependencies` expansion preserve the same focus, population, selected producers, evidence, bounds, errors and output. `-D` exposes those sections; `-Q` describes only executable query bindings without running producers. |
+| Predicate composition | Mixed flags/`--where` and their expanded forms agree regardless of order. Span-family OR remains inside the AND with a string return; repeated signature shapes match one member, duplicate constraints do not duplicate evidence, contradictory return predicates give an honestly scoped empty result, and invalid bindings fail visibly. |
 | Retirement parity | Migrated extension/reachable-extension, implementer/subclass and type-hierarchy workflows retain their results and bounds. Single- and mixed-root dependency replacements preserve declarations, traversal, unresolved targets, partial failures, exit status and formats before their old routes disappear. |
 
 Use the smallest real-asset and boundary fixtures proving these outcomes.
