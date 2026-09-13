@@ -7,7 +7,7 @@ public sealed partial class WorkspaceScopeTests
     [Fact]
     public async Task RegistrationReplacementPreservesPreparingPackagePublication()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         WorkspaceScopeSnapshot prior = await Replace(workspace, Binding("Prior.Package"));
         WorkspaceRegistrationRevision registrations = RegistrationCurrent(workspace);
         WorkspaceScopeSnapshot? before = null;
@@ -41,7 +41,7 @@ public sealed partial class WorkspaceScopeTests
     [Fact]
     public async Task RegistrationChangesKeepAdmittedContentAndObserveClose()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         WorkspaceScopeSnapshot packages = await Replace(workspace, Binding("Retained.Package"));
         WorkspaceRegistrationRevision initial = RegistrationCurrent(workspace);
         using InspectionWorkspace.ArtifactRootQueryLease query = ArtifactAvailable(
@@ -78,7 +78,7 @@ public sealed partial class WorkspaceScopeTests
         ImmutableArray<WorkspaceRegistration> registrations =
             [.. Enumerable.Range(0, 65).Select(index =>
                 (WorkspaceRegistration)new WorkspaceRegistration.PackagePrefix(new($"Example.P{index}.")))];
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous(registrations);
+        await using InspectionWorkspace workspace = new InspectionWorkspace(registrations);
         WorkspaceScopeSnapshot packages = await Current(workspace);
         Assert.Equal(65, RegistrationCurrent(workspace).Registrations.Length);
         Assert.Equal(64, packages.Revision.Limits.MaxPackages);

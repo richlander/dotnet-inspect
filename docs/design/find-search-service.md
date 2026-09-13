@@ -68,7 +68,7 @@ described under [Implementation and validation status](#implementation-and-valid
 
 For one normalized package reference with an exact NuGet version, one explicit
 target framework other than `all`, no other source, and no numeric result
-limit, the service owns an asynchronous `InspectionWorkspace`. It acquires and
+limit, the service owns an `InspectionWorkspace` with awaited close. It acquires and
 commits one package Root, then executes `AssemblyContextTypeInventoryQuery`
 against the Root's surface group. Direct and fallback census passes reuse that
 committed Root. Floating, `@latest`, and wildcard version selectors remain on

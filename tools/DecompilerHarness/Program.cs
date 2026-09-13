@@ -33,9 +33,9 @@ static class Program
     /// rather than the harness intending to run it.</summary>
     static bool s_protectedGateDispatched;
 
-    static int Main(string[] args)
+    static async Task<int> Main(string[] args)
     {
-        int exit = RunHarness(args);
+        int exit = await RunHarness(args);
         if (AuthoredCorpusExitContract.GateExitedWithoutRunning(
                 exit, s_protectedGateRequested, s_protectedGateDispatched) is { } escaped)
         {
@@ -45,7 +45,7 @@ static class Program
         return exit;
     }
 
-    static int RunHarness(string[] args)
+    static async Task<int> RunHarness(string[] args)
     {
         List<string> inputs = [];
         int maxExamples = 5;
@@ -537,7 +537,7 @@ static class Program
                 return Fail("--return-to-sender-fixtures supplies built assemblies; do not use it with --return-to-sender-catalog.");
             if (inputs.Count > 0)
                 return Fail("--return-to-sender-catalog generates its own temporary input assembly; do not pass assembly paths.");
-            return ReturnToSenderCatalog(
+            return await ReturnToSenderCatalog(
                 returnToSenderCatalogSelector,
                 keepGeneratedFixtures,
                 json,
@@ -617,7 +617,7 @@ static class Program
             return FidelityCheck.Run(assemblies, compileCap, maxExamples, lowered, fidelityTimings, fidelityZeroSignalGuard);
 
         if (returnToSender)
-            return ReturnToSender.Run(assemblies, cap, maxExamples);
+            return await ReturnToSender.Run(assemblies, cap, maxExamples);
 
         if (returnAddress)
             return ReturnAddressCensus.Run(
@@ -652,7 +652,7 @@ static class Program
 
         if (sourceOracleCandidates)
         {
-            return SourceOracleCandidateLedger.Run(
+            return await SourceOracleCandidateLedger.Run(
                 assemblies,
                 baselineSourceOracleReportPath!,
                 json,
@@ -670,7 +670,7 @@ static class Program
             s_protectedGateDispatched = true;
 
             return benchmarkAuthoredCorpus
-                ? AuthoredCorpusBenchmark.Run(
+                ? await AuthoredCorpusBenchmark.Run(
                     assemblies,
                     benchmarkCorpusPath!,
                     json,
@@ -692,12 +692,12 @@ static class Program
         }
 
         if (returnToSenderAb)
-            return ReturnToSender.RunComparison(assemblies, cap, maxExamples);
+            return await ReturnToSender.RunComparison(assemblies, cap, maxExamples);
 
         if (returnToSenderSourceProbe)
         {
             return sourceCorrespondenceCensus
-                ? ReturnToSenderSourceProbe.RunSourceCorrespondenceCensus(
+                ? await ReturnToSenderSourceProbe.RunSourceCorrespondenceCensus(
                     assemblies,
                     cap,
                     maxExamples,
@@ -705,7 +705,7 @@ static class Program
                     sourceRepositories,
                     packageInputs.PackageCoordinates,
                     emitHarnessReport)
-                : ReturnToSenderSourceProbe.Run(
+                : await ReturnToSenderSourceProbe.Run(
                     assemblies,
                     cap,
                     maxExamples,
@@ -714,7 +714,7 @@ static class Program
         }
 
         if (authoredRebuildFidelity)
-            return AuthoredRebuildFidelity.Run(assemblies, cap, maxExamples);
+            return await AuthoredRebuildFidelity.Run(assemblies, cap, maxExamples);
 
         if (typeCheck)
             return RunAggregate(
@@ -736,8 +736,11 @@ static class Program
                 () => Dec0009Classifier.Run(assemblies, maxExamples, json));
 
         if (emitCorpusSnapshot is not null || diffCorpusBaseline is not null || diffCorpusBaselineRef is not null || emitCorpusDelta is not null || qualityDiffCard || emitRtsParityKnownGaps is not null || rtsParityKnownGaps is not null)
-            return RunAggregate(
-                () => CorpusSensor.Run(
+        {
+            int admission = RunAggregate(static () => 0);
+            if (admission != 0)
+                return admission;
+            return await CorpusSensor.Run(
                     assemblies,
                     compileCap,
                     corpusFidelityCaps,
@@ -754,7 +757,8 @@ static class Program
                     corpusFidelityOracle,
                     corpusProfile,
                     rtsParityKnownGaps,
-                    emitRtsParityKnownGaps));
+                    emitRtsParityKnownGaps);
+        }
 
         if (renderAb is not null || emitRenderAb is not null)
             return RenderAbSensor.Run(
@@ -954,7 +958,7 @@ static class Program
         return run.Passed ? 0 : 1;
     }
 
-    static int ReturnToSenderCatalog(
+    static async Task<int> ReturnToSenderCatalog(
         string? selector,
         bool keepArtifacts,
         bool json,
@@ -982,7 +986,7 @@ static class Program
         if (fixtures.Count == 0)
             return Fail($"No generated fixture IDs match '{selector}'. Use '--return-to-sender-catalog list'.");
 
-        var run = GeneratedFixtureRunner.RunReturnToSenderCatalog(
+        var run = await GeneratedFixtureRunner.RunReturnToSenderCatalog(
             fixtures,
             new GeneratedFixtureRunOptions(KeepArtifacts: keepArtifacts));
         var report = ReturnToSenderCatalogReport.BuildReport(run, maxExamples);

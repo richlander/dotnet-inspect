@@ -779,7 +779,7 @@ public class LibraryCommand
                 }
 
                 AssemblyContextIntegrationsBatch? integrations =
-                    AssemblyContextIntegrationsRunner.RunIfRequested(
+                    await AssemblyContextIntegrationsRunner.RunIfRequestedAsync(
                         queries,
                         groupQueryCatalog,
                         [
@@ -932,7 +932,7 @@ public class LibraryCommand
                     ? [assemblyPaths[0]]
                     : assemblyPaths;
                 AssemblyContextIntegrationsBatch? integrations =
-                    AssemblyContextIntegrationsRunner.RunIfRequested(
+                    await AssemblyContextIntegrationsRunner.RunIfRequestedAsync(
                         queries,
                         groupQueryCatalog,
                         inspectionPaths.Select(path =>
@@ -1172,7 +1172,7 @@ public class LibraryCommand
                 }
 
                 AssemblyContextIntegrationsBatch? integrations =
-                    AssemblyContextIntegrationsRunner.RunIfRequested(
+                    await AssemblyContextIntegrationsRunner.RunIfRequestedAsync(
                         queries,
                         groupQueryCatalog,
                         [

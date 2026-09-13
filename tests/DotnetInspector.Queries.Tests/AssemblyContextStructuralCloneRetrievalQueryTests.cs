@@ -17,12 +17,12 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
 {
     [Fact]
-    public void Execute_SameAssemblyExactMemberPreservesProductResult()
+    public async Task Execute_SameAssemblyExactMemberPreservesProductResult()
     {
         ImmutableArray<byte> image =
             Image(typeof(StructuralCloneFixture).Assembly.Location);
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -94,7 +94,7 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_CrossAssemblyTokenAndTypeScopePreserveProductResult()
+    public async Task Execute_CrossAssemblyTokenAndTypeScopePreserveProductResult()
     {
         ImmutableArray<byte> seedImage =
             Image(FixtureCatalog.DiffPair.OldAssemblyPath());
@@ -102,7 +102,7 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
             Image(FixtureCatalog.DiffPair.NewAssemblyPath());
         var seedPolicy = new TestBindingPolicy();
         var candidatePolicy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup seedGroup =
             Group(workspace, seedImage, seedPolicy);
         using AssemblyContextGroup candidateGroup =
@@ -170,12 +170,12 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_WholeAssemblyPopulationLeavesMethodLimitToProduct()
+    public async Task Execute_WholeAssemblyPopulationLeavesMethodLimitToProduct()
     {
         ImmutableArray<byte> image =
             Image(typeof(StructuralCloneFixture).Assembly.Location);
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -218,12 +218,12 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_ResultAndBodyProductionLimitsRemainDistinct()
+    public async Task Execute_ResultAndBodyProductionLimitsRemainDistinct()
     {
         ImmutableArray<byte> image =
             Image(typeof(StructuralCloneFixture).Assembly.Location);
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -289,12 +289,12 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_UnsupportedSeedRemainsAProductOutcome()
+    public async Task Execute_UnsupportedSeedRemainsAProductOutcome()
     {
         ImmutableArray<byte> image =
             Image(typeof(StructuralCloneFixture).Assembly.Location);
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -339,12 +339,12 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_UnknownTargetsFailInsteadOfReturningEmptyResults()
+    public async Task Execute_UnknownTargetsFailInsteadOfReturningEmptyResults()
     {
         ImmutableArray<byte> image =
             Image(typeof(StructuralCloneFixture).Assembly.Location);
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -415,13 +415,13 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_AmbiguousExactMemberIsAnExplicitFailure()
+    public async Task Execute_AmbiguousExactMemberIsAnExplicitFailure()
     {
         ImmutableArray<byte> image =
             ImmutableCollectionsMarshal.AsImmutableArray(
                 BuildAmbiguousSeedAssembly());
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -454,12 +454,12 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_ExtensionMemberUsesItsProductOwnedExactAnchor()
+    public async Task Execute_ExtensionMemberUsesItsProductOwnedExactAnchor()
     {
         ImmutableArray<byte> image =
             Image(FixtureCatalog.DiffPair.OldAssemblyPath());
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -501,14 +501,14 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_SeedFailurePrecedesCandidateAcquisition()
+    public async Task Execute_SeedFailurePrecedesCandidateAcquisition()
     {
         ImmutableArray<byte> image =
             Image(typeof(StructuralCloneFixture).Assembly.Location);
         ImmutableArray<byte> malformed = [0, 1, 2, 3];
         var seedPolicy = new TestBindingPolicy();
         var candidatePolicy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup seedGroup =
             Group(workspace, image, seedPolicy);
         using AssemblyContextGroup candidateGroup =
@@ -548,12 +548,12 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_VirtualMethodTokenIsATypedMissingSeed()
+    public async Task Execute_VirtualMethodTokenIsATypedMissingSeed()
     {
         ImmutableArray<byte> image =
             Image(typeof(StructuralCloneFixture).Assembly.Location);
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -582,7 +582,7 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_RepeatedLongLeafTypeLookupFailsAtAggregateBudget()
+    public async Task Execute_RepeatedLongLeafTypeLookupFailsAtAggregateBudget()
     {
         const string Namespace = "N";
         string longLeaf = new('T', 4_000);
@@ -593,7 +593,7 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
                     longLeaf,
                     typeCount: 1_100));
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -625,7 +625,7 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_RepeatedUnequalLongLeafTypeLookupFailsAtAggregateBudget()
+    public async Task Execute_RepeatedUnequalLongLeafTypeLookupFailsAtAggregateBudget()
     {
         const string Namespace = "N";
         string longLeaf = new('T', 4_000);
@@ -636,7 +636,7 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
                     longLeaf + "X",
                     typeCount: 1_100));
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -668,14 +668,14 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_RepeatedMalformedTypeLeavesFailAtDecodeBudget()
+    public async Task Execute_RepeatedMalformedTypeLeavesFailAtDecodeBudget()
     {
         ImmutableArray<byte> image =
             ImmutableCollectionsMarshal.AsImmutableArray(
                 BuildMalformedTypeNameAssembly(
                     malformedTypes: 100_000));
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -714,7 +714,7 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_NearLimitMemberAnchorsShareOneWorkBudget()
+    public async Task Execute_NearLimitMemberAnchorsShareOneWorkBudget()
     {
         ImmutableArray<byte> image =
             ImmutableCollectionsMarshal.AsImmutableArray(
@@ -723,7 +723,7 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
                     parameterCount: 30,
                     genericArity: 2_030));
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -765,7 +765,7 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_ExtensionContainerAttributesAreInspectedOnce()
+    public async Task Execute_ExtensionContainerAttributesAreInspectedOnce()
     {
         ImmutableArray<byte> image =
             ImmutableCollectionsMarshal.AsImmutableArray(
@@ -774,7 +774,7 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
                     attributeCount: 128,
                     attributeTypeNameLength: 3_000));
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -813,7 +813,7 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_TypeSpecificationAttributeBudgetExhaustionIsVisible()
+    public async Task Execute_TypeSpecificationAttributeBudgetExhaustionIsVisible()
     {
         ImmutableArray<byte> image =
             ImmutableCollectionsMarshal.AsImmutableArray(
@@ -823,7 +823,7 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
                     attributeTypeNameLength: 3_000,
                     useTypeSpecificationParent: true));
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -862,7 +862,7 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Execute_RejectedTypeSpecificationAttributeIsVisible(
+    public async Task Execute_RejectedTypeSpecificationAttributeIsVisible(
         bool attributeOnMethod)
     {
         ImmutableArray<byte> image =
@@ -883,7 +883,7 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
                 method,
                 isExtensionMethod: false).Anchor;
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -912,13 +912,13 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_HealthyExactTypeSurvivesMalformedNeighbor()
+    public async Task Execute_HealthyExactTypeSurvivesMalformedNeighbor()
     {
         ImmutableArray<byte> image =
             ImmutableCollectionsMarshal.AsImmutableArray(
                 BuildMalformedNeighborAssembly());
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -974,13 +974,13 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_TypeNameDecodeFailuresBelowTheCeilingStillResolve()
+    public async Task Execute_TypeNameDecodeFailuresBelowTheCeilingStillResolve()
     {
         ImmutableArray<byte> image =
             ImmutableCollectionsMarshal.AsImmutableArray(
                 BuildMalformedTypeNameAssembly(malformedTypes: 2));
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -1008,13 +1008,13 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_TypeNameDecodeFailureCeilingIsAVisibleRejection()
+    public async Task Execute_TypeNameDecodeFailureCeilingIsAVisibleRejection()
     {
         ImmutableArray<byte> image =
             ImmutableCollectionsMarshal.AsImmutableArray(
                 BuildMalformedTypeNameAssembly(malformedTypes: 3));
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -1045,7 +1045,7 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_DuplicateProjectedMethodRowIsAVisibleRejection()
+    public async Task Execute_DuplicateProjectedMethodRowIsAVisibleRejection()
     {
         ImmutableArray<byte> image =
             ImmutableCollectionsMarshal.AsImmutableArray(
@@ -1059,7 +1059,7 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
         }
 
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -1092,13 +1092,13 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_WholeAssemblyDuplicateProjectionIsAVisibleRejection()
+    public async Task Execute_WholeAssemblyDuplicateProjectionIsAVisibleRejection()
     {
         ImmutableArray<byte> image =
             ImmutableCollectionsMarshal.AsImmutableArray(
                 BuildDuplicateMethodPtrAssembly());
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -1131,13 +1131,13 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_OutOfRangeMethodProjectionIsAVisibleRejection()
+    public async Task Execute_OutOfRangeMethodProjectionIsAVisibleRejection()
     {
         ImmutableArray<byte> image =
             ImmutableCollectionsMarshal.AsImmutableArray(
                 BuildMethodPtrAssembly(1, 99));
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -1170,13 +1170,13 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_DuplicateProjectionSeedMemberIsAMetadataRejection()
+    public async Task Execute_DuplicateProjectionSeedMemberIsAMetadataRejection()
     {
         ImmutableArray<byte> image =
             ImmutableCollectionsMarshal.AsImmutableArray(
                 BuildDuplicateMethodPtrAssembly());
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -1215,7 +1215,7 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_CrossImageWholeAssemblyDuplicateProjectionIsAVisibleRejection()
+    public async Task Execute_CrossImageWholeAssemblyDuplicateProjectionIsAVisibleRejection()
     {
         ImmutableArray<byte> seedImage =
             Image(FixtureCatalog.DiffPair.OldAssemblyPath());
@@ -1224,7 +1224,7 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
                 BuildDuplicateMethodPtrAssembly());
         var seedPolicy = new TestBindingPolicy();
         var candidatePolicy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup seedGroup =
             Group(workspace, seedImage, seedPolicy);
         using AssemblyContextGroup candidateGroup =
@@ -1257,13 +1257,13 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_MalformedMethodRangeIsAVisibleRejection()
+    public async Task Execute_MalformedMethodRangeIsAVisibleRejection()
     {
         ImmutableArray<byte> image =
             ImmutableCollectionsMarshal.AsImmutableArray(
                 BuildMalformedMethodListAssembly());
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -1293,13 +1293,13 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_AliasedMethodPtrAcrossTypesIsAVisibleRejection()
+    public async Task Execute_AliasedMethodPtrAcrossTypesIsAVisibleRejection()
     {
         ImmutableArray<byte> image =
             ImmutableCollectionsMarshal.AsImmutableArray(
                 BuildAliasedMethodPtrAssembly());
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -1329,13 +1329,13 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_UncoveredMethodPtrRowIsAVisibleRejection()
+    public async Task Execute_UncoveredMethodPtrRowIsAVisibleRejection()
     {
         ImmutableArray<byte> image =
             ImmutableCollectionsMarshal.AsImmutableArray(
                 BuildUncoveredMethodPtrAssembly());
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -1369,13 +1369,13 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_DescendingMethodListIsAVisibleRejection()
+    public async Task Execute_DescendingMethodListIsAVisibleRejection()
     {
         ImmutableArray<byte> image =
             ImmutableCollectionsMarshal.AsImmutableArray(
                 BuildDescendingMethodListAssembly());
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -1414,13 +1414,13 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_DescendingMethodListWithoutMethodPtrIsAVisibleRejection()
+    public async Task Execute_DescendingMethodListWithoutMethodPtrIsAVisibleRejection()
     {
         ImmutableArray<byte> image =
             ImmutableCollectionsMarshal.AsImmutableArray(
                 BuildDescendingMethodListWithoutMethodPtrAssembly());
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -1460,13 +1460,13 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_DescendingReorderedMethodPtrIsAVisibleRejection()
+    public async Task Execute_DescendingReorderedMethodPtrIsAVisibleRejection()
     {
         ImmutableArray<byte> image =
             ImmutableCollectionsMarshal.AsImmutableArray(
                 BuildDescendingReorderedMethodPtrAssembly());
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -1506,13 +1506,13 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_MethodListStartPastProjectedTableIsAVisibleRejection()
+    public async Task Execute_MethodListStartPastProjectedTableIsAVisibleRejection()
     {
         ImmutableArray<byte> image =
             ImmutableCollectionsMarshal.AsImmutableArray(
                 BuildStartPastProjectedTableAssembly());
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -1557,13 +1557,13 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_FirstMethodListStartPastRowOneIsAVisibleRejection()
+    public async Task Execute_FirstMethodListStartPastRowOneIsAVisibleRejection()
     {
         ImmutableArray<byte> image =
             ImmutableCollectionsMarshal.AsImmutableArray(
                 BuildFirstStartPastRowOneAssembly());
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -1602,13 +1602,13 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_NullMethodListAfterPopulatedRunIsAVisibleRejection()
+    public async Task Execute_NullMethodListAfterPopulatedRunIsAVisibleRejection()
     {
         ImmutableArray<byte> image =
             ImmutableCollectionsMarshal.AsImmutableArray(
                 BuildNullMethodListAfterPopulatedRunAssembly());
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -1649,13 +1649,13 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_NullMethodListIsNotRejected()
+    public async Task Execute_NullMethodListIsNotRejected()
     {
         ImmutableArray<byte> image =
             ImmutableCollectionsMarshal.AsImmutableArray(
                 BuildNullMethodListAssembly());
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -1700,7 +1700,7 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_RepeatedLeafNameChargesChainTraversal()
+    public async Task Execute_RepeatedLeafNameChargesChainTraversal()
     {
         // Every candidate clears the leaf comparison and reaches the
         // declaring-chain walk. Charged only for the names involved,
@@ -1716,7 +1716,7 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
         Assert.Equal(64, MeasureLeafDeclaringDepth(image, "C"));
 
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -1747,13 +1747,13 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_TypeDeflessImageIsAVisibleRejection()
+    public async Task Execute_TypeDeflessImageIsAVisibleRejection()
     {
         ImmutableArray<byte> image =
             ImmutableCollectionsMarshal.AsImmutableArray(
                 BuildTypeDeflessAssembly());
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -1786,7 +1786,7 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_RejectedSeedSiblingIsAVisibleRejection()
+    public async Task Execute_RejectedSeedSiblingIsAVisibleRejection()
     {
         ImmutableArray<byte> image =
             ImmutableCollectionsMarshal.AsImmutableArray(
@@ -1801,7 +1801,7 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
                     MetadataTokens.MethodDefinitionHandle(1)),
                 isExtensionMethod: false).Anchor;
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =
@@ -1836,14 +1836,14 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_MalformedSeedImageIsAVisibleSeedRejection()
+    public async Task Execute_MalformedSeedImageIsAVisibleSeedRejection()
     {
         ImmutableArray<byte> candidateImage =
             Image(typeof(StructuralCloneFixture).Assembly.Location);
         ImmutableArray<byte> malformed = [0, 1, 2, 3];
         var seedPolicy = new TestBindingPolicy();
         var candidatePolicy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup seedGroup =
             Group(
                 workspace,
@@ -1879,14 +1879,14 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_MalformedCandidateImageIsAVisibleRejection()
+    public async Task Execute_MalformedCandidateImageIsAVisibleRejection()
     {
         ImmutableArray<byte> seedImage =
             Image(typeof(StructuralCloneFixture).Assembly.Location);
         ImmutableArray<byte> malformed = [0, 1, 2, 3];
         var seedPolicy = new TestBindingPolicy();
         var candidatePolicy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup seedGroup =
             Group(workspace, seedImage, seedPolicy);
         using AssemblyContextGroup candidateGroup =
@@ -1937,13 +1937,13 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_SeparateRegistrationsWithSameMvidRemainCrossImage()
+    public async Task Execute_SeparateRegistrationsWithSameMvidRemainCrossImage()
     {
         ImmutableArray<byte> image =
             Image(typeof(StructuralCloneFixture).Assembly.Location);
         var seedPolicy = new TestBindingPolicy();
         var candidatePolicy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup seedGroup =
             Group(workspace, image, seedPolicy);
         using AssemblyContextGroup candidateGroup =
@@ -1988,12 +1988,12 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Definition_IsUnboundedAndRunsThroughTheTypedRegistry()
+    public async Task Definition_IsUnboundedAndRunsThroughTheTypedRegistry()
     {
         ImmutableArray<byte> image =
             Image(typeof(StructuralCloneFixture).Assembly.Location);
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             Group(workspace, image, policy);
         AssemblyContextParticipant participant =

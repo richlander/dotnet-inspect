@@ -31,7 +31,7 @@ internal static class WorkspaceImplementationComparisonRunner
         ArgumentNullException.ThrowIfNull(selector);
         ArgumentNullException.ThrowIfNull(httpClient);
 
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         var ownedTemporaryDirectories = new List<string>();
         try
         {

@@ -404,13 +404,6 @@ public sealed partial class InspectionWorkspace
         ArgumentNullException.ThrowIfNull(selectedAsset);
         ArgumentNullException.ThrowIfNull(options);
         options.Validate();
-        if (_lifetimeMode
-            != InspectionWorkspaceLifetimeMode.Asynchronous)
-        {
-            throw new InvalidOperationException(
-                "Sparse package assembly projection requires a workspace created by CreateAsynchronous.");
-        }
-
         cancellationToken.ThrowIfCancellationRequested();
         IPackageContent content = package.Root.Content;
         if (!ReferenceEquals(

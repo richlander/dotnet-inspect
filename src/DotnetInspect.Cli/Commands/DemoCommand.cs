@@ -186,7 +186,7 @@ public static class DemoCommand
             return 1;
         }
 
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         WorkspaceContextLoadOutcome outcome =
             await WorkspaceContextLoader.LoadAsync(
                 workspace,
@@ -220,6 +220,7 @@ public static class DemoCommand
 
         WorkspaceContextLoadOutcome.Loaded loaded =
             (WorkspaceContextLoadOutcome.Loaded)outcome;
+        using AssemblyContextGroup group = loaded.Group;
         if (loaded.Members.Length != platformMembers.Length)
         {
             CommandError.Write(

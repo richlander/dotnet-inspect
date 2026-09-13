@@ -161,7 +161,7 @@ public static class LibraryCallUseCommand
 
         AssemblyPairCallUseResult? result = null;
         var unavailable = new List<string>();
-        using var workspace = new AssemblySetInspectionWorkspace();
+        await using var workspace = new AssemblySetInspectionWorkspace();
         workspace.RunGroup(
             assemblies,
             (group, _) =>

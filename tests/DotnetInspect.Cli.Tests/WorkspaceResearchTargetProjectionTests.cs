@@ -45,19 +45,19 @@ public sealed class WorkspaceResearchTargetProjectionTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void WorkspaceResearchTarget_AvailableProjectionPreservesEveryMetadataOutcome()
+    public async Task WorkspaceResearchTarget_AvailableProjectionPreservesEveryMetadataOutcome()
     {
         var audit = new WorkspaceProjectionContractAudit();
         audit.ValidateInventory();
-        WorkspaceProjectionFixture.ExerciseAll(audit);
+        await WorkspaceProjectionFixture.ExerciseAll(audit);
         WorkspaceProjectionFixture.AssertCoverage(audit);
     }
 
     [Fact]
-    public void WorkspaceResearchTarget_ImageOpenFailureIsUnavailable()
+    public async Task WorkspaceResearchTarget_ImageOpenFailureIsUnavailable()
     {
         var audit = new WorkspaceProjectionContractAudit();
-        WorkspaceProjectionFixture.ExerciseQueryResults(audit);
+        await WorkspaceProjectionFixture.ExerciseQueryResults(audit);
         WorkspaceProjectionSchema schema = audit.Sources[typeof(CandidateOpenFailure)];
         Assert.Equal(3, schema.Properties.Length);
         foreach (WorkspaceProjectionProperty property in schema.Properties)

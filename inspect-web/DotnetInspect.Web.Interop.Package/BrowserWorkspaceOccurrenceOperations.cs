@@ -47,7 +47,7 @@ internal static class BrowserWorkspaceOccurrenceOperations
     {
         ArgumentNullException.ThrowIfNull(requests);
         ArgumentNullException.ThrowIfNull(resolveAsync);
-        InFlightQuery query = BeginQuery();
+        InFlightQuery query = await BeginQueryAsync().ConfigureAwait(false);
         var coordinates =
             new List<BrowserPackageCoordinate>(requests.Count);
         try
@@ -60,10 +60,10 @@ internal static class BrowserWorkspaceOccurrenceOperations
                 coordinates.Add(coordinate);
             }
 
-            return ReplaceCurrent(
+            return await ReplaceCurrent(
                 coordinates,
                 query.TakeLeases(),
-                query.Generation);
+                query.Generation).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
             when (query.CancellationToken.IsCancellationRequested)
@@ -76,17 +76,19 @@ internal static class BrowserWorkspaceOccurrenceOperations
         }
     }
 
-    internal static BrowserWorkspacePackageOccurrenceView ReplaceCurrent(
+    internal static async Task<BrowserWorkspacePackageOccurrenceView> ReplaceCurrent(
         IReadOnlyList<BrowserPackageCoordinate> coordinates)
     {
-        long generation = BeginReplacement();
-        return ReplaceCurrent(
+        long generation = ++_generation;
+        CancelInFlight();
+        await ClearCurrentCoreAsync().ConfigureAwait(false);
+        return await ReplaceCurrent(
             coordinates,
             new BrowserPackageWorkspace.PackageLeaseSet(),
-            generation);
+            generation).ConfigureAwait(false);
     }
 
-    static BrowserWorkspacePackageOccurrenceView ReplaceCurrent(
+    static async Task<BrowserWorkspacePackageOccurrenceView> ReplaceCurrent(
         IReadOnlyList<BrowserPackageCoordinate> coordinates,
         BrowserPackageWorkspace.PackageLeaseSet leases,
         long generation)
@@ -95,37 +97,41 @@ internal static class BrowserWorkspaceOccurrenceOperations
         ArgumentNullException.ThrowIfNull(leases);
 
         BrowserWorkspaceOccurrenceSession replacement =
-            BrowserWorkspaceOccurrenceSession.Create(
+            await BrowserWorkspaceOccurrenceSession.CreateAsync(
                 coordinates,
-                leases);
+                leases).ConfigureAwait(false);
         if (generation != _generation)
         {
-            replacement.Dispose();
+            await replacement.DisposeAsync().ConfigureAwait(false);
             return replacement.View with { Superseded = true };
         }
 
         BrowserWorkspaceOccurrenceSession? previous = _current;
         _current = replacement;
-        previous?.Dispose();
-        return replacement.View;
+        if (previous is not null)
+            await previous.DisposeAsync().ConfigureAwait(false);
+        return replacement.View with { Superseded = generation != _generation };
     }
 
-    static long BeginReplacement()
+    static async Task<InFlightQuery> BeginQueryAsync()
     {
         long generation = ++_generation;
         CancelInFlight();
-        ClearCurrentCore();
-        return generation;
-    }
-
-    static InFlightQuery BeginQuery()
-    {
-        long generation = ++_generation;
-        CancelInFlight();
-        ClearCurrentCore();
+        BrowserWorkspaceOccurrenceSession? previous = _current;
+        _current = null;
         var query = new InFlightQuery(generation);
         _inFlight = query;
-        return query;
+        try
+        {
+            if (previous is not null)
+                await previous.DisposeAsync().ConfigureAwait(false);
+            return query;
+        }
+        catch
+        {
+            EndQuery(query);
+            throw;
+        }
     }
 
     static void EndQuery(InFlightQuery query)
@@ -142,18 +148,19 @@ internal static class BrowserWorkspaceOccurrenceOperations
         query?.Cancel();
     }
 
-    internal static void ClearCurrent()
+    internal static async Task ClearCurrent()
     {
         _generation++;
         CancelInFlight();
-        ClearCurrentCore();
+        await ClearCurrentCoreAsync().ConfigureAwait(false);
     }
 
-    static void ClearCurrentCore()
+    static async Task ClearCurrentCoreAsync()
     {
         BrowserWorkspaceOccurrenceSession? previous = _current;
         _current = null;
-        previous?.Dispose();
+        if (previous is not null)
+            await previous.DisposeAsync().ConfigureAwait(false);
     }
 
     static BrowserWorkspacePackageOccurrenceView SupersededView() =>
@@ -235,7 +242,7 @@ internal static class BrowserWorkspaceOccurrenceOperations
         }
     }
 
-    sealed class BrowserWorkspaceOccurrenceSession : IDisposable
+    sealed class BrowserWorkspaceOccurrenceSession : IAsyncDisposable
     {
         readonly InspectionWorkspace _workspace;
         readonly BrowserPackageWorkspace.PackageLeaseSet _leases;
@@ -259,7 +266,7 @@ internal static class BrowserWorkspaceOccurrenceOperations
 
         internal BrowserWorkspacePackageOccurrenceView View { get; }
 
-        internal static BrowserWorkspaceOccurrenceSession Create(
+        internal static async ValueTask<BrowserWorkspaceOccurrenceSession> CreateAsync(
             IReadOnlyList<BrowserPackageCoordinate> coordinates,
             BrowserPackageWorkspace.PackageLeaseSet leases)
         {
@@ -283,10 +290,21 @@ internal static class BrowserWorkspaceOccurrenceOperations
                     productView,
                     snapshot);
             }
-            catch
+            catch (Exception failure)
             {
-                workspace.Dispose();
-                leases.Dispose();
+                try
+                {
+                    await BrowserInspectionScope.CloseWorkspaceAsync(workspace).ConfigureAwait(false);
+                }
+                catch (Exception cleanupFailure)
+                {
+                    failure.Data["DotnetInspector.Queries.WorkspaceCleanupFailure"] =
+                        cleanupFailure;
+                }
+                finally
+                {
+                    leases.Dispose();
+                }
                 throw;
             }
         }
@@ -318,11 +336,11 @@ internal static class BrowserWorkspaceOccurrenceOperations
             return selection;
         }
 
-        public void Dispose()
+        public async ValueTask DisposeAsync()
         {
             try
             {
-                _workspace.Dispose();
+                await BrowserInspectionScope.CloseWorkspaceAsync(_workspace).ConfigureAwait(false);
             }
             finally
             {
@@ -386,7 +404,7 @@ namespace DotnetInspect.Web.Interop.Package
 public static partial class PackageExports
 {
     [JSExport]
-    public static void ClearWorkspacePackageOccurrences() =>
+    public static Task ClearWorkspacePackageOccurrences() =>
         BrowserWorkspaceOccurrenceOperations.ClearCurrent();
 
     [JSExport]

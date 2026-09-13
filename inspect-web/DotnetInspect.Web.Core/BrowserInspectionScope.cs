@@ -130,7 +130,7 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
                     binding,
                     cancellationToken)
                 .ConfigureAwait(false)
-            : CreateComposite(exact);
+            : await CreateCompositeAsync(exact).ConfigureAwait(false);
     }
 
     static async ValueTask<BrowserInspectionScope> CreateArtifactBackedAsync(
@@ -138,8 +138,7 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
         PackageRootBinding binding,
         CancellationToken cancellationToken)
     {
-        InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+        InspectionWorkspace workspace = new();
         PackageAssemblyContextRealization? realization = null;
         try
         {
@@ -186,7 +185,7 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
         }
     }
 
-    static BrowserInspectionScope CreateComposite(
+    static async ValueTask<BrowserInspectionScope> CreateCompositeAsync(
         ImmutableArray<BrowserPackageCoordinate> coordinates)
     {
         var workspace = new InspectionWorkspace();
@@ -204,10 +203,17 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
         }
         catch (Exception creationFailure)
         {
-            List<Exception>? cleanupFailures = null;
-            TryDispose(realization, ref cleanupFailures);
-            TryDispose(workspace, ref cleanupFailures);
-            if (cleanupFailures is not null)
+            List<Exception> cleanupFailures = [];
+            try
+            {
+                realization?.Dispose();
+            }
+            catch (Exception roleFailure)
+            {
+                cleanupFailures.Add(roleFailure);
+            }
+            await TryCloseAsync(workspace, cleanupFailures).ConfigureAwait(false);
+            if (cleanupFailures.Count > 0)
             {
                 throw new BrowserScopeConstructionException(
                     creationFailure,
@@ -594,66 +600,51 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
             failures.Add(roleFailure);
         }
 
-        if (ArtifactBacked)
-        {
-            await TryCloseAsync(_workspace, failures).ConfigureAwait(false);
-        }
-        else
-        {
-            try
-            {
-                _workspace.Dispose();
-            }
-            catch (Exception workspaceFailure)
-            {
-                failures.Add(workspaceFailure);
-            }
-        }
+        await TryCloseAsync(_workspace, failures).ConfigureAwait(false);
 
+        ThrowCleanupFailures(failures);
+    }
+
+    internal static async ValueTask CloseWorkspaceAsync(
+        InspectionWorkspace workspace)
+    {
+        List<Exception> failures = [];
+        await TryCloseAsync(workspace, failures).ConfigureAwait(false);
+        ThrowCleanupFailures(failures);
+    }
+
+    static void ThrowCleanupFailures(List<Exception> failures)
+    {
         if (failures.Count == 1)
             ExceptionDispatchInfo.Capture(failures[0]).Throw();
         if (failures.Count > 1)
             throw new AggregateException(failures);
     }
 
-    static async ValueTask TryCloseAsync(
+    internal static async ValueTask TryCloseAsync(
         InspectionWorkspace workspace,
         List<Exception> failures)
     {
+        InspectionWorkspaceCloseReport? report;
         try
         {
-            InspectionWorkspaceCloseReport report =
-                await workspace.CloseAsync().ConfigureAwait(false);
-            foreach (InspectionWorkspaceDirectGroupCloseResult group in
-                report.Groups.OfType<InspectionWorkspaceDirectGroupCloseResult>())
-            {
-                if (group.Failure is { } failure)
-                    failures.Add(failure);
-            }
-            if (!report.ArtifactSessionCleanupFailures.IsEmpty)
-                failures.AddRange(report.ArtifactSessionCleanupFailures);
+            report = await workspace.CloseAsync().ConfigureAwait(false);
         }
         catch (Exception closeFailure)
         {
             failures.Add(closeFailure);
+            report = workspace.CloseReport;
         }
-    }
-
-    static void TryDispose(
-        IDisposable? resource,
-        ref List<Exception>? failures)
-    {
-        if (resource is null)
+        if (report is null)
             return;
-
-        try
+        foreach (InspectionWorkspaceDirectGroupCloseResult group in
+            report.Groups.OfType<InspectionWorkspaceDirectGroupCloseResult>())
         {
-            resource.Dispose();
+            if (group.Failure is { } failure && !failures.Contains(failure))
+                failures.Add(failure);
         }
-        catch (Exception ex)
-        {
-            (failures ??= []).Add(ex);
-        }
+        if (!report.ArtifactSessionCleanupFailures.IsEmpty)
+            failures.AddRange(report.ArtifactSessionCleanupFailures);
     }
 
     BrowserWorkspaceRole Implementation => _implementation

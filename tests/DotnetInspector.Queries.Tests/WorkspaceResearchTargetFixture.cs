@@ -11,7 +11,7 @@ using ILInspector.Research;
 
 namespace DotnetInspector.Queries.Tests;
 
-internal sealed class WorkspaceResearchTargetFixture : IDisposable
+internal sealed class WorkspaceResearchTargetFixture : IAsyncDisposable
 {
     readonly InspectionWorkspace _workspace = new();
     readonly ResearchPublicationBindingPolicy _binding = new();
@@ -113,9 +113,9 @@ internal sealed class WorkspaceResearchTargetFixture : IDisposable
             node.Policy.Reset();
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
-        _workspace.Dispose();
+        await _workspace.DisposeAsync();
         _binding.Dispose();
     }
 

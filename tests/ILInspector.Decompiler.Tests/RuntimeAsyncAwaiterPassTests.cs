@@ -63,10 +63,10 @@ public class RuntimeAsyncAwaiterPassTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void CompiledYield_ReturnToSenderShellCarriesAsyncModifier()
+    public async Task CompiledYield_ReturnToSenderShellCarriesAsyncModifier()
     {
         var assembly = typeof(RuntimeAsyncAwaiterFixtures).Assembly.Location;
-        var result = Assert.Single(ReturnToSender.CompileBackTargets(
+        var result = Assert.Single(await ReturnToSender.CompileBackTargets(
             assembly,
             [new ReturnToSender.RequestedTarget(
                 typeof(RuntimeAsyncAwaiterFixtures).FullName!,
@@ -132,10 +132,10 @@ public class RuntimeAsyncAwaiterPassTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void CompiledLegacyAsyncLocalFunction_CompilesBack()
+    public async Task CompiledLegacyAsyncLocalFunction_CompilesBack()
     {
         string assembly = AsyncFixtureAssemblyPath();
-        var compileBack = Assert.Single(ReturnToSender.CompileBackTargets(
+        var compileBack = Assert.Single(await ReturnToSender.CompileBackTargets(
             assembly,
             [new ReturnToSender.RequestedTarget(
                 AsyncFixtureType,

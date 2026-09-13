@@ -10,7 +10,7 @@ public sealed class IntegrationCensusExecutorTests
     static readonly Version Version = new(1, 0, 0, 0);
 
     [Fact]
-    public void IntegrationCensusExecutor_ExecutesSparseUniverseSequentiallyAndSuppressesWithResolvedSourceEvidence()
+    public async Task IntegrationCensusExecutor_ExecutesSparseUniverseSequentiallyAndSuppressesWithResolvedSourceEvidence()
     {
         IntegrationSourceParticipantIdentity sourceA = Participant("source-a");
         IntegrationSourceParticipantIdentity sourceB = Participant("source-b");
@@ -158,7 +158,7 @@ public sealed class IntegrationCensusExecutorTests
 
         IntegrationCensusSnapshot snapshot =
             Assert.IsType<IntegrationCensusExecutionResult.Ready>(
-                harness.Run(
+                await harness.Run(
                     Xunit.TestContext.Current.CancellationToken)).Snapshot;
 
         Assert.Equal(3, snapshot.Candidates.Length);
@@ -198,7 +198,7 @@ public sealed class IntegrationCensusExecutorTests
     }
 
     [Fact]
-    public void IntegrationCensusExecutor_RejectsCrossCapabilityMismatchBeforeProducerExecution()
+    public async Task IntegrationCensusExecutor_RejectsCrossCapabilityMismatchBeforeProducerExecution()
     {
         IntegrationSourceParticipantIdentity participant = Participant("source");
         Context context = new("one");
@@ -217,7 +217,7 @@ public sealed class IntegrationCensusExecutorTests
 
         IntegrationCensusExecutionResult.ExecutionRejected rejected =
             Assert.IsType<IntegrationCensusExecutionResult.ExecutionRejected>(
-                harness.Run(
+                await harness.Run(
                     Xunit.TestContext.Current.CancellationToken));
 
         Assert.Equal(
@@ -229,14 +229,14 @@ public sealed class IntegrationCensusExecutorTests
     }
 
     [Fact]
-    public void IntegrationCensusExecutor_RejectsWrongExecutablePayloadType()
+    public async Task IntegrationCensusExecutor_RejectsWrongExecutablePayloadType()
     {
         Harness harness = BasicHarness();
         harness.WrongSelectedAccessType = true;
 
         IntegrationCensusExecutionResult.ExecutionRejected rejected =
             Assert.IsType<IntegrationCensusExecutionResult.ExecutionRejected>(
-                harness.Run(
+                await harness.Run(
                     Xunit.TestContext.Current.CancellationToken));
 
         Assert.Equal(
@@ -250,7 +250,7 @@ public sealed class IntegrationCensusExecutorTests
     }
 
     [Fact]
-    public void IntegrationCensusExecutor_RejectsParticipantIncidenceMismatchBeforeProducerExecution()
+    public async Task IntegrationCensusExecutor_RejectsParticipantIncidenceMismatchBeforeProducerExecution()
     {
         IntegrationSourceParticipantIdentity participant = Participant("source");
         IntegrationSourceParticipantIdentity foreign = Participant("foreign");
@@ -267,7 +267,7 @@ public sealed class IntegrationCensusExecutorTests
 
         IntegrationCensusExecutionResult.ExecutionRejected rejected =
             Assert.IsType<IntegrationCensusExecutionResult.ExecutionRejected>(
-                harness.Run(
+                await harness.Run(
                     Xunit.TestContext.Current.CancellationToken));
 
         Assert.Equal(
@@ -278,7 +278,7 @@ public sealed class IntegrationCensusExecutorTests
     }
 
     [Fact]
-    public void IntegrationCensusExecutor_RejectsSelectedTypeOutsideParticipantRoster()
+    public async Task IntegrationCensusExecutor_RejectsSelectedTypeOutsideParticipantRoster()
     {
         IntegrationSourceParticipantIdentity participant = Participant("source");
         IntegrationSourceParticipantIdentity foreign = Participant("foreign");
@@ -295,7 +295,7 @@ public sealed class IntegrationCensusExecutorTests
 
         IntegrationCensusExecutionResult.ExecutionRejected rejected =
             Assert.IsType<IntegrationCensusExecutionResult.ExecutionRejected>(
-                harness.Run(
+                await harness.Run(
                     Xunit.TestContext.Current.CancellationToken));
 
         Assert.Equal(
@@ -306,13 +306,13 @@ public sealed class IntegrationCensusExecutorTests
     }
 
     [Fact]
-    public void IntegrationCensusExecutor_RejectsContextAndCompletenessDomainMismatch()
+    public async Task IntegrationCensusExecutor_RejectsContextAndCompletenessDomainMismatch()
     {
         Harness contextHarness = BasicHarness();
         contextHarness.OperationBindingContexts = [new Context("foreign")];
         IntegrationCensusExecutionResult.ExecutionRejected contextRejected =
             Assert.IsType<IntegrationCensusExecutionResult.ExecutionRejected>(
-                contextHarness.Run(
+                await contextHarness.Run(
                     Xunit.TestContext.Current.CancellationToken));
         Assert.Equal(
             IntegrationCensusExecutionRejectionReason
@@ -325,7 +325,7 @@ public sealed class IntegrationCensusExecutorTests
         IntegrationCensusExecutionResult.ExecutionRejected
             completenessRejected =
             Assert.IsType<IntegrationCensusExecutionResult.ExecutionRejected>(
-                completenessHarness.Run(
+                await completenessHarness.Run(
                     Xunit.TestContext.Current.CancellationToken));
         Assert.Equal(
             IntegrationCensusExecutionRejectionReason.CompletenessMismatch,
@@ -334,14 +334,14 @@ public sealed class IntegrationCensusExecutorTests
     }
 
     [Fact]
-    public void IntegrationCensusExecutor_RejectsMismatchedProducerPolicyAccess()
+    public async Task IntegrationCensusExecutor_RejectsMismatchedProducerPolicyAccess()
     {
         Harness harness = BasicHarness();
         harness.MismatchProducerPolicy = true;
 
         IntegrationCensusExecutionResult.ExecutionRejected rejected =
             Assert.IsType<IntegrationCensusExecutionResult.ExecutionRejected>(
-                harness.Run(
+                await harness.Run(
                     Xunit.TestContext.Current.CancellationToken));
 
         Assert.Equal(
@@ -352,7 +352,7 @@ public sealed class IntegrationCensusExecutorTests
     }
 
     [Fact]
-    public void IntegrationCensusExecutor_RejectsMismatchedProducerReceipt()
+    public async Task IntegrationCensusExecutor_RejectsMismatchedProducerReceipt()
     {
         Harness harness = BasicHarness();
         IntegrationSourceParticipantIdentity foreign = Participant("foreign");
@@ -365,7 +365,7 @@ public sealed class IntegrationCensusExecutorTests
 
         IntegrationCensusExecutionResult.ExecutionRejected rejected =
             Assert.IsType<IntegrationCensusExecutionResult.ExecutionRejected>(
-                harness.Run(
+                await harness.Run(
                     Xunit.TestContext.Current.CancellationToken));
 
         Assert.Equal(
@@ -375,7 +375,7 @@ public sealed class IntegrationCensusExecutorTests
     }
 
     [Fact]
-    public void IntegrationCensusExecutor_DoesNotInvokeProducersForUnavailableParticipants()
+    public async Task IntegrationCensusExecutor_DoesNotInvokeProducersForUnavailableParticipants()
     {
         IntegrationSourceParticipantIdentity participant = Participant("source");
         Context context = new("one");
@@ -396,7 +396,7 @@ public sealed class IntegrationCensusExecutorTests
 
         IntegrationCensusSnapshot snapshot =
             Assert.IsType<IntegrationCensusExecutionResult.Ready>(
-                harness.Run(
+                await harness.Run(
                     Xunit.TestContext.Current.CancellationToken)).Snapshot;
 
         Assert.Equal(0, harness.ProducerCalls);
@@ -410,7 +410,7 @@ public sealed class IntegrationCensusExecutorTests
     }
 
     [Fact]
-    public void IntegrationCensusExecutor_PreservesCandidateFailureWithoutManufacturingOut()
+    public async Task IntegrationCensusExecutor_PreservesCandidateFailureWithoutManufacturingOut()
     {
         IntegrationSourceParticipantIdentity participant = Participant("source");
         Context context = new("one");
@@ -450,7 +450,7 @@ public sealed class IntegrationCensusExecutorTests
 
         IntegrationCensusSnapshot snapshot =
             Assert.IsType<IntegrationCensusExecutionResult.Ready>(
-                harness.Run(
+                await harness.Run(
                     Xunit.TestContext.Current.CancellationToken)).Snapshot;
 
         Assert.Single(snapshot.FailedCandidateAttempts);
@@ -460,7 +460,7 @@ public sealed class IntegrationCensusExecutorTests
     }
 
     [Fact]
-    public void IntegrationCensusExecutor_CancellationAfterOwnerOperationReleasesAccess()
+    public async Task IntegrationCensusExecutor_CancellationAfterOwnerOperationReleasesAccess()
     {
         IntegrationSourceParticipantIdentity participant = Participant("source");
         Context context = new("one");
@@ -487,13 +487,13 @@ public sealed class IntegrationCensusExecutorTests
         };
 
         Assert.IsType<IntegrationCensusExecutionResult.Cancelled>(
-            harness.Run(cancellation.Token));
+            await harness.Run(cancellation.Token));
         Assert.Equal(1, harness.ProducerCalls);
         Assert.Equal(9, harness.Releases);
     }
 
     [Fact]
-    public void IntegrationCensusExecutor_BindingBatchesExactlyCoverOneContext()
+    public async Task IntegrationCensusExecutor_BindingBatchesExactlyCoverOneContext()
     {
         IntegrationSourceParticipantIdentity participant = Participant("source");
         Context context = new("one");
@@ -533,7 +533,7 @@ public sealed class IntegrationCensusExecutorTests
 
         IntegrationCensusExecutionResult.ExecutionRejected rejected =
             Assert.IsType<IntegrationCensusExecutionResult.ExecutionRejected>(
-                harness.Run(
+                await harness.Run(
                     Xunit.TestContext.Current.CancellationToken));
 
         Assert.Equal(
@@ -543,7 +543,7 @@ public sealed class IntegrationCensusExecutorTests
     }
 
     [Fact]
-    public void IntegrationCensusExecutor_ResolutionBatchMustConsumeEveryExactBinding()
+    public async Task IntegrationCensusExecutor_ResolutionBatchMustConsumeEveryExactBinding()
     {
         (Harness harness, _) = CandidateHarness();
         harness.ResolveBatch = batch =>
@@ -551,7 +551,7 @@ public sealed class IntegrationCensusExecutorTests
 
         IntegrationCensusExecutionResult.ExecutionRejected rejected =
             Assert.IsType<IntegrationCensusExecutionResult.ExecutionRejected>(
-                harness.Run(
+                await harness.Run(
                     Xunit.TestContext.Current.CancellationToken));
 
         Assert.Equal(
@@ -560,7 +560,7 @@ public sealed class IntegrationCensusExecutorTests
     }
 
     [Fact]
-    public void IntegrationCensusExecutor_ResolvedFulfillmentSourcesExactlyCoverDeclaredLookups()
+    public async Task IntegrationCensusExecutor_ResolvedFulfillmentSourcesExactlyCoverDeclaredLookups()
     {
         (Harness harness, IntegrationCandidateIdentity candidate) =
             CandidateHarness(includeFulfillmentSource: true);
@@ -574,7 +574,7 @@ public sealed class IntegrationCensusExecutorTests
 
         IntegrationCensusExecutionResult.ExecutionRejected rejected =
             Assert.IsType<IntegrationCensusExecutionResult.ExecutionRejected>(
-                harness.Run(
+                await harness.Run(
                     Xunit.TestContext.Current.CancellationToken));
 
         Assert.Equal(
@@ -797,10 +797,10 @@ public sealed class IntegrationCensusExecutorTests
         public int ResolutionCalls { get; private set; }
         public int Releases { get; private set; }
 
-        public IntegrationCensusExecutionResult Run(
+        public async Task<IntegrationCensusExecutionResult> Run(
             CancellationToken cancellationToken = default)
         {
-            using var workspace = new InspectionWorkspace();
+            await using var workspace = new InspectionWorkspace();
             var completeness = new UniverseCompleteness();
             var participantAccess =
                 new IntegrationSourceParticipantAccess(

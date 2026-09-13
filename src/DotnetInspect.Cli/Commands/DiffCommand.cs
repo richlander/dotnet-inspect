@@ -1373,7 +1373,7 @@ public class DiffCommand
         }
         if (request is not null)
         {
-            using var workspace = new InspectionWorkspace();
+            await using var workspace = new InspectionWorkspace();
             var before = CreateSourceParticipant(fromPaths[0], options, oldSide: true, fromEntry);
             var after = CreateSourceParticipant(toPaths[0], options, oldSide: false, toEntry);
             using var beforeGroup = workspace.CreateAssemblyContextGroup([before]);

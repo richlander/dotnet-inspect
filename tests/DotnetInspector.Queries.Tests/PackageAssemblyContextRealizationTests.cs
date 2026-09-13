@@ -17,7 +17,7 @@ public sealed class PackageAssemblyContextRealizationTests
     const string Framework = "net11.0";
 
     [Fact]
-    public void PackageWithoutCompileAssets_RetainsRootWithoutAssemblyRoles()
+    public async Task PackageWithoutCompileAssets_RetainsRootWithoutAssemblyRoles()
     {
         PackageRootRealization package = RootSelection(
             "Tool.Pointer",
@@ -26,7 +26,7 @@ public sealed class PackageAssemblyContextRealizationTests
             PackageCompileAssetSelectionStatus.NoCompileAssets,
             package.AssetSelection.Status);
 
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using PackageAssemblyContextRealization realization =
             workspace.RealizePackageAssemblyContextRoles(
                 [package],
@@ -44,12 +44,12 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
-    public void PackageWorkspaceIntegrationsQuery_RejectsRootOnlyRealization()
+    public async Task PackageWorkspaceIntegrationsQuery_RejectsRootOnlyRealization()
     {
         PackageRootRealization package = RootSelection(
             "Tool.Pointer",
             ("tools/net11.0/any/Tool.Pointer.dll", [0x01]));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using PackageAssemblyContextRealization realization =
             workspace.RealizePackageAssemblyContextRoles(
                 [package],
@@ -62,7 +62,7 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
-    public void ExplicitEmptyCompileGroup_RetainsRootWithoutAssemblyRoles()
+    public async Task ExplicitEmptyCompileGroup_RetainsRootWithoutAssemblyRoles()
     {
         PackageRootRealization package = RootSelection(
             "Empty.Compile.Group",
@@ -72,7 +72,7 @@ public sealed class PackageAssemblyContextRealizationTests
             PackageCompileAssetSelectionStatus.EmptyCompileGroup,
             package.AssetSelection.Status);
 
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using PackageAssemblyContextRealization realization =
             workspace.RealizePackageAssemblyContextRoles(
                 [package],
@@ -84,7 +84,7 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
-    public void NoMatchingFramework_RetainsRequestedRootWithoutAssemblyRoles()
+    public async Task NoMatchingFramework_RetainsRequestedRootWithoutAssemblyRoles()
     {
         PackageRootRealization package = RootSelection(
             "Future.Library",
@@ -94,7 +94,7 @@ public sealed class PackageAssemblyContextRealizationTests
             PackageCompileAssetSelectionStatus.NoMatchingTargetFramework,
             package.AssetSelection.Status);
 
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using PackageAssemblyContextRealization realization =
             workspace.RealizePackageAssemblyContextRoles(
                 [package],
@@ -106,7 +106,7 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
-    public void InvalidImplementationLayout_RetainsFailedRootWithoutAssemblyRoles()
+    public async Task InvalidImplementationLayout_RetainsFailedRootWithoutAssemblyRoles()
     {
         PackageRootRealization package = RootSelection(
             "Invalid.Layout",
@@ -117,7 +117,7 @@ public sealed class PackageAssemblyContextRealizationTests
             package.AssetSelection.Status);
         Assert.NotNull(package.AssetSelection.Message);
 
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using PackageAssemblyContextRealization realization =
             workspace.RealizePackageAssemblyContextRoles(
                 [package],
@@ -128,7 +128,7 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
-    public void MixedPackages_CreateRolesOnlyForSelectedCompileAssets()
+    public async Task MixedPackages_CreateRolesOnlyForSelectedCompileAssets()
     {
         byte[] image =
             File.ReadAllBytes(typeof(PackageAssemblyContextRealizationTests).Assembly.Location);
@@ -139,7 +139,7 @@ public sealed class PackageAssemblyContextRealizationTests
             "Tool.Pointer",
             ("tools/net11.0/any/Tool.Pointer.dll", [0x01]));
 
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using PackageAssemblyContextRealization realization =
             workspace.RealizePackageAssemblyContextRoles(
                 [selected, rootOnly],
@@ -754,7 +754,7 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
-    public void ReferenceAndLibraryAssets_ProduceExactSeparateRoleAssociations()
+    public async Task ReferenceAndLibraryAssets_ProduceExactSeparateRoleAssociations()
     {
         byte[] surfaceAndImplementation =
             File.ReadAllBytes(typeof(PackageAssemblyContextRealizationTests).Assembly.Location);
@@ -765,7 +765,7 @@ public sealed class PackageAssemblyContextRealizationTests
             ("ref/net11.0/Role.Sample.dll", surfaceAndImplementation),
             ("lib/net11.0/Role.Sample.dll", surfaceAndImplementation),
             ("lib/net11.0/Role.Sample.Helper.dll", implementationOnly));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using PackageAssemblyContextRealization realization =
             workspace.RealizePackageAssemblyContextRoles(
                 [package],
@@ -795,14 +795,14 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
-    public void LibraryOnlyAssets_ReuseOneRoleAndDescriptor()
+    public async Task LibraryOnlyAssets_ReuseOneRoleAndDescriptor()
     {
         byte[] image =
             File.ReadAllBytes(typeof(PackageAssemblyContextRealizationTests).Assembly.Location);
         PackageRootRealization package = Selection(
             "Shared.Sample",
             ("lib/net11.0/Shared.Sample.dll", image));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using PackageAssemblyContextRealization realization =
             workspace.RealizePackageAssemblyContextRoles(
                 [package],
@@ -823,7 +823,7 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
-    public void RidSpecificImplementation_UsesSeparateNeutralCompileRole()
+    public async Task RidSpecificImplementation_UsesSeparateNeutralCompileRole()
     {
         byte[] selectedImage =
             IntegrationAssembly("Rid.Sample", "SelectedType");
@@ -841,7 +841,7 @@ public sealed class PackageAssemblyContextRealizationTests
             "1.0.0",
             Framework,
             "linux-x64");
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using PackageAssemblyContextRealization realization =
             workspace.RealizePackageAssemblyContextRoles(
                 [package],
@@ -869,7 +869,7 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
-    public void LibraryOnlyAssets_WithDifferentSelectorOrdering_ReuseOneRole()
+    public async Task LibraryOnlyAssets_WithDifferentSelectorOrdering_ReuseOneRole()
     {
         byte[] firstImage =
             File.ReadAllBytes(typeof(PackageAssemblyContextRealizationTests).Assembly.Location);
@@ -886,7 +886,7 @@ public sealed class PackageAssemblyContextRealizationTests
             ["lib/net11.0/Zebra.dll", "lib/net11.0/apple.dll"],
             package.AssetSelection.ImplementationAssets.Select(
                 asset => asset.Path));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using PackageAssemblyContextRealization realization =
             workspace.RealizePackageAssemblyContextRoles(
                 [package],
@@ -909,14 +909,14 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
-    public void ReferenceOnlyAsset_HasNoImplementationRole()
+    public async Task ReferenceOnlyAsset_HasNoImplementationRole()
     {
         byte[] image =
             File.ReadAllBytes(typeof(PackageAssemblyContextRealizationTests).Assembly.Location);
         PackageRootRealization package = Selection(
             "Reference.Only",
             ("ref/net11.0/Reference.Only.dll", image));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using PackageAssemblyContextRealization realization =
             workspace.RealizePackageAssemblyContextRoles(
                 [package],
@@ -930,7 +930,7 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
-    public void MultiplePackages_PreserveExactPackageAssociationsAndProvenance()
+    public async Task MultiplePackages_PreserveExactPackageAssociationsAndProvenance()
     {
         byte[] firstImage =
             File.ReadAllBytes(typeof(PackageAssemblyContextRealizationTests).Assembly.Location);
@@ -942,7 +942,7 @@ public sealed class PackageAssemblyContextRealizationTests
         PackageRootRealization second = Selection(
             "Second.Package",
             ("lib/net11.0/Common.dll", secondImage));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using PackageAssemblyContextRealization realization =
             workspace.RealizePackageAssemblyContextRoles(
                 [first, second],
@@ -971,7 +971,7 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
-    public void PackageWorkspaceIntegrationsQuery_UsesImplementationRoleAndReferenceFallback()
+    public async Task PackageWorkspaceIntegrationsQuery_UsesImplementationRoleAndReferenceFallback()
     {
         byte[] surface = IntegrationAssembly(
             "Primary.Integrations",
@@ -993,7 +993,7 @@ public sealed class PackageAssemblyContextRealizationTests
         PackageRootRealization secondary = Selection(
             "Secondary.Package",
             ("ref/net11.0/Reference.Only.Integrations.dll", referenceOnly));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using PackageAssemblyContextRealization realization =
             workspace.RealizePackageAssemblyContextRoles(
                 [primary, secondary],
@@ -1071,7 +1071,7 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
-    public void PackageWorkspaceIntegrationsQuery_SharedRoleDoesNotDuplicateLibraries()
+    public async Task PackageWorkspaceIntegrationsQuery_SharedRoleDoesNotDuplicateLibraries()
     {
         byte[] implementation = IntegrationAssembly(
             "Shared.Integrations",
@@ -1079,7 +1079,7 @@ public sealed class PackageAssemblyContextRealizationTests
         PackageRootRealization package = Selection(
             "Shared.Package",
             ("lib/net11.0/Shared.Integrations.dll", implementation));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using PackageAssemblyContextRealization realization =
             workspace.RealizePackageAssemblyContextRoles(
                 [package],
@@ -1099,7 +1099,7 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
-    public void PackageWorkspaceIntegrationsQuery_PreservesExactRootIdentity()
+    public async Task PackageWorkspaceIntegrationsQuery_PreservesExactRootIdentity()
     {
         PackageRootRealization first = Selection(
             "Same.Package",
@@ -1111,7 +1111,7 @@ public sealed class PackageAssemblyContextRealizationTests
             ("lib/net11.0/Same.dll", IntegrationAssembly(
                 "Second.Same",
                 "OpenTelemetry.Second")));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using PackageAssemblyContextRealization realization =
             workspace.RealizePackageAssemblyContextRoles(
                 [first, second],
@@ -1133,7 +1133,7 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
-    public void ReferenceCorrespondence_UsesPackageIdentityAndCaseInsensitiveName()
+    public async Task ReferenceCorrespondence_UsesPackageIdentityAndCaseInsensitiveName()
     {
         byte[] firstImage =
             File.ReadAllBytes(typeof(PackageAssemblyContextRealizationTests).Assembly.Location);
@@ -1147,7 +1147,7 @@ public sealed class PackageAssemblyContextRealizationTests
             "Second.Reference.Package",
             ("ref/net11.0/COMMON.dll", secondImage),
             ("lib/net11.0/common.dll", secondImage));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using PackageAssemblyContextRealization realization =
             workspace.RealizePackageAssemblyContextRoles(
                 [first, second],
@@ -1168,12 +1168,12 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
-    public void MalformedSelectedAsset_RemainsARejectedParticipant()
+    public async Task MalformedSelectedAsset_RemainsARejectedParticipant()
     {
         PackageRootRealization package = Selection(
             "Malformed.Sample",
             ("lib/net11.0/Malformed.Sample.dll", new byte[] { 1, 2, 3 }));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using PackageAssemblyContextRealization realization =
             workspace.RealizePackageAssemblyContextRoles(
                 [package],
@@ -1209,7 +1209,7 @@ public sealed class PackageAssemblyContextRealizationTests
                 content,
                 displayPackageId: "Artifact.Mixed.Sample");
         await using InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         using PackageAssemblyContextRealization realization =
             await workspace.RealizePackageAssemblyContextRolesAsync(
                 binding,
@@ -1339,7 +1339,7 @@ public sealed class PackageAssemblyContextRealizationTests
             "Artifact.Projection.Sample",
             content,
             runtimeIdentifier: "linux-x64");
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         using PackageAssemblyContextRealization realization =
             await workspace.RealizePackageAssemblyContextRolesAsync(
                 binding,
@@ -1371,7 +1371,7 @@ public sealed class PackageAssemblyContextRealizationTests
         PackageRootBinding binding =
             Binding("Artifact.Budget.Sample", content);
         await using InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
 
         InvalidOperationException failure =
             await Assert.ThrowsAsync<InvalidOperationException>(
@@ -1403,13 +1403,13 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
-    public void MalformedAssets_UseSafeUniqueRejectionCarrierIdentities()
+    public async Task MalformedAssets_UseSafeUniqueRejectionCarrierIdentities()
     {
         PackageRootRealization package = Selection(
             "Whitespace.Sample",
             ("lib/net11.0/ .dll", new byte[] { 1, 2, 3 }),
             ("lib/net11.0/RejectedPackageAsset0.dll", new byte[] { 4, 5, 6 }));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using PackageAssemblyContextRealization realization =
             workspace.RealizePackageAssemblyContextRoles(
                 [package],
@@ -1431,7 +1431,7 @@ public sealed class PackageAssemblyContextRealizationTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void MalformedPairedAsset_RemainsRejectedAndCorrespondenceIsPreserved(
+    public async Task MalformedPairedAsset_RemainsRejectedAndCorrespondenceIsPreserved(
         bool malformedSurface)
     {
         byte[] healthy =
@@ -1445,7 +1445,7 @@ public sealed class PackageAssemblyContextRealizationTests
             (
                 "lib/net11.0/ILInspector.Metadata.dll",
                 malformedSurface ? healthy : malformed));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using PackageAssemblyContextRealization realization =
             workspace.RealizePackageAssemblyContextRoles(
                 [package],
@@ -1487,7 +1487,7 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
-    public void IdentityMismatch_CreatesNoPartialRole()
+    public async Task IdentityMismatch_CreatesNoPartialRole()
     {
         byte[] surface =
             File.ReadAllBytes(typeof(PackageAssemblyContextRealizationTests).Assembly.Location);
@@ -1497,7 +1497,7 @@ public sealed class PackageAssemblyContextRealizationTests
             "Mismatch.Sample",
             ("ref/net11.0/Mismatch\u202e.Sample.dll", surface),
             ("lib/net11.0/Mismatch\u202e.Sample.dll", implementation));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         PackageAssemblyRoleCorrespondenceException failure =
             Assert.Throws<PackageAssemblyRoleCorrespondenceException>(
@@ -1514,7 +1514,7 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
-    public void EquivalentIdentityCollision_CreatesNoPartialRole()
+    public async Task EquivalentIdentityCollision_CreatesNoPartialRole()
     {
         byte[] image =
             File.ReadAllBytes(typeof(PackageAssemblyContextRealizationTests).Assembly.Location);
@@ -1522,7 +1522,7 @@ public sealed class PackageAssemblyContextRealizationTests
             "Collision.Sample",
             ("lib/net11.0/Collision.Sample.dll", image),
             ("lib/net11.0/Collision.Sample.Second.dll", image));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         InvalidOperationException failure =
             Assert.Throws<InvalidOperationException>(
@@ -1538,14 +1538,14 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
-    public void DeclaredRoleBudget_IsCheckedBeforeIdentityDecoding()
+    public async Task DeclaredRoleBudget_IsCheckedBeforeIdentityDecoding()
     {
         byte[] image =
             File.ReadAllBytes(typeof(PackageAssemblyContextRealizationTests).Assembly.Location);
         PackageRootRealization package = Selection(
             "Budget.Sample",
             ("lib/net11.0/Budget.Sample.dll", image));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         InvalidOperationException failure =
             Assert.Throws<InvalidOperationException>(
@@ -1567,7 +1567,7 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
-    public void AssemblyCountLimit_IsCheckedBeforeEntryPreflightOrOpen()
+    public async Task AssemblyCountLimit_IsCheckedBeforeEntryPreflightOrOpen()
     {
         string[] paths =
         [
@@ -1580,7 +1580,7 @@ public sealed class PackageAssemblyContextRealizationTests
             "Count.Sample",
             "1.0.0",
             Framework);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         InvalidOperationException failure =
             Assert.Throws<InvalidOperationException>(
@@ -1602,7 +1602,7 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
-    public void DeclaredEntryBudget_FailureDoesNotExposeArtifactPath()
+    public async Task DeclaredEntryBudget_FailureDoesNotExposeArtifactPath()
     {
         byte[] image =
             File.ReadAllBytes(typeof(PackageAssemblyContextRealizationTests).Assembly.Location);
@@ -1610,7 +1610,7 @@ public sealed class PackageAssemblyContextRealizationTests
         PackageRootRealization package = Selection(
             "Budget.Sample",
             (path, image));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         InvalidOperationException failure =
             Assert.Throws<InvalidOperationException>(
@@ -1634,7 +1634,7 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
-    public void EntryReads_StayBoundedWhenContentUnderreportsLength()
+    public async Task EntryReads_StayBoundedWhenContentUnderreportsLength()
     {
         byte[] image =
             File.ReadAllBytes(typeof(PackageAssemblyContextRealizationTests).Assembly.Location);
@@ -1646,7 +1646,7 @@ public sealed class PackageAssemblyContextRealizationTests
             "1.0.0",
             Framework);
         int limit = image.Length - 1;
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using PackageAssemblyContextRealization realization =
             workspace.RealizePackageAssemblyContextRoles(
                 [package],
@@ -1672,14 +1672,14 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
-    public void CancellationBeforeDecoding_CreatesNoPartialRole()
+    public async Task CancellationBeforeDecoding_CreatesNoPartialRole()
     {
         byte[] image =
             File.ReadAllBytes(typeof(PackageAssemblyContextRealizationTests).Assembly.Location);
         PackageRootRealization package = Selection(
             "Cancelled.Sample",
             ("lib/net11.0/Cancelled.Sample.dll", image));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
 

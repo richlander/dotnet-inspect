@@ -75,7 +75,7 @@ public static class WorkspaceCommand
             CommandError.Write(optionError);
             return 1;
         }
-        await using var workspace = InspectionWorkspace.CreateAsynchronous();
+        await using var workspace = new InspectionWorkspace();
         WorkspaceScopeReadResult read =
             await workspace.GetScopeSnapshotAsync().ConfigureAwait(false);
         if (read is WorkspaceScopeReadResult.Unavailable unavailable)

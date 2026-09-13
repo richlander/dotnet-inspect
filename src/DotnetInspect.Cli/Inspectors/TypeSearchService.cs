@@ -75,7 +75,7 @@ internal static class TypeSearchService
                 options.PackagePrefixLimitReached);
         }
 
-        using var workspace = new AssemblySetInspectionWorkspace();
+        await using var workspace = new AssemblySetInspectionWorkspace();
         Task<List<TypeSearchResult>> Collect(string? pattern) =>
             CollectTypesAsync(
                 options,
@@ -353,7 +353,7 @@ internal static class TypeSearchService
         VerboseLogger logger,
         HttpClient httpClient)
     {
-        using var workspace = new AssemblySetInspectionWorkspace();
+        await using var workspace = new AssemblySetInspectionWorkspace();
         return await CollectTypesAsync(
             options,
             pattern,

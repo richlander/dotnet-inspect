@@ -179,7 +179,7 @@ public sealed class ValidDifferentFaultIsolationTests
     }
 
     [Fact]
-    public void ClosureRootBudgetStop_AttributesTheShellNotTheBody()
+    public async Task ClosureRootBudgetStop_AttributesTheShellNotTheBody()
     {
         string directory = Path.Combine(Path.GetTempPath(), $"rts-closure-budget-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
@@ -244,7 +244,7 @@ public sealed class ValidDifferentFaultIsolationTests
                 ],
                 reader);
 
-            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(fullType, methodName, 0, signature)],
                 sourceIndex,
@@ -334,7 +334,7 @@ public sealed class ValidDifferentFaultIsolationTests
     /// and fails only this attribution assertion.
     /// </summary>
     [Fact]
-    public void SuccessfulOpcodeDiff_RunsTheAuthoredFidelityControl()
+    public async Task SuccessfulOpcodeDiff_RunsTheAuthoredFidelityControl()
     {
         using var fixture = FidelityFixture.Create(
             """
@@ -372,7 +372,7 @@ public sealed class ValidDifferentFaultIsolationTests
             fullType: "GeneratedFixtures.MinimalSwitchTwoCaseLowersIf.Class1",
             methodName: "Method1");
 
-        var result = Assert.Single(ReturnToSender.CompileBackTargets(
+        var result = Assert.Single(await ReturnToSender.CompileBackTargets(
             fixture.AssemblyPath,
             [fixture.Target],
             fixture.SourceIndex));
@@ -384,7 +384,7 @@ public sealed class ValidDifferentFaultIsolationTests
     }
 
     [Fact]
-    public void SuccessfulExactResult_DoesNotRunTheFidelityControl()
+    public async Task SuccessfulExactResult_DoesNotRunTheFidelityControl()
     {
         using var fixture = FidelityFixture.Create(
             """
@@ -396,7 +396,7 @@ public sealed class ValidDifferentFaultIsolationTests
             rejectedBody: "",
             authoredBody: "return 42;");
 
-        var result = Assert.Single(ReturnToSender.CompileBackTargets(
+        var result = Assert.Single(await ReturnToSender.CompileBackTargets(
             fixture.AssemblyPath,
             [fixture.Target],
             fixture.SourceIndex));

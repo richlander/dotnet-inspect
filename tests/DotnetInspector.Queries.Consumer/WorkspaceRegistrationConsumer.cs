@@ -13,11 +13,8 @@ public sealed record WorkspaceRegistrationObservation(
 public static class WorkspaceRegistrationConsumer
 {
     public static InspectionWorkspace Create(
-        ImmutableArray<WorkspaceRegistration> registrations,
-        bool asynchronous) =>
-        asynchronous
-            ? InspectionWorkspace.CreateAsynchronous(registrations)
-            : new InspectionWorkspace(registrations);
+        ImmutableArray<WorkspaceRegistration> registrations) =>
+        new(registrations);
 
     public static WorkspaceRegistrationObservation Observe(InspectionWorkspace workspace)
     {

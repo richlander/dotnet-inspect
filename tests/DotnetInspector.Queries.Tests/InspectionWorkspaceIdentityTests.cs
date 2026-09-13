@@ -3,10 +3,10 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class InspectionWorkspaceIdentityTests
 {
     [Fact]
-    public void WorkspaceIdentity_IsStableAndExactPerInstance()
+    public async Task WorkspaceIdentity_IsStableAndExactPerInstance()
     {
-        using var first = new InspectionWorkspace();
-        using var second = new InspectionWorkspace();
+        await using var first = new InspectionWorkspace();
+        await using var second = new InspectionWorkspace();
 
         InspectionWorkspaceIdentity identity = first.Identity;
 
@@ -15,12 +15,12 @@ public sealed class InspectionWorkspaceIdentityTests
     }
 
     [Fact]
-    public void PackageOccurrence_IsExactPerIssuanceAndCarriesBinding()
+    public async Task PackageOccurrence_IsExactPerIssuanceAndCarriesBinding()
     {
         PackageRootBinding binding =
             PackageAssemblyContextCompletionTests.SharedBinding(
                 "Repeated.Occurrence");
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         PackageRootOccurrenceBinding first =
             workspace.IssuePackageRootOccurrence(binding);
@@ -36,7 +36,7 @@ public sealed class InspectionWorkspaceIdentityTests
     }
 
     [Fact]
-    public void PackageOccurrence_DistinguishesWorkspaceAndBindingGeneration()
+    public async Task PackageOccurrence_DistinguishesWorkspaceAndBindingGeneration()
     {
         PackageRootBinding firstBinding =
             PackageAssemblyContextCompletionTests.SeparateBinding(
@@ -44,8 +44,8 @@ public sealed class InspectionWorkspaceIdentityTests
         PackageRootBinding replacementBinding =
             PackageAssemblyContextCompletionTests.SeparateBinding(
                 "Replacement.Generation");
-        using var firstWorkspace = new InspectionWorkspace();
-        using var secondWorkspace = new InspectionWorkspace();
+        await using var firstWorkspace = new InspectionWorkspace();
+        await using var secondWorkspace = new InspectionWorkspace();
 
         PackageRootOccurrenceBinding first =
             firstWorkspace.IssuePackageRootOccurrence(firstBinding);
@@ -68,10 +68,10 @@ public sealed class InspectionWorkspaceIdentityTests
     }
 
     [Fact]
-    public void NonPackageOccurrence_IsExactAndWorkspaceScoped()
+    public async Task NonPackageOccurrence_IsExactAndWorkspaceScoped()
     {
-        using var firstWorkspace = new InspectionWorkspace();
-        using var secondWorkspace = new InspectionWorkspace();
+        await using var firstWorkspace = new InspectionWorkspace();
+        await using var secondWorkspace = new InspectionWorkspace();
 
         NonPackageRootOccurrenceIdentity first =
             firstWorkspace.IssueNonPackageRootOccurrence();
@@ -89,19 +89,19 @@ public sealed class InspectionWorkspaceIdentityTests
     }
 
     [Fact]
-    public void SynchronousClose_StopsOccurrenceIssuanceButKeepsIdentity()
+    public async Task DisposeAsync_StopsOccurrenceIssuanceButKeepsIdentity()
     {
         PackageRootBinding binding =
             PackageAssemblyContextCompletionTests.SharedBinding(
-                "Synchronous.Close");
-        var workspace = new InspectionWorkspace();
+                "Awaited.Dispose");
+        await using var workspace = new InspectionWorkspace();
         InspectionWorkspaceIdentity identity = workspace.Identity;
         PackageRootOccurrenceBinding package =
             workspace.IssuePackageRootOccurrence(binding);
         NonPackageRootOccurrenceIdentity root =
             workspace.IssueNonPackageRootOccurrence();
 
-        workspace.Dispose();
+        await workspace.DisposeAsync();
 
         Assert.Same(identity, workspace.Identity);
         Assert.Same(identity, package.WorkspaceIdentity);
@@ -119,7 +119,7 @@ public sealed class InspectionWorkspaceIdentityTests
             PackageAssemblyContextCompletionTests.SharedBinding(
                 "Asynchronous.Close");
         await using InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         InspectionWorkspaceIdentity identity = workspace.Identity;
         PackageRootOccurrenceBinding package =
             workspace.IssuePackageRootOccurrence(binding);
@@ -139,7 +139,7 @@ public sealed class InspectionWorkspaceIdentityTests
     }
 
     [Fact]
-    public void PackageOccurrenceView_PreservesOrderAndBindingFacts()
+    public async Task PackageOccurrenceView_PreservesOrderAndBindingFacts()
     {
         PackageRootBinding first =
             PackageAssemblyContextCompletionTests.SharedBinding(
@@ -147,7 +147,7 @@ public sealed class InspectionWorkspaceIdentityTests
         PackageRootBinding second =
             PackageAssemblyContextCompletionTests.SharedBinding(
                 "Second.View");
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         InspectionWorkspacePackageOccurrenceView view =
             workspace.CreatePackageOccurrenceView([second, first]);
@@ -174,9 +174,9 @@ public sealed class InspectionWorkspaceIdentityTests
     }
 
     [Fact]
-    public void PackageOccurrenceView_EmptyInputProducesTypedEmptyView()
+    public async Task PackageOccurrenceView_EmptyInputProducesTypedEmptyView()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         InspectionWorkspacePackageOccurrenceView view =
             workspace.CreatePackageOccurrenceView([]);
@@ -186,12 +186,12 @@ public sealed class InspectionWorkspaceIdentityTests
     }
 
     [Fact]
-    public void PackageOccurrenceView_RepeatedBindingIssuesDistinctOccurrences()
+    public async Task PackageOccurrenceView_RepeatedBindingIssuesDistinctOccurrences()
     {
         PackageRootBinding binding =
             PackageAssemblyContextCompletionTests.SharedBinding(
                 "Repeated.View");
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         InspectionWorkspacePackageOccurrenceView view =
             workspace.CreatePackageOccurrenceView([binding, binding]);
@@ -209,12 +209,12 @@ public sealed class InspectionWorkspaceIdentityTests
     }
 
     [Fact]
-    public void PackageOccurrenceView_ActivationResolvesOnlyItsOwnAction()
+    public async Task PackageOccurrenceView_ActivationResolvesOnlyItsOwnAction()
     {
         PackageRootBinding binding =
             PackageAssemblyContextCompletionTests.SharedBinding(
                 "Activation.View");
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         InspectionWorkspacePackageOccurrenceView first =
             workspace.CreatePackageOccurrenceView([binding]);
         InspectionWorkspacePackageOccurrenceView second =
@@ -235,16 +235,16 @@ public sealed class InspectionWorkspaceIdentityTests
     }
 
     [Fact]
-    public void PackageOccurrenceView_ActivationRejectsClosedWorkspace()
+    public async Task PackageOccurrenceView_ActivationRejectsClosedWorkspace()
     {
         PackageRootBinding binding =
             PackageAssemblyContextCompletionTests.SharedBinding(
                 "Closed.View");
-        var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         InspectionWorkspacePackageOccurrenceView view =
             workspace.CreatePackageOccurrenceView([binding]);
 
-        workspace.Dispose();
+        await workspace.DisposeAsync();
 
         var rejected = Assert.IsType<
             InspectionWorkspacePackageOccurrenceActivation.Rejected>(

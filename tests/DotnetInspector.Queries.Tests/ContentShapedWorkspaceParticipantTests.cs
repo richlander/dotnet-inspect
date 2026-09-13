@@ -13,10 +13,10 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class ContentShapedWorkspaceParticipantTests
 {
     [Fact]
-    public void ParticipantMintedFromContentIdentity_IsAcquired()
+    public async Task ParticipantMintedFromContentIdentity_IsAcquired()
     {
         ImmutableArray<byte> image = Image();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextParticipant participant = new(
             ResolvedAssemblyReference.CreateFromStreamIfManaged(
                 () => Open(image),
@@ -36,10 +36,10 @@ public sealed class ContentShapedWorkspaceParticipantTests
     }
 
     [Fact]
-    public void PlaceholderIdentity_IsRejectedRatherThanAcquired()
+    public async Task PlaceholderIdentity_IsRejectedRatherThanAcquired()
     {
         ImmutableArray<byte> image = Image();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         // Acquisition must state the entry's real metadata identity: the workspace validates every
         // image against its descriptor, so a name-only placeholder is refused. This is why a
@@ -61,7 +61,7 @@ public sealed class ContentShapedWorkspaceParticipantTests
     }
 
     [Fact]
-    public void EquivalentDescriptorIdentity_RetainsAcquiredSnapshot()
+    public async Task EquivalentDescriptorIdentity_RetainsAcquiredSnapshot()
     {
         ImmutableArray<byte> image = Image();
         AssemblyReferenceIdentity identity =
@@ -72,7 +72,7 @@ public sealed class ContentShapedWorkspaceParticipantTests
                     "1.0.0",
                     "net11.0",
                     rid: null))!.Identity;
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextParticipant participant = Participant(
             image,
             identity with

@@ -18,7 +18,7 @@ public sealed class WorkspaceRootQueryTests
     [Fact]
     public async Task NonFriendConsumer_QueriesTwoCommittedRootsWithDistinctPackageRoles()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         PackageRootBinding shared = Binding("Shared.Package", "lib/net11.0/Fixture.dll");
         PackageRootBinding separate = Binding("Separate.Package",
             "ref/net11.0/Fixture.dll", "lib/net11.0/Fixture.dll");
@@ -77,7 +77,7 @@ public sealed class WorkspaceRootQueryTests
     public async Task NonFriendConsumer_RootOnlyAndExplicitEmptyReachCallbackWithoutAssemblies(
         string entry, PackageCompileAssetSelectionStatus expected)
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         PackageRootBinding binding = entry.EndsWith("/_._", StringComparison.Ordinal)
             ? Binding("Empty.Package", entry, "lib/net11.0/Fixture.dll")
             : Binding("Empty.Package", entry);
@@ -102,8 +102,8 @@ public sealed class WorkspaceRootQueryTests
     [Fact]
     public async Task Admission_RejectsStaleForeignAndWrongPolicyBeforeCallback()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
-        await using InspectionWorkspace foreign = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
+        await using InspectionWorkspace foreign = new InspectionWorkspace();
         WorkspaceScopeSnapshot first = await Replace(workspace, Binding("Same.Package"));
         WorkspaceScopeSnapshot other = await Replace(foreign, Binding("Same.Package"));
         WorkspacePackageOccurrenceDescriptor oldPackage = first.Packages[0];
@@ -158,7 +158,7 @@ public sealed class WorkspaceRootQueryTests
     [Fact]
     public async Task Admission_PendingAndFailedRootsRejectBeforeCallback()
     {
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         WorkspaceScopeSnapshot scope = await Replace(workspace, Binding("Unavailable.Package"));
         WorkspacePackageOccurrenceDescriptor package = scope.Packages[0];
         ArtifactRootCompositionGenerationIdentity pending = Available(
@@ -193,7 +193,7 @@ public sealed class WorkspaceRootQueryTests
     [InlineData(true)]
     public async Task CallbackExceptions_PreserveExactExceptionAndReleaseLease(bool afterAwait)
     {
-        InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        InspectionWorkspace workspace = new InspectionWorkspace();
         var entered = Signal();
         var resume = Signal();
         try
@@ -243,7 +243,7 @@ public sealed class WorkspaceRootQueryTests
     [InlineData(true)]
     public async Task Cancellation_BeforeEntryOrWhileCompositionGateIsHeldDoesNotInvokeCallback(bool whileWaiting)
     {
-        InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        InspectionWorkspace workspace = new InspectionWorkspace();
         using var cancellation = new CancellationTokenSource();
         InspectionWorkspace.ArtifactRootCompositionReadLease? read = null;
         try
@@ -297,7 +297,7 @@ public sealed class WorkspaceRootQueryTests
     [InlineData(true)]
     public async Task CallbackCancellation_IsCooperativeAndReleasesLease(bool observeCancellation)
     {
-        InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        InspectionWorkspace workspace = new InspectionWorkspace();
         using var cancellation = new CancellationTokenSource();
         var entered = Signal();
         var resume = Signal();
@@ -345,7 +345,7 @@ public sealed class WorkspaceRootQueryTests
     [Fact]
     public async Task Clear_StopsNewAdmissionButAdmittedCallbackCanStillQuery()
     {
-        InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        InspectionWorkspace workspace = new InspectionWorkspace();
         var entered = Signal();
         var resume = Signal();
         try
@@ -388,7 +388,7 @@ public sealed class WorkspaceRootQueryTests
     [Fact]
     public async Task Close_WaitsForAdmittedCallbackAndRejectsNewAccess()
     {
-        InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        InspectionWorkspace workspace = new InspectionWorkspace();
         var entered = Signal();
         var resume = Signal();
         try

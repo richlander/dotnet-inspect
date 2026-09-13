@@ -106,7 +106,7 @@ public class ImplementsCommand
                     $"Scanning {assemblySet.Assemblies.Count} libraries "
                     + $"for types implementing {targetType}");
 
-                using var workspace =
+                await using var workspace =
                     new AssemblySetInspectionWorkspace();
                 workspace.RunPerAssembly(
                     assemblySet,

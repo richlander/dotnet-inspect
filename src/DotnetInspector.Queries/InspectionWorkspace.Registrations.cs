@@ -20,7 +20,7 @@ public sealed partial class InspectionWorkspace
 
     /// <summary>
     /// Replaces the complete inert registration set against one exact current
-    /// revision. This in-memory operation supports both Workspace lifetime modes.
+    /// revision. This operation is synchronous and does not acquire resources.
     /// </summary>
     public WorkspaceRegistrationOperationResult ReplaceRegistrations(
         WorkspaceRegistrationRevision expectedRevision,

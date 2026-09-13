@@ -12,10 +12,10 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class AssemblyContextSearchQueryTests
 {
     [Fact]
-    public void RegistryRun_ProducesAllSearchFacetsFromOneParticipant()
+    public async Task RegistryRun_ProducesAllSearchFacetsFromOneParticipant()
     {
         string path = typeof(WorkspaceQueryImplementation).Assembly.Location;
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             CreateGroup(workspace, path);
         var registry =
@@ -104,7 +104,7 @@ public sealed class AssemblyContextSearchQueryTests
     }
 
     [Fact]
-    public void TypeInventory_CarriesRejectedParticipantBesideAvailableResult()
+    public async Task TypeInventory_CarriesRejectedParticipantBesideAvailableResult()
     {
         string path = typeof(WorkspaceQueryImplementation).Assembly.Location;
         byte[] bytes = File.ReadAllBytes(path);
@@ -128,7 +128,7 @@ public sealed class AssemblyContextSearchQueryTests
             ResolvedAssemblyReference.CreateFromPath(
                 path,
                 AssemblyResolutionProvenance.Local("available"));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [
@@ -155,7 +155,7 @@ public sealed class AssemblyContextSearchQueryTests
     }
 
     [Fact]
-    public void SurfaceQueries_PreserveHealthyRowsAndInspectionFailures()
+    public async Task SurfaceQueries_PreserveHealthyRowsAndInspectionFailures()
     {
         string path = Path.Combine(
             Path.GetTempPath(),
@@ -163,7 +163,7 @@ public sealed class AssemblyContextSearchQueryTests
         File.WriteAllBytes(path, BuildPartialSurfaceImage());
         try
         {
-            using var workspace = new InspectionWorkspace();
+            await using var workspace = new InspectionWorkspace();
             using AssemblyContextGroup group =
                 CreateGroup(workspace, path);
 
@@ -191,7 +191,7 @@ public sealed class AssemblyContextSearchQueryTests
     }
 
     [Fact]
-    public void ExtensionReachability_MatchesPathBasedTraversal()
+    public async Task ExtensionReachability_MatchesPathBasedTraversal()
     {
         string path = typeof(WorkspaceReachabilityRoot).Assembly.Location;
         string target = typeof(WorkspaceReachabilityRoot).FullName!;
@@ -200,7 +200,7 @@ public sealed class AssemblyContextSearchQueryTests
                 target,
                 [path],
                 maxDepth: 2);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             CreateGroup(workspace, path);
 

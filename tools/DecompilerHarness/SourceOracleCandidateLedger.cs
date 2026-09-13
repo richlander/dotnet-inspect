@@ -1237,15 +1237,13 @@ static class SourceOracleCandidateLedger
 
     // ------------------------------------------------------------------- execution
 
-    public static int Run(
+    public static Task<int> Run(
         IReadOnlyList<string> assemblies,
         string baselineReportPath,
         bool json,
         IReadOnlyList<string>? repositoryPaths = null,
         TextWriter? output = null)
-        => RunAsync(assemblies, baselineReportPath, json, repositoryPaths, output)
-            .GetAwaiter()
-            .GetResult();
+        => RunAsync(assemblies, baselineReportPath, json, repositoryPaths, output);
 
     static async Task<int> RunAsync(
         IReadOnlyList<string> assemblies,
@@ -1529,11 +1527,9 @@ static class SourceOracleCandidateLedger
         if (captured.Count == 0)
             return true;
 
-        if (!AuthoredCorpusSourceEvaluator.TryEvaluate(
-                assemblyPath,
-                captured,
-                out IReadOnlyList<AuthoredSourceOracleManifest.EvaluatedRow> rows,
-                out string? evaluationError))
+        var (rows, evaluationError) =
+            await AuthoredCorpusSourceEvaluator.EvaluateAsync(assemblyPath, captured);
+        if (evaluationError is not null)
         {
             Console.Error.WriteLine(evaluationError);
             return false;

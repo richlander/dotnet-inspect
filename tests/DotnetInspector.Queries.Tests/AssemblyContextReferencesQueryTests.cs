@@ -6,9 +6,9 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class AssemblyContextReferencesQueryTests
 {
     [Fact]
-    public void Execute_ReadsEveryParticipantInOrder()
+    public async Task Execute_ReadsEveryParticipantInOrder()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = Group(
             workspace,
             typeof(AssemblyContextReferencesQueryTests).Assembly.Location);
@@ -26,7 +26,7 @@ public sealed class AssemblyContextReferencesQueryTests
     }
 
     [Fact]
-    public void Execute_CarriesAcquisitionFailureBesideHealthyReferences()
+    public async Task Execute_CarriesAcquisitionFailureBesideHealthyReferences()
     {
         string path = typeof(AssemblyContextReferencesQueryTests).Assembly.Location;
         byte[] bytes = File.ReadAllBytes(path);
@@ -40,7 +40,7 @@ public sealed class AssemblyContextReferencesQueryTests
             () => new MemoryStream(bytes, writable: false),
             AssemblyResolutionProvenance.Local("rejected"));
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
             [
                 new AssemblyContextParticipant(rejected, policy),
@@ -60,11 +60,11 @@ public sealed class AssemblyContextReferencesQueryTests
     }
 
     [Fact]
-    public void ExecuteParticipant_RejectsParticipantFromAnotherGroup()
+    public async Task ExecuteParticipant_RejectsParticipantFromAnotherGroup()
     {
         string path = typeof(AssemblyContextReferencesQueryTests).Assembly.Location;
-        using var firstWorkspace = new InspectionWorkspace();
-        using var secondWorkspace = new InspectionWorkspace();
+        await using var firstWorkspace = new InspectionWorkspace();
+        await using var secondWorkspace = new InspectionWorkspace();
         using AssemblyContextGroup first = Group(firstWorkspace, path);
         using AssemblyContextGroup second = Group(secondWorkspace, path);
 

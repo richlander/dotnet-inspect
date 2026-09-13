@@ -32,7 +32,7 @@ public sealed class PackageAssemblyContextRealizationConcurrentDemandTests
     const string Framework = "net11.0";
 
     [Fact]
-    public void IdenticalPackageRealizedTwice_ReopensContentAndMintsSeparateGroups()
+    public async Task IdenticalPackageRealizedTwice_ReopensContentAndMintsSeparateGroups()
     {
         byte[] image =
             File.ReadAllBytes(
@@ -45,7 +45,7 @@ public sealed class PackageAssemblyContextRealizationConcurrentDemandTests
             "Dedup.Sample",
             "1.0.0",
             Framework);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         using PackageAssemblyContextRealization first =
             workspace.RealizePackageAssemblyContextRoles(

@@ -2265,11 +2265,16 @@ internal static class GeneratedFixtureRunner
         });
     }
 
-    public static GeneratedFixtureReturnToSenderRunResult RunReturnToSenderCatalog(
+    public static async Task<GeneratedFixtureReturnToSenderRunResult> RunReturnToSenderCatalog(
         IReadOnlyList<GeneratedFixtureDefinition> fixtures,
         GeneratedFixtureRunOptions? options = null)
     {
-        return RunWithMaterializedFixtures(fixtures, options, (root, assemblyPath) =>
+        options ??= GeneratedFixtureRunOptions.Default;
+        string? fixtureRoot = null;
+        try
+        {
+            return await RunWithMaterializedFixtures(
+                fixtures, options with { KeepArtifacts = true }, async (root, assemblyPath) =>
         {
             var requestedTargets = fixtures
                 .SelectMany(fixture => fixture.Targets)
@@ -2279,7 +2284,7 @@ internal static class GeneratedFixtureRunner
             var sourcePaths = Directory.GetFiles(root, "*.cs", SearchOption.TopDirectoryOnly)
                 .Order(StringComparer.Ordinal)
                 .ToArray();
-            IReadOnlyDictionary<string, ReturnToSender.Result> rtsResults = ReturnToSender.CompileBackTargets(assemblyPath, requestedTargets, sourcePaths)
+            IReadOnlyDictionary<string, ReturnToSender.Result> rtsResults = (await ReturnToSender.CompileBackTargets(assemblyPath, requestedTargets, sourcePaths))
                 .ToDictionary(result => Key(
                     result.Plan.TargetMethod.Type,
                     result.Plan.TargetMethod.Method,
@@ -2339,7 +2344,13 @@ internal static class GeneratedFixtureRunner
             }
 
             return new GeneratedFixtureReturnToSenderRunResult(root, assemblyPath, results);
-        });
+        }, onCreated: root => fixtureRoot = root);
+        }
+        finally
+        {
+            if (!options.KeepArtifacts && fixtureRoot is not null)
+                TryDelete(fixtureRoot);
+        }
     }
 
     /// <summary>
@@ -2414,7 +2425,8 @@ internal static class GeneratedFixtureRunner
     internal static T RunWithMaterializedFixtures<T>(
         IReadOnlyList<GeneratedFixtureDefinition> fixtures,
         GeneratedFixtureRunOptions? options,
-        Func<string, string, T> run)
+        Func<string, string, T> run,
+        Action<string>? onCreated = null)
     {
         if (fixtures.Count == 0)
             throw new ArgumentException("At least one generated fixture is required.", nameof(fixtures));
@@ -2422,6 +2434,7 @@ internal static class GeneratedFixtureRunner
         options ??= GeneratedFixtureRunOptions.Default;
         var root = Path.Combine(Path.GetTempPath(), "dotnet-inspect-generated-fixtures", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
+        onCreated?.Invoke(root);
         try
         {
             string projectPath = Path.Combine(root, "GeneratedDecompilerFixtures.csproj");

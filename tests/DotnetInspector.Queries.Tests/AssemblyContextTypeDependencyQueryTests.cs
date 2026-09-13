@@ -25,12 +25,12 @@ public interface AssemblyContextTypeDependencyMiddle :
 public sealed class AssemblyContextTypeDependencyQueryTests
 {
     [Fact]
-    public void Execute_FoundAndAllHealthyIsComplete()
+    public async Task Execute_FoundAndAllHealthyIsComplete()
     {
         var policy = new TestBindingPolicy();
         TestAssembly source =
             TestAssembly.Create("healthy", policy);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [source.Participant]);
@@ -60,12 +60,12 @@ public sealed class AssemblyContextTypeDependencyQueryTests
     }
 
     [Fact]
-    public void Execute_HealthyMissIsCertified()
+    public async Task Execute_HealthyMissIsCertified()
     {
         var policy = new TestBindingPolicy();
         TestAssembly source =
             TestAssembly.Create("healthy miss", policy);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [source.Participant]);
@@ -84,12 +84,12 @@ public sealed class AssemblyContextTypeDependencyQueryTests
     }
 
     [Fact]
-    public void Execute_DepthBoundFlowsThroughPopulationScanner()
+    public async Task Execute_DepthBoundFlowsThroughPopulationScanner()
     {
         var policy = new TestBindingPolicy();
         TestAssembly source =
                 TestAssembly.Create("bounded", policy);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
                 workspace.CreateAssemblyContextGroup(
                     [source.Participant]);
@@ -116,12 +116,12 @@ public sealed class AssemblyContextTypeDependencyQueryTests
     }
 
     [Fact]
-    public void ExecuteParticipant_DepthBoundFlowsThroughExactRoot()
+    public async Task ExecuteParticipant_DepthBoundFlowsThroughExactRoot()
     {
         var policy = new TestBindingPolicy();
         TestAssembly source =
             TestAssembly.Create("bounded participant", policy);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [source.Participant]);
@@ -147,7 +147,7 @@ public sealed class AssemblyContextTypeDependencyQueryTests
     }
 
     [Fact]
-    public void Execute_PreservesAcquisitionRejectionBesideSurvivingGraph()
+    public async Task Execute_PreservesAcquisitionRejectionBesideSurvivingGraph()
     {
         var policy = new TestBindingPolicy();
         TestAssembly rejected =
@@ -157,7 +157,7 @@ public sealed class AssemblyContextTypeDependencyQueryTests
                 selectedName: "WrongIdentity");
         TestAssembly healthy =
             TestAssembly.Create("healthy", policy);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [
@@ -194,7 +194,7 @@ public sealed class AssemblyContextTypeDependencyQueryTests
     }
 
     [Fact]
-    public void Execute_MapsMetadataRejectionByRegistration()
+    public async Task Execute_MapsMetadataRejectionByRegistration()
     {
         var policy = new TestBindingPolicy();
         Type target =
@@ -207,7 +207,7 @@ public sealed class AssemblyContextTypeDependencyQueryTests
                 target.Name);
         TestAssembly healthy =
             TestAssembly.Create("healthy", policy);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [
@@ -241,7 +241,7 @@ public sealed class AssemblyContextTypeDependencyQueryTests
     }
 
     [Fact]
-    public void Execute_AllRejectedIsUnavailable()
+    public async Task Execute_AllRejectedIsUnavailable()
     {
         var policy = new TestBindingPolicy();
         TestAssembly first =
@@ -254,7 +254,7 @@ public sealed class AssemblyContextTypeDependencyQueryTests
                 "second",
                 policy,
                 selectedName: "WrongSecond");
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [
@@ -287,7 +287,7 @@ public sealed class AssemblyContextTypeDependencyQueryTests
     }
 
     [Fact]
-    public void Execute_PreservesParticipantOrderAndReusesSnapshots()
+    public async Task Execute_PreservesParticipantOrderAndReusesSnapshots()
     {
         var policy = new TestBindingPolicy();
         TestAssembly first =
@@ -296,7 +296,7 @@ public sealed class AssemblyContextTypeDependencyQueryTests
             TestAssembly.Create("second", policy);
         TestAssembly third =
             TestAssembly.Create("third", policy);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [
@@ -331,7 +331,7 @@ public sealed class AssemblyContextTypeDependencyQueryTests
     }
 
     [Fact]
-    public void ExecuteParticipant_SelectsTheExactSameNamedRoot()
+    public async Task ExecuteParticipant_SelectsTheExactSameNamedRoot()
     {
         const string typeNamespace =
             "DotnetInspector.Queries.Tests.Duplicate";
@@ -354,7 +354,7 @@ public sealed class AssemblyContextTypeDependencyQueryTests
                 typeNamespace,
                 typeName,
                 typeof(IDisposable));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [
@@ -390,7 +390,7 @@ public sealed class AssemblyContextTypeDependencyQueryTests
     }
 
     [Fact]
-    public void ExecuteParticipant_DoesNotBorrowSameNamedRoot()
+    public async Task ExecuteParticipant_DoesNotBorrowSameNamedRoot()
     {
         const string typeNamespace =
             "DotnetInspector.Queries.Tests.Duplicate";
@@ -414,7 +414,7 @@ public sealed class AssemblyContextTypeDependencyQueryTests
                 typeName,
                 typeof(IDisposable),
                 isPublic: false);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [
@@ -439,7 +439,7 @@ public sealed class AssemblyContextTypeDependencyQueryTests
     }
 
     [Fact]
-    public void ExecuteParticipant_DoesNotFuzzyMatchWithinSelectedParticipant()
+    public async Task ExecuteParticipant_DoesNotFuzzyMatchWithinSelectedParticipant()
     {
         const string typeNamespace =
             "DotnetInspector.Queries.Tests.Fuzzy";
@@ -455,7 +455,7 @@ public sealed class AssemblyContextTypeDependencyQueryTests
                 typeName,
                 typeof(IDisposable),
                 typeof(IAsyncDisposable));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [selected.Participant]);

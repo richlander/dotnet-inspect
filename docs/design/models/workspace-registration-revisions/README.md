@@ -27,8 +27,9 @@ Package Scope/Artifact physical-publication model.
 - `Open -> Closing -> Closed` is an **environmental availability assumption**.
   This model neither redefines nor proves resource-release internals, cleanup,
   draining, or eventual close. No adjacent owner module is extracted or copied.
-- Both Sync and Async lifetime modes run the same in-memory transitions; mode
-  does not affect registration behavior.
+- The model retains historical `Sync` and `Async` scenario labels, which run
+  identical in-memory transitions. They are not production lifetime modes:
+  Workspace construction is synchronous and its sole lifetime closes by await.
 - The eight registration values retain exact-library source coordinates, literal
   prefix values, and lower ecosystem instance identities. Ecosystem A and B have
   identical canonical IDs and displayed fields but different instance identities.
@@ -63,7 +64,7 @@ every candidate, lifecycle phase, and client request into a Cartesian product:
 | Empty | Empty construction, empty-to-empty no-op, complete replacement |
 | InitialDuplicate / InitialInvalid | All three duplicate arms and malformed initial sets |
 
-Each scenario runs in both lifetime modes, with zero or one close sequence at
+Each scenario runs under both historical labels, with zero or one close sequence at
 every enabled point. There are two clients in Race and one active client
 elsewhere, at most seven replacements, five retained subject revisions, eight
 registration values, and three entries in a valid registration sequence.

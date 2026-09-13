@@ -414,7 +414,7 @@ public class ExtensionsCommandTests
                 AssemblyResolutionProvenance.Local("second"));
         var policy = new AssemblyDependencyResolver(
             new AssemblyDependencyResolutionOptions(path));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [

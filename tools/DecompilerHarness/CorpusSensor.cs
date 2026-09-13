@@ -79,7 +79,7 @@ internal static class CorpusSensor
             ["switch-methods"] = 1,
         }.ToImmutableSortedDictionary(StringComparer.Ordinal);
 
-    public static int Run(
+    public static async Task<int> Run(
         IReadOnlyList<string> assemblies,
         int validityCompileCap,
         IReadOnlyList<int> fidelityCompileCaps,
@@ -146,7 +146,7 @@ internal static class CorpusSensor
             }
         }
 
-        var (current, fidelityReports) = Capture(
+        var (current, fidelityReports) = await Capture(
             assemblies,
             validityCompileCap,
             fidelityCompileCaps,
@@ -321,10 +321,10 @@ internal static class CorpusSensor
             RuntimeInformation.ProcessArchitecture.ToString());
     }
 
-    internal static CorpusSensorSnapshot CaptureReturnToSenderCutoverForTesting(
+    internal static async Task<CorpusSensorSnapshot> CaptureReturnToSenderCutoverForTesting(
         IReadOnlyList<string> assemblies,
         int fidelityCap)
-        => Capture(
+        => (await Capture(
             assemblies,
             validityCompileCap: 0,
             fidelityCompileCaps: [fidelityCap],
@@ -333,9 +333,9 @@ internal static class CorpusSensor
             workers: null,
             sequential: true,
             fidelityOracle: CorpusFidelityOracle.ReturnToSenderCutover,
-            profile: CorpusProfile.RealWorld).Snapshot;
+            profile: CorpusProfile.RealWorld)).Snapshot;
 
-    static (CorpusSensorSnapshot Snapshot, ImmutableArray<FidelityCapReport> Reports) Capture(
+    static async Task<(CorpusSensorSnapshot Snapshot, ImmutableArray<FidelityCapReport> Reports)> Capture(
         IReadOnlyList<string> assemblies,
         int validityCompileCap,
         IReadOnlyList<int> fidelityCompileCaps,
@@ -356,7 +356,7 @@ internal static class CorpusSensor
         var forwardMergeContainers = ForwardMergeStopReasons.Sum(reason => structuring.StopReasons.GetValueOrDefault(reason));
         var requestedCaps = fidelityCompileCaps.Where(cap => cap > 0).Distinct().ToArray();
         var primaryFidelityCap = requestedCaps.FirstOrDefault();
-        var fidelityReports = AnalyzeFidelity(
+        var fidelityReports = await AnalyzeFidelity(
             assemblies,
             fidelityCompileCaps,
             methods,
@@ -1042,7 +1042,7 @@ internal static class CorpusSensor
         return new StructuringSensorMetrics(total, structured, stoppedContainers, methodsWithStop, crashes, reasons.OrderBy(kvp => kvp.Key, StringComparer.Ordinal).ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.Ordinal));
     }
 
-    static ImmutableArray<FidelityCapReport> AnalyzeFidelity(
+    static async Task<ImmutableArray<FidelityCapReport>> AnalyzeFidelity(
         IReadOnlyList<string> assemblies,
         IReadOnlyList<int> caps,
         Dictionary<string, CorpusMethodSnapshot> methods,
@@ -1055,7 +1055,7 @@ internal static class CorpusSensor
         foreach (var cap in caps.Where(cap => cap > 0).Distinct().OrderBy(cap => cap))
         {
             var cutoverEvaluations = fidelityOracle == CorpusFidelityOracle.ReturnToSenderCutover
-                ? SelectThenEvaluateNativeFirst(
+                ? await SelectThenEvaluateNativeFirstAsync(
                     assemblies,
                     assembly => new ReturnToSenderCutoverTargetSet(
                         assembly,
@@ -1097,7 +1097,7 @@ internal static class CorpusSensor
                                 DeterministicCompileBackTargetAttempts(methods.Values, assembly, cap),
                                 cap),
                         CorpusFidelityOracle.ReturnToSender
-                            => EvaluateReturnToSenderParity(
+                            => await EvaluateReturnToSenderParity(
                                 assembly,
                                 DeterministicCompileBackTargetAttempts(methods.Values, assembly, cap),
                                 cap),
@@ -1194,17 +1194,17 @@ internal static class CorpusSensor
         return reports.ToImmutable();
     }
 
-    internal static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateReturnToSenderForTesting(
+    internal static async Task<IReadOnlyList<FidelityCheck.CompileBackResult>> EvaluateReturnToSenderForTesting(
         string assemblyPath,
         int cap)
-        => EvaluateReturnToSenderParity(assemblyPath, cap, workers: 1, sequential: true).Results;
+        => (await EvaluateReturnToSenderParity(assemblyPath, cap, workers: 1, sequential: true)).Results;
 
     internal static ReturnToSenderParityMetrics SummarizeReturnToSenderParityForTesting(
         IReadOnlyList<FidelityCheck.CompileBackResult> referenceResults,
         IReadOnlyList<FidelityCheck.CompileBackResult> currentResults)
         => SummarizeReturnToSenderParity(referenceResults, currentResults);
 
-    static FidelityOracleEvaluation EvaluateReturnToSenderParity(
+    static Task<FidelityOracleEvaluation> EvaluateReturnToSenderParity(
         string assemblyPath,
         int cap,
         int? workers,
@@ -1227,7 +1227,7 @@ internal static class CorpusSensor
         return new FidelityOracleEvaluation(usefulResults, AllResults: evaluatedResults);
     }
 
-    static FidelityOracleEvaluation EvaluateReturnToSenderParity(
+    static async Task<FidelityOracleEvaluation> EvaluateReturnToSenderParity(
         string assemblyPath,
         IReadOnlyList<FidelityCheck.CompileBackTarget> targetAttempts,
         int cap)
@@ -1248,7 +1248,7 @@ internal static class CorpusSensor
                 result.Overload,
                 result.Signature))
             .ToArray();
-        var returnToSender = EvaluateReturnToSenderTargets(
+        var returnToSender = await EvaluateReturnToSenderTargets(
             assemblyPath,
             selectedTargets,
             "return-to-sender");
@@ -1283,22 +1283,22 @@ internal static class CorpusSensor
             Cutover: cutover);
     }
 
-    internal static IReadOnlyList<TResult> SelectThenEvaluateNativeFirst<TInput, TSelected, TNative, TResult>(
+    internal static async Task<IReadOnlyList<TResult>> SelectThenEvaluateNativeFirstAsync<TInput, TSelected, TNative, TResult>(
         IReadOnlyList<TInput> inputs,
         Func<TInput, TSelected> select,
-        Func<TSelected, TNative> evaluateNative,
+        Func<TSelected, Task<TNative>> evaluateNative,
         Func<TSelected, TNative, TResult> evaluateLegacy)
     {
         var selected = inputs.Select(select).ToArray();
-        var native = selected
-            .Select(item => (Selected: item, Native: evaluateNative(item)))
-            .ToArray();
-        return native
-            .Select(item => evaluateLegacy(item.Selected, item.Native))
+        var native = new TNative[selected.Length];
+        for (int index = 0; index < selected.Length; index++)
+            native[index] = await evaluateNative(selected[index]);
+        return selected
+            .Select((item, index) => evaluateLegacy(item, native[index]))
             .ToArray();
     }
 
-    static ReturnToSenderEvaluation EvaluateReturnToSenderTargets(
+    static async Task<ReturnToSenderEvaluation> EvaluateReturnToSenderTargets(
         string assemblyPath,
         IReadOnlyList<FidelityCheck.CompileBackTarget> selectedTargets,
         string captureDetail)
@@ -1310,35 +1310,35 @@ internal static class CorpusSensor
                 target.Overload,
                 target.Signature))
             .ToArray();
-        var returnToSenderResults = ReturnToSender.CompileBackTargets(
+        var returnToSenderResults = (await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 requestedTargets,
-                applyCompileBackFloor: false)
+                applyCompileBackFloor: false))
             .ToArray();
         return new ReturnToSenderEvaluation(
             AlignReturnToSenderResults(selectedTargets, returnToSenderResults, captureDetail),
             returnToSenderResults.Count(result => result.UsedCompileBackFloor));
     }
 
-    static ReturnToSenderEvaluation EvaluateReturnToSenderCutoverTargets(
+    static Task<ReturnToSenderEvaluation> EvaluateReturnToSenderCutoverTargets(
         string assemblyPath,
         IReadOnlyList<FidelityCheck.CompileBackTarget> selectedTargets,
         string captureDetail)
-        => EvaluateReturnToSenderCutoverTargets(
+        => EvaluateReturnToSenderCutoverTargetsAsync(
             assemblyPath,
             selectedTargets,
             captureDetail,
             () => EvaluateReturnToSenderTargets(assemblyPath, selectedTargets, captureDetail));
 
-    static ReturnToSenderEvaluation EvaluateReturnToSenderCutoverTargets(
+    static async Task<ReturnToSenderEvaluation> EvaluateReturnToSenderCutoverTargetsAsync(
         string assemblyPath,
         IReadOnlyList<FidelityCheck.CompileBackTarget> selectedTargets,
         string captureDetail,
-        Func<ReturnToSenderEvaluation> evaluate)
+        Func<Task<ReturnToSenderEvaluation>> evaluate)
     {
         try
         {
-            return evaluate();
+            return await evaluate();
         }
         catch (Exception ex) when (
             ex is IOException or BadImageFormatException or InvalidOperationException or UnauthorizedAccessException)
@@ -1362,24 +1362,24 @@ internal static class CorpusSensor
         }
     }
 
-    internal static IReadOnlyList<FidelityCheck.CompileBackResult>
+    internal static async Task<IReadOnlyList<FidelityCheck.CompileBackResult>>
         EvaluateReturnToSenderCutoverTargetsForTesting(
             IReadOnlyList<FidelityCheck.CompileBackTarget> selectedTargets,
             Func<IReadOnlyList<ReturnToSender.Result>> evaluate)
-        => EvaluateReturnToSenderCutoverTargets(
+        => (await EvaluateReturnToSenderCutoverTargetsAsync(
             "test.dll",
             selectedTargets,
             "return-to-sender-cutover; compile-back-floor=false",
             () =>
             {
                 var results = evaluate().ToArray();
-                return new ReturnToSenderEvaluation(
+                return Task.FromResult(new ReturnToSenderEvaluation(
                     AlignReturnToSenderResults(
                         selectedTargets,
                         results,
                         "return-to-sender-cutover; compile-back-floor=false"),
-                    results.Count(result => result.UsedCompileBackFloor));
-            }).Results;
+                    results.Count(result => result.UsedCompileBackFloor)));
+            })).Results;
 
     static IReadOnlyList<FidelityCheck.CompileBackResult> EvaluateTargetsInAttemptOrderUntilUseful(
         IReadOnlyList<string> assemblies,

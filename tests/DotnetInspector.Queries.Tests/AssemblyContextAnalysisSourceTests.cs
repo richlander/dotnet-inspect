@@ -5,7 +5,7 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class AssemblyContextAnalysisSourceTests
 {
     [Fact]
-    public void BindingPolicyResolver_PreservesDelegatedNonSelectedResults()
+    public async Task BindingPolicyResolver_PreservesDelegatedNonSelectedResults()
     {
         AssemblyBindingSelection[] terminalResults =
         [
@@ -33,7 +33,7 @@ public sealed class AssemblyContextAnalysisSourceTests
                     path: null,
                     openRead: () => new MemoryStream(),
                     AssemblyResolutionProvenance.Local("test"));
-            using var workspace = new InspectionWorkspace();
+            await using var workspace = new InspectionWorkspace();
             using AssemblyContextGroup group =
                 workspace.CreateAssemblyContextGroup(
                     [new AssemblyContextParticipant(assembly, policy)]);
@@ -67,7 +67,7 @@ public sealed class AssemblyContextAnalysisSourceTests
     }
 
     [Fact]
-    public void BindingPolicyResolver_RetainsSelectedDescriptorAndShadows()
+    public async Task BindingPolicyResolver_RetainsSelectedDescriptorAndShadows()
     {
         ResolvedAssemblyReference root = Descriptor();
         ResolvedAssemblyReference selected = Descriptor();
@@ -75,7 +75,7 @@ public sealed class AssemblyContextAnalysisSourceTests
         var policy = new FixedPolicy(
             AssemblyBindingCandidateDomain.Create(
                 [selected, shadow]).Finalize([selected]));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [
@@ -103,14 +103,14 @@ public sealed class AssemblyContextAnalysisSourceTests
     }
 
     [Fact]
-    public void BindingPolicyResolver_RetainsAmbiguousDescriptors()
+    public async Task BindingPolicyResolver_RetainsAmbiguousDescriptors()
     {
         ResolvedAssemblyReference root = Descriptor();
         ResolvedAssemblyReference first = Descriptor();
         ResolvedAssemblyReference second = Descriptor();
         var policy = new FixedPolicy(
             AssemblyBindingSelection.Multiple([first, second]));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [
@@ -134,7 +134,7 @@ public sealed class AssemblyContextAnalysisSourceTests
     }
 
     [Fact]
-    public void BindingPolicyResolver_RetainsCompositionDomainDescriptors()
+    public async Task BindingPolicyResolver_RetainsCompositionDomainDescriptors()
     {
         ResolvedAssemblyReference root = Descriptor();
         ResolvedAssemblyReference first = Descriptor();
@@ -143,7 +143,7 @@ public sealed class AssemblyContextAnalysisSourceTests
             AssemblyBindingSelection.RequireComposition(
                 AssemblyBindingCandidateDomain.Create(
                     [first, second])));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [
@@ -170,9 +170,9 @@ public sealed class AssemblyContextAnalysisSourceTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Facade_OwnsStableVersionAndSelectedContinuation(bool observing)
+    public async Task Facade_OwnsStableVersionAndSelectedContinuation(bool observing)
     {
-        using var fixture = new FacadeFixture();
+        await using var fixture = new FacadeFixture();
         fixture.Inner.Selection = AssemblyBindingSelection.Found(
             fixture.Selected);
         IAssemblyBindingPolicy policy = fixture.CreatePolicy(observing);
@@ -202,9 +202,9 @@ public sealed class AssemblyContextAnalysisSourceTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Facade_ForwardsForeignSnapshotBeforeDescriptorEffects(bool observing)
+    public async Task Facade_ForwardsForeignSnapshotBeforeDescriptorEffects(bool observing)
     {
-        using var fixture = new FacadeFixture();
+        await using var fixture = new FacadeFixture();
         fixture.Inner.Selection =
             AssemblyBindingCandidateDomain.Create(
                 [fixture.Selected, fixture.Root])
@@ -231,9 +231,9 @@ public sealed class AssemblyContextAnalysisSourceTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Facade_RefreshesAfterActualDelegateChange(bool observing)
+    public async Task Facade_RefreshesAfterActualDelegateChange(bool observing)
     {
-        using var fixture = new FacadeFixture();
+        await using var fixture = new FacadeFixture();
         IAssemblyBindingPolicy policy = fixture.CreatePolicy(observing);
         AssemblyBindingPolicyVersion first = policy.Version;
         fixture.Inner.BeforeSelection = () => fixture.Inner.Version = new();
@@ -257,9 +257,9 @@ public sealed class AssemblyContextAnalysisSourceTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Facade_ContinuesWithOriginalDelegatedOccurrence(bool observing)
+    public async Task Facade_ContinuesWithOriginalDelegatedOccurrence(bool observing)
     {
-        using var fixture = new FacadeFixture();
+        await using var fixture = new FacadeFixture();
         AssemblyBindingOccurrence delegated =
             new TestLineage(fixture.Inner.Version).Issue(fixture.Selected);
         fixture.Inner.Selection = AssemblyBindingSelection.FoundOccurrence(
@@ -294,9 +294,9 @@ public sealed class AssemblyContextAnalysisSourceTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Facade_RejectsContinuationFromRetiredState(bool observing)
+    public async Task Facade_RejectsContinuationFromRetiredState(bool observing)
     {
-        using var fixture = new FacadeFixture();
+        await using var fixture = new FacadeFixture();
         fixture.Inner.Selection = AssemblyBindingSelection.Found(
             fixture.Selected);
         IAssemblyBindingPolicy policy = fixture.CreatePolicy(observing);
@@ -320,9 +320,9 @@ public sealed class AssemblyContextAnalysisSourceTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Facade_NullSnapshotRemainsInvalidAtMetadata(bool observing)
+    public async Task Facade_NullSnapshotRemainsInvalidAtMetadata(bool observing)
     {
-        using var fixture = new FacadeFixture();
+        await using var fixture = new FacadeFixture();
         fixture.Inner.ReturnNull = true;
         IAssemblyBindingPolicy policy = fixture.CreatePolicy(observing);
         var request = new AssemblyBindingRequest(
@@ -346,9 +346,9 @@ public sealed class AssemblyContextAnalysisSourceTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Facade_ForeignSnapshotPublishesNoMetadataContext(bool observing)
+    public async Task Facade_ForeignSnapshotPublishesNoMetadataContext(bool observing)
     {
-        using var fixture = new FacadeFixture();
+        await using var fixture = new FacadeFixture();
         fixture.Inner.Selection = AssemblyBindingSelection.Found(
             fixture.Selected);
         fixture.Inner.BeforeSelection = () => fixture.Inner.Version = new();
@@ -380,9 +380,9 @@ public sealed class AssemblyContextAnalysisSourceTests
     }
 
     [Fact]
-    public void BindingPolicyResolver_LegacyResolveRejectsForeignSnapshot()
+    public async Task BindingPolicyResolver_LegacyResolveRejectsForeignSnapshot()
     {
-        using var fixture = new FacadeFixture();
+        await using var fixture = new FacadeFixture();
         fixture.Inner.Selection = AssemblyBindingSelection.Found(
             fixture.Selected);
         fixture.Inner.BeforeSelection = () => fixture.Inner.Version = new();
@@ -401,10 +401,10 @@ public sealed class AssemblyContextAnalysisSourceTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void BindingPolicyResolver_ValidatesCapturedGroupBeforePublication(
+    public async Task BindingPolicyResolver_ValidatesCapturedGroupBeforePublication(
         bool foreignSnapshot)
     {
-        using var fixture = new FacadeFixture();
+        await using var fixture = new FacadeFixture();
         var resolver = AssemblyContextAnalysisSource.Resolver(
             fixture.Group,
             new AssemblyContextSubject(fixture.Root));
@@ -470,7 +470,7 @@ public sealed class AssemblyContextAnalysisSourceTests
             ResolvedAssemblyReference assembly) => CreateOccurrence(assembly);
     }
 
-    sealed class FacadeFixture : IDisposable
+    sealed class FacadeFixture : IAsyncDisposable
     {
         readonly InspectionWorkspace _workspace = new();
 
@@ -510,10 +510,10 @@ public sealed class AssemblyContextAnalysisSourceTests
                         Group,
                         new AssemblyContextSubject(Root)));
 
-        public void Dispose()
+        public async ValueTask DisposeAsync()
         {
             Group.Dispose();
-            _workspace.Dispose();
+            await _workspace.DisposeAsync();
         }
     }
 }
