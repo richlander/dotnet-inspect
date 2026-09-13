@@ -180,6 +180,34 @@ public static class Entry
         return buffer.Length;
     }
 
+    public static void CallGenericMarker() => GenericMarker<byte>();
+
+    public static void CallOpenGenericMarker<T>() => GenericMarker<T>();
+
+    public static void CallSecondOpenGenericMarker<T>() => GenericMarker<T>();
+
+    public static void GenericMarker<T>()
+    {
+    }
+
+    public static void CallEquivalentGenericMarker() =>
+        GenericHost<byte>.Target<byte>(0);
+
+    public static void CallVarargMarker() =>
+        VarargMarker(1, __arglist(2));
+
+    public static void VarargMarker(int value, __arglist)
+    {
+    }
+
+    public static void CallRefMarker()
+    {
+        int value = 0;
+        RefMarker(ref value);
+    }
+
+    public static void RefMarker(ref int value) => value++;
+
     static void ForwardRentedArray(byte[] buffer) =>
         ReturnRentedArray(buffer);
 
@@ -242,5 +270,12 @@ public static class Entry
 
         internal void Return(int marker, byte[] buffer) =>
             ArrayPool<byte>.Shared.Return(buffer);
+    }
+}
+
+public static class GenericHost<T>
+{
+    public static void Target<U>(T value)
+    {
     }
 }
