@@ -36,6 +36,9 @@ public sealed record NonParametricNestedAnnotatedArrayRecord<T>(
 public sealed record ParametricNullableValueArrayRecord<T>(T?[] Items)
     where T : struct;
 public sealed record ConcreteArrayRecord<T>(T Value, T0[] Items);
+public sealed record GlobalConcreteArrayRecord<Collision>(
+    Collision Value,
+    global::Collision[] Items);
 
 public static partial class UnionExports
 {
@@ -216,6 +219,12 @@ public static partial class UnionExports
             UnionJsonContext.Default.ConcreteArrayRecordInt32);
 
     [JSExport]
+    public static string GetGlobalConcreteArrayRecord() =>
+        JsonSerializer.Serialize(
+            new GlobalConcreteArrayRecord<int>(7, [new(8)]),
+            UnionJsonContext.Default.GlobalConcreteArrayRecordInt32);
+
+    [JSExport]
     public static void ReadScalar(string json) =>
         _ = JsonSerializer.Deserialize(json, UnionJsonContext.Default.ScalarUnion);
 
@@ -263,4 +272,5 @@ public sealed class CustomUnionConverter : JsonConverter<CustomUnion>
 [JsonSerializable(typeof(NonParametricNestedAnnotatedArrayRecord<byte>))]
 [JsonSerializable(typeof(ParametricNullableValueArrayRecord<int>))]
 [JsonSerializable(typeof(ConcreteArrayRecord<int>))]
+[JsonSerializable(typeof(GlobalConcreteArrayRecord<int>))]
 public sealed partial class UnionJsonContext : JsonSerializerContext;

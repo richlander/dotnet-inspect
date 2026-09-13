@@ -69,6 +69,7 @@ import {
   getFlagSelection,
   getGenericRecordIntAsync,
   getGenericRecordWidgetAsync,
+  getGenericNestedEnvelope,
   getGenericNestedChoice,
   getKindSelection,
   getNullableGenericNested,
@@ -83,6 +84,7 @@ import type {
   FlagSelection,
   GenericRecord,
   GenericNested,
+  GenericNestedEnvelope,
   GenericNestedChoice,
   KindSelection,
   OutcomeSelection,
@@ -261,6 +263,7 @@ export async function summarizeGenericRecords(): Promise<string> {
     await getGenericRecordWidgetAsync("sample");
   const nullable: GenericNested<string | null> =
     getNullableGenericNested();
+  const envelope: GenericNestedEnvelope = getGenericNestedEnvelope();
   const nestedChoice: GenericNestedChoice = getGenericNestedChoice();
   return [
     numbers.content,
@@ -276,6 +279,7 @@ export async function summarizeGenericRecords(): Promise<string> {
       ? widgets.choice.count
       : "unexpected",
     nullable.value ?? "null",
+    envelope.item.value ?? "null",
     nestedChoice === null || typeof nestedChoice === "number"
       ? nestedChoice
       : nestedChoice.value ?? "null",

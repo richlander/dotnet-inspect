@@ -979,49 +979,38 @@ static class DtsEmitter
         IReadOnlyList<TypeParameter> parameters,
         out string? parameterName)
     {
-        string? canonicalType =
-            signature?.CanonicalReturnType
-            ?? signature?.ReturnType;
-        if (canonicalType is null)
+        if (signature?.ReturnTypeShape is not { } returnType)
         {
             parameterName = null;
             return false;
         }
 
-        foreach (TypeParameter parameter in parameters)
+        var pending = new Stack<ApiTypeShape>();
+        pending.Push(returnType);
+        while (pending.Count > 0)
         {
-            int offset = 0;
-            while ((offset = canonicalType.IndexOf(
-                    parameter.Name,
-                    offset,
-                    StringComparison.Ordinal)) >= 0)
-            {
-                int suffix = offset + parameter.Name.Length;
-                bool identifierStart = offset == 0
-                    || (!char.IsLetterOrDigit(canonicalType[offset - 1])
-                        && canonicalType[offset - 1] != '_'
-                        && canonicalType[offset - 1] != '.'
-                        && canonicalType[offset - 1] != ':');
-                ReadOnlySpan<char> arraySuffix =
-                    canonicalType.AsSpan(suffix);
-                bool directArray = arraySuffix.StartsWith(
-                    "[]",
-                    StringComparison.Ordinal);
-                bool annotatedParameterArray =
-                    arraySuffix.StartsWith(
-                        "?[]",
-                        StringComparison.Ordinal)
-                    && parameter.TypeKind is
-                        TypeParameterTypeKind.Undetermined
-                        or TypeParameterTypeKind.NeitherReferenceNorValue;
-                if (identifierStart
-                    && (directArray || annotatedParameterArray))
+            ApiTypeShape current = pending.Pop();
+            if (current.Kind == ApiTypeShapeKind.SzArray
+                && current.ElementType is
                 {
-                    parameterName = parameter.Name;
-                    return true;
+                    Kind: ApiTypeShapeKind.GenericParameter,
+                    IsMethodGenericParameter: false,
+                    GenericParameterIndex: var parameterIndex,
                 }
+                && parameterIndex >= 0
+                && parameterIndex < parameters.Count)
+            {
+                parameterName = parameters[parameterIndex].Name;
+                return true;
+            }
 
-                offset = suffix;
+            if (current.ElementType is not null)
+                pending.Push(current.ElementType);
+            for (int index = current.TypeArguments.Length - 1;
+                index >= 0;
+                index--)
+            {
+                pending.Push(current.TypeArguments[index]);
             }
         }
 

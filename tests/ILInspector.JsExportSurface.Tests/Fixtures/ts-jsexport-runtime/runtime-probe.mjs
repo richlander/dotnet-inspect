@@ -36,6 +36,7 @@ for (
     "genericRecordInt",
     "genericRecordWidget",
     "nullableGenericNested",
+    "genericNestedEnvelope",
     "genericNestedChoice",
     "selectionEnvelope",
   ]
@@ -91,6 +92,8 @@ const getGenericRecordWidgetAsyncKey =
   facadeSource.match(/"(GetGenericRecordWidgetAsync\.-?\d+)"/)?.[1];
 const getNullableGenericNestedKey =
   facadeSource.match(/"(GetNullableGenericNested\.-?\d+)"/)?.[1];
+const getGenericNestedEnvelopeKey =
+  facadeSource.match(/"(GetGenericNestedEnvelope\.-?\d+)"/)?.[1];
 const getGenericNestedChoiceKey =
   facadeSource.match(/"(GetGenericNestedChoice\.-?\d+)"/)?.[1];
 const getSelectionEnvelopeAsyncKey =
@@ -198,6 +201,10 @@ assert.ok(
 assert.ok(
   getNullableGenericNestedKey,
   "The generated GetNullableGenericNested runtime dispatch key was not found.",
+);
+assert.ok(
+  getGenericNestedEnvelopeKey,
+  "The generated GetGenericNestedEnvelope runtime dispatch key was not found.",
 );
 assert.ok(
   getGenericNestedChoiceKey,
@@ -330,6 +337,9 @@ function managedExports(methods = {}) {
             [getNullableGenericNestedKey]:
               methods.getNullableGenericNested
               ?? (() => unionPayloads.nullableGenericNested),
+            [getGenericNestedEnvelopeKey]:
+              methods.getGenericNestedEnvelope
+              ?? (() => unionPayloads.genericNestedEnvelope),
             [getGenericNestedChoiceKey]:
               methods.getGenericNestedChoice
               ?? (() => unionPayloads.genericNestedChoice),
@@ -532,6 +542,10 @@ async function freshFacade() {
     { value: null },
   );
   assert.deepEqual(
+    facade.getGenericNestedEnvelope(),
+    { item: { value: null } },
+  );
+  assert.deepEqual(
     facade.getGenericNestedChoice(),
     { value: null },
   );
@@ -571,7 +585,7 @@ async function freshFacade() {
   );
   assert.equal(
     await unionUsage.summarizeGenericRecords(),
-    "7|8|1,2|0|9|sample|11|12|null|13|null|null",
+    "7|8|1,2|0|9|sample|11|12|null|13|null|null|null",
   );
   assert.equal(unionUsage.missingSelectionEntry, null);
   assert.equal(unionUsage.missingMapEntry, null);

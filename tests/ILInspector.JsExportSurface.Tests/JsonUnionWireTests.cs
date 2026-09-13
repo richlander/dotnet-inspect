@@ -344,6 +344,24 @@ public sealed class JsonUnionWireTests
     }
 
     [Fact]
+    public void Emit_DoesNotConfuseGlobalConcreteArraysWithGenericParameters()
+    {
+        Assert.Equal(
+            "{\"value\":7,\"items\":[{\"value\":8}]}",
+            UnionExports.GetGlobalConcreteArrayRecord());
+        string declaration = DtsEmitter.Emit(
+            Build(nameof(UnionExports.GetGlobalConcreteArrayRecord)));
+        Assert.Contains(
+            "export interface GlobalConcreteArrayRecord<",
+            declaration,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "readonly items: unknown;",
+            declaration,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Emit_GenericParametersDoNotShadowCaseDeclarations()
     {
         string output = DtsEmitter.Emit(Build(nameof(UnionExports.GetParameterNameUnion)));

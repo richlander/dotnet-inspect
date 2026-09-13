@@ -323,6 +323,11 @@ static class TsTypeMapper
         if (trimmed.EndsWith("?", StringComparison.Ordinal))
         {
             string inner = trimmed[..^1];
+            ApiTypeShape? nullableInnerShape =
+                typeShape is not null
+                && IsGenericShape(typeShape, "System.Nullable`1")
+                    ? GenericArgumentShape(typeShape, 0)
+                    : typeShape;
             return $"{Map(
                 inner,
                 recordNames,
@@ -331,7 +336,7 @@ static class TsTypeMapper
                 blockedAliases,
                 mappedTypeNames,
                 mappingContext,
-                typeShape,
+                nullableInnerShape,
                 identityNames,
                 unionContext)} | null";
         }
@@ -443,6 +448,42 @@ static class TsTypeMapper
             }
             && unionContext?.GenericArities.ContainsKey(closedGenericIdentity) == true)
         {
+            if (!unionContext.ConservativeReferenceArguments
+                && (unionContext.GenericRecords.Contains(
+                        closedGenericIdentity)
+                    || ContainsGenericParameter(typeShape))
+                && TryParseGenericType(
+                    trimmed,
+                    out _,
+                    out IReadOnlyList<string> displayArguments)
+                && displayArguments.Count == typeShape.TypeArguments.Length
+                && unionContext.Names.TryGetValue(
+                    closedGenericIdentity,
+                    out string? authenticatedName))
+            {
+                string[] mappedArguments =
+                    new string[displayArguments.Count];
+                for (int index = 0;
+                    index < mappedArguments.Length;
+                    index++)
+                {
+                    mappedArguments[index] = Map(
+                        displayArguments[index],
+                        recordNames,
+                        diagnostics,
+                        location,
+                        blockedAliases,
+                        mappedTypeNames,
+                        mappingContext,
+                        typeShape.TypeArguments[index],
+                        identityNames,
+                        unionContext);
+                }
+
+                return $"{authenticatedName}<"
+                    + $"{string.Join(", ", mappedArguments)}>";
+            }
+
             return TsJsonUnionMapper.MapClosedShape(
                 typeShape,
                 unionContext,
@@ -508,6 +549,18 @@ static class TsTypeMapper
                 out string? exactName) == true)
         {
             return exactName;
+        }
+
+        if (typeShape is
+                {
+                    Kind: ApiTypeShapeKind.GenericParameter,
+                    IsMethodGenericParameter: false,
+                }
+            && mappedTypeNames?.TryGetValue(
+                trimmed,
+                out string? mappedParameterName) == true)
+        {
+            return mappedParameterName;
         }
 
         if (typeShape is not null)
@@ -1772,6 +1825,27 @@ static class TsTypeMapper
             && typeShape.TypeArguments.Length > index
                 ? typeShape.TypeArguments[index]
                 : null;
+
+    static bool ContainsGenericParameter(ApiTypeShape shape)
+    {
+        var pending = new Stack<ApiTypeShape>();
+        pending.Push(shape);
+        while (pending.Count > 0)
+        {
+            ApiTypeShape current = pending.Pop();
+            if (current.Kind == ApiTypeShapeKind.GenericParameter)
+                return true;
+            if (current.ElementType is not null)
+                pending.Push(current.ElementType);
+            for (int index = current.TypeArguments.Length - 1;
+                index >= 0;
+                index--)
+            {
+                pending.Push(current.TypeArguments[index]);
+            }
+        }
+        return false;
+    }
 
     static bool TrySplitTopLevelGenericArguments(
         string arguments,

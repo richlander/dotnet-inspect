@@ -626,6 +626,19 @@ public sealed class TypeScriptFacadeEmitterTests
             source,
             StringComparison.Ordinal);
         Assert.Contains(
+            """
+            export interface GenericNestedEnvelope {
+              readonly item: GenericNested<string | null>;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function getGenericNestedEnvelope(): "
+                + "GenericNestedEnvelope",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "export type GenericNestedChoice = "
                 + "GenericNested<string | null> | number | null;",
             source,

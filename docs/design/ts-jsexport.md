@@ -266,7 +266,9 @@ through supported records, arrays, dictionaries, nullable values, and unions.
 A direct serializer root does not retain nullable-reference annotations for
 its generic arguments, so reference-shaped arguments remain conservatively
 nullable. Union case signatures have the same nested-annotation erasure and
-apply the same rule to generic-record alternatives.
+apply the same rule to generic-record alternatives. Ordinary record member
+signatures retain their nested nullable annotations and project those precise
+generic arguments instead.
 
 Recursive composition remains parametric only when substituting a wire type
 preserves the surrounding wire shape. `GenericNested<T>[]` is an array of
@@ -278,7 +280,10 @@ supported container. Nullable-reference annotation on an unconstrained
 parameter does not change that CLR array shape, while a value-constrained
 `T?[]` remains a genuine array of `System.Nullable<T>` and stays supported.
 Open, other embedded non-parametric, or unauthenticated constructions also fail
-visibly; the boundary does not infer arbitrary CLR generic shapes.
+visibly; the boundary does not infer arbitrary CLR generic shapes. Parameter
+arrays are identified from decoded generic-parameter positions rather than
+display names, so a qualified concrete array remains distinct even when its
+type name matches a parameter name.
 
 Deserialize-reached unions, unavailable case/null evidence, unsupported
 converters, unmapped alternatives, and recursive union-case alias components
@@ -299,9 +304,11 @@ discriminated TypeScript union.
 `eng/test-ts-jsexport-typescript.sh` gate the generated contract against actual
 source-generated serializer results and compiled TypeScript consumers,
 including an annotation-erased null reference root, a generic-record union
-alternative with null content, rejected direct and container-nested `T[]` and
-unconstrained `T?[]` constructions whose `byte[]` payloads are Base64 text, and
-a supported value-constrained `T?[]` neighboring case.
+alternative with null content, a precise nullable generic argument in an
+ordinary record member, rejected direct and container-nested `T[]` and
+unconstrained `T?[]` constructions whose `byte[]` payloads are Base64 text, a
+supported value-constrained `T?[]` neighboring case, and a concrete array whose
+name collides with a generic parameter.
 The four-step adoption path remains Metadata evidence, JsExportSurface
 evidence, this CLI generation/harness slice, and inspect-web browser/Wasm
 adoption. The existing TypeScript emitter owns this format lowering; no new

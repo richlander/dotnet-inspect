@@ -41,6 +41,9 @@ if (args is not [string outputPath])
         "nullableGenericNested",
         TypeScriptFixtureExports.GetNullableGenericNested()),
     (
+        "genericNestedEnvelope",
+        TypeScriptFixtureExports.GetGenericNestedEnvelope()),
+    (
         "genericNestedChoice",
         TypeScriptFixtureExports.GetGenericNestedChoice()),
     (

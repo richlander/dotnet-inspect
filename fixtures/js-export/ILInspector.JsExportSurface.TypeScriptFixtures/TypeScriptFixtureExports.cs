@@ -11,6 +11,9 @@ public sealed record RuntimeAPI(string Value);
 
 public sealed record GenericNested<TValue>(TValue Value);
 
+public sealed record GenericNestedEnvelope(
+    GenericNested<string?> Item);
+
 public union GenericNestedChoice(GenericNested<string?>, int);
 
 public sealed record GenericRecord<TValue>(
@@ -66,6 +69,7 @@ internal sealed partial class BlobFixtureJsonContext : JsonSerializerContext;
 [JsonSerializable(
     typeof(GenericNested<string>),
     TypeInfoPropertyName = "NullableGenericNested")]
+[JsonSerializable(typeof(GenericNestedEnvelope))]
 [JsonSerializable(typeof(GenericNestedChoice))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal sealed partial class GenericRecordJsonContext : JsonSerializerContext;
@@ -221,6 +225,13 @@ public static partial class TypeScriptFixtureExports
         JsonSerializer.Serialize(
             new GenericNested<string?>(null),
             GenericRecordJsonContext.Default.NullableGenericNested);
+
+    [JSExport]
+    public static string GetGenericNestedEnvelope() =>
+        JsonSerializer.Serialize(
+            new GenericNestedEnvelope(
+                new GenericNested<string?>(null)),
+            GenericRecordJsonContext.Default.GenericNestedEnvelope);
 
     [JSExport]
     public static string GetGenericNestedChoice() =>
