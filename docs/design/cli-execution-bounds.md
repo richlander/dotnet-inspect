@@ -582,6 +582,12 @@ multi-source implementation maps, deduplicates, and merges provider rows, so
 the current adoption:
 
 - retains `--take` as an explicit per-feed source-work bound;
+- carries typed page-shape evidence from each NuGet source: a full page is
+  reported as `RequestedLimit`, while a shorter page is reported as
+  `ShortPage`;
+- treats `ShortPage` as non-bound evidence rather than authoritative corpus
+  exhaustion, because a provider may impose a lower page maximum than the
+  requested `take`;
 - uses `-n` to select final package rows without deriving source demand from
   an arbitrary ordered semantic plan;
 - preserves provider caps, source failures, and incomplete merged-search

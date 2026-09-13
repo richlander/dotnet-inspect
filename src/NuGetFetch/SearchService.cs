@@ -67,11 +67,30 @@ public partial class SearchService
         AuthenticationHeaderValue? auth = null,
         CancellationToken cancellationToken = default)
     {
+        SearchPageResult page = await SearchWithStateAsync(
+            query,
+            take,
+            prerelease,
+            auth,
+            cancellationToken).ConfigureAwait(false);
+        return page.Results;
+    }
+
+    /// <summary>
+    /// Searches NuGet and preserves whether the requested page maximum was reached.
+    /// </summary>
+    public async Task<SearchPageResult> SearchWithStateAsync(
+        string query,
+        int take = 20,
+        bool prerelease = false,
+        AuthenticationHeaderValue? auth = null,
+        CancellationToken cancellationToken = default)
+    {
         using var operation = new NuGetOperationDeadline(
             _options,
             _client.Timeout,
             cancellationToken);
-        return await SearchAsync(
+        return await SearchWithStateAsync(
             query,
             take,
             prerelease,
@@ -85,13 +104,33 @@ public partial class SearchService
         bool prerelease,
         AuthenticationHeaderValue? auth,
         NuGetOperationDeadline operation) =>
-        await SearchPageAsync(
+        (await SearchWithStateAsync(
+            query,
+            take,
+            prerelease,
+            auth,
+            operation).ConfigureAwait(false)).Results;
+
+    internal async Task<SearchPageResult> SearchWithStateAsync(
+        string query,
+        int take,
+        bool prerelease,
+        AuthenticationHeaderValue? auth,
+        NuGetOperationDeadline operation)
+    {
+        IReadOnlyList<SearchResult> results = await SearchPageAsync(
             query,
             skip: 0,
             take,
             prerelease,
             auth,
             operation).ConfigureAwait(false);
+        return new(
+            results,
+            results.Count >= take
+                ? SearchPageCompletion.RequestedLimit
+                : SearchPageCompletion.ShortPage);
+    }
 
     private async Task<IReadOnlyList<SearchResult>> SearchPageAsync(
         string query,
