@@ -859,11 +859,20 @@ jobs:
             --json number,title \
             --jq "map(select(.title == \"$title\")) | .[0].number // empty")
           if [ -n "$num" ]; then
-            gh api --method POST \
+            label_status=0
+            if gh api --method POST \
               "repos/${{ github.repository }}/issues/$num/labels" \
-              -f "labels[]=$ISSUE_LABEL" >/dev/null
+              -f "labels[]=$ISSUE_LABEL" >/dev/null; then
+              :
+            else
+              label_status=$?
+            fi
             gh issue comment --repo "${{ github.repository }}" "$num" \
               --body "Another scheduled Deep Inspect run failed: $RUN_URL"
+            if [ "$label_status" -ne 0 ]; then
+              echo "::error::Failed to restore $ISSUE_LABEL on issue #$num"
+              exit "$label_status"
+            fi
           else
             gh issue create --repo "${{ github.repository }}" \
               --title "$title" \
