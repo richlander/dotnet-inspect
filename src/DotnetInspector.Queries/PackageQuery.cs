@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Xml;
+using DotnetInspector.Core;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspector.SourceSelection;
@@ -300,6 +301,17 @@ public interface IPackageQueryContentProvider
 {
     ValueTask<PackageQueryContentResult> GetContentAsync(
         PackageQueryPackage package,
+        CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// Optional progress sink for a host that presents Package Query events while
+/// the completed inspection envelope is being produced.
+/// </summary>
+public interface IPackageQueryEventObserver
+{
+    ValueTask ObserveAsync(
+        PackageQueryEvent queryEvent,
         CancellationToken cancellationToken);
 }
 
@@ -615,8 +627,66 @@ public static partial class PackageQuery
                 packageInput));
     }
 
-    /// <summary>Executes and materializes one validated package query.</summary>
-    public static async ValueTask<ImmutableArray<PackageQueryEvent>>
+    /// <summary>
+    /// Executes one validated package query and returns its completed
+    /// host-neutral inspection envelope.
+    /// </summary>
+    public static async ValueTask<
+        InspectionEnvelope<ImmutableArray<PackageQueryEvent>>>
+        ExecuteToEnvelopeAsync(
+            IPackageSourceClient source,
+            PackageQueryPlan plan,
+            CancellationToken cancellationToken = default)
+        => await ExecuteToEnvelopeAsync(
+            source,
+            plan,
+            contentProvider: null,
+            observer: null,
+            cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// Executes one validated package query with the explicit package-content
+    /// capability required by package-content facets and returns its completed
+    /// host-neutral inspection envelope.
+    /// </summary>
+    public static async ValueTask<
+        InspectionEnvelope<ImmutableArray<PackageQueryEvent>>>
+        ExecuteToEnvelopeAsync(
+            IPackageSourceClient source,
+            PackageQueryPlan plan,
+            IPackageQueryContentProvider? contentProvider,
+            CancellationToken cancellationToken = default)
+        => await ExecuteToEnvelopeAsync(
+            source,
+            plan,
+            contentProvider,
+            observer: null,
+            cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// Executes one validated package query, reports progressive events to an
+    /// optional observer, and returns the same events as completed content.
+    /// </summary>
+    public static async ValueTask<
+        InspectionEnvelope<ImmutableArray<PackageQueryEvent>>>
+        ExecuteToEnvelopeAsync(
+            IPackageSourceClient source,
+            PackageQueryPlan plan,
+            IPackageQueryContentProvider? contentProvider,
+            IPackageQueryEventObserver? observer,
+            CancellationToken cancellationToken = default)
+    {
+        ImmutableArray<PackageQueryEvent> content =
+            await ExecuteToArrayAsync(
+                source,
+                plan,
+                contentProvider,
+                observer,
+                cancellationToken).ConfigureAwait(false);
+        return CreateEnvelope(plan, content);
+    }
+
+    internal static async ValueTask<ImmutableArray<PackageQueryEvent>>
         ExecuteToArrayAsync(
             IPackageSourceClient source,
             PackageQueryPlan plan,
@@ -625,17 +695,15 @@ public static partial class PackageQuery
             source,
             plan,
             contentProvider: null,
+            observer: null,
             cancellationToken).ConfigureAwait(false);
 
-    /// <summary>
-    /// Executes and materializes one validated package query with the explicit
-    /// package-content capability required by package-content facets.
-    /// </summary>
-    public static async ValueTask<ImmutableArray<PackageQueryEvent>>
+    internal static async ValueTask<ImmutableArray<PackageQueryEvent>>
         ExecuteToArrayAsync(
             IPackageSourceClient source,
             PackageQueryPlan plan,
             IPackageQueryContentProvider? contentProvider,
+            IPackageQueryEventObserver? observer,
             CancellationToken cancellationToken = default)
     {
         var events = ImmutableArray.CreateBuilder<PackageQueryEvent>();
@@ -646,12 +714,58 @@ public static partial class PackageQuery
             cancellationToken).ConfigureAwait(false))
         {
             events.Add(queryEvent);
+            if (observer is not null)
+            {
+                await observer.ObserveAsync(
+                    queryEvent,
+                    cancellationToken).ConfigureAwait(false);
+            }
         }
 
         return events.ToImmutable();
     }
 
-    public static async IAsyncEnumerable<PackageQueryEvent> ExecuteAsync(
+    private static InspectionEnvelope<ImmutableArray<PackageQueryEvent>>
+        CreateEnvelope(
+            PackageQueryPlan plan,
+            ImmutableArray<PackageQueryEvent> content)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        if (content.IsDefault)
+        {
+            throw new ArgumentException(
+                "Package Query content must be initialized.",
+                nameof(content));
+        }
+        if (content.Length == 0
+            || content[^1] is not PackageQueryEvent.Completed completed
+            || content.Count(static queryEvent =>
+                queryEvent is PackageQueryEvent.Completed) != 1)
+        {
+            throw new ArgumentException(
+                "Package Query content must end with exactly one completion event.",
+                nameof(content));
+        }
+        PackageQuerySummary summary = completed.Value;
+        if (!summary.Prefix.ToString().Equals(
+                plan.Prefix.ToString(),
+                StringComparison.Ordinal)
+            || summary.CandidateLimit != plan.MaximumCandidates
+            || summary.MatchLimit != plan.MaximumMatches)
+        {
+            throw new ArgumentException(
+                "Package Query content belongs to another query plan.",
+                nameof(content));
+        }
+
+        return new(
+            content,
+            new InspectionShare.NonProjectable(
+                "package-query/share",
+                "Package Query plans do not yet have a canonical Workspace Share projection."));
+    }
+
+    internal static async IAsyncEnumerable<PackageQueryEvent> ExecuteAsync(
         IPackageSourceClient source,
         PackageQueryPlan plan,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
@@ -670,7 +784,7 @@ public static partial class PackageQuery
     /// Executes a package query with the explicit host capability required to
     /// acquire admitted package content.
     /// </summary>
-    public static async IAsyncEnumerable<PackageQueryEvent> ExecuteAsync(
+    internal static async IAsyncEnumerable<PackageQueryEvent> ExecuteAsync(
         IPackageSourceClient source,
         PackageQueryPlan plan,
         IPackageQueryContentProvider? contentProvider,

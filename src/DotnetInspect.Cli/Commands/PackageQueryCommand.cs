@@ -1,6 +1,8 @@
+using System.Collections.Immutable;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Core;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -69,8 +71,13 @@ internal static class PackageQueryCommand
         CancellationToken cancellationToken = default)
     {
         PackageQueryPlan plan = options.Plan;
-        var events = await PackageQuery.ExecuteToArrayAsync(
-            source, plan, contentProvider, cancellationToken).ConfigureAwait(false);
+        InspectionEnvelope<ImmutableArray<PackageQueryEvent>> envelope =
+            await PackageQuery.ExecuteToEnvelopeAsync(
+                source,
+                plan,
+                contentProvider,
+                cancellationToken).ConfigureAwait(false);
+        ImmutableArray<PackageQueryEvent> events = envelope.Content;
         PackageQuerySummary summary = events
             .OfType<PackageQueryEvent.Completed>()
             .Single()

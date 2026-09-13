@@ -1,5 +1,7 @@
+using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
+using DotnetInspector.Core;
 using DotnetInspector.Packages;
 using InertText;
 using NuGetFetch;
@@ -8,6 +10,75 @@ namespace DotnetInspector.Queries.Tests;
 
 public sealed class PackageQueryTests
 {
+    [Fact]
+    public async Task ExecuteToEnvelopePreservesPackageQueryContent()
+    {
+        SearchResult[] candidates =
+        [
+            Match("Contoso.One", verified: true),
+        ];
+        var source = new FakePackageSource(
+            candidates,
+            candidates.ToDictionary(
+                candidate => $"{candidate.Id.ToLowerInvariant()}@1.0.0",
+                candidate => Manifest(candidate.Id)));
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.",
+                    MaximumCandidates: 1,
+                    MaximumMatches: 1)));
+
+        InspectionEnvelope<ImmutableArray<PackageQueryEvent>> envelope =
+            await PackageQuery.ExecuteToEnvelopeAsync(
+                source,
+                plan,
+                TestContext.Current.CancellationToken);
+
+        Assert.Single(
+            envelope.Content.OfType<PackageQueryEvent.Match>());
+        Assert.Single(
+            envelope.Content.OfType<PackageQueryEvent.Completed>());
+        InspectionShare.NonProjectable share =
+            Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+        Assert.Equal("package-query/share", share.Path);
+        Assert.Empty(envelope.Diagnostics);
+    }
+
+    [Fact]
+    public async Task ExecuteToEnvelopeObserverSeesTheSameCompletedContent()
+    {
+        SearchResult[] candidates =
+        [
+            Match("Contoso.One", verified: true),
+        ];
+        var source = new FakePackageSource(
+            candidates,
+            candidates.ToDictionary(
+                candidate => $"{candidate.Id.ToLowerInvariant()}@1.0.0",
+                candidate => Manifest(candidate.Id)));
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.",
+                    MaximumCandidates: 1,
+                    MaximumMatches: 1)));
+        var observer = new RecordingPackageQueryEventObserver();
+
+        InspectionEnvelope<ImmutableArray<PackageQueryEvent>> envelope =
+            await PackageQuery.ExecuteToEnvelopeAsync(
+                source,
+                plan,
+                contentProvider: null,
+                observer,
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(envelope.Content, observer.Events);
+        Assert.IsType<PackageQueryEvent.Completed>(observer.Events[^1]);
+        Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+        Assert.Empty(envelope.Diagnostics);
+    }
+
     [Fact]
     public void FacetDescriptors_HaveStableOrderedIds()
     {
@@ -1684,6 +1755,21 @@ public sealed class PackageQueryTests
         await foreach (PackageQueryEvent item in source)
             events.Add(item);
         return events;
+    }
+
+    private sealed class RecordingPackageQueryEventObserver
+        : IPackageQueryEventObserver
+    {
+        internal List<PackageQueryEvent> Events { get; } = [];
+
+        public ValueTask ObserveAsync(
+            PackageQueryEvent queryEvent,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Events.Add(queryEvent);
+            return ValueTask.CompletedTask;
+        }
     }
 
     private static async Task AssertNoMatchesAsync(

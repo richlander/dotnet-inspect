@@ -21,6 +21,14 @@ The current sources also implement the host-neutral L1 facet contract as
 ANDed predicate evaluation over `PackageProfileQuery`, an explicit
 package-content provider for archive-derived facets, non-empty inert evidence,
 separate candidate and match bounds, visible failures, and typed completion.
+Completed execution exposes
+`InspectionEnvelope<ImmutableArray<PackageQueryEvent>>`; the existing immutable
+event sequence remains the Package Query-owned content, while the envelope
+carries the required shared Share outcome and diagnostics. Package Query does
+not yet have a canonical Workspace packet projection, so its current Share
+outcome is explicitly non-projectable rather than a host-reconstructed URL.
+The internal event stream remains an execution mechanism for progressive
+Browser delivery, not the completed host-neutral handoff.
 Package-content evaluation is product-gated to at most 20 candidates.
 `PackageQueryTests` is its Release gate;
 `PackageQueryPlanner_IsReachableFromBrowserConsumer` is the Browser consumer

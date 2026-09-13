@@ -569,6 +569,139 @@ public sealed class BrowserPackageQueryOperationsTests
     }
 
     [Fact]
+    public async Task EventObserverUsesEnvelopeContentForCompletion()
+    {
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create());
+        PackageQueryEvent.Progress progress = new(
+            new PackageQueryProgress(
+                PackageQueryProgressPhase.Search,
+                Completed: 0,
+                Limit: 20));
+        PackageQueryEvent.Completed completed = new(
+            new PackageQuerySummary(
+                new InertString(TextPolicy.Field, "Contoso."),
+                source.Source,
+                CandidateLimit: 20,
+                MatchLimit: 20,
+                Candidates: 0,
+                Matches: 0,
+                Failures: 0,
+                PackageQueryCompletionKind.Exhausted));
+        var emitted = new List<BrowserPackageQueryEvent>();
+        var observer = new BrowserPackageQueryOperations.EventObserver(
+                matchCredit: null,
+                emitted.Add,
+                deadline: null);
+
+        await observer.ObserveAsync(
+            progress,
+            TestContext.Current.CancellationToken);
+        await observer.ObserveAsync(
+            completed,
+            TestContext.Current.CancellationToken);
+        BrowserPackageQueryEvent terminal = observer.Complete(
+            [progress, completed]);
+
+        Assert.Equal(BrowserPackageQueryEventKind.Completed, terminal.Kind);
+        Assert.Single(emitted);
+        Assert.Equal(
+            BrowserPackageQueryEventKind.Progress,
+            emitted[0].Kind);
+    }
+
+    [Fact]
+    public async Task EventObserverPausesMatchDeliveryUntilCreditIsReplenished()
+    {
+        using var matchCredit = new BrowserPackageQueryMatchCredit(
+            initialMatchCredit: 1);
+        var emitted = new List<BrowserPackageQueryEvent>();
+        var observer = new BrowserPackageQueryOperations.EventObserver(
+            matchCredit,
+            emitted.Add,
+            deadline: null);
+
+        await observer.ObserveAsync(
+            MatchEvent("Contoso.One"),
+            TestContext.Current.CancellationToken);
+        Task pending = observer.ObserveAsync(
+                MatchEvent("Contoso.Two"),
+                TestContext.Current.CancellationToken)
+            .AsTask();
+
+        Assert.Single(emitted);
+        Assert.False(pending.IsCompleted);
+        Assert.True(matchCredit.TryAdd(1));
+        await pending;
+        Assert.Equal(
+            ["Contoso.One", "Contoso.Two"],
+            emitted.Select(item => item.Row!.PackageId));
+    }
+
+    [Fact]
+    public async Task EventObserverCallerCancellationReleasesWaitingMatch()
+    {
+        using var cancellation = new CancellationTokenSource();
+        using var matchCredit = new BrowserPackageQueryMatchCredit(
+            initialMatchCredit: 1);
+        var emitted = new List<BrowserPackageQueryEvent>();
+        var observer = new BrowserPackageQueryOperations.EventObserver(
+            matchCredit,
+            emitted.Add,
+            deadline: null);
+
+        await observer.ObserveAsync(
+            MatchEvent("Contoso.One"),
+            cancellation.Token);
+        Task pending = observer.ObserveAsync(
+                MatchEvent("Contoso.Two"),
+                cancellation.Token)
+            .AsTask();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => pending);
+        Assert.Equal(
+            ["Contoso.One", "Contoso.Two"],
+            emitted.Select(item => item.Row!.PackageId));
+    }
+
+    [Fact]
+    public async Task EventObserverActiveWorkExpiryDoesNotPublishWaitingMatch()
+    {
+        using var matchCredit = new BrowserPackageQueryMatchCredit(
+            initialMatchCredit: 1);
+        using var callerCancellation = new CancellationTokenSource();
+        var emitted = new List<BrowserPackageQueryEvent>();
+
+        await Assert.ThrowsAsync<TimeoutException>(
+            () => BrowserPackageWorkspace.RunPackageOperationAsync(
+                async deadline =>
+                {
+                    var observer =
+                        new BrowserPackageQueryOperations.EventObserver(
+                            matchCredit,
+                            emitted.Add,
+                            deadline);
+                    await observer.ObserveAsync(
+                        MatchEvent("Contoso.One"),
+                        deadline.Token);
+                    while (!deadline.HasExpired)
+                        Thread.SpinWait(100);
+                    await observer.ObserveAsync(
+                        MatchEvent("Contoso.Two"),
+                        deadline.Token);
+                    return 0;
+                },
+                TimeSpan.FromMilliseconds(100),
+                callerCancellation.Token));
+
+        Assert.Single(emitted);
+        Assert.False(callerCancellation.IsCancellationRequested);
+    }
+
+    [Fact]
     public async Task PumpAsync_RejectsAnEventAfterCompletion()
     {
         using IPackageSourceClient source =

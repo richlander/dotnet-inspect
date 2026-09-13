@@ -98,16 +98,18 @@ namespace DotnetInspect.Web.Interop.Package
 
             PackageQueryPlan plan =
                 ((PackageQueryPlanResult.Accepted)planResult).Plan;
-            return await PumpAsync(
-                PackageQuery.ExecuteAsync(
+            var observer = new EventObserver(
+                matchCredit,
+                emit,
+                deadline);
+            var envelope = await PackageQuery.ExecuteToEnvelopeAsync(
                     BrowserPackageWorkspace.Gallery,
                     plan,
                     contentProvider,
-                    cancellationToken),
-                matchCredit,
-                emit,
-                cancellationToken,
-                deadline).ConfigureAwait(false);
+                    observer,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            return observer.Complete(envelope.Content);
         }
 
         internal static Task<BrowserPackageQueryEvent> PumpAsync(
@@ -308,6 +310,79 @@ namespace DotnetInspect.Web.Interop.Package
             return completedEvent
                 ?? throw new InvalidOperationException(
                     "The package-query stream ended without a completion event.");
+        }
+
+        internal sealed class EventObserver(
+            BrowserPackageQueryMatchCredit? matchCredit,
+            Action<BrowserPackageQueryEvent> emit,
+            BrowserPackageWorkspace.BrowserPackageOperationDeadline? deadline)
+            : IPackageQueryEventObserver
+        {
+            private BrowserPackageQueryEvent? _completed;
+
+            public async ValueTask ObserveAsync(
+                PackageQueryEvent queryEvent,
+                CancellationToken cancellationToken)
+            {
+                BrowserPackageQueryEvent projected = Project(queryEvent);
+                if (_completed is not null)
+                {
+                    throw new InvalidOperationException(
+                        "The package-query stream produced an event after completion.");
+                }
+
+                if (projected.Kind == BrowserPackageQueryEventKind.Completed)
+                {
+                    _completed = projected;
+                    return;
+                }
+
+                if (projected.Kind == BrowserPackageQueryEventKind.Match
+                    && matchCredit is not null)
+                {
+                    try
+                    {
+                        if (deadline is null)
+                        {
+                            await matchCredit.WaitAsync(cancellationToken)
+                                .ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            await deadline.WaitForConsumerAsync(
+                                    matchCredit.WaitAsync)
+                                .ConfigureAwait(false);
+                        }
+                    }
+                    catch (OperationCanceledException)
+                        when (cancellationToken.IsCancellationRequested
+                            && (deadline is null
+                                || deadline.CallerCancellation
+                                    .IsCancellationRequested))
+                    {
+                        emit(projected);
+                        throw;
+                    }
+                }
+
+                emit(projected);
+            }
+
+            internal BrowserPackageQueryEvent Complete(
+                IEnumerable<PackageQueryEvent> content)
+            {
+                PackageQueryEvent.Completed completed = content
+                    .OfType<PackageQueryEvent.Completed>()
+                    .Single();
+                BrowserPackageQueryEvent projected = Project(completed);
+                if (_completed != projected)
+                {
+                    throw new InvalidOperationException(
+                        "The Package Query envelope does not match the observed completion.");
+                }
+
+                return projected;
+            }
         }
 
         internal static BrowserPackageQueryEvent Project(
