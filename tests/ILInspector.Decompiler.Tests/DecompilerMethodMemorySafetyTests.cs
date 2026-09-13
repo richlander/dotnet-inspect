@@ -1,12 +1,8 @@
-using System.Collections.Immutable;
 using System.Reflection.PortableExecutable;
 
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
-
-using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp;
 
 using ChainB = ILInspector.Decompiler.Fixtures.UnsafeChainB.LibraryB;
 using ChainDerived =
@@ -440,28 +436,11 @@ public class DecompilerMethodMemorySafetyTests
             {{typeSource}}
             {{declarations}}
             """;
-        var parseOptions = CSharpParseOptions.Default
-            .WithLanguageVersion(LanguageVersion.Preview)
-            .WithFeatures(
-                [new("updated-memory-safety-rules", "true")]);
-        var compilation = CSharpCompilation.Create(
-            "__callable_contract_gate",
-            [CSharpSyntaxTree.ParseText(source, parseOptions)],
-            RoslynTestReferences.TrustedPlatform,
-            new CSharpCompilationOptions(
-                OutputKind.DynamicallyLinkedLibrary,
-                allowUnsafe: true,
-                optimizationLevel: OptimizationLevel.Release));
-        ImmutableArray<Diagnostic> diagnostics = compilation
-            .GetDiagnostics()
-            .Where(diagnostic =>
-                diagnostic.Severity is
-                    DiagnosticSeverity.Warning
-                        or DiagnosticSeverity.Error)
-            .ToImmutableArray();
-
-        Assert.True(
-            diagnostics.IsEmpty,
-            $"{source}{Environment.NewLine}{string.Join(Environment.NewLine, diagnostics)}");
+        UnsafeEmitterTests.AssertNoWarningsOrErrors(
+            UnsafeEmitterTests.CreateUpdatedRulesCompilation(
+                "__callable_contract_gate",
+                source)
+                .GetDiagnostics(),
+            source);
     }
 }
