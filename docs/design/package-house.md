@@ -180,7 +180,7 @@ them to one Package Source Model-issued settlement lease for its lifetime.
 Browser/Wasm and query adapters supply their host-created clients through the
 same lease contract.
 
-This is the adopted PackageHouse operation-ownership step 12b under
+This is the adopted PackageHouse operation-ownership step 17b under
 [#6544](https://github.com/richlander/dotnet-inspect/issues/6544). Library
 ownership and `Realize` adoption remain separate focused steps.
 
