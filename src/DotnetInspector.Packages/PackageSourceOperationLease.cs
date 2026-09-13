@@ -53,6 +53,75 @@ public sealed class PackageSourceOperationLease : IDisposable
         return ResolvePinnedCoreAsync(StartWork(), sourceAuthorization, coordinate);
     }
 
+    /// <summary>
+    /// Freezes one to five caller-pinned coordinates as authority-bearing
+    /// candidates in caller order.
+    /// </summary>
+    public Task<PackageAcquisitionPopulation> ResolvePinnedPopulationAsync(
+        IPackageSourceAuthorization sourceAuthorization,
+        IReadOnlyList<PackageSourceCoordinate> coordinates)
+    {
+        ArgumentNullException.ThrowIfNull(sourceAuthorization);
+        ArgumentNullException.ThrowIfNull(coordinates);
+        if (coordinates.Count is < 1
+            or > PackageAcquisitionPopulation.MaximumCandidates)
+        {
+            throw new ArgumentException(
+                $"A package population requires between 1 and {PackageAcquisitionPopulation.MaximumCandidates} exact coordinates.",
+                nameof(coordinates));
+        }
+
+        PackageSourceCoordinate[] snapshot = [.. coordinates];
+        if (snapshot.Any(static coordinate => coordinate is null))
+        {
+            throw new ArgumentException(
+                "A package population cannot contain a null coordinate.",
+                nameof(coordinates));
+        }
+        if (snapshot.Distinct().Count() != snapshot.Length)
+        {
+            throw new ArgumentException(
+                "A package population cannot contain duplicate coordinates.",
+                nameof(coordinates));
+        }
+
+        return ResolvePinnedPopulationCoreAsync(
+            StartWork(),
+            sourceAuthorization,
+            snapshot);
+    }
+
+    internal Task<PackageAcquisitionPopulation>
+        ResolveGalleryPrefixPopulationAsync(
+        string prefix,
+        int maximumCandidates,
+        bool includePrerelease,
+        PackageSourceAuthorization authorization)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(prefix);
+        if (maximumCandidates is < 1
+            or > PackageAcquisitionPopulation.MaximumCandidates)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumCandidates));
+        }
+        ArgumentNullException.ThrowIfNull(authorization);
+        if (authorization.Authorities.Count != 1
+            || !authorization.Authorities[0].Key.IsNuGetOrg
+            || authorization.Authorities[0].Source.Credential is not null)
+        {
+            throw new ArgumentException(
+                "Package-prefix population selection requires the credential-free NuGet Gallery authority.",
+                nameof(authorization));
+        }
+
+        return ResolveGalleryPrefixPopulationCoreAsync(
+            StartWork(),
+            prefix,
+            maximumCandidates,
+            includePrerelease,
+            authorization);
+    }
+
     public Task<PackageVersionDiscoveryResult> DiscoverDependencyVersionsAsync(
         string packageId,
         IPackageSourceAuthorization sourceAuthorization)
@@ -195,6 +264,40 @@ public sealed class PackageSourceOperationLease : IDisposable
         using (work)
             return await work.Generation.ResolvePinnedCandidateAsync(
                 authorization, coordinate, operationContext: work.Context).ConfigureAwait(false);
+    }
+
+    private static async Task<PackageAcquisitionPopulation>
+        ResolvePinnedPopulationCoreAsync(
+        ActiveWorkRegistration work,
+        IPackageSourceAuthorization authorization,
+        IReadOnlyList<PackageSourceCoordinate> coordinates)
+    {
+        using (work)
+        {
+            return await work.Generation.ResolvePinnedPopulationAsync(
+                authorization,
+                coordinates,
+                work.Context).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task<PackageAcquisitionPopulation>
+        ResolveGalleryPrefixPopulationCoreAsync(
+        ActiveWorkRegistration work,
+        string prefix,
+        int maximumCandidates,
+        bool includePrerelease,
+        PackageSourceAuthorization authorization)
+    {
+        using (work)
+        {
+            return await work.Generation.ResolveGalleryPrefixPopulationAsync(
+                prefix,
+                maximumCandidates,
+                includePrerelease,
+                authorization,
+                work.Context).ConfigureAwait(false);
+        }
     }
 
     private static async Task<PackageVersionDiscoveryResult> DiscoverAuthorizedCoreAsync(
