@@ -848,6 +848,7 @@ jobs:
       - name: Open or update the tracking issue
         env:
           GH_TOKEN: ${{ github.token }}
+          ISSUE_LABEL: nightly-failure
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         shell: bash
         run: |
@@ -858,10 +859,14 @@ jobs:
             --json number,title \
             --jq "map(select(.title == \"$title\")) | .[0].number // empty")
           if [ -n "$num" ]; then
+            gh api --method POST \
+              "repos/${{ github.repository }}/issues/$num/labels" \
+              -f "labels[]=$ISSUE_LABEL" >/dev/null
             gh issue comment --repo "${{ github.repository }}" "$num" \
               --body "Another scheduled Deep Inspect run failed: $RUN_URL"
           else
             gh issue create --repo "${{ github.repository }}" \
               --title "$title" \
+              --label "$ISSUE_LABEL" \
               --body $'A scheduled Deep Inspect run failed.\n\nRun: '"$RUN_URL"$'\n\nThe failed lane(s) are visible on the run. This issue was opened automatically; it will not auto-close, so close it once the failure is triaged.'
           fi
