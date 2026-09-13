@@ -1150,14 +1150,21 @@ public sealed partial class InspectionWorkspace :
     int _nextRegistrationIndex;
 
     public InspectionWorkspace()
-        : this([])
+        : this(WorkspacePlan.Empty)
     {
     }
 
     /// <summary>Creates a Workspace with one complete inert registration set and awaited disposal.</summary>
     public InspectionWorkspace(ImmutableArray<WorkspaceRegistration> registrations)
+        : this(new WorkspacePlan(registrations))
     {
-        _registrationRevision = new(_identity, ValidateInitialRegistrations(registrations));
+    }
+
+    /// <summary>Creates an independent live Workspace retaining the complete supplied plan.</summary>
+    public InspectionWorkspace(WorkspacePlan plan)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        _registrationRevision = new(_identity, plan);
         _closeStart = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
         _closeTask = CloseCoreAsync(_closeStart.Task);

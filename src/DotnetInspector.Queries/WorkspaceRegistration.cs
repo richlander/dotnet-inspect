@@ -52,16 +52,17 @@ public sealed class WorkspaceRegistrationRevision
 {
     internal WorkspaceRegistrationRevision(
         InspectionWorkspaceIdentity workspace,
-        ImmutableArray<WorkspaceRegistration> registrations)
+        WorkspacePlan plan)
     {
         Workspace = workspace;
         Identity = new();
-        Registrations = registrations;
+        Plan = plan;
     }
 
     public InspectionWorkspaceIdentity Workspace { get; }
     public WorkspaceRegistrationRevisionIdentity Identity { get; }
-    public ImmutableArray<WorkspaceRegistration> Registrations { get; }
+    public WorkspacePlan Plan { get; }
+    public ImmutableArray<WorkspaceRegistration> Registrations => Plan.Registrations;
 }
 
 public abstract record WorkspaceRegistrationReadResult
