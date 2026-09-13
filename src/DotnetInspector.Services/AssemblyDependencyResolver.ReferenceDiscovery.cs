@@ -2,7 +2,7 @@ using System.Buffers;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Xml.Linq;
-using DotnetInspector.Core;
+using UntrustedDocuments;
 using DotnetInspector.DependencyManifests;
 using DotnetInspector.Packages;
 using NuGet.Versioning;

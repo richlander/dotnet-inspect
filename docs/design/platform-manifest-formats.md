@@ -82,7 +82,7 @@ The implementation lives in `DotnetInspector.Platforms.Formats`.
 
 ```text
 DotnetInspector.Platforms
-DotnetInspector.Core.HardenedJson
+UntrustedDocuments.HardenedJson
         |
         v
 DotnetInspector.Platforms.Formats
@@ -91,10 +91,9 @@ DotnetInspector.Platforms.Formats
 source adapters, including DotnetInspector.Platforms.Installed
 ```
 
-The dependency on `DotnetInspector.Core` is transitional and only consumes the
-repository's centralized duplicate-rejecting JSON entry point. The planned
-`UntrustedDocuments` extraction may replace that dependency without changing
-this contract.
+The dependency on `UntrustedDocuments` consumes only the repository's
+centralized duplicate-rejecting JSON entry point. The independent parsing root
+does not own platform-manifest schemas or semantic validation.
 
 The API accepts bytes, never paths, streams, package coordinates, or installed
 source identities. The project remains SRM-independent, Roslyn-free,
