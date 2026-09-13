@@ -214,13 +214,12 @@ calls. `ConfigureHost` configures shared `DotnetInspect.Web.Core` policy before 
 entry point starts application work. `AsyncLoweringCanary` remains the
 deployment smoke's deterministic awaited operation.
 
-### Package facade: 22 exports
+### Package facade: 21 exports
 
 - `ActivateWorkspacePackageOccurrence`
 - `CancelPackageQuery`
 - `ClearWorkspacePackageOccurrences`
 - `GetPackageDocument`
-- `ListGalleryDiscoveryCatalog`
 - `ListPackageAssemblyQueryPatterns`
 - `ListPackageQueryFacets`
 - `LoadRuntimePack`
@@ -563,6 +562,30 @@ cancellation, and terminal/quiescence contracts. Package Query durable events
 return through its generated event sink, and match credit counts only after the
 exact asynchronous Worker and managed acknowledgment.
 
+The Package Query facet startup read also starts one deferred preparation of
+the source-generated `Progress` and `Match` event writers. The preparation
+yields before serializing representative internal values, so the facet result
+can return while the Worker uses otherwise idle startup time. The serialized
+values are discarded and never cross the Browser boundary; every published
+event still uses its actual typed projection, JSON serialization, JavaScript
+parse, closed-shape validation, and Worker envelope. Query execution joins the
+same preparation task under its keyed cancellation before starting the
+package-operation deadline. This moves type-specific serializer initialization
+out of the first submitted query without adding a public preparation operation
+or changing event order, content, credit, cancellation, failure behavior, or
+active-work accounting.
+
+Issue [#5816](https://github.com/richlander/dotnet-inspect/issues/5816)
+retains the dual-host performance evidence. In five alternating
+`AWSSDK.*` exact clean-artifact baseline/candidate pairs, the first request
+started earlier in all ten pairs, by a median 279 ms on fernie and 61 ms on
+merritt. Row 20 also improved in all ten pairs, by median 475 ms and 80 ms
+respectively. Including page startup, the deferred artifact improved four of
+five fernie pairs and all five merritt pairs; median end-to-end improvement was
+401 ms and 64 ms respectively. Separate instrumented samples attributed the
+cold delay to managed source-generated writer initialization; JavaScript parse
+and closed-shape validation remained at or below 1 ms.
+
 All other managed calls use the closed ordinary-operation catalog in
 [`engine-worker-ordinary.ts`](../../inspect-web/src/engine-worker-ordinary.ts).
 Its 49 entries are named at build time across Package (19), Metadata (8),
@@ -611,10 +634,6 @@ declarations remain authoritative. Of its 50 managed exports, 48 are bound by
 [`dotnet-inspect.ts`](../../inspect-web/src/dotnet-inspect.ts).
 Generated lifecycle functions are not included in these counts.
 
-Website Gallery adoption (#6019) subsequently adds the synchronous startup
-operation `listGalleryDiscoveryCatalog`. It participates in the same typed
-catalog handoff; the historical counts in this migration snapshot exclude it.
-
 | Current call class | Count | Generated operations | Consumer handoff to prepare |
 | --- | ---: | --- | --- |
 | Bootstrap/diagnostic only | 2 | `configureHost`, `asyncLoweringCanary` | Retain bootstrap/diagnostic ownership; do not expose a blanket facade proxy. |
@@ -644,14 +663,14 @@ constraint.
 
 The first caller-adoption slice uses
 [`engine-client.ts`](../../inspect-web/src/engine-client.ts) for
-Promise-valued build identity, vocabulary, home demo, Package Query facet, and
-Gallery discovery reads. Its three facade groups retain generated types;
+Promise-valued build identity, vocabulary, home demo, and Package Query facet
+reads. Its three facade groups retain generated types;
 `engine-facades.ts` still owns the existing single page runtime and readiness.
 The application awaits each read in its existing startup error boundary:
 build identity remains fatal, vocabulary and home demo failures remain
-independent, and the two Package Query catalogs retain their shared failure
-path. This is asynchronous caller preparation, not Worker execution or a
-responsiveness claim.
+independent, and Package Query catalog failures remain visible. This is
+asynchronous caller preparation, not Worker execution or a responsiveness
+claim.
 
 `test/engine-client.test.ts` exercises deferred invocation, exact result and
 failure forwarding, and independent neighboring reads;
@@ -668,11 +687,11 @@ production caller with delayed success/failure, a newer saved-workspace open,
 and the call-graph handoff. Other computed callers, mutable/control calls,
 and Worker activation remain outstanding.
 
-The first Worker-only client slice binds exactly five startup reads:
-`buildIdentity`, `listVocabulary`, `listHomeDemos`, `listPackageQueryFacets`,
-and `listGalleryDiscoveryCatalog`. It consumes the corresponding `EngineClient`
-subset in the separately published Worker client entry, not the production
-page bootstrap. All calls share the existing full-facade and managed-reporter
+The first Worker-only client slice binds exactly four startup reads:
+`buildIdentity`, `listVocabulary`, `listHomeDemos`, and
+`listPackageQueryFacets`. It consumes the corresponding `EngineClient` subset
+in the separately published Worker client entry, not the production page
+bootstrap. All calls share the existing full-facade and managed-reporter
 readiness barrier. Concurrent calls, including repeated calls to one method,
 have independent operation sessions and cannot supersede each other. An
 individual managed rejection does not fail neighboring reads. Disposal and

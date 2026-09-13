@@ -51,6 +51,14 @@ asset filename but no `localPath` or package `path`. #6587 makes those declared
 assets available to the stacked RTS consumer in #6558 without broad sibling
 discovery or a second provenance-bearing registration.
 
+The caller may supply the immutable
+[Application Dependency Manifest Format](application-dependency-manifest-format.md)
+result associated with its target. Services consumes that same result during
+capture and later binding selection without rereading or reinterpreting the
+manifest. Format validity, exact runtime/compilation target selection, and
+logical-coordinate validity remain with the format owner; Services owns only
+physical projection, acquisition, and resolver provenance.
+
 This boundary inherits existing package-version, asset-directory, target-
 framework and optional-tier choices. It does not enumerate alternative
 package versions, every compatible TFM, or all framework installations.

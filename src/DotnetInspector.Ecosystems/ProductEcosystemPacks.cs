@@ -14,9 +14,9 @@ internal static class ProductEcosystemPacks
             100,
             PackageSet: null,
             [
-                Demo(ProductDemoIds.StjSerializer, "System.Text.Json", "Browse a real package API", 100, CreateStjSerializerRecords),
-                Demo(ProductDemoIds.StjSerializeCallGraph, "Serialize call graph", "Dense package-local STJ graph", 300, CreateStjSerializeCallGraphRecords),
-                Demo(ProductDemoIds.StjGetDecimalCallGraph, "JsonElement.GetDecimal", "STJ number parse path", 800, CreateStjGetDecimalCallGraphRecords),
+                Demo(ProductDemoIds.StjSerializer, "System.Text.Json", "Browse the Runtime Platform API", 100, CreateStjSerializerRecords),
+                Demo(ProductDemoIds.StjSerializeCallGraph, "Serialize call graph", "Trace the Runtime STJ implementation", 300, CreateStjSerializeCallGraphRecords),
+                Demo(ProductDemoIds.StjGetDecimalCallGraph, "JsonElement.GetDecimal", "Trace the Runtime number parse path", 800, CreateStjGetDecimalCallGraphRecords),
             ])
         {
             NamespaceRoots = ["System"],
@@ -24,11 +24,11 @@ internal static class ProductEcosystemPacks
         new(
             EcosystemPackIds.MicrosoftExtensions,
             "Microsoft.Extensions",
-            "Microsoft.Extensions package and demo content.",
+            "Microsoft.Extensions package discovery and product demos.",
             200,
             PackageSetIds.MicrosoftExtensions,
             [
-                Demo(ProductDemoIds.ExtensionsCallGraph, "Cross-package call graph", "Trace calls across three packages", 200, CreateExtensionsCallGraphRecords),
+                Demo(ProductDemoIds.ExtensionsCallGraph, "Cross-library call graph", "Trace calls across three Platform libraries", 200, CreateExtensionsCallGraphRecords),
                 Demo(ProductDemoIds.ConfigBindCallGraph, "Configuration Bind", "Recursive binder call graph", 400, CreateConfigBindCallGraphRecords),
                 Demo(ProductDemoIds.OptionsAddCallGraph, "Options hub", "Inbound fan-in at AddOptions", 500, CreateOptionsAddCallGraphRecords),
                 Demo(ProductDemoIds.DiTryAddCallGraph, "DI TryAdd hub", "Keyed/scoped Try* fan-in", 600, CreateDiTryAddCallGraphRecords),
@@ -91,7 +91,11 @@ internal static class ProductEcosystemPacks
     private static InspectionDefinitionRecord[] CreateStjSerializerRecords()
     {
         const int v = InspectionDefinitionJson.CurrentSchemaVersion;
-        var stjPackage = Package("System.Text.Json", "10.0.0", "net10.0");
+        var stjPlatform = Platform(
+            "runtime",
+            "System.Text.Json",
+            "10.0.12",
+            "net10.0");
         return
         [
             new WorkspaceDefinition(
@@ -101,10 +105,10 @@ internal static class ProductEcosystemPacks
                     new WorkspaceContextDefinition(
                         "stj",
                         framework: "net10.0",
-                        members: [stjPackage]),
+                        members: [stjPlatform]),
                 ],
                 title: "System.Text.Json serializer tour",
-                description: "JsonSerializer surface from the System.Text.Json package."),
+                description: "JsonSerializer surface from the Runtime Platform."),
             new ViewDefinition(
                 v,
                 "stj-serializer-view",
@@ -113,13 +117,13 @@ internal static class ProductEcosystemPacks
             new NavigationDefinition(
                 v,
                 "stj-navigation",
-                [new NavigationTabDefinition("stj", coordinate: stjPackage)],
+                [new NavigationTabDefinition("stj", coordinate: stjPlatform)],
                 focus: "stj"),
             new ScenarioDefinition(
                 v,
                 ProductDemoIds.StjSerializer,
                 title: "System.Text.Json",
-                description: "Browse a real package API",
+                description: "Browse the Runtime Platform API",
                 workspace: "stj-serializer-tour",
                 context: "stj",
                 view: "stj-serializer-view",
@@ -130,12 +134,21 @@ internal static class ProductEcosystemPacks
     private static InspectionDefinitionRecord[] CreateExtensionsCallGraphRecords()
     {
         const int v = InspectionDefinitionJson.CurrentSchemaVersion;
-        var diAbstractions = Package(
+        var diAbstractions = Platform(
+            "aspnetcore",
             "Microsoft.Extensions.DependencyInjection.Abstractions",
-            "10.0.0",
+            "10.0.12",
             "net10.0");
-        var logging = Package("Microsoft.Extensions.Logging", "10.0.0", "net10.0");
-        var http = Package("Microsoft.Extensions.Http", "10.0.0", "net10.0");
+        var logging = Platform(
+            "aspnetcore",
+            "Microsoft.Extensions.Logging",
+            "10.0.12",
+            "net10.0");
+        var http = Platform(
+            "aspnetcore",
+            "Microsoft.Extensions.Http",
+            "10.0.12",
+            "net10.0");
         return
         [
             new WorkspaceDefinition(
@@ -147,8 +160,8 @@ internal static class ProductEcosystemPacks
                         framework: "net10.0",
                         members: [diAbstractions, logging, http]),
                 ],
-                title: "Extensions cross-package call graph",
-                description: "DI Abstractions + Logging + Http for multi-package call graph."),
+                title: "Extensions cross-library call graph",
+                description: "DI Abstractions + Logging + Http from the ASP.NET Core Platform."),
             new ViewDefinition(
                 v,
                 "try-add-enumerable-call-graph",
@@ -168,8 +181,8 @@ internal static class ProductEcosystemPacks
             new ScenarioDefinition(
                 v,
                 ProductDemoIds.ExtensionsCallGraph,
-                title: "Cross-package call graph",
-                description: "Trace calls across three packages",
+                title: "Cross-library call graph",
+                description: "Trace calls across three Platform libraries",
                 workspace: "extensions-callgraph",
                 context: "extensions",
                 view: "try-add-enumerable-call-graph",
@@ -178,13 +191,17 @@ internal static class ProductEcosystemPacks
     }
 
     /// <summary>
-    /// Single-package outbound graph: <c>JsonSerializer.Serialize&lt;T&gt;(T, options)</c>.
-    /// Complements the Methods STJ tour with a dense package-local Call Graph.
+    /// Runtime Platform outbound graph: <c>JsonSerializer.Serialize&lt;T&gt;(T, options)</c>.
+    /// Complements the Methods STJ tour with a dense framework-library Call Graph.
     /// </summary>
     private static InspectionDefinitionRecord[] CreateStjSerializeCallGraphRecords()
     {
         const int v = InspectionDefinitionJson.CurrentSchemaVersion;
-        var stjPackage = Package("System.Text.Json", "10.0.0", "net10.0");
+        var stjPlatform = Platform(
+            "runtime",
+            "System.Text.Json",
+            "10.0.12",
+            "net10.0");
         return
         [
             new WorkspaceDefinition(
@@ -194,10 +211,10 @@ internal static class ProductEcosystemPacks
                     new WorkspaceContextDefinition(
                         "stj",
                         framework: "net10.0",
-                        members: [stjPackage]),
+                        members: [stjPlatform]),
                 ],
                 title: "System.Text.Json Serialize call graph",
-                description: "Package-local Call Graph for JsonSerializer.Serialize."),
+                description: "Runtime Platform Call Graph for JsonSerializer.Serialize."),
             new ViewDefinition(
                 v,
                 "stj-serialize-call-graph",
@@ -208,13 +225,13 @@ internal static class ProductEcosystemPacks
             new NavigationDefinition(
                 v,
                 "stj-serialize-callgraph-navigation",
-                [new NavigationTabDefinition("stj", coordinate: stjPackage)],
+                [new NavigationTabDefinition("stj", coordinate: stjPlatform)],
                 focus: "stj"),
             new ScenarioDefinition(
                 v,
                 ProductDemoIds.StjSerializeCallGraph,
                 title: "Serialize call graph",
-                description: "Dense package-local STJ graph",
+                description: "Trace the Runtime STJ implementation",
                 workspace: "stj-serialize-callgraph-workspace",
                 context: "stj",
                 view: "stj-serialize-call-graph",
@@ -223,13 +240,17 @@ internal static class ProductEcosystemPacks
     }
 
     /// <summary>
-    /// Single-package dense recursive graph: <c>ConfigurationBinder.Bind</c>.
+    /// Platform-library dense recursive graph: <c>ConfigurationBinder.Bind</c>.
     /// High fan-out into binder internals (arrays, conversion, BindingPoint).
     /// </summary>
     private static InspectionDefinitionRecord[] CreateConfigBindCallGraphRecords()
     {
         const int v = InspectionDefinitionJson.CurrentSchemaVersion;
-        var binder = Package("Microsoft.Extensions.Configuration.Binder", "10.0.0", "net10.0");
+        var binder = Platform(
+            "aspnetcore",
+            "Microsoft.Extensions.Configuration.Binder",
+            "10.0.12",
+            "net10.0");
         return
         [
             new WorkspaceDefinition(
@@ -268,13 +289,17 @@ internal static class ProductEcosystemPacks
     }
 
     /// <summary>
-    /// Single-package inbound hub: <c>AddOptions(IServiceCollection)</c>.
+    /// Platform-library inbound hub: <c>AddOptions(IServiceCollection)</c>.
     /// Sibling Configure/PostConfigure/ValidateOnStart methods fan into the hub.
     /// </summary>
     private static InspectionDefinitionRecord[] CreateOptionsAddCallGraphRecords()
     {
         const int v = InspectionDefinitionJson.CurrentSchemaVersion;
-        var options = Package("Microsoft.Extensions.Options", "10.0.0", "net10.0");
+        var options = Platform(
+            "aspnetcore",
+            "Microsoft.Extensions.Options",
+            "10.0.12",
+            "net10.0");
         return
         [
             new WorkspaceDefinition(
@@ -313,15 +338,16 @@ internal static class ProductEcosystemPacks
     }
 
     /// <summary>
-    /// Package-local inbound hub: <c>TryAdd(IServiceCollection, ServiceDescriptor)</c>.
+    /// Platform-library inbound hub: <c>TryAdd(IServiceCollection, ServiceDescriptor)</c>.
     /// Keyed/scoped/singleton/transient Try* overloads fan into the hub (high fan-in).
     /// </summary>
     private static InspectionDefinitionRecord[] CreateDiTryAddCallGraphRecords()
     {
         const int v = InspectionDefinitionJson.CurrentSchemaVersion;
-        var di = Package(
+        var di = Platform(
+            "aspnetcore",
             "Microsoft.Extensions.DependencyInjection.Abstractions",
-            "10.0.0",
+            "10.0.12",
             "net10.0");
         return
         [
@@ -368,7 +394,11 @@ internal static class ProductEcosystemPacks
     private static InspectionDefinitionRecord[] CreateHttpAddHttpClientCallGraphRecords()
     {
         const int v = InspectionDefinitionJson.CurrentSchemaVersion;
-        var http = Package("Microsoft.Extensions.Http", "10.0.0", "net10.0");
+        var http = Platform(
+            "aspnetcore",
+            "Microsoft.Extensions.Http",
+            "10.0.12",
+            "net10.0");
         return
         [
             new WorkspaceDefinition(
@@ -413,7 +443,11 @@ internal static class ProductEcosystemPacks
     private static InspectionDefinitionRecord[] CreateStjGetDecimalCallGraphRecords()
     {
         const int v = InspectionDefinitionJson.CurrentSchemaVersion;
-        var stj = Package("System.Text.Json", "10.0.0", "net10.0");
+        var stj = Platform(
+            "runtime",
+            "System.Text.Json",
+            "10.0.12",
+            "net10.0");
         return
         [
             new WorkspaceDefinition(
@@ -426,7 +460,7 @@ internal static class ProductEcosystemPacks
                         members: [stj]),
                 ],
                 title: "JsonElement.GetDecimal call graph",
-                description: "STJ number parse Call Graph for JsonElement.GetDecimal."),
+                description: "Runtime Platform Call Graph for JsonElement.GetDecimal."),
             new ViewDefinition(
                 v,
                 "stj-getdecimal-call-graph",
@@ -443,7 +477,7 @@ internal static class ProductEcosystemPacks
                 v,
                 ProductDemoIds.StjGetDecimalCallGraph,
                 title: "JsonElement.GetDecimal",
-                description: "STJ number parse path",
+                description: "Trace the Runtime number parse path",
                 workspace: "stj-getdecimal-callgraph-workspace",
                 context: "stj",
                 view: "stj-getdecimal-call-graph",
@@ -538,4 +572,11 @@ internal static class ProductEcosystemPacks
         string version,
         string framework) =>
         new(id, version, framework);
+
+    private static DefinitionMemberCoordinate.PlatformCoordinate Platform(
+        string family,
+        string assembly,
+        string version,
+        string framework) =>
+        new(family, assembly, version, framework);
 }

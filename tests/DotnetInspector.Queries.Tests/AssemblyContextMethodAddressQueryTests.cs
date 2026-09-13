@@ -38,6 +38,7 @@ public sealed class AssemblyContextMethodAddressQueryTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void MethodAnchorUsesExactDeclaringTypeAndMethodDef()
     {
         using var fixture = new Fixture();

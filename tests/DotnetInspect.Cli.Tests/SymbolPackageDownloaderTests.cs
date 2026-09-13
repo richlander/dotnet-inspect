@@ -1,6 +1,7 @@
+using DotnetInspector.Cache;
 using System.Net;
-using DotnetInspector.Core;
 using DotnetInspector.Packages;
+using NuGetFetch;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -84,7 +85,7 @@ public class SymbolPackageDownloaderTests : IDisposable
         int firstCount = handler.RequestCount;
         foreach (string key in handler.RequestUris)
         {
-            CoreCache.Set(
+            PersistentCache.Set(
                 "symbol-misses",
                 key,
                 ((int)statusCode).ToString(),

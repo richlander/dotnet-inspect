@@ -1,6 +1,6 @@
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspector.Packages;
-using CoreFactory = DotnetInspector.Core.HttpClientFactory;
+using CoreFactory = DotnetInspector.Networking.HttpClientFactory;
 using Xunit;
 
 namespace DotnetInspect.Cli.Tests;
@@ -116,13 +116,13 @@ internal static class HostileCli
         {
             return await ConsoleCapture.RunAsync(async () =>
             {
-                CoreFactory.Initialize(new DotnetInspector.Core.HttpClientFactoryOptions { Offline = true });
+                CoreFactory.Initialize(new DotnetInspector.Networking.HttpClientFactoryOptions { Offline = true });
                 CoreFactory.ResetSharedForTesting();
 
                 // Program.cs initializes the cache before dispatching, and the
                 // resolution paths that produce "not found" diagnostics go
                 // through it. Without this a gate on those diagnostics gets
-                // "CoreCache.Initialize must be called" instead of the message
+                // "PersistentCache.Initialize must be called" instead of the message
                 // it means to inspect, and silently proves nothing. The
                 // production app name is used so this does not repoint the
                 // shared cache for later tests.
@@ -135,7 +135,7 @@ internal static class HostileCli
         }
         finally
         {
-            CoreFactory.Initialize(new DotnetInspector.Core.HttpClientFactoryOptions { Offline = wasOffline });
+            CoreFactory.Initialize(new DotnetInspector.Networking.HttpClientFactoryOptions { Offline = wasOffline });
             CoreFactory.ResetSharedForTesting();
         }
     }

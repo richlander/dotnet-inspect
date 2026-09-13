@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Text;
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
+using NuGetFetch;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -810,7 +811,7 @@ public class HttpRetryHelperTests
             messages,
             message => message.Contains("body failed", StringComparison.Ordinal));
         FeedFailure failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
-        Assert.Equal(NetworkTrafficKind.PackageVersionList, failure.Phase);
+        Assert.Equal(FeedFailurePhase.PackageVersionList, failure.Phase);
     }
 
     [Fact]
@@ -830,8 +831,8 @@ public class HttpRetryHelperTests
         }
 
         FeedFailure failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
-        Assert.Equal(NetworkTrafficKind.PackageVersionList, failure.Phase);
-        Assert.NotEqual(NetworkTrafficKind.PackageSearch, failure.Phase);
+        Assert.Equal(FeedFailurePhase.PackageVersionList, failure.Phase);
+        Assert.NotEqual(FeedFailurePhase.PackageSearch, failure.Phase);
     }
 
     [Fact]

@@ -100,6 +100,13 @@ public sealed class PackageHouseOperation
                 timeout,
                 "A PackageHouse timeout must be finite and positive.");
         }
+        if (timeout > NuGetOperationContext.MaximumTimeout)
+        {
+            throw new ArgumentOutOfRangeException(
+                parameterName,
+                timeout,
+                $"A PackageHouse timeout cannot exceed {NuGetOperationContext.MaximumTimeout}.");
+        }
     }
 }
 

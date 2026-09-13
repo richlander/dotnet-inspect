@@ -1,6 +1,8 @@
 using System.Reflection;
 using System.Text.Json.Serialization;
 using System.Xml.Linq;
+using DotnetInspector.Core;
+using DotnetInspector.Sections;
 using TsJsExport;
 
 namespace DotnetInspect.Web.Tests;
@@ -62,7 +64,6 @@ public sealed class ProductionFacadeContextTests
             "GetPackageDocument",
             "GetPlatformCatalog",
             "GetPlatformVersions",
-            "ListGalleryDiscoveryCatalog",
             "ListPackageAssemblyQueryPatterns",
             "ListPackageQueryFacets",
             "LoadRuntimePack",
@@ -85,6 +86,8 @@ public sealed class ProductionFacadeContextTests
         [MetadataAssembly] =
         [
             "QueryGraphMemberSurface",
+            "QueryMemberDeclaration",
+            "QueryPlatformMemberDeclaration",
             "QueryPackageHeapEntries",
             "QueryPackageMetadata",
             "QueryPackageMetadataTable",
@@ -176,10 +179,10 @@ public sealed class ProductionFacadeContextTests
                 actual[assembly]);
         }
 
-        // 68 operations, and no operation name in two modules: a move that forgot to delete its
+        // 69 operations, and no operation name in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(68, everyExport.Length);
+        Assert.Equal(69, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());
@@ -252,6 +255,13 @@ public sealed class ProductionFacadeContextTests
     {
         var contexts = 0;
         var assemblyLocalWireTypes = 0;
+        var sharedContractTypes = new HashSet<Type>();
+        Collect(typeof(InspectionEnvelope<TypeDependencySectionResult>), sharedContractTypes);
+        foreach (Type derived in typeof(InspectionShare).Assembly.GetTypes()
+                     .Where(type => type.BaseType == typeof(InspectionShare)))
+        {
+            Collect(derived, sharedContractTypes);
+        }
         foreach (Type root in RootTypes())
         {
             Assembly assembly = root.Assembly;
@@ -278,6 +288,12 @@ public sealed class ProductionFacadeContextTests
             foreach (Type type in closure)
             {
                 string declaring = AssemblyNameOf(type.Assembly);
+                if (owner == MetadataAssembly
+                    && sharedContractTypes.Contains(type))
+                {
+                    continue;
+                }
+
                 if (declaring.StartsWith("DotnetInspect.Web", StringComparison.Ordinal))
                 {
                     Assert.Equal(owner, declaring);

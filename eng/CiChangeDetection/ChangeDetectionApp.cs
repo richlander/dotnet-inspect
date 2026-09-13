@@ -60,6 +60,8 @@ public static class ChangeDetectionApp
                 + "--refresh-decompiler-skip-projects]");
         }
 
+        RepositoryLineEndingGuard.AssertContract();
+        RepositoryLineEndingGuard.Validate(repository);
         InspectWebProjectGraphPolicy.Validate(repository);
         WorkflowContractResult result = LoadContract(
             repository,
@@ -83,9 +85,9 @@ public static class ChangeDetectionApp
         ChangePlanTestSuite.Run(repository);
 
         Console.WriteLine(
-            "CI aggregate fail-safe, path canaries, provenance pin mutations, "
-            + "change-planner construction, and workflow scope transport "
-            + "passed.");
+            "CI aggregate fail-safe, repository line endings, path canaries, "
+            + "provenance pin mutations, change-planner construction, and "
+            + "workflow scope transport passed.");
         return 0;
     }
 

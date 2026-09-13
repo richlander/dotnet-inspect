@@ -19,16 +19,6 @@ internal static class QueryDiscoveryCommand
             command.Options.Add(options.QueryHelp);
             if (command.Name == "find")
                 command.Options.Add(options.Select);
-            command.Validators.Add(result =>
-            {
-                if (result.GetResult(options.QueryHelp) is not { Implicit: false })
-                    return;
-                foreach (Option option in new Option[] { options.Select, options.Discover })
-                {
-                    if (result.GetResult(option) is { Implicit: false })
-                        result.AddError($"-Q cannot be combined with {option.Name}; use -Q <section> on its own.");
-                }
-            });
             WrapAction(command, options);
         }
     }
@@ -80,6 +70,24 @@ internal static class QueryDiscoveryCommand
             exitCode = 1;
             return true;
         }
+        if (query is not null)
+        {
+            foreach (Option option in new Option[]
+            {
+                options.Select,
+                options.Discover,
+            })
+            {
+                if (result.GetResult(option) is { Implicit: false })
+                {
+                    CommandError.Write(
+                        $"-Q cannot be combined with {option.Name}; "
+                        + "use -Q <section> on its own.");
+                    exitCode = 1;
+                    return true;
+                }
+            }
+        }
         if (companionDiscover && result.GetValue(options.Count))
         {
             CommandError.Write("Use -Q <section> --count to count query facets, rather than -D.");
@@ -106,7 +114,7 @@ internal static class QueryDiscoveryCommand
         if (result.CommandResult.Command.Name == "find")
         {
             foreach (Option option in result.CommandResult.Command.Options.Where(option =>
-                option.Name is "--candidates" or "--matches" or "--package-content"))
+                option.Name is "--take" or "--package-content"))
             {
                 if (result.GetResult(option) is { Implicit: false })
                 {

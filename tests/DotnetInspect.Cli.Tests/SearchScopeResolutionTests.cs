@@ -4,6 +4,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using DotnetInspector.SourceSelection;
+using NuGetFetch;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -216,7 +217,7 @@ public class SearchScopeResolutionTests
             "System.String",
             "--bin",
             missingDirectory,
-            "-t",
+            "-n",
             "1",
             "--tips",
             "q");
@@ -251,7 +252,7 @@ public class SearchScopeResolutionTests
     }
 
     [Fact]
-    public async Task DependsImplicitScope_RetainsBareLibraryFallback()
+    public async Task DependsPositionalSubject_DoesNotFallBackToLibraryMode()
     {
         var (exit, output, error) = await RunAppAsync(
             "depends",
@@ -260,9 +261,12 @@ public class SearchScopeResolutionTests
             "--tips",
             "q");
 
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.True(int.Parse(output.Trim()) > 0);
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Type 'System.Runtime' not found in the specified scope.",
+            error,
+            StringComparison.Ordinal);
     }
 
     [Theory]
@@ -296,7 +300,7 @@ public class SearchScopeResolutionTests
             option.Description,
             StringComparison.OrdinalIgnoreCase);
         Assert.Contains(
-            $"-t up to {FindCommand.PackageProfileMaximumLimit}",
+            $"--take up to {FindCommand.PackageProfileMaximumLimit}",
             option.Description,
             StringComparison.OrdinalIgnoreCase);
     }
@@ -345,6 +349,36 @@ public class SearchScopeResolutionTests
             StringComparison.Ordinal);
         Assert.Contains(
             "additional matches may be omitted",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(
+        PrefixSearchCompletion.SourcePageLimitReached,
+        "source pagination limit")]
+    [InlineData(
+        PrefixSearchCompletion.ClientPageLimitReached,
+        "client pagination limit")]
+    public async Task PackagePrefixPaginationLimit_IsVisible(
+        PrefixSearchCompletion completion,
+        string expected)
+    {
+        var (exit, output, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            CommandLineHelpers.WarnIfPackagePrefixSearchIncomplete(
+                [completion],
+                new(
+                    "Contoso.",
+                    ScopeConstants.PackagePrefixExpansionLimit));
+            return Task.FromResult(0);
+        });
+
+        Assert.Equal(0, exit);
+        Assert.Empty(output);
+        Assert.Contains(expected, error);
+        Assert.DoesNotContain(
+            $"{ScopeConstants.PackagePrefixExpansionLimit}-package search limit",
             error,
             StringComparison.Ordinal);
     }

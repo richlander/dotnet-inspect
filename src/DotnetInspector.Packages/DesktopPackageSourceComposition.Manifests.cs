@@ -14,14 +14,10 @@ public sealed partial class DesktopPackageSourceComposition
     public Task<ConfiguredPackageManifestResult> AcquireCandidateManifestAsync(
         PackageAcquisitionCandidate candidate,
         CancellationToken cancellationToken = default,
-        NuGetOperationContext? operationContext = null)
-    {
-        ObjectDisposedException.ThrowIf(
-            Volatile.Read(ref _disposed) != 0,
-            this);
-        return _sourceLease.AcquireCandidateManifestAsync(
-            candidate,
-            cancellationToken,
-            operationContext);
-    }
+        NuGetOperationContext? operationContext = null) =>
+        PackageSourceSettlementCompatibility.RunAsync(
+            _sourceLease, cancellationToken, operationContext,
+            (generation, operation) => generation.AcquireCandidateManifestAsync(
+                candidate, operationContext: operation),
+            _options.RequestTimeout, _options.OperationTimeout);
 }

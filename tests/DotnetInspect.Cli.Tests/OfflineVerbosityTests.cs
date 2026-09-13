@@ -1,5 +1,5 @@
 using DotnetInspector.Packages;
-using CoreFactory = DotnetInspector.Core.HttpClientFactory;
+using CoreFactory = DotnetInspector.Networking.HttpClientFactory;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -19,7 +19,7 @@ public class OfflineVerbosityTests : IDisposable
 
     public void Dispose()
     {
-        CoreFactory.Initialize(new DotnetInspector.Core.HttpClientFactoryOptions());
+        CoreFactory.Initialize(new DotnetInspector.Networking.HttpClientFactoryOptions());
         CoreFactory.ResetSharedForTesting();
     }
 
@@ -35,7 +35,7 @@ public class OfflineVerbosityTests : IDisposable
             if (offline)
                 args = args.Where(a => a != "--offline").ToArray();
 
-            CoreFactory.Initialize(new DotnetInspector.Core.HttpClientFactoryOptions { Offline = offline });
+            CoreFactory.Initialize(new DotnetInspector.Networking.HttpClientFactoryOptions { Offline = offline });
             CoreFactory.ResetSharedForTesting();
 
             args = CommandLineBuilder.PreprocessArgs(args);

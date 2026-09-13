@@ -19,6 +19,22 @@ public partial class ResearchProducerSessionTests
     const string SampleType =
         "ILInspector.Research.TargetFixtures.TargetSample";
 
+    static MetadataTypeDefinitionName TypeName(string fullName)
+    {
+        int separator = fullName.LastIndexOf('.');
+        return TypeName(
+            separator < 0 ? "" : fullName[..separator],
+            fullName[(separator + 1)..]);
+    }
+
+    static MetadataTypeDefinitionName TypeName(
+        string @namespace,
+        params string[] segments) =>
+        Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(
+                @namespace,
+                [.. segments])).Name;
+
     [Fact]
     public void ResearchProducerCatalog_AdmitsEveryDeclaredLocalKind()
     {
@@ -1022,7 +1038,7 @@ public partial class ResearchProducerSessionTests
                     .. selections.Select(
                         selection => new ResearchCarriedMemberSelection(
                             Population.Questions[0].Id,
-                            selection.DeclaringType,
+                            TypeName(selection.DeclaringType),
                             selection.Selector)),
                 ]);
 

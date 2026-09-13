@@ -506,23 +506,43 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    its sole consumer, while the remaining post-F2 stores render as standalone
    assignments rather than through a printer-owned consumer fold. Decided
    in-domain webs in that residual therefore materialize normally; their
-   declaration ordering may change, but no expression moves. One narrower
-   residual remains printer-owned: when integer storage testimony feeds a
-   typed boolean sink, the printer recovers boolean identity for the slot;
-   materializing the integer testimony would produce an invalid assignment.
-   `BooleanSinkIdentityRecovery` makes that boundary explicit until semantic
-   sink identity moves into product-owned testimony. The C2 deletion and the
-   invariant extension follow once the residual census reaches the
-   printer-owned floor. When a direct slot-copy component separates the
-   conditional producer from the boolean sink, the sink-end veto keeps the
-   whole component printer-owned through the existing atomic component gate.
+   declaration ordering may change, but no expression moves.
+
+   At materialization, a slot whose stores are all Boolean-valued may recover
+   the Boolean identity of an integer-typed load consumed by a Boolean sink
+   or condition. Every load still testifies: a numeric use conflicts, and an
+   underivable use vetoes recovery. This is identity recovery, not an
+   integer-to-Boolean conversion; mixed Boolean/integer stores retain the
+   existing `BooleanSinkIdentityRecovery` boundary. Earlier raising passes
+   retain their original testimony so materialization does not preempt their
+   constant or control-flow decisions. The printer uses the same Boolean-sink
+   rule for lowered and still-deferred slots instead of maintaining a second
+   sink vocabulary.
+
+   The motivating real witness is Newtonsoft.Json 13.0.4,
+   `DefaultContractResolver.InitializeContract`: the Boolean conditional
+   assigned to `DefaultCreatorNonPublic` retains an integer-typed stack load.
+   `CompilerProducedPropertyConditionalMaterializesBooleanIdentity` preserves
+   that compiler-produced shape, and
+   `CompilerProducedPropertyConditionalRecompilesWithRetainedTemporary`
+   gates binding and the existing retained-temporary compile-back difference;
+   it does not claim exact IL fidelity.
+   `ConflictingBooleanAndNumericUsesRemainPrinterOwned`,
+   `BooleanSinkDoesNotRetypeMixedBooleanAndIntegerStores`, and
+   `IntegerConditionKeepsItsNumericIdentity` gate the nearby decline and
+   non-action boundaries. Direct-copy components remain atomic:
+   `MaterializesBooleanSinkIdentityAcrossDirectCopyComponent` gates the
+   decided case; an undecided member still retains the entire component.
+   The C2 deletion and invariant extension follow once the residual census
+   reaches the printer-owned floor.
+
    `MaterializesSingleStoreConditionalWithSingleRead` and
-   `DefersIntegerTestimonyWhenConditionalFeedsBooleanLocal` gate both sides of
-   the general boundary;
-   `DefersIntegerTestimonyWhenConditionalFeedsBooleanProperty` gates property
-   setter identity recovery specifically; and
-   `DefersBooleanSinkIdentityAcrossDirectCopyComponent` gates composition with
-   copy-component closure.
+   `MaterializesBooleanIdentityWhenConditionalFeedsBooleanLocal` gate
+   conditional materialization;
+   `MaterializesBooleanIdentityWhenConditionalFeedsBooleanProperty` gates the
+   property setter case. Production adoption is through the shared default
+   raising pipeline used by CLI and Browser/Wasm consumers; no host-specific
+   conversion or naming path is introduced.
 
 Each slice reports the standard decompiler-affecting-PR evidence: focused tests,
 the corpus quality-diff card, and improved/still-flat examples. As ReturnToSender

@@ -4,6 +4,8 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Services;
 using InertText;
 using ILInspector.Metadata;
@@ -13,6 +15,58 @@ namespace DotnetInspect.Cli.Tests;
 [Collection("Console")]
 public sealed class DependencyGraphOutputAdapterTests
 {
+    [Fact]
+    public async Task Json_PackageProjectionRetainsIssuedDiagnostics()
+    {
+        var document = new DependencyGraphDocument(
+            [new DependencyGraphRootOccurrence(1, 0)],
+            [
+                new DependencyGraphNode(
+                    0,
+                    new DependencyGraphNodeIdentity.Package(
+                        "contoso.package",
+                        "1.0.0"),
+                    new InertString(
+                        TextPolicy.Field,
+                        "Contoso.Package 1.0.0")),
+            ],
+            [],
+            [
+                new DependencyGraphPackageProjection(
+                    0,
+                    0,
+                    PackageDependencyTraversalProjectionKind
+                        .CandidateAcquired,
+                    PackageDependencyTraversalProjectionExpansion.Expanded,
+                    Evidence: null,
+                    Candidate: null,
+                    RootOccurrence: null,
+                    [
+                        new PackageAuthorityFailure(
+                            new InertString(
+                                TextPolicy.Field,
+                                "local authority"),
+                            PackageAuthorityFailureKind.Transport,
+                            "The source could not provide the manifest."),
+                    ]),
+            ],
+            []);
+
+        string json = await RenderAsync(
+            document,
+            [],
+            OutputFormat.Json);
+
+        using JsonDocument parsed = JsonDocument.Parse(json);
+        JsonElement diagnostic = parsed.RootElement
+            .GetProperty("package_projections")[0]
+            .GetProperty("diagnostics")[0];
+        Assert.Equal("Transport", diagnostic.GetProperty("kind").GetString());
+        Assert.Equal(
+            "local authority",
+            diagnostic.GetProperty("authority").GetString());
+    }
+
     [Fact]
     public async Task SharedDag_PreservesEdgesAndRootAcrossGraphSinks()
     {
@@ -129,6 +183,72 @@ public sealed class DependencyGraphOutputAdapterTests
     }
 
     [Fact]
+    public async Task DepthBoundary_IsTypedPresentationContextWithinTheRowWindow()
+    {
+        DependencyGraphDocument original = SharedDag();
+        DependencyGraphDocument document = original with
+        {
+            DepthBoundaries =
+            [
+                new DependencyGraphDepthBoundary(
+                    NodeId: 3,
+                    PackageProjectionId: null,
+                    MaximumDepth: 2,
+                    [1],
+                    DependencyGraphDepthBoundaryProducerKind.Restored),
+            ],
+        };
+        List<DependencyGraphEdgeRow> allRows =
+            DependencyGraphOutputAdapter.EdgeRows(document);
+        DependencyGraphEdgeRow selected = allRows[2];
+
+        string tree = await RenderAsync(
+            document,
+            [selected],
+            OutputFormat.PlainText);
+        string table = await RenderAsync(
+            document,
+            [selected],
+            OutputFormat.Table);
+        string json = await RenderAsync(
+            document,
+            [selected],
+            OutputFormat.Json);
+        string excludedJson = await RenderAsync(
+            document,
+            [allRows[0]],
+            OutputFormat.Json);
+
+        Assert.Equal(original.Edges.Length, allRows.Count);
+        Assert.Contains(
+            "(bounded at depth 2) Shared",
+            tree,
+            StringComparison.Ordinal);
+        Assert.Equal(1, DataLineCount(table));
+        using JsonDocument parsed = JsonDocument.Parse(json);
+        Assert.Equal(
+            1,
+            parsed.RootElement.GetProperty("edges").GetArrayLength());
+        JsonElement boundary = Assert.Single(
+            parsed.RootElement.GetProperty("depth_boundaries")
+                .EnumerateArray());
+        Assert.Equal(3, boundary.GetProperty("node_id").GetInt32());
+        Assert.Equal(
+            "Restored",
+            boundary.GetProperty("producer").GetString());
+        Assert.Equal(
+            [1],
+            boundary.GetProperty("root_occurrences")
+                .EnumerateArray()
+                .Select(static occurrence => occurrence.GetInt32()));
+
+        using JsonDocument excluded = JsonDocument.Parse(excludedJson);
+        Assert.Empty(
+            excluded.RootElement.GetProperty("depth_boundaries")
+                .EnumerateArray());
+    }
+
+    [Fact]
     public async Task RowWindow_MarksDetachedCycleAsFragment()
     {
         DependencyGraphDocument document = DetachedCycle();
@@ -207,6 +327,8 @@ public sealed class DependencyGraphOutputAdapterTests
                         TextPolicy.Field,
                         "System.IDisposable")),
             ],
+            [],
+            [],
             []);
         List<DependencyGraphEdgeRow> rows =
             DependencyGraphOutputAdapter.EdgeRows(document);
@@ -233,6 +355,195 @@ public sealed class DependencyGraphOutputAdapterTests
             parsed.RootElement.GetProperty("nodes").GetArrayLength());
         Assert.Equal(
             0,
+            parsed.RootElement.GetProperty("edges").GetArrayLength());
+    }
+
+    [Fact]
+    public void Combine_RepeatedRootCoalescesLogicalEdgesAndUnionsReachability()
+    {
+        DependencyGraphDocument first =
+            DependencyGraphProjection.WithRootOccurrence(SharedDag(), 1);
+        DependencyGraphDocument second =
+            DependencyGraphProjection.WithRootOccurrence(SharedDag(), 2);
+
+        DependencyGraphDocument combined =
+            DependencyGraphProjection.Combine([first, second]);
+
+        Assert.Equal(2, combined.Roots.Length);
+        Assert.Equal(5, combined.Edges.Length);
+        Assert.All(
+            combined.Edges,
+            edge => Assert.Equal([1, 2], edge.RootOccurrences));
+    }
+
+    [Fact]
+    public void Combine_UsesMetadataAssemblyEquivalenceButExactModuleIdentity()
+    {
+        var upperAssembly = new ManagedMetadataIdentity.Assembly(
+            new AssemblyReferenceIdentity(
+                "Contoso.Shared",
+                new Version(1, 2, 3, 4),
+                Culture: null,
+                PublicKeyToken: "0011223344556677"));
+        var lowerAssembly = new ManagedMetadataIdentity.Assembly(
+            new AssemblyReferenceIdentity(
+                "contoso.shared",
+                new Version(1, 2, 3, 4),
+                Culture: "neutral",
+                PublicKeyToken: "0011223344556677"));
+        DependencyGraphDocument combinedAssemblies =
+            DependencyGraphProjection.Combine(
+            [
+                LibraryRoot(upperAssembly, "Contoso.Shared", 1),
+                LibraryRoot(lowerAssembly, "contoso.shared", 2),
+            ]);
+
+        DependencyGraphNode assemblyNode =
+            Assert.Single(combinedAssemblies.Nodes);
+        Assert.Equal("Contoso.Shared", assemblyNode.Label.ToString());
+        Assert.Equal(
+            [1, 2],
+            combinedAssemblies.Roots.Select(
+                static root => root.OccurrenceIndex));
+        Assert.All(
+            combinedAssemblies.Roots,
+            root => Assert.Equal(assemblyNode.Id, root.NodeId));
+
+        Guid moduleVersionId = Guid.NewGuid();
+        DependencyGraphDocument combinedModules =
+            DependencyGraphProjection.Combine(
+            [
+                LibraryRoot(
+                    new ManagedMetadataIdentity.Module(
+                        "Contoso.Shared.netmodule",
+                        moduleVersionId),
+                    "Contoso.Shared.netmodule",
+                    1),
+                LibraryRoot(
+                    new ManagedMetadataIdentity.Module(
+                        "contoso.shared.netmodule",
+                        moduleVersionId),
+                    "contoso.shared.netmodule",
+                    2),
+            ]);
+
+        Assert.Equal(2, combinedModules.Nodes.Length);
+        Assert.NotEqual(
+            combinedModules.Roots[0].NodeId,
+            combinedModules.Roots[1].NodeId);
+    }
+
+    [Fact]
+    public async Task MultiRootTree_UsesEachRootsAdmittedEdges()
+    {
+        DependencyGraphDocument document = new(
+            [
+                new DependencyGraphRootOccurrence(1, 0),
+                new DependencyGraphRootOccurrence(2, 1),
+            ],
+            [
+                new DependencyGraphNode(
+                    0,
+                    new DependencyGraphNodeIdentity.Package("first", "1.0.0"),
+                    new InertString(TextPolicy.Field, "First")),
+                new DependencyGraphNode(
+                    1,
+                    new DependencyGraphNodeIdentity.Package("second", "1.0.0"),
+                    new InertString(TextPolicy.Field, "Second")),
+                new DependencyGraphNode(
+                    2,
+                    new DependencyGraphNodeIdentity.Package("leaf", "1.0.0"),
+                    new InertString(TextPolicy.Field, "Leaf")),
+            ],
+            [
+                new DependencyGraphEdge(
+                    0,
+                    0,
+                    1,
+                    "package-dependency",
+                    [1],
+                    1,
+                    DependencyGraphResolutionState.Resolved,
+                    null),
+                new DependencyGraphEdge(
+                    1,
+                    1,
+                    2,
+                    "package-dependency",
+                    [2],
+                    1,
+                    DependencyGraphResolutionState.Resolved,
+                    null),
+            ],
+            [],
+            []);
+
+        (_, string tree, string error) =
+            await ConsoleCapture.RunAsync(() =>
+            {
+                DependencyGraphOutputAdapter.Write(
+                    document,
+                    DependencyGraphOutputAdapter.EdgeRows(document),
+                    OutputFormat.PlainText,
+                    tree: true,
+                    embeddedMermaid: false,
+                    noHeader: false,
+                    compactJson: false);
+                return Task.FromResult(0);
+            });
+
+        Assert.Empty(error);
+        Assert.DoesNotContain(
+            "First\n   └─ Second\n      └─ Leaf",
+            tree,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "└─ (revisit) Second\n   └─ Leaf",
+            tree,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MultiRootTree_RevisitsSharedConnectingEdges()
+    {
+        DependencyGraphDocument document = SharedConnectorRoots();
+        List<DependencyGraphEdgeRow> rows =
+            DependencyGraphOutputAdapter.EdgeRows(document);
+
+        string tree = await RenderAsync(
+            document,
+            rows,
+            OutputFormat.PlainText);
+        string table = await RenderAsync(
+            document,
+            rows,
+            OutputFormat.Table);
+        string json = await RenderAsync(
+            document,
+            rows,
+            OutputFormat.Json);
+
+        Assert.Equal(3, rows.Count);
+        Assert.DoesNotContain("(fragment)", tree, StringComparison.Ordinal);
+        Assert.Equal(3, Occurrences(tree, "package-dependency"));
+        int laterRoot = tree.LastIndexOf(
+            "(revisit) Shared",
+            StringComparison.Ordinal);
+        Assert.True(laterRoot >= 0, tree);
+        int connector = tree.IndexOf(
+            "(revisit) Bridge",
+            laterRoot,
+            StringComparison.Ordinal);
+        Assert.True(connector > laterRoot, tree);
+        int leaf = tree.IndexOf(
+            "Leaf",
+            connector,
+            StringComparison.Ordinal);
+        Assert.True(leaf > connector, tree);
+        Assert.Equal(3, DataLineCount(table));
+        using JsonDocument parsed = JsonDocument.Parse(json);
+        Assert.Equal(
+            rows.Count,
             parsed.RootElement.GetProperty("edges").GetArrayLength());
     }
 
@@ -422,7 +733,9 @@ public sealed class DependencyGraphOutputAdapterTests
         return new DependencyGraphDocument(
             [new DependencyGraphRootOccurrence(1, 0)],
             nodes,
-            edges);
+            edges,
+            [],
+            []);
     }
 
     private static DependencyGraphDocument DetachedCycle()
@@ -452,7 +765,9 @@ public sealed class DependencyGraphOutputAdapterTests
                 Edge(0, 0, 1, 1),
                 Edge(1, 1, 2, 2),
                 Edge(2, 2, 1, 3),
-            ]);
+            ],
+            [],
+            []);
     }
 
     private static DependencyGraphDocument JoinedFragment()
@@ -486,7 +801,78 @@ public sealed class DependencyGraphOutputAdapterTests
                 Edge(0, 0, 1, 1),
                 Edge(1, 0, 2, 1),
                 Edge(2, 1, 2, 2),
-            ]);
+            ],
+            [],
+            []);
+    }
+
+    private static DependencyGraphDocument SharedConnectorRoots()
+    {
+        static InertString Label(string value) =>
+            new(TextPolicy.Field, value);
+
+        return new DependencyGraphDocument(
+            [
+                new DependencyGraphRootOccurrence(1, 0),
+                new DependencyGraphRootOccurrence(2, 1),
+            ],
+            [
+                new(
+                    0,
+                    new DependencyGraphNodeIdentity.Package(
+                        "root",
+                        "1.0.0"),
+                    Label("Root")),
+                new(
+                    1,
+                    new DependencyGraphNodeIdentity.Package(
+                        "shared",
+                        "1.0.0"),
+                    Label("Shared")),
+                new(
+                    2,
+                    new DependencyGraphNodeIdentity.Package(
+                        "bridge",
+                        "1.0.0"),
+                    Label("Bridge")),
+                new(
+                    3,
+                    new DependencyGraphNodeIdentity.Package(
+                        "leaf",
+                        "1.0.0"),
+                    Label("Leaf")),
+            ],
+            [
+                new DependencyGraphEdge(
+                    0,
+                    0,
+                    1,
+                    "package-dependency",
+                    [1],
+                    1,
+                    DependencyGraphResolutionState.Resolved,
+                    null),
+                new DependencyGraphEdge(
+                    1,
+                    1,
+                    2,
+                    "package-dependency",
+                    [1, 2],
+                    2,
+                    DependencyGraphResolutionState.Resolved,
+                    null),
+                new DependencyGraphEdge(
+                    2,
+                    2,
+                    3,
+                    "package-dependency",
+                    [2],
+                    2,
+                    DependencyGraphResolutionState.Resolved,
+                    null),
+            ],
+            [],
+            []);
     }
 
     private static DependencyGraphEdge Edge(
@@ -503,6 +889,22 @@ public sealed class DependencyGraphOutputAdapterTests
             depth,
             DependencyGraphResolutionState.Resolved,
             EvidenceIdentity: null);
+
+    private static DependencyGraphDocument LibraryRoot(
+        ManagedMetadataIdentity identity,
+        string label,
+        int occurrence) =>
+        new(
+            [new DependencyGraphRootOccurrence(occurrence, 0)],
+            [
+                new DependencyGraphNode(
+                    0,
+                    new DependencyGraphNodeIdentity.Library(identity),
+                    new InertString(TextPolicy.Field, label)),
+            ],
+            [],
+            [],
+            []);
 
     private static int Occurrences(string value, string expected) =>
         value.Split(expected, StringSplitOptions.None).Length - 1;

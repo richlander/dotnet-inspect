@@ -3,6 +3,7 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
@@ -79,7 +80,7 @@ internal static class MemberShareProjection
         ApiSourceResult source,
         ApiServices.LoadedApiSurface loaded,
         ApiType type,
-        ApiMember member,
+        ShareProjectionPlan plan,
         WorkspaceShareFormat format)
     {
         bool isNuGetOrg =
@@ -112,7 +113,7 @@ internal static class MemberShareProjection
                 "--share requires one resolved package id, exact version, and "
                 + "target framework.");
         }
-        if (type.DefinitionName is null)
+        if (plan.Basis.Target.TypeDefinition is null)
         {
             return NonProjectable(
                 "The selected type has no structured metadata identity and "
@@ -198,55 +199,8 @@ internal static class MemberShareProjection
                         + "type identities.");
         }
 
-        string typeKey = type.DefinitionName.ToEscapedFullName();
-        string libraryKey =
-            Path.GetFileNameWithoutExtension(sourceAssembly.Path);
-        MemberAnchor anchor =
-            ApiMemberIdentity.GetMemberAnchor(type, member);
-        var coordinate =
-            new DefinitionMemberCoordinate.PackageCoordinate(
-                source.PackageName,
-                source.PackageVersion,
-                source.SelectedTfm);
-        var workspace = new WorkspaceDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
-            WorkspaceSharePacketTransposer.WorkspaceId,
-            [
-                new WorkspaceContextDefinition(
-                    "g0",
-                    framework: source.SelectedTfm,
-                    members: [coordinate]),
-            ]);
-        var navigation = new NavigationDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
-            WorkspaceSharePacketTransposer.NavigationId,
-            [
-                new NavigationTabDefinition(
-                    "t0",
-                    coordinate: coordinate),
-            ],
-            "t0");
-        var view = new ViewDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
-            WorkspaceSharePacketTransposer.ViewId,
-            lens: "api",
-            type: typeKey,
-            memberAnchor: anchor.Fingerprint,
-            libraries: [libraryKey]);
-        var scenario = new ScenarioDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
-            WorkspaceSharePacketTransposer.ScenarioId,
-            workspace: workspace.Id,
-            context: "g0",
-            view: view.Id,
-            navigation: navigation.Id);
         WorkspaceSharePacketProjectionResult projection =
-            WorkspaceSharePacketTransposer.ToPacket(
-                new WorkspaceSharePacketDefinitionSet(
-                    workspace,
-                    navigation,
-                    view,
-                    scenario));
+            WorkspaceSharePacketTransposer.ToPacket(plan);
         if (!projection.Succeeded)
         {
             WorkspaceSharePacketProjectionFailure failure =

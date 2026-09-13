@@ -1,10 +1,11 @@
 # Inspect Web Surface Composition
 
-This document owns browser host page-level composition and placement: which
-working surfaces exist, where they sit relative to navigation, how Unified
-Settings and package-source presentation are placed, how the layout responds
-to viewport size, where the shell-owned Application menu and contextual
-working-surface actions sit, and the data bar and Diagnostics. Internal
+This document owns browser host page-level composition and placement: how Home
+orients and exposes its primary entry, which working surfaces exist, where they
+sit relative to navigation, how Unified Settings and package-source
+presentation are placed, how the layout responds to viewport size, where the
+shell-owned Application menu and contextual working-surface actions sit, and
+the data bar and Diagnostics. Internal
 surface semantics -- the package-query engine, the Annotated Source viewer,
 the Member Diff viewer, shell actions, and package-source registration --
 remain with their existing focused owners; this document places them.
@@ -13,6 +14,8 @@ remain with their existing focused owners; this document places them.
 
 This owner defines:
 
+- Home's page-level hierarchy, wide and narrow composition, and relationship to
+  the data bar;
 - which working surfaces exist (Type API, Member API, Type Metadata, Compare,
   Source, Annotated Source, Member Diff, Package query, Diagnostics) and their
   page-level placement relative to Type/Member navigation;
@@ -107,6 +110,32 @@ This document consumes, without redefining:
   owned by
   [Inspect Web Navigation
   Presentation](inspect-web-navigation-presentation.md#application-scope-strip).
+
+## Home inspection entry
+
+Home is a routed, full-bleed inspection entry rather than a marketing page,
+package registry, or workbench. Its first useful action is the existing
+Spotlight Search, preceded only by concise product orientation.
+
+At wide widths, orientation, Search, the product-issued Demos entry, and a
+local-processing statement form the primary column. The dotnet-bot mark
+occupies a smaller supporting column. Demos remain visibly subordinate to
+Search and describe their entry as a curated package query.
+
+At narrow widths, the content order is orientation, Search, Demos,
+local-processing statement, and artwork. Home keeps a short introduction, but
+elides the Demos description while retaining its label, action, and catalog
+state. Search and Demos are both visible in the initial 390 by 844 CSS-pixel
+content viewport; artwork never precedes them.
+
+Home does not repeat links already owned by the data bar. The data bar is the
+shared entry for the CLI tool, agent skill, and Credits. The current Home-bar
+action inventory remains unchanged by this composition.
+
+Loading, catalog-unavailable, query-notice, and long-label states retain the
+same primary hierarchy. They do not replace Search with artwork, turn failure
+into empty success, or create page-level horizontal overflow. Search may
+contain its own horizontal scope-control pressure.
 
 ## Shell navigation and application actions
 
@@ -799,7 +828,7 @@ At narrow widths, the `Types` return control shares the quiet header, controls
 wrap within their row, and header and footer values may elide as complete
 strings. The surface creates no page-level horizontal overflow. This slice
 does not change dependency selection, graph construction or navigation,
-Package Overview, Integrations, Opportunities, Analysis, Package Metadata, or
+Package Overview, Integrations, Analysis, Package Metadata, or
 the Metadata Explorer.
 
 ### Library References
@@ -843,13 +872,54 @@ separate work.
 
 ### Library Integrations
 
-Library Integrations uses a quiet count/state header, an optional platform
-Library selector, one full-area results scroller, and bottom assembly context.
+Library has one **Integrations** inspector with **Integrations** and
+**Opportunities** tabs inside its working surface, following Compare's
+one-inspector/two-modes composition. Integrations shows detected ecosystem
+support; Opportunities shows suggestions for support the Library could adopt.
+Opportunities is not a second persistent inspector or an active standalone
+view facet. Its already-issued canonical facet ID remains known through the
+Registry's existing `Retired` tombstone contract.
+
+The selected tab defaults to Integrations and is session-local presentation
+state in the retained browser Workspace. Changing tabs preserves the selected
+Library. Ordinary Library, Type, and inspector navigation, Back/Forward, and
+returning from a row action retain the current tab. Sharing a Workspace carries
+the Integrations inspector, not its transient tab selection; a fresh session
+opens Integrations. The Browser's removed standalone inspector token follows
+ordinary unknown-lens handling. This does not remove or rename the published
+canonical `library.opportunities` identity or its existing legacy-definition
+mapping; canonical resolution preserves its explicit retired outcome.
+
+Only the selected tab requests its existing scan. Previously obtained results
+remain subject to their existing Library/coordinate freshness checks. Each tab
+retains its own counts, loading, failure, partial, and empty states; changing tabs
+does not combine evidence or infer one scan's outcome from the other.
+
+The tabs use manual activation: Left/Right and Home/End move focus, Enter/Space
+select, and asynchronous result rendering preserves tab focus. The selected tab
+labels the results panel. Both full labels remain available at narrow widths.
+
+The shared frame uses a quiet count/state header, an optional platform Library
+selector, one full-area results scroller, and bottom assembly context.
+The title and count/state share the existing 40px header with right-aligned
+mode tabs, following Compare's shared header. There is no separate tab row.
+Count/state text may elide, with its complete text retained, before either tab
+label loses space. The existing narrow-screen Types control still occupies
+the title's place.
 It replaces the generic Library hero, repeated summary heading/noninteractive
 category chips, and inset signal cards.
 
+The motivating real asset is `Microsoft.Extensions.AI@10.0.0`: examining its
+Dependency Injection and OpenTelemetry entry points, or whether any suggestions
+apply, belongs to the same ecosystem inspection task, not separate navigation
+destinations. [#6651](https://github.com/richlander/dotnet-inspect/issues/6651)
+has one Browser adoption step: compose the existing typed scan renderers under
+the tabs and retire standalone Opportunities navigation. The shared View Facet
+catalog describes the same consolidated inspector; no scanner, acquisition, CLI
+section, or result contract changes.
+
 ```text
-Integrations                             category/signal count or state
+Integrations  count/state                 [Integrations]  Opportunities
 optional platform Library selector
 category headings and full-width signal rows
 Library asset and assembly identity              TFM · package@version
@@ -870,27 +940,32 @@ At narrow widths the existing Types/details control shares the quiet header.
 Category names, signal names/qualifiers, and kind text wrap within the pane.
 Many rows scroll locally while header, selector, and bottom context stay put.
 
-The explicitly approved browser-only presentation scope has
-[one adoption step](https://github.com/richlander/dotnet-inspect/issues/6202):
-wire production Library Integrations to this frame and retire only that
-consumer's old composition. Browser HTML lowering consumes the existing typed
+The original full-area Integrations frame was adopted under
+[#6202](https://github.com/richlander/dotnet-inspect/issues/6202).
+Browser HTML lowering consumes the existing typed
 `BrowserPackageIntegrations` result. References and Metadata supply the local
 layout conventions; this is not a new inspection or rendering architecture.
 
 Focused renderer and production-composition browser gates cover wide/narrow,
 long/many results, state distinctions, Library switching, and platform controls.
 Scan classification, catalog ownership, other lenses, and subject-strip
-interaction remain separate work.
+interaction remain separate work. `inspect-web/test/integration-inspector.test.ts`
+and the Integration tab scenarios in
+`inspect-web/browser/library-hierarchy.spec.ts` gate the consolidated frame,
+single-row header geometry and full tab labels down to 320px, manual activation,
+same-Library mode changes, navigation retention, and an inactive scan settling
+without replacing the selected mode or keyboard focus.
 
-### Library Opportunities
+#### Opportunities tab
 
-Library Opportunities uses a quiet count/state header, an optional platform
-Library selector, one full-area results scroller, and bottom assembly context.
+Opportunities uses the same Integrations frame, an optional platform Library
+selector, one full-area results scroller, and bottom assembly context.
 It replaces the generic Library hero, repeated summary/noninteractive category
 chips, and inset opportunity cards while retaining every live row action.
 
 ```text
-Opportunities                           area/suggestion count or state
+Integrations                            area/suggestion count or state
+Integrations  [Opportunities]
 optional platform Library selector
 compact interaction guidance
 category headings and full-width opportunity rows
@@ -913,10 +988,9 @@ Category names, API identities, integration-kind text, package names, and search
 hints wrap within the pane. Many rows scroll locally while header, selector, and
 bottom context stay put.
 
-The explicitly approved browser-only presentation scope has
-[one adoption step](https://github.com/richlander/dotnet-inspect/issues/6273):
-wire production Library Opportunities to this frame and retire only that
-consumer's old composition. Browser HTML lowering consumes the existing typed
+The original full-area Opportunities frame was adopted under
+[#6273](https://github.com/richlander/dotnet-inspect/issues/6273); its content is
+now the Opportunities tab. Browser HTML lowering consumes the existing typed
 `BrowserPackageOpportunities` result. Integrations and References supply the
 local layout conventions; this is not a new analysis or rendering architecture.
 
@@ -1305,12 +1379,13 @@ navigation band. It never scrolls or obscures the Application menu.
 
 ## Data bar and Diagnostics
 
-The bottom data bar is one compact product-information line. It does not wrap,
+The bottom data bar is one compact 30 CSS-pixel product-information line. Its
+grid row remains allocated when the notice stack is empty. It does not wrap,
 expand, or host runtime diagnostics:
 
 <!-- markdownlint-disable MD013 -->
 ```text
-dotnet-inspect v0.35.2 · abc1234 · Aug 27, 2026 UTC · Package source: Corporate mirror (pkgs.dev.azure.com/org/_packaging/feed/nuget/v3/index.json) · CLI tool · Agent skill
+dotnet-inspect v0.35.2 · abc1234 · Aug 27, 2026 UTC · Package source: Corporate mirror (pkgs.dev.azure.com/org/_packaging/feed/nuget/v3/index.json) · CLI tool · Agent skill · Credits
 ```
 <!-- markdownlint-enable MD013 -->
 
@@ -1320,11 +1395,16 @@ The data bar includes:
 - linked short commit;
 - concise UTC build date without a `built` prefix;
 - read-only package producer, or the applicable non-package acquisition kind;
-- the same `CLI tool` link used on Home; and
-- the same `agent skill` link used on Home.
+- `CLI tool`;
+- `Agent skill`; and
+- `Credits`.
 
 On a narrow viewport, the line remains non-wrapping and horizontally scrollable.
 It does not discard the source or promotional actions to fit.
+
+The acquisition owner supplies the compact producer label as display text. The
+data bar renders that label verbatim and does not parse or reconstruct it from
+an endpoint.
 
 The data bar does not contain:
 
@@ -1335,15 +1415,38 @@ The data bar does not contain:
 - an API-surface label; or
 - an expansion toggle.
 
-Diagnostics opens as a full-bleed surface and may include:
+Diagnostics opens at `/diagnostics` as a routed full-bleed surface. Settings
+and Spotlight Commands expose the route; the Application menu does not. The
+destination receives focus on its single `Diagnostics` level-one heading, and
+Back restores the preceding routed surface without discarding its retained
+Workspace. A direct entry falls back to Home.
 
-- runtime and Wasm state;
+The first implemented Diagnostics snapshot contains only evidence already
+issued for the current browser session:
+
+- loading, ready, or failed Browser/Wasm runtime state;
+- download, startup, precompute, and total startup measurements;
+- framework asset count, transferred bytes, and decoded bytes;
+- exact product version, full linked commit, UTC build timestamp, and
+  Browser/Wasm host; and
+- aggregate package, resident-payload, Workspace, and resident-byte cache
+  statistics.
+
+Runtime, build, and package-cache absence or failure remain visible in the same
+route geometry. A cache-statistics failure does not preserve prior counts as an
+undisclosed successful snapshot. Runtime spans the wide layout, with Build and
+Package cache in equal columns below it. The same content becomes one vertical
+scroller on a narrow viewport without page-level horizontal overflow. The
+full-bleed route does not repeat the persistent data bar.
+
+Later owner-adoption work may add:
+
 - network operations and typed failures;
-- exact build provenance;
 - package-source health;
-- candidate and payload cache contents;
+- candidate and payload cache-entry inventory;
 - coordinate, producer, size, and persistence for each cache entry;
-- cache limits and eviction state; and
+- cache limits and eviction state;
+- a support-report copy action; and
 - owner-authorized cache-management actions.
 
 Diagnostics consumes owner-issued data and actions. It does not infer package
@@ -1360,6 +1463,21 @@ rendering, the consumer effect lifecycle, or shell/modal semantics.
 
 An implementation claiming this redesign is complete must satisfy these
 outcomes.
+
+### Home entry acceptance
+
+1. At 1440 by 900 CSS pixels, confirm that orientation, Search, Demos, and the
+   local-processing statement form the primary column, while artwork occupies
+   the smaller supporting column and the data bar remains fixed.
+2. At 390 by 844 CSS pixels, confirm that the short introduction, Search, and
+   Demos are all initially visible, the Demos description is elided, artwork
+   follows the primary entry, and no page-level horizontal overflow appears.
+3. Exercise engine loading, unavailable demos, a query notice, and long labels.
+   Confirm that Search retains its primary geometry, typed status stays
+   visible, and delayed rerenders do not reclaim focus from a user-selected
+   control.
+4. Activate Credits from the data bar on Home and a Workspace surface. Confirm
+   that both use the existing routed Credits entry.
 
 ### Application and contextual action placement
 

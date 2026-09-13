@@ -96,9 +96,13 @@ public sealed partial class BrowserEngineBoundaryTests
                     [
                         PackageQuery.ToolFacetId,
                         PackageQuery.NoDependenciesFacetId,
-                    ]))).Plan;
+                    ],
+                    MaximumCandidates:
+                        PackageQuery.MaximumPackageContentCandidates))).Plan;
 
-        Assert.Equal(PackageQueryFacetTier.Nuspec, plan.Facets[0].Tier);
+        Assert.Equal(
+            PackageQueryFacetTier.PackageContent,
+            plan.Facets[0].Tier);
         Assert.Equal(
             [
                 PackageQuery.ToolFacetId,
@@ -2127,6 +2131,82 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task SourceUnavailable_PreservesDecompilerDiagnostic()
+    {
+        byte[] image =
+            File.ReadAllBytes(
+                typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageCoordinate coordinate = await Coordinate(
+            "Source.Decompiler.Failure",
+            Package(
+                image,
+                "lib/net11.0/DotnetInspect.Web.Tests.dll"));
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                [coordinate],
+                TestContext.Current.CancellationToken);
+        BrowserInspectionScope scope = scopeLease.Scope;
+        BrowserWorkspaceParticipant participant =
+            Assert.Single(scope.ImplementationParticipants);
+        AssemblyContextApiSurfaceResult result =
+            scope.UseImplementation(
+                group => AssemblyContextApiSurfaceQuery.Execute(group));
+        var available =
+            Assert.IsType<AssemblyContextEntry<AssemblyApiSurface>.Available>(
+                Assert.Single(result.Assemblies.Assemblies));
+        ApiType type = Assert.Single(
+            available.Value.Surface.Types,
+            candidate => candidate.FullName
+                == typeof(BrowserEngineBoundaryTests).FullName);
+        ApiMember member = Assert.Single(
+            type.Members,
+            candidate => candidate.Name
+                == nameof(SourceUnavailable_PreservesDecompilerDiagnostic));
+        const string DecompilerDetail =
+            "DEC0016: module memory-safety rules are Unsupported";
+        var memberEntry = new AssemblyMemberSourceEntry.Unavailable(
+            available.Subject,
+            AssemblyMemberSourceRequest.From(type, member),
+            new AssemblySourceFailure(
+                AssemblySourceFailureKind.PdbAndDecompiledUnavailable,
+                "Neither source form is available."),
+            DecompiledAttempt: new MemberRenderResult(
+                MemberBodyProductionStatus.Failed,
+                DecompilerDetail,
+                []));
+
+        var memberError = Assert.Throws<InvalidOperationException>(
+            () => DotnetInspect.Web.Interop.Source.SourceExports.Adapt(
+                memberEntry,
+                participant));
+        Assert.Contains(
+            DecompilerDetail,
+            memberError.Message,
+            StringComparison.Ordinal);
+
+        var decompiledAttempt = DecompilerResult.Failure(
+            DiagnosticIds.MemorySafetyModeUnavailable,
+            "module memory-safety rules are Unsupported");
+        var entry = new AssemblyTypeSourceEntry.Unavailable(
+            available.Subject,
+            AssemblyTypeSourceRequest.From(type),
+            new AssemblySourceFailure(
+                AssemblySourceFailureKind.PdbAndDecompiledUnavailable,
+                "Neither source form is available."),
+            DecompiledAttempt: decompiledAttempt);
+
+        var error = Assert.ThrowsAny<InvalidOperationException>(
+            () => DotnetInspect.Web.Interop.Source.SourceExports.Adapt(
+                entry,
+                participant));
+
+        Assert.Contains(
+            DecompilerDetail,
+            error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task WorkspaceOwnership_AccountsArchivesAndCarriesSelectedFailures()
     {
         byte[] image = File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
@@ -2882,15 +2962,18 @@ public sealed partial class BrowserEngineBoundaryTests
     [InlineData(true)]
     public async Task HomeDemo_ReleasesScopeAfterQuery(bool missingType)
     {
-        byte[] image = File.ReadAllBytes(
-            missingType
-                ? typeof(BrowserEngineBoundaryTests).Assembly.Location
-                : typeof(JsonSerializer).Assembly.Location);
+        byte[] image = missingType
+            ? BuildIntegrationImage(
+                "System.Text.Json",
+                "Example.Missing")
+            : File.ReadAllBytes(typeof(JsonSerializer).Assembly.Location);
         await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
             new BrowserPackage(
-                "System.Text.Json",
-                "10.0.0",
-                Package(image, "lib/net10.0/System.Text.Json.dll"),
+                "microsoft.netcore.app.runtime.linux-x64",
+                "10.0.12",
+                PlatformPackage(
+                    "net10.0",
+                    ("System.Text.Json.dll", image)),
                 fromCache: false));
 
         if (missingType)
@@ -2899,7 +2982,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 await Assert.ThrowsAsync<InvalidOperationException>(
                     () => DotnetInspect.Web.Interop.Catalog.CatalogExports.RunHomeDemo(ProductDemoIds.StjSerializer));
             Assert.Contains(
-                "resolved to 0 browser surface rows",
+                "resolved to 0 Browser Platform surface rows",
                 failure.Message,
                 StringComparison.Ordinal);
         }
@@ -2911,14 +2994,23 @@ public sealed partial class BrowserEngineBoundaryTests
                         await DotnetInspect.Web.Interop.Catalog.CatalogExports.RunHomeDemo(ProductDemoIds.StjSerializer),
                         BrowserCatalogJsonContext.Default.BrowserHomeDemoRunResult));
             Assert.True(result.Found);
-            Assert.Equal("System.Text.Json", Assert.Single(result.Packages).Package);
+            Assert.Equal(
+                BrowserPlatformIdentity.PackageName,
+                Assert.Single(result.Packages).Package);
+            BrowserHomeDemoRunActivation activation =
+                Assert.IsType<BrowserHomeDemoRunActivation>(
+                    result.Activation);
+            Assert.Equal("platform", activation.FocusKind);
+            Assert.Equal("runtime", activation.FocusId);
         }
 
         using var pressure =
             await BrowserPackageWorkspace.ReservePackageDownloadAsync(
                 $"home-demo.after-query.{Guid.NewGuid():N}@1.0.0",
                 128L * MiB);
-        Assert.Equal(128L * MiB, BrowserPackageWorkspace.Stats().ResidentBytes);
+        Assert.Equal(
+            128L * MiB,
+            BrowserPackageWorkspace.Stats().ResidentBytes);
     }
 
     [Fact]
@@ -5383,6 +5475,28 @@ public sealed partial class BrowserEngineBoundaryTests
                 $"{surfaceAsset.AssemblyName}:{typeof(BrowserEngineBoundaryTests).FullName}",
                 type.GetProperty("id").GetString());
             Assert.Single(type.GetProperty("api").EnumerateArray());
+
+            string declarationJson =
+                await DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryMemberDeclaration(
+                    PackageId,
+                    "1.0.0",
+                    "net11.0",
+                    surfaceAsset.Id,
+                    typeof(BrowserEngineBoundaryTests).FullName!,
+                    method.Name,
+                    "stale-selector",
+                    method.MetadataToken,
+                    implementationMember: true);
+            using JsonDocument declarationDocument =
+                JsonDocument.Parse(declarationJson);
+            Assert.Equal(
+                JsonValueKind.String,
+                declarationDocument.RootElement
+                    .GetProperty("text").ValueKind);
+            Assert.Equal(
+                JsonValueKind.Null,
+                declarationDocument.RootElement
+                    .GetProperty("unavailable").ValueKind);
         }
     }
 
@@ -8855,6 +8969,11 @@ public sealed partial class BrowserEngineBoundaryTests
 
     static byte[] PlatformPackage(
         params (string Name, byte[] Content)[] assemblies)
+        => PlatformPackage("net11.0", assemblies);
+
+    static byte[] PlatformPackage(
+        string framework,
+        params (string Name, byte[] Content)[] assemblies)
     {
         using var content = new MemoryStream();
         using (var archive =
@@ -8867,7 +8986,7 @@ public sealed partial class BrowserEngineBoundaryTests
             {
                 using Stream entry = archive
                     .CreateEntry(
-                        $"runtimes/linux-x64/lib/net11.0/{name}",
+                        $"runtimes/linux-x64/lib/{framework}/{name}",
                         CompressionLevel.NoCompression)
                     .Open();
                 entry.Write(bytes);

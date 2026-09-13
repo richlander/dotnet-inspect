@@ -4,7 +4,7 @@ import { stripTypeScriptTypes } from "node:module";
 import { runInNewContext } from "node:vm";
 import test from "node:test";
 import { parseSync } from "oxc-parser";
-import { createCatalogRequests, type DotnetRelease } from "../src/catalog-requests.ts";
+import { createCatalogRequests } from "../src/catalog-requests.ts";
 import {
   createPackageComparisonTargets,
   type ComparisonPackage,
@@ -59,6 +59,10 @@ import {
   normalizeSpotlightPackageSearchSnapshot,
   type SpotlightPackageSearchResultState,
 } from "../src/spotlight-package-search.ts";
+import {
+  normalizeSourceResultSnapshot,
+  type SourceResultState,
+} from "../src/source-inspection.ts";
 
 const appSource = readFileSync(new URL("../src/dotnet-inspect.ts", import.meta.url), "utf8");
 const app = parseSync("dotnet-inspect.ts", appSource);
@@ -237,7 +241,6 @@ function harness() {
       }[];
     } | null,
     dependenciesGroupIndex: null as number | null,
-    dotnetReleases: null as DotnetRelease[] | null, dotnetReleasesLoading: false,
     accessibilityFilter: new Set(["public"]),
     memberAnnotatedEmbedded: null, memberAnnotatedModal: null,
     platformStack: [] as object[], platformRecent: [], recentPackages: [],
@@ -248,7 +251,9 @@ function harness() {
     spotlightOpen: false,
     memberCallGraph: null as object | null, memberCallGraphError: "", memberCallGraphKey: "",
     memberCallGraphLoading: false, memberCallGraphExpanding: false, memberCallGraphSeq: 0,
-    sourceRequestGeneration: 0, typeMetadataGeneration: 0,
+    memberSource: { status: "idle" } as SourceResultState,
+    typeSource: { status: "idle" } as SourceResultState,
+    typeMetadataGeneration: 0,
     docViewer: { status: "closed" } as DocumentViewerState,
     graphSource: { status: "closed" },
     platformDrillLoading: false, platformDrillError: "",
@@ -259,14 +264,12 @@ function harness() {
   };
   const catalogRequests = createCatalogRequests({
     state,
-    queryDotnetReleases: async () => [],
     queryPackageVersions: async pkg => ({
       versions: [pkg.version],
       currentVersionInsertionIndex: 0,
       previousVersion: null,
       previousVersionUnavailableReason: null,
     }),
-    updatePlatformVersionSelect: () => {},
     updatePackageVersionSelect: () => {},
   });
   const packageComparisonTargets = createPackageComparisonTargets(() => state.packages);
@@ -431,6 +434,7 @@ function harness() {
     documentViewerIsOpen,
     normalizeDocumentViewerSnapshot,
     normalizeSpotlightPackageSearchSnapshot,
+    normalizeSourceResultSnapshot,
     retainedWorkspaces: {
       get activeWorkspaceId() {
         return state.package ? "workspace-1" : null;
@@ -761,6 +765,12 @@ test("capture settles a loading document viewer without claiming ready content",
     },
   };
   h.state.docViewer = { status: "loading", request };
+  h.state.memberSource = { status: "loading", signature: "member" };
+  h.state.typeSource = {
+    status: "failed",
+    signature: "type",
+    error: "",
+  };
 
   const snapshot: unknown = runInNewContext(
     "captureCanonicalWorkspaceRestoreSnapshot()",
@@ -770,14 +780,21 @@ test("capture settles a loading document viewer without claiming ready content",
     && "state" in snapshot);
   const snapshotState = snapshot.state;
   assert.ok(snapshotState !== null && typeof snapshotState === "object"
-    && "docViewer" in snapshotState);
+    && "docViewer" in snapshotState
+    && "memberSource" in snapshotState
+    && "typeSource" in snapshotState);
 
   assert.deepEqual(snapshotState.docViewer, {
     status: "failed",
     request,
     error: "",
   });
+  assert.deepEqual(snapshotState.memberSource, { status: "idle" });
+  assert.deepEqual(snapshotState.typeSource, h.state.typeSource);
   assert.equal(h.state.docViewer.status, "loading");
+  assert.deepEqual(
+    h.state.memberSource,
+    { status: "loading", signature: "member" });
 });
 
 test("capture settles Spotlight package loading to cache or idle", () => {

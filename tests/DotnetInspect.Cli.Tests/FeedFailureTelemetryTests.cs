@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
+using NuGetFetch;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -120,7 +121,7 @@ public class FeedFailureTelemetryTests
 
         Assert.Null(body);
         var failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
-        Assert.Equal(NetworkTrafficKind.PackageSourceDiscovery, failure.Phase);
+        Assert.Equal(FeedFailurePhase.PackageSourceDiscovery, failure.Phase);
         Assert.Equal(NetworkTrafficKind.PackageSearch, NetworkTelemetry.CurrentTrafficKind);
     }
 
@@ -186,13 +187,15 @@ public class FeedFailureTelemetryTests
         using var outer = FeedFailureTelemetry.Scope();
         FeedFailureTelemetry.Record(
             "https://outer.example/v3/index.json",
-            HttpStatusCode.Forbidden);
+            HttpStatusCode.Forbidden,
+            FeedFailurePhase.PackageSourceDiscovery);
 
         using (FeedFailureTelemetry.Scope())
         {
             FeedFailureTelemetry.Record(
                 "https://inner.example/v3/index.json",
-                HttpStatusCode.Unauthorized);
+                HttpStatusCode.Unauthorized,
+                FeedFailurePhase.PackageSourceDiscovery);
             Assert.True(FeedFailureTelemetry.Current!.HasFailures);
             Assert.Contains(
                 "inner.",
@@ -220,7 +223,8 @@ public class FeedFailureTelemetryTests
         {
             FeedFailureTelemetry.Record(
                 "https://search.example/query",
-                HttpStatusCode.InternalServerError);
+                HttpStatusCode.InternalServerError,
+                FeedFailurePhase.PackageSearch);
             Assert.True(FeedFailureTelemetry.Current!.HasFailures);
         }
 
@@ -283,7 +287,8 @@ public class FeedFailureTelemetryTests
 
         FeedFailureTelemetry.Record(
             "relative/feed#opaque-sup3rs3cret",
-            HttpStatusCode.Unauthorized);
+            HttpStatusCode.Unauthorized,
+            FeedFailurePhase.PackageSourceDiscovery);
 
         var failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
         Assert.Equal("relative/feed", failure.Url.ToString());
@@ -298,7 +303,10 @@ public class FeedFailureTelemetryTests
             $"//user:{Secret}@private.example/F/auth/{Secret}/api?access_token={Secret}#fragment",
             UriKind.Relative);
 
-        FeedFailureTelemetry.Record(uri, HttpStatusCode.Unauthorized);
+        FeedFailureTelemetry.Record(
+            uri,
+            HttpStatusCode.Unauthorized,
+            FeedFailurePhase.PackageSourceDiscovery);
 
         var failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
         Assert.Equal(
@@ -315,7 +323,10 @@ public class FeedFailureTelemetryTests
         Assert.False(Uri.TryCreate(url, UriKind.RelativeOrAbsolute, out _));
         using var scope = FeedFailureTelemetry.Scope();
 
-        FeedFailureTelemetry.Record(url, HttpStatusCode.Unauthorized);
+        FeedFailureTelemetry.Record(
+            url,
+            HttpStatusCode.Unauthorized,
+            FeedFailurePhase.PackageSourceDiscovery);
 
         var failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
         Assert.Equal(
@@ -408,7 +419,8 @@ public class FeedFailureTelemetryTests
         {
             FeedFailureTelemetry.Record(
                 "https://private.example/v3/flat2/wrapper/index.json",
-                HttpStatusCode.Unauthorized);
+                HttpStatusCode.Unauthorized,
+                FeedFailurePhase.PackageVersionList);
 
             Assert.NotNull(FeedFailureTelemetry.Current!.DescribeFailure("wrapper"));
         }

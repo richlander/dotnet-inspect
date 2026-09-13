@@ -114,7 +114,7 @@ and the nested CoreCLR deployment succeed.
 ## Verify and recover
 
 Verify the package version and commit in NuGet and the GitHub release. Then
-check the production and CoreCLR sites' status bars for the same version and
+check the production and CoreCLR sites' data bars for the same version and
 linked commit.
 
 If the package workflow fails, leave site production unapproved and retry with

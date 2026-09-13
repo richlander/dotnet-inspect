@@ -194,15 +194,18 @@ focused consumer rebuilds and checks the composed Release graph after merge;
 pull-request and merge-group candidates instead run the same policy inside
 their selected pre-merge test job.
 
-A validation's selection set must cover its entire scan set. A repository-wide
-scan therefore selects every pre-merge candidate rather than deriving
-relevance from narrower project ownership. Accordingly, every pull-request and
-merge-group candidate selects `repositoryGuards` independently of changed
-paths. Its focused consumer runs tests whose asserted surfaces are wider than
-their owning projects: the tracked repository tree for line endings and every
-non-excluded top-level source root for legacy package-source identity. This
-does not broaden the ordinary `test` lane for documentation-only or
-inspect-web-only candidates.
+A validation's selection set must cover its entire scan set. The line-ending
+guard scans the complete tracked working tree, so the always-run `changes` job
+executes it directly before publishing a plan. It does not need a conditional
+plan field or a second job that repeats checkout and test-host construction.
+
+The legacy package-source identity guard scans C# files under every
+non-excluded top-level source root. Any changed `*.cs` path therefore selects
+`repositoryGuards` for pull-request and merge-group candidates, independently
+of ordinary project ownership. Documentation-only candidates cannot change
+that scan set and do not select the focused guard job. Issue
+[#6597](https://github.com/richlander/dotnet-inspect/issues/6597) records the
+measured latency that motivated this split.
 
 `inspectWeb` selects the fast, parallel Browser/Wasm PR topology.
 `inspectWebComprehensive` is a narrower pre-merge selection for changes to the
@@ -438,8 +441,9 @@ The planner implementation gate must also cover:
   candidate endpoints;
 - the deliberate failure-contract change from all-true recovery to a blocking
   refusal; and
-- a neighboring docs-only candidate that selects documentation validation and
-  repository-wide guards without ordinary content gates.
+- a neighboring docs-only candidate that selects documentation validation
+  without content gates, while the always-run producer retains the
+  repository-wide line-ending guard.
 
 Workflow-adoption evidence separately demonstrates that GitHub accepts the
 workflow, the non-matrix producer publishes exactly one compact plan, and

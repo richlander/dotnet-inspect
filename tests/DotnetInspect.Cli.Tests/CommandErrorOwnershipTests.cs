@@ -482,7 +482,7 @@ public class CommandErrorOwnershipTests
             // in the shipped assembly, which is a thing only this rule can say.
             // Its consumer takes containment as a required constructor
             // parameter, and the logged URL carries the package id from argv.
-            ["DotnetInspector.Core!DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging(System.Func<string, string>, System.IO.TextWriter)"] = 1,
+            ["DotnetInspector.Core!DotnetInspector.Networking.HttpClientFactory.EnableNetworkTrafficLogging(System.Func<string, string>, System.IO.TextWriter)"] = 1,
 
             // CommandError.Writer's Encoding override. It reads the stream
             // rather than writing to it; its Write/Flush go through

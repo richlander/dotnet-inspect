@@ -103,10 +103,7 @@ static class ResearchTargetResolutionValidator
                         population.Operation),
                 "A scope must be parented by the admitted operation and question.");
             Require(
-                string.Equals(
-                    scope.DeclaringTypeFullName,
-                    selection.DeclaringTypeFullName,
-                    StringComparison.Ordinal)
+                ReferenceEquals(scope.DeclaringType, selection.DeclaringType)
                     && scope.Selector == selection.Selector
                     && scope.Kind == selection.Kind,
                 "A scope must retain its selection's exact intent.");
@@ -849,10 +846,7 @@ static class ResearchTargetResolutionValidator
                     && ReferenceEquals(request.Question, input.Question),
                 "A request must be strictly side-, input-, scope-, and domain-local.");
             Require(
-                string.Equals(
-                    request.DeclaringTypeFullName,
-                    selection.DeclaringTypeFullName,
-                    StringComparison.Ordinal)
+                ReferenceEquals(request.DeclaringType, selection.DeclaringType)
                     && request.Selector == selection.Selector
                     && request.Kind == selection.Kind
                     && ReferenceEquals(
@@ -913,6 +907,7 @@ static class ResearchTargetResolutionValidator
                 "An ambiguous domain must block every one of its own requests.");
             Require(
                 evidence.InputEvidence is null
+                    && evidence.ValidationDeclaration is null
                     && evidence.DeclaringType is null
                     && !evidence.TargetResolutionFailed
                     && evidence.MetadataResolution is null,
@@ -931,6 +926,7 @@ static class ResearchTargetResolutionValidator
                 "A reference-only request must terminate Unavailable.");
             Require(
                 evidence.InputEvidence is null
+                    && evidence.ValidationDeclaration is null
                     && evidence.DeclaringType is null
                     && !evidence.TargetResolutionFailed
                     && evidence.MetadataResolution is null,
@@ -947,7 +943,7 @@ static class ResearchTargetResolutionValidator
 
         if (inputEvidence.ReadFailed)
         {
-            RequireNoMetadataResolution(evidence);
+            RequireNoDeclaration(evidence);
             RequireFailure(
                 outcome,
                 ResearchTargetDiagnosticKind.InputUnreadable);
@@ -957,7 +953,7 @@ static class ResearchTargetResolutionValidator
         if (ValidateImage(inputEvidence, input) is
             ResearchTargetDiagnosticKind imageFailure)
         {
-            RequireNoMetadataResolution(evidence);
+            RequireNoDeclaration(evidence);
             RequireFailure(outcome, imageFailure);
             return;
         }
@@ -965,43 +961,13 @@ static class ResearchTargetResolutionValidator
         ApiSurface surface = inputEvidence.Surface
             ?? throw Violation(
                 "A readable validated input must retain its short-lived Metadata surface.");
+        TypeDeclarationResult declaration = evidence.ValidationDeclaration
+            ?? throw Violation(
+                "A readable validated input must retain its Metadata declaration result.");
         string intent = request.DeclaringTypeFullName;
-        List<ApiType> declaringTypes =
-        [
-            .. surface.Types.Where(
-                candidate => string.Equals(
-                    MetadataFullName(candidate),
-                    intent,
-                    StringComparison.Ordinal)),
-        ];
-        int forwarders = surface.TypeForwarders.Count(
-            forwarder => string.Equals(
-                MetadataFullName(forwarder),
-                intent,
-                StringComparison.Ordinal));
-        int failedTypeDefinitions =
-            CountFailedTypeDefinitions(surface, intent);
-        bool nestedUnderForwarder = surface.TypeForwarders.Any(
-            forwarder => IsNestedUnder(
-                intent,
-                MetadataFullName(forwarder)));
-        int exactDeclarations =
-            declaringTypes.Count + forwarders + failedTypeDefinitions;
-        if (exactDeclarations > 1
-            || (declaringTypes.Count + failedTypeDefinitions != 0
-                && nestedUnderForwarder))
+        switch (declaration)
         {
-            RequireNoMetadataResolution(evidence);
-            RequireFailure(
-                outcome,
-                ResearchTargetDiagnosticKind.DeclaringTypeAmbiguous);
-            return;
-        }
-
-        if (declaringTypes.Count == 0)
-        {
-            if (forwarders == 1 || nestedUnderForwarder)
-            {
+            case TypeDeclarationResult.Forwarded:
                 RequireNoMetadataResolution(evidence);
                 Require(
                     outcome is ResearchTargetOutcome.Unavailable
@@ -1012,41 +978,73 @@ static class ResearchTargetResolutionValidator
                     },
                     "Retained forwarding evidence must terminate Unavailable.");
                 return;
-            }
-
-            if (FindPotentiallyCoveringFailure(
-                    surface,
-                    intent,
-                    memberAbsence: false) is not null)
-            {
+            case TypeDeclarationResult.Ambiguous:
+                RequireNoMetadataResolution(evidence);
+                RequireFailure(
+                    outcome,
+                    ResearchTargetDiagnosticKind.DeclaringTypeAmbiguous);
+                return;
+            case TypeDeclarationResult.ExportedFromModule:
+            case TypeDeclarationResult.Rejected:
                 RequireNoMetadataResolution(evidence);
                 RequireFailure(
                     outcome,
                     ResearchTargetDiagnosticKind.IncompleteMetadataSurface);
                 return;
-            }
-
-            Require(
-                outcome is ResearchTargetOutcome.NotFound
+            case TypeDeclarationResult.Missing:
+                RequireNoMetadataResolution(evidence);
+                if (FindPotentiallyCoveringFailure(
+                    surface,
+                    intent,
+                    memberAbsence: false) is not null)
                 {
-                    MetadataDiagnostic: null,
-                    ResearchDiagnostic.Kind:
-                        ResearchTargetDiagnosticKind.DeclaringTypeAbsent,
-                    Candidates.IsEmpty: true,
-                },
-                "A complete surface with no type or forwarder must retain declaring-type absence.");
+                    RequireFailure(
+                        outcome,
+                        ResearchTargetDiagnosticKind.IncompleteMetadataSurface);
+                    return;
+                }
 
-            Require(
-                evidence.DeclaringType is null
-                    && evidence.MetadataResolution is null
-                    && !evidence.TargetResolutionFailed,
-                "A missing declaring type must terminate before Metadata member resolution.");
+                Require(
+                    outcome is ResearchTargetOutcome.NotFound
+                    {
+                        MetadataDiagnostic: null,
+                        ResearchDiagnostic.Kind:
+                            ResearchTargetDiagnosticKind.DeclaringTypeAbsent,
+                        Candidates.IsEmpty: true,
+                    },
+                    "A complete surface with no declaration must retain declaring-type absence.");
+                return;
+            case TypeDeclarationResult.Defined:
+                break;
+            default:
+                throw Violation("Unknown Metadata declaration result.");
+        }
+
+        var defined = (TypeDeclarationResult.Defined)declaration;
+        List<ApiType> declaringTypes =
+        [
+            .. surface.Types.Where(
+                candidate =>
+                    candidate.MetadataToken == defined.Definition.Value),
+        ];
+        if (declaringTypes.Count != 1)
+        {
+            RequireNoMetadataResolution(evidence);
+            RequireFailure(
+                outcome,
+                declaringTypes.Count == 0
+                    && FindPotentiallyCoveringFailure(
+                        surface,
+                        intent,
+                        memberAbsence: false) is not null
+                    ? ResearchTargetDiagnosticKind.IncompleteMetadataSurface
+                    : ResearchTargetDiagnosticKind.ResolutionFailed);
             return;
         }
 
         Require(
             ReferenceEquals(evidence.DeclaringType, declaringTypes[0]),
-            "Metadata resolution must use the exact selected declaring type.");
+            "Metadata resolution must use the exact TypeDef selected by Metadata.");
 
         if (evidence.TargetResolutionFailed)
         {
@@ -1548,17 +1546,6 @@ static class ResearchTargetResolutionValidator
                         && failure.OwningTypeDefinition is not null)
                     || MayAffectType(failure, declaringTypeFullName)));
 
-    static int CountFailedTypeDefinitions(
-        ApiSurface surface,
-        string declaringTypeFullName)
-        => surface.InspectionFailures.Count(
-            failure =>
-                failure.OwningTypeDefinition is { } owner
-                && string.Equals(
-                    owner.ToMetadataFullName(),
-                    declaringTypeFullName,
-                    StringComparison.Ordinal));
-
     static bool MayAffectType(
         ApiSurfaceInspectionFailure failure,
         string declaringTypeFullName)
@@ -1583,17 +1570,6 @@ static class ResearchTargetResolutionValidator
         return true;
     }
 
-    static string MetadataFullName(ApiType type)
-        => type.DefinitionName?.ToMetadataFullName() ?? type.FullName;
-
-    static string MetadataFullName(TypeForwarder forwarder)
-        => forwarder.DefinitionName?.ToMetadataFullName() ?? forwarder.TypeName;
-
-    static bool IsNestedUnder(string candidate, string potentialRoot)
-        => candidate.Length > potentialRoot.Length
-            && candidate.StartsWith(potentialRoot, StringComparison.Ordinal)
-            && candidate[potentialRoot.Length] == '.';
-
     static void RequireFailure(
         ResearchTargetOutcome outcome,
         ResearchTargetDiagnosticKind kind)
@@ -1610,7 +1586,16 @@ static class ResearchTargetResolutionValidator
             evidence.DeclaringType is null
                 && evidence.MetadataResolution is null
                 && !evidence.TargetResolutionFailed,
-            "An input-level terminal outcome must precede Metadata resolution.");
+            "A declaration-level terminal outcome must precede Metadata member resolution.");
+
+    static void RequireNoDeclaration(
+        ResearchTargetValidationEvidence evidence)
+    {
+        Require(
+            evidence.ValidationDeclaration is null,
+            "An input-level terminal outcome must precede Metadata declaration probing.");
+        RequireNoMetadataResolution(evidence);
+    }
 
     /// <summary>
     /// The single terminal arm each bounded Research diagnostic may occupy.

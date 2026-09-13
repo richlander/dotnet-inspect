@@ -9,7 +9,11 @@ request, cache, result, or failure evidence valid in each state.
 This document owns that result state and its publication contract.
 `spotlight.ts` owns editable query and scope input, result rendering, selection,
 and keyboard interaction. The NuGet query, package ranking and acquisition,
-workspace navigation, and mounted-surface refresh remain unchanged.
+destination activation, and mounted-surface refresh remain separate.
+[Spotlight destination
+activation](inspect-web-spotlight-destination-activation.md) owns the later
+current-Workspace versus fresh-Workspace classification and settlement; this
+state owner does not infer that effect from package-search lifecycle.
 
 ## State contract
 

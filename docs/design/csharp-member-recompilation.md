@@ -794,7 +794,9 @@ The compatibility-preserving frozen-reference adoption path has four steps:
    discovery evidence before consumer selection. The typed inventory landed in
    [#6214](https://github.com/richlander/dotnet-inspect/pull/6214); ordered
    `.deps.json` physical-location selection landed in
-   [#6360](https://github.com/richlander/dotnet-inspect/pull/6360).
+   [#6360](https://github.com/richlander/dotnet-inspect/pull/6360). The
+   [Application Dependency Manifest Format](application-dependency-manifest-format.md)
+   later separates SDK byte interpretation from that physical resolver policy.
 4. Migrate ReturnToSender's compiler-closure acquisition to the frozen context
    in [#6103](https://github.com/richlander/dotnet-inspect/issues/6103) and retire
    its simple-name-first-wins reference enumeration and competing compiler
@@ -809,25 +811,76 @@ platform preparation and ordinary inventory admission cannot register parallel
 artifacts for one Services acquisition.
 
 Platform preparation is finite and driven by target reachability or an exact
-captured collision. Starting at the target, RTS follows exact full-identity
-references through captured candidates. A reference becomes a platform request
-only when a captured Services `PlatformAsset` establishes the same name,
-culture, and key-token family; version remains the owner-authorized
-substitution. Metadata then owns forwarder traversal from those requests. When
-one exact full identity also appears as both a platform and non-platform
-candidate, RTS prepares one global platform request even if that identity is
-not target-reachable. This handles the ordinary case where the harness process
-TPA and the inspected output directory contain byte-identical copies: Services
-selects both sides and the existing platform-agreement gate verifies their
-identity, MVID, and retained digest rather than letting unrelated duplicate
-host dependencies make the compiler set ambiguous.
+captured collision. RTS does not enumerate the harness process's trusted
+platform assembly list into the inspected candidate inventory: that list
+contains the harness application closure as well as runtime assemblies and
+therefore cannot authorize platform treatment for the inspected artifact.
+Instead, starting at the target, RTS asks Services for `Platform`-scope
+selection of each encountered assembly reference. Installed-platform fallback
+is enabled for those requests and for the policy's matching `Any`-scope
+agreement lookup; Services remains the authority for whether the requested
+name is an installed platform candidate.
 
-Selection requests every captured candidate except identities in a prepared
-platform family; unprepared platform assets therefore remain ordinary exact
-compiler references rather than receiving implicit compatibility authority.
-Distinct equivalent registrations without platform authority remain a typed
-`ReferenceSelectionAmbiguous` failure rather than regaining first-wins
-behavior.
+An exact captured non-platform candidate precedes platform version
+substitution and becomes the next reachable origin. If no exact candidate
+exists, a Services-selected `PlatformAsset` forms the explicit platform
+request and becomes another reachable origin whose ordinary assembly references
+receive the same request-driven classification. If both exist with the same
+complete identity, RTS retains the platform request so the existing agreement
+gate verifies full identity, MVID, and retained digest. A different-version
+installed platform selection does not displace the exact package or application
+asset. Metadata owns forwarder traversal from the prepared requests. RTS also
+prepares a global request for an exact captured candidate when Services
+independently selects the same complete identity as a platform asset, even if
+the collision is not target-reachable.
+
+When a matching `<target>.deps.json` exists, RTS reads its bounded bytes and
+directly invokes the application dependency-manifest format owner. That result
+selects the exact runtime target and, for RID-specific SDK output, its
+associated RID-less compilation target. RTS supplies the immutable result to
+Services, which projects application-relative, package-root, and adjacent
+project-output locations without interpreting JSON. Broad sibling-directory
+discovery is disabled only after format interpretation succeeds.
+
+Scanning the same directory as a separate source would create distinct
+provenance-bearing registrations for one physical asset. The
+candidate-inventory contract forbids coalescing those registrations by path or
+bytes, so avoiding the second discovery source prevents an artificial
+selection ambiguity without weakening the evidence model. Targets without a
+matching dependency manifest retain sibling discovery; a rejected or
+incomplete matching manifest fails visibly rather than selecting that fallback.
+
+Selection requests every captured candidate except the platform and agreement
+registrations explicitly covered by prepared binding evidence. Another
+registration with the same complete identity remains visible and produces
+`ReferenceSelectionAmbiguous`; one checked agreement does not suppress an
+unchecked occurrence. A platform request for one version likewise does not
+suppress an exact package or application candidate at another version.
+Unprepared platform assets therefore remain ordinary exact compiler references
+rather than receiving implicit compatibility authority. Distinct equivalent
+registrations without platform authority remain a typed ambiguity rather than
+regaining first-wins behavior.
+
+`ReturnToSenderCompilationClosureTests` gates these consumer boundaries in the
+ordinary Release `DecompilerHarness.Tests` suite. One case places an ordinary
+application dependency in the harness process TPA set and requires RTS to
+retain the target-local identity rather than granting the host copy platform
+authority. Another
+requires a selected platform assembly's ordinary reference closure to join the
+compiler set. A renamed extra occurrence with the selected platform identity
+must remain ambiguous because it is outside the binding's agreement evidence.
+An exact candidate at another version remains in the compiler set rather than
+being suppressed by the prepared platform family.
+The manifest case uses an SDK project entry with no declared physical path,
+projects its nested logical asset to the adjacent output file, ignores an
+unselected target, and requires exactly one compiler reference despite the
+same file also being sibling-discoverable. A malformed matching manifest must
+fail before sibling fallback. The pinned cutover population adds real evidence
+from
+`dotnet-inspect.any/0.14.0` application dependencies and the
+`microsoft.codeanalysis.csharp/5.0.0` package graph: package-local dependencies
+reach member-level RTS without being compared to unrelated current-harness or
+installed-platform versions.
 
 One RTS compilation closure owns the sealed artifact session, query lease, and
 selected set. Initial decompiler compilation, external-interface Metadata

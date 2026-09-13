@@ -165,6 +165,51 @@ public class CommandLineTests
         Assert.Empty(result.Errors);
     }
 
+    [Theory]
+    [InlineData("--head")]
+    [InlineData("--tail")]
+    public void CacheCommand_WithDirectionButNoLineLimit_ReportsUnsupportedCombination(
+        string direction)
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["cache", direction]);
+
+        var error = Assert.Single(result.Errors);
+        Assert.Equal($"{direction} requires -n.", error.Message);
+    }
+
+    [Fact]
+    public void CacheClear_WithAncestorRowWindow_ReportsUnsupportedOption()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["cache", "--rows", "1..2", "clear", "--session", "cache-command-missing-probe"]);
+
+        var error = Assert.Single(result.Errors);
+        Assert.Equal("--rows is not supported by the 'clear' command.", error.Message);
+    }
+
+    [Fact]
+    public void CacheClear_WithOppositeDirections_ReportsConflict()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["cache", "--head", "--tail", "clear", "--session", "cache-command-missing-probe"]);
+
+        var error = Assert.Single(result.Errors);
+        Assert.Equal("--head and --tail select opposite ends; choose one.", error.Message);
+    }
+
+    [Theory]
+    [InlineData("--clean")]
+    [InlineData("--clear")]
+    public void CacheCommand_WithRetiredClearOption_ReportsUnrecognizedOption(
+        string option)
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["cache", option]);
+
+        Assert.Contains(
+            result.Errors,
+            error => error.Message.Contains(option, StringComparison.Ordinal));
+    }
+
     [Fact]
     public void RootCommand_DoesNotExposeRemovedUtilityCommands()
     {
@@ -337,6 +382,22 @@ public class CommandLineTests
             command => command.Name == "api");
         Assert.NotEmpty(result.Errors);
         Assert.Contains("api", ArgumentPreprocessor.KnownCommands);
+    }
+
+    [Fact]
+    public void DependencyEvidenceCommand_IsRemovedButReserved()
+    {
+        var rootCommand = CommandLineBuilder.CreateRootCommand();
+        var result = rootCommand.Parse(
+            ["dependency-evidence", "--package", "System.Text.Json"]);
+
+        Assert.DoesNotContain(
+            rootCommand.Subcommands,
+            command => command.Name == "dependency-evidence");
+        Assert.NotEmpty(result.Errors);
+        Assert.Contains(
+            "dependency-evidence",
+            ArgumentPreprocessor.KnownCommands);
     }
 
     [Fact]
@@ -786,29 +847,8 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void PreprocessArgs_RequiredProjectReadmeValueCanResembleLineLimit()
+    public void ParsedLineWindow_RequiredOptionsOwnLimitShapedValues()
     {
-        PreprocessAndApplyLineWindow(
-            ["project", "--readme", "-n1", "--help"]);
-
-        Assert.Null(CommandLineBuilder.HeadLines);
-        Assert.Null(CommandLineBuilder.TailLines);
-    }
-
-    [Fact]
-    public void ParsedLineWindow_UsesActiveCommandOptionArity()
-    {
-        PreprocessAndApplyLineWindow(
-            ["find", "--platform", "-n1", "JsonSerializer"]);
-        Assert.Equal(1, CommandLineBuilder.HeadLines);
-
-        string[] shorthand = PreprocessAndApplyLineWindow(
-            ["find", "--platform", "-1", "JsonSerializer"]);
-        Assert.Equal(
-            ["find", "--platform", "-n", "1", "JsonSerializer"],
-            shorthand);
-        Assert.Equal(1, CommandLineBuilder.HeadLines);
-
         PreprocessAndApplyLineWindow(
             ["member", "System.String", "--focus", "-n1"]);
         Assert.Null(CommandLineBuilder.HeadLines);

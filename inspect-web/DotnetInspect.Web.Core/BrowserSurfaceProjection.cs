@@ -254,6 +254,7 @@ internal static class BrowserSurfaceProjection
             member.IsObsolete,
             member.SignatureModel?.TypeParameters.Count ?? 0,
             member.MetadataToken,
+            member.DeclarationMetadataToken,
             member.SignatureModel?.ReturnType ?? member.ReturnType,
             [
                 .. (member.SignatureModel?.Parameters ?? []).Select(
@@ -474,12 +475,7 @@ internal static class BrowserSurfaceProjection
         if (!ApiMemberIdentity.TryGetXmlDocMemberIdentity(type, member, out XmlDocMemberIdentity identity))
             return null;
 
-        string key = identity.LookupKey;
-        if (identity.NormalizedParameters.Count > 0)
-            key += $"({string.Join(",", identity.NormalizedParameters)})";
-        if (identity.NormalizedReturnType is { Length: > 0 } returnType)
-            key += $"~{returnType}";
-        return key;
+        return identity.Value;
     }
 
     /// <summary>

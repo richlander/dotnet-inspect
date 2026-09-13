@@ -20,7 +20,12 @@ const row: PlatformAssemblyRow = {
 const facade = { ...row, assembly: "System.Facade", file: "System.Facade.dll", kind: "facade" as const };
 const privateLibrary = { ...row, assembly: "System.Private.CoreLib", file: "System.Private.CoreLib.dll", inReferencePack: false };
 const referenceOnly = { ...row, assembly: "System.RefOnly", file: "System.RefOnly.dll", kind: "ref" as const, hasImplementation: false };
-const target: PlatformCatalogTarget = { tfm: row.tfm, version, rows: [row, facade, privateLibrary, referenceOnly] };
+const target: PlatformCatalogTarget = {
+  tfm: row.tfm,
+  version,
+  rows: [row, facade, privateLibrary, referenceOnly],
+  supplies: [],
+};
 const escapeHtml = (value: unknown) => String(value).replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;");
 
 test("reference membership, not implementation kind or public type count, defines the default inventory", () => {

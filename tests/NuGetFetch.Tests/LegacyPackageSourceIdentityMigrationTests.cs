@@ -11,6 +11,7 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
     const string IdentityPropertyName = "Identity";
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void LegacyPackageSourceIdentitySurfaceMatchesMigrationSet()
     {
         DirectoryInfo root = FindRepositoryRoot();
@@ -159,6 +160,7 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void LegacyReferenceDiscoveryIncludesAliasesAndInactiveBranches()
     {
         string root = Path.Combine(

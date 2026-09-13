@@ -21,8 +21,9 @@ available; they are not substituted for the default target.
 
 ## Catalog format
 
-The root has `schemaVersion: 1`, `defaultFramework: "net11.0"`, and `targets`.
-Each target has `tfm`, exact package `version`, and `rows`. Each row carries:
+The root has `schemaVersion: 2`, `defaultFramework: "net11.0"`, and `targets`.
+Each target has `tfm`, exact package `version`, `rows`, and `supplies`. Each
+library row carries:
 
 | Field | Meaning |
 | --- | --- |
@@ -45,6 +46,22 @@ implementations outside it. The last two both have `kind: "impl"`.
 The dominant forwarding destination is a browsing hint, not authority for
 type resolution.
 
+Each supply row carries:
+
+| Field | Meaning |
+| --- | --- |
+| `pack` | `netcore.app` or `aspnetcore.app` |
+| `family` | Canonical shared-framework family identity |
+| `package`, `version` | Exact package identity and supplied-version literal |
+
+Supply rows come from `data/PackageOverrides.txt` in the same exact reference
+pack used for the target's library inventory. The generator delegates parsing
+and validation to `PlatformPruneInventory.FromExactFamily`; missing or
+malformed prune data fails generation. Package supply and assembly identity
+remain separate facts. A consumer may delegate a package only after applying
+`PlatformPrunePolicy`, and must independently establish the intended Platform
+library correspondence.
+
 ## Regenerate
 
 From the repository root, with the repository-selected SDK:
@@ -62,7 +79,8 @@ must be acquired for that exact version before changing a selected target.
 
 The inspect-web CI job compiles the generator. `test/platform-index.test.ts`
 exercises catalog loading, exact-version association, reference membership,
-role examples, and the shipped .NET 11 target. Engine catalog tests cover
-dynamic discovery and acquisition; browser tests cover Platform presentation
-and navigation. The owning experience is issue #6013 and
+package supply, role examples, and the shipped .NET 11 target. Engine catalog
+tests cover dynamic discovery and acquisition; browser tests cover Platform
+presentation, navigation, and exact demo correspondence. The owning experience
+is issue #6013 and
 [Platform subject](../../../docs/design/inspect-web-navigation-presentation.md#platform-subject).

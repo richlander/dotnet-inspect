@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 
 using DotnetInspector.Services;
 
-using CoreHttpClientFactory = DotnetInspector.Core.HttpClientFactory;
+using CoreHttpClientFactory = DotnetInspector.Networking.HttpClientFactory;
 
 namespace DotnetInspect.Cli.Tests;
 

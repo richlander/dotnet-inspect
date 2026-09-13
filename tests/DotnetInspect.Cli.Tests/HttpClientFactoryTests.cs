@@ -1,3 +1,4 @@
+using DotnetInspector.Cache;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -21,15 +22,15 @@ public class HttpClientFactoryTests : IDisposable
 
     public HttpClientFactoryTests()
     {
-        DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions());
-        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        DotnetInspector.Networking.HttpClientFactory.Initialize(new HttpClientFactoryOptions());
+        DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
         NuGetCache.Initialize("dotnet-inspect-test", _cacheDir, skipNuGetCache: true);
     }
 
     public void Dispose()
     {
-        DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions());
-        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        DotnetInspector.Networking.HttpClientFactory.Initialize(new HttpClientFactoryOptions());
+        DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
         if (Directory.Exists(_cacheDir))
             Directory.Delete(_cacheDir, recursive: true);
     }
@@ -62,8 +63,8 @@ public class HttpClientFactoryTests : IDisposable
     [Fact]
     public void CreateClient_ReturnsDifferentInstances()
     {
-        var client1 = DotnetInspector.Core.HttpClientFactory.CreateClient();
-        var client2 = DotnetInspector.Core.HttpClientFactory.CreateClient();
+        var client1 = DotnetInspector.Networking.HttpClientFactory.CreateClient();
+        var client2 = DotnetInspector.Networking.HttpClientFactory.CreateClient();
 
         Assert.NotSame(client1, client2);
     }
@@ -71,12 +72,12 @@ public class HttpClientFactoryTests : IDisposable
     [Fact]
     public void CreateClient_UsesConfiguredDefaultTimeout()
     {
-        DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions
+        DotnetInspector.Networking.HttpClientFactory.Initialize(new HttpClientFactoryOptions
         {
             DefaultTimeout = TimeSpan.FromSeconds(5),
         });
 
-        var client = DotnetInspector.Core.HttpClientFactory.CreateClient();
+        var client = DotnetInspector.Networking.HttpClientFactory.CreateClient();
 
         Assert.Equal(TimeSpan.FromSeconds(5), client.Timeout);
     }
@@ -85,12 +86,12 @@ public class HttpClientFactoryTests : IDisposable
     public void CreateCredentialFreeClient_HonorsTimeoutWithoutAuthentication()
     {
         bool authenticationAdopted = false;
-        DotnetInspector.Core.HttpClientFactory.Initialize(
+        DotnetInspector.Networking.HttpClientFactory.Initialize(
             new HttpClientFactoryOptions
             {
                 DefaultTimeout = TimeSpan.FromSeconds(7),
             });
-        DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
+        DotnetInspector.Networking.HttpClientFactory.SetAuthenticationDecorator(
             handler =>
             {
                 authenticationAdopted = true;
@@ -98,7 +99,7 @@ public class HttpClientFactoryTests : IDisposable
             });
         try
         {
-            using HttpClient client = DotnetInspector.Core.HttpClientFactory
+            using HttpClient client = DotnetInspector.Networking.HttpClientFactory
                 .CreateCredentialFreeClient();
 
             Assert.Equal(TimeSpan.FromSeconds(7), client.Timeout);
@@ -106,7 +107,7 @@ public class HttpClientFactoryTests : IDisposable
         }
         finally
         {
-            DotnetInspector.Core.HttpClientFactory
+            DotnetInspector.Networking.HttpClientFactory
                 .SetAuthenticationDecorator(null);
         }
     }
@@ -114,7 +115,7 @@ public class HttpClientFactoryTests : IDisposable
     [Fact]
     public void CreateCredentialFreeHandler_DisablesDesktopAmbientStateAndRedirects()
     {
-        using HttpMessageHandler handler = DotnetInspector.Core.HttpClientFactory
+        using HttpMessageHandler handler = DotnetInspector.Networking.HttpClientFactory
             .CreateCredentialFreeHandler();
         HttpMessageHandler current = handler;
         while (current is DelegatingHandler delegating)
@@ -130,7 +131,7 @@ public class HttpClientFactoryTests : IDisposable
     [Fact]
     public void CreateCredentialFreePackageSourceHandler_DisablesAmbientStateAndRedirects()
     {
-        using HttpMessageHandler handler = DotnetInspector.Core.HttpClientFactory
+        using HttpMessageHandler handler = DotnetInspector.Networking.HttpClientFactory
             .CreateCredentialFreePackageSourceHandler(
                 "https://private.example/v3/index.json");
         HttpMessageHandler current = handler;
@@ -172,7 +173,7 @@ public class HttpClientFactoryTests : IDisposable
             TestContext.Current.CancellationToken);
 
         using var client = new HttpClient(
-            DotnetInspector.Core.HttpClientFactory
+            DotnetInspector.Networking.HttpClientFactory
                 .CreateCredentialFreePackageSourceHandler(sourceUrl));
         string response = await client.GetStringAsync(
             sourceUrl,
@@ -189,10 +190,10 @@ public class HttpClientFactoryTests : IDisposable
     [Fact]
     public async Task CreateCredentialFreePackageSourceHandler_HonorsOfflinePolicy()
     {
-        DotnetInspector.Core.HttpClientFactory.Initialize(
+        DotnetInspector.Networking.HttpClientFactory.Initialize(
             new HttpClientFactoryOptions { Offline = true });
         using var client = new HttpClient(
-            DotnetInspector.Core.HttpClientFactory
+            DotnetInspector.Networking.HttpClientFactory
                 .CreateCredentialFreePackageSourceHandler(
                     "https://example.test/v3/index.json"));
 
@@ -208,7 +209,7 @@ public class HttpClientFactoryTests : IDisposable
     [Fact]
     public void CredentialFreeBrowserTransportAvoidsUnsupportedHandlerConfiguration()
     {
-        using HttpClientHandler transport = DotnetInspector.Core.HttpClientFactory
+        using HttpClientHandler transport = DotnetInspector.Networking.HttpClientFactory
             .CreateTransportHandler(
                 isBrowser: true,
                 includeAuthentication: false);
@@ -221,12 +222,12 @@ public class HttpClientFactoryTests : IDisposable
     [Fact]
     public async Task CreateCredentialFreeClient_HonorsOfflinePolicy()
     {
-        DotnetInspector.Core.HttpClientFactory.Initialize(
+        DotnetInspector.Networking.HttpClientFactory.Initialize(
             new HttpClientFactoryOptions
             {
                 Offline = true,
             });
-        using HttpClient client = DotnetInspector.Core.HttpClientFactory
+        using HttpClient client = DotnetInspector.Networking.HttpClientFactory
             .CreateCredentialFreeClient();
 
         Exception? failure = await Record.ExceptionAsync(
@@ -246,12 +247,12 @@ public class HttpClientFactoryTests : IDisposable
         using var decoratorEntered = new ManualResetEventSlim();
         using var continueCreation = new ManualResetEventSlim();
 
-        DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions
+        DotnetInspector.Networking.HttpClientFactory.Initialize(new HttpClientFactoryOptions
         {
             Offline = false,
             DefaultTimeout = TimeSpan.FromSeconds(45),
         });
-        DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(handler =>
+        DotnetInspector.Networking.HttpClientFactory.SetAuthenticationDecorator(handler =>
         {
             if (!observeCreation.Value)
                 return handler;
@@ -262,7 +263,7 @@ public class HttpClientFactoryTests : IDisposable
         });
 
         using HttpClient unrelated = await Task.Run(
-            DotnetInspector.Core.HttpClientFactory.CreateClient,
+            DotnetInspector.Networking.HttpClientFactory.CreateClient,
             TestContext.Current.CancellationToken);
         Assert.False(decoratorEntered.IsSet);
 
@@ -270,7 +271,7 @@ public class HttpClientFactoryTests : IDisposable
             () =>
             {
                 observeCreation.Value = true;
-                return DotnetInspector.Core.HttpClientFactory.CreateClient();
+                return DotnetInspector.Networking.HttpClientFactory.CreateClient();
             },
             CancellationToken.None,
             TaskCreationOptions.LongRunning,
@@ -281,7 +282,7 @@ public class HttpClientFactoryTests : IDisposable
             // genuine deadlock, while this wait resumes directly when the dedicated creator enters.
             decoratorEntered.Wait(TestContext.Current.CancellationToken);
 
-            DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions
+            DotnetInspector.Networking.HttpClientFactory.Initialize(new HttpClientFactoryOptions
             {
                 Offline = true,
                 DefaultTimeout = TimeSpan.FromSeconds(9),
@@ -298,7 +299,7 @@ public class HttpClientFactoryTests : IDisposable
         finally
         {
             continueCreation.Set();
-            DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(null);
+            DotnetInspector.Networking.HttpClientFactory.SetAuthenticationDecorator(null);
         }
     }
 
@@ -310,13 +311,13 @@ public class HttpClientFactoryTests : IDisposable
     [Fact]
     public void CreateUntrustedFetchClient_DoesNotFollowTheConfiguredDefaultTimeout()
     {
-        DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions
+        DotnetInspector.Networking.HttpClientFactory.Initialize(new HttpClientFactoryOptions
         {
             DefaultTimeout = TimeSpan.FromSeconds(600),
         });
 
-        var untrusted = DotnetInspector.Core.HttpClientFactory.CreateUntrustedFetchClient();
-        var standard = DotnetInspector.Core.HttpClientFactory.CreateClient();
+        var untrusted = DotnetInspector.Networking.HttpClientFactory.CreateUntrustedFetchClient();
+        var standard = DotnetInspector.Networking.HttpClientFactory.CreateClient();
 
         Assert.Equal(HttpClientFactoryOptions.BaselineTimeout, untrusted.Timeout);
         Assert.Equal(TimeSpan.FromSeconds(600), standard.Timeout);
@@ -326,7 +327,7 @@ public class HttpClientFactoryTests : IDisposable
     public void CreateUntrustedFetchClient_DoesNotUseAnAmbientProxy()
     {
         using SocketsHttpHandler handler =
-            DotnetInspector.Core.HttpClientFactory.CreateUntrustedSocketsHandler();
+            DotnetInspector.Networking.HttpClientFactory.CreateUntrustedSocketsHandler();
 
         Assert.False(handler.UseProxy);
     }
@@ -335,13 +336,13 @@ public class HttpClientFactoryTests : IDisposable
     public void GetPackageSourceClient_ReusesOneClientPerOrigin()
     {
         HttpClient first =
-            DotnetInspector.Core.HttpClientFactory.GetPackageSourceClient(
+            DotnetInspector.Networking.HttpClientFactory.GetPackageSourceClient(
                 "https://private.example/v3/index.json");
         HttpClient sameOrigin =
-            DotnetInspector.Core.HttpClientFactory.GetPackageSourceClient(
+            DotnetInspector.Networking.HttpClientFactory.GetPackageSourceClient(
                 "https://PRIVATE.example/query");
         HttpClient differentPort =
-            DotnetInspector.Core.HttpClientFactory.GetPackageSourceClient(
+            DotnetInspector.Networking.HttpClientFactory.GetPackageSourceClient(
                 "https://private.example:8443/v3/index.json");
 
         Assert.Same(first, sameOrigin);
@@ -382,7 +383,7 @@ public class HttpClientFactoryTests : IDisposable
             TestContext.Current.CancellationToken);
 
         using HttpClient client =
-            DotnetInspector.Core.HttpClientFactory.CreatePackageSourceClient(sourceUrl);
+            DotnetInspector.Networking.HttpClientFactory.CreatePackageSourceClient(sourceUrl);
         HttpRequestException exception =
             await Assert.ThrowsAsync<HttpRequestException>(
                 () => client.GetAsync(
@@ -410,7 +411,7 @@ public class HttpClientFactoryTests : IDisposable
             TestContext.Current.CancellationToken);
 
         using HttpClient client =
-            DotnetInspector.Core.HttpClientFactory
+            DotnetInspector.Networking.HttpClientFactory
                 .CreatePackageSourceClient(sourceUrl);
         string response = await client.GetStringAsync(
             sourceUrl,
@@ -500,13 +501,13 @@ public class HttpClientFactoryTests : IDisposable
     [Fact]
     public void Initialize_WithDefaultOptions_ClearsAPreviouslyConfiguredTimeout()
     {
-        DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions
+        DotnetInspector.Networking.HttpClientFactory.Initialize(new HttpClientFactoryOptions
         {
             DefaultTimeout = TimeSpan.FromSeconds(45),
         });
-        DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions());
+        DotnetInspector.Networking.HttpClientFactory.Initialize(new HttpClientFactoryOptions());
 
-        var client = DotnetInspector.Core.HttpClientFactory.CreateClient();
+        var client = DotnetInspector.Networking.HttpClientFactory.CreateClient();
 
         Assert.Equal(HttpClientFactoryOptions.BaselineTimeout, client.Timeout);
     }
@@ -531,14 +532,14 @@ public class HttpClientFactoryTests : IDisposable
     {
         const string ClosedPort = "http://127.0.0.1:1/";
 
-        DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions
+        DotnetInspector.Networking.HttpClientFactory.Initialize(new HttpClientFactoryOptions
         {
             DefaultTimeout = TimeSpan.FromSeconds(45),
         });
-        var shared = DotnetInspector.Core.HttpClientFactory.Shared;
+        var shared = DotnetInspector.Networking.HttpClientFactory.Shared;
         Assert.Equal(TimeSpan.FromSeconds(45), shared.Timeout);
 
-        DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions
+        DotnetInspector.Networking.HttpClientFactory.Initialize(new HttpClientFactoryOptions
         {
             Offline = true,
             DefaultTimeout = TimeSpan.FromSeconds(9),
@@ -548,14 +549,14 @@ public class HttpClientFactoryTests : IDisposable
         // built with. Reaching the socket and being refused is what proves it is still online.
         // The failure is asserted to exist as well as to not be offline, since an assertion
         // only that it is not offline would also pass if no request had been made at all.
-        Assert.Same(shared, DotnetInspector.Core.HttpClientFactory.Shared);
-        Assert.Equal(TimeSpan.FromSeconds(45), DotnetInspector.Core.HttpClientFactory.Shared.Timeout);
+        Assert.Same(shared, DotnetInspector.Networking.HttpClientFactory.Shared);
+        Assert.Equal(TimeSpan.FromSeconds(45), DotnetInspector.Networking.HttpClientFactory.Shared.Timeout);
         var cachedFailure = await Record.ExceptionAsync(() => shared.GetAsync(ClosedPort, TestContext.Current.CancellationToken));
         Assert.NotNull(cachedFailure);
         Assert.Null(FindOffline(cachedFailure));
 
         // The same call does govern the next client built.
-        var later = DotnetInspector.Core.HttpClientFactory.CreateClient();
+        var later = DotnetInspector.Networking.HttpClientFactory.CreateClient();
         Assert.Equal(TimeSpan.FromSeconds(9), later.Timeout);
         Assert.NotNull(FindOffline(await Record.ExceptionAsync(() => later.GetAsync(ClosedPort, TestContext.Current.CancellationToken))));
     }
@@ -663,7 +664,7 @@ public class HttpClientFactoryTests : IDisposable
     public async Task EnableNetworkTrafficLogging_PrintsTrafficKindWithoutBlocking()
     {
         using var error = new StringWriter();
-        using (DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging(CSharpText.CSharpIdentifier.ContainRenderedText, error))
+        using (DotnetInspector.Networking.HttpClientFactory.EnableNetworkTrafficLogging(CSharpText.CSharpIdentifier.ContainRenderedText, error))
         {
             using var client = new HttpClient(new NetworkTelemetryHandler(
                 new StubHttpMessageHandler(),
@@ -692,7 +693,7 @@ public class HttpClientFactoryTests : IDisposable
     {
         using var error = new StringWriter();
         var transport = new StubHttpMessageHandler();
-        using (DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging(CSharpText.CSharpIdentifier.ContainRenderedText, error))
+        using (DotnetInspector.Networking.HttpClientFactory.EnableNetworkTrafficLogging(CSharpText.CSharpIdentifier.ContainRenderedText, error))
         using (var client = new HttpClient(new NetworkTelemetryHandler(
             transport,
             NetworkClientKinds.Shared)))
@@ -732,7 +733,7 @@ public class HttpClientFactoryTests : IDisposable
     {
         using var error = new StringWriter();
         var transport = new StubHttpMessageHandler();
-        using (DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging(CSharpText.CSharpIdentifier.ContainRenderedText, error))
+        using (DotnetInspector.Networking.HttpClientFactory.EnableNetworkTrafficLogging(CSharpText.CSharpIdentifier.ContainRenderedText, error))
         using (var client = new HttpClient(new NetworkTelemetryHandler(
             transport,
             NetworkClientKinds.Shared)))
@@ -804,47 +805,14 @@ public class HttpClientFactoryTests : IDisposable
     }
 
     [Fact]
-    public void CacheTelemetry_AddsActivityEventWithRequestCurrency()
-    {
-        using var activitySource = new System.Diagnostics.ActivitySource("test");
-        using var listener = new System.Diagnostics.ActivityListener
-        {
-            ShouldListenTo = source => source.Name == "test",
-            Sample = (ref System.Diagnostics.ActivityCreationOptions<System.Diagnostics.ActivityContext> _) =>
-                System.Diagnostics.ActivitySamplingResult.AllDataAndRecorded
-        };
-        System.Diagnostics.ActivitySource.AddActivityListener(listener);
-
-        using var activity = activitySource.StartActivity("command");
-        using (RequestTelemetry.Scope("package Markout", "package versions"))
-        using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageVersionList))
-        {
-            CacheTelemetry.Record("versions", "https://api.nuget.org/v3/index.json?token=secret", CacheAccessResult.Hit);
-        }
-
-        var evt = Assert.Single(activity!.Events);
-        Assert.Equal(CacheTelemetry.CacheAccessEventName, evt.Name);
-        var tags = evt.Tags.ToDictionary(tag => tag.Key, tag => tag.Value);
-        Assert.Equal("versions", tags["dotnet_inspect.cache.category"]);
-        Assert.Equal("hit", tags["dotnet_inspect.cache.result"]);
-        Assert.Equal("package-version-list", tags["dotnet_inspect.network.kind"]);
-        Assert.Equal("package Markout", tags["dotnet_inspect.request.what"]);
-        Assert.Equal("package versions", tags["dotnet_inspect.request.why"]);
-        var key = Assert.IsType<string>(tags["dotnet_inspect.cache.key"]);
-        Assert.Equal("https://api.nuget.org/v3/index.json?REDACTED", key);
-        Assert.DoesNotContain("secret", key);
-        Assert.DoesNotContain("token=", key);
-    }
-
-    [Fact]
     public void CacheTelemetry_SymbolMissesIncludeExtensionInCategory()
     {
         using var diagram = RequestMermaidDiagram.Start();
         var key = $"https://example.test/symbols/{Guid.NewGuid():N}.pdb";
 
-        DotnetInspector.Core.CoreCache.Set("symbol-misses", key, "403", extension: "forbidden");
-        _ = DotnetInspector.Core.CoreCache.TryGet("symbol-misses", key, extension: "forbidden");
-        _ = DotnetInspector.Core.CoreCache.TryGet("symbol-misses", key, extension: "miss");
+        DotnetInspector.Cache.PersistentCache.Set("symbol-misses", key, "403", extension: "forbidden");
+        _ = DotnetInspector.Cache.PersistentCache.TryGet("symbol-misses", key, extension: "forbidden");
+        _ = DotnetInspector.Cache.PersistentCache.TryGet("symbol-misses", key, extension: "miss");
 
         var mermaid = diagram.ToMermaid(CSharpText.CSharpIdentifier.ContainRenderedText);
 
@@ -880,7 +848,7 @@ public class HttpClientFactoryTests : IDisposable
         bool allowTrafficKind)
     {
         using var error = new StringWriter();
-        using (DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging(CSharpText.CSharpIdentifier.ContainRenderedText, error))
+        using (DotnetInspector.Networking.HttpClientFactory.EnableNetworkTrafficLogging(CSharpText.CSharpIdentifier.ContainRenderedText, error))
         {
             using var client = new HttpClient(new NetworkTelemetryHandler(
                 new StubHttpMessageHandler(),

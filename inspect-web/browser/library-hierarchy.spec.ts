@@ -46,6 +46,7 @@ const run: BrowserMemberSurface = {
   isObsolete: false,
   genericArity: 0,
   metadataToken: 0x06000001,
+  declarationMetadataToken: 0x06000001,
   returnType: "void",
   parameters: [],
   documentationId: "M:Example.Widget.Run",
@@ -113,6 +114,7 @@ function platformRow(assembly: string, kind: PlatformAssemblyRow["kind"], inRefe
 }
 const platformTarget: PlatformCatalogTarget = {
   tfm: "net11.0", version: platformVersion,
+  supplies: [],
   rows: [
     platformRow("System.Text.Json", "impl"),
     platformRow("System.Facade", "facade"),
@@ -122,6 +124,7 @@ const platformTarget: PlatformCatalogTarget = {
 };
 const historicalPlatformTarget: PlatformCatalogTarget = {
   tfm: "netstandard2.1", version: "2.1.0",
+  supplies: [],
   rows: [{
     ...platformRow("netstandard", "ref", true, false),
     tfm: "netstandard2.1", pack: "netstandard", packVersion: "2.1.0", version: "2.1.0.0",
@@ -144,6 +147,14 @@ interface PlatformFixture {
 interface HomeDemoFixture {
   catalog: readonly BrowserHomeDemoCatalogEntry[];
   results: Readonly<Record<string, BrowserHomeDemoRunResult>>;
+  catalogPending?: boolean;
+}
+
+interface DiagnosticsFixture {
+  runtimeFailure?: boolean;
+  buildIdentity?: "ready" | "pending" | "failed";
+  cacheFailure?: boolean;
+  cachePending?: boolean;
 }
 
 // Exercise the production composition root and bindings with deterministic facade
@@ -158,6 +169,7 @@ async function installFacades(
   opportunities: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
   analysis: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
   homeDemos?: HomeDemoFixture,
+  diagnostics: DiagnosticsFixture = {},
 ) {
   const catalogTarget: PlatformCatalogTarget = {
     ...platformTarget,
@@ -224,19 +236,45 @@ async function installFacades(
     }`;
   const modules: Record<string, string> = {
     host: `
-      export async function createRuntime() { return {}; }
+      const diagnosticsOptions = ${JSON.stringify(diagnostics)};
+      export async function createRuntime() {
+        if (diagnosticsOptions.runtimeFailure) {
+          throw new Error("Runtime unavailable");
+        }
+        return {};
+      }
       export function configureHost() {}
       export async function runEntryPoint() { return 0; }
       export function registerEpochWorkReporter() {}
       export async function drainEpochWorkReporter() {}
       export function unregisterEpochWorkReporter() {}
-      export function buildIdentity() {
-        return { version: "fixture", commit: null, builtAtUtc: null, commitUrl: null };
+      export async function asyncLoweringCanary() {
+        if (diagnosticsOptions.runtimeFailure) {
+          throw new Error("Runtime unavailable");
+        }
+        return "inspect-web-async-lowering-ok";
+      }
+      export async function buildIdentity() {
+        if (diagnosticsOptions.buildIdentity === "pending") {
+          document.documentElement.dataset.buildIdentityPending = "true";
+          await new Promise(resolve => document.addEventListener(
+            "finish-build-identity", resolve, { once: true }));
+        }
+        if (diagnosticsOptions.buildIdentity === "failed") {
+          throw new Error("Build identity unavailable");
+        }
+        return {
+          version: "fixture",
+          commit: "0123456789abcdef0123456789abcdef01234567",
+          builtAtUtc: "2026-01-23T15:41:12Z",
+          commitUrl: "https://github.com/richlander/dotnet-inspect/commit/0123456789abcdef0123456789abcdef01234567",
+        };
       }`,
     package: `
       ${surfaceLookup}
       const platformTarget = ${JSON.stringify(catalogTarget)};
       const platformOptions = ${JSON.stringify(platform ?? {})};
+      const diagnosticsOptions = ${JSON.stringify(diagnostics)};
       let warmupAttempts = 0;
       export async function getPlatformVersions(tfm) {
         document.documentElement.dataset.platformVersionsRequest = tfm;
@@ -335,7 +373,13 @@ async function installFacades(
         return { activated: true, superseded: false,
           package: await queryPackage(coordinate.package, coordinate.version, coordinate.framework) };
       }
-      export function packageCacheStats() {
+      export async function packageCacheStats() {
+        if (diagnosticsOptions.cachePending) {
+          document.documentElement.dataset.packageCacheStatsPending = "true";
+          await new Promise(resolve => document.addEventListener(
+            "finish-package-cache-stats", resolve, { once: true }));
+        }
+        if (diagnosticsOptions.cacheFailure) throw new Error("Cache storage offline");
         return { packages: 1, resident: 1, workspaces: 1, residentBytes: 0 };
       }
       export function listPackageQueryFacets() { return { facets: [] }; }
@@ -623,8 +667,16 @@ async function installFacades(
     catalog: `
       const homeDemos = ${JSON.stringify(homeDemos?.catalog ?? [])};
       const homeDemoResults = ${JSON.stringify(homeDemos?.results ?? {})};
+      const homeDemoCatalogPending = ${Boolean(homeDemos?.catalogPending)};
       export function listVocabulary() { return { schema_version: 1, sections: [] }; }
-      export function listHomeDemos() { return { demos: homeDemos }; }
+      export async function listHomeDemos() {
+        if (homeDemoCatalogPending) {
+          document.documentElement.dataset.homeDemoCatalogPending = "true";
+          await new Promise(resolve => document.addEventListener(
+            "finish-home-demo-catalog", resolve, { once: true }));
+        }
+        return { demos: homeDemos };
+      }
       export async function runHomeDemo(id) {
         document.documentElement.dataset.homeDemoRun = id;
         return homeDemoResults[id] ?? {
@@ -687,7 +739,7 @@ async function installFacades(
   await page.route("**/assets/platform-index.json", route =>
     route.fulfill(platform ? {
       contentType: "application/json",
-      body: JSON.stringify({ schemaVersion: 1, defaultFramework: "net11.0", targets: [catalogTarget, historicalPlatformTarget] }),
+      body: JSON.stringify({ schemaVersion: 2, defaultFramework: "net11.0", targets: [catalogTarget, historicalPlatformTarget] }),
     } : { status: 404, body: "Platform catalog is not part of this fixture." }));
   await page.route("**/*", route =>
     route.request().resourceType() === "document"
@@ -715,6 +767,617 @@ async function releaseFacade(page: Page, name: string): Promise<void> {
 }
 
 const root = "/?package=Example.Package&version=1.0.0&framework=net10.0#pkg";
+
+async function installDiagnosticsFacades(
+  page: Page,
+  diagnostics: DiagnosticsFixture = {},
+): Promise<void> {
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    undefined,
+    diagnostics);
+}
+
+test("Home keeps Search and curated demos ahead of artwork", async ({
+  page,
+}, testInfo) => {
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    {
+      catalog: [{
+        id: "system-text-json-api",
+        title: "System.Text.Json API",
+        summary: "Browse a real package API",
+      }],
+      results: {},
+    });
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await expect(page.locator(".home-search"))
+    .toHaveAttribute("aria-busy", "false");
+  await expect(page.locator(".home-title"))
+    .toHaveText("Inspect .NET packages in your browser.");
+  await expect(page.locator(".home-lede-wide")).toBeVisible();
+  await expect(page.locator(".home-lede-narrow")).toBeHidden();
+  await expect(page.locator(".home-demos-copy"))
+    .toContainText("Start from a curated package query.");
+  await expect(page.locator(".data-bar"))
+    .toContainText("CLI tool · Agent skill · Credits");
+
+  const wideSearch = await page.locator(".home-search").boundingBox();
+  const wideDemos = await page.locator(".home-demos").boundingBox();
+  const wideDataBar = await page.locator(".data-bar").boundingBox();
+  if (!wideSearch || !wideDemos || !wideDataBar) {
+    throw new Error("The wide Home composition did not render.");
+  }
+  expect(wideSearch.y + wideSearch.height).toBeLessThan(wideDemos.y);
+  expect(wideDemos.y + wideDemos.height).toBeLessThan(wideDataBar.y);
+  await page.screenshot({
+    path: testInfo.outputPath("home-wide.png"),
+    fullPage: false,
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator(".home-lede-wide")).toBeHidden();
+  await expect(page.locator(".home-lede-narrow")).toBeVisible();
+  await expect(page.locator(".home-demos-copy span")).toBeHidden();
+
+  const narrowSearch = await page.locator(".home-search").boundingBox();
+  const narrowDemos = await page.locator(".home-demos").boundingBox();
+  const narrowArt = await page.locator(".home-art").boundingBox();
+  const narrowDataBar = await page.locator(".data-bar").boundingBox();
+  if (!narrowSearch || !narrowDemos || !narrowArt || !narrowDataBar) {
+    throw new Error("The narrow Home composition did not render.");
+  }
+  expect(narrowSearch.y + narrowSearch.height).toBeLessThan(narrowDemos.y);
+  expect(narrowDemos.y + narrowDemos.height)
+    .toBeLessThanOrEqual(narrowDataBar.y);
+  expect(narrowArt.y).toBeGreaterThan(narrowDemos.y + narrowDemos.height);
+  expect(narrowDataBar.y + narrowDataBar.height).toBeCloseTo(844, 0);
+  expect(await page.evaluate(() =>
+    document.documentElement.scrollWidth <= document.documentElement.clientWidth
+    && document.body.scrollWidth <= document.body.clientWidth))
+    .toBe(true);
+  await page.screenshot({
+    path: testInfo.outputPath("home-narrow.png"),
+    fullPage: false,
+  });
+
+  await page.getByRole("link", { name: "Credits" }).click();
+  await expect(page).toHaveURL("/credits");
+  await expect(page.getByRole("heading", { name: "Credits", level: 1 }))
+    .toBeVisible();
+
+  await page.goto(root);
+  await expect(page.locator("#inspector-panel h1"))
+    .toHaveText("Example.Package");
+  await page.getByRole("link", { name: "Credits" }).click();
+  await expect(page).toHaveURL("/credits");
+});
+
+test("Home preserves focused controls through delayed Build identity", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { buildIdentity: "pending" });
+  await page.goto("/");
+  await expect(page.locator(".home-search"))
+    .toHaveAttribute("aria-busy", "false");
+
+  const credits = page.getByRole("link", { name: "Credits" });
+  await credits.focus();
+  await expect(credits).toBeFocused();
+
+  await releaseFacade(page, "finish-build-identity");
+  await expect(page.locator(".data-bar-product"))
+    .toContainText("dotnet-inspect vfixture");
+  await expect(credits).toBeFocused();
+  await expect(page.locator("#spotlight-input")).not.toBeFocused();
+});
+
+test("Home preserves focus across adjacent startup rerenders", async ({
+  page,
+}) => {
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    {
+      catalog: [{
+        id: "system-text-json-api",
+        title: "System.Text.Json API",
+        summary: "Browse a real package API",
+      }],
+      results: {},
+      catalogPending: true,
+    },
+    { buildIdentity: "pending" });
+  await page.goto("/");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-home-demo-catalog-pending", "true");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-build-identity-pending", "true");
+
+  const credits = page.getByRole("link", { name: "Credits" });
+  await credits.focus();
+  await expect(credits).toBeFocused();
+
+  await page.evaluate(() => {
+    const fixtureWindow = window as Window & {
+      homeFocusFrames?: FrameRequestCallback[];
+      homeFocusRequestAnimationFrame?: typeof requestAnimationFrame;
+    };
+    fixtureWindow.homeFocusFrames = [];
+    fixtureWindow.homeFocusRequestAnimationFrame = window.requestAnimationFrame;
+    window.requestAnimationFrame = callback => {
+      fixtureWindow.homeFocusFrames!.push(callback);
+      return fixtureWindow.homeFocusFrames!.length;
+    };
+  });
+
+  await Promise.all([
+    releaseFacade(page, "finish-home-demo-catalog"),
+    releaseFacade(page, "finish-build-identity"),
+  ]);
+  await expect(page.locator("#home-demos")).toContainText("1 available");
+  await expect(page.locator(".data-bar-product"))
+    .toContainText("dotnet-inspect vfixture");
+
+  await page.evaluate(() => {
+    const fixtureWindow = window as Window & {
+      homeFocusFrames?: FrameRequestCallback[];
+      homeFocusRequestAnimationFrame?: typeof requestAnimationFrame;
+    };
+    const frames = fixtureWindow.homeFocusFrames ?? [];
+    if (fixtureWindow.homeFocusRequestAnimationFrame) {
+      window.requestAnimationFrame =
+        fixtureWindow.homeFocusRequestAnimationFrame;
+    }
+    delete fixtureWindow.homeFocusFrames;
+    delete fixtureWindow.homeFocusRequestAnimationFrame;
+    const timestamp = performance.now();
+    for (const frame of frames) frame(timestamp);
+  });
+
+  await expect(credits).toBeFocused();
+  await expect(page.locator("#spotlight-input")).not.toBeFocused();
+});
+
+test("Home default focus yields to a post-render user selection", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { buildIdentity: "pending" });
+  await page.goto("/");
+  await expect(page.locator(".home-search"))
+    .toHaveAttribute("aria-busy", "false");
+  await page.locator(".home-title").click();
+
+  await page.evaluate(() => {
+    const fixtureWindow = window as Window & {
+      homeFocusFrames?: FrameRequestCallback[];
+      homeFocusRequestAnimationFrame?: typeof requestAnimationFrame;
+    };
+    fixtureWindow.homeFocusFrames = [];
+    fixtureWindow.homeFocusRequestAnimationFrame = window.requestAnimationFrame;
+    window.requestAnimationFrame = callback => {
+      fixtureWindow.homeFocusFrames!.push(callback);
+      return fixtureWindow.homeFocusFrames!.length;
+    };
+  });
+
+  await releaseFacade(page, "finish-build-identity");
+  await expect(page.locator(".data-bar-product"))
+    .toContainText("dotnet-inspect vfixture");
+
+  const credits = page.getByRole("link", { name: "Credits" });
+  await credits.focus();
+  await expect(credits).toBeFocused();
+
+  await page.evaluate(() => {
+    const fixtureWindow = window as Window & {
+      homeFocusFrames?: FrameRequestCallback[];
+      homeFocusRequestAnimationFrame?: typeof requestAnimationFrame;
+    };
+    const frames = fixtureWindow.homeFocusFrames ?? [];
+    if (fixtureWindow.homeFocusRequestAnimationFrame) {
+      window.requestAnimationFrame =
+        fixtureWindow.homeFocusRequestAnimationFrame;
+    }
+    delete fixtureWindow.homeFocusFrames;
+    delete fixtureWindow.homeFocusRequestAnimationFrame;
+    const timestamp = performance.now();
+    for (const frame of frames) frame(timestamp);
+  });
+
+  await expect(credits).toBeFocused();
+  await expect(page.locator("#spotlight-input")).not.toBeFocused();
+});
+
+test("Home preserves focused Settings controls through delayed Build identity", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { buildIdentity: "pending" });
+  await page.goto("/");
+  await expect(page.locator(".home-search"))
+    .toHaveAttribute("aria-busy", "false");
+
+  await page.getByRole("button", { name: "Open settings" }).click();
+  const darkTheme = page.getByRole("button", { name: "Dark" });
+  await darkTheme.focus();
+  await expect(darkTheme).toBeFocused();
+
+  await releaseFacade(page, "finish-build-identity");
+  await expect(page.locator(".data-bar-product"))
+    .toContainText("dotnet-inspect vfixture");
+  await expect(darkTheme).toBeFocused();
+  await expect(page.locator("#settings-title")).not.toBeFocused();
+  await expect(page.locator("#spotlight-input")).not.toBeFocused();
+});
+
+test("Home preserves Settings dismissal through an adjacent Build rerender", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { buildIdentity: "pending" });
+  await page.goto("/");
+  await expect(page.locator(".home-search"))
+    .toHaveAttribute("aria-busy", "false");
+
+  await page.getByRole("button", { name: "Open settings" }).click();
+  await expect(page.locator("#settings-title")).toBeFocused();
+
+  await page.evaluate(() => {
+    const fixtureWindow = window as Window & {
+      homeFocusFrames?: FrameRequestCallback[];
+      homeFocusRequestAnimationFrame?: typeof requestAnimationFrame;
+    };
+    fixtureWindow.homeFocusFrames = [];
+    fixtureWindow.homeFocusRequestAnimationFrame = window.requestAnimationFrame;
+    window.requestAnimationFrame = callback => {
+      fixtureWindow.homeFocusFrames!.push(callback);
+      return fixtureWindow.homeFocusFrames!.length;
+    };
+  });
+
+  await page.getByRole("button", { name: "Close" }).click();
+  const settingsButton = page.getByRole("button", { name: "Open settings" });
+  await expect(settingsButton).toBeFocused();
+
+  await releaseFacade(page, "finish-build-identity");
+  await expect(page.locator(".data-bar-product"))
+    .toContainText("dotnet-inspect vfixture");
+
+  await page.evaluate(() => {
+    const fixtureWindow = window as Window & {
+      homeFocusFrames?: FrameRequestCallback[];
+      homeFocusRequestAnimationFrame?: typeof requestAnimationFrame;
+    };
+    const frames = fixtureWindow.homeFocusFrames ?? [];
+    if (fixtureWindow.homeFocusRequestAnimationFrame) {
+      window.requestAnimationFrame =
+        fixtureWindow.homeFocusRequestAnimationFrame;
+    }
+    delete fixtureWindow.homeFocusFrames;
+    delete fixtureWindow.homeFocusRequestAnimationFrame;
+    const timestamp = performance.now();
+    for (const frame of frames) frame(timestamp);
+  });
+
+  await expect(settingsButton).toBeFocused();
+  await expect(page.locator("#spotlight-input")).not.toBeFocused();
+});
+
+test("Diagnostics opens from Settings and Spotlight without entering the Application menu", async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installDiagnosticsFacades(page);
+  await page.goto(root);
+  await expect(page.locator("#inspector-panel h1"))
+    .toHaveText("Example.Package");
+
+  await page.locator("#application-menu-button").click();
+  await expect(page.locator("#application-menu"))
+    .not.toContainText("Diagnostics");
+  await page.locator('[data-application-action="settings"]').click();
+  await page.locator("#settings-diagnostics-open").click();
+
+  await expect(page).toHaveURL(/\/diagnostics$/);
+  await expect(page.locator("#diagnostics-heading")).toBeFocused();
+  await expect(page.locator("#diagnostics-runtime-heading"))
+    .toHaveText("Runtime startup");
+  await expect(page.locator(".diagnostics-runtime-state-ready"))
+    .toContainText("engine ready");
+  await expect(page.locator("#diagnostics-build-heading")).toHaveText("Build");
+  await expect(page.locator("#diagnostics-cache-heading"))
+    .toHaveText("Package cache");
+  await expect(page.locator(".data-bar")).toHaveCount(0);
+  await page.screenshot({
+    path: testInfo.outputPath("diagnostics-wide.png"),
+    fullPage: true,
+  });
+
+  await page.locator("#diagnostics-product").click();
+  await expect(page).toHaveURL("/");
+  await expect(page.locator("main h1")).toBeFocused();
+
+  await page.goBack();
+  await expect(page).toHaveURL(/\/diagnostics$/);
+  await expect(page.locator("#diagnostics-heading")).toBeFocused();
+  await page.locator("#diagnostics-back").click();
+  await expect(page).toHaveURL(/package=Example\.Package/);
+  await expect(page.locator("#inspector-panel h1")).toBeFocused();
+
+  await page.keyboard.press("Control+k");
+  await expect(page.locator("#spotlight-input")).toBeFocused();
+  await page.locator("#spotlight-input").fill("diagnostics");
+  await page.getByRole("option").filter({ hasText: "diagnostics" }).click();
+
+  await expect(page).toHaveURL(/\/diagnostics$/);
+  await expect(page.locator("#diagnostics-heading")).toBeFocused();
+  await page.locator("#diagnostics-back").click();
+  await expect(page.locator("#inspector-panel h1")).toBeFocused();
+});
+
+test("Diagnostics retains its route geometry while Build evidence loads on a narrow viewport", async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 720 });
+  await installDiagnosticsFacades(page, { buildIdentity: "pending" });
+  await page.goto("/diagnostics");
+
+  await expect(page.locator("#diagnostics-heading")).toHaveText("Diagnostics");
+  await expect(page.locator(".diagnostics-runtime-state-ready"))
+    .toContainText("engine ready");
+  await expect(page.locator(".diagnostics-card")).toHaveCount(3);
+  expect(await page.evaluate(() =>
+    document.documentElement.scrollWidth <= document.documentElement.clientWidth
+    && document.body.scrollWidth <= document.body.clientWidth))
+    .toBe(true);
+
+  const cardTops = await page.locator(".diagnostics-card").evaluateAll(cards =>
+    cards.map(card => card.getBoundingClientRect().top));
+  expect(cardTops[0]).toBeLessThan(cardTops[1]!);
+  expect(cardTops[1]).toBeLessThan(cardTops[2]!);
+
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-build-identity-pending", "true");
+  await releaseFacade(page, "finish-build-identity");
+  await expect(page.locator(".diagnostics-card")
+    .filter({ has: page.locator("#diagnostics-build-heading") }))
+    .toContainText("fixture");
+  await page.screenshot({
+    path: testInfo.outputPath("diagnostics-narrow-top.png"),
+    fullPage: false,
+  });
+  await page.locator(".diagnostics-main").evaluate(element => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await expect(page.locator("#diagnostics-cache-heading")).toBeInViewport();
+  await expect(page.locator("#diagnostics-back")).toBeInViewport();
+  await page.screenshot({
+    path: testInfo.outputPath("diagnostics-narrow-end.png"),
+    fullPage: false,
+  });
+  expect(await page.evaluate(() =>
+    document.documentElement.scrollWidth <= document.documentElement.clientWidth
+    && document.body.scrollWidth <= document.body.clientWidth))
+    .toBe(true);
+  await page.locator("#diagnostics-back").click();
+  await expect(page).toHaveURL("/");
+  await expect(page.locator("main h1")).toBeFocused();
+});
+
+test("Diagnostics Back keeps Home heading focus through a later Build rerender", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { buildIdentity: "pending" });
+  await page.goto("/diagnostics");
+
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-build-identity-pending", "true");
+  await page.locator("#diagnostics-back").click();
+  await expect(page).toHaveURL("/");
+  await expect(page.locator("main h1")).toBeFocused();
+
+  await releaseFacade(page, "finish-build-identity");
+  await expect(page.locator(".data-bar-product"))
+    .toContainText("dotnet-inspect vfixture");
+  await expect(page.locator("main h1")).toBeFocused();
+});
+
+test("Diagnostics Back honors a later Home focus selection", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { buildIdentity: "pending" });
+  await page.goto("/diagnostics");
+
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-build-identity-pending", "true");
+  await page.locator("#diagnostics-back").click();
+  await expect(page).toHaveURL("/");
+  await expect(page.locator("main h1")).toBeFocused();
+
+  const credits = page.getByRole("link", { name: "Credits" });
+  await credits.focus();
+  await expect(credits).toBeFocused();
+
+  await releaseFacade(page, "finish-build-identity");
+  await expect(page.locator(".data-bar-product"))
+    .toContainText("dotnet-inspect vfixture");
+  await expect(credits).toBeFocused();
+  await expect(page.locator("main h1")).not.toBeFocused();
+  await expect(page.locator("#spotlight-input")).not.toBeFocused();
+});
+
+test("Diagnostics starts runtime and cache evidence while Build identity is pending", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, {
+    buildIdentity: "pending",
+    cachePending: true,
+  });
+  await page.goto("/diagnostics");
+
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-build-identity-pending", "true");
+  await expect(page.locator(".diagnostics-runtime-state-ready"))
+    .toContainText("engine ready");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-package-cache-stats-pending", "true");
+
+  await releaseFacade(page, "finish-build-identity");
+  await releaseFacade(page, "finish-package-cache-stats");
+  await expect(page.locator(".diagnostics-card")
+    .filter({ has: page.locator("#diagnostics-build-heading") }))
+    .toContainText("fixture");
+  await expect(page.locator(".diagnostics-card")
+    .filter({ has: page.locator("#diagnostics-cache-heading") }))
+    .toContainText("Packages");
+});
+
+test("Diagnostics cache refresh does not reclaim relinquished heading focus", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { cachePending: true });
+  await page.goto("/diagnostics");
+
+  await expect(page.locator("#diagnostics-heading")).toBeFocused();
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-package-cache-stats-pending", "true");
+  await page.evaluate(() => {
+    const app = document.querySelector("#app");
+    if (!app) throw new Error("Missing application root");
+    const observer = new MutationObserver(() => {
+      const back = document.querySelector<HTMLButtonElement>(
+        "#diagnostics-back");
+      if (!back) return;
+      observer.disconnect();
+      back.focus();
+    });
+    observer.observe(app, { childList: true, subtree: true });
+  });
+
+  await releaseFacade(page, "finish-package-cache-stats");
+  await expect(page.locator("#diagnostics-back")).toBeFocused();
+  await expect(page.locator(".diagnostics-inline-loading")).toHaveCount(0);
+});
+
+test("Diagnostics treats a refreshed history entry as direct", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page);
+  await page.goto(root);
+  await page.locator("#application-menu-button").click();
+  await page.locator('[data-application-action="settings"]').click();
+  await page.locator("#settings-diagnostics-open").click();
+  await expect(page).toHaveURL(/\/diagnostics$/);
+
+  await page.reload();
+  await expect(page.locator("#diagnostics-heading")).toBeFocused();
+  await page.locator("#diagnostics-back").click();
+  await expect(page).toHaveURL("/");
+  await page.goForward();
+  await expect(page).toHaveURL("/");
+});
+
+test("Diagnostics renders absent framework timing as unavailable", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page);
+  await page.goto("/diagnostics");
+  await expect(page.locator(".diagnostics-runtime-state-ready")).toBeVisible();
+
+  const runtimeCard = page.locator(".diagnostics-runtime-card");
+  const factValue = (label: string) =>
+    runtimeCard.getByText(label, { exact: true }).locator("..").locator("dd");
+  await expect(factValue("Download")).toHaveText("Unavailable");
+  await expect(factValue("Framework assets")).toHaveText("Unavailable");
+  await expect(factValue("Transferred")).toHaveText("Unavailable");
+  await expect(factValue("Decoded")).toHaveText("Unavailable");
+});
+
+test("Diagnostics preserves commit-link focus through cache refresh", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { cachePending: true });
+  await page.goto("/diagnostics");
+
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-package-cache-stats-pending", "true");
+  const commitLink = page.locator("#diagnostics-commit");
+  await commitLink.focus();
+  await expect(commitLink).toBeFocused();
+
+  await releaseFacade(page, "finish-package-cache-stats");
+  await expect(commitLink).toBeFocused();
+  await expect(page.locator(".diagnostics-inline-loading")).toHaveCount(0);
+});
+
+test("Diagnostics keeps startup and package-cache failures visible in place", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { runtimeFailure: true });
+  await page.goto("/diagnostics");
+
+  await expect(page.locator(".diagnostics-runtime-state-failed"))
+    .toContainText("did not start");
+  await expect(page.locator(".diagnostics-failure-detail"))
+    .not.toBeEmpty();
+  const cacheCard = page.locator(".diagnostics-card")
+    .filter({ has: page.locator("#diagnostics-cache-heading") });
+  await expect(cacheCard.locator(".diagnostics-inline-failed"))
+    .toContainText("inspection engine did not start");
+  await expect(page).toHaveURL(/\/diagnostics$/);
+});
+
+test("Diagnostics isolates a build-identity failure from runtime and cache", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { buildIdentity: "failed" });
+  await page.goto("/diagnostics");
+
+  await expect(page.locator(".diagnostics-runtime-state-ready"))
+    .toContainText("engine ready");
+  const buildCard = page.locator(".diagnostics-card")
+    .filter({ has: page.locator("#diagnostics-build-heading") });
+  await expect(buildCard.locator(".diagnostics-inline-failed"))
+    .toContainText("Product build identity is unavailable");
+  const cacheCard = page.locator(".diagnostics-card")
+    .filter({ has: page.locator("#diagnostics-cache-heading") });
+  await expect(cacheCard).toContainText("Packages");
+  await expect(cacheCard.locator(".diagnostics-inline-failed")).toHaveCount(0);
+});
+
+test("Diagnostics discloses a package-cache statistics failure", async ({
+  page,
+}) => {
+  await installDiagnosticsFacades(page, { cacheFailure: true });
+  await page.goto("/diagnostics");
+
+  await expect(page.locator(".diagnostics-runtime-state-ready"))
+    .toContainText("engine ready");
+  await expect(page.locator(".diagnostics-inline-failed"))
+    .toContainText("Cache storage offline");
+});
 
 const peerSurface: BrowserPackageSurface = {
   ...surface,
@@ -1123,8 +1786,9 @@ test("Spotlight offers separate NuGet and Platform System.Text.Json destinations
     contentType: "application/json", body: JSON.stringify({ data: [{ id: "System.Text.Json", version: "11.0.0-preview.7" }] }),
   }));
   await page.goto("/");
-  await expect(page.getByRole("contentinfo")).toContainText("browser wasm ready");
-  await page.getByRole("combobox").fill("System.Text.Json");
+  const search = page.getByRole("combobox");
+  await expect(search).toBeEnabled();
+  await search.fill("System.Text.Json");
   await expect(page.locator('[data-sl-pkg-load="System.Text.Json"]')).toBeVisible();
   await expect(page.locator('[data-sl-platform-lib="System.Text.Json"]')).toContainText("Platform");
   await expect(page.locator("html")).not.toHaveAttribute("data-platform-warmup");
@@ -1834,17 +2498,111 @@ async function openIntegrations(page: Page, location = root) {
 }
 
 async function openOpportunities(page: Page, location = root) {
-  await page.goto(location);
-  await page.locator('.library-list [data-lib-scope="asset:core"]').click();
-  await page.locator('[data-library-lens="overview"]').press("ArrowRight");
-  if (await page.locator('[data-library-lens="references"]').count()) {
-    await page.keyboard.press("ArrowRight");
-  }
-  await page.keyboard.press("ArrowRight");
-  await page.keyboard.press("Enter");
-  await expect(page.locator('[data-library-lens="opportunities"]'))
+  await openIntegrations(page, location);
+  await page.locator('[data-integration-mode="opportunities"]').click();
+  await expect(page.locator('[data-integration-mode="opportunities"]'))
     .toHaveAttribute("aria-selected", "true");
 }
+
+async function expectCompactIntegrationHeader(page: Page) {
+  const frame = page.locator(".integration-inspector");
+  const header = frame.locator("header");
+  const tabs = header.getByRole("tablist", { name: "Integration views" });
+  await expect(tabs).toBeVisible();
+  for (const name of ["Integrations", "Opportunities"]) {
+    const tab = tabs.getByRole("tab", { name, exact: true });
+    await expect(tab).toBeInViewport({ ratio: 1 });
+    expect(await tab.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+  }
+  const headerBox = await header.boundingBox();
+  const tabsBox = await tabs.boundingBox();
+  const resultsBox = await frame.getByRole("tabpanel").boundingBox();
+  expect(headerBox!.height).toBe(40);
+  expect(Math.abs(tabsBox!.y - headerBox!.y)).toBeLessThanOrEqual(1);
+  expect(tabsBox!.y + tabsBox!.height).toBeLessThanOrEqual(headerBox!.y + headerBox!.height);
+  expect(headerBox!.x + headerBox!.width - tabsBox!.x - tabsBox!.width).toBeLessThanOrEqual(16);
+  expect(Math.abs(resultsBox!.y - headerBox!.y - headerBox!.height)).toBeLessThanOrEqual(1);
+  expect(await header.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+  expect(await page.evaluate(() =>
+    document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+}
+
+for (const width of [1440, 390, 320]) {
+  test(`Integration tabs preserve the Library and use manual keyboard activation at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    await installFacades(page);
+    await openIntegrations(page);
+    const frame = page.locator(".integration-inspector");
+    const integrations = frame.getByRole("tab", { name: "Integrations", exact: true });
+    const opportunities = frame.getByRole("tab", { name: "Opportunities", exact: true });
+    await expect(page.locator('[data-library-lens="opportunities"]')).toHaveCount(0);
+    await expect(integrations).toHaveAttribute("aria-selected", "true");
+    await expect(opportunities).toBeInViewport({ ratio: 1 });
+    await expect(frame.locator(".signal-row")).toHaveCount(3);
+    await expectCompactIntegrationHeader(page);
+    expect(await page.locator("html").getAttribute("data-opportunity-request")).toBeNull();
+    await integrations.focus();
+    await integrations.press("ArrowRight");
+    await expect(opportunities).toBeFocused();
+    await expect(integrations).toHaveAttribute("aria-selected", "true");
+    expect(await page.locator("html").getAttribute("data-opportunity-request")).toBeNull();
+    await opportunities.press("Enter");
+    await expect(opportunities).toHaveAttribute("aria-selected", "true");
+    await expect(opportunities).toBeFocused();
+    await expect(frame.locator(".opp-row")).toHaveCount(3);
+    await expect(frame.locator("h1")).toHaveText("Integrations");
+    await expect(frame.locator("footer")).toContainText(core.asset);
+    await expect(page.locator('[data-library-lens="integrations"]'))
+      .toHaveAttribute("aria-selected", "true");
+    await expectCompactIntegrationHeader(page);
+    await page.screenshot({ path: testInfo.outputPath("integration-tabs-opportunities.png") });
+
+    await opportunities.press("Home");
+    await expect(integrations).toBeFocused();
+    await expect(opportunities).toHaveAttribute("aria-selected", "true");
+    await integrations.press("Space");
+    await expect(integrations).toHaveAttribute("aria-selected", "true");
+    await expect(frame.locator(".signal-row")).toHaveCount(3);
+    await expect(frame.locator("footer")).toContainText(core.asset);
+    await page.screenshot({ path: testInfo.outputPath("integration-tabs-integrations.png") });
+    await integrations.press("End");
+    await opportunities.press("Space");
+    await expect(frame.locator(".opp-row")).toHaveCount(3);
+
+    await frame.locator("[data-opp-type]").first().click();
+    await expect(page.locator('[data-scope="type"]')).toHaveAttribute("aria-selected", "true");
+    await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
+    await expect(opportunities).toHaveAttribute("aria-selected", "true");
+    await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowRight");
+    await expect(page.locator('[data-scope="type"]')).toHaveAttribute("aria-selected", "true");
+    await page.locator('[data-scope="type"]').press("ArrowLeft");
+    await expect(opportunities).toHaveAttribute("aria-selected", "true");
+    await expect(frame.locator(".opp-row")).toHaveCount(3);
+  });
+}
+
+test("Integration tabs retain selected mode and focus when an inactive scan settles", async ({ page }) => {
+  await installFacades(page, surface, [], "ready", "deferred", undefined, "deferred");
+  await openIntegrations(page);
+  const frame = page.locator(".integration-inspector");
+  const integrations = frame.getByRole("tab", { name: "Integrations", exact: true });
+  const opportunities = frame.getByRole("tab", { name: "Opportunities", exact: true });
+  await expect(frame).toContainText("Scanning integrations");
+  await opportunities.click();
+  await expect(frame).toContainText("Scanning opportunities");
+  await opportunities.press("ArrowLeft");
+  await expect(integrations).toBeFocused();
+  await releaseFacade(page, "fixture-integrations-ready:asset:core");
+  await expect(frame).toContainText("Scanning opportunities");
+  await expect(opportunities).toHaveAttribute("aria-selected", "true");
+  await expect(integrations).toBeFocused();
+  await releaseFacade(page, "fixture-opportunities-ready:asset:core");
+  await expect(frame.locator(".opp-row")).toHaveCount(3);
+  await expect(integrations).toBeFocused();
+  await expect(opportunities).toHaveAttribute("aria-selected", "true");
+  await integrations.press("Enter");
+  await expect(frame.locator(".signal-row")).toHaveCount(3);
+});
 
 async function openAnalysis(page: Page, location = root) {
   await page.goto(location);
@@ -2088,7 +2846,8 @@ for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     await openPlatform(page, { mismatchedFile: true });
     await page.getByTitle("Inspect System.Facade", { exact: true }).click();
-    await page.locator('[data-library-lens="opportunities"]').click();
+    await page.locator('[data-library-lens="integrations"]').click();
+    await page.locator('[data-integration-mode="opportunities"]').click();
     const frame = page.locator(".library-opportunities-surface");
     await expect(frame.locator(".opp-row")).toHaveCount(3);
     const picker = frame.locator(".library-opportunities-controls select");
@@ -2126,7 +2885,8 @@ test("stale Platform Opportunities acquisition cannot replace a newer family sel
     "button",
     { name: /System.Text.Json Implementation netcore.app/ },
   ).click();
-  await page.locator('[data-library-lens="opportunities"]').click();
+  await page.locator('[data-library-lens="integrations"]').click();
+  await page.locator('[data-integration-mode="opportunities"]').click();
   const picker = page.locator(
     ".library-opportunities-controls .platform-library-select",
   );
@@ -2189,7 +2949,6 @@ test("production Opportunities keeps deferred Library results out of the incomin
   await page.locator('[data-subject-tab]:not([hidden])').first().press("Home");
   await page.locator('.library-list [data-lib-scope="asset:other"]').click();
   await page.locator('[data-library-lens="overview"]').press("ArrowRight");
-  await page.keyboard.press("ArrowRight");
   await page.keyboard.press("ArrowRight");
   await page.keyboard.press("Enter");
   await expect(page.locator(".library-opportunities-surface")).toContainText("Scanning opportunities");

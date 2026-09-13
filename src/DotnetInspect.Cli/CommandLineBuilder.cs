@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.CommandLine.Parsing;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
@@ -60,6 +61,11 @@ public static class CommandLineBuilder
     /// </summary>
     public static bool TryGetStaleDirectionFlagError(string[] args, out string? error)
         => ArgumentPreprocessor.TryGetStaleDirectionFlagError(args, out error);
+
+    public static bool TryGetRemovedCommandError(
+        string[] args,
+        out string? error) =>
+        ArgumentPreprocessor.TryGetRemovedCommandError(args, out error);
 
     /// <summary>
     /// Reports stale direction syntax using the active command's count unit.
@@ -243,6 +249,15 @@ public static class CommandLineBuilder
             return 1;
         }
         parseResult = rowSelection.ParseResult;
+        IReadOnlyList<string> effectiveArguments =
+            rowSelection.Arguments
+                ?? rawArgs
+                ?? [.. parseResult.Tokens.Select(static token => token.Value)];
+        CliExecutionBoundPreparation executionBound =
+            CliExecutionBoundCommandRegistry.Prepare(
+                parseResult,
+                effectiveArguments,
+                rowSelection.ArgumentPositions);
 
         // The adopted format guard retains its precedence over positional validation.
         if (rowSelection.HasCompatibilityError)
@@ -251,22 +266,51 @@ public static class CommandLineBuilder
             return 1;
         }
 
-        if (CliOptionValueValidation.FindError(
+        CliOptionValueFailure? optionValueFailure =
+            CliOptionValueValidation.FindFailure(
                 parseResult,
-                rowSelection.Arguments ?? rawArgs
-                    ?? [.. parseResult.Tokens.Select(static token => token.Value)],
-                rowSelection.PresenceOptions) is { } optionValueError)
+                effectiveArguments,
+                rowSelection.PresenceOptions,
+                rowSelection.ArgumentPositions);
+        PreparedFailure? preparedFailure =
+            SelectPreparedFailure(
+                rowSelection,
+                executionBound);
+        ParseFailure? parseFailure =
+            FindFirstParseFailure(
+                parseResult,
+                effectiveArguments,
+                rowSelection.ArgumentPositions,
+                optionValueFailure);
+
+        bool usesCombinedFailurePrecedence =
+            rowSelection.IsAdopted
+            || executionBound.IsActive;
+        if (usesCombinedFailurePrecedence
+            && SelectFirstCategoryOneFailure(
+                preparedFailure,
+                optionValueFailure,
+                parseFailure) is { } categoryOneFailure)
         {
-            CommandError.Write(optionValueError);
+            CommandError.Write(categoryOneFailure);
             return 1;
         }
 
-        if (WriteParseErrors(parseResult))
-            return 1;
-
-        if (rowSelection.Error is not null)
+        if (!usesCombinedFailurePrecedence)
         {
-            CommandError.Write(rowSelection.Error);
+            if (optionValueFailure is not null)
+            {
+                CommandError.Write(optionValueFailure.Error);
+                return 1;
+            }
+
+            if (WriteParseErrors(parseResult))
+                return 1;
+        }
+
+        if (preparedFailure is not null)
+        {
+            CommandError.Write(preparedFailure.Error);
             return 1;
         }
 
@@ -334,6 +378,403 @@ public static class CommandLineBuilder
                 Console.SetOut(originalWriter);
             tailWriter?.FlushTail();
         }
+    }
+
+    private sealed record PreparedFailure(
+        string Error,
+        int Position,
+        CliSelectionFailureCategory Category);
+
+    private sealed record ParseFailure(
+        string Error,
+        int Position);
+
+    private sealed record CategoryOneFailure(
+        string Error,
+        int Position,
+        int SourceOrder);
+
+    private static string? SelectFirstCategoryOneFailure(
+        PreparedFailure? preparedFailure,
+        CliOptionValueFailure? optionValueFailure,
+        ParseFailure? parseFailure)
+    {
+        var failures = new List<CategoryOneFailure>(3);
+        if (preparedFailure?.Category
+            == CliSelectionFailureCategory.Arity)
+        {
+            failures.Add(
+                new(
+                    preparedFailure.Error,
+                    preparedFailure.Position,
+                    SourceOrder: 0));
+        }
+        if (optionValueFailure is not null)
+        {
+            failures.Add(
+                new(
+                    optionValueFailure.Error,
+                    optionValueFailure.Position,
+                    SourceOrder: 1));
+        }
+        if (parseFailure is not null)
+        {
+            failures.Add(
+                new(
+                    parseFailure.Error,
+                    parseFailure.Position,
+                    SourceOrder: 2));
+        }
+
+        return failures
+            .OrderBy(failure => failure.Position)
+            .ThenBy(failure => failure.SourceOrder)
+            .Select(failure => failure.Error)
+            .FirstOrDefault();
+    }
+
+    private static PreparedFailure? SelectPreparedFailure(
+        CliRowSelectionPreparation rowSelection,
+        CliExecutionBoundPreparation executionBound)
+    {
+        if (rowSelection.Error is null)
+        {
+            return executionBound.Error is null
+                ? null
+                : new(
+                    executionBound.Error,
+                    executionBound.ErrorPosition
+                        ?? int.MaxValue,
+                    executionBound.ErrorCategory
+                        ?? CliSelectionFailureCategory.Resolution);
+        }
+        if (executionBound.Error is null)
+        {
+            return new(
+                rowSelection.Error,
+                rowSelection.ErrorComparisonPosition
+                    ?? int.MaxValue,
+                rowSelection.ErrorCategory
+                    ?? CliSelectionFailureCategory.Resolution);
+        }
+
+        CliSelectionFailureCategory rowCategory =
+            rowSelection.ErrorCategory
+                ?? CliSelectionFailureCategory.Resolution;
+        CliSelectionFailureCategory boundCategory =
+            executionBound.ErrorCategory
+                ?? CliSelectionFailureCategory.Resolution;
+        if (rowCategory != boundCategory)
+        {
+            return rowCategory < boundCategory
+                ? new(
+                    rowSelection.Error,
+                    rowSelection.ErrorComparisonPosition
+                        ?? int.MaxValue,
+                    rowCategory)
+                : new(
+                    executionBound.Error,
+                    executionBound.ErrorPosition
+                        ?? int.MaxValue,
+                    boundCategory);
+        }
+
+        return rowSelection.ErrorComparisonPosition
+            <= executionBound.ErrorPosition
+                ? new(
+                    rowSelection.Error,
+                    rowSelection.ErrorComparisonPosition
+                        ?? int.MaxValue,
+                    rowCategory)
+                : new(
+                    executionBound.Error,
+                    executionBound.ErrorPosition
+                        ?? int.MaxValue,
+                    boundCategory);
+    }
+
+    private static ParseFailure? FindFirstParseFailure(
+        ParseResult parseResult,
+        IReadOnlyList<string> arguments,
+        IReadOnlyList<int>? argumentPositions,
+        CliOptionValueFailure? optionValueFailure)
+    {
+        if (parseResult.Errors.Count == 0)
+            return null;
+
+        CliArgumentOwnership.ParsedArgument[] mapped =
+            CliArgumentOwnership.MapArguments(
+                parseResult,
+                arguments);
+        return parseResult.Errors
+            .Select((error, order) => new
+            {
+                Error = FormatParseError(error.Message),
+                Position = FindParseErrorPosition(
+                    error,
+                    parseResult,
+                    arguments,
+                    argumentPositions,
+                    mapped,
+                    optionValueFailure),
+                Order = order,
+            })
+            .OrderBy(failure => failure.Position)
+            .ThenBy(failure => failure.Order)
+            .Select(failure => new ParseFailure(
+                failure.Error,
+                failure.Position))
+            .First();
+    }
+
+    private static int FindParseErrorPosition(
+        ParseError error,
+        ParseResult parseResult,
+        IReadOnlyList<string> arguments,
+        IReadOnlyList<int>? argumentPositions,
+        IReadOnlyList<CliArgumentOwnership.ParsedArgument> mapped,
+        CliOptionValueFailure? optionValueFailure)
+    {
+        IReadOnlyList<Token> errorTokens =
+            error.SymbolResult is CommandResult
+                ? []
+                : error.SymbolResult?.Tokens
+                ?? [];
+        int optionValueIndex =
+            optionValueFailure is null
+                ? -1
+                : FindArgumentIndex(
+                    optionValueFailure.Position,
+                    arguments.Count,
+                    argumentPositions);
+        bool hasOwnedOptionValueFailure =
+            optionValueIndex >= 0
+            && mapped[optionValueIndex].Tokens.Any(
+                token => errorTokens.Any(
+                    errorToken => ReferenceEquals(
+                        token,
+                        errorToken)));
+        if (error.SymbolResult is OptionResult optionResult
+            && optionResult.Option.Arity.MaximumNumberOfValues
+                < optionResult.Tokens.Count
+            && !hasOwnedOptionValueFailure)
+        {
+            Token excessValue =
+                optionResult.Tokens[
+                    optionResult.Option.Arity.MaximumNumberOfValues];
+            int excessIndex = Enumerable.Range(0, mapped.Count)
+                .FirstOrDefault(
+                    index => mapped[index].Tokens.Any(
+                        token => ReferenceEquals(
+                            token,
+                            excessValue)),
+                    -1);
+            if (excessIndex >= 0)
+            {
+                int excessPosition =
+                    argumentPositions?[excessIndex] ?? excessIndex;
+                int rejectedValuePosition =
+                    CliOptionValueValidation
+                        .FindFirstRejectedValuePosition(
+                            optionResult,
+                            mapped,
+                            argumentPositions)
+                    ?? int.MaxValue;
+                return Math.Min(
+                    excessPosition,
+                    rejectedValuePosition);
+            }
+        }
+        int[] tokenMatches =
+        [
+            .. Enumerable.Range(0, mapped.Count)
+                .Where(index =>
+                    mapped[index].Tokens.Any(mappedToken =>
+                        errorTokens.Any(errorToken =>
+                            ReferenceEquals(
+                                mappedToken,
+                                errorToken)))),
+        ];
+        int[] messageMatches =
+        [
+            .. Enumerable.Range(0, arguments.Count)
+                .Where(index =>
+                    arguments[index].Length > 0
+                    && (error.Message.Contains(
+                            $"'{arguments[index]}'",
+                            StringComparison.Ordinal)
+                        || TryGetAttachedOptionValue(
+                                arguments[index],
+                                out string? attachedValue)
+                            && error.Message.Contains(
+                                $"'{attachedValue}'",
+                                StringComparison.Ordinal))),
+        ];
+        int[] occurrenceMatches =
+        [
+            .. messageMatches.Intersect(tokenMatches),
+        ];
+        if (occurrenceMatches.Length > 0)
+        {
+            return occurrenceMatches
+                .Select(index =>
+                    argumentPositions?[index] ?? index)
+                .Min();
+        }
+
+        if (tokenMatches.Length > 0)
+        {
+            return tokenMatches
+                .Select(index =>
+                    argumentPositions?[index] ?? index)
+                .Min();
+        }
+
+        if (optionValueFailure is not null)
+        {
+            if (optionValueIndex >= 0
+                && TryGetAttachedOptionValue(
+                    arguments[optionValueIndex],
+                    out string? optionValue)
+                && error.Message.Contains(
+                    $"'{optionValue}'",
+                    StringComparison.Ordinal))
+            {
+                int unmatchedPosition =
+                    FindUnmatchedArgumentPositions(
+                        optionValue!,
+                        parseResult,
+                        arguments,
+                        argumentPositions,
+                        mapped)
+                    .DefaultIfEmpty(int.MaxValue)
+                    .Min();
+                return Math.Min(
+                    optionValueFailure.Position,
+                    unmatchedPosition);
+            }
+        }
+
+        if (messageMatches.Length == 1)
+        {
+            int index = messageMatches[0];
+            return argumentPositions?[index] ?? index;
+        }
+
+        foreach (string unmatched in parseResult.UnmatchedTokens)
+        {
+            if (!error.Message.Contains(
+                    unmatched,
+                    StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            return FindUnmatchedArgumentPositions(
+                    unmatched,
+                    parseResult,
+                    arguments,
+                    argumentPositions,
+                    mapped)
+                .DefaultIfEmpty(int.MaxValue)
+                .Min();
+        }
+
+        return int.MaxValue;
+    }
+
+    private static int FindArgumentIndex(
+        int position,
+        int argumentCount,
+        IReadOnlyList<int>? argumentPositions)
+    {
+        if (argumentPositions is null)
+        {
+            return position < argumentCount
+                ? position
+                : -1;
+        }
+
+        for (int index = 0; index < argumentPositions.Count; index++)
+        {
+            if (argumentPositions[index] == position)
+                return index;
+        }
+
+        return -1;
+    }
+
+    private static IEnumerable<int> FindUnmatchedArgumentPositions(
+        string value,
+        ParseResult parseResult,
+        IReadOnlyList<string> arguments,
+        IReadOnlyList<int>? argumentPositions,
+        IReadOnlyList<CliArgumentOwnership.ParsedArgument> mapped)
+    {
+        if (!parseResult.UnmatchedTokens.Contains(
+                value,
+                StringComparer.Ordinal))
+        {
+            return [];
+        }
+
+        var positionalTokens =
+            new HashSet<Token>(
+                ReferenceEqualityComparer.Instance);
+        var optionValueTokens =
+            new HashSet<Token>(
+                CliArgumentOwnership.GetOptionResults(parseResult)
+                    .SelectMany(option => option.Tokens),
+                ReferenceEqualityComparer.Instance);
+        for (CommandResult? scope = parseResult.CommandResult;
+            scope is not null;
+            scope = scope.Parent as CommandResult)
+        {
+            foreach (ArgumentResult argument
+                in scope.Children.OfType<ArgumentResult>())
+            {
+                positionalTokens.UnionWith(
+                    argument.Tokens);
+            }
+        }
+
+        return Enumerable.Range(0, arguments.Count)
+            .Where(index =>
+                arguments[index].Equals(
+                    value,
+                    StringComparison.Ordinal)
+                && mapped[index].AttachedOption is null
+                && !mapped[index].Tokens.Any(
+                    token =>
+                        positionalTokens.Contains(token)
+                        || optionValueTokens.Contains(token)))
+            .Select(index =>
+                argumentPositions?[index] ?? index);
+    }
+
+    private static bool TryGetAttachedOptionValue(
+        string argument,
+        out string? value)
+    {
+        value = null;
+        if (!argument.StartsWith(
+                "-",
+                StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        int delimiter = argument.IndexOfAny(
+            ['=', ':'],
+            1);
+        if (delimiter < 0
+            || delimiter + 1 >= argument.Length)
+        {
+            return false;
+        }
+
+        value = argument[(delimiter + 1)..];
+        return true;
     }
 
     private static async Task<int> InvokeCoreAsync(ParseResult parseResult)
@@ -496,7 +937,10 @@ public static class CommandLineBuilder
 
         // Root-level display options (distinct instances so they appear in root help)
         var rootVerbosityOption = new Option<string?>("-v") { Description = "Verbosity: q(uiet), m(inimal), n(ormal), d(etailed)" };
-        rootVerbosityOption.AcceptOnlyFromAmong(StringComparer.OrdinalIgnoreCase, OptionParsers.ValidVerbosityValues);
+        CliOptionValueValidation.AcceptOnlyFromAmong(
+            rootVerbosityOption,
+            StringComparer.OrdinalIgnoreCase,
+            OptionParsers.ValidVerbosityValues);
         rootCommand.Options.Add(rootVerbosityOption);
         var rootTipsOption = new Option<string?>("--tips") { Description = "Tip verbosity: q(uiet), m(inimal), d(etailed)", Arity = ArgumentArity.ZeroOrOne };
         rootTipsOption.Aliases.Add("-T");
@@ -536,11 +980,6 @@ public static class CommandLineBuilder
 
         // Depends command
         rootCommand.Subcommands.Add(SearchCommandDefinitions.CreateDependsCommand(opts));
-
-        // Dependency evidence command (normalized direct declarations, not a traversal)
-        rootCommand.Subcommands.Add(
-            DependencyEvidenceCommandDefinitions
-                .CreateDependencyEvidenceCommand(opts));
 
         // Extensions command
         rootCommand.Subcommands.Add(SearchCommandDefinitions.CreateExtensionsCommand(opts));

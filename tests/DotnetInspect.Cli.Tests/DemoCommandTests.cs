@@ -155,16 +155,17 @@ public class DemoCommandTests
         Assert.True(DemoScenarioRunner.TryCreateOptions(resolved, OutputFormat.Markdown, noHeader: false, out var options, out var error), error);
         var type = Assert.IsType<TypeOptions>(options);
         Assert.Equal("System.Text.Json.JsonSerializer", type.TypeName);
-        Assert.Equal("System.Text.Json@10.0.0", type.PackagePath);
+        Assert.Null(type.PackagePath);
+        Assert.Equal("System.Text.Json", type.PlatformAssembly);
+        Assert.Equal("runtime@10.0.12", type.PlatformFramework);
         Assert.Equal("net10.0", type.Tfm);
         Assert.Equal(
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.Methods },
             type.IncludeSections);
-        Assert.Null(type.PlatformAssembly);
     }
 
     [Fact]
-    public void Runner_LowersCallGraphToMemberSectionWithCallerPackages()
+    public void Runner_LowersMultiPlatformCallGraphWithCallerScopeSections()
     {
         var resolved = ResolveDemo(ProductDemoIds.ExtensionsCallGraph);
         Assert.True(DemoScenarioRunner.TryCreateOptions(resolved, OutputFormat.Markdown, noHeader: false, out var options, out var error), error);
@@ -172,9 +173,12 @@ public class DemoCommandTests
         Assert.Equal(
             "Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions",
             member.TypeName);
+        Assert.Null(member.PackagePath);
         Assert.Equal(
-            "Microsoft.Extensions.DependencyInjection.Abstractions@10.0.0",
-            member.PackagePath);
+            "Microsoft.Extensions.DependencyInjection.Abstractions",
+            member.PlatformAssembly);
+        Assert.Equal("aspnetcore@10.0.12", member.PlatformFramework);
+        Assert.Equal("net10.0", member.Tfm);
         Assert.Equal("74b6b4b321", member.MemberDigest);
         Assert.Contains("TryAddEnumerable", member.MemberFilter);
         Assert.Contains("method", member.KindFilter);
@@ -185,8 +189,7 @@ public class DemoCommandTests
                 SectionNames.Callers,
             },
             member.IncludeSections);
-        Assert.Contains("Microsoft.Extensions.Logging@10.0.0", member.CallerScopePackages);
-        Assert.Contains("Microsoft.Extensions.Http@10.0.0", member.CallerScopePackages);
+        Assert.Empty(member.CallerScopePackages);
     }
 
     [Fact]
@@ -199,7 +202,9 @@ public class DemoCommandTests
             error);
         var member = Assert.IsType<MemberOptions>(options);
         Assert.Equal("System.Text.Json.JsonSerializer", member.TypeName);
-        Assert.Equal("System.Text.Json@10.0.0", member.PackagePath);
+        Assert.Null(member.PackagePath);
+        Assert.Equal("System.Text.Json", member.PlatformAssembly);
+        Assert.Equal("runtime@10.0.12", member.PlatformFramework);
         Assert.Equal("1dc14dd1fb", member.MemberDigest);
         Assert.Contains("Serialize", member.MemberFilter);
         Assert.True(member.MermaidOutput);
@@ -270,7 +275,10 @@ public class DemoCommandTests
             member.IncludeSections);
         Assert.Equal([SectionNames.Callers], Assert.IsType<string[]>(member.Select));
         Assert.True(member.Tabular);
-        Assert.NotEmpty(member.CallerScopePackages);
+        Assert.Empty(member.CallerScopePackages);
+        Assert.Equal(
+            "Microsoft.Extensions.DependencyInjection.Abstractions",
+            member.PlatformAssembly);
     }
 
     [Fact]

@@ -1,3 +1,4 @@
+using DotnetInspector.Cache;
 using DotnetInspect.Cli;
 using DotnetInspect.Cli.Commands;
 using DotnetInspector.Core;
@@ -97,7 +98,7 @@ try
     }
 
     // Initialize library configuration
-    DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions
+    DotnetInspector.Networking.HttpClientFactory.Initialize(new HttpClientFactoryOptions
     {
         Offline = offline,
         DefaultTimeout = httpTimeout,
@@ -110,7 +111,7 @@ try
     {
         var credentialProvider = new NuGetFetch.Plugins.PluginCredentialProvider();
 
-        DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
+        DotnetInspector.Networking.HttpClientFactory.SetAuthenticationDecorator(
             inner => new NuGetFetch.Plugins.PluginAuthenticationHandler(credentialProvider, inner));
     }
     NuGetCache.Initialize("dotnet-inspect", basePath: cacheBasePath, skipNuGetCache: noNuGetCache);
@@ -134,7 +135,7 @@ try
     // DEBUG-only: log every managed HTTP request with its traffic kind to catch unintended network access.
     // Disabled for offline mode (OfflineHandler handles it) and detailed verbosity (legitimate need).
     if (!offline)
-        DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging(CSharpIdentifier.ContainRenderedText);
+        DotnetInspector.Networking.HttpClientFactory.EnableNetworkTrafficLogging(CSharpIdentifier.ContainRenderedText);
     #endif
 
     using var traceMermaid = showTraceMermaid ? RequestMermaidDiagram.Start() : null;
@@ -170,6 +171,12 @@ try
     }
 
     var rootCommand = CommandLineBuilder.CreateRootCommand();
+
+    if (CommandLineBuilder.TryGetRemovedCommandError(args, out var removedCommandError))
+    {
+        CommandError.Write(removedCommandError!);
+        return 1;
+    }
 
     if (CommandLineBuilder.TryGetStaleArgumentError(
             args,
@@ -235,7 +242,7 @@ try
         #pragma warning restore RS0030
     }
 
-    _ = CoreCache.CancelAndWaitForMaintenance(TimeSpan.FromMilliseconds(100));
+    _ = PersistentCache.CancelAndWaitForMaintenance(TimeSpan.FromMilliseconds(100));
 
     return exitCode;
 }

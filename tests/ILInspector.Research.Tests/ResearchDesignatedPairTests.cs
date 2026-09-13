@@ -137,9 +137,13 @@ public partial class ResearchProducerSessionTests
         var twoQuestions = new SessionFixture(population);
         ResearchTargetResolution crossQuestion = twoQuestions.ResolveSelections(
             new ResearchCarriedMemberSelection(
-                population.Questions[0].Id, SampleType, MemberTargetSelector.Parse("Method")),
+                population.Questions[0].Id,
+                TypeName(SampleType),
+                MemberTargetSelector.Parse("Method")),
             new ResearchCarriedMemberSelection(
-                population.Questions[1].Id, SampleType, MemberTargetSelector.Parse("Method")));
+                population.Questions[1].Id,
+                TypeName(SampleType),
+                MemberTargetSelector.Parse("Method")));
         Assert.Equal(
             ResearchDesignatedPairRejectionKind.CrossQuestion,
             Assert.IsType<ResearchDesignatedPairOutcome.Rejected>(
@@ -155,7 +159,7 @@ public partial class ResearchProducerSessionTests
         var wrongImage = new ResearchExactAddressMemberSelection(
             images.Population.Questions[0].Id,
             images.Population.Inputs[0],
-            bodyType,
+            TypeName(bodyType),
             MemberTargetSelector.Parse("BodyState"),
             Target(Attempt(imageTargets, 0, ResearchComparisonSide.After)).Address!.Value,
             ResearchTargetRelationshipRole.Method);
@@ -163,7 +167,8 @@ public partial class ResearchProducerSessionTests
             wrongImage,
             new ResearchCarriedMemberSelection(
                 images.Population.Questions[0].Id,
-                bodyType, MemberTargetSelector.Parse("BodyState")));
+                TypeName(bodyType),
+                MemberTargetSelector.Parse("BodyState")));
         var wrongOutcome = Assert.IsType<ResearchDesignatedPairOutcome.Unavailable>(
             ResearchDesignatedPairAdmission.Admit(
                 images.Population, wrong,
@@ -218,19 +223,29 @@ public partial class ResearchProducerSessionTests
         SessionFixture drift = SessionFixture.Create(
             Occurrence(FixtureCatalog.ResearchTargetCorrespondenceV1.AssemblyPath()),
             Occurrence(FixtureCatalog.ResearchTargetCorrespondenceV2.AssemblyPath()));
-        ResearchTargetResolution divergent = drift.Resolve("CorrespondenceIdentity.Outer.Inner", "M");
-        Assert.All(divergent.Correspondences, outcome => Assert.Equal(
-            ResearchTargetTaintKind.SelectionDrift,
-            Assert.IsType<ResearchTargetCorrespondenceOutcome.CounterpartUnavailable>(outcome)
-                .Taint.Kind));
+        ResearchComparisonQuestionId driftQuestion =
+            drift.Population.Questions[0].Id;
+        ResearchTargetResolution divergent = drift.ResolveSelections(
+            new ResearchCarriedMemberSelection(
+                driftQuestion,
+                TypeName("CorrespondenceIdentity", "Outer", "Inner"),
+                MemberTargetSelector.Parse("M")),
+            new ResearchCarriedMemberSelection(
+                driftQuestion,
+                TypeName("CorrespondenceIdentity.Outer", "Inner"),
+                MemberTargetSelector.Parse("M")));
+        Assert.Single(
+            divergent.Correspondences
+                .OfType<ResearchTargetCorrespondenceOutcome.BeforeOnly>());
+        Assert.Single(
+            divergent.Correspondences
+                .OfType<ResearchTargetCorrespondenceOutcome.AfterOnly>());
         ResearchDesignatedPair divergentPair = Admit(
             drift, divergent,
             Attempt(divergent, 0, ResearchComparisonSide.Before),
-            Attempt(divergent, 0, ResearchComparisonSide.After));
+            Attempt(divergent, 1, ResearchComparisonSide.After));
         Assert.Equal(2, Complete(new(drift.Population, divergentPair, ResearchProducerCatalog.Kinds))
             .Results.Length);
-        Assert.All(divergent.Correspondences, outcome =>
-            Assert.IsType<ResearchTargetCorrespondenceOutcome.CounterpartUnavailable>(outcome));
     }
 
     [Fact]
@@ -256,7 +271,8 @@ public partial class ResearchProducerSessionTests
         ResearchTargetResolution resolution = ResolveExactPair(
             fixture, SampleType, "Method", "DiffFixtureSample.BodyStateSample", "BodyState",
             new ResearchCarriedMemberSelection(
-                population.Questions[1].Id, "DiffFixtureSample.BodyStateSample",
+                population.Questions[1].Id,
+                TypeName("DiffFixtureSample.BodyStateSample"),
                 MemberTargetSelector.Parse("Missing")));
         ResearchDesignatedPair pair = Admit(
             fixture, resolution,
@@ -500,7 +516,10 @@ public partial class ResearchProducerSessionTests
             return new(
                 attempt.Request.Question,
                 fixture.Population.GetInput(attempt.Request.Input),
-                type, MemberTargetSelector.Parse(selector), target.Address!.Value, target.Role);
+                TypeName(type),
+                MemberTargetSelector.Parse(selector),
+                target.Address!.Value,
+                target.Role);
         }
     }
 }

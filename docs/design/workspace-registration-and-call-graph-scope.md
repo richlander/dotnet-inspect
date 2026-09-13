@@ -105,6 +105,11 @@ An exact-library registration names one source-owner-issued library
 coordinate. It may identify a platform or package-origin library without
 converting either into the other's identity model.
 
+The
+[Exact Library Source Coordinate](exact-library-source-coordinate.md)
+owns the closed package/Platform source distinction, exact Metadata assembly
+identity, equality, and resource-free non-action retained by this arm.
+
 A Package may contribute one or more admitted libraries, but Package
 membership and exact-library registration remain distinct. Opening or
 admitting a package does not silently register all of its libraries.
@@ -204,6 +209,68 @@ declarations include `System.Text.Json@11.0.0-preview.7.26381.103`.
 These commands are named consumers, not contracts redefined here. Search Scope
 Resolution, Dependency Inspection, and Platform/package Pruning retain their
 request, evidence, comparison, and result semantics.
+
+### End-to-end product scenario
+
+The primary product scenario begins with one subject and grows into a
+cross-library question without making product curation an ambient Workspace
+default:
+
+1. A discovery-oriented CLI or Inspect Web operation selects a package or
+   Library. With no reusable active Workspace, the host may explicitly ask
+   Ecosystems for a fresh curated Workspace; raw callers do not take this
+   path. Inspect Web Spotlight instead preserves an active Workspace when the
+   exact destination is already admitted or covered by its current
+   registration-bearing Scope revision, as owned by
+   [Spotlight destination
+   activation](inspect-web-spotlight-destination-activation.md).
+2. Ecosystems passes the complete Platform, ASP.NET Core, and
+   Microsoft.Extensions registration sequence through Workspace's neutral
+   explicit-initialization API. Construction performs no source work.
+3. The selected package becomes explicit Workspace membership and its selected
+   Library, type, or member becomes the inspection subject. Membership,
+   registration, and focus remain independent.
+4. A call-graph request defaults to `Everything`. It may therefore use all
+   registered and already admitted populations available through that
+   Workspace, while the request still supplies finite discovery, acquisition,
+   traversal, and result bounds.
+5. Resolution retains the exact route and evidence selected for each edge.
+   Platform registration makes target-applicable Platform candidates and
+   pruning available; it does not convert package-authored evidence into
+   Platform evidence or require every consumer to prefer Platform.
+6. Saving or sharing the resulting configuration records the exact expanded
+   membership and registration intent selected for that Workspace. Restoration
+   uses raw construction and never re-evaluates the product's later curated
+   manifest.
+
+For example, a user may discover `System.Memory.Data`, focus a member whose
+dependency path reaches `System.Text.Json`, and ask for a graph that continues
+through relevant Platform or ecosystem Libraries. Curated construction supplies
+the population context that makes that broader question useful. Package-mode
+`depends` asks a different question and therefore starts raw, preserving the
+package-authored `System.Text.Json` route as its high-fidelity evidence.
+
+The shared evidence can therefore support two explicit policies:
+
+```text
+System.Memory.Data (package membership)
+└─ System.Text.Json
+   ├─ dependency definition: retain the package-authored route
+   └─ curated traversal: an exact target-applicable Platform route may prune
+      the package edge when ecosystem.platform is registered
+      └─ continuation remains available to System.Text.Encodings.Web
+```
+
+The declaration and resolution layers preserve both possible routes and their
+source identities. `depends` and graph traversal select policy from the
+question being answered; neither reconstructs source intent from assembly
+display names.
+
+This scenario is the reason construction choice belongs to the caller,
+registration belongs to Workspace configuration, and focal length belongs to
+the operation. Combining any two would either hide product policy inside
+Workspace, make registration a traversal permission, or make saved Workspaces
+drift when product curation changes.
 
 ## Call-graph focal lengths
 
@@ -400,6 +467,7 @@ and per-operation bounds keep that broader model explicit.
 | [Inspection Graph Modes](inspection-graph-modes.md) | Single-seed versus induced-set request meaning, focus roles, endpoint admission, and disconnected-input retention |
 | [Call Graph projection](call-graph-projection.md) and Queries | Focal-length request, participant population, call traversal or induction, bounds, completeness, and typed graph result |
 | [Workspace Definitions](workspace-definitions.md) | Portable complete registrations, including an empty set, and view-intent projection |
+| [Inspect Web Spotlight Destination Activation](inspect-web-spotlight-destination-activation.md) | Exact current-Workspace coverage classification and Browser activation settlement; not registration construction or traversal permission |
 | CLI host | Per-command raw-versus-curated choice, request binding, Markout lowering, and CLI disclosure |
 | Inspect Web | Raw-versus-curated experience choice, editor and focal-length controls, and host-native interaction |
 
@@ -427,9 +495,9 @@ There are ten counted production-adoption stages, tracked by #6012:
    including an empty set, plus any focused portable call-graph view intent.
 8. Have each CLI command explicitly choose raw or Ecosystems-curated
    construction, then adopt registration disclosure and focal-length selection.
-9. Adopt the same explicit construction choice, Workspace editing, and
-   focal-length selection in Inspect Web, removing permission-oriented controls
-   and copy.
+9. Adopt the same explicit construction choice, Workspace editing, Spotlight
+   destination activation, and focal-length selection in Inspect Web, removing
+   permission-oriented controls and copy.
 10. Complete separately authorized product release and website deployment.
 
 Each implementation PR adopts this pattern in one owning component. This
@@ -449,6 +517,7 @@ The following are required future outcome-level scenarios:
 | Run `find` for the real `System.Text.Json` overlap | The command explicitly chooses curated construction and can discover the Platform library without making curation intrinsic to Workspace |
 | Run a raw package-focused operation | The operation receives no ambient ecosystem registration and adds only its explicit scope |
 | Register an exact library, package prefix, or ecosystem | Registration is visible and inert until selected operation demand |
+| Adopt Inspect Web Spotlight destination activation | Current-Workspace coverage classification and external-package restoration conform to their focused owner without making registration eager |
 | Run one member-seeded graph at all three focal lengths | The seed stays fixed; `Self` remains local, the middle mode adds registered ecosystems, and `Everything` admits all Workspace populations |
 | Run the same graph without an explicit focal length in either host | The request uses `Everything` |
 | Start with no admitted libraries and use a package prefix or ecosystem as `Self` | Discovery and realization are bounded; the result is an induced graph with no fabricated focal member |

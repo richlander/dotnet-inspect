@@ -48,6 +48,7 @@ const ROOT_COMMANDS: readonly CommandDefinition[] = [
   ["framework", "select a target framework", "choice"],
   ["find", "search the current package", "text"],
   ["clear", "clear the current filter", "none"],
+  ["diagnostics", "open browser session Diagnostics", "none"],
   ["share", "copy a link to this selection", "none"],
   ["settings", "open application settings", "none"],
   ["keyboard help", "show keyboard commands", "none"],

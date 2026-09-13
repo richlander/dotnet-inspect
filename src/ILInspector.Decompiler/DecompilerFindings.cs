@@ -88,7 +88,8 @@ public static class DecompilerFindings
     static bool IsOperationFailure(string id)
         => id is DiagnosticIds.InternalError
             or DiagnosticIds.ContextUnavailable
-            or DiagnosticIds.EmptyOutput;
+            or DiagnosticIds.EmptyOutput
+            or DiagnosticIds.MemorySafetyModeUnavailable;
 
     static ImmutableArray<PairFinding<DecompilerFidelityCause>> ClassifyFacetChanges(
         ImmutableArray<PairFinding<DecompilerFidelityCause>> pairs)

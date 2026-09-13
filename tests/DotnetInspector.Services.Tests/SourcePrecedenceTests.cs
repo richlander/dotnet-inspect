@@ -1,9 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using DotnetInspector.Cache;
 using System.Net;
 using System.Text;
-using DotnetInspector.Core;
 using DotnetInspector.Packages;
 using NuGetSource = NuGetFetch.PackageSource;
 using PackageSourceCredential = NuGetFetch.PackageSourceCredential;
@@ -27,7 +27,7 @@ namespace DotnetInspector.Services.Tests;
 /// source order is not precedence there, which is what package source mapping is for.
 /// </para>
 /// </remarks>
-[Collection(CoreCacheCollection.Name)]
+[Collection(PersistentCacheCollection.Name)]
 public class SourcePrecedenceTests : IDisposable
 {
     private const string VersionCacheCategory = "versions-v5";
@@ -37,11 +37,11 @@ public class SourcePrecedenceTests : IDisposable
 
     public SourcePrecedenceTests()
     {
-        CoreCache.Initialize("dotnet-inspect-test");
-        CoreCache.Clear(VersionCacheCategory);
+        PersistentCache.Initialize("dotnet-inspect-test");
+        PersistentCache.Clear(VersionCacheCategory);
     }
 
-    public void Dispose() => CoreCache.Clear(VersionCacheCategory);
+    public void Dispose() => PersistentCache.Clear(VersionCacheCategory);
 
     [Fact]
     public async Task GetLatestVersion_TakesHighestVersionAcrossSources_NotFirstSource()
@@ -199,7 +199,7 @@ public class SourcePrecedenceTests : IDisposable
         Assert.Equal("2.0.0", first);
         Assert.Equal(
             "1.0.0",
-            CoreCache.TryGet(
+            PersistentCache.TryGet(
                 VersionCacheCategory,
                 PackageExtractor.GetLatestVersionCacheKey(
                     "CachedPkg",

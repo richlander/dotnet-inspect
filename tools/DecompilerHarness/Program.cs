@@ -580,22 +580,31 @@ static class Program
         if (assemblies.Count == 0)
             return Fail("No managed assemblies found in the given inputs.");
 
+        int RunAggregate(Func<int> run)
+            => MemorySafetyModeAdmission.RunAggregateReport(assemblies, run);
+
         if (assertionScanMode)
-            return AssertionScan.Run(
-                assemblies,
-                new AssertionScan.Options(
-                    sampleSize,
-                    maxExamples,
-                    emitAssertionViolations,
-                    diffAssertionViolations,
-                    workers,
-                    sequential,
-                    assertionFixtureGuarantee));
+            return RunAggregate(
+                () => AssertionScan.Run(
+                    assemblies,
+                    new AssertionScan.Options(
+                        sampleSize,
+                        maxExamples,
+                        emitAssertionViolations,
+                        diffAssertionViolations,
+                        workers,
+                        sequential,
+                        assertionFixtureGuarantee)));
 
         if (validityCheckMode)
             return ValidityCheck.Run(assemblies, compileCap, maxExamples, emitValidityDefects, diffValidityDefects, lowered);
         if (validityPredicateScan)
-            return ValidityPredicateScan.Run(assemblies, maxExamples, workers, sequential);
+            return RunAggregate(
+                () => ValidityPredicateScan.Run(
+                    assemblies,
+                    maxExamples,
+                    workers,
+                    sequential));
 
         if (fidelityMethodDelta is not null)
         {
@@ -708,22 +717,44 @@ static class Program
             return AuthoredRebuildFidelity.Run(assemblies, cap, maxExamples);
 
         if (typeCheck)
-            return TypeSourceCheck.Run(assemblies, cap, maxExamples);
+            return RunAggregate(
+                () => TypeSourceCheck.Run(assemblies, cap, maxExamples));
 
         if (bindCheck)
-            return TypeBindCheck.Run(assemblies, cap, maxExamples);
+            return RunAggregate(
+                () => TypeBindCheck.Run(assemblies, cap, maxExamples));
 
         if (gaps)
-            return CompletenessScan(assemblies, maxExamples, byShape);
+            return RunAggregate(
+                () => CompletenessScan(assemblies, maxExamples, byShape));
 
         if (annotationCheck)
             return AnnotationCheck.Run(assemblies, maxExamples);
 
         if (classifyDec0009)
-            return Dec0009Classifier.Run(assemblies, maxExamples, json);
+            return RunAggregate(
+                () => Dec0009Classifier.Run(assemblies, maxExamples, json));
 
         if (emitCorpusSnapshot is not null || diffCorpusBaseline is not null || diffCorpusBaselineRef is not null || emitCorpusDelta is not null || qualityDiffCard || emitRtsParityKnownGaps is not null || rtsParityKnownGaps is not null)
-            return CorpusSensor.Run(assemblies, compileCap, corpusFidelityCaps, maxExamples, emitCorpusSnapshot, diffCorpusBaseline, diffCorpusBaselineRef, emitCorpusDelta, qualityDiffCard, qualityCardRisky, corpusMethodCap, workers, sequential, corpusFidelityOracle, corpusProfile, rtsParityKnownGaps, emitRtsParityKnownGaps);
+            return RunAggregate(
+                () => CorpusSensor.Run(
+                    assemblies,
+                    compileCap,
+                    corpusFidelityCaps,
+                    maxExamples,
+                    emitCorpusSnapshot,
+                    diffCorpusBaseline,
+                    diffCorpusBaselineRef,
+                    emitCorpusDelta,
+                    qualityDiffCard,
+                    qualityCardRisky,
+                    corpusMethodCap,
+                    workers,
+                    sequential,
+                    corpusFidelityOracle,
+                    corpusProfile,
+                    rtsParityKnownGaps,
+                    emitRtsParityKnownGaps));
 
         if (renderAb is not null || emitRenderAb is not null)
             return RenderAbSensor.Run(
@@ -737,13 +768,27 @@ static class Program
                 emitRenderAbStructuralDiffs);
 
         if (idempotenceCheck)
-            return IdempotenceSensor.Run(assemblies, maxExamples, corpusMethodCap, workers, sequential);
+            return RunAggregate(
+                () => IdempotenceSensor.Run(
+                    assemblies,
+                    maxExamples,
+                    corpusMethodCap,
+                    workers,
+                    sequential));
 
         if (slotResidualCensus)
-            return SlotResidualCensus.Run(assemblies, corpusMethodCap, maxExamples);
+            return RunAggregate(
+                () => SlotResidualCensus.Run(
+                    assemblies,
+                    corpusMethodCap,
+                    maxExamples));
 
         if (slotUnifierCensus)
-            return SlotUnifierCensus.Run(assemblies, corpusMethodCap, maxExamples);
+            return RunAggregate(
+                () => SlotUnifierCensus.Run(
+                    assemblies,
+                    corpusMethodCap,
+                    maxExamples));
 
         if (libraryReport)
             return LibraryReport.Run(
@@ -756,7 +801,11 @@ static class Program
                 corpusMethodCap);
 
         if (unsupportedNodes)
-            return UnsupportedNodeReport.Run(assemblies, maxExamples, json);
+            return RunAggregate(
+                () => UnsupportedNodeReport.Run(
+                    assemblies,
+                    maxExamples,
+                    json));
 
         // --dump is single-method inspection through the shipped product
         // pipeline (StageDump -> PrintRaised).
@@ -770,33 +819,43 @@ static class Program
                 return code;
 
             if (facts)
-                return DumpFacts(assemblies, dumpMethod, dumpIndex, skipPdb);
+                return DumpFacts(assemblies, dumpMethod, dumpIndex, skipPdb, simulate);
             if (cfg)
-                return DumpCfg(assemblies, dumpMethod, dumpIndex, cfgStage, mermaid, skipPdb);
+                return DumpCfg(assemblies, dumpMethod, dumpIndex, cfgStage, mermaid, skipPdb, simulate);
             if (diff)
-                return DumpDiff(assemblies, dumpMethod, dumpIndex, skipPdb);
+                return DumpDiff(assemblies, dumpMethod, dumpIndex, skipPdb, simulate);
             if (remarks)
-                return DumpRemarks(assemblies, dumpMethod, dumpIndex, skipPdb);
+                return DumpRemarks(assemblies, dumpMethod, dumpIndex, skipPdb, simulate);
             if (lowered)
                 return DumpLowered(assemblies, dumpMethod, dumpIndex, skipPdb, simulate);
             if (assertions)
-                return DumpAssertions(assemblies, dumpMethod, dumpIndex, skipPdb);
+                return DumpAssertions(assemblies, dumpMethod, dumpIndex, skipPdb, simulate);
             return steps
-                ? DumpSteps(assemblies, dumpMethod, dumpIndex, stepLimit, skipPdb)
+                ? DumpSteps(assemblies, dumpMethod, dumpIndex, stepLimit, skipPdb, simulate)
                 : Dump(assemblies, dumpMethod, dumpIndex, ilView ? StageDumpView.Full : StageDumpView.IrTree, skipPdb, simulate);
         }
 
         if (passImpact)
-            return PassImpact(assemblies, passImpactPass, showDiff, cap);
+            return RunAggregate(
+                () => PassImpact(
+                    assemblies,
+                    passImpactPass,
+                    showDiff,
+                    cap));
 
         if (structuringStops)
-            return StructuringStops(assemblies, cap);
+            return RunAggregate(
+                () => StructuringStops(assemblies, cap));
 
         if (postdomProbe)
-            return PostDomProbe.Run(assemblies, cap, postdomSample);
+            return RunAggregate(
+                () => PostDomProbe.Run(
+                    assemblies,
+                    cap,
+                    postdomSample));
 
         // Default: the pipeline's fidelity/stop-reason inventory.
-        return Inventory(assemblies);
+        return RunAggregate(() => Inventory(assemblies));
     }
 
     static int FixtureSourceInventory(bool json)
@@ -1508,7 +1567,12 @@ static class Program
     /// headers (issue #633 item 3). Same stages and boundaries as the plain
     /// stage dump — only the rendering condenses to deltas.
     /// </summary>
-    static int DumpDiff(List<string> assemblies, string dumpMethod, int overloadIndex, bool skipPdb = false)
+    static int DumpDiff(
+        List<string> assemblies,
+        string dumpMethod,
+        int overloadIndex,
+        bool skipPdb = false,
+        bool simulate = false)
     {
         int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
         if (separator <= 0)
@@ -1520,9 +1584,18 @@ static class Program
         foreach (var assemblyPath in assemblies)
         {
             using var source = OpenSource(assemblyPath, skipPdb, metadata);
+            source.SimulateNewRules = simulate;
             var function = IrImporter.Import(source, typeName, methodName, overloadIndex);
             if (function is null)
                 continue;
+            if (ReportUnavailableMemorySafetyMode(
+                function,
+                dumpMethod,
+                assemblyPath,
+                "next, per-pass diff"))
+            {
+                return 0;
+            }
 
             Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, per-pass diff)");
             Console.Write(StageDump.FormatDiff(
@@ -1534,7 +1607,13 @@ static class Program
     /// step limit, replays to that ordinal and dumps the IR tree right before
     /// the rewrite — "show me the tree just before this went wrong."
     /// </summary>
-    static int DumpSteps(List<string> assemblies, string dumpMethod, int overloadIndex, int stepLimit, bool skipPdb = false)
+    static int DumpSteps(
+        List<string> assemblies,
+        string dumpMethod,
+        int overloadIndex,
+        int stepLimit,
+        bool skipPdb = false,
+        bool simulate = false)
     {
         int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
         if (separator <= 0)
@@ -1546,11 +1625,21 @@ static class Program
         foreach (var assemblyPath in assemblies)
         {
             using var source = OpenSource(assemblyPath, skipPdb, metadata);
+            source.SimulateNewRules = simulate;
             var function = IrImporter.Import(source, typeName, methodName, overloadIndex);
             if (function is null)
                 continue;
 
             string where = stepLimit == int.MaxValue ? "all steps" : $"replay to step {stepLimit}";
+            if (ReportUnavailableMemorySafetyMode(
+                function,
+                dumpMethod,
+                assemblyPath,
+                $"next, {where}"))
+            {
+                return 0;
+            }
+
             Console.WriteLine($"// {dumpMethod} in {Path.GetFileName(assemblyPath)} (pipeline: next, {where})");
             var stepper = IrPasses.RunWithSteps(
                 function, stepLimit, ImportSeam(source), source.AreProvablyDisjoint);
@@ -1581,7 +1670,12 @@ static class Program
     /// <summary>
     /// Stage dump with the inverse-architecture assertions evaluated and annotated.
     /// </summary>
-    static int DumpAssertions(List<string> assemblies, string dumpMethod, int overloadIndex, bool skipPdb = false)
+    static int DumpAssertions(
+        List<string> assemblies,
+        string dumpMethod,
+        int overloadIndex,
+        bool skipPdb = false,
+        bool simulate = false)
     {
         int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
         if (separator <= 0)
@@ -1593,9 +1687,18 @@ static class Program
         foreach (var assemblyPath in assemblies)
         {
             using var source = OpenSource(assemblyPath, skipPdb, metadata);
+            source.SimulateNewRules = simulate;
             var function = IrImporter.Import(source, typeName, methodName, overloadIndex);
             if (function is null)
                 continue;
+            if (ReportUnavailableMemorySafetyMode(
+                function,
+                dumpMethod,
+                assemblyPath,
+                "next, assertions"))
+            {
+                return 0;
+            }
 
             var dischargePassByStageIdentity = new Dictionary<string, string>(StringComparer.Ordinal);
             if (IrImporter.Import(source, typeName, methodName, overloadIndex) is { } functionForHints)
@@ -1630,7 +1733,12 @@ static class Program
     /// decision, not a re-derivation (issue #633 item 1). The function is raised
     /// through the canonical pipeline first so the facts match the output.
     /// </summary>
-    static int DumpFacts(List<string> assemblies, string dumpMethod, int overloadIndex, bool skipPdb = false)
+    static int DumpFacts(
+        List<string> assemblies,
+        string dumpMethod,
+        int overloadIndex,
+        bool skipPdb = false,
+        bool simulate = false)
     {
         int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
         if (separator <= 0)
@@ -1642,9 +1750,18 @@ static class Program
         foreach (var assemblyPath in assemblies)
         {
             using var source = OpenSource(assemblyPath, skipPdb, metadata);
+            source.SimulateNewRules = simulate;
             var function = IrImporter.Import(source, typeName, methodName, overloadIndex);
             if (function is null)
                 continue;
+            if (ReportUnavailableMemorySafetyMode(
+                function,
+                dumpMethod,
+                assemblyPath,
+                "next, definite-assignment facts"))
+            {
+                return 0;
+            }
 
             IrPasses.Run(function, IrPasses.Default, PassContext.ForImport(ImportSeam(source)));  // raise through the canonical pipeline, as the product does
             var facts = CSharpPrinter.CollectDataflowFacts(function);
@@ -1692,7 +1809,12 @@ static class Program
     /// exactly the nodes that lower the score. The function is raised through the
     /// canonical pipeline first so the remarks match the shipped output.
     /// </summary>
-    static int DumpRemarks(List<string> assemblies, string dumpMethod, int overloadIndex, bool skipPdb = false)
+    static int DumpRemarks(
+        List<string> assemblies,
+        string dumpMethod,
+        int overloadIndex,
+        bool skipPdb = false,
+        bool simulate = false)
     {
         int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
         if (separator <= 0)
@@ -1704,9 +1826,18 @@ static class Program
         foreach (var assemblyPath in assemblies)
         {
             using var source = OpenSource(assemblyPath, skipPdb, metadata);
+            source.SimulateNewRules = simulate;
             var function = IrImporter.Import(source, typeName, methodName, overloadIndex);
             if (function is null)
                 continue;
+            if (ReportUnavailableMemorySafetyMode(
+                function,
+                dumpMethod,
+                assemblyPath,
+                "next, fidelity remarks"))
+            {
+                return 0;
+            }
 
             IrPasses.Run(function, IrPasses.Default, PassContext.ForImport(ImportSeam(source)));  // raise through the canonical pipeline, as the product does
             var census = FidelityCauseBuckets.Inspect(function, dumpMethod);
@@ -1771,6 +1902,14 @@ static class Program
             var function = IrImporter.Import(source, typeName, methodName, overloadIndex);
             if (function is null)
                 continue;
+            if (ReportUnavailableMemorySafetyMode(
+                function,
+                dumpMethod,
+                assemblyPath,
+                "lowered, unavailable"))
+            {
+                return 0;
+            }
 
             IrPasses.Run(function, IrPasses.Lowered, PassContext.ForImport(ImportSeam(source)));  // lower, but stop short of the cosmetic sugar
             var facts = CSharpPrinter.CollectDataflowFacts(function);
@@ -1791,6 +1930,28 @@ static class Program
         return Fail($"Method '{dumpMethod}' not found (or has no IL body) in the given assemblies.");
     }
 
+    static bool ReportUnavailableMemorySafetyMode(
+        IrFunction function,
+        string dumpMethod,
+        string assemblyPath,
+        string pipeline)
+    {
+        if (CSharpPrinter.MemorySafetyModeUnavailableResult(function)
+            is not { } unavailable)
+        {
+            return false;
+        }
+
+        Console.WriteLine(
+            $"// {dumpMethod} in {Path.GetFileName(assemblyPath)} "
+            + $"(pipeline: {pipeline})");
+        Console.WriteLine(string.Join(
+            "\n",
+            unavailable.Diagnostics.Select(
+                diagnostic => $"// {diagnostic}")));
+        return true;
+    }
+
     /// <summary>
     /// Renders either the EH-aware IL block graph or each block container in the
     /// raised IR. Each stage consumes the product-owned edges used by its own
@@ -1802,7 +1963,8 @@ static class Program
         int overloadIndex,
         CfgDumpStage stage,
         bool mermaid = false,
-        bool skipPdb = false)
+        bool skipPdb = false,
+        bool simulate = false)
     {
         int separator = dumpMethod.IndexOf("::", StringComparison.Ordinal);
         if (separator <= 0)
@@ -1814,6 +1976,7 @@ static class Program
         foreach (var assemblyPath in assemblies)
         {
             using var source = OpenSource(assemblyPath, skipPdb, metadata);
+            source.SimulateNewRules = simulate;
             if (IrImporter.ResolveMethodHandle(
                 source.Reader,
                 typeName,
@@ -1852,6 +2015,14 @@ static class Program
             var function = IrImporter.Import(source, methodHandle);
             if (function is null)
                 continue;
+            if (ReportUnavailableMemorySafetyMode(
+                function,
+                dumpMethod,
+                assemblyPath,
+                "next, control-flow graph"))
+            {
+                return 0;
+            }
             IrPasses.Run(function, IrPasses.Default, PassContext.ForImport(ImportSeam(source)));  // raise through the canonical pipeline, as the product does
 
             WriteCfgHeader(assemblyPath, dumpMethod, "next", mermaid);

@@ -17,6 +17,9 @@ content into coordinated surface and implementation roles for Browser package
 workspaces. Browser home demos execute every selected preset through
 `RunHomeDemo`, apply its typed package or Platform activation, and publish the
 ordinary canonical Browser workspace only after the selected result is ready.
+CLI Platform demos use the same `WorkspaceContextLoader` implementation-pack
+realization before lowering the selected images into the ordinary type/member
+section pipeline.
 Schema version 2, packet format 2, complete view binding, and the restoration
 coordinator defined here are not yet implemented.
 The definition-record loader, registry, scenario resolution, product home
@@ -192,8 +195,8 @@ it:
 ```
 
 Next, the authoring examples — what a demo author writes. A workspace
-definition subscribes by reference; the System.Text.Json demo needs only
-the platform and one package, so no custom group is involved at all:
+definition names the exact Runtime Platform assembly directly, so the
+System.Text.Json demo needs no package coordinate or custom group:
 
 ```json
 {
@@ -201,14 +204,13 @@ the platform and one package, so no custom group is involved at all:
   "kind": "workspace",
   "id": "stj-serializer-tour",
   "title": "System.Text.Json serializer tour",
-  "description": "JsonSerializer surface with the platform in scope.",
+  "description": "JsonSerializer surface from the Runtime Platform.",
   "contexts": [
     {
       "name": "stj",
-      "subscribe": ":Platform@10.0.10",
       "framework": "net10.0",
       "members": [
-        { "kind": "package", "id": "System.Text.Json", "version": "10.0.0", "framework": "net10.0" }
+        { "kind": "platform", "family": "runtime", "assembly": "System.Text.Json", "version": "10.0.12", "framework": "net10.0" }
       ]
     }
   ]
@@ -234,16 +236,12 @@ Its view and navigation presets are peer authored records:
   "id": "serializer-navigation",
   "tabs": [
     {
-      "id": "platform",
-      "subscribe": ":Platform@10.0.10",
-      "framework": "net10.0"
-    },
-    {
       "id": "stj",
       "coordinate": {
-        "kind": "package",
-        "id": "System.Text.Json",
-        "version": "10.0.0",
+        "kind": "platform",
+        "family": "runtime",
+        "assembly": "System.Text.Json",
+        "version": "10.0.12",
         "framework": "net10.0"
       }
     }
@@ -785,12 +783,12 @@ section; CLI and browser encodings consume that plan rather than parsing the
 member selection independently. **The current schema-version-1 home demos bind
 legacy product section display names** through
 `ProductDemoSections` (today: `Methods` for the STJ API tour; `Call
-Graph` primary bind for multi-package and package-local graph demos, expanded
+Graph` primary bind for multi-source and focused graph demos, expanded
 at run via `ExpandRunSections` / `DemoScenarioRunner`: Markdown keeps
 `Call Graph` + `Callers`; table/tsv/jsonl select `Callers` when the demo has
 caller scope — MemberCommand re-adds Callers under caller scope, so
 Call Graph-only tabular would silently fall back to a member inventory — and
-select `Call Graph` when it does not, so package-local entry points with empty
+select `Call Graph` when it does not, so single-library entry points with empty
 Callers still emit rows; standalone `--mermaid` keeps `Call Graph`; document
 `--json` fails closed for Call Graph demos until graph sections project into
 that payload.
@@ -802,12 +800,10 @@ mermaid rather than falling through to the type shape tree. The
 [View Facet Registry](view-facet-registry.md) settles minted facet identity;
 schema version 2 and the explicit legacy table below settle versioned migration
 and complete view composition. `ecosystem.platform` is application grouping,
-not workspace-coordinate inference: the current System.Text.Json demos retain
-their exact package pins even when the ecosystem catalog groups them as basic
-Platform demos. Platform-coordinate workspaces remain a product capability but
-the shipped home demos do not adopt them in this slice. Browser run-plan and
-engine execution do admit exact, assembly-scoped Platform coordinates so the
-coordinate migration can occur without fabricating package inputs. A Browser
+not workspace-coordinate inference. The three System.Text.Json demos now
+declare exact, assembly-scoped Runtime Platform coordinates after exact prune
+evidence and the Platform catalog independently establish package subsumption
+and library availability. A Browser
 home-demo context is source-homogeneous; a Platform context uses only the
 supported `runtime` and `aspnetcore` families, one exact Platform version and
 target framework that agrees with the context-wide framework constraint, and
@@ -827,7 +823,14 @@ their exact canonical facet IDs before Registry resolution.
 **CLI run** lowers the resolved plan to `TypeCommand` / `MemberCommand` options
 (`DemoScenarioRunner`) so `dotnet-inspect demo <id>` returns ordinary section
 output from the existing pipelines; multi-package workspaces encode extra
-package members as `--caller-package` for the call-graph demo. **inspect-web** loads home-demo metadata and exact scenario IDs from the
+package members as `--caller-package` for the call-graph demo. A Platform demo
+retains every exact family, version, framework, and assembly coordinate through
+`WorkspaceContextLoader`, then materializes the selected implementation images
+for the existing CLI section renderers. The focused image remains the command
+root; additional selected images enter the ordinary member caller-scope path
+through one temporary directory. The CLI does not inspect reference-pack stubs
+as implementation bodies or fabricate package coordinates for Platform
+members. **inspect-web** loads home-demo metadata and exact scenario IDs from the
 ecosystem catalog through the browser engine (`ListHomeDemos` /
 `RunHomeDemo`; `ResolveHomeDemo` remains a tooling/debug projection).
 Every selected home demo executes through `RunHomeDemo`; the host does not
@@ -848,6 +851,8 @@ package workspaces until Browser has explicit execution support rather than
 silently dropping those bindings. These properties are gated by
 `ToRunPlan_AllProductHomeDemosHaveSupportedBrowserShape`,
 `StjSerializer_RunPlanOwnsTypeOnlyMethodsSelection`,
+`StjPlatformDemos_JoinExactSupplyAndCatalogEvidence`,
+`ExtensionsPlatformDemos_JoinExactSupplyAndCatalogEvidence`,
 `ToRunPlan_DerivesNonFirstFocusForTypeOnlyMethodsView`,
 `ToRunPlan_PlatformCoordinatePreservesSourceNativeFocus`,
 `ToRunPlan_RejectsMixedPackageAndPlatformWorkspace`,
@@ -865,6 +870,10 @@ silently dropping those bindings. These properties are gated by
 `HomeDemoRunCore_ProjectsTheAnchoredMemberAndItsGraph`,
 `PlatformHomeDemoRunCore_ProjectsMethodsWithSourceNativeActivation`, and
 `PlatformHomeDemoRunCore_PreservesContextAcrossEquivalentVersionSpellings`.
+CLI multi-Platform execution and caller-scope preservation are gated by
+`Runner_LowersMultiPlatformCallGraphWithCallerScopeSections`,
+`Cli_DemoCallGraph_Table_EmitsCallersRows`, and the all-demo Mermaid and table
+execution gates.
 
 The Browser host validates the complete typed result before replacing the
 current workspace. Package activation retains the returned coordinates and
@@ -882,22 +891,25 @@ gated by `product-home-demos.test.ts`,
 `spotlight-identity.test.ts`, and the package/Platform Methods and Call Graph
 production-composition cases in `library-hierarchy.spec.ts`.
 
-This activation slice deliberately does not change the shipped demo
-coordinates. System.Text.Json and Microsoft.Extensions demos move from package
-pins to exact Platform coordinates only after the package-supply inventory,
-Platform catalog, and package discovery are joined into an exact
-classification. Demos requesting a version newer than the selected Platform
-ceiling remain package-backed; Aspire demos remain package-backed because
-their libraries are not supplied by the Platform.
+The System.Text.Json and Microsoft.Extensions migrations are gated by two
+independent exact facts: `PlatformPrunePolicy` reports that each former package
+pin is subsumed, and the same target independently contains each explicitly
+selected implementation library. Package identity is never treated as assembly
+identity. The three System.Text.Json demos use the Runtime Platform target.
+The five Microsoft.Extensions demos remain owned by the Microsoft.Extensions
+ecosystem while their selected libraries use the ASP.NET Core Platform target;
+ecosystem grouping and source provenance are orthogonal. Demos requesting a
+version newer than the selected Platform ceiling remain package-backed. Aspire
+demos remain package-backed because their libraries are not supplied by the
+Platform.
 Browser package scopes now adapt product-selected, product-realized package
 participants into Browser coordinate/asset provenance; Browser still owns Wasm
 transport, cache/deadline/lifetime policy, and its resource-limit values.
 Residual: (1) bind minted facet IDs to replace the display-name allow list;
-(2) realize definitions via `WorkspaceContextLoader` instead of CLI package/
-`--caller-package` encoding; (3) migrate shipped package coordinates that are
-supplied by an exact Platform target only after inventory, Platform catalog,
-and package discovery jointly establish that classification; (4) Call Graph /
-Callers structured JSON projection remains the shared member-pipeline gap
+(2) realize package definitions via `WorkspaceContextLoader` instead of CLI
+package/`--caller-package` encoding; (3) Call Graph / Callers structured JSON
+projection remains the shared
+member-pipeline gap
 (Markdown/Mermaid are the faithful graph formats today).
 
 ### Member coordinates
@@ -1383,8 +1395,8 @@ The lowerer uses this closed, scope-aware table:
 | `lens`, exact Type, no Member | `api` | Type, `type.api` |
 | `lens`, exact Type, no Member | `metadata` | Type, `type.metadata` |
 | `lens`, exact Type, no Member | `source` | Type, `type.source` |
-| package-capable coordinate with no Type or Member | `overview` | Root, `root.package-overview` |
-| package-capable coordinate with no Type or Member | `dependencies` | Root, `root.package-dependencies` |
+| package-capable coordinate with no Type or Member | `overview` | Package, `package.overview` |
+| package-capable coordinate with no Type or Member | `dependencies` | Package, `package.dependencies` |
 | package-capable coordinate with no Type or Member | `integrations` | All Libraries, `library.integrations` |
 | package-capable coordinate with no Type or Member | `opportunities` | All Libraries, `library.opportunities` |
 | package-capable coordinate with no Type or Member | `analysis` | All Libraries, `library.analysis` |
@@ -1496,7 +1508,11 @@ Each Workspace is constructed solely from its own definition; no other
 Workspace or Workspace definition participates.
 
 This rule applies to saved definitions, share packets, Browser history,
-product demos, external-package Spotlight selection, and CLI canonical replay.
+product demos, Spotlight package selections classified as
+`RestoreExternalPackageWorkspace` by the
+[Spotlight destination-activation
+owner](inspect-web-spotlight-destination-activation.md), and CLI canonical
+replay.
 Selecting a subject already loaded in the active Workspace is ordinary
 Navigation and does not invoke restoration.
 
@@ -2055,8 +2071,8 @@ Definition records and product demos (this slice):
   `MemberShare_RejectsPlatformSource`,
   `MemberShare_RejectsLocalPackage`, and
   `MemberShare_RejectsConflictingModes` gate the production boundary;
-- the package Root `dependencies` compatibility token lowers to
-  `root.package-dependencies`; the packet carries the exact package coordinate
+- the package `dependencies` compatibility token lowers to
+  `package.dependencies`; the packet carries the exact package coordinate
   and framework but no graph results, dependency-group indexes, or Browser
   runtime state. The public CLI gesture and producer behavior are owned by
   [CLI Workspace Sharing](cli-workspace-sharing.md). The published Browser

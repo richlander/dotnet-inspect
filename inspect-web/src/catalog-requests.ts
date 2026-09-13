@@ -1,11 +1,5 @@
 import type { BrowserPackageVersions } from "./facades/inspect-web-package.d.ts";
 
-export interface DotnetRelease {
-  major: number;
-  tfm: string;
-  version: string;
-}
-
 export interface CatalogPackage {
   id: string;
   version: string;
@@ -13,17 +7,12 @@ export interface CatalogPackage {
 }
 
 export interface CatalogRequestState {
-  package: CatalogPackage | null;
   packages: CatalogPackage[];
-  dotnetReleases: DotnetRelease[] | null;
-  dotnetReleasesLoading: boolean;
 }
 
 export interface CatalogRequestDependencies {
   state: CatalogRequestState;
-  queryDotnetReleases: () => Promise<readonly DotnetRelease[]>;
   queryPackageVersions: (pkg: CatalogPackage) => Promise<BrowserPackageVersions>;
-  updatePlatformVersionSelect: () => void;
   updatePackageVersionSelect: (pkg: CatalogPackage) => void;
 }
 
@@ -50,21 +39,6 @@ export function createCatalogRequests(
     copyPackage(from: CatalogPackage, to: CatalogPackage) {
       const entry = inventories.get(from);
       if (entry && entry.status !== "loading") inventories.set(to, entry);
-    },
-
-    async ensureDotnetReleases() {
-      if (state.dotnetReleases || state.dotnetReleasesLoading) return;
-      state.dotnetReleasesLoading = true;
-      try {
-        state.dotnetReleases = [...await dependencies.queryDotnetReleases()];
-        if (state.package?.isRuntimePack) {
-          dependencies.updatePlatformVersionSelect();
-        }
-      } catch {
-        // Keep the selector on its current version when the remote index fails.
-      } finally {
-        state.dotnetReleasesLoading = false;
-      }
     },
 
     async ensurePackageVersions(pkg: CatalogPackage | null) {

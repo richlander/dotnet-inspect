@@ -4,11 +4,13 @@ using System.Text.Json;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Views;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
+using Markout;
 using NuGetFetch;
 
 namespace DotnetInspect.Cli.Tests;
@@ -147,6 +149,360 @@ public sealed class InspectionGraphCommandTests
             "Exactly two --library values are required.",
             captured.Error);
         Assert.DoesNotContain("Exception", captured.Error);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_DiscoversProjectionSchemasWithoutLibraries()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "-D",
+                        "--schema",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Contains("Consumer Use Sites", captured.Output);
+        Assert.Contains("Provider API Types", captured.Output);
+        Assert.Contains("Call Sites", captured.Output);
+        Assert.Empty(captured.Error);
+    }
+
+    [Fact]
+    public void LibrariesCommand_ProjectionSchemaComesFromGeneratedViewContext()
+    {
+        DocumentSchema schema = LibraryCallUseViewContext.Default
+            .GetSchemaInfo<LibraryCallUseSelectedView>()!
+            .ToDocumentSchema();
+
+        Assert.Equal(
+            [
+                LibraryCallUseCommand.ConsumerUseSitesSection,
+                LibraryCallUseCommand.ProviderApiTypesSection,
+                LibraryCallUseCommand.CallSitesSection,
+            ],
+            schema.SectionNames);
+        Assert.Equal(
+            [
+                "source_library",
+                "source_mvid",
+                "source_member",
+                "source_token",
+                "target_library",
+                "target_mvid",
+                "provider_types",
+                "target_members",
+                "call_sites",
+                "call_site_rows",
+            ],
+            schema.GetSection(
+                    LibraryCallUseCommand.ConsumerUseSitesSection)!
+                .Items
+                .Select(item => item.Key));
+        Assert.Equal(
+            "IL Offset",
+            schema.GetSection(LibraryCallUseCommand.CallSitesSection)!
+                .Items
+                .Single(item => item.Key == "il_offset")
+                .Name);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_BareSelectProjectsBothSummarySections()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphCaller
+                            .AssemblyPath(),
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphTarget
+                            .AssemblyPath(),
+                        "-S",
+                        "--json",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(0, captured.ExitCode);
+        using JsonDocument document =
+            JsonDocument.Parse(captured.Output);
+        JsonElement consumerUseSites =
+            document.RootElement.GetProperty("consumer_use_sites");
+        JsonElement providerApiTypes =
+            document.RootElement.GetProperty("provider_api_types");
+        Assert.Equal(15, consumerUseSites.GetArrayLength());
+        Assert.Equal(9, providerApiTypes.GetArrayLength());
+        Assert.Equal(
+            "Shared.Entry.Run()",
+            consumerUseSites[0]
+                .GetProperty("source_member")
+                .GetString());
+        Assert.Equal(
+            "Target.Api",
+            providerApiTypes[0]
+                .GetProperty("target_type")
+                .GetString());
+        Assert.Empty(captured.Error);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_SummaryRowsRetainCompleteGroupCounts()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphCaller
+                            .AssemblyPath(),
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphTarget
+                            .AssemblyPath(),
+                        "-S",
+                        "Consumer Use Sites",
+                        "--jsonl",
+                        "--rows",
+                        "2..3",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(0, captured.ExitCode);
+        string[] lines = captured.Output.Split(
+            Environment.NewLine,
+            StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(2, lines.Length);
+        using JsonDocument first = JsonDocument.Parse(lines[0]);
+        using JsonDocument second = JsonDocument.Parse(lines[1]);
+        Assert.Equal(
+            "Shared.Entry.RunAcrossBoundary()",
+            first.RootElement
+                .GetProperty("source_member")
+                .GetString());
+        Assert.Equal(
+            "Shared.Entry.RunTwice()",
+            second.RootElement
+                .GetProperty("source_member")
+                .GetString());
+        Assert.Equal(
+            "2",
+            second.RootElement
+                .GetProperty("call_sites")
+                .GetString());
+        Assert.Equal(
+            "3,4",
+            second.RootElement
+                .GetProperty("call_site_rows")
+                .GetString());
+        Assert.Empty(captured.Error);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_ProviderTypeSpellingPreservesGenericArity()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphCaller
+                            .AssemblyPath(),
+                        "--library",
+                        FixtureCatalog.AnalysisCallerGraphTarget
+                            .AssemblyPath(),
+                        "-S",
+                        "Provider API Types",
+                        "--jsonl",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(0, captured.ExitCode);
+        string[] targetTypes = captured.Output
+            .Split(
+                Environment.NewLine,
+                StringSplitOptions.RemoveEmptyEntries)
+            .Select(line =>
+            {
+                using JsonDocument row =
+                    JsonDocument.Parse(line);
+                return row.RootElement
+                    .GetProperty("target_type")
+                    .GetString()!;
+            })
+            .ToArray();
+        Assert.Contains("Target.Box`1", targetTypes);
+        Assert.Contains("Target.Box`2", targetTypes);
+        Assert.Empty(captured.Error);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_RejectsRawMultiSectionBeforeAcquisition()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "-S",
+                        "--table",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Contains(
+            "--table requires exactly one selected table",
+            captured.Error);
+        Assert.DoesNotContain(
+            "Exactly two --library values are required.",
+            captured.Error);
+        Assert.Empty(captured.Output);
+    }
+
+    [Theory]
+    [InlineData(",")]
+    [InlineData(";")]
+    public async Task LibrariesCommand_RejectsSeparatorOnlySelection(string selection)
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "libraries",
+                        "-S",
+                        selection,
+                        "--json",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Contains(
+            "--select requires at least one name.",
+            captured.Error);
+        Assert.DoesNotContain(
+            "Exactly two --library values are required.",
+            captured.Error);
+        Assert.DoesNotContain(
+            "Exception",
+            captured.Error);
+        Assert.Empty(captured.Output);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_CountsSelectedSummaryRows()
+    {
+        async Task<(int ExitCode, string Output, string Error)> Execute(
+            params string[] projection) =>
+            await ConsoleCapture.RunAsync(
+                () => CommandLineBuilder.CreateRootCommand()
+                    .Parse(
+                        [
+                            "graph",
+                            "libraries",
+                            "--library",
+                            FixtureCatalog.AnalysisCallerGraphCaller
+                                .AssemblyPath(),
+                            "--library",
+                            FixtureCatalog.AnalysisCallerGraphTarget
+                                .AssemblyPath(),
+                            .. projection,
+                            "--count",
+                        ])
+                    .InvokeAsync());
+
+        var single = await Execute(
+            "-S",
+            "Consumer Use Sites",
+            "--rows",
+            "1..2");
+        var multiple = await Execute("-S", "--json");
+
+        Assert.Equal(0, single.ExitCode);
+        Assert.Equal("2", single.Output.Trim());
+        Assert.Empty(single.Error);
+        Assert.Equal(0, multiple.ExitCode);
+        using JsonDocument counts =
+            JsonDocument.Parse(multiple.Output);
+        Assert.Equal(
+            15,
+            counts.RootElement[0]
+                .GetProperty("count")
+                .GetInt32());
+        Assert.Equal(
+            9,
+            counts.RootElement[1]
+                .GetProperty("count")
+                .GetInt32());
+        Assert.Empty(multiple.Error);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_DogfoodsProductMarkoutUse()
+    {
+        string directory = Path.GetDirectoryName(
+            typeof(InspectionGraphCommandTests)
+                .Assembly.Location)!;
+        string markout = Path.Combine(
+            directory,
+            "Markout.dll");
+
+        async Task<(
+            int UseSites,
+            int ProviderTypes,
+            int CallSites)> Counts(
+            string consumer)
+        {
+            var captured = await ConsoleCapture.RunAsync(
+                () => CommandLineBuilder.CreateRootCommand()
+                    .Parse(
+                        [
+                            "graph",
+                            "libraries",
+                            "--library",
+                            Path.Combine(directory, consumer),
+                            "--library",
+                            markout,
+                            "-S",
+                            "*",
+                            "--count",
+                            "--json",
+                        ])
+                    .InvokeAsync());
+
+            Assert.Equal(0, captured.ExitCode);
+            Assert.Empty(captured.Error);
+            using JsonDocument document =
+                JsonDocument.Parse(captured.Output);
+            return (
+                document.RootElement[0]
+                    .GetProperty("count")
+                    .GetInt32(),
+                document.RootElement[1]
+                    .GetProperty("count")
+                    .GetInt32(),
+                document.RootElement[2]
+                    .GetProperty("count")
+                    .GetInt32());
+        }
+
+        Assert.Equal(
+            (2, 4, 6),
+            await Counts("DotnetInspector.Presentation.dll"));
+        Assert.Equal(
+            (13, 4, 72),
+            await Counts("DotnetInspector.MetadataRendering.dll"));
     }
 
     [Fact]
@@ -310,6 +666,69 @@ public sealed class InspectionGraphCommandTests
             StringComparison.Ordinal);
         Assert.Empty(partial.Error);
         Assert.Empty(empty.Error);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_ContainsAssemblyNamesBeforeComposingDescriptions()
+    {
+        const string injectedHeading = "# INJECTED HEADING";
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-graph-libraries-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string hostilePath = Path.Combine(directory, "Hostile.dll");
+            string safePath = Path.Combine(directory, "Safe.dll");
+            WriteNamedAssembly(
+                hostilePath,
+                $"Hostile\n{injectedHeading}");
+            WriteNamedAssembly(safePath, "Safe");
+
+            async Task<(int ExitCode, string Output, string Error)> Execute(
+                params string[] selection) =>
+                await ConsoleCapture.RunAsync(
+                    () => CommandLineBuilder.CreateRootCommand()
+                        .Parse(
+                            [
+                                "graph",
+                                "libraries",
+                                "--library",
+                                hostilePath,
+                                "--library",
+                                safePath,
+                                .. selection,
+                            ])
+                        .InvokeAsync());
+
+            var defaultView = await Execute();
+            var selectedView = await Execute("-S");
+
+            Assert.Equal(0, defaultView.ExitCode);
+            Assert.Equal(0, selectedView.ExitCode);
+            Assert.DoesNotContain(
+                $"\n{injectedHeading}",
+                defaultView.Output.ReplaceLineEndings("\n"),
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                $"\n{injectedHeading}",
+                selectedView.Output.ReplaceLineEndings("\n"),
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "Hostile # INJECTED HEADING@",
+                defaultView.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "Hostile # INJECTED HEADING@",
+                selectedView.Output,
+                StringComparison.Ordinal);
+            Assert.Empty(defaultView.Error);
+            Assert.Empty(selectedView.Error);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Fact]
@@ -1400,6 +1819,26 @@ public sealed class InspectionGraphCommandTests
                 producer,
                 Framework,
                 runtimeIdentifier: null));
+
+    static void WriteNamedAssembly(
+        string path,
+        string name)
+    {
+        var assemblyName = new System.Reflection.AssemblyName(name)
+        {
+            Version = new Version(1, 0, 0, 0),
+        };
+        var assembly = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            assemblyName,
+            typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule("GraphLibraries");
+        module.DefineType(
+                "GraphLibraries.Sample",
+                System.Reflection.TypeAttributes.Public
+                    | System.Reflection.TypeAttributes.Class)
+            .CreateType();
+        assembly.Save(path);
+    }
 
     sealed class FailingHandler : HttpMessageHandler
     {

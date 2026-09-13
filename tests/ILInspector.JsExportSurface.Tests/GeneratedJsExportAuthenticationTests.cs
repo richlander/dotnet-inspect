@@ -675,12 +675,18 @@ public sealed class GeneratedJsExportAuthenticationTests
             loaderBodies.DirectCalls,
             call => call.Kind == CallKind.NewObject
                 && call.Callee.Name == ".ctor"
-                && call.Callee.DeclaringType.Name == "PEReader");
+                && call.Callee.DeclaringType.Name == "PEReader"
+            && call.EvidenceMethod.Name
+                == nameof(JsExportSurfaceLoader.TryLoad)
+            && call.EvidenceMethod.MetadataToken
+                == read.EvidenceMethod.MetadataToken);
         DirectCall bodyReader = Assert.Single(
             loaderBodies.DirectCalls,
             call => call.Callee.Name == "OpenFromPrefetchedImage"
                 && call.Callee.DeclaringType.Name
-                    == nameof(LibraryBodyIndex));
+                    == nameof(LibraryBodyIndex)
+                && call.EvidenceMethod.Name
+                    == nameof(JsExportSurfaceLoader.TryLoad));
         Assert.Equal(
             read.EvidenceMethod.MetadataToken,
             metadataReader.EvidenceMethod.MetadataToken);

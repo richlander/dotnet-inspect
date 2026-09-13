@@ -3,8 +3,11 @@ src/CSharpText.MemberSlicing
 src/Inspector.Artifacts
 src/Inspector.Artifacts.Local
 src/Inspector.Artifacts.Workspaces
+src/DotnetInspector.Cache
 src/DotnetInspector.Core
+src/DotnetInspector.DependencyManifests
 src/DotnetInspector.Ecosystems
+src/DotnetInspector.Networking
 src/DotnetInspector.PackageQueries
 src/DotnetInspector.Packages
 src/DotnetInspector.Platforms
@@ -12,6 +15,7 @@ src/DotnetInspector.Presentation
 src/DotnetInspector.Queries
 src/DotnetInspector.ResearchQueries
 src/DotnetInspector.RowSelection
+src/DotnetInspector.Sections
 src/DotnetInspector.Services
 src/DotnetInspector.SourceSelection
 src/DotnetInspector.Vocabulary

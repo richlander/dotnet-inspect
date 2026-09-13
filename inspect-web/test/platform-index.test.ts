@@ -19,10 +19,16 @@ function row(assembly: string, overrides: Record<string, unknown> = {}) {
 
 function catalog() {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     defaultFramework: DEFAULT_PLATFORM_FRAMEWORK,
     targets: [{
       tfm: "net11.0", version: "11.0.0-preview.7.26381.103",
+      supplies: [{
+        pack: "netcore.app",
+        family: "Microsoft.NETCore.App",
+        package: "System.Text.Json",
+        version: "11.0.0-preview.7.26381.103",
+      }],
       rows: [
         row("System.Text.Json"),
         row("System.Runtime", { kind: "facade", forwardsTo: "System.Private.CoreLib" }),
@@ -52,6 +58,12 @@ test("catalog preserves reference membership independently of runtime role", () 
   assert.equal(index.isFacade("net11.0", "System.Runtime"), true);
   assert.equal(index.forwardsTo("net11.0", "System.Runtime"), "System.Private.CoreLib");
   assert.equal(index.lookup("net11.0", "Reference.Only")?.hasImplementation, false);
+  assert.deepEqual(index.target("net11.0")?.supplies, [{
+    pack: "netcore.app",
+    family: "Microsoft.NETCore.App",
+    package: "System.Text.Json",
+    version: "11.0.0-preview.7.26381.103",
+  }]);
   assert.equal(index.target("net10.0"), null);
 });
 
@@ -60,6 +72,7 @@ test("new exact catalogs coexist without changing the selected shipped target", 
   const version = "11.0.0-rc.1.1";
   index.addTarget(parsePlatformCatalogTarget({
     tfm: "net11.0", version,
+    supplies: [],
     rows: [row("New.Library", { packVersion: version })],
   }));
   assert.equal(index.target("net11.0")?.version, "11.0.0-preview.7.26381.103");
@@ -69,6 +82,7 @@ test("new exact catalogs coexist without changing the selected shipped target", 
   assert.equal(index.targets().length, 2);
   assert.throws(() => index.addTarget(parsePlatformCatalogTarget({
     tfm: "net11.0", version,
+    supplies: [],
     rows: [row("Different.Library", { packVersion: version })],
   })), /changed for pinned target/);
 });
@@ -85,6 +99,27 @@ test("catalog rejects mismatched versions and invalid rather than empty inventor
   assert.throws(() => parsePlatformCatalogTarget({
     ...target, rows: [row("Duplicate"), row("duplicate")],
   }), /Duplicate/);
+  assert.throws(() => parsePlatformCatalogTarget({
+    ...target,
+    supplies: [
+      ...target.supplies,
+      { ...target.supplies[0]!, family: "Microsoft.AspNetCore.App" },
+    ],
+  }), /supply family/);
+  assert.throws(() => parsePlatformCatalogTarget({
+    ...target,
+    supplies: [...target.supplies, target.supplies[0]!],
+  }), /Duplicate platform package supply/);
+  const targetWithoutSupplies = { ...target, supplies: undefined };
+  assert.deepEqual(
+    parsePlatformCatalogTarget(targetWithoutSupplies).supplies,
+    []);
+  assert.throws(
+    () => parsePlatformIndex({
+      ...catalog(),
+      targets: [targetWithoutSupplies],
+    }),
+    /no exact package supply inventory/);
   assert.throws(() => parsePlatformIndex({ ...catalog(), defaultFramework: "net12.0" }), /default target/);
 });
 
@@ -115,5 +150,9 @@ test("shipped catalog supplies the exact default target and representative libra
   assert.equal(core?.kind, "impl");
   assert.equal(core?.inReferencePack, false);
   assert.equal(core?.hasImplementation, true);
+  const supply = target.supplies.find(entry => entry.package === "System.Text.Json");
+  assert.equal(supply?.pack, "netcore.app");
+  assert.equal(supply?.family, "Microsoft.NETCore.App");
+  assert.equal(supply?.version, target.version);
   assert.ok(target.rows.every(library => library.packVersion === target.version));
 });

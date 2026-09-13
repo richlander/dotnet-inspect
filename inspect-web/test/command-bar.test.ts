@@ -49,6 +49,7 @@ test("the empty command scope offers the root command grammar", () => {
       "framework",
       "find",
       "clear",
+      "diagnostics",
       "share",
       "settings",
       "keyboard help",
@@ -198,6 +199,7 @@ test("trailing whitespace preserves completed command arguments", () => {
     ["framework net9.0 ", "framework net9.0"],
     ["types kind ", "types kind"],
     ["clear ", "clear"],
+    ["diagnostics ", "diagnostics"],
     ["share ", "share"],
     ["settings ", "settings"],
     ["keyboard help ", "keyboard help"],
@@ -212,6 +214,7 @@ test("trailing whitespace preserves completed command arguments", () => {
   for (const invalid of [
     "show metadata extra ",
     "clear clear",
+    "diagnostics extra",
     "share share ",
     "settings settings ",
     "keyboard help extra ",

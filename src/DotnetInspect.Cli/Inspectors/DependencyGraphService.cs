@@ -4,6 +4,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using ILInspector.Metadata;
@@ -18,20 +19,41 @@ internal sealed record TypeDependencyScanDiagnostic(
     CandidateOpenFailure Failure);
 
 internal sealed record TypeDependencyExecutionResult(
-    TypeDependencyResult Dependency,
+    InspectionEnvelope<TypeDependencySectionResult>? Envelope,
+    InspectionShare Share,
     IReadOnlyList<TypeDependencyScanDiagnostic> Diagnostics,
     bool IsAvailable)
 {
-    internal static TypeDependencyExecutionResult Unavailable() =>
+    internal TypeDependencyResult Dependency =>
+        Envelope!.Content.QueryResult.Dependency;
+
+    internal IReadOnlyList<TypeDependencyRelationship> Relationships =>
+        Envelope!.Content.RowSelection.Relationships;
+
+    internal RowsCohortSemanticFailure<TypeDependencyRowSet>? RowSelectionFailure =>
+        Envelope!.Content.RowSelection.Failure;
+
+    internal static TypeDependencyExecutionResult Unavailable(
+        InspectionShare share) =>
         new(
-            new TypeDependencyResult(null, []),
-            [],
+            Envelope: null,
+            share,
+            Diagnostics: [],
             IsAvailable: false);
 
     internal static TypeDependencyExecutionResult FromLegacy(
-        TypeDependencyResult dependency) =>
-        new(
-            dependency,
+        TypeDependencyResult dependency,
+        TypeDependencySectionPlan plan,
+        InspectionShare share)
+    {
+        TypeDependencyRowSelectionResult selection =
+            TypeDependencySectionExecutor.Select(
+                dependency,
+                plan);
+        return Create(
+            new TypeDependencySectionResult(
+                new AssemblyContextTypeDependencyResult(dependency, []),
+                selection),
             dependency.Rejections.Select(
                 static rejection =>
                     new TypeDependencyScanDiagnostic(
@@ -58,7 +80,50 @@ internal sealed record TypeDependencyExecutionResult(
                                 rejection.MetadataRootReason,
                         }))
                 .ToArray(),
-            IsAvailable: true);
+            isAvailable: true,
+            share);
+    }
+
+    internal static TypeDependencyExecutionResult FromContent(
+        TypeDependencySectionResult content,
+        IReadOnlyList<TypeDependencyScanDiagnostic> diagnostics,
+        bool isAvailable,
+        InspectionShare share) =>
+        Create(content, diagnostics, isAvailable, share);
+
+    private static TypeDependencyExecutionResult Create(
+        TypeDependencySectionResult content,
+        IReadOnlyList<TypeDependencyScanDiagnostic> scanDiagnostics,
+        bool isAvailable,
+        InspectionShare share)
+    {
+        List<InspectionDiagnostic> diagnostics =
+        [
+            .. scanDiagnostics.Select(
+                static diagnostic =>
+                    TypeDependencyInspectionDiagnostics.ParticipantRejected(
+                        diagnostic.Subject)),
+        ];
+        if (content.RowSelection.Failure is { } rowFailure)
+        {
+            diagnostics.Add(
+                TypeDependencyInspectionDiagnostics.RowSelectionFailed(
+                    rowFailure));
+        }
+        if (!isAvailable)
+        {
+            diagnostics.Add(TypeDependencyInspectionDiagnostics.Unavailable());
+        }
+
+        return new(
+            new InspectionEnvelope<TypeDependencySectionResult>(
+                content,
+                share,
+                diagnostics),
+            share,
+            scanDiagnostics,
+            isAvailable);
+    }
 }
 
 /// <summary>
@@ -75,9 +140,23 @@ internal static class DependencyGraphService
         HttpClient httpClient,
         DependsOptions options,
         VerboseLogger logger,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Func<string, InspectionShare>? shareProjection = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        InspectionShare ShareFor(string typeName) =>
+            shareProjection is null
+                ? new InspectionShare.NonProjectable(
+                    "share",
+                    "Share projection was not requested.")
+                : shareProjection(typeName);
+        TypeDependencySectionPlan plan =
+            new(
+                options.TargetType,
+                options.TypeDependencyRows
+                    ?? RowSelectionIntent<
+                        TypeDependencyRowOrder>.Empty,
+                options.Depth);
         AssemblySetRequest request =
             options.ToAssemblySetRequest(TempDirPrefix);
         if (ConfiguredPackageSearchWorkspace.IsEligible(
@@ -93,24 +172,27 @@ internal static class DependencyGraphService
                     logger.Log,
                     cancellationToken).ConfigureAwait(false);
             if (workspace is null)
-                return TypeDependencyExecutionResult.Unavailable();
+                return TypeDependencyExecutionResult.Unavailable(
+                    ShareFor(options.TargetType));
 
             ConfiguredPackageSearchQueryResult<
-                AssemblyContextTypeDependencyResult>? execution =
+                TypeDependencySectionResult>? execution =
                     await workspace.QuerySurfaceAsync(
                         context =>
-                            AssemblyContextTypeDependencyQuery.Execute(
+                            TypeDependencySectionExecutor.Execute(
                                 context.Group,
-                                options.TargetType),
+                                plan),
                         cancellationToken).ConfigureAwait(false);
             if (execution is null)
-                return TypeDependencyExecutionResult.Unavailable();
+                return TypeDependencyExecutionResult.Unavailable(
+                    ShareFor(options.TargetType));
             if (execution.Result is null)
             {
-                return new TypeDependencyExecutionResult(
-                    new TypeDependencyResult(null, []),
+                return TypeDependencyExecutionResult.FromContent(
+                    TypeDependencySectionResult.NotFound(),
                     [],
-                    IsAvailable: true);
+                    isAvailable: true,
+                    ShareFor(options.TargetType));
             }
 
             PackageSearchQuerySources sources =
@@ -118,7 +200,7 @@ internal static class DependencyGraphService
                 ?? throw new InvalidOperationException(
                     "A package Root dependency result requires source correspondence.");
             IReadOnlyList<TypeDependencyScanDiagnostic> diagnostics =
-                execution.Result.Participants
+                execution.Result.QueryResult.Participants
                     .OfType<
                         AssemblyContextTypeDependencyEntry.Rejected>()
                     .Select(
@@ -129,10 +211,13 @@ internal static class DependencyGraphService
                                     .DiagnosticSubject,
                                 rejected.Failure))
                     .ToArray();
-            return new TypeDependencyExecutionResult(
-                execution.Result.Dependency,
+            return TypeDependencyExecutionResult.FromContent(
+                execution.Result,
                 diagnostics,
-                execution.Result.HasSurvivingParticipant);
+                execution.Result.QueryResult.HasSurvivingParticipant,
+                ShareFor(
+                    execution.Result.QueryResult.Dependency.MatchedType
+                        ?? options.TargetType));
         }
 
         return await WithAssemblySetAsync(
@@ -147,20 +232,45 @@ internal static class DependencyGraphService
                 TypeDependencyResult dependency =
                     TypeDependencyScanner.BuildDependencyTree(
                         options.TargetType,
-                        assemblyPaths);
+                        assemblyPaths,
+                        options.Depth);
                 cancellationToken.ThrowIfCancellationRequested();
                 return TypeDependencyExecutionResult.FromLegacy(
-                    dependency);
+                    dependency,
+                    plan,
+                    ShareFor(dependency.MatchedType ?? options.TargetType));
             }).ConfigureAwait(false);
     }
+
+    public static Task<LibraryDependencyGraphResult> BuildLibraryDependencyTreeAsync(
+        HttpClient httpClient,
+        string libraryName,
+        NuGetSourceOptions? sourceOptions,
+        VerboseLogger logger,
+        int? maxDepth = null,
+        string? requestedTfm = null) =>
+        BuildLibraryDependencyTreeAsync(
+            httpClient,
+            libraryName,
+            sourceOptions,
+            logger,
+            maxDepth,
+            CancellationToken.None,
+            requestedTfm: requestedTfm);
 
     public static async Task<LibraryDependencyGraphResult> BuildLibraryDependencyTreeAsync(
         HttpClient httpClient,
         string libraryName,
         NuGetSourceOptions? sourceOptions,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        int? maxDepth,
+        CancellationToken cancellationToken,
+        bool traverseReferences = true,
+        string? requestedTfm = null)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         string? assemblyPath = null;
+        AssemblySetEntry? selectedAssembly = null;
         AssemblySet? ownedAssemblySet = null;
 
         try
@@ -170,21 +280,46 @@ internal static class DependencyGraphService
             {
                 ownedAssemblySet = await AssemblySetResolver.CollectAsync(
                     httpClient,
-                    new AssemblySetRequest { Assemblies = [libraryName], TempDirPrefix = TempDirPrefix },
+                    new AssemblySetRequest
+                    {
+                        Assemblies = [libraryName],
+                        TempDirPrefix = TempDirPrefix,
+                        CancellationToken = cancellationToken,
+                    },
                     logger.Log);
                 AssemblySetDiagnosticWriter.Write(ownedAssemblySet);
-                assemblyPath = ownedAssemblySet.Assemblies.FirstOrDefault()?.Path;
+                selectedAssembly =
+                    ownedAssemblySet.Assemblies.FirstOrDefault();
+                assemblyPath = selectedAssembly?.Path;
             }
             else if (PlatformResolver.IsPlatformCandidate(libraryName))
             {
+                if (requestedTfm is not null
+                    && !PlatformResolver
+                        .TryGetFrameworkSpecsForTargetFramework(
+                            requestedTfm,
+                            out _))
+                {
+                    return new LibraryDependencyGraphResult.Error(
+                        $"Target framework '{requestedTfm}' cannot select an installed platform library.",
+                        libraryName);
+                }
+
                 ownedAssemblySet = await AssemblySetResolver.CollectAsync(
                     httpClient,
-                    new AssemblySetRequest { PlatformAssemblies = [libraryName], TempDirPrefix = TempDirPrefix },
+                    new AssemblySetRequest
+                    {
+                        PlatformAssemblies = [libraryName],
+                        Tfm = requestedTfm,
+                        TempDirPrefix = TempDirPrefix,
+                        CancellationToken = cancellationToken,
+                    },
                     logger.Log);
                 if (ownedAssemblySet.Assemblies.Count > 0)
                 {
                     AssemblySetDiagnosticWriter.Write(ownedAssemblySet);
-                    assemblyPath = ownedAssemblySet.Assemblies[0].Path;
+                    selectedAssembly = ownedAssemblySet.Assemblies[0];
+                    assemblyPath = selectedAssembly.Path;
                 }
                 else
                 {
@@ -202,12 +337,20 @@ internal static class DependencyGraphService
                     {
                         Packages = [libraryName],
                         SourceOptions = sourceOptions,
+                        Tfm = requestedTfm,
                         TempDirPrefix = TempDirPrefix,
-                        PackageSelectionMode = AssemblySetPackageSelectionMode.LibAssembliesDescending,
+                        PackageSelectionMode = requestedTfm is null
+                            ? AssemblySetPackageSelectionMode
+                                .LibAssembliesDescending
+                            : AssemblySetPackageSelectionMode
+                                .TargetFramework,
+                        CancellationToken = cancellationToken,
                     },
                     logger.Log);
 
-                assemblyPath = ownedAssemblySet.Assemblies.FirstOrDefault()?.Path;
+                selectedAssembly =
+                    ownedAssemblySet.Assemblies.FirstOrDefault();
+                assemblyPath = selectedAssembly?.Path;
                 if (assemblyPath == null)
                 {
                     AssemblySetDiagnosticWriter.Write(ownedAssemblySet, includeErrors: false);
@@ -222,8 +365,7 @@ internal static class DependencyGraphService
                 AssemblySetDiagnosticWriter.Write(ownedAssemblySet);
             }
 
-            var (refs, _) =
-                AssemblyInspector.ExtractReferenceIdentitiesAndCompany(assemblyPath);
+            cancellationToken.ThrowIfCancellationRequested();
             ManagedMetadataIdentity? rootIdentity =
                 AssemblyInspector.ExtractManagedMetadataIdentity(assemblyPath);
             var assemblyName = rootIdentity switch
@@ -235,17 +377,38 @@ internal static class DependencyGraphService
                 _ => Path.GetFileNameWithoutExtension(assemblyPath),
             };
 
+            if (!traverseReferences)
+            {
+                return rootIdentity is null
+                    ? new LibraryDependencyGraphResult.NoMetadata(
+                        assemblyName,
+                        selectedAssembly?.SourceKind
+                            ?? AssemblySetSourceKind.Assembly)
+                    : new LibraryDependencyGraphResult.Empty(
+                        assemblyName,
+                        rootIdentity,
+                        selectedAssembly?.SourceKind
+                            ?? AssemblySetSourceKind.Assembly);
+            }
+
+            var (refs, _) =
+                AssemblyInspector.ExtractReferenceIdentitiesAndCompany(
+                    assemblyPath);
             if (refs.Count == 0)
             {
                 if (rootIdentity is null)
                 {
                     return new LibraryDependencyGraphResult.NoMetadata(
-                        assemblyName);
+                        assemblyName,
+                        selectedAssembly?.SourceKind
+                            ?? AssemblySetSourceKind.Assembly);
                 }
 
                 return new LibraryDependencyGraphResult.Empty(
                     assemblyName,
-                    rootIdentity);
+                    rootIdentity,
+                    selectedAssembly?.SourceKind
+                        ?? AssemblySetSourceKind.Assembly);
             }
             if (rootIdentity is null)
             {
@@ -257,11 +420,16 @@ internal static class DependencyGraphService
                     refs,
                     assemblyPath,
                     rootIdentity,
-                    logger);
+                    logger,
+                    maxDepth,
+                    failOnReadError: false,
+                    cancellationToken: cancellationToken);
 
             return new LibraryDependencyGraphResult.Graph(
                 assemblyName,
-                referenceGraph);
+                referenceGraph,
+                selectedAssembly?.SourceKind
+                    ?? AssemblySetSourceKind.Assembly);
         }
         finally
         {
@@ -464,7 +632,7 @@ internal static class DependencyGraphService
         CancellationTokenSource? latestTimeout = null;
         if (!forceLatest
             && floatingSelector
-            && !DotnetInspector.Core.HttpClientFactory.IsOffline
+            && !DotnetInspector.Networking.HttpClientFactory.IsOffline
             && cachedVersions.Count > 0)
         {
             latestTimeout = new CancellationTokenSource(
@@ -513,7 +681,7 @@ internal static class DependencyGraphService
         if (coordinateResolution
             is not PackageCoordinateResolution.Resolved resolved)
         {
-            if (floatingSelector && DotnetInspector.Core.HttpClientFactory.IsOffline)
+            if (floatingSelector && DotnetInspector.Networking.HttpClientFactory.IsOffline)
             {
                 string offlineMessage = cachedVersions.Count > 0
                     ? DescribeCachedVersionFallback(
@@ -662,7 +830,7 @@ internal static class DependencyGraphService
         bool versionExistenceKnown,
         NuGetSourceOptions sourceOptions)
     {
-        if (DotnetInspector.Core.HttpClientFactory.IsOffline)
+        if (DotnetInspector.Networking.HttpClientFactory.IsOffline)
         {
             return InertString.Format(
                 TextPolicy.Field,
@@ -811,7 +979,8 @@ internal abstract record LibraryDependencyGraphResult
 {
     public sealed record Graph(
         string AssemblyName,
-        LibraryMetadataService.AssemblyReferenceGraph ReferenceGraph) :
+        LibraryMetadataService.AssemblyReferenceGraph ReferenceGraph,
+        AssemblySetSourceKind SourceKind = AssemblySetSourceKind.Assembly) :
         LibraryDependencyGraphResult
     {
         public IReadOnlyList<AssemblyReferenceNode> References =>
@@ -820,10 +989,14 @@ internal abstract record LibraryDependencyGraphResult
 
     public sealed record Empty(
         string AssemblyName,
-        ManagedMetadataIdentity Identity) : LibraryDependencyGraphResult;
+        ManagedMetadataIdentity Identity,
+        AssemblySetSourceKind SourceKind = AssemblySetSourceKind.Assembly) :
+        LibraryDependencyGraphResult;
 
     public sealed record NoMetadata(
-        string AssemblyName) : LibraryDependencyGraphResult;
+        string AssemblyName,
+        AssemblySetSourceKind SourceKind = AssemblySetSourceKind.Assembly) :
+        LibraryDependencyGraphResult;
     /// <summary>
     /// A resolution failure whose message embeds the caller's subject.
     /// </summary>

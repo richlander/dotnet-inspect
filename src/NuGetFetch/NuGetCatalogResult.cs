@@ -96,6 +96,16 @@ public interface INuGetCatalogPackageSourceClient : IPackageSourceClient
             NuGetCatalogRequest request,
             CancellationToken cancellationToken = default,
             NuGetOperationContext? operationContext = null);
+
+    /// <summary>
+    /// Acquires the source-issued first-receipt timestamp for one Package
+    /// Details event.
+    /// </summary>
+    Task<PackageSourceOperationResult<NuGetCatalogPackageReceipt>>
+        GetPackageReceiptAsync(
+            NuGetCatalogEvent detailsEvent,
+            CancellationToken cancellationToken = default,
+            NuGetOperationContext? operationContext = null);
 }
 
 /// <summary>One validated activity observation from a Catalog page.</summary>
@@ -213,6 +223,63 @@ public sealed class NuGetCatalogPage
         ReferenceEquals(_issuer, issuer);
 }
 
+/// <summary>The source field that supplied a package-receipt timestamp.</summary>
+public enum NuGetCatalogPackageReceiptBasis
+{
+    /// <summary>The Package Details leaf supplied <c>created</c>.</summary>
+    Created,
+
+    /// <summary>
+    /// The leaf omitted <c>created</c>, so <c>published</c> supplied the
+    /// specification-defined fallback.
+    /// </summary>
+    PublishedFallback,
+}
+
+/// <summary>
+/// Source-issued first-receipt evidence for one exact Package Details event.
+/// </summary>
+public sealed class NuGetCatalogPackageReceipt
+{
+    private readonly object _issuer;
+
+    internal NuGetCatalogPackageReceipt(
+        object ownerCapability,
+        object issuer,
+        PackageSourceResultIdentity source,
+        NuGetCatalogEvent detailsEvent,
+        DateTimeOffset receivedAt,
+        NuGetCatalogPackageReceiptBasis basis)
+    {
+        PackageSourceClientFactory.RequireOwnerCapability(ownerCapability);
+        ArgumentNullException.ThrowIfNull(issuer);
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(detailsEvent);
+        if (receivedAt.Offset != TimeSpan.Zero)
+        {
+            throw new ArgumentException(
+                "A Catalog package-receipt timestamp must be UTC.",
+                nameof(receivedAt));
+        }
+        if (!Enum.IsDefined(basis))
+            throw new ArgumentOutOfRangeException(nameof(basis), basis, null);
+
+        _issuer = issuer;
+        Source = source;
+        DetailsEvent = detailsEvent;
+        ReceivedAt = receivedAt;
+        Basis = basis;
+    }
+
+    public PackageSourceResultIdentity Source { get; }
+    public NuGetCatalogEvent DetailsEvent { get; }
+    public DateTimeOffset ReceivedAt { get; }
+    public NuGetCatalogPackageReceiptBasis Basis { get; }
+
+    internal bool HasIssuer(object issuer) =>
+        ReferenceEquals(_issuer, issuer);
+}
+
 public sealed partial class PackageSourceResultFactory
 {
     internal NuGetCatalogEvent CatalogEvent(
@@ -270,6 +337,40 @@ public sealed partial class PackageSourceResultFactory
         return value;
     }
 
+    internal void ValidateCatalogDetailsEvent(
+        NuGetCatalogEvent detailsEvent)
+    {
+        ArgumentNullException.ThrowIfNull(detailsEvent);
+        if (!detailsEvent.HasIssuer(_issuer))
+            throw ContractViolation();
+        if (detailsEvent.Kind != NuGetCatalogEventKind.Details)
+        {
+            throw new ArgumentException(
+                "Catalog package-receipt evidence requires a Package Details event.",
+                nameof(detailsEvent));
+        }
+    }
+
+    internal NuGetCatalogPackageReceipt CatalogPackageReceipt(
+        NuGetCatalogEvent detailsEvent,
+        DateTimeOffset receivedAt,
+        NuGetCatalogPackageReceiptBasis basis,
+        NuGetOperationDeadline operation)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        operation.ThrowIfExpired();
+        ValidateCatalogDetailsEvent(detailsEvent);
+        var value = new NuGetCatalogPackageReceipt(
+            _ownerCapability,
+            _issuer,
+            Source,
+            detailsEvent,
+            receivedAt,
+            basis);
+        operation.ThrowIfExpired();
+        return value;
+    }
+
     internal PackageSourceOperationResult<NuGetCatalogPage>
         SucceededCatalog(
             NuGetCatalogPage value,
@@ -287,4 +388,28 @@ public sealed partial class PackageSourceResultFactory
             PackageSourceCapabilities.Catalog,
             coordinate: null,
             ValidateFailureKind(kind, allowNotFound: false));
+
+    internal PackageSourceOperationResult<NuGetCatalogPackageReceipt>
+        SucceededCatalogPackageReceipt(
+            NuGetCatalogPackageReceipt value,
+            NuGetOperationDeadline operation)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        operation.ThrowIfExpired();
+        RequireSourceAndIssuer(value.Source, value.HasIssuer(_issuer));
+        ValidateCatalogDetailsEvent(value.DetailsEvent);
+        return Succeeded(value);
+    }
+
+    internal PackageSourceOperationResult<NuGetCatalogPackageReceipt>
+        FailedCatalogPackageReceipt(
+            PackageSourceCoordinate coordinate,
+            PackageSourceFailureKind kind)
+    {
+        ArgumentNullException.ThrowIfNull(coordinate);
+        return Failed<NuGetCatalogPackageReceipt>(
+            PackageSourceCapabilities.Catalog,
+            coordinate,
+            ValidateFailureKind(kind, allowNotFound: false));
+    }
 }

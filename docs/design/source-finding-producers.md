@@ -176,7 +176,7 @@ PDB-source attempt so Decompiler fallback can run.
 gates that bound. A host source-content store that reports a read or write
 failure produces typed evidence and does not publish the fetched bytes to the
 process-local memory cache, so an identical retry cannot silently change from
-failure to PDB-source success. The compatibility `CoreCache` adapter retains its
+failure to PDB-source success. The compatibility `PersistentCache` adapter retains its
 pre-existing best-effort persistence semantics.
 `AssemblyContextSourceQueryTests.SourceStoreFailure_FallsBackRepeatablyWithoutPublishingMemoryEntry`
 gates both repeatability and fallback. Store-specific non-cancellation,
@@ -273,7 +273,7 @@ sibling from an inactive branch.
 
 `SourceFetch` delegates reusable verified bytes to an
 `ISourceContentStore`. Its compatibility constructor retains the desktop
-`CoreCache`; content-only hosts supply `InMemorySourceContentStore`, so source
+`PersistentCache`; content-only hosts supply `InMemorySourceContentStore`, so source
 acquisition has no ambient filesystem requirement.
 
 The same checksum evidence is carried through type, member-location, and

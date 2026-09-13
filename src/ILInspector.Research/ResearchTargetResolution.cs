@@ -419,14 +419,14 @@ public sealed class ResearchTargetRequest
 {
     internal ResearchTargetRequest(
         ResearchTargetRequestId id,
-        string declaringTypeFullName,
+        MetadataTypeDefinitionName declaringType,
         MemberTargetSelector selector,
         ResearchTargetRequestKind kind,
         MetadataMethodAddress? assertedAddress,
         ResearchTargetRelationshipRole? assertedRole)
     {
         Id = id;
-        DeclaringTypeFullName = declaringTypeFullName;
+        DeclaringType = declaringType;
         Selector = selector;
         Kind = kind;
         AssertedAddress = assertedAddress;
@@ -454,8 +454,11 @@ public sealed class ResearchTargetRequest
     /// <summary>The side this request occupies.</summary>
     public ResearchComparisonSide Side => Id.Side;
 
-    /// <summary>The exact declaring-type full-name intent.</summary>
-    public string DeclaringTypeFullName { get; }
+    /// <summary>The exact structured declaring-type intent.</summary>
+    public MetadataTypeDefinitionName DeclaringType { get; }
+
+    /// <summary>The flattened metadata spelling of <see cref="DeclaringType"/>.</summary>
+    public string DeclaringTypeFullName => DeclaringType.ToMetadataFullName();
 
     /// <summary>The exact typed Metadata selector.</summary>
     public MemberTargetSelector Selector { get; }
@@ -633,13 +636,13 @@ public sealed class ResearchTargetScope
 {
     internal ResearchTargetScope(
         ResearchTargetScopeId id,
-        string declaringTypeFullName,
+        MetadataTypeDefinitionName declaringType,
         MemberTargetSelector selector,
         ResearchTargetRequestKind kind,
         ImmutableArray<ResearchTargetDomain> domains)
     {
         Id = id;
-        DeclaringTypeFullName = declaringTypeFullName;
+        DeclaringType = declaringType;
         Selector = selector;
         Kind = kind;
         Domains = domains;
@@ -651,8 +654,11 @@ public sealed class ResearchTargetScope
     /// <summary>The question that parents this scope.</summary>
     public ResearchComparisonQuestionId Question => Id.Question;
 
-    /// <summary>The exact declaring-type full-name intent.</summary>
-    public string DeclaringTypeFullName { get; }
+    /// <summary>The exact structured declaring-type intent.</summary>
+    public MetadataTypeDefinitionName DeclaringType { get; }
+
+    /// <summary>The flattened metadata spelling of <see cref="DeclaringType"/>.</summary>
+    public string DeclaringTypeFullName => DeclaringType.ToMetadataFullName();
 
     /// <summary>The exact typed Metadata selector.</summary>
     public MemberTargetSelector Selector { get; }

@@ -116,8 +116,7 @@ public static class ArgumentPreprocessor
 
         // package --readme was removed: printing a document is a projection over a selected
         // section rather than a lens of its own, so a flag naming one document competed with the
-        // section selection for the same question. Scoped to the package command because
-        // project --readme <package-id> is a different option that still exists.
+        // section selection for the same question.
         return "'--readme' is no longer valid. Printing a document is a projection over a "
             + "selected section: use '-S \"Package README file\" --print' for one package, "
             + "or '--content --path @readme' to survey several.";
@@ -131,6 +130,44 @@ public static class ArgumentPreprocessor
         "api", "audit", // removed commands, reserved so they are not treated as implicit package targets
         "package", "project", "library", "type", "member", "diff", "timeline", "graph", "find", "vocabulary", "ecosystem", "source", "list", "ls", "skill", "demo", "extensions", "implements", "match", "depends", "dependency-evidence", "cache", "workspace", "workspace-state", "help", "--help", "-h", "-?", "--version", "--flavor"
     };
+
+    internal static bool TryGetRemovedCommandError(
+        string[] args,
+        out string? error)
+    {
+        int command = FindFirstPositionalArgument(
+            args,
+            optionalValueIsCommand: IsCommandTokenAfterBareTips);
+        if (command >= 0 && IsDependencyEvidenceToken(args[command]))
+        {
+            error = "'dependency-evidence' is no longer valid. Use 'depends' "
+                + "with the same root options; add '-S Dependencies' for "
+                + "declaration evidence without traversal.";
+            return true;
+        }
+
+        error = null;
+        return false;
+    }
+
+    private static bool IsCommandTokenAfterBareTips(
+        string optionName,
+        string candidate) =>
+        optionName is "--tips" or "-T"
+        && (IsDependencyEvidenceToken(candidate)
+            || IsRegisteredCommandToken(candidate));
+
+    private static bool IsDependencyEvidenceToken(string token) =>
+        token.Equals(
+            "dependency-evidence",
+            StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsRegisteredCommandToken(string token) =>
+        !token.StartsWith("-", StringComparison.Ordinal)
+        && KnownCommands.Contains(token)
+        && !IsDependencyEvidenceToken(token)
+        && !token.Equals("api", StringComparison.OrdinalIgnoreCase)
+        && !token.Equals("audit", StringComparison.OrdinalIgnoreCase);
 
     internal static bool IsImplicitPackageCandidate(
         string[] args,
@@ -223,7 +260,8 @@ public static class ArgumentPreprocessor
 
     internal static int FindFirstPositionalArgument(
         string[] args,
-        bool directionPresence = false)
+        bool directionPresence = false,
+        Func<string, string, bool>? optionalValueIsCommand = null)
     {
         for (int i = 0; i < args.Length; i++)
         {
@@ -243,7 +281,9 @@ public static class ArgumentPreprocessor
             if (OptionsWithFollowingValue.Contains(optionName)
                 && !token.Contains('=', StringComparison.Ordinal)
                 && i + 1 < args.Length
-                && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
+                && !args[i + 1].StartsWith("-", StringComparison.Ordinal)
+                && optionalValueIsCommand?.Invoke(optionName, args[i + 1])
+                    is not true)
             {
                 i++;
                 continue;
@@ -529,7 +569,7 @@ public static class ArgumentPreprocessor
         "--package-prefix", "--depth", "-n", "--rows", "--source",
         "--add-source", "--nugetconfig", "--columns", "--fields", "-v", "-T",
         "--tips", "-S", "-s", "--select", "--section", "-D", "--discover", "-Q", "--query-help",
-        "--at", "--file", "--finding", "--readme", "--relationship", "--repo"
+        "--at", "--file", "--finding", "--relationship", "--repo"
     };
     internal const string EscapedAtCategoryPrefix = "__dotnet_inspect_at__";
 

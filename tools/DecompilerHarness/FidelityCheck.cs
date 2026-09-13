@@ -165,7 +165,7 @@ static class FidelityCheck
             {
                 if (!pe.HasMetadata)
                     continue;
-                var parseOptions = CompilerFeatureOptions.ParseOptions(pe);
+                var featureOptions = CompilerFeatureOptions.Resolve(pe);
                 var reader = pe.GetMetadataReader();
                 MetadataSource source;
                 try { source = MetadataSource.Open(path, context: metadata); }
@@ -180,7 +180,7 @@ static class FidelityCheck
                         if (total >= cap || zeroSignal?.Stopped == true || zeroSignal?.ShouldRerunWithoutGuard == true)
                             break;
                         int effectiveCap = zeroSignal?.EffectiveCap(total) ?? cap;
-                        RunType(reader, pe, source, typeHandle, references, parseOptions, compileOptions,
+                        RunType(reader, pe, source, typeHandle, references, featureOptions, compileOptions,
                             effectiveCap, maxExamples, render, ref total, ref full, ref exact, ref contextFail,
                             ref recompileFail, ref opcodeDiff, ref operandDiff, ref fidelityUnavailable,
                             opcodeDiffExamples, operandDiffExamples, fidelityUnavailableExamples, recompileFailExamples,
@@ -481,7 +481,7 @@ static class FidelityCheck
 
             return results;
         }
-        var parseOptions = CompilerFeatureOptions.ParseOptions(pe);
+        var featureOptions = CompilerFeatureOptions.Resolve(pe);
         var reader = pe.GetMetadataReader();
         var selectedTypes = SelectEvaluationTypes(reader, assemblyPath, typeFilter);
         using var metadata = CorpusMetadata.Create([assemblyPath]);
@@ -498,7 +498,7 @@ static class FidelityCheck
                 source,
                 typeHandle,
                 references,
-                parseOptions,
+                featureOptions,
                 compileOptions,
                 render,
                 results,
@@ -597,7 +597,7 @@ static class FidelityCheck
             {
                 if (!pe.HasMetadata)
                     continue;
-                var parseOptions = CompilerFeatureOptions.ParseOptions(pe);
+                var featureOptions = CompilerFeatureOptions.Resolve(pe);
                 var reader = pe.GetMetadataReader();
                 MetadataSource source;
                 try { source = MetadataSource.Open(assemblyPath, context: metadata); }
@@ -636,7 +636,7 @@ static class FidelityCheck
                         var render = Renderer(source, lowered);
 
                         var typeResults = new List<CompileBackResult>();
-                        EvaluateType(reader, pe, source, typeHandle, references, parseOptions, compileOptions, render, typeResults, reserved);
+                        EvaluateType(reader, pe, source, typeHandle, references, featureOptions, compileOptions, render, typeResults, reserved);
                         
                         var selectableResults = includeAllResults ? typeResults : typeResults.Where(IsUsefulCorpusSample);
                         foreach (var res in selectableResults)
@@ -931,7 +931,7 @@ static class FidelityCheck
             {
                 if (!pe.HasMetadata)
                     continue;
-                var parseOptions = CompilerFeatureOptions.ParseOptions(pe);
+                var featureOptions = CompilerFeatureOptions.Resolve(pe);
                 var portablePath = PortablePath(assemblyPath);
                 var reader = pe.GetMetadataReader();
                 MetadataSource source;
@@ -984,7 +984,7 @@ static class FidelityCheck
                             if (matched.Length == 0)
                                 continue;
 
-                            var typeResults = EvaluateGrouped(reader, pe, references, parseOptions, compileOptions, fullType, treeHandle, matched);
+                            var typeResults = EvaluateGrouped(reader, pe, references, featureOptions, compileOptions, fullType, treeHandle, matched);
                             for (int i = 0; i < matched.Length && i < typeResults.Count; i++)
                             {
                                 var entry = matched[i];
@@ -1169,7 +1169,8 @@ static class FidelityCheck
     sealed record Entry(
         MethodDefinitionHandle Handle, string Name, int Overload, string Signature, TargetBody Target,
         IReadOnlyList<(string Field, string Value)> FieldInits,
-        string OrigText, IReadOnlyList<string> OrigOps, bool IsFull);
+        string OrigText, IReadOnlyList<string> OrigOps, bool IsFull,
+        string? CompileBackUnavailableReason = null);
 
     /// <summary>
     /// Stable metadata identity available before a method is imported, rendered,
@@ -1243,6 +1244,34 @@ static class FidelityCheck
             var function = IrImporter.Import(source, fullType, name, overload);
             if (function is null)
                 continue;
+            var original = MetadataInstructionProducer.Disassemble(
+                pe,
+                reader,
+                method);
+            if (original is null)
+                continue;
+            var origOps = original.Select(
+                i => CanonicalOpcode(i.OpCodeName)).ToList();
+            if (function.MemorySafetyMode
+                is MemorySafetyModeDecision.Unavailable unavailable)
+            {
+                entries.Add(new Entry(
+                    mh,
+                    name,
+                    overload,
+                    CorpusMethodIdentity.SignatureText(function.Signature),
+                    new TargetBody("", null, false),
+                    [],
+                    string.Join(" ", origOps),
+                    origOps,
+                    IsFull: false,
+                    MemorySafetyModeDecision.DescribeUnavailable(
+                        unavailable.Rules)));
+                if (entries.Count >= maxEntries)
+                    break;
+                continue;
+            }
+
             string? body;
             string? chain;
             IReadOnlyList<(string Field, string Value)> fieldInits;
@@ -1253,10 +1282,6 @@ static class FidelityCheck
             var requiredNamespaces = MemberBodyFacts.ReferencedNamespaces(function);
             PrimaryConstructorShape? primaryConstructor = PrimaryConstructorFromPrologue(
                 reader, method, MemberBodyFacts.Constructor(function).PrimaryConstructorPrologue, body);
-            var original = MetadataInstructionProducer.Disassemble(pe, reader, method);
-            if (original is null)
-                continue;
-            var origOps = original.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
             bool requiresAsync = function.RequiresAsyncMethodContext;
             var wholeMember = TryRenderTargetMember(
                 pe,
@@ -1424,7 +1449,7 @@ static class FidelityCheck
 
     static void EvaluateType(
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
-        ReferenceSet references, CSharpParseOptions parseOptions,
+        ReferenceSet references, CompilerFeatureOptions.Resolution featureOptions,
         CSharpCompilationOptions compileOptions, Func<IrFunction, DecompilerResult> render, List<CompileBackResult> results,
         int maxEntries = int.MaxValue, ClusterMode clusterMode = ClusterMode.Off,
         Func<string, bool>? typeFilter = null,
@@ -1434,7 +1459,7 @@ static class FidelityCheck
             return;
         if (CollectType(reader, pe, source, typeHandle, render, maxEntries, typeFilter, methodFilter) is not var (fullType, entries) || entries.Count == 0)
             return;
-        results.AddRange(EvaluateGrouped(reader, pe, references, parseOptions, compileOptions, fullType, typeHandle, entries, clusterMode));
+        results.AddRange(EvaluateGrouped(reader, pe, references, featureOptions, compileOptions, fullType, typeHandle, entries, clusterMode));
     }
 
     /// <summary>
@@ -1448,10 +1473,35 @@ static class FidelityCheck
     /// </summary>
     static List<CompileBackResult> EvaluateGrouped(
         MetadataReader reader, PEReader pe, ReferenceSet references,
-        CSharpParseOptions parseOptions, CSharpCompilationOptions compileOptions,
+        CompilerFeatureOptions.Resolution featureOptions,
+        CSharpCompilationOptions compileOptions,
         string fullType, TypeDefinitionHandle typeHandle, IReadOnlyList<Entry> entries,
         ClusterMode clusterMode = ClusterMode.Off, FidelityPhaseTimings? timings = null)
     {
+        string? unavailableReason = featureOptions
+            is CompilerFeatureOptions.Resolution.Unavailable unavailable
+                ? unavailable.Reason
+                : entries
+                    .Select(entry => entry.CompileBackUnavailableReason)
+                    .FirstOrDefault(reason => reason is not null);
+        if (unavailableReason is not null)
+        {
+            return entries.Select(entry => new CompileBackResult(
+                fullType,
+                entry.Name,
+                entry.Overload,
+                entry.Signature,
+                CompileBackStatus.FidelityUnavailable,
+                entry.OrigText,
+                "",
+                "memory-safety-mode-unavailable: " + unavailableReason))
+                .ToList();
+        }
+
+        var parseOptions =
+            ((CompilerFeatureOptions.Resolution.Available)featureOptions)
+            .Options;
+
         // CB_CLUSTER selects the operational escalation path for the console runs.
         if (clusterMode == ClusterMode.Off && Environment.GetEnvironmentVariable("CB_CLUSTER") is not null)
             clusterMode = ClusterMode.Escalate;
@@ -2545,7 +2595,7 @@ static class FidelityCheck
 
     static void RunType(
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
-        ReferenceSet references, CSharpParseOptions parseOptions,
+        ReferenceSet references, CompilerFeatureOptions.Resolution featureOptions,
         CSharpCompilationOptions compileOptions, int cap, int maxExamples,
         Func<IrFunction, DecompilerResult> render,
         ref int total, ref int full, ref int exact, ref int contextFail,
@@ -2574,7 +2624,7 @@ static class FidelityCheck
         if (collected is not var (fullType, entries) || entries.Count == 0)
             return;
 
-        var results = EvaluateGrouped(reader, pe, references, parseOptions, compileOptions, fullType, typeHandle, entries, timings: timings);
+        var results = EvaluateGrouped(reader, pe, references, featureOptions, compileOptions, fullType, typeHandle, entries, timings: timings);
         for (int i = 0; i < results.Count; i++)
         {
             if (total >= cap)

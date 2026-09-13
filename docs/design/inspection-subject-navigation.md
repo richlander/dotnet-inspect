@@ -12,20 +12,21 @@ This is the target architecture for issue #4794, corrected by #5582 after the
 approved split of #5434 and PR #5524 to de-conflate Workspace,
 retained-coordinate selection, and Package inspection. Issue #5013 completes
 its focused lens-recommendation semantics. The
-coordinate-rooted structural kind and exact subject identity subset is
+Workspace-rooted structural kind and exact subject identity family is
 implemented by
 `StructuralSubjectIdentity` and gated by
-`StructuralSubjectIdentityTests.KindVocabulary_IsClosedAndStructurallyOrdered`,
+`StructuralSubjectIdentityTests.WorkspaceSubject_BindsOneExactWorkspaceOccurrence`,
+`KindVocabulary_IsClosedAndWorkspaceRooted`,
 `Identities_BindExactOwnerIssuedComponents`,
+`PortableCoordinateAlone_CannotIdentifyRetainedPackageSubject`,
+`PackageSubject_RequiresPackageOccurrence`,
 `MemberIdentity_BindsExactDeclaringTypeAndAnchor`, and
-`Construction_RejectsAbsentOwnerIssuedComponents`. That implementation does
-not yet include Workspace or Package subjects or bind descendants to an exact
-Workspace occurrence. Exact lens identity, retained evaluation bases, and pure
-lens recommendation are implemented by `NavigationLensRecommendation` and
-gated at their claims below for the implemented subject subset. Pure initial
+`Construction_RejectsAbsentOwnerIssuedComponents`. Exact lens identity,
+retained evaluation bases, and pure lens recommendation are implemented by
+`NavigationLensRecommendation` and gated at their claims below. Pure initial
 subject ranking over available Library candidates and their retained Type
-inventory is implemented by `NavigationInitialSubjectRecommendation`
-and gated at its claim below for one already selected coordinate occurrence.
+inventory is implemented by `NavigationInitialSubjectRecommendation` and gated
+at its claim below for one already selected Package occurrence.
 Generation-free classification of bounded Type and Member inventory evidence
 is implemented by
 `NavigationSubjectInventoryClassification` and gated at its claim below. Pure
@@ -33,17 +34,70 @@ standalone exact-lens activation is implemented by
 `NavigationLensActivation` and gated by
 `StandaloneLensActivation_RejectsDifferentExactSubjectBeforeRegistryResolution`,
 `ExplicitLensResolution_MapsEveryRegistryOutcomeWithoutFallback`, and
-`ExplicitLensResolution_RetainsExactRegistryEvidence`. Workspace and Package
-identity as a Navigation subject, snapshot installation, reconciliation,
-revision behavior, retained sessions, synchronization, and restoration remain
-unverified until their implementation gates in
-[Verification](#verification) land. The workspace-owned identity prerequisite
-is implemented by `InspectionWorkspaceIdentity`; the first package descriptor
-composition and exact view-scoped activation slice is implemented by
-`InspectionWorkspacePackageOccurrenceView` for the Inspect Web and CLI
-consumers. This slice does not install or mutate Navigation state. Registry
-adoption is tracked by #5509, and portable
-Workspace/Package subject projection by #5525.
+`ExplicitLensResolution_RetainsExactRegistryEvidence`.
+
+Pure stateless Workspace-rooted snapshot composition is implemented by
+`NavigationWorkspaceSnapshotEvaluation`. It preserves exact Workspace and
+occurrence identity, ordered Package descriptors, retained hierarchy, bounded
+Type and Member inventory, complete target-aware Registry options, and the
+effective or non-effective recommendation basis. It is gated by
+`NavigationWorkspaceSnapshotTests.ZeroOneOrManyOccurrences_DoNotInventActiveOccurrence`,
+`ExactSelectedOccurrence_PreservesAncestryInventoriesAndEvidence`, and
+`PerSubjectAvailabilityProvider_RetainsUnavailableAndFailedEvidence`,
+`SubjectlessRetainedContext_IsRejectedBeforeRecommendation`,
+`MemberHierarchy_UnresolvedEvidenceIsFailed`,
+`PreparedPackage_RequiresExactOwnerIssuedAssetParticipantAssociation`,
+`TypeHierarchy_UsesTheExactLibraryInventoryOutcome`,
+`SelectorMiss_RetainsIncompleteScopedInventoryEvidence`, and
+`MemberSelector_UsesTheSelectedContainingTypeInventory`.
+
+The pure stateless descendant subject plus exact-lens mapping is implemented by
+`NavigationDescendantLensEvaluation`. It validates the exact source,
+Workspace, occurrence, and eligible Library-to-Type or Type-to-Member
+relationship before Registry resolution, then reuses
+`NavigationLensActivation.ResolveExact` without recommendation or partial
+installation. It is gated by
+`NavigationDescendantLensEvaluationTests.LibraryToType_AppliesExactDestinationPair`,
+`AllLibrariesType_RetainsExactDefiningLibrary`,
+`TypeToMember_AppliesExactDestinationPair`,
+`InvalidAncestry_RejectsBeforeRegistryResolution`, and
+`NonAvailableDestinationLenses_InstallNeitherRequestedHalf`.
+
+The CLI `workspace` consumer evaluates this product result and lowers its
+portable projection through Markout and structured formats. Its focused gates
+are
+`WorkspaceCommandTests.ActivePackage_ProjectsPortableNavigationThroughJson`,
+`ExactTypeAndMemberLens_UseAtomicStatelessNavigation`,
+`UnknownDestinationLens_RetainsSourceAndDiagnostic`,
+`ActivePackage_MarkdownLowersNavigationThroughMarkout`, and
+`ActivePackage_JsonlCarriesPortableDescriptorRecords`,
+`ActivePackage_ActiveEntriesExecuteAndTombstoneRemainsRetired`,
+`PortableSelectors_RoundTripThroughDisplayContainment`,
+`PortableSelectors_RoundTripThroughSupportedOutputFormats`,
+`PortableSelectors_PreservePrintableAsciiThroughMarkdown`,
+`GenericTypeSelector_CopiesFromMarkdownAndRebinds`,
+`WhitespaceOnlyTypeSelector_CopiesAndRebinds`,
+`WhitespaceOnlyTypeSelector_RebindsAdvertisedIdentity`,
+`MissingType_RendersNonSuccessSnapshotAndDiagnostic`,
+`RootOnlyAllLibraries_RendersTypedUnavailableSnapshot`, and
+`AllLibrariesRejectsIgnoredLibraryWithoutTypeDestination`. Default package
+inventory, row selection, and Count remain unchanged. Portable Type and Member
+rows retain defining Library asset IDs; Member rows distinguish containing
+from declaring Type. Portable Library, Type, and Member selectors use a
+reversible backslash transport spelling before display containment and
+tabular lowering, and the CLI decodes that spelling before exact ordinal
+resolution. Exact selector identity is nonempty rather than non-whitespace;
+metadata names made only of whitespace or line separators remain selectable.
+Runtime Workspace, occurrence, generation, action, and authority identities
+are not serialized.
+
+Snapshot installation, reconciliation, revision behavior, retained sessions,
+synchronization, and restoration remain unverified until their implementation
+gates in [Verification](#verification) land. The workspace-owned identity
+prerequisite is implemented by `InspectionWorkspaceIdentity`; the observational
+occurrence view remains available for its unmigrated Browser consumer.
+Registry adoption is tracked by #5509, and portable Workspace/Package subject
+projection by #5525.
 
 The concurrency claims are specified separately as executable TLA+ models under
 [`models/inspection-subject-navigation/`](models/inspection-subject-navigation/).
@@ -661,18 +715,18 @@ This classification is gated by
 `ProjectionTruncation_NeverProvesUnavailability`,
 `ProducerEvidence_IsRetainedWithoutTranslation`,
 `InitialCandidates_ContainOnlyTrustworthyExactRows`, and
-`InventoryJoin_RequiresExactParticipantRegistration` for the implemented
-coordinate-rooted subset. Workspace-occurrence binding remains unverified.
+`InventoryJoin_RequiresExactParticipantRegistration`, and
+`Inventories_PreserveExactPackageAncestryAndSequenceEquality`.
 
 The pure ranking over available Library candidates is gated by
-`NavigationInitialSubjectRecommendationTests.InitialRecommendation_PrefersOneLibraryThenAggregateThenRoot`,
+`NavigationInitialSubjectRecommendationTests.InitialRecommendation_PrefersLibraryThenPackage`,
 `LibraryRecommendation_UsesPrimaryThenProducerOrderRegardlessOfTypes`, and
 `InitialRecommendation_NeverChoosesTypeOrMember`. Candidate coordinate, Library,
 Type, primary-role, and accessibility consistency is gated by
 `CandidateConstruction_RejectsInconsistentOwnerIssuedEvidence`. The bounded
 classification above supplies the trustworthy Type candidates and retains
 availability and failure evidence. These gates establish ranking only after one
-coordinate occurrence is selected; they do not choose among Workspace
+Package occurrence is selected; they do not choose among Workspace
 inventory entries.
 
 ### Lens recommendation
@@ -1224,12 +1278,15 @@ current-authority collection publication and active-identity selection.
 Navigation owns only the new Workspace's
 internally complete current snapshot.
 
-Selecting a loaded coordinate, Library, Type, or Member in Spotlight uses
-ordinary Navigation inside the active Workspace and never enters this
-construction path. Selecting an external package creates a fresh one-package
-Workspace; the full Workspace editor may create a Workspace with multiple
-explicit package Roots. In either case, subject focus remains independent from
-membership, and traversal-derived libraries do not become explicit Roots.
+Selecting an already admitted coordinate, Library, Type, or Member in
+Spotlight uses ordinary Navigation inside the active Workspace and never
+enters this construction path. The
+[Spotlight destination-activation
+owner](inspect-web-spotlight-destination-activation.md) separately classifies
+registration-covered and uncovered destinations and consumes Navigation only
+through owner-issued actions and initialization inputs. This document does not
+define that Spotlight orchestration. Covered Platform Libraries remain outside
+this shared grammar because this version has no Platform structural subject.
 
 The current version-2 shape cannot yet represent an explicitly selected
 Workspace or carry an optional retained occurrence and descendant context

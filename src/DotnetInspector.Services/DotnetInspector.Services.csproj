@@ -14,12 +14,14 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Using Include="DotnetInspector.Networking" />
     <Using Include="ILInspector.SourceLink" />
     <InternalsVisibleTo Include="DotnetInspector.Services.Tests" />
     <InternalsVisibleTo Include="DotnetInspect.Cli.Tests" />
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\DotnetInspector.Cache\DotnetInspector.Cache.csproj" />
     <ProjectReference Include="../CSharpText/CSharpText.csproj" />
     <ProjectReference Include="../CSharpText.MemberSlicing/CSharpText.MemberSlicing.csproj" />
     <ProjectReference Include="../ILInspector.Metadata/ILInspector.Metadata.csproj" />
@@ -27,6 +29,8 @@
     <ProjectReference Include="../ILInspector.SourceLink/ILInspector.SourceLink.csproj" />
     <ProjectReference Include="../Inspector.Text/Inspector.Text.csproj" />
     <ProjectReference Include="../DotnetInspector.Core/DotnetInspector.Core.csproj" />
+    <ProjectReference Include="../DotnetInspector.DependencyManifests/DotnetInspector.DependencyManifests.csproj" />
+    <ProjectReference Include="../DotnetInspector.Networking/DotnetInspector.Networking.csproj" />
     <ProjectReference Include="../DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
     <ProjectReference Include="../InertText/InertText.csproj" />
   </ItemGroup>

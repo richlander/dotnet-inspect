@@ -99,6 +99,7 @@ internal sealed class ChangeRoutingPolicy
 
         return new RoutingSelections(
             state.Code,
+            state.RepositoryGuards,
             state.CSharpDiff,
             state.Decompiler,
             state.Docs,
@@ -155,6 +156,11 @@ internal sealed class ChangeRoutingPolicy
 
     private void RoutePath(ReadOnlySpan<byte> path, ref RoutingState state)
     {
+        if (BytePattern.Matches(path, "*.cs"))
+        {
+            state.RepositoryGuards = true;
+        }
+
         if (IsWebProjectPath(path))
         {
             state.Code = true;
@@ -486,6 +492,12 @@ internal sealed class ChangeRoutingPolicy
         {
             state.Decompiler = true;
         }
+        else if (BytePattern.Matches(
+            path,
+            "tests/DecompilerHarness.Tests/*"))
+        {
+            state.Decompiler = true;
+        }
         else if (BytePattern.MatchesAny(
                 path,
                 "fixtures/*",
@@ -507,6 +519,7 @@ internal sealed class ChangeRoutingPolicy
             "tests/DotnetInspector.ILRoundtrip.Tests/*",
             "eng/restore-ilassembler.sh",
             "src/ILInspector.Metadata*",
+            "src/DotnetInspector.Cache/*",
             "src/DotnetInspector.Core/*",
             "*.props",
             "*.targets",
@@ -578,6 +591,7 @@ internal sealed class ChangeRoutingPolicy
     private struct RoutingState
     {
         internal bool Code;
+        internal bool RepositoryGuards;
         internal bool CSharpDiff;
         internal bool Decompiler;
         internal bool Docs;

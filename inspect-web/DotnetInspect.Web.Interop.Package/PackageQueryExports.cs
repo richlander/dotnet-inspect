@@ -37,56 +37,18 @@ namespace DotnetInspect.Web.Interop.Package
                             facet.DisplayGroupLabel)),
                 ]);
 
-        internal static BrowserGalleryDiscoveryCatalog GalleryCatalog() =>
-            new(
-                new BrowserGalleryPackageTypeFacet(
-                    NuGetGalleryDiscoveryCatalog.PackageType.Id,
-                    NuGetGalleryDiscoveryCatalog.PackageType.Label,
-                    NuGetGalleryDiscoveryCatalog.PackageType.Summary,
-                    [
-                        .. NuGetGalleryDiscoveryCatalog.PackageType.Suggestions
-                            .Select(suggestion => new BrowserGalleryPackageTypeSuggestion(
-                                suggestion.Value.Name,
-                                suggestion.Label)),
-                    ]),
-                [
-                    .. NuGetGalleryDiscoveryCatalog.Orders.Select(order =>
-                        new BrowserGalleryDiscoveryOrder(
-                            order.Id,
-                            order.Label,
-                            order.Summary)),
-                ]);
-
         internal static PackageQueryPlanResult Plan(
             string text,
             string[] facetIds,
             int maximumCandidates,
             int maximumMatches,
-            bool includePrerelease,
-            string? packageType = null,
-            string? sourceOrderId = null,
-            bool discovery = false) =>
-            discovery
-                ? PackageQuery.PlanGallery(
-                    new NuGetGalleryDiscoveryRequest(
-                        PackageSourceDescriptor.NuGetGallery,
-                        maximumCandidates,
-                        text,
-                        packageType is null
-                            ? null
-                            : NuGetGalleryDiscoveryCatalog.PackageType.Select(packageType),
-                        sourceOrderId is null
-                            ? null
-                            : NuGetGalleryDiscoveryCatalog.GetOrder(sourceOrderId).Order,
-                        includePrerelease),
-                    facetIds,
-                    maximumMatches)
-                : PackageQuery.PlanInput(
-                    text,
-                    facetIds,
-                    maximumCandidates,
-                    maximumMatches,
-                    includePrerelease);
+            bool includePrerelease) =>
+            PackageQuery.PlanInput(
+                text,
+                facetIds,
+                maximumCandidates,
+                maximumMatches,
+                includePrerelease);
 
         internal static async Task<BrowserPackageQueryEvent> ExecuteAsync(
             string prefix,
@@ -97,10 +59,7 @@ namespace DotnetInspect.Web.Interop.Package
             BrowserPackageQueryMatchCredit? matchCredit,
             Action<BrowserPackageQueryEvent> emit,
             CancellationToken cancellationToken,
-            BrowserPackageWorkspace.BrowserPackageOperationDeadline? deadline = null,
-            string? packageType = null,
-            string? sourceOrderId = null,
-            bool discovery = false)
+            BrowserPackageWorkspace.BrowserPackageOperationDeadline? deadline = null)
             => await ExecuteAsync(
                 prefix,
                 facetIds,
@@ -111,10 +70,7 @@ namespace DotnetInspect.Web.Interop.Package
                 matchCredit,
                 emit,
                 cancellationToken,
-                deadline,
-                packageType,
-                sourceOrderId,
-                discovery).ConfigureAwait(false);
+                deadline).ConfigureAwait(false);
 
         internal static async Task<BrowserPackageQueryEvent> ExecuteAsync(
             string prefix,
@@ -126,10 +82,7 @@ namespace DotnetInspect.Web.Interop.Package
             BrowserPackageQueryMatchCredit? matchCredit,
             Action<BrowserPackageQueryEvent> emit,
             CancellationToken cancellationToken,
-            BrowserPackageWorkspace.BrowserPackageOperationDeadline? deadline = null,
-            string? packageType = null,
-            string? sourceOrderId = null,
-            bool discovery = false)
+            BrowserPackageWorkspace.BrowserPackageOperationDeadline? deadline = null)
         {
             ArgumentNullException.ThrowIfNull(facetIds);
             ArgumentNullException.ThrowIfNull(emit);
@@ -139,10 +92,7 @@ namespace DotnetInspect.Web.Interop.Package
                 facetIds,
                 maximumCandidates,
                 maximumMatches,
-                includePrerelease,
-                packageType,
-                sourceOrderId,
-                discovery);
+                includePrerelease);
             if (planResult is PackageQueryPlanResult.Rejected rejected)
                 throw new InvalidOperationException(rejected.Failure.Message);
 
@@ -468,7 +418,9 @@ namespace DotnetInspect.Web.Interop.Package
                         completed.Value.Prefix.ToString(),
                         completed.Value.Source.Producer.Display.ToString(),
                         completed.Value.CandidateLimit,
-                        completed.Value.MatchLimit,
+                        completed.Value.MatchLimit
+                            ?? throw new InvalidOperationException(
+                                "Browser Package Query requires a match limit."),
                         completed.Value.Candidates,
                         completed.Value.Matches,
                         completed.Value.Failures,
@@ -486,15 +438,12 @@ namespace DotnetInspect.Web.Interop.Package
                                 BrowserPackageQueryCompletionKind.ClientPageLimitReached,
                             PackageQueryCompletionKind.Failed =>
                                 BrowserPackageQueryCompletionKind.Failed,
-                            PackageQueryCompletionKind.GalleryResponseComplete =>
-                                BrowserPackageQueryCompletionKind.GalleryResponseComplete,
                             PackageQueryCompletionKind.ExactPackageComplete =>
                                 BrowserPackageQueryCompletionKind.ExactPackageComplete,
                             _ => throw new InvalidOperationException(
                                 "Unknown package-query completion kind."),
                         },
-                        completed.Value.SourceCandidates,
-                        completed.Value.EstimatedTotalHits)),
+                        completed.Value.SourceCandidates)),
                 _ => throw new InvalidOperationException(
                     "Unknown package-query event."),
             };
@@ -503,6 +452,49 @@ namespace DotnetInspect.Web.Interop.Package
             JsonSerializer.Serialize(
                 queryEvent,
                 BrowserPackageJsonContext.Default.BrowserPackageQueryEvent);
+
+        static readonly Lazy<Task> SerializationPreparation =
+            new(PrepareSerializationAsync);
+
+        internal static void StartSerializationPreparation() =>
+            _ = SerializationPreparation.Value;
+
+        internal static Task WaitForSerializationPreparationAsync() =>
+            SerializationPreparation.Value;
+
+        static async Task PrepareSerializationAsync()
+        {
+            await Task.Yield();
+            // These payloads compile the event writers but never cross the Browser boundary.
+            _ = Serialize(new BrowserPackageQueryEvent(
+                BrowserPackageQueryEventKind.Progress,
+                Row: null,
+                Failure: null,
+                Completion: null,
+                Progress: new BrowserPackageQueryProgress(
+                    BrowserPackageQueryProgressPhase.Search,
+                    Completed: 0,
+                    Limit: 1)));
+            _ = Serialize(new BrowserPackageQueryEvent(
+                BrowserPackageQueryEventKind.Match,
+                Row: new BrowserPackageQueryRow(
+                    "",
+                    "",
+                    BrowserPackageQueryFacetTier.SearchMetadata,
+                    [
+                        new BrowserPackageQueryEvidence(
+                            "",
+                            "",
+                            BrowserPackageQueryEvidenceScope.Query,
+                            new BrowserPackageQueryEvidenceSummary(0, [""])),
+                    ],
+                    TotalDownloads: 0,
+                    Verified: false,
+                    Producer: "",
+                    Description: ""),
+                Failure: null,
+                Completion: null));
+        }
     }
 }
 
@@ -524,16 +516,14 @@ public static partial class PackageExports
             BrowserPackageJsonContext.Default.BrowserPackageAssemblyQueryPatternArray);
 
     [JSExport]
-    public static string ListPackageQueryFacets() =>
-        JsonSerializer.Serialize(
+    public static string ListPackageQueryFacets()
+    {
+        string result = JsonSerializer.Serialize(
             BrowserPackageQueryOperations.Facets(),
             BrowserPackageJsonContext.Default.BrowserPackageQueryFacetCatalog);
-
-    [JSExport]
-    public static string ListGalleryDiscoveryCatalog() =>
-        JsonSerializer.Serialize(
-            BrowserPackageQueryOperations.GalleryCatalog(),
-            BrowserPackageJsonContext.Default.BrowserGalleryDiscoveryCatalog);
+        BrowserPackageQueryOperations.StartSerializationPreparation();
+        return result;
+    }
 
     [JSExport]
     public static string CancelPackageQuery(
@@ -594,8 +584,13 @@ public static partial class PackageExports
                 queryEvent => eventSink.SetProperty(
                     "event",
                     BrowserPackageQueryOperations.Serialize(queryEvent)),
-                (matchCredit, events, token) =>
-                    BrowserPackageWorkspace.RunPackageOperationAsync(
+                async (matchCredit, events, token) =>
+                {
+                    await BrowserPackageQueryOperations
+                        .WaitForSerializationPreparationAsync()
+                        .WaitAsync(token)
+                        .ConfigureAwait(false);
+                    return await BrowserPackageWorkspace.RunPackageOperationAsync(
                         deadline =>
                             BrowserPackageQueryOperations.ExecuteAssemblyAsync(
                                 plan,
@@ -604,7 +599,8 @@ public static partial class PackageExports
                                 deadline.Token,
                                 deadline),
                         BrowserPackageWorkspace.PackageOperationTimeout,
-                        token));
+                        token).ConfigureAwait(false);
+                });
         return JsonSerializer.Serialize(
             BrowserPackageQueryResult.From(result),
             BrowserPackageJsonContext.Default.BrowserPackageQueryResult);
@@ -639,10 +635,7 @@ public static partial class PackageExports
         int maximumMatches,
         bool includePrerelease,
         int initialMatchCredit,
-        JSObject eventSink,
-        string? packageType,
-        string? sourceOrderId,
-        bool discovery)
+        JSObject eventSink)
     {
         ArgumentNullException.ThrowIfNull(eventSink);
         string[] facetIds = JsonSerializer.Deserialize(
@@ -662,7 +655,12 @@ public static partial class PackageExports
                     "event",
                     BrowserPackageQueryOperations.Serialize(queryEvent)),
                 async (matchCredit, events, token) =>
-                    await BrowserPackageWorkspace.RunPackageOperationAsync(
+                {
+                    await BrowserPackageQueryOperations
+                        .WaitForSerializationPreparationAsync()
+                        .WaitAsync(token)
+                        .ConfigureAwait(false);
+                    return await BrowserPackageWorkspace.RunPackageOperationAsync(
                         async deadline =>
                         {
                             var contentProvider =
@@ -677,13 +675,11 @@ public static partial class PackageExports
                                 matchCredit,
                                 events.Report,
                                 deadline.Token,
-                                deadline,
-                                packageType,
-                                sourceOrderId,
-                                discovery);
+                                deadline);
                         },
                         BrowserPackageWorkspace.PackageOperationTimeout,
-                        token));
+                        token).ConfigureAwait(false);
+                });
         return JsonSerializer.Serialize(
             BrowserPackageQueryResult.From(result),
             BrowserPackageJsonContext.Default.BrowserPackageQueryResult);

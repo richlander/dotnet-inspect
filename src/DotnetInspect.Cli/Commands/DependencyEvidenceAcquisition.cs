@@ -40,7 +40,25 @@ internal delegate Task<PackageVersionDiscoveryResult> DependencyEvidenceVersionD
     CancellationToken cancellationToken);
 
 /// <summary>
-/// Thin acquisition adapters for <c>dependency-evidence</c> roots.
+/// One ordered explicit root after acquisition, retaining the request slot and any restored
+/// traversal produced from the exact bytes used for evidence.
+/// </summary>
+internal sealed record DependencyEvidenceAcquiredRoot(
+    DependsAssetRoot Root,
+    int? InputIndex,
+    int? FailureIndex,
+    RestoredProjectDependencyTraversalResult? RestoredTraversal);
+
+/// <summary>
+/// The evidence request plus occurrence-preserving sidecars needed by unified <c>depends</c>.
+/// </summary>
+internal sealed record DependencyEvidenceAcquisitionBatch(
+    PackageDependencyEvidenceRequest Request,
+    ImmutableArray<DependencyEvidenceAcquiredRoot> Roots);
+
+/// <summary>
+/// Thin acquisition adapters for normalized evidence used by asset-mode
+/// <c>depends</c>.
 /// </summary>
 /// <remarks>
 /// Every adapter's only job is to turn one explicitly authorized input into bytes or typed facts
@@ -54,53 +72,43 @@ internal static class DependencyEvidenceAcquisition
     internal const int PackageProfileDefaultLimit = 500;
     internal const int PackageProfileMaximumLimit = 1_000;
 
-    /// <summary>Acquires the explicitly named package, nuspec, and project roots.</summary>
-    /// <remarks>
-    /// <para>
-    /// Every named root is one explicit gesture, so one unusable gesture is one typed failed
-    /// root: no root aborts the request, and none is silently rebound to a different input.
-    /// </para>
-    /// <para>
-    /// One package-owned source composition serves the whole request. It is the same lifetime
-    /// <see cref="CommandContext.CreatePackageSourceComposition"/> gives other commands — one
-    /// composition over this request's deadline, owned and disposed exactly once — and it is
-    /// created only when a remote package root asks a version or manifest question, so a
-    /// nuspec-only or archive-only request builds no source runtime at all.
-    /// </para>
-    /// </remarks>
-    public static async Task<PackageDependencyEvidenceRequest> AcquireExplicitRootsAsync(
-        DependencyEvidenceOptions options,
-        HttpClient httpClient,
-        Action<string>? log,
-        CancellationToken cancellationToken,
-        IPackageSourceAuthorization? authorization = null,
-        DependencyEvidenceCoordinateResolver? resolveCoordinate = null,
-        DependencyEvidenceVersionDiscovery? discoverVersions = null,
-        Func<TimeSpan, DesktopPackageSourceComposition>? createComposition = null)
+    /// <summary>
+    /// Acquires ordered package, nuspec, and restored-project roots for unified
+    /// <c>depends</c> while retaining occurrence correspondence and exact restored bytes.
+    /// </summary>
+    internal static async Task<DependencyEvidenceAcquisitionBatch>
+        AcquireDependsRootsAsync(
+            IReadOnlyList<DependsAssetRoot> requestedRoots,
+            DependencyEvidenceAcquisitionOptions options,
+            HttpClient httpClient,
+            Action<string>? log,
+            DesktopPackageSourceComposition composition,
+            NuGetOperationContext operationContext,
+            bool graphRequested,
+            int? maximumDepth,
+            CancellationToken cancellationToken,
+            IPackageSourceAuthorization? authorization = null,
+            DependencyEvidenceCoordinateResolver? resolveCoordinate = null,
+            DependencyEvidenceVersionDiscovery? discoverVersions = null)
     {
+        ArgumentNullException.ThrowIfNull(requestedRoots);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(httpClient);
+        ArgumentNullException.ThrowIfNull(composition);
+        ArgumentNullException.ThrowIfNull(operationContext);
 
         IPackageSourceAuthorization sourceAuthorization = authorization
             ?? new SourcePolicyPackageSourceAuthorization(options.SourceOptions);
-        DesktopPackageSourceComposition? composition = null;
-        DesktopPackageSourceComposition GetComposition() =>
-            composition ??= createComposition?.Invoke(httpClient.Timeout)
-                ?? new DesktopPackageSourceComposition(httpClient.Timeout);
         DependencyEvidenceVersionDiscovery discovery = discoverVersions
             ?? ((packageId, includePrerelease, token) =>
-            {
-                return GetComposition().GetVersionsAsync(
+                composition.GetVersionsAsync(
                     packageId,
                     includePrerelease,
-                    // The composition sorts every authority's evidence together before it
-                    // limits, so one row is the global latest acceptable version rather than
-                    // the first authority's.
                     limit: 1,
                     options.SourceOptions,
                     log,
-                    token);
-            });
+                    token,
+                    operationContext: operationContext));
         DependencyEvidenceCoordinateResolver resolver = resolveCoordinate
             ?? ((coordinate, sources, includePrerelease, token) =>
                 ResolveCoordinateAsync(
@@ -112,55 +120,81 @@ internal static class DependencyEvidenceAcquisition
                     includePrerelease,
                     token));
 
-        var roots = ImmutableArray.CreateBuilder<PackageDependencyEvidenceInput>();
+        var roots =
+            ImmutableArray.CreateBuilder<PackageDependencyEvidenceInput>();
         var failures =
             ImmutableArray.CreateBuilder<PackageDependencyEvidenceRootFailure>();
+        var acquired =
+            ImmutableArray.CreateBuilder<DependencyEvidenceAcquiredRoot>();
 
-        try
+        foreach (DependsAssetRoot requested in requestedRoots)
         {
-            foreach (string package in options.Packages)
+            cancellationToken.ThrowIfCancellationRequested();
+            if (requested.Kind == DependsAssetRootKind.Library)
+                continue;
+
+            int inputIndex = roots.Count;
+            int failureIndex = failures.Count;
+            RestoredProjectDependencyTraversalResult? restoredTraversal = null;
+            switch (requested.Kind)
             {
-                await AcquirePackageAsync(
-                    package,
-                    options,
-                    sourceAuthorization,
-                    resolver,
-                    GetComposition,
-                    httpClient,
-                    roots,
-                    failures,
-                    cancellationToken).ConfigureAwait(false);
+                case DependsAssetRootKind.Package:
+                    await AcquirePackageAsync(
+                        requested.Value,
+                        options,
+                        sourceAuthorization,
+                        resolver,
+                        () => composition,
+                        httpClient,
+                        roots,
+                        failures,
+                        cancellationToken,
+                        operationContext).ConfigureAwait(false);
+                    break;
+                case DependsAssetRootKind.Nuspec:
+                    await AcquireNuspecAsync(
+                        requested.Value,
+                        options.Tfm,
+                        roots,
+                        failures,
+                        cancellationToken).ConfigureAwait(false);
+                    break;
+                case DependsAssetRootKind.Project:
+                    restoredTraversal = await AcquireProjectAsync(
+                        requested.Value,
+                        options.Tfm,
+                        roots,
+                        failures,
+                        cancellationToken,
+                        graphRequested,
+                        maximumDepth).ConfigureAwait(false);
+                    break;
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown dependency asset root kind.");
             }
 
-            foreach (string nuspec in options.Nuspecs)
+            bool admitted = roots.Count == inputIndex + 1;
+            bool failed = failures.Count == failureIndex + 1;
+            if (admitted == failed)
             {
-                await AcquireNuspecAsync(
-                    nuspec,
-                    options.Tfm,
-                    roots,
-                    failures,
-                    cancellationToken).ConfigureAwait(false);
+                throw new InvalidOperationException(
+                    "Each explicit dependency root must produce exactly one admitted input or one typed failure.");
             }
 
-            foreach (string project in options.Projects)
-            {
-                await AcquireProjectAsync(
-                    project,
-                    options.Tfm,
-                    roots,
-                    failures,
-                    cancellationToken).ConfigureAwait(false);
-            }
+            acquired.Add(
+                new DependencyEvidenceAcquiredRoot(
+                    requested,
+                    admitted ? inputIndex : null,
+                    failed ? failureIndex : null,
+                    restoredTraversal));
         }
-        finally
-        {
-            if (composition is not null)
-                await composition.DisposeAsync().ConfigureAwait(false);
-        }
 
-        return new PackageDependencyEvidenceRequest(
-            roots.ToImmutable(),
-            failures.ToImmutable());
+        return new DependencyEvidenceAcquisitionBatch(
+            new PackageDependencyEvidenceRequest(
+                roots.ToImmutable(),
+                failures.ToImmutable()),
+            acquired.ToImmutable());
     }
 
     /// <summary>
@@ -198,6 +232,39 @@ internal static class DependencyEvidenceAcquisition
                 summary,
                 targetFramework),
             summary);
+    }
+
+    /// <summary>
+    /// Acquires a bounded package-prefix request from the public Gallery.
+    /// </summary>
+    internal static async Task<(
+        PackageDependencyEvidenceRequest Request,
+        PackageProfileSummary Summary)> AcquireGalleryPackagePrefixAsync(
+            string prefix,
+            DependencyEvidenceAcquisitionOptions options,
+            CommandContext context,
+            CancellationToken cancellationToken)
+    {
+        NuGetFetchOptions fetchOptions =
+            NuGetFetchOptions.FromRequestTimeout(context.HttpClient.Timeout);
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create(),
+                DotnetInspector.Networking.HttpClientFactory
+                    .CreateCredentialFreeHandler(),
+                fetchOptions);
+        using var operationContext = new NuGetOperationContext(
+            fetchOptions.RequestTimeout,
+            fetchOptions.OperationTimeout,
+            cancellationToken);
+        return await AcquirePackagePrefixAsync(
+            source,
+            new PackagePrefixProfileRequest(
+                prefix,
+                options.MaxPackages ?? PackageProfileDefaultLimit),
+            options.Tfm,
+            operationContext,
+            cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Whether a package target names a local archive rather than a remote coordinate.</summary>
@@ -349,14 +416,15 @@ internal static class DependencyEvidenceAcquisition
 
     private static async Task AcquirePackageAsync(
         string package,
-        DependencyEvidenceOptions options,
+        DependencyEvidenceAcquisitionOptions options,
         IPackageSourceAuthorization authorization,
         DependencyEvidenceCoordinateResolver resolveCoordinate,
         Func<DesktopPackageSourceComposition> getComposition,
         HttpClient httpClient,
         ImmutableArray<PackageDependencyEvidenceInput>.Builder roots,
         ImmutableArray<PackageDependencyEvidenceRootFailure>.Builder failures,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        NuGetOperationContext? operationContext)
     {
         InertString label = Label(package);
         if (IsLocalArchiveTarget(package))
@@ -485,41 +553,52 @@ internal static class DependencyEvidenceAcquisition
             httpClient,
             roots,
             failures,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            operationContext).ConfigureAwait(false);
     }
 
     private static async Task AcquireSourceManifestAsync(
         PackageSourceCoordinate coordinate,
         IReadOnlyList<ConfiguredPackageAuthority> authorities,
-        DependencyEvidenceOptions options,
+        DependencyEvidenceAcquisitionOptions options,
         InertString label,
         DesktopPackageSourceComposition composition,
         HttpClient httpClient,
         ImmutableArray<PackageDependencyEvidenceInput>.Builder roots,
         ImmutableArray<PackageDependencyEvidenceRootFailure>.Builder failures,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        NuGetOperationContext? operationContext)
     {
-        NuGetFetchOptions fetchOptions =
-            NuGetFetchOptions.FromRequestTimeout(httpClient.Timeout);
-        using var operationContext = new NuGetOperationContext(
-            fetchOptions.RequestTimeout,
-            fetchOptions.OperationTimeout,
-            cancellationToken);
-        await AcquireSourceManifestAsync(
-            coordinate,
-            authorities,
-            (authority, requested, context, token) =>
-                composition.GetManifestAsync(
-                    authority,
-                    requested,
-                    token,
-                    context),
-            options.Tfm,
-            label,
-            operationContext,
-            roots,
-            failures,
-            cancellationToken).ConfigureAwait(false);
+        NuGetOperationContext? ownedOperation = null;
+        if (operationContext is null)
+        {
+            NuGetFetchOptions fetchOptions =
+                NuGetFetchOptions.FromRequestTimeout(httpClient.Timeout);
+            ownedOperation = new NuGetOperationContext(
+                fetchOptions.RequestTimeout,
+                fetchOptions.OperationTimeout,
+                cancellationToken);
+            operationContext = ownedOperation;
+        }
+
+        using (ownedOperation)
+        {
+            await AcquireSourceManifestAsync(
+                coordinate,
+                authorities,
+                (authority, requested, context, token) =>
+                    composition.GetManifestAsync(
+                        authority,
+                        requested,
+                        token,
+                        context),
+                options.Tfm,
+                label,
+                operationContext,
+                roots,
+                failures,
+                cancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <summary>
@@ -888,18 +967,19 @@ internal static class DependencyEvidenceAcquisition
             failures);
     }
 
-    private static async Task AcquireProjectAsync(
+    private static async Task<RestoredProjectDependencyTraversalResult?>
+        AcquireProjectAsync(
         string path,
         string? targetFramework,
         ImmutableArray<PackageDependencyEvidenceInput>.Builder roots,
         ImmutableArray<PackageDependencyEvidenceRootFailure>.Builder failures,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool graphRequested,
+        int? maximumDepth)
     {
         InertString label = Label(path);
-        bool isDirectAssets = IsDirectAssetsPath(path);
-        PackageDependencyEvidenceAcquisitionForm sourceKind = isDirectAssets
-            ? PackageDependencyEvidenceAcquisitionForm.ProjectAssets
-            : PackageDependencyEvidenceAcquisitionForm.ProjectLocator;
+        PackageDependencyEvidenceAcquisitionForm sourceKind =
+            PackageDependencyEvidenceAcquisitionForm.ProjectLocator;
 
         if (IsBlankPath(path))
         {
@@ -913,7 +993,7 @@ internal static class DependencyEvidenceAcquisition
                     PackageDependencyEvidenceAcquisitionFailureReason
                         .ProducerContract,
                     label));
-            return;
+            return null;
         }
 
         string? assetsPath;
@@ -934,7 +1014,12 @@ internal static class DependencyEvidenceAcquisition
                             : PackageDependencyEvidenceAcquisitionFailureReason
                                 .NotFound,
                         label));
-                return;
+                return null;
+            }
+            if (IsDirectAssetsPath(path, assetsPath))
+            {
+                sourceKind =
+                    PackageDependencyEvidenceAcquisitionForm.ProjectAssets;
             }
         }
         catch (Exception exception) when (exception is ArgumentException
@@ -951,7 +1036,7 @@ internal static class DependencyEvidenceAcquisition
                     sourceKind,
                     PackageDependencyEvidenceAcquisitionFailureReason.NotFound,
                     label));
-            return;
+            return null;
         }
 
         byte[]? assetsBytes = await TryReadBoundedFileAsync(
@@ -966,30 +1051,68 @@ internal static class DependencyEvidenceAcquisition
                     PackageDependencyEvidenceAcquisitionFailureReason
                         .AcquisitionFailed,
                     label));
-            return;
+            return null;
         }
 
-        RestoredProjectDependencyFactsResult result =
-            RestoredProjectDependencyFactsQuery.Execute(
+        RestoredProjectTargetRequest? target =
+            string.IsNullOrWhiteSpace(targetFramework)
+                ? null
+                : new RestoredProjectTargetRequest(targetFramework);
+        RestoredProjectDependencyTraversalResult? traversal = graphRequested
+            ? RestoredProjectDependencyTraversalQuery.Execute(
                 assetsBytes,
-                string.IsNullOrWhiteSpace(targetFramework)
-                    ? null
-                    : new RestoredProjectTargetRequest(targetFramework));
-        if (result is RestoredProjectDependencyFactsResult.Failed failed)
+                new RestoredProjectDependencyTraversalRequest(
+                    target,
+                    maximumDepth))
+            : null;
+        RestoredProjectDependencyFactsResult? factsResult = graphRequested
+            ? null
+            : RestoredProjectDependencyFactsQuery.Execute(
+                assetsBytes,
+                target);
+        RestoredProjectDependencyFacts? facts = traversal switch
+        {
+            RestoredProjectDependencyTraversalResult.Available available =>
+                available.Value.Facts,
+            RestoredProjectDependencyTraversalResult.Unavailable unavailable =>
+                unavailable.Facts,
+            RestoredProjectDependencyTraversalResult.Failed
+            {
+                Failure:
+                    RestoredProjectDependencyTraversalFailure.Graph graph,
+            } => graph.Facts,
+            RestoredProjectDependencyTraversalResult.Failed
+            {
+                Failure:
+                    RestoredProjectDependencyTraversalFailure.Document document,
+            } => AddDocumentFailure(document.Failure),
+            null when factsResult is RestoredProjectDependencyFactsResult
+                .Available available => available.Value,
+            null when factsResult is RestoredProjectDependencyFactsResult
+                .Failed failed => AddDocumentFailure(failed.Failure),
+            _ => throw new InvalidOperationException(
+                "Unknown restored-project dependency result."),
+        };
+        if (facts is null)
+            return traversal;
+
+        roots.Add(
+            PackageDependencyEvidenceQuery.CreateRestoredProjectInput(
+                facts,
+                sourceKind,
+                label));
+        return traversal;
+
+        RestoredProjectDependencyFacts? AddDocumentFailure(
+            RestoredProjectDependencyFailure failure)
         {
             failures.Add(
                 new PackageDependencyEvidenceRootFailure.RestoredProject(
                     sourceKind,
-                    failed.Failure,
+                    failure,
                     label));
-            return;
+            return null;
         }
-
-        roots.Add(
-            PackageDependencyEvidenceQuery.CreateRestoredProjectInput(
-                ((RestoredProjectDependencyFactsResult.Available)result).Value,
-                sourceKind,
-                label));
     }
 
     private static void AddManifestRoot(
@@ -1089,10 +1212,30 @@ internal static class DependencyEvidenceAcquisition
         string package) =>
         DotnetInspector.Packages.PackageExtractor.ParsePackageReference(package);
 
-    /// <summary>Whether a project root names a restored assets document directly.</summary>
-    private static bool IsDirectAssetsPath(string path) =>
-        Path.GetFileName(path.AsSpan())
-            .Equals("project.assets.json", StringComparison.OrdinalIgnoreCase);
+    /// <summary>
+    /// Whether the admitted existing file is itself the selected restored
+    /// assets document.
+    /// </summary>
+    private static bool IsDirectAssetsPath(
+        string path,
+        string assetsPath)
+    {
+        if (!File.Exists(path)
+            || !Path.GetFileName(path.AsSpan())
+                .Equals(
+                    "project.assets.json",
+                    StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        StringComparison comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        return Path.GetFullPath(path).Equals(
+            Path.GetFullPath(assetsPath),
+            comparison);
+    }
 
     /// <summary>
     /// Whether an explicit path gesture names nothing. A blank spelling is a contract failure

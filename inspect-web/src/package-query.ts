@@ -28,8 +28,6 @@ const PACKAGE_QUERY_MATCH_CREDIT_BATCH = 10;
 const PACKAGE_QUERY_MATCH_CREDIT_THRESHOLD = 5;
 
 export interface QuerySourceSelection {
-  packageType: string | null;
-  sourceOrderId: string | null;
   includePrerelease: boolean;
 }
 
@@ -47,11 +45,8 @@ export interface QueryAssemblyPatternRequest {
   packageCoordinates: readonly string[];
   targetFramework: string;
 }
-export type QueryInputKind = "package" | "gallery";
-
 /** One rerunnable in-memory request. Never encodes a resolved outcome. */
 export interface QueryRequest extends QuerySourceSelection {
-  inputKind: QueryInputKind;
   scopeQuery: string;
   facets: readonly QueryFacetTerm[];
   assemblyPattern?: QueryAssemblyPatternRequest;
@@ -66,13 +61,9 @@ export interface QueryRequest extends QuerySourceSelection {
 
 export function createQueryRequest(
   scopeQuery: string,
-  inputKind: QueryInputKind = "package",
 ): QueryRequest {
   return {
-    inputKind,
     scopeQuery,
-    packageType: null,
-    sourceOrderId: null,
     includePrerelease: false,
     facets: [],
     requestedLimit: DEFAULT_QUERY_CANDIDATE_LIMIT,
@@ -97,16 +88,6 @@ export function createAssemblyQueryRequest(
   };
 }
 
-export function withInputKind(
-  request: QueryRequest,
-  inputKind: QueryInputKind,
-): QueryRequest {
-  return {
-    ...request,
-    inputKind,
-  };
-}
-
 export function withSourceSelection(
   request: QueryRequest,
   selection: Partial<QuerySourceSelection>,
@@ -118,24 +99,21 @@ export function withSourceSelection(
 }
 
 export function shouldExecuteQuery(request: QueryRequest): boolean {
-  return request.inputKind === "gallery"
-    || request.scopeQuery.trim().length > 0;
+  return request.scopeQuery.trim().length > 0;
 }
 
 export function withScopeQuery(
   request: QueryRequest,
   scopeQuery: string,
 ): QueryRequest {
-  return galleryRequest(request, { scopeQuery });
+  return queryRequest(request, { scopeQuery });
 }
 
 export function withEditorDraft(
   request: QueryRequest,
   scopeQuery: string,
 ): QueryRequest {
-  return request.inputKind === "gallery"
-    ? request
-    : withScopeQuery(request, scopeQuery);
+  return withScopeQuery(request, scopeQuery);
 }
 
 export function withFacet(
@@ -143,7 +121,7 @@ export function withFacet(
   facet: QueryFacetTerm,
 ): QueryRequest {
   if (request.facets.some(existing => existing.key === facet.key)) {
-    return galleryRequest(request, {});
+    return queryRequest(request, {});
   }
   return withFacets(request, [...request.facets, facet]);
 }
@@ -161,7 +139,7 @@ function withFacets(
   request: QueryRequest,
   facets: readonly QueryFacetTerm[],
 ): QueryRequest {
-  return galleryRequest(request, {
+  return queryRequest(request, {
     facets,
     requestedLimit: facets.some(facet => facet.tier === "package-content")
       ? PACKAGE_CONTENT_QUERY_CANDIDATE_LIMIT
@@ -169,15 +147,12 @@ function withFacets(
   });
 }
 
-function galleryRequest(
+function queryRequest(
   request: QueryRequest,
   changes: Partial<QueryRequest>,
 ): QueryRequest {
   return {
     scopeQuery: request.scopeQuery,
-    inputKind: request.inputKind,
-    packageType: request.packageType,
-    sourceOrderId: request.sourceOrderId,
     includePrerelease: request.includePrerelease,
     facets: request.facets,
     requestedLimit: request.requestedLimit,

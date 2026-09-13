@@ -1,11 +1,7 @@
 import {
   assertNever,
-  beginSourceRequestState,
-  cancelSourceRequestState,
   graphSourceStatusIsOpen,
-  sourceRequestNeedsLoad,
   sourceSurfaceIsVisible,
-  type SourceRequestState,
   type SourceWorkbenchState,
 } from "./data.ts";
 import type {
@@ -117,17 +113,49 @@ export interface TypeSourceLoadRequest extends TypeSourceQuery {
   isVisible(): boolean;
 }
 
+export type SourceResultState<TSource = BrowserSource> =
+  | { readonly status: "idle" }
+  | {
+      readonly status: "loading";
+      readonly signature: string;
+    }
+  | {
+      readonly status: "ready";
+      readonly signature: string;
+      readonly source: TSource;
+    }
+  | {
+      readonly status: "failed";
+      readonly signature: string;
+      readonly error: string;
+    };
+
+export function sourceResultNeedsLoad(
+  state: SourceResultState,
+  signature: string,
+): boolean {
+  return state.status === "idle" || state.signature !== signature;
+}
+
+export function sourceResultForSignature<TSource>(
+  state: SourceResultState<TSource>,
+  signature: string,
+): TSource | null {
+  return state.status === "ready" && state.signature === signature
+    ? state.source
+    : null;
+}
+
+export function normalizeSourceResultSnapshot<TSource>(
+  state: SourceResultState<TSource>,
+): SourceResultState<TSource> {
+  return state.status === "loading" ? { status: "idle" } : state;
+}
+
 export interface SourceInspectionState
-  extends SourceRequestState, SourceWorkbenchState {
-  sourceRequestGeneration: number;
-  memberSource: BrowserSource | null;
-  memberSourceLoading: boolean;
-  memberSourceError: string;
-  memberSourceKey: string;
-  typeSource: BrowserSource | null;
-  typeSourceLoading: boolean;
-  typeSourceError: string;
-  typeSourceKey: string;
+  extends SourceWorkbenchState {
+  memberSource: SourceResultState;
+  typeSource: SourceResultState;
   graphSource: GraphSourceState;
   taste: string[];
 }
@@ -201,10 +229,20 @@ export function createSourceInspectionCoordinator(
     };
     return true;
   };
-  const beginSourceRequest = (): number => {
-    const generation = beginSourceRequestState(state);
+  const cancelMemberSourceRequest = (): boolean => {
+    if (state.memberSource.status !== "loading") return false;
+    state.memberSource = { status: "idle" };
+    return true;
+  };
+  const cancelTypeSourceState = (): boolean => {
+    if (state.typeSource.status !== "loading") return false;
+    state.typeSource = { status: "idle" };
+    return true;
+  };
+  const beginSourceRequest = (): void => {
+    cancelMemberSourceRequest();
+    cancelTypeSourceState();
     cancelGraphSourceRequest();
-    return generation;
   };
 
   const typeSourceOperations =
@@ -223,22 +261,27 @@ export function createSourceInspectionCoordinator(
       case "replaced": {
         const context = typeSourceContext(event.operation.id);
         beginSourceRequest();
-        state.typeSourceKey = context.request.signature;
-        state.typeSource = null;
-        state.typeSourceError = "";
-        state.typeSourceLoading = true;
+        state.typeSource = {
+          status: "loading",
+          signature: context.request.signature,
+        };
         context.preservedFocus =
           dependencies.renderPreservingMemberFocus();
         break;
       }
       case "terminal": {
         const context = typeSourceContext(event.operationId);
-        if (event.outcome.kind === "succeeded")
-          state.typeSource = event.outcome.value;
-        else
-          state.typeSourceError =
-            dependencies.describeError(event.outcome.error);
-        state.typeSourceLoading = false;
+        state.typeSource = event.outcome.kind === "succeeded"
+          ? {
+              status: "ready",
+              signature: context.request.signature,
+              source: event.outcome.value,
+            }
+          : {
+              status: "failed",
+              signature: context.request.signature,
+              error: dependencies.describeError(event.outcome.error),
+            };
         if (context.request.isVisible()) {
           dependencies.renderPreservingMemberFocus(
             context.preservedFocus,
@@ -247,14 +290,10 @@ export function createSourceInspectionCoordinator(
         break;
       }
       case "canceled":
-        state.typeSourceLoading = false;
-        state.typeSourceKey = "";
-        state.typeSourceError = "";
+        state.typeSource = { status: "idle" };
         break;
       case "disposed":
-        state.typeSourceLoading = false;
-        state.typeSourceKey = "";
-        state.typeSourceError = "";
+        state.typeSource = { status: "idle" };
         break;
       case "progress":
         break;
@@ -385,25 +424,23 @@ export function createSourceInspectionCoordinator(
     }
     return result.kind;
   };
-  const beginLegacySourceRequest = (): number => {
+  const beginLegacySourceRequest = (): void => {
     if (cancelTypeSource("superseded") === "rejected")
       throw new Error("Cannot replace source work during feature publication.");
-    return beginSourceRequest();
+    beginSourceRequest();
   };
   const cancelCurrentRequest = () => {
     const typeCancellation = cancelTypeSource("user");
     if (typeCancellation === "rejected") return false;
-    const legacyCancellation = cancelSourceRequestState(state);
+    cancelTypeSourceState();
+    const memberCancellation = cancelMemberSourceRequest();
     const graphCancellation = cancelGraphSourceRequest();
-    if (graphCancellation && !legacyCancellation) {
-      state.sourceRequestGeneration++;
-    }
-    if ((legacyCancellation || graphCancellation)
+    if ((memberCancellation || graphCancellation)
       && typeCancellation !== "applied") {
       dependencies.cancelEngineSourceRequest();
     }
     return typeCancellation === "applied"
-      || legacyCancellation
+      || memberCancellation
       || graphCancellation;
   };
   const clearGraphSource = () => {
@@ -423,52 +460,48 @@ export function createSourceInspectionCoordinator(
     clearGraphSource,
 
     async loadMemberSource(request) {
-      if (!sourceRequestNeedsLoad(
-          state.memberSourceKey === request.signature,
-          state.memberSourceLoading,
-          state.memberSource,
-          state.memberSourceError)) {
+      if (!sourceResultNeedsLoad(state.memberSource, request.signature)) {
         dependencies.render();
         return;
       }
 
-      const generation = beginLegacySourceRequest();
-      state.memberSourceKey = request.signature;
-      state.memberSource = null;
-      state.memberSourceLoading = true;
-      state.memberSourceError = "";
+      beginLegacySourceRequest();
+      const pending = {
+        status: "loading",
+        signature: request.signature,
+      } as const;
+      state.memberSource = pending;
       const preservedFocus = dependencies.renderPreservingMemberFocus();
       try {
         const result = await dependencies.queryMemberSource(request);
-        if (generation === state.sourceRequestGeneration
-          && request.isCurrent()
-          && state.memberSourceKey === request.signature) {
-          state.memberSource = result;
+        if (state.memberSource !== pending) return;
+        if (!request.isCurrent()) {
+          state.memberSource = { status: "idle" };
+          return;
         }
+        state.memberSource = {
+          status: "ready",
+          signature: request.signature,
+          source: result,
+        };
+        dependencies.renderPreservingMemberFocus(preservedFocus);
       } catch (error) {
-        if (generation === state.sourceRequestGeneration
-          && request.isCurrent()
-          && state.memberSourceKey === request.signature) {
-          state.memberSourceError = dependencies.describeError(error);
+        if (state.memberSource !== pending) return;
+        if (!request.isCurrent()) {
+          state.memberSource = { status: "idle" };
+          return;
         }
-      } finally {
-        const current = generation === state.sourceRequestGeneration
-          && state.memberSourceKey === request.signature;
-        if (current) {
-          state.memberSourceLoading = false;
-          if (request.isCurrent()) {
-            dependencies.renderPreservingMemberFocus(preservedFocus);
-          }
-        }
+        state.memberSource = {
+          status: "failed",
+          signature: request.signature,
+          error: dependencies.describeError(error),
+        };
+        dependencies.renderPreservingMemberFocus(preservedFocus);
       }
     },
 
     async loadTypeSource(request) {
-      if (!sourceRequestNeedsLoad(
-          state.typeSourceKey === request.signature,
-          state.typeSourceLoading,
-          state.typeSource,
-          state.typeSourceError)) {
+      if (!sourceResultNeedsLoad(state.typeSource, request.signature)) {
         dependencies.renderPreservingMemberFocus();
         return;
       }
@@ -488,7 +521,7 @@ export function createSourceInspectionCoordinator(
     },
 
     async openGraphSource(request, title) {
-      const generation = beginLegacySourceRequest();
+      beginLegacySourceRequest();
       const pending = {
         status: "loading",
         request,
@@ -497,8 +530,7 @@ export function createSourceInspectionCoordinator(
       state.graphSource = pending;
       dependencies.render();
       const isCurrent = () =>
-        generation === state.sourceRequestGeneration
-        && state.graphSource === pending;
+        state.graphSource === pending;
       let published = false;
       try {
         const source = await dependencies.queryGraphSource(

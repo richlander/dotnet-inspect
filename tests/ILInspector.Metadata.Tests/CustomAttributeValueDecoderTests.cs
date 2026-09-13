@@ -141,7 +141,10 @@ public sealed class CustomAttributeValueDecoderTests
                 image.Reader,
                 attribute,
                 count => charged = checked(charged + count)));
-        Assert.Equal(CustomAttributeValueDecoder.DeclaredSlotCharge, charged);
+        Assert.Equal(
+            image.Reader.GetBlobReader(attribute.Value).Length
+                + CustomAttributeValueDecoder.DeclaredSlotCharge,
+            charged);
     }
 
     [Fact]
@@ -157,7 +160,9 @@ public sealed class CustomAttributeValueDecoderTests
                 attribute,
                 count => charged = checked(charged + count)));
         Assert.Equal(
-            CustomAttributeValueDecoder.DeclaredSlotCharge + "V".Length,
+            image.Reader.GetBlobReader(attribute.Value).Length
+                + CustomAttributeValueDecoder.DeclaredSlotCharge
+                + "V".Length,
             charged);
     }
 
@@ -643,7 +648,10 @@ public sealed class CustomAttributeValueDecoderTests
                 image.Reader,
                 attribute,
                 count => charged = checked(charged + count)));
-        Assert.Equal(CustomAttributeValueDecoder.DeclaredSlotCharge, charged);
+        Assert.Equal(
+            image.Reader.GetBlobReader(attribute.Value).Length
+                + CustomAttributeValueDecoder.DeclaredSlotCharge,
+            charged);
     }
 
     [Fact]
@@ -862,6 +870,202 @@ public sealed class CustomAttributeValueDecoderTests
         CustomAttribute attribute = FirstAttribute(image.Reader);
         Assert.Null(
             AttributeDecoder.TryDecode(image.Reader, attribute, _ => { }));
+    }
+
+    [Fact]
+    public void SharedMaterializationContext_CachesDecodedValueAndRefusal()
+    {
+        int charged = 0;
+        var context = new AttributeDecoder.MaterializationContext(
+            count => charged = checked(charged + count));
+
+        using var legal = Open(BuildNamedInt32ArrayImage([1, 2, 3]));
+        CustomAttribute legalAttribute = FirstAttribute(legal.Reader);
+        var first = AttributeDecoder.TryDecode(
+            legal.Reader,
+            legalAttribute,
+            context.Observe);
+        Assert.NotNull(first);
+        int legalCharge = charged;
+        var second = AttributeDecoder.TryDecode(
+            legal.Reader,
+            legalAttribute,
+            context.Observe);
+        Assert.NotNull(second);
+        Assert.Equal(legalCharge, charged);
+        Assert.True(
+            first.Value.FixedArguments
+                == second.Value.FixedArguments);
+
+        using var malformed = Open(
+            BuildArrayCountImage(elementCount: 100_000_000));
+        CustomAttribute malformedAttribute = FirstAttribute(malformed.Reader);
+        int malformedCharged = 0;
+        var malformedContext = new AttributeDecoder.MaterializationContext(
+            count => malformedCharged = checked(malformedCharged + count));
+        Assert.Null(
+            AttributeDecoder.TryDecode(
+                malformed.Reader,
+                malformedAttribute,
+                malformedContext.Observe));
+        int malformedCharge = malformedCharged;
+        Assert.Null(
+            AttributeDecoder.TryDecode(
+                malformed.Reader,
+                malformedAttribute,
+                malformedContext.Observe));
+        Assert.Equal(malformedCharge, malformedCharged);
+    }
+
+    [Fact]
+    public void SharedMaterializationContext_SeparatesSerializedNameMode()
+    {
+        using var image = Open(BuildNamedInt32ArrayImage([1, 2, 3]));
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        int charged = 0;
+        var context = new AttributeDecoder.MaterializationContext(
+            count => charged = checked(charged + count));
+
+        Assert.NotNull(
+            AttributeDecoder.TryDecode(
+                image.Reader,
+                attribute,
+                context.Observe));
+        int ordinaryCharge = charged;
+        Assert.NotNull(
+            AttributeDecoder.TryDecodePreservingSerializedTypeNames(
+                image.Reader,
+                attribute,
+                context.Observe));
+        Assert.True(charged > ordinaryCharge);
+        int preservedCharge = charged;
+        Assert.NotNull(
+            AttributeDecoder.TryDecodePreservingSerializedTypeNames(
+                image.Reader,
+                attribute,
+                context.Observe));
+        Assert.Equal(preservedCharge, charged);
+    }
+
+    [Fact]
+    public void SharedMaterializationContext_DoesNotCacheDetailedDecode()
+    {
+        using var image = Open(BuildNamedInt32ArrayImage([1, 2, 3]));
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        int charged = 0;
+        var context = new AttributeDecoder.MaterializationContext(
+            count => charged = checked(charged + count));
+
+        Assert.NotNull(
+            AttributeDecoder.TryDecode(
+                image.Reader,
+                attribute,
+                context.Observe));
+        int ordinaryCharge = charged;
+        Assert.NotNull(
+            AttributeDecoder.TryDecodeDetailed(
+                image.Reader,
+                attribute,
+                context.Observe));
+        Assert.True(charged > ordinaryCharge);
+        int detailedCharge = charged;
+        Assert.NotNull(
+            AttributeDecoder.TryDecodeDetailed(
+                image.Reader,
+                attribute,
+                context.Observe));
+        Assert.True(charged > detailedCharge);
+    }
+
+    [Fact]
+    public void SharedMaterializationContext_SeparatesTrustedResolverIdentity()
+    {
+        using var image = Open(BuildCrossAssemblyInt64NamedEnumImage());
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        var context = new AttributeDecoder.MaterializationContext(
+            static _ => { });
+        IReadOnlyDictionary<string, PrimitiveTypeCode> int32 =
+            new Dictionary<string, PrimitiveTypeCode>
+            {
+                ["Samples.E"] = PrimitiveTypeCode.Int32,
+            };
+        IReadOnlyDictionary<string, PrimitiveTypeCode> int64 =
+            new Dictionary<string, PrimitiveTypeCode>
+            {
+                ["Samples.E"] = PrimitiveTypeCode.Int64,
+            };
+
+        Assert.Null(
+            AttributeDecoder.TryDecode(
+                image.Reader,
+                attribute,
+                context.Observe,
+                int32));
+        Assert.NotNull(
+            AttributeDecoder.TryDecode(
+                image.Reader,
+                attribute,
+                context.Observe,
+                int64));
+    }
+
+    [Fact]
+    public void SharedMaterializationContext_DoesNotCacheCallerResolver()
+    {
+        using var image = Open(BuildCrossAssemblyInt64NamedEnumImage());
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        int resolverCalls = 0;
+        int charged = 0;
+        var context = new AttributeDecoder.MaterializationContext(
+            count => charged = checked(charged + count));
+        PrimitiveTypeCode Resolve(string _)
+        {
+            resolverCalls++;
+            return PrimitiveTypeCode.Int64;
+        }
+
+        Assert.NotNull(
+            AttributeDecoder.TryDecode(
+                image.Reader,
+                attribute,
+                context.Observe,
+                Resolve));
+        int firstCharge = charged;
+        Assert.NotNull(
+            AttributeDecoder.TryDecode(
+                image.Reader,
+                attribute,
+                context.Observe,
+                Resolve));
+        Assert.Equal(2, resolverCalls);
+        Assert.True(charged > firstCharge);
+    }
+
+    [Fact]
+    public void SharedMaterializationContext_DoesNotCacheObserverFailure()
+    {
+        using var image = Open(BuildNamedInt32ArrayImage([1, 2, 3]));
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        bool refuse = true;
+        var context = new AttributeDecoder.MaterializationContext(
+            _ =>
+            {
+                if (refuse)
+                    throw new InvalidOperationException("budget");
+            });
+
+        var thrown = Assert.Throws<InvalidOperationException>(
+            () => AttributeDecoder.TryDecode(
+                image.Reader,
+                attribute,
+                context.Observe));
+        Assert.Equal("budget", thrown.Message);
+        refuse = false;
+        Assert.NotNull(
+            AttributeDecoder.TryDecode(
+                image.Reader,
+                attribute,
+                context.Observe));
     }
 
     [Fact]
@@ -3041,6 +3245,7 @@ public sealed class CustomAttributeValueDecoderTests
                 decoded.Value.FixedArguments[0].Value);
             Assert.Equal(elementCount, values.Length);
             return charged
+                - image.Reader.GetBlobReader(attribute.Value).Length
                 - (elementCount + 1) * CustomAttributeValueDecoder.DeclaredSlotCharge;
         }
 

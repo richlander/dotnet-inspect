@@ -62,10 +62,6 @@ public static partial class AttributeReader
         "System.Text.Json.Serialization.JsonObjectCreationHandlingAttribute";
     private const string JsonObjectCreationHandlingTypeName =
         "System.Text.Json.Serialization.JsonObjectCreationHandling";
-    private const string JsonPolymorphicAttributeName =
-        "System.Text.Json.Serialization.JsonPolymorphicAttribute";
-    private const string JsonDerivedTypeAttributeName =
-        "System.Text.Json.Serialization.JsonDerivedTypeAttribute";
     private const string JsonExtensionDataAttributeName =
         "System.Text.Json.Serialization.JsonExtensionDataAttribute";
     private const string JsonKnownNamingPolicyTypeName =
@@ -595,16 +591,6 @@ public static partial class AttributeReader
         || HasUnsupportedJsonObjectCreationHandlingAttribute(
             reader,
             attributes,
-            beforeMaterialize)
-        || HasFrameworkAttribute(
-            reader,
-            attributes,
-            JsonPolymorphicAttributeName,
-            beforeMaterialize)
-        || HasFrameworkAttribute(
-            reader,
-            attributes,
-            JsonDerivedTypeAttributeName,
             beforeMaterialize);
 
     public static bool HasUnsupportedJsonMemberWireAttributes(

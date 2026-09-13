@@ -279,7 +279,7 @@ verification, and deploys it to `https://dotnet-inspect.net`.
 The release is complete only when both workflows succeed, including the
 promotion workflow's matching CoreCLR deployment. Verify that the published
 package and GitHub release use the intended version and commit, then check the
-production and CoreCLR sites' status bars for the same version and linked
+production and CoreCLR sites' data bars for the same version and linked
 commit.
 
 ## Failure handling

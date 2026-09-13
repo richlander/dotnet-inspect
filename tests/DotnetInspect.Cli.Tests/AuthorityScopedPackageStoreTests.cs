@@ -1,3 +1,4 @@
+using DotnetInspector.Cache;
 using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
@@ -32,6 +33,49 @@ public sealed class AuthorityScopedPackageStoreTests : IDisposable
         Environment.SetEnvironmentVariable("NUGET_PACKAGES", _previousGlobalRoot);
         if (Directory.Exists(_root))
             Directory.Delete(_root, recursive: true);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CacheObservationsCountAuthorityHitsAndMissesExactlyOnce(bool globalPackages)
+    {
+        await ConsoleCapture.RunAsync(async () =>
+        {
+            try
+            {
+                NuGetCache.Initialize("dotnet-inspect-test", CacheRoot, skipNuGetCache: !globalPackages);
+                ConfiguredPackageAuthority authority = LocalAuthority("measurement-feed");
+                using IPackageSourceClient client = CreateClient(authority);
+                var store = CreateStore(authority, client);
+                InfoTracker.ResetForTests();
+                InfoTracker.Start();
+
+                Assert.Null(store.TryGetCached(PackageName, Version, [client.Source.Producer.Key]));
+                Assert.Equal(0, InfoTracker.CacheHits);
+                Assert.Equal(1, InfoTracker.CacheMisses);
+
+                if (globalPackages)
+                    WriteGlobalPackage(authority.Source.Url);
+                else
+                    await CommitAsync(store, client, "measurement");
+                Assert.Equal(0, InfoTracker.CacheHits);
+                Assert.Equal(1, InfoTracker.CacheMisses);
+
+                Assert.NotNull(store.TryGetCached(PackageName, Version, [client.Source.Producer.Key]));
+                Assert.Equal(1, InfoTracker.CacheHits);
+                Assert.Equal(1, InfoTracker.CacheMisses);
+
+                Assert.Null(store.TryGetCached(PackageName, Version, ["unauthorized-producer"]));
+                Assert.Equal(1, InfoTracker.CacheHits);
+                Assert.Equal(1, InfoTracker.CacheMisses);
+                return 0;
+            }
+            finally
+            {
+                InfoTracker.ResetForTests();
+            }
+        });
     }
 
     [Fact]
@@ -108,7 +152,7 @@ public sealed class AuthorityScopedPackageStoreTests : IDisposable
         Assert.Equal(0, _temporaryRootRequests);
         IPackageContent current = await CommitAsync(store, client, "new authority entry");
         NuGetCache.Initialize("dotnet-inspect-test", CacheRoot, skipNuGetCache: true);
-        _ = CoreCache.CancelAndWaitForMaintenance(TimeSpan.FromSeconds(10));
+        _ = PersistentCache.CancelAndWaitForMaintenance(TimeSpan.FromSeconds(10));
 
         Assert.NotEqual(legacy.ExtractPath, current.RootPath);
         Assert.Equal(legacy.ExtractPath,

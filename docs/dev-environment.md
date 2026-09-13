@@ -113,22 +113,54 @@ npm run lint
 ```
 
 The managed suite is an xUnit in-process executable. It covers the
-`DotnetInspect.Web` host, Core implementation, and domain-specific
+`DotnetInspect.Web` host, Core and Networking implementation, and domain-specific
 `DotnetInspect.Web.Interop.*` export assemblies. The frontend gates cover the
 generated public facade contracts and browser application without renaming the
 published `inspect-web-*` modules.
 
-### Network-destination admission tests
+### Network tests
 
-Run the owner suite from the repository root:
+Run the owner suites from the repository root:
 
 ```bash
 dotnet run --project tests/NetworkAccess.Tests -c Release
+dotnet run --project tests/DotnetInspector.Networking.Tests -c Release
 ```
 
-The suite pins the shared IPv4 and IPv6 destination classification used by
-desktop HTTP transports. Core and NuGetFetch retain their transport-specific
-wiring tests.
+`NetworkAccess.Tests` pins the shared IPv4 and IPv6 destination classification
+used by independent desktop transports. `DotnetInspector.Networking.Tests`
+pins product HTTP composition, Browser/Wasm-safe handler setup, network policy,
+and request telemetry. The Cache suite pins cache behavior; Core retains
+combined request-diagram integration tests, and NuGetFetch retains NuGet
+transport and feed-failure tests.
+
+### Persistent-cache tests
+
+Run the cache-owner suite from the repository root:
+
+```bash
+dotnet run --project tests/DotnetInspector.Cache.Tests -c Release
+```
+
+This Microsoft Testing Platform executable owns `PersistentCacheTests` for
+hashing, cache roots, expiry, and cleanup; `CacheTelemetryTests` for redaction
+and request/network context; and the moved
+`CacheMaintenanceProgressTests`, formerly in the Services suite.
+
+### Package coordination tests
+
+Run the package-owner suite from the repository root:
+
+```bash
+dotnet run --project tests/DotnetInspector.Packages.Tests -c Release
+```
+
+This Microsoft Testing Platform executable owns `AsyncCacheTests`, formerly in
+the Services suite.
+`AsyncCache` is internal to `DotnetInspector.Packages`, and
+`PackageExtractor` is its sole production consumer. Broader integration tests
+remain with their existing CLI, `DotnetInspector.Services`,
+`ILInspector.Metadata`, and `NuGetFetch` owner suites.
 
 ### Text-library tests
 

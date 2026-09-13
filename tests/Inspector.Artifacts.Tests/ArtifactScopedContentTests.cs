@@ -148,7 +148,7 @@ public sealed class ArtifactScopedContentTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void ScopedContent_CancellationRemainsCancellation(bool query)
+    public void ScopedContent_NormalReturnCommitsBeforeLaterCancellation(bool query)
     {
         var owner = new ArtifactGenerationAuthority();
         ArtifactAdmissionAuthorization admission = owner.CreateAdmissionAuthorization();
@@ -164,24 +164,32 @@ public sealed class ArtifactScopedContentTests
             return 1;
         }
 
-        OperationCanceledException failure;
+        ArtifactContentAccessOutcome<int> outcome;
         if (query)
         {
             owner.CompleteAdmission(admission);
             using ArtifactQueryLease lease = owner.IssueLease(owner.CreateQueryAuthorization());
-            failure = Assert.Throws<OperationCanceledException>(() =>
-                content.WithQueryContent(lease, (_, token) => Cancel(token), cancellation.Token));
+            outcome = content.WithQueryContent(
+                lease,
+                (_, token) => Cancel(token),
+                cancellation.Token);
             Assert.Throws<OperationCanceledException>(() =>
                 content.WithQueryContent(lease, (_, _) => ++calls, cancellation.Token));
         }
         else
         {
-            failure = Assert.Throws<OperationCanceledException>(() =>
-                content.WithAdmissionContent(admissionLease, (_, token) => Cancel(token), cancellation.Token));
+            outcome = content.WithAdmissionContent(
+                admissionLease,
+                (_, token) => Cancel(token),
+                cancellation.Token);
             Assert.Throws<OperationCanceledException>(() =>
                 content.WithAdmissionContent(admissionLease, (_, _) => ++calls, cancellation.Token));
         }
-        Assert.Equal(cancellation.Token, failure.CancellationToken);
+
+        Assert.Equal(
+            1,
+            Assert.IsType<ArtifactContentAccessOutcome<int>.Accessed>(
+                outcome).Value);
         Assert.Equal(1, calls);
         Assert.True(owner.EndGenerationAsync().IsCompletedSuccessfully);
     }

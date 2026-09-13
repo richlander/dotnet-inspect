@@ -1,11 +1,13 @@
 using System.Collections.Immutable;
 using System.Runtime.InteropServices;
+using Inspector.Resources;
 
 namespace Inspector.Artifacts;
 
 /// <summary>
 /// Owner-issued capability for guarded artifact content access.
 /// </summary>
+[ResourceOwnership]
 public interface IArtifactAccessLease : IDisposable
 {
 }
@@ -31,6 +33,7 @@ public sealed class ArtifactQueryAuthorization : ArtifactAuthorization
 }
 
 /// <summary>An admission-scoped artifact access capability.</summary>
+[ResourceOwnership]
 public sealed class ArtifactAdmissionLease : ArtifactAccessLease
 {
     internal ArtifactAdmissionLease(
@@ -41,6 +44,7 @@ public sealed class ArtifactAdmissionLease : ArtifactAccessLease
 }
 
 /// <summary>A query-scoped artifact access capability.</summary>
+[ResourceOwnership]
 public sealed class ArtifactQueryLease : ArtifactAccessLease
 {
     internal ArtifactQueryLease(
@@ -54,6 +58,7 @@ public sealed class ArtifactQueryLease : ArtifactAccessLease
 /// A narrow capability supplied to one source adapter while it contributes
 /// artifacts to an admission generation.
 /// </summary>
+[ResourceOwnership]
 public sealed class ArtifactContributionScope : IDisposable
 {
     private readonly ArtifactGenerationAuthority _authority;
@@ -224,7 +229,6 @@ public sealed class RetainedArtifactContent
                 Registration.Artifact,
                 _snapshot.AsSpan()),
             cancellationToken);
-        cancellationToken.ThrowIfCancellationRequested();
         return new ArtifactContentAccessOutcome<TResult>.Accessed(result);
     }
 
@@ -246,8 +250,16 @@ public sealed class RetainedArtifactContent
                 Registration.Artifact,
                 _snapshot.AsSpan()),
             cancellationToken);
-        cancellationToken.ThrowIfCancellationRequested();
         return new ArtifactContentAccessOutcome<TResult>.Accessed(result);
+    }
+
+    internal ImmutableArray<byte> Snapshot
+    {
+        get
+        {
+            EnsureSnapshot();
+            return _snapshot;
+        }
     }
 
     private void EnsureSnapshot()
@@ -883,6 +895,7 @@ public sealed class ArtifactGenerationAuthority
         }
     }
 
+    [ResourceOwnership]
     internal sealed class ArtifactAccessStream(
         Stream inner,
         ArtifactContentAccess access) : Stream
@@ -1082,6 +1095,7 @@ public abstract class ArtifactAuthorization
     }
 }
 
+[ResourceOwnership]
 public abstract class ArtifactAccessLease : IArtifactAccessLease
 {
     private int _disposed;

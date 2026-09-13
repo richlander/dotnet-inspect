@@ -801,6 +801,20 @@ public sealed class PackageHouseContractTests
             operation.Identity,
             PackageHouseOperation.Create(
                 PackageHouseOperationProfile.Acquire).Identity);
+
+        PackageHouseOperation maximum = PackageHouseOperation.Create(
+            PackageHouseOperationProfile.Settle,
+            NuGetOperationContext.MaximumTimeout,
+            NuGetOperationContext.MaximumTimeout);
+        Assert.Equal(
+            NuGetOperationContext.MaximumTimeout,
+            maximum.RequestTimeout);
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Settle,
+                NuGetOperationContext.MaximumTimeout
+                    + TimeSpan.FromTicks(1),
+                NuGetOperationContext.MaximumTimeout));
     }
 
     [Fact]
@@ -1712,46 +1726,42 @@ public sealed class PackageHouseContractTests
                     tracking = new TrackingPackageSourceClient(factory);
                     return tracking;
                 });
-        NuGetOperationContext? createdContext = null;
-        using PackageSourceSettlementLease lease =
-            PackageSourceSettlementService.IssueLease(
-                _ => client,
-                cancellationToken =>
-                    createdContext = new NuGetOperationContext(
-                        requestTimeout: TimeSpan.FromSeconds(7),
-                        operationTimeout: TimeSpan.FromSeconds(31),
-                        cancellationToken));
+        await using PackageSourceSettlementLease lease =
+            PackageSourceSettlementService.IssueLease(_ => client);
+        using PackageSourceOperationLease operation =
+            lease.IssueOperationLease(
+                TestContext.Current.CancellationToken,
+                requestTimeout: TimeSpan.FromSeconds(7),
+                operationTimeout: TimeSpan.FromSeconds(31));
 
         PackageAcquisitionCandidateResult resolution =
-            lease.ResolvePinnedCandidate(
+            operation.ResolvePinnedCandidate(
                 authorization,
                 Coordinate);
         PackageAcquisitionCandidate candidate =
             Assert.IsType<PackageAcquisitionCandidate>(
                 resolution.Candidate);
         ConfiguredPackageManifestResult manifest =
-            await lease.AcquireCandidateManifestAsync(
-                candidate,
-                TestContext.Current.CancellationToken);
+            await operation.AcquireCandidateManifestAsync(candidate);
 
         Assert.Null(manifest.Manifest);
         Assert.Equal(
             PackageAuthorityFailureKind.ResponseRejected,
             Assert.Single(manifest.Failures).Kind);
-        Assert.Same(createdContext, tracking!.ObservedOperationContext);
+        Assert.Equal(TimeSpan.FromSeconds(7), tracking!.ObservedOperationContext!.RequestTimeout);
+        Assert.Equal(TimeSpan.FromSeconds(31), tracking.ObservedOperationContext.OperationTimeout);
 
-        lease.Dispose();
+        operation.Dispose();
+        await lease.DisposeAsync();
 
         Assert.False(tracking!.IsDisposed);
         Assert.Same(candidate, resolution.Candidate);
         Assert.Throws<ObjectDisposedException>(
-            () => lease.ResolvePinnedCandidate(
+            () => operation.ResolvePinnedCandidate(
                 authorization,
                 Coordinate));
         await Assert.ThrowsAsync<ObjectDisposedException>(
-            async () => await lease.AcquireCandidateManifestAsync(
-                candidate,
-                TestContext.Current.CancellationToken));
+            async () => await operation.AcquireCandidateManifestAsync(candidate));
     }
 
     [Fact]
@@ -1776,11 +1786,13 @@ public sealed class PackageHouseContractTests
                     tracking = new TrackingPackageSourceClient(factory);
                     return tracking;
                 });
-        using PackageSourceSettlementLease lease =
+        await using PackageSourceSettlementLease lease =
             PackageSourceSettlementService.IssueLease(_ => client);
+        using PackageSourceOperationLease operation =
+            lease.IssueOperationLease(TestContext.Current.CancellationToken);
         PackageAcquisitionCandidate candidate =
             Assert.IsType<PackageAcquisitionCandidate>(
-                lease.ResolvePinnedCandidate(
+                operation.ResolvePinnedCandidate(
                     authorization,
                     Coordinate).Candidate);
         var store = new InMemoryPackageStore();
@@ -1797,15 +1809,13 @@ public sealed class PackageHouseContractTests
             TestContext.Current.CancellationToken);
 
         ConfiguredPackagePayloadResult payload =
-            await lease.AcquireCandidatePayloadAsync(
+            await operation.AcquireCandidatePayloadAsync(
                 candidate,
                 (_, producer) =>
                 {
                     Assert.Equal(client.Source.Producer, producer);
                     return store;
-                },
-                cancellationToken:
-                    TestContext.Current.CancellationToken);
+                });
 
         Assert.Same(authority, payload.Authority);
         Assert.Same(client.Source, payload.Source);
@@ -1819,15 +1829,14 @@ public sealed class PackageHouseContractTests
         Assert.Equal(PackagePayloadOrigin.Cache, acquired.Origin);
         Assert.Empty(payload.Failures);
 
-        lease.Dispose();
+        operation.Dispose();
+        await lease.DisposeAsync();
 
         Assert.False(tracking!.IsDisposed);
         await Assert.ThrowsAsync<ObjectDisposedException>(
-            async () => await lease.AcquireCandidatePayloadAsync(
+            async () => await operation.AcquireCandidatePayloadAsync(
                 candidate,
-                (_, _) => store,
-                cancellationToken:
-                    TestContext.Current.CancellationToken));
+                (_, _) => store));
     }
 
     [Fact]
@@ -1845,41 +1854,37 @@ public sealed class PackageHouseContractTests
             PackageSourceClientFactory.Create(
                 foreignAuthority.Source,
                 foreignAuthority.Association);
-        using PackageSourceSettlementLease lease =
+        await using PackageSourceSettlementLease lease =
             PackageSourceSettlementService.IssueLease(_ => foreignClient);
-        using PackageSourceSettlementLease foreignLease =
+        await using PackageSourceSettlementLease foreignLease =
             PackageSourceSettlementService.IssueLease(_ => foreignClient);
+        using PackageSourceOperationLease operation =
+            lease.IssueOperationLease(TestContext.Current.CancellationToken);
+        using PackageSourceOperationLease foreignOperation =
+            foreignLease.IssueOperationLease(TestContext.Current.CancellationToken);
         PackageAcquisitionCandidate candidate =
             Assert.IsType<PackageAcquisitionCandidate>(
-                lease.ResolvePinnedCandidate(
+                operation.ResolvePinnedCandidate(
                     authorization,
                     Coordinate).Candidate);
         PackageAcquisitionCandidate foreignCandidate =
             Assert.IsType<PackageAcquisitionCandidate>(
-                foreignLease.ResolvePinnedCandidate(
+                foreignOperation.ResolvePinnedCandidate(
                     authorization,
                     Coordinate).Candidate);
 
         await Assert.ThrowsAsync<InvalidOperationException>(
-            async () => await lease.AcquireCandidateManifestAsync(
+            async () => await operation.AcquireCandidateManifestAsync(foreignCandidate));
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await operation.AcquireCandidateManifestAsync(candidate));
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await operation.AcquireCandidatePayloadAsync(
                 foreignCandidate,
-                TestContext.Current.CancellationToken));
+                (_, _) => new InMemoryPackageStore()));
         await Assert.ThrowsAsync<InvalidOperationException>(
-            async () => await lease.AcquireCandidateManifestAsync(
+            async () => await operation.AcquireCandidatePayloadAsync(
                 candidate,
-                TestContext.Current.CancellationToken));
-        await Assert.ThrowsAsync<InvalidOperationException>(
-            async () => await lease.AcquireCandidatePayloadAsync(
-                foreignCandidate,
-                (_, _) => new InMemoryPackageStore(),
-                cancellationToken:
-                    TestContext.Current.CancellationToken));
-        await Assert.ThrowsAsync<InvalidOperationException>(
-            async () => await lease.AcquireCandidatePayloadAsync(
-                candidate,
-                (_, _) => new InMemoryPackageStore(),
-                cancellationToken:
-                    TestContext.Current.CancellationToken));
+                (_, _) => new InMemoryPackageStore()));
     }
 
     private static PackageHouseRequest Request(
