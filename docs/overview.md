@@ -106,6 +106,14 @@ substrates, and inspection producers that will extend that space.
   package-activity report's request, evidence categories, selection, and
   coverage, including the six-week default and qualified security overlay.
   The proposed
+  [Subject Relations composition](design/subject-relations-workflows.md)
+  owns subject-oriented relation request meaning and evidence composition:
+  an exact focus, a separately declared candidate population, and
+  producer-issued relations retain endpoint correspondence, evidence kind,
+  canonical direction and coverage. Its workflow target joins an exact
+  locator with CLI/browser subject capabilities; lower owners retain
+  acquisition, Workspace, metadata, Analysis, graph and sharing contracts.
+  The proposed
   [structural clone search scope](design/structural-clone-search-scope.md)
   owner defines Library, Type, and Member seed populations plus the shared
   `Self`, `SelfAndRegisteredEcosystems`, and `Everything` candidate breadth
