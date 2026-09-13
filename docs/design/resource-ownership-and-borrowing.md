@@ -171,7 +171,7 @@ shapes are:
 | `IArtifactAcquisitionLease` and artifact-session disposal | `IAsyncDisposable` exposes required asynchronous cleanup and quiescence. | Current C# does not prevent dropping the returned awaitable or treating retirement as completed settlement. |
 | `AssemblyContextGroup` owned-resource registration | One aggregate tracks child `IDisposable` values, releases them before snapshots, and preserves cleanup failures. | Registration, transfer, release ordering, and transitive child cleanup are manually maintained. `IDisposable` supplies no ownership metadata. |
 | `ArtifactContentReference` and assembly openers | The reference carries immutable identity, registration, provenance, and role evidence without content authority; explicit Artifact operations supply current query authority to compatibility openers. | Compatibility opener delegates still close over live query authority until Artifact adopter slices transfer content children into downstream owners. |
-| `PackageSourceSettlementLease` | The Package Source Model service issues a resource-named root lease; current disposal retires settlement without disposing caller-owned clients or retained content. | #6619 stages awaited root quiescence, directly issued operation leases, and async state-machine ownership effects; current C# still permits unsupported aliases. |
+| `PackageSourceSettlementLease` and `PackageSourceOperationLease` | The Package Source Model service issues a resource-named asynchronous root and directly issued synchronous operation owners; active awaited work is an ownership effect rather than a third resource. | Current C# still permits unsupported aliases and cannot require observation of root settlement; generalized declaration-driven Analysis remains planned. |
 | `ArrayPoolOwnershipFlow` and Resource Triage | Analysis already follows return, storage, caller transfer, forwarding, and exception-path leakage with explicit incompleteness. | The model is API-specific and cannot yet consume repository resource declarations. |
 
 The target does not merely rename these values. It simplifies their shared
@@ -294,13 +294,14 @@ as a service, pool, store, session, or another resource-specific API. The
 lease is named for the resource or capability it owns:
 
 ```text
-PackageSourceLease
+PackageSourceOperationLease
 ArtifactContentLease
-LibraryLease
+LibraryOperationLease
 ```
 
-The concrete names above are illustrative, not decisions for those owners.
-The binding naming rules are:
+The first two names are implemented owner-issued types; the Library name is
+approved by its focused design but remains design-only. The binding naming
+rules are:
 
 - no lease name contains `House`;
 - no lease is named for the consumer that happens to hold it;
@@ -318,13 +319,13 @@ This separates scenario settlement from resource lifetime. A House may return
 an aggregate produced by a Library or Workspace architectural owner, but it
 does not hide service leases inside a House-named capability.
 
-`PackageSourceSettlementLease` is current positive adoption evidence.
-[#6548](https://github.com/richlander/dotnet-inspect/pull/6548) moved issuance
-from PackageHouse to `PackageSourceSettlementService`, named the lease for
-package-source settlement, retained caller ownership of source clients and
-contexts, and kept receipts free of the live lease. The remaining work is to
-declare and analyze its ownership effects under this pattern, not to rename or
-reassign its issuer again.
+`PackageSourceSettlementLease` and `PackageSourceOperationLease` are current
+positive adoption evidence. #6548 moved root issuance from PackageHouse to
+`PackageSourceSettlementService`; #6619 added directly issued operation
+ownership and asynchronous active-work effects; and #6622 made PackageHouse
+consume one operation lease. Source clients remain caller-owned, and completed
+results and receipts retain no live lease. Generalized Analysis remains work
+for issues #6729-#6732; the issuer and owner-issued names are settled.
 
 ## References, leases, and explicit borrowing
 
@@ -354,11 +355,11 @@ open(reference, lease)
 
 The names are illustrative. The separation is normative.
 
-`ArtifactContentReference` currently captures an `ArtifactQueryLease` and
-revalidates that hidden lease for registration, role, digest, and stream-open
-operations. That implementation is valuable migration evidence, but the target
-pattern does not treat a heap-escapable reference with hidden caller-owned
-authority as a resource-free reference.
+`ArtifactContentReference` is now resource-free. It carries exact immutable
+identity, registration, provenance, and role evidence without a session, lease,
+callback, opener, or digest operation. Content access combines that reference
+with an explicit current `ArtifactQueryLease` or an
+`ArtifactContentLease` issued for continued access.
 
 This distinction answers the Library handoff question:
 
@@ -371,16 +372,16 @@ This distinction answers the Library handoff question:
   requests scoped content borrows within synchronous segments, and does not
   receive a consumer-specific "source-ready" wrapper.
 
-The Library owner, not this protocol, decides whether that aggregate is one
-`LibraryLease`, multiple child leases held by a Library owner, or another
-equivalent resource shape. A non-materialized SourceHouse result that requires
-continued content access receives an explicit transferred ownership-bearing
-aggregate; its receipt remains resource-free.
+The focused Library design names the aggregate `LibraryContentOwner` and its
+operation authority `LibraryOperationLease`. SourceHouse and other consumers
+receive a transferred operation lease, borrow content synchronously, and return
+detached results and resource-free receipts.
 
-`ArtifactContentReference.OpenRead()` currently returns a heap-escapable
-`Stream`. That stream is an owned child resource, not a scoped borrow. The
-Artifact adoption must declare the stream-producing acquisition, its parent
-retention, and its synchronous or asynchronous release effects.
+The explicit `ArtifactSetSession.OpenRead(reference, queryLease)`
+compatibility path returns a heap-escapable `Stream`. That stream is an owned
+child resource, not a scoped borrow. Target adopters consume
+`ArtifactContentLease` children and owner-controlled scoped views instead of
+reintroducing a parameterless reference opener.
 
 ## C# representation
 
@@ -818,7 +819,8 @@ This protocol does not claim:
 - that `ArtifactQueryLease` and `PackageSourceSettlementLease` have equivalent
   semantics;
 - that an artifact reference alone retains content;
-- that one Library lease shape is already selected;
+- that the approved `LibraryContentOwner` and `LibraryOperationLease` shapes
+  are already implemented;
 - that all borrowing can be represented by spans;
 - that a borrow may cross `await` or an interop boundary;
 - that snapshot callbacks provide thread safety, locking, generation
@@ -922,8 +924,11 @@ A change to the count must preserve:
 
 ## Evidence plan
 
-This specification is design-only. Its behavioral properties remain
-**unverified** until the named adoption steps add Release gates.
+This specification defines the shared protocol. Its declaration floor,
+snapshot callback, Assembly session, Artifact, and Package Source adoption
+include the focused implemented subsets and Release gates named by their
+owners. The complete cross-owner protocol and remaining adoption steps are
+**unverified** until their named Release gates land.
 
 The declaration and Analysis steps must gate:
 
