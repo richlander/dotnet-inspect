@@ -39,7 +39,6 @@ const widenings = [
     replace: '  ["source", "Source"],\n  ["probe-type-lens", "Probe"]\n] as const;\n\nexport type TypeLens',
     token: "probe-type-lens",
     dispatches: [
-      "typeLensPresentation",
       "renderLens",
       "loadSelectedTypeLensData",
     ],
@@ -50,7 +49,7 @@ const widenings = [
     find: '  ["dependencies", "Dependencies"]\n] as const;',
     replace: '  ["dependencies", "Dependencies"],\n  ["probe-package-lens", "Probe"]\n] as const;',
     token: "probe-package-lens",
-    dispatches: ["packageLensBody", "packageLensPresentation"],
+    dispatches: ["packageLensBody"],
   },
   {
     vocabulary: "LibraryLens",
@@ -58,7 +57,7 @@ const widenings = [
     find: '  ["metadata", "Metadata"]\n] as const;\n\nexport type PackageLens',
     replace: '  ["metadata", "Metadata"],\n  ["probe-library-lens", "Probe"]\n] as const;\n\nexport type PackageLens',
     token: "probe-library-lens",
-    dispatches: ["libraryLensBody", "libraryLensPresentation"],
+    dispatches: ["libraryLensBody"],
   },
   {
     vocabulary: "MemberSection",
@@ -67,7 +66,6 @@ const widenings = [
     replace: '  ["annotated", "Annotated source"],\n  ["probe-member-section", "Probe"],\n] as const;',
     token: "probe-member-section",
     dispatches: [
-      "memberSectionPresentation",
       "loadMemberSectionContent",
       "applyView",
       "renderMember",
