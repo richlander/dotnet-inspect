@@ -50,7 +50,7 @@ This document is the normative owner of one joined experience claim:
 > prefix, or ecosystem without granting reachability. A call-graph request
 > independently chooses how far beyond its focal subject to traverse. The
 > Workspace API defaults to no registrations, while the Ecosystems API may
-> construct a product-curated Workspace. Call graphs default to every
+> supply a product-curated plan for explicit live construction. Call graphs default to every
 > resolvable participant within the Workspace that the caller actually chose,
 > under explicit operation bounds.
 
@@ -160,12 +160,13 @@ registration sequence is:
 2. ASP.NET Core
 3. Microsoft.Extensions
 
-Curated construction passes that complete sequence to the Workspace API's
-atomic explicit-initialization path and returns a new independent Workspace.
-It is not a singleton Workspace instance and does not confer special
-registration, acquisition, traversal, persistence, or lifetime semantics.
+Curated construction returns that complete sequence in a validated,
+resource-free `WorkspacePlan`. The caller explicitly constructs
+`InspectionWorkspace(plan)` when it needs a live owner. A shared immutable plan
+is not a shared live Workspace and confers no special registration,
+acquisition, traversal, persistence, or lifetime semantics.
 
-The separate all-known constructor includes Aspire, as required by
+The separate all-known plan factory includes Aspire, as required by
 [Subject Relations](subject-relations-workflows.md#broad-discovery-by-default).
 The focused handoff owns validation and construction for both choices. Neither
 is a compatibility catalog of earlier compositions. The catalog may change
@@ -493,8 +494,9 @@ There are ten counted production-adoption stages, tracked by #6012:
    make default Workspace API construction empty, accept complete explicit
    initial registrations, and expose no curated option. The registration-state
    subset is adopted in #6577; population realization remains separate.
-5. Have Ecosystems construct one fresh independent Workspace from its current
-   complete curated manifest through the public Workspace API.
+5. Have Ecosystems construct a resource-free plan from its complete curated
+   manifest; consumers explicitly construct independent live Workspaces from
+   that plan through the public Workspace API.
 6. Add the three typed focal lengths to the host-neutral call-graph request and
    result, with `Everything` as the default. Adopt both member-seeded
    neighborhoods and registration-seeded induced call graphs through Inspection
