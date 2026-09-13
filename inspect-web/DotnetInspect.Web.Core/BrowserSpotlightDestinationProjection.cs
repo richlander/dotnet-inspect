@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.SourceSelection;
+using ILInspector.Metadata;
 using NuGetFetch;
 
 namespace DotnetInspect.Web;
@@ -393,6 +394,10 @@ internal abstract record BrowserSpotlightCoverageTarget<TPackageRequest>
 
     internal sealed record PlatformLibrary(
         ExactLibrarySourceCoordinate.Platform Coordinate) :
+        BrowserSpotlightCoverageTarget<TPackageRequest>;
+
+    internal sealed record Admitted(
+        StructuralSubjectIdentity Subject) :
         BrowserSpotlightCoverageTarget<TPackageRequest>;
 }
 
@@ -1064,6 +1069,19 @@ internal static class BrowserSpotlightDestinationProjection
                     TPackageRequest,
                     TNavigationAction,
                     TPlatformAction,
+                    TLibraryIntent>.Current current
+                when TryGetCurrentCoverageCoordinate(
+                    current.Subject,
+                    out packageId,
+                    out library):
+                target = new BrowserSpotlightCoverageTarget<
+                    TPackageRequest>.Admitted(current.Subject);
+                platform = null;
+                return true;
+            case BrowserSpotlightDestination<
+                    TPackageRequest,
+                    TNavigationAction,
+                    TPlatformAction,
                     TLibraryIntent>.Package package:
                 target = new BrowserSpotlightCoverageTarget<
                     TPackageRequest>.Package(
@@ -1129,6 +1147,33 @@ internal static class BrowserSpotlightDestinationProjection
                 packageId = null;
                 library = null;
                 platform = null;
+                return false;
+        }
+    }
+
+    private static bool TryGetCurrentCoverageCoordinate(
+        StructuralSubjectIdentity subject,
+        out string? packageId,
+        out ExactLibrarySourceCoordinate? library)
+    {
+        switch (subject)
+        {
+            case StructuralSubjectIdentity.PackageSubject package:
+                packageId = package.Coordinate.PackageId;
+                library = null;
+                return true;
+            case StructuralSubjectIdentity.LibrarySubject packageLibrary:
+                packageId = packageLibrary.Coordinate.PackageId;
+                library = new ExactLibrarySourceCoordinate.Package(
+                    PackageSourceCoordinate.Create(
+                        packageLibrary.Coordinate.PackageId,
+                        packageLibrary.Coordinate.Version),
+                    new ManagedMetadataIdentity.Assembly(
+                        packageLibrary.Identity.Assembly));
+                return true;
+            default:
+                packageId = null;
+                library = null;
                 return false;
         }
     }

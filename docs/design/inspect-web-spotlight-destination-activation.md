@@ -483,8 +483,9 @@ owners.
 The TLA+ configurations registered in
 `eng/tla-expected-exit-codes.txt` gate the model's exact semantic outcomes.
 `BrowserSpotlightDestinationProjectionTests` gates every projection plan arm,
-ordered overlapping witnesses, exact-Library-only coverage, independent Scope
-and registration basis validation, stale and foreign Workspace evidence,
+ordered overlapping witnesses for admitted and registration-covered Package
+and Library subjects, exact-Library-only coverage, independent Scope and
+registration basis validation, stale and foreign Workspace evidence,
 same-ID/version source-request separation, stale Package occurrences, and the
 real package and Platform `System.Text.Json` overlap. Later execution gates
 must cover current Scope commit followed by Navigation failure, selection-time

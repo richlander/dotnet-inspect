@@ -67,6 +67,99 @@ public sealed class BrowserSpotlightDestinationProjectionTests
     }
 
     [Fact]
+    public async Task CurrentPackageAndLibraryRetainOrderedCoverageWitnesses()
+    {
+        ExactLibrarySourceCoordinate.Package library = PackageLibrary();
+        var ecosystem = new WorkspaceEcosystemRegistrationDeclaration(
+            WorkspaceEcosystemRegistrationId.Create("ecosystem.spotlight"),
+            namespaceRoots: [],
+            corePackages: [],
+            populations:
+            [
+                new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
+                    new PackagePrefixDeclaration("System.Text.")),
+            ]);
+        await using var workspace = new InspectionWorkspace(
+        [
+            new WorkspaceRegistration.PackagePrefix(
+                new PackagePrefixDeclaration("System.")),
+            new WorkspaceRegistration.Ecosystem(ecosystem),
+            new WorkspaceRegistration.ExactLibrary(library),
+        ]);
+        WorkspaceScopeSnapshot scope = await ReplaceScope(
+            workspace,
+            library.PackageCoordinate,
+            PackageAssemblyPath());
+        BrowserSpotlightActivationBasis basis = Basis(workspace, scope);
+        WorkspacePackageOccurrence occurrence =
+            Assert.Single(scope.Revision.Packages);
+        StructuralSubjectIdentity.WorkspaceSubject workspaceSubject =
+            StructuralSubjectIdentity.ForWorkspace(
+                basis.Scope.Revision.Workspace);
+        StructuralSubjectIdentity.PackageSubject packageSubject =
+            StructuralSubjectIdentity.ForPackage(
+                workspaceSubject,
+                occurrence);
+        StructuralSubjectIdentity.LibrarySubject librarySubject =
+            StructuralSubjectIdentity.ForLibrary(
+                packageSubject,
+                new WorkspaceContextMember(
+                    WorkspaceMemberCoordinate.Package(
+                        occurrence.Package.Coordinate.PackageId,
+                        occurrence.Package.Coordinate.Version,
+                        occurrence.Package.Coordinate.Framework,
+                        occurrence.Package.Coordinate.RuntimeIdentifier),
+                    occurrence.Package.Coordinate,
+                    Participant(library)));
+
+        Descriptor package = Projected(
+            basis,
+            new Destination.Current(
+                packageSubject,
+                new TestNavigationAction("package")));
+        Descriptor packageLibrary = Projected(
+            basis,
+            new Destination.Current(
+                librarySubject,
+                new TestNavigationAction("library")));
+
+        Assert.IsType<Plan.NavigateCurrent>(package.Plan);
+        Assert.Collection(
+            package.Coverage,
+            witness => Assert.Equal(0, witness.RegistrationIndex),
+            witness =>
+            {
+                Assert.Equal(1, witness.RegistrationIndex);
+                Assert.Equal(0, witness.PopulationIndex);
+            });
+        Assert.All(
+            package.Coverage,
+            witness => Assert.Same(
+                packageSubject,
+                Assert.IsType<BrowserSpotlightCoverageTarget<
+                    TestPackageAction>.Admitted>(
+                        witness.Target).Subject));
+
+        Assert.IsType<Plan.NavigateCurrent>(packageLibrary.Plan);
+        Assert.Collection(
+            packageLibrary.Coverage,
+            witness => Assert.Equal(0, witness.RegistrationIndex),
+            witness =>
+            {
+                Assert.Equal(1, witness.RegistrationIndex);
+                Assert.Equal(0, witness.PopulationIndex);
+            },
+            witness => Assert.Equal(2, witness.RegistrationIndex));
+        Assert.All(
+            packageLibrary.Coverage,
+            witness => Assert.Same(
+                librarySubject,
+                Assert.IsType<BrowserSpotlightCoverageTarget<
+                    TestPackageAction>.Admitted>(
+                        witness.Target).Subject));
+    }
+
+    [Fact]
     public async Task CurrentPackageOccurrenceActivatesAnUnrealizedLibraryInPlace()
     {
         ExactLibrarySourceCoordinate.Package library = PackageLibrary();
@@ -698,6 +791,24 @@ public sealed class BrowserSpotlightDestinationProjectionTests
         MetadataReader reader = pe.GetMetadataReader();
         return new(
             AssemblyReferenceIdentity.FromAssemblyDefinition(reader));
+    }
+
+    private static AssemblyContextParticipant Participant(
+        ExactLibrarySourceCoordinate.Package library)
+    {
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.Create(
+                library.LibraryIdentity.Identity,
+                PackageAssemblyPath(),
+                () => File.OpenRead(PackageAssemblyPath()),
+                AssemblyResolutionProvenance.Package(
+                    library.PackageCoordinate.PackageId,
+                    library.PackageCoordinate.Version,
+                    "net11.0",
+                    rid: null));
+        return new AssemblyContextParticipant(
+            assembly,
+            NoResolverAssemblyBindingPolicy.Instance);
     }
 
     private static string PackageAssemblyPath() =>
