@@ -916,6 +916,74 @@ public sealed class ResolvedResourceEffectTests
     }
 
     [Fact]
+    public void MalformedMethodGenericParameterOrdinalIsUnsupported()
+    {
+        const string AssemblyName = "InvalidMethodGenericOrdinal";
+        byte[] image = BuildDirectCallAssembly(
+            AssemblyName,
+            "Target",
+            MethodAttributes.Public | MethodAttributes.Static,
+            [0x10, 0x01, 0x00, 0x01],
+            methodGenericParameterRows: 1,
+            methodGenericParameterStartIndex: 1,
+            instantiateGenericMethod: true);
+
+        AssertUnsupportedGenericOrdinal(
+            image,
+            AssemblyName,
+            methodGenericArity: 1,
+            declaringTypeGenericArity: 0);
+    }
+
+    [Fact]
+    public void MalformedTypeGenericParameterOrdinalIsUnsupported()
+    {
+        const string AssemblyName = "InvalidTypeGenericOrdinal";
+        byte[] image = BuildDirectCallAssembly(
+            AssemblyName,
+            "Target",
+            MethodAttributes.Public | MethodAttributes.Static,
+            [0x00, 0x00, 0x01],
+            typeGenericParameterRows: 1,
+            typeGenericParameterStartIndex: 1);
+
+        AssertUnsupportedGenericOrdinal(
+            image,
+            AssemblyName,
+            methodGenericArity: 0,
+            declaringTypeGenericArity: 1);
+    }
+
+    static void AssertUnsupportedGenericOrdinal(
+        byte[] image,
+        string assemblyName,
+        int methodGenericArity,
+        int declaringTypeGenericArity)
+    {
+        ResourceEffectResolutionOutcome.Incomplete incomplete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Incomplete>(
+                ResolveSynthetic(
+                    image,
+                    assemblyName,
+                    SyntheticMethodModel(
+                        assemblyName,
+                        "Target",
+                        ResourceEffectMemberKind.Method,
+                        parameters: [],
+                        genericArity: methodGenericArity,
+                        declaringTypeGenericArity:
+                            declaringTypeGenericArity)));
+
+        Assert.Empty(incomplete.Effects);
+        Assert.Contains(
+            incomplete.Evaluations.SelectMany(
+                evaluation => evaluation.Gaps),
+            gap =>
+                gap.Kind
+                    == ResourceEffectResolutionGapKind.UnsupportedSignature);
+    }
+
+    [Fact]
     public void InterfaceMethodRemainsIncompleteUntilApplicationIsResolved()
     {
         const string AssemblyName = "DeferredInterfaceApplication";
@@ -2748,7 +2816,8 @@ public sealed class ResolvedResourceEffectTests
         ImmutableArray<ResourceEffectParameterSelector> parameters,
         bool isStatic = true,
         int genericArity = 0,
-        string declaringTypeName = "Owner")
+        string declaringTypeName = "Owner",
+        int declaringTypeGenericArity = 0)
     {
         var identity = new ResourceEffectModelIdentity(
             $"example.{assemblyName.ToLowerInvariant()}");
@@ -2758,7 +2827,22 @@ public sealed class ResolvedResourceEffectTests
                 publicKeyToken: null,
                 ResourceAssemblyVersionPolicy.Any),
             "N",
-            [new ResourceTypeNameSegment(declaringTypeName, 0)]);
+            [
+                new ResourceTypeNameSegment(
+                    declaringTypeName,
+                    declaringTypeGenericArity),
+            ],
+            [
+                .. Enumerable.Range(
+                        0,
+                        declaringTypeGenericArity)
+                    .Select(index =>
+                        (ResourceTypeExpression)
+                            new ResourceTypeExpression.Variable(
+                                new ResourceEffectGenericVariable(
+                                    ResourceEffectGenericVariableKind.Type,
+                                    index))),
+            ]);
         return Admit(
             new ResourceEffectModelDefinition(
                 ResourceEffectLanguageIdentity.Version1,
@@ -2847,6 +2931,10 @@ public sealed class ResolvedResourceEffectTests
         bool propertyOnDifferentType = false,
         MethodSemanticsAttributes[]? eventSemantics = null,
         int methodGenericParameterRows = 0,
+        int methodGenericParameterStartIndex = 0,
+        bool instantiateGenericMethod = false,
+        int typeGenericParameterRows = 0,
+        int typeGenericParameterStartIndex = 0,
         bool eventTargetsCaller = false,
         bool useNewObject = false)
     {
@@ -2888,10 +2976,23 @@ public sealed class ResolvedResourceEffectTests
         TypeDefinitionHandle owner = metadata.AddTypeDefinition(
             TypeAttributes.Public,
             metadata.GetOrAddString("N"),
-            metadata.GetOrAddString("Owner"),
+            metadata.GetOrAddString(
+                typeGenericParameterRows == 0
+                    ? "Owner"
+                    : $"Owner`{typeGenericParameterRows}"),
             baseType: objectType,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
+        for (int index = 0;
+            index < typeGenericParameterRows;
+            index++)
+        {
+            metadata.AddGenericParameter(
+                owner,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString($"T{index}"),
+                typeGenericParameterStartIndex + index);
+        }
         TypeDefinitionHandle propertyOwner = owner;
         if (propertyOnDifferentType)
         {
@@ -2920,21 +3021,6 @@ public sealed class ResolvedResourceEffectTests
         targetIl.WriteByte((byte)ILOpCode.Ret);
         int targetBody = bodyEncoder.AddMethodBody(
             new InstructionEncoder(targetIl));
-        var callerIl = new BlobBuilder();
-        if (parameterAttributes is not null)
-            callerIl.WriteByte((byte)ILOpCode.Ldnull);
-        callerIl.WriteByte(
-            (byte)(useNewObject
-                ? ILOpCode.Newobj
-                : ILOpCode.Call));
-        callerIl.WriteInt32(
-            MetadataTokens.GetToken(
-                MetadataTokens.MethodDefinitionHandle(1)));
-        if (useNewObject)
-            callerIl.WriteByte((byte)ILOpCode.Pop);
-        callerIl.WriteByte((byte)ILOpCode.Ret);
-        int callerBody = bodyEncoder.AddMethodBody(
-            new InstructionEncoder(callerIl));
 
         MethodDefinitionHandle target =
             metadata.AddMethodDefinition(
@@ -2952,8 +3038,29 @@ public sealed class ResolvedResourceEffectTests
                 target,
                 GenericParameterAttributes.None,
                 metadata.GetOrAddString($"T{index}"),
-                index);
+                methodGenericParameterStartIndex + index);
         }
+        EntityHandle callTarget = target;
+        if (instantiateGenericMethod)
+        {
+            callTarget = metadata.AddMethodSpecification(
+                target,
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x0A, 0x01, 0x08 }));
+        }
+        var callerIl = new BlobBuilder();
+        if (parameterAttributes is not null)
+            callerIl.WriteByte((byte)ILOpCode.Ldnull);
+        callerIl.WriteByte(
+            (byte)(useNewObject
+                ? ILOpCode.Newobj
+                : ILOpCode.Call));
+        callerIl.WriteInt32(MetadataTokens.GetToken(callTarget));
+        if (useNewObject)
+            callerIl.WriteByte((byte)ILOpCode.Pop);
+        callerIl.WriteByte((byte)ILOpCode.Ret);
+        int callerBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(callerIl));
         MethodDefinitionHandle caller =
             metadata.AddMethodDefinition(
             MethodAttributes.Public | MethodAttributes.Static,

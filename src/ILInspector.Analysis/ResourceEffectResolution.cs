@@ -1094,6 +1094,13 @@ public static class ResourceEffectResolver
             }
 
             TypeDefinition type = reader.GetTypeDefinition(typeHandle);
+            GenericParameterHandleCollection typeGenericParameters =
+                type.GetGenericParameters();
+            bool typeGenericParametersAreExact =
+                MemberResolver.HasExactGenericParameters(
+                    reader,
+                    typeGenericParameters,
+                    typeGenericParameters.Count);
             if (!semanticsByAssembly.TryGetValue(
                     assembly,
                     out MethodSemanticsIndex? semanticsIndex))
@@ -1323,7 +1330,8 @@ public static class ResourceEffectResolver
                 signatureNodes += candidateSignatureNodes;
                 int token = MetadataTokens.GetToken(methodHandle);
                 bool invalidSemantics =
-                    invalidSemanticsMethods.Contains(token);
+                    invalidSemanticsMethods.Contains(token)
+                    || !typeGenericParametersAreExact;
                 if (semanticsIndex.RowsByMethod.TryGetValue(
                         token,
                         out ImmutableArray<MethodSemanticsRow> associatedRows)
@@ -1337,6 +1345,13 @@ public static class ResourceEffectResolver
                 }
                 MethodDefinition method =
                     reader.GetMethodDefinition(methodHandle);
+                if (!MemberResolver.HasExactGenericParameters(
+                        reader,
+                        method.GetGenericParameters(),
+                        member.GenericArity))
+                {
+                    invalidSemantics = true;
+                }
                 if (propertyAccessors.TryGetValue(
                         token,
                         out var accessor)
