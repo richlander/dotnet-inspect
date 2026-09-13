@@ -10,21 +10,45 @@ vocabulary. It also records the relationship between current C# shapes and
 possible future compiler ownership.
 
 The focused owner linked by each row remains normative. This map does not
-define acquisition, transfer, borrowing, release, settlement, identity,
-correspondence, cache, House, Workspace, or Analysis behavior.
+define construction, acquisition, mutation, transfer, borrowing, release,
+settlement, identity, correspondence, cache, House, Workspace, or Analysis
+behavior.
+
+## Protection scope
+
+The shared protocol begins with the behavior that must remain impossible, not
+with a cleanup interface:
+
+| Protected category | Failure avoided |
+| --- | --- |
+| Exclusive mutable value | Two operations write through aliases to one object, a retained result observes another operation's update, or a stale owner mutates after transfer. |
+| Terminal resource | The owner leaks, double-releases, uses after release, releases through the wrong authority, or drops required asynchronous settlement. |
+| Combined value | Mutation authority and terminal responsibility separate or move independently. |
+
+The protocol also governs borrows and detached results. A borrow is non-owning
+access and must not escape, conflict with another borrow, or outlive its owner.
+A detached immutable value is a non-owned result; its safety depends on not
+retaining mutable owner state, live authority, or a terminal obligation.
+
+`IDisposable` and `IAsyncDisposable` are current encodings for some terminal
+resources. They are not the definition of ownership. `ArrayPool<T>.Rent` and
+`Return` form an ownership protocol without either interface, and an exclusive
+mutable value may need ownership without any release operation.
 
 ## Claim
 
 An ownership mapping is useful only when it identifies all of these separately:
 
-1. the resource issuer and exact release obligation;
+1. the protected category and unfavorable behavior;
 2. the current owner or consuming operation;
-3. any synchronous borrow;
-4. resource-free identity, evidence, outcomes, and receipts;
-5. the owner-issued correspondence that joins those values;
-6. current enforcement and its explicit gaps;
-7. possible future compiler enforcement; and
-8. asynchronous admission, quiescence, failure, and settlement that remain
+3. mutation and transfer authority;
+4. any synchronous borrow;
+5. any terminal release or settlement obligation;
+6. resource-free identity, evidence, outcomes, and receipts;
+7. the owner-issued correspondence that joins those values;
+8. current enforcement and its explicit gaps;
+9. possible future compiler enforcement; and
+10. asynchronous admission, quiescence, failure, and settlement that remain
    explicit protocol.
 
 A type name, `IDisposable`, `IAsyncDisposable`, or
@@ -32,7 +56,30 @@ A type name, `IDisposable`, `IAsyncDisposable`, or
 
 ## Demo
 
-Consider one PackageHouse acquisition of `System.Text.Json@10.0.0`.
+### Exclusive mutable state without cleanup
+
+Consider a package resolver implemented with one reusable mutable result
+object:
+
+```text
+resolve System.Text.Json -> write coordinate A -> caller retains result
+resolve Humanizer.Core   -> write coordinate B into the same object
+first caller observes coordinate B through the result returned for A
+```
+
+No `Dispose` call is missing. The error is shared mutable identity across two
+operations. A correct shape either keeps the mutable construction object under
+one exclusive owner and never lets it escape, or publishes a fresh immutable
+detached result.
+
+Current `ResolvedPackageCoordinate` demonstrates the second shape. Its
+properties are get-only, its source sequence is copied into a read-only
+collection, and each resolution constructs one answer. The result is
+resource-free after publication because later resolutions cannot mutate it.
+
+### Terminal resource with cleanup
+
+Now consider one PackageHouse acquisition of `System.Text.Json@10.0.0`.
 
 ```text
 PackageSourceSettlementService
@@ -87,9 +134,9 @@ Each detailed row records:
 | --- | --- |
 | Normative owner | Which focused document defines the behavior? |
 | Current or approved shape | Which exact type or operation carries the role? |
-| Lifecycle role | Is it an owner, authorization, operation lease, borrow, reference, receipt, outcome, or settlement observation? |
+| Protected category and lifecycle role | Is it an exclusive mutable value, terminal resource, combined value, owner, authorization, operation lease, borrow, detached value, reference, receipt, outcome, or settlement observation? |
 | State | Is the shape implemented, design-only, a compatibility bridge, or planned? |
-| Transfer | Which operation acquires, consumes, accepts, returns, or releases ownership? |
+| Transfer | Which operation constructs, acquires, consumes, accepts, detaches, returns, or releases ownership? |
 | Lifetime and correspondence | Which issuer, generation, registration, definition snapshot, or lender bounds it? |
 | Current enforcement and evidence | What does current C# or the owner reject, and which Release gate supports the claim? |
 | Future compiler correspondence | Could the shape become a resource, consuming parameter or receiver, borrow, borrow-derived result, transitive child, or none? |
@@ -121,14 +168,14 @@ Each detailed row records:
 | --- | --- |
 | Normative owner | [Resource ownership and borrowing](resource-ownership-and-borrowing.md) owns the shared vocabulary; [assembly image lifetime](assembly-image-lifetime.md) owns session image lifetime and correspondence. |
 | Current or approved shape | `ResourceOwnershipAttribute`, `ConsumesResourceReceiverAttribute`, `IResourceSnapshotSource<TResource>`, `ResourceSnapshotCallback<TResource, TState, TResult>`, `ReadOnlyResourceSnapshotView<TResource>`, and `AssemblyInspectionSession`. |
-| Lifecycle role | `AssemblyInspectionSession.Open` acquires a synchronous owner. `Borrow(PdbContext)` acquires a lender-bound session obligation. `Snapshot` supplies one synchronous scoped read-only borrow and returns the callback result. |
+| Protected category and lifecycle role | `AssemblyInspectionSession` is a synchronous terminal resource. `Open` acquires an owner. `Borrow(PdbContext)` acquires a lender-bound session obligation. `Snapshot` supplies one synchronous scoped read-only borrow and returns the callback result. Runtime liveness state enforces that lifecycle; the focused owner has not separately classified the session as an exclusive mutable value. |
 | State | **Implemented** contract floor. The complete assembly-image lifetime contract retains separately listed unverified gates. |
 | Transfer | Ordinary session construction acquires ownership; `Dispose` releases it. Snapshot callbacks borrow rather than transfer. A borrowed session releases only its lender registration. |
 | Lifetime and correspondence | One session retains one assembly image, and a borrowed session is bounded by its exact `PdbContext` lender; runtime access fails after either session or lender closes. The broader claim that every producer uses the same image remains **unverified** until the complete [assembly image lifetime](assembly-image-lifetime.md) gates land. |
 | Current enforcement and evidence | Ref-like views, `scoped`, and `ReadOnlySpan<T>` enforce the stack-only borrow shape. Runtime liveness checks enforce session and lender state. Release gates include `ResourceOwnershipContract_IsDeclared`, `Snapshot_ReturnsDetachedDataFromTheLiveSession`, `Snapshot_UsesLiveSessionAndReturnsDetachedProjectionWithoutCopyingIt`, `Snapshot_RejectsDisposedSessionBeforeInvokingCallback`, and `BorrowedSessionSnapshot_UsesTheLenderLifetime`. |
 | Future compiler correspondence | The session corresponds to a synchronous resource and `Drop`; ordinary receivers and `Snapshot` correspond to borrows. Lender identity and image correspondence remain owner protocol. |
 | Asynchronous residual | None for session release. Current C# still cannot prove that every class-valued callback result is detached. |
-| Resource-free evidence | A callback result that is detached or independently owned. The snapshot view itself is a borrow and cannot escape. |
+| Resource-free evidence | A detached callback result. An independently owned result remains ownership-bearing under its own contract. The snapshot view itself is a borrow and cannot escape. |
 | Simplification and owner task | Future compiler ownership can prevent copied owners and use after move. Bounded declaration admission is implemented by #6727 and resolver design is locked by #6728; resolver, generalized Analysis, and Research implementation remain #6729-#6732 work. Owner-specific liveness and correspondence remain. |
 
 ### Artifact
@@ -137,7 +184,7 @@ Each detailed row records:
 | --- | --- |
 | Normative owner | [Artifact ownership and borrowing](artifact-ownership-and-borrowing.md), tracked by #6647. |
 | Current or approved shape | `ArtifactSetSession`, `IArtifactAcquisitionLease`, `ArtifactAdmissionLease`, `ArtifactQueryLease`, `ArtifactContentLease`, `ArtifactContributionScope`, scoped content views, and explicit-authority compatibility streams. |
-| Lifecycle role | The session is an asynchronous aggregate owner. Acquisition outcomes may carry source leases. Admission and query leases are operation resources. `ArtifactContentLease` is a transferable synchronous child resource. Content views are scoped borrows. |
+| Protected category and lifecycle role | The session is an asynchronous aggregate terminal-resource owner. Acquisition outcomes may carry source leases. Admission and query leases are operation resources. `ArtifactContentLease` is a transferable synchronous child resource. Content views are scoped borrows. Runtime liveness and generation checks enforce those terminal contracts; the focused owner has not separately classified them as exclusive mutable values. |
 | State | **Implemented core with compatibility bridges.** `ArtifactContentReference` is resource-free; downstream content-child adoption is incomplete. |
 | Transfer | Successful acquisition transfers a source lease into the session. Content issuance transfers one exact child obligation to the caller or downstream aggregate. `Dispose` releases the child; `DisposeAsync` settles the aggregate. |
 | Lifetime and correspondence | Every content lease names one exact `ArtifactContentReference`, session, generation, registration, and immutable retained content. Query-policy replacement does not revoke an already-issued content child. |
@@ -153,7 +200,7 @@ Each detailed row records:
 | --- | --- |
 | Normative owner | [Package source model](package-source-model.md), with operation ownership completed by #6619. |
 | Current or approved shape | `PackageSourceSettlementService`, `PackageSourceSettlementLease`, `PackageSourceOperationLease`, package-source authorization, candidates, typed outcomes, and the internal active-work registration. |
-| Lifecycle role | The settlement lease is the asynchronous root resource. The operation lease is the synchronous resource for one top-level package operation. Active awaited work is an ownership effect, not a third resource. Authorization is package-ID policy, not a lease. |
+| Protected category and lifecycle role | The settlement lease is the asynchronous root terminal resource. The operation lease is the synchronous terminal resource for one top-level package operation. Active awaited work is an ownership effect, not a third resource. Authorization is package-ID policy, not a lease. The focused owner has not separately classified either lease as an exclusive mutable value. |
 | State | **Implemented**, with direct root-operation adapters retained as compatibility bridges. |
 | Transfer | A synchronous borrow of the live root issues an operation lease. The caller transfers that lease into PackageHouse, package-backed Platform, or another direct consumer. Operation release removes the root registration; observed root settlement completes only after every operation releases. |
 | Lifetime and correspondence | The lease owns one root settlement generation and one `NuGetOperationContext`, including caller cancellation and operation deadlines. Package ID, authorization, and candidate are supplied to each operation; owner-issued results preserve their source associations. |
@@ -169,7 +216,7 @@ Each detailed row records:
 | --- | --- |
 | Normative owner | [PackageHouse composition](package-house.md), with operation transfer completed by #6622 and broader adoption tracked by #6426. |
 | Current or approved shape | `PackageHouse.ExecuteAsync(request, PackageSourceOperationLease)`, `PackageHouseSettlement.ResourceFree`, `PackageHouseSettlement.Acquired`, `PackageHouseResult`, evidence, decisions, failures, and receipts. |
-| Lifecycle role | PackageHouse is a stateless service, not a resource issuer. `ExecuteAsync` consumes one Package Source operation lease across every awaited step. An acquired settlement separates a caller-owned payload from resource-free result evidence. |
+| Protected category and lifecycle role | PackageHouse is a stateless service, not an ownership issuer. `ExecuteAsync` consumes one Package Source operation terminal resource across every awaited step. An acquired settlement separates a caller-owned payload from resource-free result evidence. |
 | State | **Implemented** for `Settle` and `Acquire`; `Realize`, pruning, dependency realization, Workspace handoff, and host adoption remain planned. |
 | Transfer | The caller transfers the operation lease into `ExecuteAsync`; the House releases it on every terminal path. House results never return or retain that lease. |
 | Lifetime and correspondence | The request and PackageHouse's source authorization are separate inputs. The operation lease supplies one settlement generation and operation context; source results supply candidate and authority correspondence. Acquired payload coordinate, producer, origin, and retained-content generation must match the acquisition receipt. |
@@ -187,7 +234,7 @@ Each detailed row records:
 | --- | --- |
 | Normative owner | [Library ownership and borrowing](library-ownership-and-borrowing.md), tracked by #6621. |
 | Current or approved shape | Approved names are `LibraryReference`, `LibraryContentReference`, `LibraryContentOwner`, and `LibraryOperationLease`, plus owner-controlled synchronous multi-content snapshot callbacks. |
-| Lifecycle role | `LibraryContentOwner` is the sole asynchronous aggregate owner. `LibraryOperationLease` is consuming authority for one async operation. Snapshot views are scoped borrows. References, House contributions, outcomes, and receipts carry no live authority. |
+| Protected category and lifecycle role | `LibraryContentOwner` is the approved asynchronous aggregate terminal-resource owner. `LibraryOperationLease` is consuming terminal-resource authority for one async operation. Snapshot views are scoped borrows. References, House contributions, outcomes, and receipts carry no live authority. The focused owner has not separately classified either approved type as an exclusive mutable value. |
 | State | **Design-only** and **unverified**. No `DotnetInspector.Libraries` implementation currently supplies these CLR types. |
 | Transfer | Construction atomically accepts Artifact-issued content children. The owner issues a fresh operation lease, which transfers into exactly one async operation and settles on every terminal path. |
 | Lifetime and correspondence | A reference identifies one exact realized Library registration. Equal source coordinates in different Workspaces produce distinct references and owners. Library preserves source-, Artifact-, and Metadata-issued correspondence without manufacturing it. |
@@ -203,7 +250,7 @@ Each detailed row records:
 | --- | --- |
 | Normative owner | Workspace Definitions, Workspace Scope, and Artifact Acquisition own focused behavior. [Stateless core services](stateless-core-services.md) owns only the cross-owner definition/realization/operation association. |
 | Current or approved shape | Current compatibility types include `InspectionWorkspace`, `InspectionWorkspaceIdentity`, `WorkspaceScopeSnapshot`, and mutation operations. The target roles are a resource-free definition, one active realization, immutable definition snapshots, append-only Add, and realization-and-snapshot-bound operation authority. Those roles are not final CLR names. |
-| Lifecycle role | The active realization is the physical aggregate owner for realized Libraries, Artifact sessions, assembly groups, correctness indexes, admitted operations, and drainage. The definition, identity, and immutable snapshots are resource-free evidence. |
+| Protected category and lifecycle role | The active realization is the planned physical aggregate terminal-resource owner for realized Libraries, Artifact sessions, assembly groups, correctness indexes, admitted operations, and drainage. The definition, identity, and immutable snapshots are resource-free evidence. The Workspace owners have not separately classified the realization as an exclusive mutable value. |
 | State | Current Workspace ownership is **implemented compatibility behavior**. Definition/realization separation, Add-only admission, Library adoption, and cutover are **planned** and **unverified**. |
 | Transfer | The target realization accepts realized Library owners. Selecting another definition creates a fresh realization; no Artifact, Library, group, index, lease, or authority transfers from the predecessor. |
 | Lifetime and correspondence | Every operation identifies the exact realization and immutable definition snapshot that admitted it. Selecting equal coordinates later still creates fresh realization identity. |
@@ -252,6 +299,14 @@ semantic path, and Research migration remain #6729-#6732 work. Future compiler
 ownership may provide stronger facts about the inspected resource operations;
 it does not turn Analysis receipts or Findings into resources.
 
+The current Resource Effect Language and generalized lifecycle plan cover
+terminal obligations. They do not yet claim support for an exclusive mutable
+value with no release effect. #6778 owns that focused declaration-language
+extension, #6780 owns concrete effect resolution, and #6779 owns Analysis
+adoption. Until all three land, the package resolution aliasing case is
+architectural evidence and an explicit **unverified** Analysis category, not a
+capability attributed to the current language.
+
 Exact Release gates for the current baseline include
 `Admission_ReceiptsAreDeterministicAndPreserveInputOrder`,
 `Admission_ExactReceiptPreservesProvenanceAssociations`,
@@ -283,18 +338,20 @@ observations.
 
 | Contract concept | Current C# representation | Possible future compiler role | Required residual protocol |
 | --- | --- | --- | --- |
-| Synchronous owner | `IDisposable`, explicit fields, `using`, owner-specific runtime validation, and declared effects | Move-only resource and compiler-invoked `Drop` | Issuer identity, generation, correspondence, rejection, and cleanup failure |
-| Consuming transfer | Consuming metadata plus an ordinary parameter or static/extension receiver | Consuming resource parameter or receiver | Fallible acceptance, result ownership, and owner-specific transfer outcome |
-| Read-only or mutable borrow | `readonly ref struct`/`ref struct`, `scoped`, `ReadOnlySpan<T>`/`Span<T>`, synchronous callback | `ReadOnlyBorrow<T>`/`Borrow<T>` and owner-derived result lifetime | Owner liveness and exact borrowed-content correspondence |
+| Exclusive mutable owner without terminal release | Explicit owner type, encapsulated mutation, and preferably a fresh immutable detached result at publication; no `IDisposable` requirement | Move-only value and owner-derived mutable or read-only borrows where supported; the pinned proposal does not directly cover this category | Identity, mutation policy, detachment boundary, stale-alias rejection, and #6778/#6780/#6779 declaration, resolution, and Analysis support |
+| Synchronous terminal resource | `IDisposable` when its semantics fit, or an owner-specific acquisition/release pair such as `ArrayPool<T>.Rent`/`Return`; explicit fields, lexical cleanup where available, runtime validation, and declared effects | Move-only `IResource` and compiler-invoked `Drop` where the terminal contract fits | Issuer identity, generation, correspondence, rejection, cleanup failure, and any release-pair authority |
+| Consuming transfer | Consuming metadata plus an ordinary parameter or static/extension receiver | Compiler-enforced consuming parameter or receiver where a future language covers the value; the pinned proposal directly covers its `IResource` subset | Fallible acceptance, result ownership, and owner-specific transfer outcome |
+| Read-only or mutable borrow | `readonly ref struct`/`ref struct`, `scoped`, `ReadOnlySpan<T>`/`Span<T>`, synchronous callback | `ReadOnlyBorrow<T>`/`Borrow<T>` and owner-derived result lifetime where a future language covers the value | Owner liveness and exact borrowed-content correspondence |
 | Aggregate child | Explicit field or collection plus acceptance and cleanup code | Transitive owned field where supported | Dynamic collection accounting, release order, partial failure, and child identity |
 | Asynchronous owner | `IAsyncDisposable`, operation registration, explicit drain task and awaited observation | No approved asynchronous `Drop` correspondence | Admission closure, active work, abandonment, quiescence, fault/cancellation, and observed settlement |
 | Reference or receipt | Immutable identity/evidence value with no opener, callback, service, or lease | None | Owner-issued correspondence and visible stale/foreign rejection |
 
 The map never upgrades a design declaration into compiler enforcement.
-Current C# can still copy class references, retain aliases after conceptual
-transfer, and drop a `DisposeAsync` awaitable. Focused runtime gates and
-Resource Lifecycle Analysis cover only their declared supported subsets and
-must report unsupported proof as incomplete.
+Current C# can still copy mutable class references, retain aliases after
+conceptual transfer, reuse one object across operations, and drop a
+`DisposeAsync` awaitable. Focused runtime gates and Resource Lifecycle Analysis
+cover only their declared supported subsets and must report unsupported proof
+as incomplete.
 
 ## Maintenance
 
@@ -327,7 +384,8 @@ remain explicitly **unverified** until their owner issues land.
 - Concrete Workspace CLR names before #6750-#6752 choose them.
 - A claim that Library or its House adopters are implemented.
 - Treating caches, memoizers, catalogs, receipts, outcomes, or Findings as
-  resources without an owner-issued release obligation.
+  ownership-protected merely because they retain data, or as terminal resources
+  without an owner-issued release obligation.
 - Compiler implementation or repository substitutes for proposed C# ownership
   syntax.
 - An asynchronous `Drop` assumption.

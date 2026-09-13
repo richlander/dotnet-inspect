@@ -169,14 +169,16 @@ substrates, and inspection producers that will extend that space.
   `TextFindings` API for exact, ordered line inspection and generic text
   comparison on the shared Finding spine, plus deterministic LF construction.
 - [Resource Ownership and Borrowing](design/resource-ownership-and-borrowing.md)
-  is the host-neutral resource protocol for service-issued leases, explicit
-  transfer, direct and snapshot-callback borrowing, resource-free references
-  and receipts, C# representation, the residual enforcement overhang before
-  compiler ownership, and the lifecycle semantics declarations must express.
-  Resource issuers retain their acquisition and cleanup semantics; Analysis
-  retains IL interpretation and Finding semantics; Houses compose and settle
-  scenarios without issuing adjacent-owner leases. Adoption and retirement are
-  tracked by #6544. The non-normative
+  is the host-neutral ownership protocol for exclusive mutable values,
+  terminal resources, explicit transfer, direct and snapshot-callback
+  borrowing, detached immutable results, C# representation, the residual
+  enforcement overhang before compiler ownership, and the semantics
+  declarations must express. `IDisposable` is one terminal-resource encoding,
+  not the definition of ownership. Focused owners retain their mutation,
+  acquisition, and cleanup semantics; Analysis retains IL interpretation and
+  Finding semantics; Houses compose and settle scenarios without issuing
+  adjacent-owner leases. Adoption and retirement are tracked by #6544. The
+  non-normative
   [resource-owner type map](design/resource-owner-type-map.md) records each
   focused owner's current or approved types, maturity, evidence, and future
   compiler correspondence without becoming another owner.
