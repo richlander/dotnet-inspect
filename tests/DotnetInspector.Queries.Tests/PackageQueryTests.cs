@@ -1,8 +1,8 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
-using DotnetInspector.Core;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 using InertText;
 using NuGetFetch;
 
@@ -30,7 +30,7 @@ public sealed class PackageQueryTests
                     MaximumMatches: 1)));
 
         InspectionEnvelope<ImmutableArray<PackageQueryEvent>> envelope =
-            await PackageQuery.ExecuteToEnvelopeAsync(
+            await PackageQueryInspection.ExecuteAsync(
                 source,
                 plan,
                 TestContext.Current.CancellationToken);
@@ -66,7 +66,7 @@ public sealed class PackageQueryTests
         var observer = new RecordingPackageQueryEventObserver();
 
         InspectionEnvelope<ImmutableArray<PackageQueryEvent>> envelope =
-            await PackageQuery.ExecuteToEnvelopeAsync(
+            await PackageQueryInspection.ExecuteAsync(
                 source,
                 plan,
                 contentProvider: null,

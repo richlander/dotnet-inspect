@@ -14,7 +14,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Inspector.Artifacts.Workspaces\Inspector.Artifacts.Workspaces.csproj" />
-    <ProjectReference Include="..\DotnetInspector.Core\DotnetInspector.Core.csproj" />
     <ProjectReference Include="..\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
     <ProjectReference Include="..\DotnetInspector.SourceSelection\DotnetInspector.SourceSelection.csproj" />
     <ProjectReference Include="..\DotnetInspector.Services\DotnetInspector.Services.csproj" />
@@ -36,6 +35,7 @@
     <InternalsVisibleTo Include="DotnetInspector.Presentation.Tests" />
     <InternalsVisibleTo Include="DotnetInspect.Cli.Tests" />
     <InternalsVisibleTo Include="DotnetInspect.Web.Tests" />
+    <InternalsVisibleTo Include="DotnetInspector.Sections" />
     <InternalsVisibleTo Include="DotnetInspector.PackageQueries" />
     <!--
       The companion query assembly reuses the participant loop and the group's snapshot access so

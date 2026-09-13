@@ -1,8 +1,8 @@
 using System.Collections.Immutable;
 using System.Runtime.Versioning;
 using System.Text.Json;
-using DotnetInspector.Core;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspector.SourceSelection;
 using InertText;
 using NuGetFetch;

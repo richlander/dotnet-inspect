@@ -21,7 +21,8 @@ The current sources also implement the host-neutral L1 facet contract as
 ANDed predicate evaluation over `PackageProfileQuery`, an explicit
 package-content provider for archive-derived facets, non-empty inert evidence,
 separate candidate and match bounds, visible failures, and typed completion.
-Completed execution exposes
+The host-neutral `PackageQueryInspection` composition in
+`DotnetInspector.Sections` materializes completed execution as
 `InspectionEnvelope<ImmutableArray<PackageQueryEvent>>`; the existing immutable
 event sequence remains the Package Query-owned content, while the envelope
 carries the required shared Share outcome and diagnostics. Package Query does

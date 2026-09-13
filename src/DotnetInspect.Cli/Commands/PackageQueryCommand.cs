@@ -2,7 +2,6 @@ using System.Collections.Immutable;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
-using DotnetInspector.Core;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -72,7 +71,7 @@ internal static class PackageQueryCommand
     {
         PackageQueryPlan plan = options.Plan;
         InspectionEnvelope<ImmutableArray<PackageQueryEvent>> envelope =
-            await PackageQuery.ExecuteToEnvelopeAsync(
+            await PackageQueryInspection.ExecuteAsync(
                 source,
                 plan,
                 contentProvider,

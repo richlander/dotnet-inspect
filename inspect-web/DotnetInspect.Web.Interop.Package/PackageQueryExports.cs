@@ -1,10 +1,10 @@
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
-using DotnetInspector.Core;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.Package;
 using NuGetFetch;
@@ -103,7 +103,7 @@ namespace DotnetInspect.Web.Interop.Package
                 matchCredit,
                 emit,
                 deadline);
-            var envelope = await PackageQuery.ExecuteToEnvelopeAsync(
+            var envelope = await PackageQueryInspection.ExecuteAsync(
                     BrowserPackageWorkspace.Gallery,
                     plan,
                     contentProvider,
