@@ -36,6 +36,7 @@ public enum ResourceEffectResolutionWorkDimension
     SignatureNodes,
     SelectorEvaluations,
     DefinitionCandidates,
+    InvocationBindings,
     BoundEffects,
     CompatibilityComparisons,
 }
@@ -58,8 +59,8 @@ public sealed record ResourceEffectResolutionGap(
     public CallKind? CallKind { get; init; }
     public ResourceEffectResolutionWorkDimension? WorkDimension
         { get; init; }
-    public int? Limit { get; init; }
-    public int? RequiredWork { get; init; }
+    public long? Limit { get; init; }
+    public long? RequiredWork { get; init; }
 }
 
 public sealed class ResourceEffectResolutionLimits
@@ -70,7 +71,8 @@ public sealed class ResourceEffectResolutionLimits
         int maxBoundEffects = 100_000,
         int maxCompatibilityComparisons = 1_000_000,
         int maxInvocationOccurrences = 100_000,
-        int maxSignatureNodes = 1_000_000)
+        int maxSignatureNodes = 1_000_000,
+        int maxInvocationBindings = 1_000_000)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
             maxSelectorEvaluations);
@@ -83,12 +85,15 @@ public sealed class ResourceEffectResolutionLimits
             maxInvocationOccurrences);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
             maxSignatureNodes);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            maxInvocationBindings);
         MaxSelectorEvaluations = maxSelectorEvaluations;
         MaxDefinitionCandidates = maxDefinitionCandidates;
         MaxBoundEffects = maxBoundEffects;
         MaxCompatibilityComparisons = maxCompatibilityComparisons;
         MaxInvocationOccurrences = maxInvocationOccurrences;
         MaxSignatureNodes = maxSignatureNodes;
+        MaxInvocationBindings = maxInvocationBindings;
     }
 
     public int MaxSelectorEvaluations { get; }
@@ -97,6 +102,7 @@ public sealed class ResourceEffectResolutionLimits
     public int MaxCompatibilityComparisons { get; }
     public int MaxInvocationOccurrences { get; }
     public int MaxSignatureNodes { get; }
+    public int MaxInvocationBindings { get; }
 }
 
 public sealed class ResourceEffectOccurrencePopulationReceipt
@@ -362,6 +368,7 @@ public sealed class ResolvedResourceEffect
         ResourceEffect effect,
         ImmutableArray<ResolvedResourceEffectGenericBinding> bindings,
         ImmutableArray<ResolvedResourceKindReference> resourceKinds,
+        ResolvedResourceEffectType? guardExpectedType,
         ImmutableArray<ResolvedResourceEffectSource> sources)
     {
         AdmissionReceipt = admissionReceipt;
@@ -369,6 +376,7 @@ public sealed class ResolvedResourceEffect
         Effect = effect;
         _bindings = bindings;
         _resourceKinds = resourceKinds;
+        GuardExpectedType = guardExpectedType;
         _sources = sources;
     }
 
@@ -379,6 +387,7 @@ public sealed class ResolvedResourceEffect
         _bindings;
     public ImmutableArray<ResolvedResourceKindReference> ResourceKinds =>
         _resourceKinds;
+    public ResolvedResourceEffectType? GuardExpectedType { get; }
     public ImmutableArray<ResolvedResourceEffectSource> Sources =>
         _sources;
     public ImmutableArray<ResourceDeclarationProvenance> Provenances =>
@@ -582,13 +591,21 @@ public static class ResourceEffectResolver
                     mismatch.Value);
             }
         }
+        population =
+        [
+            .. population.OrderBy(
+                participant =>
+                    OpaqueIdentity(
+                        participant.Assembly.Registration),
+                StringComparer.Ordinal),
+        ];
 
         using var catalog = new TypeResolutionCatalog(options);
         var pending = ImmutableArray.CreateBuilder<PendingInvocation>();
         var requests = new List<TypeResolutionRequest>();
         ResourceEffectResolutionGap? planningGap = null;
-        int invocationOccurrences = 0;
-        int signatureNodes = 0;
+        long invocationOccurrences = 0;
+        long signatureNodes = 0;
         foreach (CatalogCallGraphParticipant participant in population)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -604,9 +621,9 @@ public static class ResourceEffectResolver
                         invocationOccurrences);
                     break;
                 }
-                int remainingSignatureNodes =
+                long remainingSignatureNodes =
                     limits.MaxSignatureNodes - signatureNodes;
-                int callSignatureNodes = SignatureNodeCount(
+                long callSignatureNodes = SignatureNodeCount(
                     call.Callee,
                     remainingSignatureNodes);
                 if (callSignatureNodes > remainingSignatureNodes)
@@ -615,7 +632,7 @@ public static class ResourceEffectResolver
                         ResourceEffectResolutionWorkDimension
                             .SignatureNodes,
                         limits.MaxSignatureNodes,
-                        limits.MaxSignatureNodes + 1);
+                        (long)limits.MaxSignatureNodes + 1);
                     break;
                 }
                 signatureNodes += callSignatureNodes;
@@ -672,9 +689,13 @@ public static class ResourceEffectResolver
                 ref signatureNodes,
                 cancellationToken);
         }
+        var expandedCandidateSets = new HashSet<DefinitionCandidateSet>(
+            ReferenceEqualityComparer.Instance);
         foreach (DefinitionCandidateSet set
             in definitionCandidates.Values)
         {
+            if (!expandedCandidateSets.Add(set))
+                continue;
             foreach (PendingDefinitionCandidate candidate
                 in set.Candidates)
             {
@@ -811,6 +832,7 @@ public static class ResourceEffectResolver
         var candidates =
             ImmutableArray.CreateBuilder<ResolvedInvocationCandidate>(
                 pending.Length);
+        long invocationBindings = 0;
         foreach (PendingInvocation item in pending)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -898,7 +920,9 @@ public static class ResourceEffectResolver
                 issued.Key,
                 resolved,
                 definitionCandidates[item],
-                context);
+                context,
+                limits,
+                ref invocationBindings);
             candidates.Add(
                 selected switch
                 {
@@ -924,7 +948,7 @@ public static class ResourceEffectResolver
                                 ResourceEffectResolutionGapKind
                                     .UnsupportedSignature,
                                 item)),
-                    SelectedMemberOutcome.Limit =>
+                    SelectedMemberOutcome.Limit value =>
                         ResolvedInvocationCandidate.Incomplete(
                             item,
                             Gap(
@@ -932,24 +956,11 @@ public static class ResourceEffectResolver
                                     .WorkLimitExceeded,
                                 item) with
                             {
-                                WorkDimension =
-                                    definitionCandidates[item]
-                                        .WorkDimension
-                                    ?? ResourceEffectResolutionWorkDimension
-                                        .DefinitionCandidates,
-                                Limit = definitionCandidates[item]
-                                        .WorkDimension
-                                        == ResourceEffectResolutionWorkDimension
-                                            .SignatureNodes
-                                    ? limits.MaxSignatureNodes
-                                    : limits.MaxDefinitionCandidates,
-                                RequiredWork =
-                                    definitionCandidates[item]
-                                        .WorkDimension
-                                        == ResourceEffectResolutionWorkDimension
-                                            .SignatureNodes
-                                    ? limits.MaxSignatureNodes + 1
-                                    : limits.MaxDefinitionCandidates + 1,
+                                WorkDimension = value.Dimension,
+                                Limit = WorkLimit(
+                                    limits,
+                                    value.Dimension),
+                                RequiredWork = value.RequiredWork,
                             }),
                     _ => ResolvedInvocationCandidate.Incomplete(
                         item,
@@ -967,7 +978,7 @@ public static class ResourceEffectResolver
             ImmutableArray<PendingInvocation> pending,
             TypeResolutionContext context,
             ResourceEffectResolutionLimits limits,
-            ref int signatureNodes,
+            ref long signatureNodes,
             CancellationToken cancellationToken)
     {
         var result =
@@ -977,7 +988,7 @@ public static class ResourceEffectResolver
             ResolvedTypeDefinitionKey,
             DefinitionCandidateSet>(
                 ReferenceEqualityComparer.Instance);
-        int examinedDefinitions = 0;
+        long examinedDefinitions = 0;
         foreach (PendingInvocation item in pending)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -1019,8 +1030,8 @@ public static class ResourceEffectResolver
     static DefinitionCandidateSet DiscoverDefinitionCandidates(
         TypeResolutionOutcome.Resolved resolved,
         ResourceEffectResolutionLimits limits,
-        ref int examinedDefinitions,
-        ref int signatureNodes)
+        ref long examinedDefinitions,
+        ref long signatureNodes)
     {
         try
         {
@@ -1089,9 +1100,9 @@ public static class ResourceEffectResolver
                     GenericScope.Empty);
                 if (member.Kind == MemberKind.Unsupported)
                     continue;
-                int remainingSignatureNodes =
+                long remainingSignatureNodes =
                     limits.MaxSignatureNodes - signatureNodes;
-                int candidateSignatureNodes = SignatureNodeCount(
+                long candidateSignatureNodes = SignatureNodeCount(
                     member,
                     remainingSignatureNodes);
                 if (candidateSignatureNodes > remainingSignatureNodes)
@@ -1145,7 +1156,9 @@ public static class ResourceEffectResolver
         CatalogMemberJoinKey callKey,
         TypeResolutionOutcome.Resolved resolved,
         DefinitionCandidateSet candidateSet,
-        TypeResolutionContext context)
+        TypeResolutionContext context,
+        ResourceEffectResolutionLimits limits,
+        ref long invocationBindings)
     {
         if (candidateSet.Failure is { } failure)
         {
@@ -1156,7 +1169,15 @@ public static class ResourceEffectResolver
                 ResourceEffectResolutionGapKind.UnsupportedSignature =>
                     new SelectedMemberOutcome.Unsupported(),
                 ResourceEffectResolutionGapKind.WorkLimitExceeded =>
-                    new SelectedMemberOutcome.Limit(),
+                    new SelectedMemberOutcome.Limit(
+                        candidateSet.WorkDimension
+                            ?? ResourceEffectResolutionWorkDimension
+                                .DefinitionCandidates,
+                        WorkLimit(
+                            limits,
+                            candidateSet.WorkDimension
+                                ?? ResourceEffectResolutionWorkDimension
+                                    .DefinitionCandidates) + 1),
                 _ => new SelectedMemberOutcome.Unavailable(),
             };
         }
@@ -1167,6 +1188,15 @@ public static class ResourceEffectResolver
         foreach (PendingDefinitionCandidate candidate
             in candidateSet.Candidates)
         {
+            long requiredWork = invocationBindings + 1;
+            if (requiredWork > limits.MaxInvocationBindings)
+            {
+                return new SelectedMemberOutcome.Limit(
+                    ResourceEffectResolutionWorkDimension
+                        .InvocationBindings,
+                    requiredWork);
+            }
+            invocationBindings = requiredWork;
             if (!CouldMatch(callKey, candidate.Member))
                 continue;
             CatalogMemberJoinProjection projection =
@@ -1316,8 +1346,8 @@ public static class ResourceEffectResolver
         var evaluations =
             ImmutableArray.CreateBuilder<ResourceEffectTargetEvaluation>();
         var allEffects = new List<ResolvedResourceEffect>();
-        int selectorEvaluations = 0;
-        int boundEffects = 0;
+        long selectorEvaluations = 0;
+        long boundEffects = 0;
 
         foreach (AdmittedResourceEffectModel model in admission.Models)
         {
@@ -1528,6 +1558,31 @@ public static class ResourceEffectResolver
                             });
                         continue;
                     }
+                    TypeMatchResult guardResult =
+                        TryResolveGuardExpectedType(
+                            declaration.Effect,
+                            candidate.Pending,
+                            context,
+                            out ResolvedResourceEffectType?
+                                guardExpectedType);
+                    if (guardResult != TypeMatchResult.Match)
+                    {
+                        if (guardResult == TypeMatchResult.Ambiguous)
+                            ambiguous = true;
+                        else if (guardResult == TypeMatchResult.Unsupported)
+                            unsupported = true;
+                        gaps.Add(Gap(
+                            guardResult == TypeMatchResult.Ambiguous
+                                ? ResourceEffectResolutionGapKind
+                                    .AmbiguousDefinition
+                                : guardResult == TypeMatchResult.Unsupported
+                                    ? ResourceEffectResolutionGapKind
+                                        .UnsupportedSignature
+                                    : ResourceEffectResolutionGapKind
+                                        .CorrespondenceIncomplete,
+                            candidate.Pending));
+                        continue;
+                    }
                     if (HasDeferredOccurrenceReference(
                             declaration.Effect))
                     {
@@ -1543,6 +1598,7 @@ public static class ResourceEffectResolver
                         declaration.Effect,
                         resolvedBindings,
                         resolvedKinds,
+                        guardExpectedType,
                         [
                             new ResolvedResourceEffectSource(
                                 model.Identity,
@@ -1577,13 +1633,15 @@ public static class ResourceEffectResolver
                         model.Receipt,
                         declaration,
                         kind,
-                        matches.ToImmutable(),
+                        OrderEffects(
+                            matches),
                         gaps.ToImmutable()));
             }
         }
 
         ImmutableArray<ResolvedResourceEffect> coalesced =
-            Coalesce(allEffects);
+            OrderEffects(
+                Coalesce(allEffects));
         ImmutableArray<ResourceEffectConflict> conflicts =
             FindConflicts(
                 coalesced,
@@ -1621,7 +1679,7 @@ public static class ResourceEffectResolver
                         ResourceEffectResolutionWorkDimension
                             .CompatibilityComparisons,
                         limits.MaxCompatibilityComparisons,
-                        limits.MaxCompatibilityComparisons + 1)]
+                        (long)limits.MaxCompatibilityComparisons + 1)]
                     : [
                         .. resultEvaluations.SelectMany(
                             evaluation => evaluation.Gaps),
@@ -2118,6 +2176,47 @@ public static class ResourceEffectResolver
         return TypeMatchResult.Match;
     }
 
+    static TypeMatchResult TryResolveGuardExpectedType(
+        ResourceEffect effect,
+        PendingInvocation invocation,
+        TypeResolutionContext context,
+        out ResolvedResourceEffectType? result)
+    {
+        ResourceEffectGuard? guard = effect switch
+        {
+            ResourceEffect.Derive value => value.Guard,
+            ResourceEffect.Operation value => value.Guard,
+            _ => null,
+        };
+        if (guard is null)
+        {
+            result = null;
+            return TypeMatchResult.Match;
+        }
+        if (guard
+                is not ResourceEffectGuard.ExactRuntimeType exact
+            || SignatureType(
+                    invocation.Call.Callee,
+                    exact.Expected) is not { } expected
+            || !TryGetGenericScopes(
+                    invocation,
+                    out GenericBindingScopes scopes))
+        {
+            result = null;
+            return TypeMatchResult.Incomplete;
+        }
+        TypeMatchResult resolution = TryResolveType(
+            expected,
+            invocation.Participant.Assembly,
+            context,
+            scopes,
+            out ResolvedResourceEffectType resolved);
+        result = resolution == TypeMatchResult.Match
+            ? resolved
+            : null;
+        return resolution;
+    }
+
     static TypeMatchResult TryResolveType(
         TypeRef type,
         ResolvedAssemblyReference source,
@@ -2209,7 +2308,8 @@ public static class ResourceEffectResolver
         if (outcome is not TypeResolutionOutcome.Resolved resolved
             || context.ProjectDefinitionJoinToken(
                     resolved.Definition.Key)
-                is not DefinitionJoinTokenProjection.Issued issued)
+                is not DefinitionJoinTokenProjection.Issued issued
+            || issued.Token.Kind != DefinitionJoinKind.Exact)
         {
             result = null!;
             return TypeMatchResult.Incomplete;
@@ -2471,7 +2571,7 @@ public static class ResourceEffectResolver
             _ => false,
         };
 
-    static ImmutableArray<ResolvedResourceEffect> Coalesce(
+    internal static ImmutableArray<ResolvedResourceEffect> Coalesce(
         IEnumerable<ResolvedResourceEffect> effects)
     {
         var groups = effects.GroupBy(
@@ -2480,17 +2580,19 @@ public static class ResourceEffectResolver
         foreach (IGrouping<BoundEffectKey, ResolvedResourceEffect> group
             in groups)
         {
-            ResolvedResourceEffect first = group.First();
+            ResolvedResourceEffect first = group
+                .OrderBy(
+                    CanonicalProvenance,
+                    StringComparer.Ordinal)
+                .First();
             ImmutableArray<ResolvedResourceEffectSource> sources =
             [
                 .. group
                     .SelectMany(effect => effect.Sources)
-                    .OrderBy(source => source.Model.Value)
-                    .ThenBy(source =>
-                        source.ModelReceipt.ContentHash)
-                    .ThenBy(source =>
-                        source.Provenances[0]
-                            .DeclarationOrdinal),
+                    .Select(CanonicalizeSource)
+                    .OrderBy(
+                        CanonicalSource,
+                        StringComparer.Ordinal),
             ];
             result.Add(
                 new ResolvedResourceEffect(
@@ -2499,6 +2601,7 @@ public static class ResourceEffectResolver
                     first.Effect,
                     first.Bindings,
                     first.ResourceKinds,
+                    first.GuardExpectedType,
                     sources));
         }
         return result.ToImmutable();
@@ -2512,7 +2615,7 @@ public static class ResourceEffectResolver
     {
         var conflicts =
             ImmutableArray.CreateBuilder<ResourceEffectConflict>();
-        int comparisons = 0;
+        long comparisons = 0;
         incomplete = false;
         foreach (IGrouping<ResourceEffectInvocationOccurrence,
             ResolvedResourceEffect> group in effects.GroupBy(
@@ -3165,30 +3268,17 @@ public static class ResourceEffectResolver
                     a.Subject,
                     rightEffect,
                     b.Subject)
-                && BoundSignatureLocationEquals(
-                    leftEffect,
-                    a.Expected,
-                    rightEffect,
-                    b.Expected),
+                && ResolvedGuardExpectedTypesEqual(
+                    leftEffect.GuardExpectedType,
+                    rightEffect.GuardExpectedType),
             _ => false,
         };
 
-    static bool BoundSignatureLocationEquals(
-        ResolvedResourceEffect leftEffect,
-        ResourceEffectSignatureLocation left,
-        ResolvedResourceEffect rightEffect,
-        ResourceEffectSignatureLocation right)
-    {
-        TypeRef? leftType = SignatureType(
-            leftEffect.Occurrence.Call.Callee,
-            left);
-        TypeRef? rightType = SignatureType(
-            rightEffect.Occurrence.Call.Callee,
-            right);
-        return leftType is not null
-            && rightType is not null
-            && TypeRef.ExactSignatureEquals(leftType, rightType);
-    }
+    static bool ResolvedGuardExpectedTypesEqual(
+        ResolvedResourceEffectType? left,
+        ResolvedResourceEffectType? right) =>
+        left is not null
+        && left.Equals(right);
 
     static bool KindDomainsOverlap(
         ResolvedResourceKindReference? left,
@@ -3401,15 +3491,11 @@ public static class ResourceEffectResolver
         {
             return true;
         }
-        TypeRef? leftType = SignatureType(
-            left.Occurrence.Call.Callee,
-            leftExact.Expected);
-        TypeRef? rightType = SignatureType(
-            right.Occurrence.Call.Callee,
-            rightExact.Expected);
-        return leftType is null
-            || rightType is null
-            || TypeRef.ExactSignatureEquals(leftType, rightType);
+        return left.GuardExpectedType is null
+            || right.GuardExpectedType is null
+            || ResolvedGuardExpectedTypesEqual(
+                left.GuardExpectedType,
+                right.GuardExpectedType);
     }
 
     static TypeRef? SignatureType(
@@ -3610,6 +3696,15 @@ public static class ResourceEffectResolver
                     AppendType(argument);
                 }
             }
+            if (effect.GuardExpectedType is { } guardExpectedType)
+            {
+                Append("guard-expected-type");
+                AppendType(guardExpectedType);
+            }
+            else
+            {
+                Append("no-guard-expected-type");
+            }
             foreach (ResolvedResourceEffectSource source in effect.Sources)
             {
                 Append("source");
@@ -3767,7 +3862,7 @@ public static class ResourceEffectResolver
         }
     }
 
-    static int SignatureNodeCount(MemberRef member, int limit)
+    static long SignatureNodeCount(MemberRef member, long limit)
     {
         var pending = new Stack<TypeRef>();
         pending.Push(member.DeclaringType);
@@ -3780,7 +3875,7 @@ public static class ResourceEffectResolver
             pending.Push(parameter);
         if (member.OpenSignatureReturn is not null)
             pending.Push(member.OpenSignatureReturn);
-        int count = 0;
+        long count = 0;
         while (pending.Count > 0)
         {
             TypeRef current = pending.Pop();
@@ -3809,14 +3904,196 @@ public static class ResourceEffectResolver
 
     static ResourceEffectResolutionGap WorkGap(
         ResourceEffectResolutionWorkDimension dimension,
-        int limit,
-        int requiredWork) =>
+        long limit,
+        long requiredWork) =>
         new(ResourceEffectResolutionGapKind.WorkLimitExceeded)
         {
             WorkDimension = dimension,
             Limit = limit,
             RequiredWork = requiredWork,
         };
+
+    static long WorkLimit(
+        ResourceEffectResolutionLimits limits,
+        ResourceEffectResolutionWorkDimension dimension) =>
+        dimension switch
+        {
+            ResourceEffectResolutionWorkDimension.InvocationOccurrences =>
+                limits.MaxInvocationOccurrences,
+            ResourceEffectResolutionWorkDimension.SignatureNodes =>
+                limits.MaxSignatureNodes,
+            ResourceEffectResolutionWorkDimension.SelectorEvaluations =>
+                limits.MaxSelectorEvaluations,
+            ResourceEffectResolutionWorkDimension.DefinitionCandidates =>
+                limits.MaxDefinitionCandidates,
+            ResourceEffectResolutionWorkDimension.InvocationBindings =>
+                limits.MaxInvocationBindings,
+            ResourceEffectResolutionWorkDimension.BoundEffects =>
+                limits.MaxBoundEffects,
+            ResourceEffectResolutionWorkDimension.CompatibilityComparisons =>
+                limits.MaxCompatibilityComparisons,
+            _ => throw new InvalidOperationException(
+                "Unknown resource-effect work dimension."),
+        };
+
+    static ImmutableArray<ResolvedResourceEffect> OrderEffects(
+        IEnumerable<ResolvedResourceEffect> effects) =>
+        [
+            .. effects.Order(
+                ResolvedResourceEffectCanonicalComparer.Instance),
+        ];
+
+    static ResolvedResourceEffectSource CanonicalizeSource(
+        ResolvedResourceEffectSource source) =>
+        new(
+            source.Model,
+            source.ModelReceipt,
+            source.Declaration,
+            [
+                .. source.Provenances
+                    .OrderBy(
+                        ResourceEffectCanonicalizer.Provenance,
+                        StringComparer.Ordinal),
+            ]);
+
+    static string CanonicalSource(
+        ResolvedResourceEffectSource source) =>
+        source.Model.Value
+        + "\u001f"
+        + source.ModelReceipt.ContentHash
+        + "\u001f"
+        + string.Join(
+            "\u001e",
+            source.Provenances.Select(
+                ResourceEffectCanonicalizer.Provenance));
+
+    static string CanonicalProvenance(
+        ResolvedResourceEffect effect) =>
+        string.Join(
+            "\u001d",
+            effect.Sources
+                .Select(CanonicalizeSource)
+                .OrderBy(
+                    CanonicalSource,
+                    StringComparer.Ordinal)
+                .Select(CanonicalSource));
+
+    static string CanonicalBoundEffect(
+        ResolvedResourceEffect effect)
+    {
+        var value = new StringBuilder(
+            ResourceEffectCanonicalizer.EffectOrderKey(effect.Effect));
+        foreach (ResolvedResourceEffectGenericBinding binding
+            in effect.Bindings)
+        {
+            value.Append('\u001f');
+            AppendInvariant(value, (int)binding.Variable.Kind);
+            value.Append(':');
+            AppendInvariant(value, binding.Variable.Index);
+            value.Append(':');
+            AppendCanonicalType(value, binding.Value);
+        }
+        foreach (string kind in effect.ResourceKinds
+            .Select(CanonicalKind)
+            .OrderBy(static value => value, StringComparer.Ordinal))
+        {
+            value.Append('\u001f');
+            value.Append(kind);
+        }
+        if (effect.GuardExpectedType is { } guardExpectedType)
+        {
+            value.Append('\u001f');
+            value.Append("guard:");
+            AppendCanonicalType(value, guardExpectedType);
+        }
+        return value.ToString();
+    }
+
+    static string CanonicalKind(
+        ResolvedResourceKindReference kind)
+    {
+        var value = new StringBuilder(kind.Identity.Value);
+        foreach (ResolvedResourceEffectType argument in kind.Arguments)
+        {
+            value.Append('\u001e');
+            AppendCanonicalType(value, argument);
+        }
+        return value.ToString();
+    }
+
+    static void AppendCanonicalType(
+        StringBuilder value,
+        ResolvedResourceEffectType type)
+    {
+        AppendInvariant(value, (int)type.Type.Kind);
+        value.Append(':');
+        AppendInvariant(value, type.Type.RawTypeKind);
+        value.Append(':');
+        AppendInvariant(value, type.Type.Rank);
+        value.Append(':');
+        AppendInvariant(value, type.Type.GenericParameterIndex);
+        value.Append(':');
+        if (type.Definition is { } definition)
+        {
+            value.Append("definition:");
+            value.Append(OpaqueIdentity(definition));
+            value.Append(':');
+            AppendInvariant(value, (int)definition.Kind);
+        }
+        else
+        {
+            value.Append("no-definition");
+        }
+        value.Append(':');
+        if (type.DefiningAssembly is { } assembly)
+        {
+            value.Append(assembly.Name);
+            value.Append(',');
+            value.Append(assembly.Version);
+            value.Append(',');
+            value.Append(assembly.Culture);
+            value.Append(',');
+            value.Append(assembly.PublicKeyToken);
+        }
+        value.Append(':');
+        value.Append(type.Type.Namespace);
+        value.Append(':');
+        value.Append(type.Type.Name);
+        if (type.GenericScope is { } scope)
+        {
+            value.Append(":scope:");
+            AppendInvariant(value, (int)scope.Kind);
+            value.Append(':');
+            value.Append(scope.Owner.ModuleVersionId.ToString("D"));
+            value.Append(':');
+            AppendInvariant(value, scope.Owner.MethodToken);
+        }
+        if (type.Element is { } element)
+        {
+            value.Append(":element:");
+            AppendCanonicalType(value, element);
+        }
+        foreach (ResolvedResourceEffectType argument in type.Arguments)
+        {
+            value.Append(":argument:");
+            AppendCanonicalType(value, argument);
+        }
+        foreach (int size in type.Type.ArraySizes)
+        {
+            value.Append(":size:");
+            AppendInvariant(value, size);
+        }
+        foreach (int lowerBound in type.Type.ArrayLowerBounds)
+        {
+            value.Append(":lower-bound:");
+            AppendInvariant(value, lowerBound);
+        }
+    }
+
+    static void AppendInvariant(StringBuilder value, int number) =>
+        value.Append(
+            number.ToString(
+                System.Globalization.CultureInfo.InvariantCulture));
 
     static string OpaqueIdentity(object value) =>
         s_receiptIdentities.GetValue(
@@ -3831,7 +4108,11 @@ public static class ResourceEffectResolver
         using var hash = IncrementalHash.CreateHash(
             HashAlgorithmName.SHA256);
         foreach (CatalogCallGraphParticipant participant
-            in participants)
+            in participants.OrderBy(
+                participant =>
+                    OpaqueIdentity(
+                        participant.Assembly.Registration),
+                StringComparer.Ordinal))
         {
             Append(OpaqueIdentity(participant.Assembly.Registration));
             Append(participant.Assembly.Identity.Name);
@@ -3923,7 +4204,10 @@ public static class ResourceEffectResolver
         internal sealed record Ambiguous : SelectedMemberOutcome;
         internal sealed record Unsupported : SelectedMemberOutcome;
         internal sealed record Incomplete : SelectedMemberOutcome;
-        internal sealed record Limit : SelectedMemberOutcome;
+        internal sealed record Limit(
+            ResourceEffectResolutionWorkDimension Dimension,
+            long RequiredWork)
+            : SelectedMemberOutcome;
     }
 
     sealed class ResolvedInvocationCandidate
@@ -4057,6 +4341,88 @@ public static class ResourceEffectResolver
     readonly record struct GenericBindingScopes(
         ResolvedResourceEffectGenericScope Type,
         ResolvedResourceEffectGenericScope Method);
+
+    internal static int CompareCanonicalBoundEffects(
+        ResolvedResourceEffect left,
+        ResolvedResourceEffect right) =>
+        StringComparer.Ordinal.Compare(
+            CanonicalBoundEffect(left),
+            CanonicalBoundEffect(right));
+
+    sealed class ResolvedResourceEffectCanonicalComparer
+        : IComparer<ResolvedResourceEffect>
+    {
+        internal static ResolvedResourceEffectCanonicalComparer Instance
+            { get; } = new();
+
+        public int Compare(
+            ResolvedResourceEffect? left,
+            ResolvedResourceEffect? right)
+        {
+            if (ReferenceEquals(left, right))
+                return 0;
+            if (left is null)
+                return -1;
+            if (right is null)
+                return 1;
+
+            int result = OccurrenceKind(left).CompareTo(
+                OccurrenceKind(right));
+            if (result != 0)
+                return result;
+            result = StringComparer.Ordinal.Compare(
+                OpaqueIdentity(
+                    left.Occurrence.Participant.Assembly.Registration),
+                OpaqueIdentity(
+                    right.Occurrence.Participant.Assembly.Registration));
+            if (result != 0)
+                return result;
+            result = left.Occurrence.Physical.ModuleVersionId.CompareTo(
+                right.Occurrence.Physical.ModuleVersionId);
+            if (result != 0)
+                return result;
+            EntityHandle leftDefinition =
+                MetadataTokens.EntityHandle(
+                    left.Occurrence.Definition.MetadataToken);
+            EntityHandle rightDefinition =
+                MetadataTokens.EntityHandle(
+                    right.Occurrence.Definition.MetadataToken);
+            result = leftDefinition.Kind.CompareTo(
+                rightDefinition.Kind);
+            if (result != 0)
+                return result;
+            result = MetadataTokens.GetRowNumber(leftDefinition).CompareTo(
+                MetadataTokens.GetRowNumber(rightDefinition));
+            if (result != 0)
+                return result;
+            result = left.Occurrence.Call.EvidenceMethod.MetadataToken
+                .CompareTo(
+                    right.Occurrence.Call.EvidenceMethod.MetadataToken);
+            if (result != 0)
+                return result;
+            result = left.Occurrence.Call.ILOffset.CompareTo(
+                right.Occurrence.Call.ILOffset);
+            if (result != 0)
+                return result;
+            result = left.Occurrence.Call.OperandToken.CompareTo(
+                right.Occurrence.Call.OperandToken);
+            if (result != 0)
+                return result;
+            result = left.Occurrence.Call.Kind.CompareTo(
+                right.Occurrence.Call.Kind);
+            if (result != 0)
+                return result;
+            result = CompareCanonicalBoundEffects(left, right);
+            return result != 0
+                ? result
+                : StringComparer.Ordinal.Compare(
+                    CanonicalProvenance(left),
+                    CanonicalProvenance(right));
+        }
+
+        static int OccurrenceKind(ResolvedResourceEffect _) =>
+            (int)GraphNodeStorageKind.CallSite;
+    }
 
     sealed record ReceiptIdentity(Guid Value);
 }

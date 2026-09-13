@@ -2498,6 +2498,9 @@ static class ResourceEffectCanonicalizer
             _ => throw new InvalidOperationException("Unknown type expression."),
         };
 
+    internal static string EffectOrderKey(ResourceEffect effect) =>
+        Effect(effect);
+
     static string Effect(ResourceEffect effect)
         => effect switch
         {

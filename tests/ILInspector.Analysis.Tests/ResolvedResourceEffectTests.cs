@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 using DotnetInspector.Fixtures;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
@@ -173,6 +175,43 @@ public sealed class ResolvedResourceEffectTests
     }
 
     [Fact]
+    public void InvocationBindingWorkLimitBoundsCachedCandidateComparisons()
+    {
+        ResourceEffectResolutionOutcome.Incomplete incomplete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Incomplete>(
+                Resolve(
+                    ArrayPoolResourceEffectModel.Create(),
+                    new ResourceEffectResolutionLimits(
+                        maxInvocationBindings: 1)));
+
+        Assert.Contains(
+            incomplete.Evaluations.SelectMany(
+                evaluation => evaluation.Gaps),
+            gap =>
+                gap.Kind
+                    == ResourceEffectResolutionGapKind.WorkLimitExceeded
+                && gap.WorkDimension
+                    == ResourceEffectResolutionWorkDimension
+                        .InvocationBindings
+                && gap.Limit == 1
+                && gap.RequiredWork > gap.Limit
+                && gap.PhysicalInvocation is not null);
+    }
+
+    [Fact]
+    public void InvocationBindingWorkAtIntMaximumDoesNotOverflow()
+    {
+        ResourceEffectResolutionOutcome.Complete complete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
+                Resolve(
+                    ArrayPoolResourceEffectModel.Create(),
+                    new ResourceEffectResolutionLimits(
+                        maxInvocationBindings: int.MaxValue)));
+
+        Assert.NotEmpty(complete.Snapshot.Effects);
+    }
+
+    [Fact]
     public void MethodGenericArgumentsBindWithoutSignatureUse()
     {
         ResourceEffectAdmission admission = MethodModel(
@@ -200,6 +239,80 @@ public sealed class ResolvedResourceEffectTests
             binding.Variable.Kind);
         Assert.Equal("Byte", binding.Value.Type.Name);
         Assert.NotNull(binding.Value.Definition);
+    }
+
+    [Fact]
+    public void IndeterminateDuplicateArtifactBindingIsIncomplete()
+    {
+        LibraryBodyIndex index = LibraryBodyIndex.Open(
+            FixturePath,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        ResolvedAssemblyReference first =
+            ResolvedAssemblyReference.CreateFromPath(
+                FixturePath,
+                AssemblyResolutionProvenance.Local(
+                    "resolved resource-effect duplicate binding first"));
+        ResolvedAssemblyReference second =
+            ResolvedAssemblyReference.CreateFromPath(
+                FixturePath,
+                AssemblyResolutionProvenance.Local(
+                    "resolved resource-effect duplicate binding second"));
+        var variable = new ResourceEffectGenericVariable(
+            ResourceEffectGenericVariableKind.Method,
+            0);
+        ResourceEffectAdmission admission = Admit(
+            Model(
+                "example.array-empty",
+                new ResourceEffectTargetSelector.Member(
+                    new ResourceEffectMemberSelector(
+                        CoreLibraryType("System", "Array"),
+                        "Empty",
+                        ResourceEffectMemberKind.Method,
+                        isStatic: true,
+                        genericArity: 1,
+                        ResourceEffectCallingConvention.Default,
+                        hasThis: false,
+                        explicitThis: false,
+                        parameters: [],
+                        new ResourceTypeExpression.SzArray(
+                            new ResourceTypeExpression.Variable(
+                                variable)))),
+                new ResourceEffect.Operation(
+                    ResourceOperationBoundary.Ordinary,
+                    ResourceOperationThrows.Possible,
+                    Guard: null)));
+
+        ResourceEffectResolutionOutcome.Incomplete incomplete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Incomplete>(
+                ResourceEffectResolver.Resolve(
+                    admission,
+                    new AssemblyDependencyResolver(
+                        new AssemblyDependencyResolutionOptions(
+                            FixturePath)),
+                    [
+                        new CatalogCallGraphParticipant(index, first),
+                        new CatalogCallGraphParticipant(index, second),
+                    ],
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+
+        ResourceEffectTargetEvaluation evaluation =
+            Assert.Single(incomplete.Evaluations);
+        Assert.Equal(
+            ResourceEffectTargetEvaluationKind.Incomplete,
+            evaluation.Kind);
+        Assert.NotEmpty(evaluation.Effects);
+        Assert.All(
+            evaluation.Effects.SelectMany(
+                effect => effect.Bindings),
+            binding => Assert.Equal(
+                DefinitionJoinKind.Exact,
+                binding.Value.Definition?.Kind));
+        Assert.Contains(
+            evaluation.Gaps,
+            gap => gap.Kind
+                == ResourceEffectResolutionGapKind
+                    .CorrespondenceIncomplete);
     }
 
     [Fact]
@@ -439,6 +552,339 @@ public sealed class ResolvedResourceEffectTests
         ResolvedResourceEffect effect =
             Assert.Single(complete.Snapshot.Effects);
         Assert.Equal(2, effect.Sources.Length);
+        Assert.NotNull(effect.GuardExpectedType);
+        Assert.Equal(
+            DefinitionJoinKind.Exact,
+            effect.GuardExpectedType.Definition?.Kind);
+    }
+
+    [Fact]
+    public void GenericMethodGuardUsesInstantiatedOccurrenceSignature()
+    {
+        ResourceEffectTargetSelector target = GenericEchoTarget();
+        ResourceEffectResolutionOutcome.Complete complete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
+                Resolve(
+                    Admit(
+                        Model(
+                            "example.generic-method-guard-parameter",
+                            target,
+                            GuardedOperation(
+                                new ResourceEffectSignatureLocation
+                                    .Parameter(0))),
+                        Model(
+                            "example.generic-method-guard-return",
+                            target,
+                            GuardedOperation(
+                                new ResourceEffectSignatureLocation
+                                    .Return())))));
+
+        ResolvedResourceEffect effect =
+            Assert.Single(complete.Snapshot.Effects);
+        Assert.Equal(2, effect.Sources.Length);
+        Assert.Equal("Byte", effect.GuardExpectedType?.Type.Name);
+        Assert.Equal(
+            DefinitionJoinKind.Exact,
+            effect.GuardExpectedType?.Definition?.Kind);
+    }
+
+    [Fact]
+    public void GenericDeclaringTypeGuardUsesInstantiatedOccurrenceSignature()
+    {
+        ResourceEffectGenericVariable typeVariable = new(
+            ResourceEffectGenericVariableKind.Type,
+            0);
+        ResourceEffectGenericVariable methodVariable = new(
+            ResourceEffectGenericVariableKind.Method,
+            0);
+        ResourceTypeExpression.Variable typeArgument = new(typeVariable);
+        ResourceEffectTargetSelector target =
+            new ResourceEffectTargetSelector.Member(
+                new ResourceEffectMemberSelector(
+                    new ResourceTypeExpression.Named(
+                        FixtureAssembly(),
+                        "Ownership",
+                        [new ResourceTypeNameSegment("GenericHost", 1)],
+                        [typeArgument]),
+                    "Target",
+                    ResourceEffectMemberKind.Method,
+                    isStatic: true,
+                    genericArity: 1,
+                    ResourceEffectCallingConvention.Default,
+                    hasThis: false,
+                    explicitThis: false,
+                    [
+                        new ResourceEffectParameterSelector(
+                            typeArgument,
+                            ResourceEffectRefKind.Value),
+                    ],
+                    CoreLibraryType("System", "Void")));
+        ResourceEffectResolutionOutcome.Complete complete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
+                Resolve(
+                    Admit(
+                        Model(
+                            "example.generic-type-guard",
+                            target,
+                            GuardedOperation(
+                                new ResourceEffectSignatureLocation
+                                    .Parameter(0))))));
+
+        ResolvedResourceEffect effect =
+            Assert.Single(complete.Snapshot.Effects);
+        Assert.Equal("Byte", effect.GuardExpectedType?.Type.Name);
+        Assert.Equal(
+            DefinitionJoinKind.Exact,
+            effect.GuardExpectedType?.Definition?.Kind);
+        Assert.Contains(
+            effect.Bindings,
+            binding =>
+                binding.Variable == typeVariable
+                && binding.Value.Type.Name == "Byte");
+        Assert.Contains(
+            effect.Bindings,
+            binding =>
+                binding.Variable == methodVariable
+                && binding.Value.Type.Name == "Byte");
+    }
+
+    [Fact]
+    public void FacadeGuardResolutionCoalescesWithExactReceiptEvidence()
+    {
+        ResourceEffectTargetSelector target = ArrayEmptyTarget();
+        ResourceEffectResolutionOutcome.Complete complete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
+                Resolve(
+                    Admit(
+                        Model(
+                            "example.facade-guard-first",
+                            target,
+                            GuardedOperation(
+                                new ResourceEffectSignatureLocation
+                                    .Return())),
+                        Model(
+                            "example.facade-pass",
+                            target,
+                            new ResourceEffect.Pass(
+                                new ResourceEffectLocation.Return(),
+                                new ResourceEffectLocation.Return(),
+                                Identity: null)),
+                        Model(
+                            "example.facade-guard-second",
+                            target,
+                            GuardedOperation(
+                                new ResourceEffectSignatureLocation
+                                    .Return())))));
+
+        ImmutableArray<ResolvedResourceEffect> effects =
+        [
+            .. complete.Snapshot.Effects.Where(effect =>
+                effect.Occurrence.Call.Caller.Name
+                    == "CallExternalGenericMarker"),
+        ];
+        Assert.Equal(2, effects.Length);
+        AssertCanonicalBoundOrder(effects);
+        ResolvedResourceEffect guarded =
+            Assert.Single(
+                effects,
+                effect => effect.Effect is ResourceEffect.Operation);
+        Assert.Equal(2, guarded.Sources.Length);
+        Assert.Equal(
+            DefinitionJoinKind.Exact,
+            guarded.GuardExpectedType?.Element?.Definition?.Kind);
+        Assert.NotEqual(
+            guarded.Occurrence.Call.Callee.DeclaringType.Assembly,
+            guarded.Occurrence.Definition.Assembly.Name);
+        Assert.Equal(64, complete.Receipt.ContentHash.Length);
+    }
+
+    [Fact]
+    public void EquivalentResolvedGuardTypesCoalesceAcrossFacadeSpellings()
+    {
+        ResourceEffectResolutionOutcome.Complete complete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
+                Resolve(MethodModel(
+                    "GenericMarker",
+                    genericArity: 1,
+                    parameters: [],
+                    new ResourceEffect.Operation(
+                        ResourceOperationBoundary.Ordinary,
+                        ResourceOperationThrows.Possible,
+                        Guard: null))));
+        ResolvedResourceEffectType resolved =
+            complete.Snapshot.Effects
+                .SelectMany(effect => effect.Bindings)
+                .First(binding =>
+                    binding.Value.Definition is not null)
+                .Value;
+        TypeRef firstRaw = TypeRef.Definition(
+            "Facade.One",
+            resolved.Type.Namespace,
+            resolved.Type.Name);
+        TypeRef secondRaw = TypeRef.Definition(
+            "Facade.Two",
+            resolved.Type.Namespace,
+            resolved.Type.Name);
+        var firstExpected = new ResolvedResourceEffectType(
+            firstRaw,
+            resolved.DefiningAssembly,
+            resolved.Definition,
+            resolved.GenericScope,
+            resolved.Element,
+            resolved.Arguments);
+        var secondExpected = new ResolvedResourceEffectType(
+            secondRaw,
+            resolved.DefiningAssembly,
+            resolved.Definition,
+            resolved.GenericScope,
+            resolved.Element,
+            resolved.Arguments);
+        ResolvedResourceEffect template =
+            complete.Snapshot.Effects[0];
+        MemberRef member = template.Occurrence.Call.Callee;
+        var firstOccurrence = new ResourceEffectInvocationOccurrence(
+            template.Occurrence.Catalog,
+            template.Occurrence.Generation,
+            template.Occurrence.Participant,
+            template.Occurrence.Call with
+            {
+                Callee = member with
+                {
+                    ParameterTypes = [firstRaw],
+                },
+            },
+            template.Occurrence.Definition);
+        var secondOccurrence = new ResourceEffectInvocationOccurrence(
+            template.Occurrence.Catalog,
+            template.Occurrence.Generation,
+            template.Occurrence.Participant,
+            template.Occurrence.Call with
+            {
+                Callee = member with
+                {
+                    ReturnType = secondRaw,
+                },
+            },
+            template.Occurrence.Definition);
+        var first = new ResolvedResourceEffect(
+            template.AdmissionReceipt,
+            firstOccurrence,
+            new ResourceEffect.Operation(
+                ResourceOperationBoundary.Ordinary,
+                ResourceOperationThrows.Possible,
+                new ResourceEffectGuard.ExactRuntimeType(
+                    new ResourceEffectLocation.Return(),
+                    new ResourceEffectSignatureLocation.Parameter(0))),
+            template.Bindings,
+            template.ResourceKinds,
+            firstExpected,
+            template.Sources);
+        var second = new ResolvedResourceEffect(
+            template.AdmissionReceipt,
+            secondOccurrence,
+            new ResourceEffect.Operation(
+                ResourceOperationBoundary.Ordinary,
+                ResourceOperationThrows.Possible,
+                new ResourceEffectGuard.ExactRuntimeType(
+                    new ResourceEffectLocation.Return(),
+                    new ResourceEffectSignatureLocation.Return())),
+            template.Bindings,
+            template.ResourceKinds,
+            secondExpected,
+            template.Sources);
+
+        Assert.False(
+            TypeRef.ExactSignatureEquals(
+                firstRaw,
+                secondRaw));
+        Assert.Single(
+            ResourceEffectResolver.Coalesce(
+                [first, second]));
+    }
+
+    [Fact]
+    public void CanonicalBoundEffectIncludesExactDefinitionIdentity()
+    {
+        ResolvedResourceEffect byteEffect =
+            Assert.Single(
+                Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
+                        Resolve(
+                            Admit(
+                                Model(
+                                    "example.byte-definition",
+                                    ArrayEmptyTarget(),
+                                    GuardedOperation(
+                                        new ResourceEffectSignatureLocation
+                                            .Return())))))
+                    .Snapshot.Effects.Where(effect =>
+                        effect.Occurrence.Call.Caller.Name
+                            == "CallExternalGenericMarker"));
+        ResolvedResourceEffect markerEffect =
+            Assert.Single(
+                Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
+                        Resolve(
+                            Admit(
+                                Model(
+                                    "example.marker-definition",
+                                    GenericEchoTarget(),
+                                    GuardedOperation(
+                                        new ResourceEffectSignatureLocation
+                                            .Parameter(0))))))
+                    .Snapshot.Effects.Where(effect =>
+                        effect.GuardExpectedType?.Definition is not null));
+        ResolvedResourceEffectType firstResolved =
+            byteEffect.GuardExpectedType!.Element!;
+        ResolvedResourceEffectType secondResolved =
+            markerEffect.GuardExpectedType!;
+        TypeRef sameSpelling = TypeRef.Definition(
+            "Same.Display.Assembly",
+            "Same.Display",
+            "Type");
+        var firstType = new ResolvedResourceEffectType(
+            sameSpelling,
+            firstResolved.DefiningAssembly,
+            firstResolved.Definition,
+            firstResolved.GenericScope,
+            firstResolved.Element,
+            firstResolved.Arguments);
+        var secondType = new ResolvedResourceEffectType(
+            sameSpelling,
+            firstResolved.DefiningAssembly,
+            secondResolved.Definition,
+            secondResolved.GenericScope,
+            secondResolved.Element,
+            secondResolved.Arguments);
+        ResourceEffect operation = GuardedOperation(
+            new ResourceEffectSignatureLocation.Return());
+        var first = new ResolvedResourceEffect(
+            byteEffect.AdmissionReceipt,
+            byteEffect.Occurrence,
+            operation,
+            [],
+            [],
+            firstType,
+            byteEffect.Sources);
+        var second = new ResolvedResourceEffect(
+            byteEffect.AdmissionReceipt,
+            byteEffect.Occurrence,
+            operation,
+            [],
+            [],
+            secondType,
+            byteEffect.Sources);
+
+        Assert.True(
+            TypeRef.ExactSignatureEquals(
+                first.GuardExpectedType!.Type,
+                second.GuardExpectedType!.Type));
+        Assert.NotEqual(
+            first.GuardExpectedType.Definition,
+            second.GuardExpectedType.Definition);
+        Assert.NotEqual(
+            0,
+            ResourceEffectResolver.CompareCanonicalBoundEffects(
+                first,
+                second));
     }
 
     [Fact]
@@ -802,6 +1248,7 @@ public sealed class ResolvedResourceEffectTests
             conflict.Conflicts,
             evidence =>
             {
+                AssertCanonicalBoundOrder(evidence.Effects);
                 Assert.Contains(
                     evidence.Effects.SelectMany(effect => effect.Sources),
                     source =>
@@ -814,6 +1261,97 @@ public sealed class ResolvedResourceEffectTests
                             == new ResourceEffectModelIdentity(
                                 "example.array-pool-conflict"));
             });
+    }
+
+    [Fact]
+    public void ResolvedEffectsUseOccurrenceMajorCanonicalOrder()
+    {
+        ResourceEffectTargetSelector target =
+            ArrayPoolResourceEffectModel.Definition()
+                .TypedDeclarations[1]
+                .Target;
+        ResourceEffectAdmission admission = Admit(
+            Model(
+                "example.pass-first",
+                target,
+                new ResourceEffect.Pass(
+                    new ResourceEffectLocation.Receiver(),
+                    new ResourceEffectLocation.Return(),
+                    Identity: null)),
+            Model(
+                "example.operation-second",
+                target,
+                new ResourceEffect.Operation(
+                    ResourceOperationBoundary.Ordinary,
+                    ResourceOperationThrows.Possible,
+                    Guard: null)));
+
+        ResourceEffectResolutionOutcome.Complete complete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
+                Resolve(admission));
+        ImmutableArray<ResolvedResourceEffect> effects =
+            complete.Snapshot.Effects;
+
+        Assert.True(effects.Length >= 4);
+        Assert.Equal(0, effects.Length % 2);
+        for (int index = 0; index < effects.Length; index += 2)
+        {
+            Assert.Equal(
+                effects[index].Occurrence,
+                effects[index + 1].Occurrence);
+            AssertCanonicalBoundOrder(
+                effects[index..(index + 2)]);
+        }
+    }
+
+    [Fact]
+    public void ParticipantIdentityOrderIgnoresInputArrayOrder()
+    {
+        LibraryBodyIndex index = LibraryBodyIndex.Open(
+            FixturePath,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        var first = new CatalogCallGraphParticipant(
+            index,
+            ResolvedAssemblyReference.CreateFromPath(
+                FixturePath,
+                AssemblyResolutionProvenance.Local(
+                    "resolved resource-effect ordering first")));
+        var second = new CatalogCallGraphParticipant(
+            index,
+            ResolvedAssemblyReference.CreateFromPath(
+                FixturePath,
+                AssemblyResolutionProvenance.Local(
+                    "resolved resource-effect ordering second")));
+        ResourceEffectAdmission admission = Admit(
+            Model(
+                "example.participant-order",
+                ArrayEmptyTarget(),
+                new ResourceEffect.Operation(
+                    ResourceOperationBoundary.Ordinary,
+                    ResourceOperationThrows.Possible,
+                    Guard: null)));
+
+        ResourceEffectResolutionOutcome.Incomplete forward =
+            Assert.IsType<ResourceEffectResolutionOutcome.Incomplete>(
+                Resolve(admission, [first, second]));
+        ResourceEffectResolutionOutcome.Incomplete reverse =
+            Assert.IsType<ResourceEffectResolutionOutcome.Incomplete>(
+                Resolve(admission, [second, first]));
+        CatalogCallGraphParticipant[] forwardOrder =
+        [
+            .. forward.Effects.Select(
+                effect => effect.Occurrence.Participant),
+        ];
+        CatalogCallGraphParticipant[] reverseOrder =
+        [
+            .. reverse.Effects.Select(
+                effect => effect.Occurrence.Participant),
+        ];
+
+        Assert.True(
+            forwardOrder.SequenceEqual(
+                reverseOrder,
+                ReferenceEqualityComparer.Instance));
     }
 
     [Fact]
@@ -904,6 +1442,18 @@ public sealed class ResolvedResourceEffectTests
             limits);
     }
 
+    static ResourceEffectResolutionOutcome Resolve(
+        ResourceEffectAdmission admission,
+        CatalogCallGraphParticipant[] participants) =>
+        ResourceEffectResolver.Resolve(
+            admission,
+            new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(
+                    FixturePath)),
+            participants,
+            cancellationToken:
+                TestContext.Current.CancellationToken);
+
     static ResourceEffectAdmission Admit(
         params ResourceEffectModelDefinition[] definitions) =>
         Assert.IsType<ResourceEffectAdmissionOutcome.Admitted>(
@@ -981,6 +1531,83 @@ public sealed class ResolvedResourceEffectTests
                             0),
                     ]),
             ]);
+    }
+
+    static ResourceEffectTargetSelector ArrayEmptyTarget()
+    {
+        ResourceEffectGenericVariable variable = new(
+            ResourceEffectGenericVariableKind.Method,
+            0);
+        return new ResourceEffectTargetSelector.Member(
+            new ResourceEffectMemberSelector(
+                CoreLibraryType("System", "Array"),
+                "Empty",
+                ResourceEffectMemberKind.Method,
+                isStatic: true,
+                genericArity: 1,
+                ResourceEffectCallingConvention.Default,
+                hasThis: false,
+                explicitThis: false,
+                parameters: [],
+                new ResourceTypeExpression.SzArray(
+                    new ResourceTypeExpression.Variable(variable))));
+    }
+
+    static ResourceEffectTargetSelector GenericEchoTarget()
+    {
+        ResourceEffectGenericVariable variable = new(
+            ResourceEffectGenericVariableKind.Method,
+            0);
+        ResourceTypeExpression.Variable variableType = new(variable);
+        return new ResourceEffectTargetSelector.Member(
+            new ResourceEffectMemberSelector(
+                FixtureType("Entry"),
+                "GenericEcho",
+                ResourceEffectMemberKind.Method,
+                isStatic: true,
+                genericArity: 1,
+                ResourceEffectCallingConvention.Default,
+                hasThis: false,
+                explicitThis: false,
+                [
+                    new ResourceEffectParameterSelector(
+                        variableType,
+                        ResourceEffectRefKind.Value),
+                ],
+                variableType));
+    }
+
+    static ResourceEffect.Operation GuardedOperation(
+        ResourceEffectSignatureLocation expected) =>
+        new(
+            ResourceOperationBoundary.Ordinary,
+            ResourceOperationThrows.Possible,
+            new ResourceEffectGuard.ExactRuntimeType(
+                new ResourceEffectLocation.Return(),
+                expected));
+
+    static ResourceAssemblySelector FixtureAssembly() =>
+        new(
+            "ILInspector.Analysis.OwnershipFlowFixtures",
+            publicKeyToken: null,
+            ResourceAssemblyVersionPolicy.Any);
+
+    static ResourceTypeExpression.Named FixtureType(string name) =>
+        new(
+            FixtureAssembly(),
+            "Ownership",
+            [new ResourceTypeNameSegment(name, 0)]);
+
+    static void AssertCanonicalBoundOrder(
+        ImmutableArray<ResolvedResourceEffect> effects)
+    {
+        for (int index = 1; index < effects.Length; index++)
+        {
+            Assert.True(
+                ResourceEffectResolver.CompareCanonicalBoundEffects(
+                    effects[index - 1],
+                    effects[index]) <= 0);
+        }
     }
 
     static ResourceTypeExpression.Named CoreLibraryType(

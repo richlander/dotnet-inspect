@@ -182,6 +182,11 @@ public static class Entry
 
     public static void CallGenericMarker() => GenericMarker<byte>();
 
+    public static byte CallGenericEcho() => GenericEcho<byte>(0);
+
+    public static void CallExternalGenericMarker() =>
+        _ = Array.Empty<OwnershipMarker>();
+
     public static void CallOpenGenericMarker<T>() => GenericMarker<T>();
 
     public static void CallSecondOpenGenericMarker<T>() => GenericMarker<T>();
@@ -189,6 +194,8 @@ public static class Entry
     public static void GenericMarker<T>()
     {
     }
+
+    public static T GenericEcho<T>(T value) => value;
 
     public static void CallEquivalentGenericMarker() =>
         GenericHost<byte>.Target<byte>(0);
@@ -278,4 +285,8 @@ public static class GenericHost<T>
     public static void Target<U>(T value)
     {
     }
+}
+
+public sealed class OwnershipMarker
+{
 }
