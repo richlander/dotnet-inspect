@@ -488,6 +488,70 @@ public sealed class ResolvedResourceEffectTests
     }
 
     [Fact]
+    public void VarargMemberReferenceRetainsMethodDefinitionParent()
+    {
+        ResourceEffectTargetSelector Target(string typeName) =>
+            new ResourceEffectTargetSelector.Member(
+                new ResourceEffectMemberSelector(
+                    FixtureType(typeName),
+                    "Marker",
+                    ResourceEffectMemberKind.Method,
+                    isStatic: true,
+                    genericArity: 0,
+                    ResourceEffectCallingConvention.VarArgs,
+                    hasThis: false,
+                    explicitThis: false,
+                    [
+                        new ResourceEffectParameterSelector(
+                            CoreLibraryType("System", "Int32"),
+                            ResourceEffectRefKind.Value),
+                    ],
+                    CoreLibraryType("System", "Void")));
+
+        ResourceEffectResolutionOutcome.Complete complete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
+                Resolve(
+                    Admit(
+                        Model(
+                            "example.first-vararg-host",
+                            Target("FirstVarargHost"),
+                            new ResourceEffect.Operation(
+                                ResourceOperationBoundary.Ordinary,
+                                ResourceOperationThrows.Possible,
+                                Guard: null)),
+                        Model(
+                            "example.second-vararg-host",
+                            Target("SecondVarargHost"),
+                            new ResourceEffect.Operation(
+                                ResourceOperationBoundary.Ordinary,
+                                ResourceOperationThrows.Possible,
+                                Guard: null)))));
+
+        Assert.Collection(
+            complete.Evaluations,
+            evaluation =>
+            {
+                Assert.Equal(
+                    ResourceEffectTargetEvaluationKind.Resolved,
+                    evaluation.Kind);
+                Assert.Equal(
+                    "FirstVarargHost",
+                    Assert.Single(evaluation.Effects)
+                        .Occurrence.Definition.Member.DeclaringType.Name);
+            },
+            evaluation =>
+            {
+                Assert.Equal(
+                    ResourceEffectTargetEvaluationKind.Resolved,
+                    evaluation.Kind);
+                Assert.Equal(
+                    "SecondVarargHost",
+                    Assert.Single(evaluation.Effects)
+                        .Occurrence.Definition.Member.DeclaringType.Name);
+            });
+    }
+
+    [Fact]
     public void EquivalentResolvedGuardTypesCoalesce()
     {
         ResourceTypeExpression byteArray =

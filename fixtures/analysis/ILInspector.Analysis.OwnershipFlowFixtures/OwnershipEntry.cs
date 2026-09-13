@@ -203,6 +203,12 @@ public static class Entry
     public static void CallVarargMarker() =>
         VarargMarker(1, __arglist(2));
 
+    public static void CallDistinctVarargMarkers()
+    {
+        FirstVarargHost.Marker(1, __arglist(2));
+        SecondVarargHost.Marker(1, __arglist(2));
+    }
+
     public static void VarargMarker(int value, __arglist)
     {
     }
@@ -283,6 +289,20 @@ public static class Entry
 public static class GenericHost<T>
 {
     public static void Target<U>(T value)
+    {
+    }
+}
+
+public static class FirstVarargHost
+{
+    public static void Marker(int value, __arglist)
+    {
+    }
+}
+
+public static class SecondVarargHost
+{
+    public static void Marker(int value, __arglist)
     {
     }
 }

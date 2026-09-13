@@ -210,7 +210,8 @@ internal sealed class LibraryBodyMethodReferenceResolver
         ScopeAwareTypeIdentity DeclaringType,
         string Name,
         SignatureIdentity Signature,
-        GenericScopeIdentity Scope);
+        GenericScopeIdentity Scope,
+        int MethodDefinitionParentToken);
 
     readonly record struct MemberReferenceParentKey(
         EntityHandle Parent,
@@ -327,7 +328,10 @@ internal sealed class LibraryBodyMethodReferenceResolver
             Signature(reference.Signature),
             MemberReferenceScope(
                 reference.Parent,
-                scope));
+                scope),
+            reference.Parent.Kind == HandleKind.MethodDefinition
+                ? MetadataTokens.GetToken(reference.Parent)
+                : 0);
     }
 
     TypeRef ResolveMemberReferenceDeclaringType(
@@ -357,6 +361,13 @@ internal sealed class LibraryBodyMethodReferenceResolver
                             _reader,
                             scope,
                             (TypeSpecificationHandle)key.Parent,
+                            0),
+                    HandleKind.MethodDefinition =>
+                        TypeRefDecoder.Instance.GetTypeFromDefinition(
+                            _reader,
+                            _reader.GetMethodDefinition(
+                                (MethodDefinitionHandle)key.Parent)
+                                .GetDeclaringType(),
                             0),
                     _ => TypeRef.Unsupported(
                         $"member parent kind {key.Parent.Kind}"),
