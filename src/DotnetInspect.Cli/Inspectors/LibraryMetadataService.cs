@@ -1,4 +1,3 @@
-using DotnetInspector.Core;
 using DotnetInspect.Cli.Models;
 using System.Collections.Immutable;
 using System.Globalization;

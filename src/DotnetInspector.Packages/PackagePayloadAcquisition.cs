@@ -1,5 +1,4 @@
 using System.Net.Http.Headers;
-using DotnetInspector.Core;
 using InertText;
 using NuGetFetch;
 

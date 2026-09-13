@@ -520,7 +520,7 @@ internal sealed class ChangeRoutingPolicy
             "eng/restore-ilassembler.sh",
             "src/ILInspector.Metadata*",
             "src/DotnetInspector.Cache/*",
-            "src/DotnetInspector.Core/*",
+            "src/DotnetInspector.Sections/*",
             "src/UntrustedDocuments/*",
             "*.props",
             "*.targets",

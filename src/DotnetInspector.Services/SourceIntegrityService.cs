@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
-using DotnetInspector.Core;
 using DotnetInspector.Packages;
 using ILInspector.SourceLink;
 

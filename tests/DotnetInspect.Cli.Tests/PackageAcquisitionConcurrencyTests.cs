@@ -5,7 +5,6 @@ using System.Net;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
-using Core = DotnetInspector.Core;
 
 namespace DotnetInspect.Cli.Tests;
 

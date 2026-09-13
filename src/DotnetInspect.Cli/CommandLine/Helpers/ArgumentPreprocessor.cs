@@ -1,4 +1,3 @@
-using DotnetInspector.Core;
 using System.CommandLine;
 using System.CommandLine.Parsing;
 

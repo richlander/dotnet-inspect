@@ -1,7 +1,6 @@
 using DotnetInspector.Cache;
 using DotnetInspect.Cli;
 using DotnetInspect.Cli.Commands;
-using DotnetInspector.Core;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspect.Cli.Views;
