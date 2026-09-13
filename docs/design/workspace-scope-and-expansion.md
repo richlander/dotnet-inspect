@@ -171,11 +171,11 @@ contracts. The target claim is:
 > resource or a live Workspace's authority.
 
 Issue [#6802](https://github.com/richlander/dotnet-inspect/issues/6802) specifies
-this distinction. The full request-to-plan path remains **unverified and not
-implemented**. The registration and context-bearing profiles below exist;
-definition lowering and host adoption follow the counted plan below. This is
-not a second JSON format or a requirement that every in-process plan have a
-portable representation.
+this distinction. The registration and context-bearing profiles below and
+Definitions lowering into the common plan are implemented. CLI and Browser
+adoption remain **unverified and not implemented**, following the counted plan
+below. This is not a second JSON format or a requirement that every in-process
+plan have a portable representation.
 
 ##### Implemented registration profile
 
@@ -326,21 +326,22 @@ updates only the Workspace Plan boundary.
 | --- | --- |
 | 1 | Lock this request/invokable-plan distinction and its current-versus-planned support boundary. |
 | 2 | Workspace Scope adopts context intent in `WorkspacePlan`, retaining the existing acquisition inputs and independent live construction; public consumer gates exercise plan invocation through ordinary owner APIs. |
-| 3 | Workspace Definitions adopts lowering into the common plan for its currently supported inline package/platform/embedded profile; record syntax, metadata and scenario associations retain their owner. Unsupported subscriptions remain explicit failures until separately supported. |
+| 3 | Workspace Definitions lowers its currently supported inline package/platform/embedded profile into the common plan; record syntax, metadata and scenario associations remain Definitions-owned, and unsupported subscriptions remain explicit failures. Implemented by #6750. |
 | 4 | CLI adopts the common construction path for the existing System.Text.Json demo and a programmatic equivalent; retire its parallel construction recipe in the same adoption. |
 | 5 | Browser/Wasm adopts the same shared lowering and invocation through its existing demo activation; retire its alternate construction recipe and any superseded shared recipe once its final consumer moves. |
 
-The existing `InspectionDefinitionRegistry.ResolveScenario` lowering to
-`ResolvedWorkspaceContext`, and `WorkspaceContextLoader` consuming typed
-context inputs, are implementation evidence for this separation. Reuse their
-owner-issued boundary rather than add another parser or loader. This follows
-the conventional request/lowering/invocation distinction; those implementations
-are supporting evidence, not additional normative owners. Resolved scenario
-and presentation records need not retire merely because construction intent
-uses the common plan.
+`InspectionDefinitionRegistry.ResolveScenario` now retains its exact selected
+definition, existing `ResolvedWorkspaceContext` values, and the
+`WorkspacePlan` lowered from those same ordered contexts.
+`WorkspaceContextLoader` consumes the plan's typed context inputs. The
+Definitions implementation reuses those owner-issued boundaries rather than
+adding another parser or loader. This follows the conventional
+request/lowering/invocation distinction; those implementations are supporting
+evidence, not additional normative owners. Resolved scenario and presentation
+records do not retire merely because construction intent uses the common plan.
 
 The motivating asset is the existing real System.Text.Json Platform demo.
-The mockup shows the architectural path, not an available lowering API:
+The implemented Definitions path and remaining host adoptions are:
 
 ```text
 System.Text.Json WorkspaceDefinition --lower--+
@@ -355,18 +356,20 @@ claiming the corresponding property. The planned gates are:
 
 | Required outcome | Enforcing adoption gate and current status |
 | --- | --- |
-| Pinned equivalent inline document and programmatic intent preserve the same context/target associations and inspect the same System.Text.Json subject. | Definitions lowering plus CLI and Browser demo conformance; **unverified**. |
+| Pinned equivalent inline document and programmatic intent preserve the same context/target associations. | Definitions lowering is gated by `InspectionDefinitionTests.ResolveScenario_LowersSupportedContextsIntoReusableWorkspacePlan`; **implemented by #6750**. |
+| CLI and Browser/Wasm inspect the same System.Text.Json subject through the shared plan path. | CLI and Browser demo conformance remain **unverified**. |
 | A context-bearing plan remains reusable after close; a registration replacement preserves context intent and does not alter another live owner. | Expanded `WorkspacePlanTests` and public non-friend consumer; **implemented by #6810**. |
-| Incompatible target declarations or an unsupported subscription remain explicit failures, not a successful partial composition or a silently selected context. | Existing loader/Definitions failure contracts exercised through the new plan path; **unverified**. |
-| Raw and definition-authored construction do not receive implicit Ecosystems curation; explicit catalog plans retain their authored registrations. | Definitions lowering and both host adoption gates; **unverified** for the new path. |
+| Incompatible target declarations or an unsupported subscription remain explicit failures, not a successful partial composition or a silently selected context. | `InspectionDefinitionTests.ResolveScenario_DefersTargetValidationToPlanInvocation` and `Registry_RejectsSubscribeAndFilesystemCoordinates_AndCrossKindPeers`; **implemented by #6750**. |
+| Raw and definition-authored construction do not receive implicit Ecosystems curation; explicit catalog plans retain their authored registrations. | Definitions' raw plan is gated by `InspectionDefinitionTests.ResolveScenario_LowersSupportedContextsIntoReusableWorkspacePlan`; explicit catalog plans retain the existing `EcosystemWorkspaceConstructionTests` and public-consumer gates, while both host adoptions remain **unverified**. |
 
-Definitions lowering, CLI adoption and Browser/Wasm adoption remain explicitly
-unimplemented. The wire owner's grammar/version decisions, floating selection,
-group subscription implementation and restoration coordinator remain separate
-efforts. This subplan introduces no new rendering domain or format lowering;
-CLI Markout output and Browser presentation continue to consume their existing
-typed results. It adds no temporal protocol, so the existing registration and
-close models are not evidence for the new lowering path.
+Definitions lowering is implemented by #6750. CLI adoption and Browser/Wasm
+adoption remain explicitly unimplemented. The wire owner's grammar/version
+decisions, floating selection, group subscription implementation and
+restoration coordinator remain separate efforts. This subplan introduces no
+new rendering domain or format lowering; CLI Markout output and Browser
+presentation continue to consume their existing typed results. It adds no
+temporal protocol; the #6750 gates exercise fresh construction through the
+existing plan and lifetime contracts rather than claiming a new close model.
 
 #### Identity and equality
 

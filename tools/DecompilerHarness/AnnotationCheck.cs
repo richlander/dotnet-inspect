@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 
+using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
@@ -163,6 +164,9 @@ static class AnnotationCheck
         {
             using var source = MetadataSource.Open(assemblyPath, context: metadata);
             var reader = source.Reader;
+            ResearchAssemblyContext assemblyContext =
+                ResearchAssemblyContext.Create(
+                    LibraryBodyIndex.Open(assemblyPath));
 
             foreach (var typeDefHandle in reader.TypeDefinitions)
             {
@@ -197,7 +201,10 @@ static class AnnotationCheck
                         continue;
                     }
 
-                    var annotations = ResearchViews.CollectFacts(source, function);
+                    var annotations = ResearchViews.CollectFacts(
+                        source,
+                        function,
+                        assemblyContext);
 
                     // The independent witness: offset -> opcode, read straight from
                     // the IL bytes with the runtime-ported reader.

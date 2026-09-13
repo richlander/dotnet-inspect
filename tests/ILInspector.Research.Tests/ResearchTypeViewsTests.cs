@@ -4,7 +4,6 @@ using ILInspector.Research.Tests.TypeFixtures;
 
 namespace ILInspector.Research.Tests;
 
-[Collection(AnalysisIndexCacheCollection.Name)]
 public class ResearchTypeViewsTests
 {
     static MetadataSource OpenSelf()

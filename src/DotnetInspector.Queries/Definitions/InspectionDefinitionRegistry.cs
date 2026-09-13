@@ -83,6 +83,7 @@ public sealed class InspectionDefinitionRegistry
         }
 
         WorkspaceDefinition? workspace = null;
+        WorkspacePlan? workspacePlan = null;
         WorkspaceContextDefinition? selectedContext = null;
         IReadOnlyList<ResolvedWorkspaceContext> contexts = Array.Empty<ResolvedWorkspaceContext>();
 
@@ -98,6 +99,15 @@ public sealed class InspectionDefinitionRegistry
                 workspace.Contexts
                     .Select(context => ResolveContext(workspace, context))
                     .ToArray());
+            workspacePlan = new WorkspacePlan(
+                [],
+                contexts.Select(static context =>
+                    new WorkspaceContextInput
+                    {
+                        Framework = context.Framework,
+                        RuntimeIdentifier = context.RuntimeIdentifier,
+                        Members = context.Members,
+                    }).ToArray());
 
             if (!string.IsNullOrWhiteSpace(scenario.Context))
             {
@@ -160,6 +170,7 @@ public sealed class InspectionDefinitionRegistry
         return new ResolvedScenario(
             scenario,
             workspace,
+            workspacePlan,
             selectedContext?.Name,
             contexts,
             query,
@@ -237,6 +248,7 @@ public sealed class ResolvedScenario
     internal ResolvedScenario(
         ScenarioDefinition scenario,
         WorkspaceDefinition? workspace,
+        WorkspacePlan? workspacePlan,
         string? selectedContextName,
         IReadOnlyList<ResolvedWorkspaceContext> contexts,
         QueryDefinition? query,
@@ -245,6 +257,7 @@ public sealed class ResolvedScenario
     {
         Scenario = scenario;
         Workspace = workspace;
+        WorkspacePlan = workspacePlan;
         SelectedContextName = selectedContextName;
         Contexts = contexts;
         Query = query;
@@ -261,6 +274,12 @@ public sealed class ResolvedScenario
     public string? Description => Scenario.Description;
 
     public WorkspaceDefinition? Workspace { get; }
+
+    /// <summary>
+    /// The exact resource-free construction plan lowered from
+    /// <see cref="Workspace"/>, or null for a workspace-free scenario.
+    /// </summary>
+    public WorkspacePlan? WorkspacePlan { get; }
 
     /// <summary>
     /// Null when the scenario is workspace-free (input-only).
