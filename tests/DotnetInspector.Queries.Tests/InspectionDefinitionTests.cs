@@ -395,7 +395,12 @@ public class InspectionDefinitionTests
         Assert.Empty(plan.Registrations);
         Assert.Equal(programmaticPlan.Contexts.Length, plan.Contexts.Length);
         for (int i = 0; i < programmaticPlan.Contexts.Length; i++)
+        {
             AssertContextInputEqual(programmaticPlan.Contexts[i], plan.Contexts[i]);
+            Assert.Same(plan.Contexts[i], resolved.Contexts[i].Input);
+            Assert.Same(plan.Contexts[i].Members, resolved.Contexts[i].Members);
+        }
+        Assert.Same(plan.Contexts[0], resolved.SelectedContext!.Input);
 
         InspectionWorkspace first =
             WorkspaceDefinitionConsumer.CreateWorkspace(resolved);
