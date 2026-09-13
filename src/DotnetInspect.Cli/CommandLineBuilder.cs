@@ -57,6 +57,11 @@ public static class CommandLineBuilder
     public static bool TryGetStaleDirectionFlagError(string[] args, out string? error)
         => ArgumentPreprocessor.TryGetStaleDirectionFlagError(args, out error);
 
+    public static bool TryGetRemovedCommandError(
+        string[] args,
+        out string? error) =>
+        ArgumentPreprocessor.TryGetRemovedCommandError(args, out error);
+
     /// <summary>
     /// Reports stale direction syntax using the active command's count unit.
     /// </summary>
@@ -970,11 +975,6 @@ public static class CommandLineBuilder
 
         // Depends command
         rootCommand.Subcommands.Add(SearchCommandDefinitions.CreateDependsCommand(opts));
-
-        // Dependency evidence command (normalized direct declarations, not a traversal)
-        rootCommand.Subcommands.Add(
-            DependencyEvidenceCommandDefinitions
-                .CreateDependencyEvidenceCommand(opts));
 
         // Extensions command
         rootCommand.Subcommands.Add(SearchCommandDefinitions.CreateExtensionsCommand(opts));
