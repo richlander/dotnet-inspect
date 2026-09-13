@@ -7,6 +7,14 @@ on 2026-09-12. Focused design: [#6760](https://github.com/richlander/dotnet-insp
 End-to-end adoption: [#6761](https://github.com/richlander/dotnet-inspect/issues/6761).
 Nothing in this document is a claim that the proposed commands or defaults ship.
 
+The Ecosystems construction prerequisite (step 3) is complete: #6786 landed in
+[#6787](https://github.com/richlander/dotnet-inspect/pull/6787), followed by
+issue #6791's resource-free plan factories in
+[#6800](https://github.com/richlander/dotnet-inspect/pull/6800). The
+[handoff owner](workspace-ecosystem-registration-handoff.md#boundary-shape)
+defines the implemented API and its Release gates. This does not complete
+finite population realization, CLI/browser activation, or retirement parity.
+
 **Subject Relations composition** is the single normative owner established
 here. Its exact claim is:
 
@@ -1262,7 +1270,7 @@ unreviewable changes inside a nominal slice.
 | --- | --- |
 | 1 | This Subject Relations workflow/composition design, [#6760](https://github.com/richlander/dotnet-inspect/issues/6760). |
 | 2 | Workspace registration retention and finite population realization. |
-| 3 | Ecosystems-owned platform and all-known-pack factories/manifests, preserving empty raw Workspace construction. |
+| 3 | **Complete:** Ecosystems-owned platform and all-known-pack factories/manifests (#6786, #6787; plan-factory adoption #6791, #6800), preserving empty raw Workspace construction. |
 | 4 | Search Scope Resolution adopts broad versus explicit candidate intent using existing Source Selection declarations. |
 | 5 | Find's exact host-neutral locator/context handoff. |
 | 6 | Metadata-owned typed hierarchy, extension, reference and signature-shape projections, including return/parameter match sites. |
