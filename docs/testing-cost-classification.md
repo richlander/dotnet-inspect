@@ -1,9 +1,12 @@
 # Classifying test cost
 
-[AGENTS.md](../AGENTS.md#building-and-testing) states the binding rule: tag a
-test `[Trait("Speed", "Slow")]` when its cost comes from exhaustive or
-whole-assembly analysis rather than ordinary unit-test setup. This doc owns
-the threshold, placement convention, and existing consumers.
+[AGENTS.md](../AGENTS.md#building-and-testing) states the binding rule:
+classify every new or materially expanded test as PR-fast or
+`[Trait("Speed", "Slow")]`. Exhaustive and whole-assembly tests are slow by
+policy; otherwise measure suspected slow tests in isolation. A slow
+classification is complete only when daily Deep Inspect or a focused
+pre-merge gate owns the excluded evidence. This doc owns the threshold,
+placement convention, and existing consumers.
 
 ## Why this exists
 
@@ -71,8 +74,12 @@ public void SomeExpensiveTheory(string assemblyName)
 ## Existing consumers (no workflow changes needed to add a tag)
 
 - `ci.yml`'s PR-blocking fast leg filters `Speed=Slow` from the CLI and
-  Analysis suites. `deep-inspect.yml` runs both suites fully unfiltered, so a
-  newly tagged test automatically keeps running daily.
+  Analysis suites. The CLI selection is split across five parallel matrix
+  entries: four select non-overlapping class-name prefix ranges, and the
+  fifth selects their complement. The complement makes the partition
+  exhaustive even when a future test class uses an unexpected identifier.
+  `deep-inspect.yml` runs both suites fully unfiltered, so a newly tagged test
+  automatically keeps running daily.
 - The CSharp text and inspection-query suites use the same PR filter. Deep
   Inspect's daily platform lane runs both suites fully unfiltered.
 - The offline NuGet suite excludes both `Network=Live` and `Speed=Slow` in PR

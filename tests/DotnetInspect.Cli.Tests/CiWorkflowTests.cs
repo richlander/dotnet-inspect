@@ -26,6 +26,59 @@ public class CiWorkflowTests
     }
 
     [Fact]
+    public void PrimaryLinuxTestJob_DefinesTheApprovedParallelShards()
+    {
+        string testHeader = JobHeader("test");
+        string[] shards =
+        [
+            "cli-a-c",
+            "cli-d-i",
+            "cli-ma",
+            "cli-mem",
+            "cli-rest",
+            "contracts",
+            "analysis",
+            "host-policy",
+        ];
+
+        Assert.Equal(shards.Length, CountOccurrences(testHeader, "shard: "));
+        foreach (string shard in shards)
+            Assert.Contains($"shard: {shard}", testHeader);
+    }
+
+    [Fact]
+    public void CliFastShards_AreDisjointAndCollectivelyExhaustive()
+    {
+        AssertCliShard(
+            "Run CLI tests A-C (fast)",
+            "cli-a-c",
+            "filter-class",
+            'A',
+            'C');
+        AssertCliShard(
+            "Run CLI tests D-I (fast)",
+            "cli-d-i",
+            "filter-class",
+            'D',
+            'I');
+        AssertCliShard(
+            "Run CLI Markout and Match tests (fast)",
+            "cli-ma",
+            "filter-class",
+            ["Ma"]);
+        AssertCliShard(
+            "Run CLI Member tests (fast)",
+            "cli-mem",
+            "filter-class",
+            ["Mem"]);
+        AssertCliShard(
+            "Run remaining CLI tests (fast)",
+            "cli-rest",
+            "filter-not-class",
+            ["A", "B", "C", "D", "E", "F", "G", "H", "I", "Ma", "Mem"]);
+    }
+
+    [Fact]
     public void HostedPackageFixture_UsesOneStepScopedReadToken()
     {
         string testHeader = JobHeader("test");
@@ -71,7 +124,7 @@ public class CiWorkflowTests
         Assert.Contains("continue-on-error: true", fixtureStep);
         Assert.Contains("id: package_fixture", fixtureStep);
         Assert.Contains(
-            "if: steps.package_fixture.outcome == 'failure'",
+            "if: matrix.shard == 'host-policy' && steps.package_fixture.outcome == 'failure'",
             NamedStep("Check GitHub Packages fixture result"));
     }
 
@@ -137,6 +190,42 @@ public class CiWorkflowTests
         }
 
         return count;
+    }
+
+    static void AssertCliShard(
+        string stepName,
+        string shard,
+        string filter,
+        char first,
+        char last)
+        => AssertCliShard(
+            stepName,
+            shard,
+            filter,
+            Enumerable.Range(first, last - first + 1)
+                .Select(value => ((char)value).ToString())
+                .ToArray());
+
+    static void AssertCliShard(
+        string stepName,
+        string shard,
+        string filter,
+        string[] prefixes)
+    {
+        string step = NamedStep(stepName);
+        Assert.Contains($"if: matrix.shard == '{shard}'", step);
+        Assert.Contains($"--{filter} ", step);
+        Assert.Contains("--filter-not-trait \"Speed=Slow\"", step);
+        foreach (string prefix in prefixes)
+        {
+            Assert.Contains(
+                $"'DotnetInspect.Cli.Tests.{prefix}*'",
+                step);
+        }
+
+        Assert.Equal(
+            prefixes.Length,
+            CountOccurrences(step, "'DotnetInspect.Cli.Tests."));
     }
 
     static string FindRepoRoot()
