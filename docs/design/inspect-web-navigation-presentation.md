@@ -333,12 +333,13 @@ keeping a compatibility mode. `SlideStrip` remains a separately owned reusable
 control; this document neither changes its contract nor decides whether that
 control has enough remaining adoption to retain.
 
-Issue #6158 is the overall end-to-end tracker for the Browser host. Its counted
-path has three focused slices:
+Issue #6158 is the overall end-to-end tracker for this Browser presentation
+replacement. Its counted path has three focused slices:
 
 1. lock this Navigation Presentation contract and its production gates;
-2. implement both adaptive groups in the Browser host and delete the retired
-   Navigation Presentation interaction in the same production slice,
+2. implement both adaptive groups over the Browser's current supported
+   inventories and delete the retired Navigation Presentation interaction in
+   the same production slice,
    [#6276](https://github.com/richlander/dotnet-inspect/issues/6276); and
 3. reconcile the now-unconsumed SlideStrip owner in the separate focused
    [#6277](https://github.com/richlander/dotnet-inspect/issues/6277), retaining
@@ -349,6 +350,16 @@ The second slice completes the user-visible navigation replacement. The third
 closes the existing-architecture retirement plan without broadening this
 owner's contract. This is an existing Browser-specific presentation path, not
 a new shared product substrate or a CLI rendering domain.
+
+This presentation path does not claim the separately owned migration from
+Browser-local inventories to View Facet Registry descriptors and statuses, or
+the Navigation Consumer migration to product-issued actions, generations, and
+result authority. Those remain
+[#5510](https://github.com/richlander/dotnet-inspect/issues/5510) and
+[#5511](https://github.com/richlander/dotnet-inspect/issues/5511) under the
+[#5512](https://github.com/richlander/dotnet-inspect/issues/5512) production
+adoption tracker. They are not prerequisites for retiring the old Browser
+allocation interaction.
 
 ### Inspected target
 
@@ -903,37 +914,38 @@ add and pass these named Inspect Web tests:
   `adaptive subject and inspector groups choose one measured presentation`
   covers all four Tabs/Chooser pairs, complete full-label fit, deterministic
   mixed-pair selection by the exact inline-choice-gain score, subject tie-break,
-  empty inventories, no-effective-inspector and Workspace-active
-  no-committed-subject states, equal constrained shares, complete accessible
-  labels under visual elision, open-Chooser pinning, and the absence of
-  allocation controls, compact representations, windows, edge indicators, and
+  empty inventories, no-effective-inspector and no-committed-subject states,
+  open-Chooser pinning, typed action dispatch, and the absence of allocation
+  controls, compact representations, windows, edge indicators, and
   wheel-sliding state.
-- `workspace-titlebar.spec.ts`:
-  `adaptive navigation preserves committed state and focus across fit changes`
-  covers manual activation for both roomy tablists, Tabs-to-Chooser and
+- `adaptive-navigation.spec.ts` covers complete production inventories,
+  deterministic form selection, application-scope yielding, equal constrained
+  shares, complete accessible labels under visual elision, manual activation
+  for both roomy tablists, Tabs-to-Chooser and
   Chooser-to-Tabs focus handoff, an open menu surviving resize, menu
-  cancellation and Tab dismissal, the Workspace-active retained-coordinate
-  handoff with no committed subject, panel role and accessible-name continuity
-  across both replacement directions and menu dismissal, current-item and
-  `Selection required` activation, disabled evidence, same-lifetime
-  stable-identity retention with new action rebinding, asynchronous replacement
-  parking, and rejection of an outgoing generation's menu action or DOM target.
-- `library-hierarchy.spec.ts`:
-  `subject and inspector navigation stays explicit from wide to 390px`
-  exercises the production Browser shell and bindings with deterministic
-  facade results. It covers all-label, mixed, and dual-Chooser layouts;
-  Package-to-Library activation; browsing without activation; explicit lens
-  and subject commits; Escape cancellation; direct 390-pixel entry and reload;
-  no-effective and empty inspector inventories; and unchanged focus, URL, and
-  history during presentation-only transitions.
+  cancellation, outside-pointer and Tab dismissal, the Workspace-active
+  retained-coordinate handoff with no committed subject, and panel role and
+  accessible-name continuity across both replacement directions.
+- `workspace-titlebar.spec.ts` covers same-lifetime stable-identity retention
+  with new action rebinding, asynchronous replacement parking, and rejection
+  of an outgoing generation's menu action or DOM target.
+- `library-hierarchy.spec.ts` exercises the production Browser shell and
+  bindings with deterministic facade results, including Package-to-Library
+  activation, explicit lens and subject commits, direct 390-pixel entry and
+  reload, empty inspector inventories, and unchanged URL and history during
+  presentation-only transitions.
 
-The implementation fixture supplies typed product results through the normal
-navigation boundary. It does not construct a parallel host catalog or bypass
-effect-authority validation merely to observe the renderer.
+The adaptive-presentation gates in `scope-bar.test.ts`,
+`adaptive-navigation.spec.ts`, `workspace-titlebar.spec.ts`, and
+`library-hierarchy.spec.ts` exercise the Browser's current supported
+inventories through its normal rendering boundary. They do not construct a
+parallel host catalog merely to observe the renderer.
 
-These gates are not implemented by this documentation-only design. Until they
-exist and pass, the prose defines the target contract but does not claim
-Inspect Web implementation conformance.
+The descriptor/status, product-action, generation, effect-authority, and
+complete Navigation-result gates above remain pending with #5510 and #5511.
+Until those owners' migrations land, this implementation claims the adaptive
+Browser presentation and retirement contract, not full product Navigation
+descriptor or consumer conformance.
 
 ## Acceptance scenarios
 
