@@ -161,7 +161,6 @@
     <Project Path="src/ILInspector.JsExportSurface/ILInspector.JsExportSurface.csproj" />
     <Project Path="src/ILInspector.SourceLink/ILInspector.SourceLink.csproj" />
     <Project Path="src/ILInspector.MetadataPrimitives/ILInspector.MetadataPrimitives.csproj" />
-    <Project Path="tests/ILInspector.Research.Tests/ILInspector.Research.Tests.csproj" />
     <Project Path="src/ILInspector.Research/ILInspector.Research.csproj" />
     <Project Path="src/ILInspector.TypeScriptGeneration/ILInspector.TypeScriptGeneration.csproj" />
     <Project Path="src/InertText/InertText.csproj" />
@@ -192,6 +191,7 @@
     <Project Path="tests/ILInspector.Instructions.Tests/ILInspector.Instructions.Tests.csproj" />
     <Project Path="tests/ILInspector.Metadata.Tests/ILInspector.Metadata.Tests.csproj" />
     <Project Path="tests/ILInspector.JsExportSurface.Tests/ILInspector.JsExportSurface.Tests.csproj" />
+    <Project Path="tests/ILInspector.Research.Tests/ILInspector.Research.Tests.csproj" />
     <Project Path="tests/Inspector.Artifacts.Tests/Inspector.Artifacts.Tests.csproj" />
     <Project Path="tests/Inspector.Resources.Tests/Inspector.Resources.Tests.csproj" />
     <Project Path="tests/Inspector.Text.Tests/Inspector.Text.Tests.csproj" />
