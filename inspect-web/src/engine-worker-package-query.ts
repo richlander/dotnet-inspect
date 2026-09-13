@@ -126,7 +126,7 @@ export type EngineWorkerPackageQueryCompletionEvent =
     readonly completion: EngineWorkerPackageQueryCompletion;
   };
 
-export interface EngineWorkerPackageQueryInspection {
+interface EngineWorkerPackageQueryInspection {
   readonly content: readonly (
     EngineWorkerPackageQueryDurableEvent
     | EngineWorkerPackageQueryCompletionEvent
@@ -948,8 +948,8 @@ function parseInspection(
   const diagnostics = arrayItems(
     inspection.diagnostics,
     "Package Query inspection diagnostics",
-    metadataBudget).map(value => {
-      const diagnostic = dataRecord(value, [
+    metadataBudget).map(item => {
+      const diagnostic = dataRecord(item, [
         "code",
         "severity",
         "summary",
