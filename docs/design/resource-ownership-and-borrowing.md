@@ -17,11 +17,10 @@ requirements declarations must express. The
 portable attribute and JSON language, structural selectors, bounded source
 admission, local declaration validation, and immutable admitted declarations.
 The Analysis-owned
-[Resolved Resource Effects](https://github.com/richlander/dotnet-inspect/issues/6728)
-successor will bind those declarations to concrete metadata occurrences once
-its contract is locked. Analysis is the first adopter through separate focused
-efforts, using the existing ArrayPool ownership flow and Resource Triage
-product path as its implementation and corpus baseline.
+[Resolved Resource Effects](resolved-resource-effects.md) owner binds those
+declarations to concrete metadata occurrences. Analysis is the first adopter
+through separate focused efforts, using the existing ArrayPool ownership flow
+and Resource Triage product path as its implementation and corpus baseline.
 Artifact, Library, PackageHouse, PlatformHouse, SourceHouse,
 DocumentationHouse, Workspace, CLI, and Browser/Wasm adoption remain
 independently reviewed steps in the tracker.
@@ -693,9 +692,8 @@ the declaration was encoded. The
 [Resource Effect Language](resource-effect-language.md) owns encoding, bounded
 source admission, local validation, provenance, versioning, and immutable
 admitted declarations. The Analysis-owned
-[Resolved Resource Effects](https://github.com/richlander/dotnet-inspect/issues/6728)
-successor will own concrete structural matching and occurrence-local
-compatibility once locked.
+[Resolved Resource Effects](resolved-resource-effects.md) owner binds concrete
+structural matches and decides occurrence-local compatibility.
 
 This protocol requires that the language can express:
 
