@@ -6,7 +6,7 @@ This document is the normative owner for the lifetime, reference, operation
 authority, and synchronous content-borrowing contract of one realized managed
 Library.
 
-It expands step 13 of
+It expands step 15 of
 [Resource Ownership and Borrowing](resource-ownership-and-borrowing.md) and is
 tracked end to end by
 [#6621](https://github.com/richlander/dotnet-inspect/issues/6621).
