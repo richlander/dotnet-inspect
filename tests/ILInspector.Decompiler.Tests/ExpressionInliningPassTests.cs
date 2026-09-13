@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -300,6 +301,20 @@ public class ExpressionInliningPassTests
             RequiresUnsafe = true,
             RequiresUnsafeFact = MetadataFactState.Yes,
         };
+        var unavailableContract = unresolved with
+        {
+            MemorySafetyRulesState = MemorySafetyRulesState.Updated,
+            MemorySafetyContractUnavailable = true,
+        };
+        var updatedUnknownContract = unresolved with
+        {
+            MemorySafetyRulesState = MemorySafetyRulesState.Updated,
+        };
+        var invalidContract = unresolved with
+        {
+            MemorySafetyRulesState = MemorySafetyRulesState.Malformed,
+            RequiresUnsafeFact = MetadataFactState.Yes,
+        };
 
         Assert.True(UnsafeAwaitOperand.MethodRequiresUnsafe(
             unresolved,
@@ -322,6 +337,15 @@ public class ExpressionInliningPassTests
         Assert.False(UnsafeAwaitOperand.MethodRequiresUnsafe(
             explicitContract,
             usesUpdatedMemorySafetyRules: false));
+        Assert.False(UnsafeAwaitOperand.MethodRequiresUnsafe(
+            unavailableContract,
+            usesUpdatedMemorySafetyRules: true));
+        Assert.False(UnsafeAwaitOperand.MethodRequiresUnsafe(
+            updatedUnknownContract,
+            usesUpdatedMemorySafetyRules: true));
+        Assert.False(UnsafeAwaitOperand.MethodRequiresUnsafe(
+            invalidContract,
+            usesUpdatedMemorySafetyRules: true));
     }
 
     // A pure value (no effect, cannot throw) is still unsound to defer past a
