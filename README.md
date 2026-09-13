@@ -391,12 +391,13 @@ the count exact.
 `find --package-prefix PREFIX` have been removed. Use `package query` with an
 exact package ID or an explicit terminal-star prefix.
 
-### Package Queries over explicit packages
+### Assembly-semantic Find over explicit packages
 
-`find --literal TEXT` runs a Package Query: it acquires 1-5 explicitly named
-`ID@VERSION` packages, selects the primary implementation assembly of each for
-an explicit `--tfm`, and reports which candidates contain decoded `ldstr`
-literals matching `TEXT`. Add `-v:n` for the individual literal-use rows.
+`find --literal TEXT` runs an assembly-semantic Find query: it acquires 1-5
+explicitly named `ID@VERSION` packages, selects the primary implementation
+assembly of each for an explicit `--tfm`, and reports which candidates contain
+decoded `ldstr` literals matching `TEXT`. Add `-v:n` for the individual
+literal-use rows.
 
 ```bash
 dotnet-inspect find --literal "Unexpected end when reading JSON" \

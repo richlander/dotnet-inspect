@@ -309,12 +309,16 @@ substrates, and inspection producers that will extend that space.
   [Package Dependency Candidate Resolution](design/package-dependency-candidate-resolution.md)
   query composes normalized declarations with package-owned source
   authorization and candidate evidence while leaving traversal and Workspace
-  policy to their owners. Its proposed, design-locked but not yet implemented
+  policy to their owners. Its implemented
   [Package Query assembly-pattern
   evaluation](design/package-query-assembly-evaluation.md) owner defines
   bounded one-candidate primary-assembly evaluation and resource-free
   package-plus-selected-asset semantic evidence without realizing unrelated
-  package assemblies.
+  package assemblies. Its target
+  [Find assembly-semantic query](design/find-assembly-semantic-query.md) owner
+  composes one finite host-authorized exact-package population with that
+  evaluator into ordered body-occurrence matches, per-candidate outcomes, and
+  completion for shared CLI and Browser/Wasm consumption.
 - `src/Inspector.Artifacts/` is the
   package- and Metadata-free contract floor for generation-scoped artifact
   identity, typed provenance and diagnostics, acquisition outcomes, and
