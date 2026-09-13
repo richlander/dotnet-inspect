@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Breaking:** Replaces `package search` and patternless
+  `find --package-prefix` with host-neutral `package query`. Exact package IDs
+  and terminal-star package prefixes share the Package Query engine;
+  explicit `--take` bounds candidate work before `-n` selects final rows,
+  while a lone `-n` is pushed into direct or filtered query execution.
+  Selecting a content facet authorizes archive acquisition; `--nuspec-only`
+  rejects queries that require it. The initial CLI facet set identifies .NET
+  tool packages and reports CLI v1, CLI v2, or unrecognized tool settings.
+  Patterned `find PATTERN --package-prefix PREFIX` remains API search (#6768).
 - **Breaking:** Removes the `dependency-evidence` command and the positional
   type-to-library fallback from `depends`. Use `depends` with explicit
   `--package`, `--nuspec`, `--project`, `--library`, or `--package-prefix`

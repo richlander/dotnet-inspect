@@ -371,11 +371,14 @@ public class SearchSourceAdapterTests
     [InlineData("--platform")]
     [InlineData("--extensions")]
     [InlineData("--aspnetcore")]
-    public async Task PatternlessProfileRejectsSearchGroupsWithoutTypeSearchPrefixValidation(string group)
+    public async Task PatternlessPackagePrefixUsesPackageQueryMigrationBeforeSourceValidation(string group)
     {
         var (exit, _, error) = await Invoke("find", "--package-prefix", "prefix with spaces", group);
         Assert.Equal(1, exit);
-        Assert.Contains("Patternless --package-prefix cannot be combined with API search scopes", error);
+        Assert.Equal(
+            "Error: find --package-prefix requires a type or member pattern; "
+            + "use 'package query <ID-or-prefix*>' for package rows.",
+            error.Trim());
         Assert.DoesNotContain("Invalid package", error);
     }
 

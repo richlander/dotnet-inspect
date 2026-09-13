@@ -418,10 +418,10 @@ dotnet-inspect extensions IDistributedApplicationBuilder \
 IDistributedApplicationBuilder
 ```
 
-### Package search
+### Package query
 
 ```bash
-dotnet-inspect package search 'Azure.AI' --take 5
+dotnet-inspect package query 'Azure.AI*' --take 5
 ```
 
 ```expect
