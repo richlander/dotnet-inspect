@@ -55,6 +55,28 @@ if (typeof workerClientEntry !== "object" || workerClientEntry === null
 }
 const workerClientUrl = `/${workerClientEntry.file}`;
 
+async function chooseInspector(
+  page: Page,
+  attribute: string,
+  inspector: string,
+) {
+  const tab = page.locator(
+    `[data-inspector-tab][${attribute}="${inspector}"]`,
+  );
+  const trigger = page.locator("[data-navigation-trigger='inspector']");
+  await expect.poll(async () =>
+    await tab.isVisible() || await trigger.isVisible()).toBe(true);
+  if (await tab.isVisible()) {
+    await tab.click();
+    return;
+  }
+
+  await trigger.click();
+  await page.locator("#inspector-navigation-menu")
+    .locator(`[${attribute}="${inspector}"]`)
+    .click();
+}
+
 // This gate drives the actually published production DotnetInspect.Web Wasm
 // artifact through the production single-runtime Worker client in Firefox. It proves
 // the artifact-backed package scope adoption contract (issue #5576): ordinary
@@ -1248,7 +1270,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
           + `\nBrowser errors: ${browserErrors.join("\n") || "none"}`);
     }
     await libraryRow.click();
-    await page.locator('[data-library-lens="references"]').click();
+    await chooseInspector(page, "data-library-lens", "references");
 
     const panel = page.locator("#inspector-panel");
     await expect(panel.getByRole("heading", { name: "References", exact: true }))
