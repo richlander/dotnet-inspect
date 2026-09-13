@@ -72,6 +72,20 @@ public sealed class PackagePrefixRequestTests
         }
     }
 
+    [Fact]
+    public void DeclarationMatchesCanonicalPackageIdsCaseInsensitively()
+    {
+        var declaration = new PackagePrefixDeclaration("System.Text");
+
+        Assert.True(declaration.MatchesPackageId("system.text.json"));
+        Assert.True(declaration.MatchesPackageId("System.Text"));
+        Assert.False(declaration.MatchesPackageId("System.Memory"));
+        Assert.Throws<ArgumentException>(
+            () => declaration.MatchesPackageId("bad/id"));
+        Assert.Throws<ArgumentNullException>(
+            () => declaration.MatchesPackageId(null!));
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(-1)]
