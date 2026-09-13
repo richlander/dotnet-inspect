@@ -28,8 +28,8 @@ The Package Query adoption has four steps:
 4. retire `package search` and patternless `find --package-prefix`, leaving
    patterned prefix-scoped API search under `find`.
 
-Steps 1 through 3 are implemented: #6489 reconciles Package Query and adopts
-the command-wide `find` surface. Step 4 remains separate future work.
+Steps 1 and 2 are established by #6489. Steps 3 and 4 are implemented by
+issue #6768.
 
 Other command-owned bounds are evidence for the family, not implicit
 participants in that adoption path.
@@ -492,12 +492,12 @@ this design is meant to remove.
 
 The NuGet API demonstrates an upstream request mechanism: a request may return
 up to `take` items while corpus size and provider ceilings remain separate
-facts. Plain `package search` additionally performs source mapping,
-deduplication, multi-source merge, and final limiting. Passing semantic `-n` to
-provider requests is therefore a source-delegation candidate only when the
-complete effective result and owner-observable failures remain equivalent. The
-provider parameter by itself proves neither equivalence, source exhaustion, nor
-a need for user-facing `--take`.
+facts. The retired `package search` command additionally performed source
+mapping, deduplication, multi-source merge, and final limiting. Its interim
+issue #6776 adoption therefore kept semantic `-n` separate from the per-feed
+source bound. The command is now retired, but the provider parameter still
+proves neither equivalence, source exhaustion, nor a need for user-facing
+`--take`.
 
 The deliberate divergence is therefore bounded and visible: `--take` is an
 execution-bound spelling only on commands with one unambiguous ordered
@@ -555,6 +555,10 @@ compatibility aliases. `package query ID` owns exact package selection;
 `package query 'PREFIX*'` owns package-prefix discovery and classification.
 `find PATTERN --package-prefix PREFIX` remains API search and does not acquire
 package rows merely because the prefix option is present.
+
+The interim semantic row-limit adoption from #6776 is retired with
+`package search`. Its reusable source-limit and incompleteness evidence remains
+in the NuGet search service for other consumers.
 
 ### Later evaluations
 
