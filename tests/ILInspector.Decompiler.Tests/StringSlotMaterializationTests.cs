@@ -210,14 +210,41 @@ public class StringSlotMaterializationTests
     }
 
     [Fact]
+    public void CompilerProducedStringSwapRetainsItsPendingCarrier()
+    {
+        using var source = MetadataSource.Open(typeof(StringSlotMaterializationSamples).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(StringSlotMaterializationSamples).FullName!,
+            nameof(StringSlotMaterializationSamples.SwapStrings));
+        Assert.NotNull(function);
+        foreach (var pass in IrPasses.Default)
+        {
+            if (pass is SlotMaterializationPass)
+                break;
+            pass.Run(function, PassContext.None);
+        }
+
+        var pending = Assert.Single(SlotMaterializationPass.Analyze(function),
+            decision => decision.Vetoes == SlotMaterializationVeto.PendingStringSwap);
+        new SlotMaterializationPass().Run(function, PassContext.None);
+        Assert.Contains(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == pending.Slot);
+        new SwapIdiomPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<DeconstructionAssignment>());
+        Assert.Contains("(first, second) = (second, first);", CSharpPrinter.Print(function).Output);
+        function.CheckInvariant(includeSemantics: true);
+    }
+
+    [Theory]
+    [InlineData(nameof(StringSlotMaterializationSamples.ReadAndObserve))]
+    [InlineData(nameof(StringSlotMaterializationSamples.SwapStrings))]
     [Trait("Speed", "Slow")]
     [Trait("Area", "Fidelity")]
-    public void CompilerProducedReadAndObserveRecompilesExactly()
+    public void CompilerProducedStringFixturesRecompileExactly(string methodName)
     {
         var result = Assert.Single(FidelityCheck.Evaluate(
             typeof(StringSlotMaterializationSamples).Assembly.Location,
             type => type == typeof(StringSlotMaterializationSamples).FullName,
-            method => method.Method == nameof(StringSlotMaterializationSamples.ReadAndObserve)));
+            method => method.Method == methodName));
 
         Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
     }

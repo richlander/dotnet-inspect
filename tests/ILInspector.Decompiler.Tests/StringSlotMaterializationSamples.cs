@@ -12,4 +12,10 @@ public sealed class StringSlotMaterializationSamples
         reader.Observe("observed");
         return value;
     }
+
+    public static string SwapStrings(string first, string second)
+    {
+        (first, second) = (second, first);
+        return first + second;
+    }
 }

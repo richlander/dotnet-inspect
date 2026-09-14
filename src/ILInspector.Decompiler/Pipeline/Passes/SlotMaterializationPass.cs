@@ -16,6 +16,7 @@ public enum SlotMaterializationVeto
     BooleanSinkIdentityRecovery = 1 << 10,
     ElementStoreIdentityRecovery = 1 << 11,
     IncompleteCopyComponent = 1 << 12,
+    PendingStringSwap = 1 << 13,
 }
 
 public readonly record struct SlotMaterializationDecision(
@@ -189,6 +190,8 @@ public sealed class SlotMaterializationPass : IIrPass
             bool exactString = slotType.Kind == TypeRefKind.Definition
                 && MemberIdentity.IsCoreLibraryType(slotType, "System", "String")
                 && candidate.Stores.All(store => CoercionDomain.IsAtTarget(store.Value, slotType));
+            if (exactString && candidate.Stores.Any(store => SwapIdiomPass.IsPendingStackSwap(function, store)))
+                candidate.Vetoes |= SlotMaterializationVeto.PendingStringSwap;
             if (!exactString && !CoercionDomain.InDomain(slotType, function.TypeShapes))
                 candidate.Vetoes |= SlotMaterializationVeto.OutsideCoercionDomain;
             if (candidate.Stores.Any(store => store.Value.ResultType?.Equals(slotType) != true

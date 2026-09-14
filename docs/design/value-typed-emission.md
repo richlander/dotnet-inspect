@@ -591,6 +591,15 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    remain deferred, as do other reference types. Every observer still supplies
    testimony, and the existing structural-fold, nested-scope, and atomic-copy
    boundaries remain in force. No value or control-flow edge moves.
+   A string carrier already recognized by the later swap raiser stays on slots
+   until that raiser consumes it; materialization must not turn an existing
+   tuple swap back into assignments. This reuses the swap owner's matcher and
+   preserves its existing named-local boundary.
+
+   Return-accumulator recovery uses the same IR-owned scope identity: a local
+   in an independent nested pool cannot become an observation of an outer
+   accumulator merely by sharing its number. A nested function's capture of
+   the outer local still prevents that accumulator's elimination.
 
    Real witnesses include Newtonsoft.Json 13.0.4
    `JsonValidatingReader.ReadAsString` and Microsoft.CodeAnalysis 5.0.0
@@ -602,8 +611,15 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    and corresponding real Roslyn methods in the repository compiler dependency.
    `CompilerProducedReadAndObserveMaterializesRetainedString` preserves a
    retained call result across a state-changing call;
-   `CompilerProducedReadAndObserveRecompilesExactly` gates its exact compile-back
-   outcome.
+   `CompilerProducedStringFixturesRecompileExactly` gates exact compile-back for
+   the retained result and compiler-produced swap.
+   `CompilerProducedStringSwapRetainsItsPendingCarrier` gates the pending-swap
+   boundary exposed by dotnet-inspect.any 0.14.0
+   `LevenshteinDistance.Compute`. The scope regression witness is
+   System.CommandLine 3.0.0-preview.5.26302.115
+   `HelpBuilder.Default.GetArgumentUsageLabel`;
+   `NestedLocalOwnershipSeparatesIndependentPoolsAndOuterCaptures` gates
+   independent nested pools and retained outer captures.
 
    `MaterializesSingleStoreConditionalWithSingleRead` and
    `MaterializesBooleanIdentityWhenConditionalFeedsBooleanLocal` gate
