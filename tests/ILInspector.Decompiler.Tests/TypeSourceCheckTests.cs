@@ -247,6 +247,7 @@ public class TypeSourceCheckTests
     }
 
     [Theory]
+    [Trait("Speed", "Slow")]
     [InlineData("System.ArgIterator", "public ref struct ArgIterator")]
     [InlineData("System.DateTime", "public readonly struct DateTime")]
     [InlineData("System.ReadOnlySpan`1", "public readonly ref struct ReadOnlySpan<T>")]
@@ -265,6 +266,7 @@ public class TypeSourceCheckTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Evaluate_OnExtractorFixture_DoesNotReportGenericConstraintDeltas()
     {
         string path = typeof(int).Assembly.Location;
@@ -281,6 +283,7 @@ public class TypeSourceCheckTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Evaluate_OnExtractorFixtures_DoesNotReportEnumUnderlyingTypeDeltas()
     {
         string path = typeof(int).Assembly.Location;
@@ -454,6 +457,7 @@ public class TypeSourceCheckTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Evaluate_OnThisAssembly_DoesNotThrow()
     {
         // End-to-end smoke: compose + compare every public type in a real
@@ -559,6 +563,7 @@ public class TypeSourceCheckTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Evaluate_OnSequentialLayoutFixtures_RendersNonDefaultLayoutAttributes()
     {
         string path = typeof(TypeSourceSequentialLayoutFixture).Assembly.Location;

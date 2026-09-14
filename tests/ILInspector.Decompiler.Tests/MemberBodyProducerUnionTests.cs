@@ -8,6 +8,7 @@ using Microsoft.CodeAnalysis.CSharp;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Speed", "Slow")]
 [Trait("Area", "RoundTrip")]
 public class MemberBodyProducerUnionTests
 {
@@ -107,7 +108,6 @@ public class MemberBodyProducerUnionTests
     }
 
     [Fact]
-    [Trait("Speed", "Slow")]
     public async Task UnionDeclaration_WithNonPublicExplicitConstructors_KeepsConstructorsOutOfCases()
     {
         using var assembly = await CompileWithSdk("""

@@ -15,6 +15,7 @@ namespace ILInspector.Decompiler.Tests;
 /// assembly and on the interleaved-visibility overload shape the positional
 /// <c>publicOnly</c> index is fragile against.
 /// </summary>
+[Trait("Speed", "Slow")]
 public class IrImporterHandleAddressingTests
 {
     static string? Render(IrFunction? function)

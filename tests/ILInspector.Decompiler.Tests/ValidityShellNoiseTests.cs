@@ -7,6 +7,7 @@ using Microsoft.CodeAnalysis.CSharp;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Speed", "Slow")]
 public class ValidityShellNoiseTests
 {
     static readonly TypeRef ReferenceEqualityComparerType =
@@ -83,7 +84,6 @@ public class ValidityShellNoiseTests
     }
 
     [Fact]
-    [Trait("Speed", "Slow")]
     public async Task RuntimeAsyncNoAwaitUnsafeRts_PreservesUnsafeContextWithoutFloor()
     {
         Type fixtureType = typeof(CfgSampleClass);
@@ -108,7 +108,6 @@ public class ValidityShellNoiseTests
     [Theory]
     [InlineData("get_UnsafeGetter", "unsafe int UnsafeGetter")]
     [InlineData("add_UnsafeChanged", "unsafe void add_UnsafeChanged")]
-    [Trait("Speed", "Slow")]
     public async Task AccessorRts_PreservesUnsafeBodyContextWithoutFloor(
         string methodName,
         string declaration)

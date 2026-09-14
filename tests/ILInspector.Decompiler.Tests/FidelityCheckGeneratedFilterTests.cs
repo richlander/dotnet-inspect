@@ -13,6 +13,7 @@ using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Speed", "Slow")]
 [Collection(ConsoleMutatorCollection.Name)]
 public class FidelityCheckGeneratedFilterTests
 {
@@ -274,7 +275,6 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
-    [Trait("Speed", "Slow")]
     public void Evaluate_UsesProductWholeMemberForFinalizer()
     {
         var assemblyPath = CompileFixture("""
@@ -333,7 +333,6 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
-    [Trait("Speed", "Slow")]
     public void Evaluate_DeclinesProductLiteralWholeMemberForVbFinalizer()
     {
         string assemblyPath = FixtureCatalog.DecompilerVbFinalizer.AssemblyPath();
@@ -444,7 +443,6 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
-    [Trait("Speed", "Slow")]
     public void Evaluate_UsesProductWholeEventForCustomAccessors()
     {
         var assemblyPath = CompileFixture("""
