@@ -49,6 +49,16 @@ Three consumers need this layer and none of them has it:
   object emitted by that query owner's version-2 packet codec." No query owner
   supplies such a codec. Filling that slot is the successor slice's claim; this
   one defines what the slot would carry.
+
+  **The slot alone is not sufficient for a package query.** Format 2 permits a
+  query reference only from a per-coordinate view entry, rejects an unreferenced
+  query-table entry, requires one view state per coordinate tuple, and rejects
+  empty contexts. A package query has no coordinate, so a payload that satisfies
+  this contract and the codec's still has nowhere valid to attach. A
+  coordinate-free attachment is therefore a **Workspace Definitions-owned
+  composition point**, not something either slice may specify, and its adoption
+  is a counted step on the path to a working `/query` share link rather than an
+  implied consequence of supplying a codec.
 - **The CLI** spells Package Query facets as `--where "facet=<opaque id>"`, one
   pseudo-field whose value is a product ID checked by string comparison.
 
