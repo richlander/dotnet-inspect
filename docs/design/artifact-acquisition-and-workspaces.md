@@ -2175,6 +2175,25 @@ The acquired payload result has an internal constructor and get-only
 properties, so ordinary consumers cannot forge a coordinate/content pairing
 or replace either half after acquisition issues it.
 
+PackageHouse compile realization enters the same Root construction through an
+internal receipt-binding primitive. It receives the exact
+`AcquiredPackageSourcePayload` and
+`PackageCompileAssetSelectionReceipt`, revalidates package-id and
+content-generation correspondence, and freezes the receipt's existing
+selection without another selector invocation. The public adapter remains in
+`DotnetInspector.PackageQueries`: its contribution pairs the resulting
+House-agnostic binding with the exact House result and compile receipt rather
+than storing House history on `PackageRootBinding`.
+
+The current realized package-coordinate grammar admits the modern NuGet.org
+producer key and bounded legacy producer keys. A valid configured HTTP or local
+Package Source producer can therefore be acquired and selected before Root
+construction reports that the producer is not representable. The adapter
+surfaces that state as typed no-contribution evidence. Extending the portable
+coordinate and reacquisition currency for every owner-issued producer remains
+[#6946](https://github.com/richlander/dotnet-inspect/issues/6946); this adapter
+does not hash, truncate, or parse producer display text to bypass that owner.
+
 The content-generation identity is an opaque, credential-free reference token
 for one retained immutable package-content snapshot, owned by
 `IPackageContent`. Every binding over the same content handle shares it. A

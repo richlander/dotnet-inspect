@@ -141,6 +141,64 @@ public sealed class PackageRootBinding
     }
 
     /// <summary>
+    /// Binds a typed-source payload to the exact compile selection receipt
+    /// already issued for its retained content generation.
+    /// </summary>
+    internal static PackageRootBinding CreateFromSourceSelection(
+        AcquiredPackageSourcePayload payload,
+        PackageCompileAssetSelectionReceipt receipt,
+        string? displayPackageId = null)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        ArgumentNullException.ThrowIfNull(receipt);
+        if (!payload.Coordinate.PackageId.Equals(
+                receipt.PackageId,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException(
+                "The compile selection receipt must identify the acquired package.",
+                nameof(receipt));
+        }
+        if (!ReferenceEquals(
+                payload.Content.GenerationIdentity,
+                receipt.Generation))
+        {
+            throw new ArgumentException(
+                "The compile selection receipt must describe the acquired content generation.",
+                nameof(receipt));
+        }
+        if (receipt.RequestedRuntimeIdentifier is not null
+            && !RealizedMemberCoordinate.IsCanonicalRuntimeIdentifier(
+                receipt.RequestedRuntimeIdentifier))
+        {
+            throw new ArgumentException(
+                "A package Root runtime identifier must be a canonical lowercase moniker.",
+                nameof(receipt));
+        }
+        string? acquisitionFramework =
+            SourceAcquisitionFramework(receipt.RequestedTargetFramework);
+        if (receipt.RequestedRuntimeIdentifier is not null
+            && acquisitionFramework is null)
+        {
+            throw new ArgumentException(
+                "A package Root runtime identifier requires a canonical acquisition framework.",
+                nameof(receipt));
+        }
+
+        return Create(
+            payload,
+            payload.Coordinate.PackageId,
+            displayPackageId ?? payload.Coordinate.PackageId,
+            payload.Coordinate.Version,
+            payload.Content,
+            payload.ProducerKey,
+            acquisitionFramework,
+            receipt.RequestedTargetFramework,
+            receipt.RequestedRuntimeIdentifier,
+            assetSelection: receipt.Selection);
+    }
+
+    /// <summary>
     /// Binds a source payload for a requested framework, selecting a compatible
     /// implementation universe only when exact compile selection has no match.
     /// </summary>

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Adds a receipt-preserving PackageHouse compile-realization adapter that issues
+  the existing package Root binding without repeating asset selection, retains
+  Root-only explicit-empty and no-match outcomes, and reports unsupported
+  configured producer identities as typed no-contribution evidence (#6942).
 - Implements target-aware PackageHouse `Realize` execution over the existing
   compile/runtime selector receipts, preserving acquired package shape,
   optional Library handoffs, and terminal timeout evidence (#6880).
