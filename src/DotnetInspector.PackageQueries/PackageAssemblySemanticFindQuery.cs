@@ -516,9 +516,21 @@ internal static class PackageAssemblySemanticFindQuery
 
                     if (observer is not null)
                     {
-                        await observer.ObserveAsync(
-                            outcome,
-                            operationCancellation).ConfigureAwait(false);
+                        try
+                        {
+                            await observer.ObserveAsync(
+                                outcome,
+                                operationCancellation).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException failure)
+                        {
+                            Exception classified = ClassifyCancellation(
+                                failure,
+                                sourceOperation,
+                                callerCancellation);
+                            ExceptionDispatchInfo.Capture(classified).Throw();
+                            throw;
+                        }
                     }
                     ObserveCancellation();
                 }

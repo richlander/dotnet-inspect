@@ -614,6 +614,117 @@ public sealed class PackageAssemblySemanticFindQueryTests
     }
 
     [Fact]
+    public async Task LinkedObserverCancellationPreservesCallerIdentity()
+    {
+        using var cancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                TestContext.Current.CancellationToken);
+        await using var fixture = new SemanticFindSourceFixture();
+        await fixture.CacheAssemblyAsync(
+            "Contoso.First",
+            NoMatchImage);
+        PackageSourceOperationLease operation =
+            fixture.IssueOperation(cancellation.Token);
+        PackageAcquisitionPopulation population =
+            await fixture.ResolvePopulationAsync(
+                operation,
+                ["Contoso.First"]);
+        var observer =
+            new LinkedCallerCancellingObserver(cancellation);
+
+        OperationCanceledException failure =
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                async () =>
+                await PackageAssemblySemanticFindInspection.ExecuteAsync(
+                    Request(population),
+                    operation,
+                    fixture.PayloadAcquisition,
+                    observer,
+                    cancellation.Token));
+
+        Assert.Equal(cancellation.Token, failure.CancellationToken);
+        Assert.Equal(42, failure.Data["fixture"]);
+        Assert.Single(observer.Outcomes);
+        Assert.Throws<ObjectDisposedException>(
+            operation.ThrowIfExpired);
+    }
+
+    [Fact]
+    public async Task LinkedObserverCancellationPreservesTimeoutClassification()
+    {
+        await using var fixture = new SemanticFindSourceFixture();
+        await fixture.CacheAssemblyAsync(
+            "Contoso.First",
+            NoMatchImage);
+        TimeSpan timeout = TimeSpan.FromSeconds(1);
+        PackageSourceOperationLease operation =
+            fixture.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken,
+                operationTimeout: timeout);
+        PackageAcquisitionPopulation population =
+            await fixture.ResolvePopulationAsync(
+                operation,
+                ["Contoso.First"]);
+        var budget = new PackageAssemblySemanticFindBudget(
+            PackageAssemblySemanticFindBudget.Default.Payload,
+            new PackageAssemblyEvaluationBudget(
+                PackageAssemblyEvaluationBudget.Default.MaximumEntryBytes,
+                PackageAssemblyEvaluationBudget.Default
+                    .MaximumRetainedImageBytes,
+                PackageAssemblyEvaluationBudget.Default.SemanticBudget,
+                timeout));
+        var observer = new LinkedWaitingObserver();
+
+        NuGetOperationTimeoutException failure =
+            await Assert.ThrowsAsync<NuGetOperationTimeoutException>(
+                async () =>
+                await PackageAssemblySemanticFindInspection.ExecuteAsync(
+                    Request(population, budget),
+                    operation,
+                    fixture.PayloadAcquisition,
+                    observer,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(42, failure.Data["fixture"]);
+        Assert.Single(observer.Outcomes);
+        Assert.Throws<ObjectDisposedException>(
+            operation.ThrowIfExpired);
+    }
+
+    [Fact]
+    public async Task IndependentObserverCancellationKeepsItsOwnIdentity()
+    {
+        await using var fixture = new SemanticFindSourceFixture();
+        await fixture.CacheAssemblyAsync(
+            "Contoso.First",
+            NoMatchImage);
+        PackageSourceOperationLease operation =
+            fixture.IssueOperation(
+                TestContext.Current.CancellationToken);
+        PackageAcquisitionPopulation population =
+            await fixture.ResolvePopulationAsync(
+                operation,
+                ["Contoso.First"]);
+        var observer = new IndependentCancellingObserver();
+
+        OperationCanceledException failure =
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                async () =>
+                await PackageAssemblySemanticFindInspection.ExecuteAsync(
+                    Request(population),
+                    operation,
+                    fixture.PayloadAcquisition,
+                    observer,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(observer.CancellationToken, failure.CancellationToken);
+        Assert.Equal(42, failure.Data["fixture"]);
+        Assert.Single(observer.Outcomes);
+        Assert.Throws<ObjectDisposedException>(
+            operation.ThrowIfExpired);
+    }
+
+    [Fact]
     public async Task ForeignPopulationIsRejectedWithoutCoordinateFallback()
     {
         await using var owner = new SemanticFindSourceFixture();
@@ -829,6 +940,81 @@ public sealed class PackageAssemblySemanticFindQueryTests
             cancellation.Cancel();
             var failure = new OperationCanceledException(
                 cancellationToken);
+            failure.Data["fixture"] = 42;
+            throw failure;
+        }
+    }
+
+    private sealed class LinkedCallerCancellingObserver(
+        CancellationTokenSource cancellation)
+        : IPackageAssemblySemanticFindObserver
+    {
+        internal List<PackageAssemblySemanticFindCandidateOutcome> Outcomes
+            { get; } = [];
+
+        public ValueTask ObserveAsync(
+            PackageAssemblySemanticFindCandidateOutcome outcome,
+            CancellationToken cancellationToken)
+        {
+            Outcomes.Add(outcome);
+            using var linked =
+                CancellationTokenSource.CreateLinkedTokenSource(
+                    cancellationToken);
+            cancellation.Cancel();
+            var failure = new OperationCanceledException(
+                linked.Token);
+            failure.Data["fixture"] = 42;
+            throw failure;
+        }
+    }
+
+    private sealed class LinkedWaitingObserver
+        : IPackageAssemblySemanticFindObserver
+    {
+        internal List<PackageAssemblySemanticFindCandidateOutcome> Outcomes
+            { get; } = [];
+
+        public async ValueTask ObserveAsync(
+            PackageAssemblySemanticFindCandidateOutcome outcome,
+            CancellationToken cancellationToken)
+        {
+            Outcomes.Add(outcome);
+            using var linked =
+                CancellationTokenSource.CreateLinkedTokenSource(
+                    cancellationToken);
+            try
+            {
+                await Task.Delay(
+                    Timeout.InfiniteTimeSpan,
+                    linked.Token);
+            }
+            catch (OperationCanceledException failure)
+            {
+                failure.Data["fixture"] = 42;
+                throw;
+            }
+        }
+    }
+
+    private sealed class IndependentCancellingObserver
+        : IPackageAssemblySemanticFindObserver
+    {
+        private readonly CancellationTokenSource _cancellation = new();
+
+        internal CancellationToken CancellationToken =>
+            _cancellation.Token;
+
+        internal List<PackageAssemblySemanticFindCandidateOutcome> Outcomes
+            { get; } = [];
+
+        public ValueTask ObserveAsync(
+            PackageAssemblySemanticFindCandidateOutcome outcome,
+            CancellationToken cancellationToken)
+        {
+            Outcomes.Add(outcome);
+            _cancellation.Cancel();
+            var failure = new OperationCanceledException(
+                _cancellation.Token);
             failure.Data["fixture"] = 42;
             throw failure;
         }
