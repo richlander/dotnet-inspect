@@ -25,14 +25,17 @@ through their package and Workspace paths.
 
 The current host-neutral implementation floor is `PackageHouse` in
 `DotnetInspector.Packages`. It executes exact, candidate-bound, and typed
-selecting `Settle` and `Acquire` requests by consuming one Package Source
-Model-issued operation lease. `PackageHouseDependencyInputAdapter` in
+selecting `Settle`, `Acquire`, and target-aware `Realize` requests by consuming
+one Package Source Model-issued operation lease. `Realize` composes the
+existing compile/runtime asset-selection owners and returns their
+resource-free receipts and optional Library handoffs without opening selected
+content. `PackageHouseDependencyInputAdapter` in
 `DotnetInspector.PackageQueries` adopts normalized declaration or produced-
 relationship evidence without copying its authorship or processing semantics.
 `DesktopPackageSourceComposition` still constructs desktop capabilities and
-exposes the shipping compatibility surface. `Realize`, pruning,
-dependency-edge realization, Workspace admission, and host adoption remain
-later steps.
+exposes the shipping compatibility surface. Pruning, dependency-edge
+realization, Workspace admission, live Library construction, and host adoption
+remain later steps.
 [#4653](https://github.com/richlander/dotnet-inspect/pull/4653) remains useful
 design and implementation evidence; it is not the branch this architecture
 extends. Its remaining intent is retired through the focused adoption steps in
@@ -275,21 +278,32 @@ Dependency graph construction remains query-owned. A traversal consumer can
 issue `Settle` or `Realize` operations for admitted edges; PackageHouse does
 not own graph scheduling, cycle termination, depth, or traversal work budgets.
 
-The current `PackageHouse.ExecuteAsync` floor supports `Settle` and `Acquire`.
+The current `PackageHouse.ExecuteAsync` floor supports `Settle`, `Acquire`, and
+target-aware `Realize`.
 One `PackageHouse` instance retains the host's package-source authorization and
 an optional `PackagePayloadAcquisitionPlan`. Each invocation accepts the
 request and consumes one request-deadline-matched
 `PackageSourceOperationLease` by ordinary resource-parameter ownership
 transfer. Caller cancellation and the operation ceiling are carried only by
 the lease's Package Source-owned context. House operation declarations accept
-only deadlines representable by that lower-owner context. `Realize` is
-rejected until the realization owner is composed in its adoption step.
+only deadlines representable by that lower-owner context.
+
+`Realize` evaluates the acquired generation through the existing compile or
+runtime selector, preserves its exact receipt, and optionally projects
+resource-free `PackageHouseLibraryHandoff` values. Runtime realization
+currently requires an exact requested framework because the runtime selector
+owns no default-framework policy; a targetless or owner-default runtime request
+is visibly rejected after acquisition rather than inventing a framework.
+Compile realization retains the compile selector's owner-defined
+nullable-framework behavior.
 
 Execution returns the `PackageHouseSettlement` union. Both arms carry one
 closed, immutable, resource-free `Result`. `ResourceFree` carries no live
 payload. `Acquired` additionally carries one caller-owned `Payload` whose exact
 coordinate, producer, origin, and content generation match the result's
-acquisition receipt.
+acquisition receipt. Every terminal result after successful acquisition remains
+an `Acquired` settlement, including selection no-match, ambiguity, rejection,
+and operation timeout, so package shape and completed evidence are not lost.
 
 ## Host-authorized plan and operation
 
@@ -831,7 +845,7 @@ every supported host that uses it.
 
 | Claim | Required Release evidence |
 | --- | --- |
-| Execution floor | Exact, candidate-bound, and typed selecting `Settle` and `Acquire` operations produce closed House results; `Realize` remains unavailable until its owner is composed. |
+| Execution floor | Exact, candidate-bound, and typed selecting `Settle`, `Acquire`, and target-aware `Realize` operations produce closed House results. Realize composes selector-issued compile/runtime receipts and preserves acquired package shape for selected, explicit-empty, and typed non-success outcomes. |
 | Request association | A result retains the exact demand, operation identity, and target context without reconstructing them from display values or adding a second settlement identity. |
 | Normalized input adoption | One exact declaration or produced relationship, its root, authorship, processing result, candidate, target context, and House association remain linked without policy interpretation. |
 | Terminal evidence | Every terminal arm retains the same immutable evidence envelope, completed receipts, and typed failures; direct and owner-adapted operation timeouts cannot produce success. |
@@ -844,7 +858,8 @@ every supported host that uses it.
 | Pruning correspondence | Platform delegation consumes the policy-issued inventory/coordinate/supply receipt, compares the coordinate through the package owner's normalization, and matches the actual supplier family and exact target version. |
 | Payload authority | Discovered payload comes only from a reporting authority; pinned payload follows the Package Source Model's eligible-authority rule; the acquisition receipt and live payload match source, producer, origin, and generation. |
 | Selection correspondence | Realization consumes a selector-issued generation/request/outcome receipt matching the exact acquisition and target context. |
-| Selection completion | Selected assets and explicit empty compile groups settle; no-match, ambiguity, and invalid outcomes map to their corresponding terminal arms without losing receipts. |
+| Selection completion | `ExactCompileRealizeBindsSelectionAndLibraryHandoff`, `ExactRuntimeRealizeAppliesExactRidOverlay`, `ExactCompileRealizePreservesExplicitEmptyGroup`, `ExactCompileRealizePreservesNoMatchWithPayload`, `RuntimeRealizeKeepsRequestedAndSelectedFrameworksDistinct`, `SameCoordinateWithTwoTargetsKeepsDistinctRealizations`, and `RuntimeOwnerDefaultRealizeIsVisiblyRejected` compose selector-issued outcomes through execution. Selector suites gate ambiguity and invalid-layout classification; `PackageHouseContractTests` gate their corresponding House terminal arms. |
+| Selection timeout | `TimeoutAfterSelectionRetainsPayloadAndRealization` proves that operation timeout remains terminal after synchronous selection while retaining the caller-owned payload and completed acquisition and realization receipts. |
 | Target-aware realization | A `net10.0` dependency with `net10.0` and `net11.0` folders selects `net10.0` and retains requested-versus-selected evidence. |
 | Context separation | The same coordinate realized under two target contexts retains two realization receipts and cannot share one selected asset universe. |
 | Package shape | Zero, one, and many selected library outcomes preserve package-shaped inspection and typed asset status. |
