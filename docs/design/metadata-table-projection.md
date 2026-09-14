@@ -1062,6 +1062,11 @@ could emit a live `ESC` in Markdown and TSV from both `mdi --overview` and the
 CLI's `Metadata: Image` section. #3518 fixed it by routing the value through
 the projector's escaper.
 
+The rendering boundary only receives an admitted metadata root. A version field
+longer than ECMA-335 permits is `InvalidVersionLength`, rejected before an SRM
+reader or overview is constructed; rendering does not preserve a second,
+malformed-input truncation contract for that field.
+
 That fix was right, but the defect argues for more than itself. Containment
 applied by *calling a function* is containment you can forget, and `string` is
 the type of both a contained and an uncontained value, so neither a reviewer
