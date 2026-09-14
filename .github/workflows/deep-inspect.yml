@@ -407,7 +407,10 @@ jobs:
 
   census:
     name: Census lane
-    if: inputs.lane == 'census' || inputs.lane == 'all'
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '0 6 * * *') ||
+      inputs.lane == 'census' ||
+      inputs.lane == 'all'
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
@@ -460,6 +463,7 @@ jobs:
             --corpus-profile classic-state-machines \
             --emit-corpus-snapshot artifacts/deep-inspect/classic-state-machines-snapshot.json \
             --diff-corpus-baseline tools/DecompilerHarness/corpus/classic-state-machines-baseline.json \
+            --corpus-fidelity-oracle compile-back \
             --max-examples 10
 
       - name: Run return-address equivalence census
@@ -700,6 +704,7 @@ jobs:
             --quality-diff-card \
             --compile-cap 25 \
             --corpus-fidelity-cap 25 \
+            --corpus-fidelity-oracle compile-back \
             --max-examples 3 \
             | tee artifacts/opt-in-corpus/quality-diff-card.md
 
@@ -830,6 +835,7 @@ jobs:
       - decompiler-corpus
       - release-certification
       - inspect-web
+      - census
       - authored-corpus-ratchet
     if: ${{ github.event_name == 'schedule' && failure() }}
     runs-on: ubuntu-26.04
