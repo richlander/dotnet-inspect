@@ -34,7 +34,8 @@ public static partial class MetadataExports
         string version,
         string targetFramework,
         string assemblyName,
-        string typeId,
+        string typeQueryId,
+        string typeDefinitionId,
         string workspaceJson)
     {
         BrowserTypeMetadata type = await TypeProjectionAsync(
@@ -42,7 +43,8 @@ public static partial class MetadataExports
             version,
             targetFramework,
             assemblyName,
-            typeId,
+            typeQueryId,
+            typeDefinitionId,
             workspaceJson,
             ResolveTypeDependencyRows(RowQueryIntent.Empty));
         _ = BrowserMetadataJsonSerialization.BrowserTypeMetadata;
@@ -56,7 +58,8 @@ public static partial class MetadataExports
         string version,
         string targetFramework,
         string assemblyName,
-        string typeId,
+        string typeQueryId,
+        string typeDefinitionId,
         string workspaceJson,
         ResolvedRowQueryPlan<TypeDependencyRelationship>
             typeDependencyRows)
@@ -84,7 +87,7 @@ public static partial class MetadataExports
                     packageId,
                     version,
                     targetFramework,
-                    typeId),
+                    typeDefinitionId),
                 new WorkspaceContextLoadOptions
                 {
                     HttpClient = BrowserPackageWorkspace.NetworkClient,
@@ -110,8 +113,9 @@ public static partial class MetadataExports
                             AssemblyContextTypeProjectionQuery.ExecuteParticipant(
                                 group,
                                 member,
-                                new AssemblyContextTypeProjectionRequest(typeId)),
-                            $"Type projection for '{typeId}'");
+                                new AssemblyContextTypeProjectionRequest(
+                                    typeQueryId)),
+                            $"Type projection for '{typeQueryId}'");
                     return (
                         projection,
                         TypeDependencySectionExecutor.ExecuteParticipant(

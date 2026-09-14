@@ -276,6 +276,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     "net11.0",
                     $"{rootAssemblyName}.dll",
                     typeName,
+                    typeName,
                     WorkspaceJson,
                     Resolve(RowQueryIntent.Empty));
         BrowserTypeMetadata bounded =
@@ -285,6 +286,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     "1.0.0",
                     "net11.0",
                     $"{rootAssemblyName}.dll",
+                    typeName,
                     typeName,
                     WorkspaceJson,
                     Resolve(
@@ -318,6 +320,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     "1.0.0",
                     "net11.0",
                     $"{rootAssemblyName}.dll",
+                    typeName,
                     typeName,
                     WorkspaceJson,
                     Resolve(
@@ -497,6 +500,72 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task QueryTypeProjection_UsesSelectedNestedDefinitionIdentity()
+    {
+        const string packageId =
+            "Browser.TypeDependencies.NestedIdentity";
+        const string nestedAssemblyName =
+            "Browser.TypeDependencies.NestedIdentity.Selected";
+        const string topLevelAssemblyName =
+            "Browser.TypeDependencies.NestedIdentity.Other";
+        const string outerTypeName =
+            "Browser.TypeDependencies.NestedIdentity.Outer";
+        const string typeQueryId =
+            "Browser.TypeDependencies.NestedIdentity.Outer.Inner";
+        const string typeDefinitionId =
+            "Browser.TypeDependencies.NestedIdentity.Outer+Inner";
+
+        _ = await Coordinate(
+            packageId,
+            PackageEntries(
+                (
+                    $"lib/net11.0/{nestedAssemblyName}.dll",
+                    BuildNestedTypeDependencyImage(
+                        nestedAssemblyName,
+                        outerTypeName,
+                        "Inner",
+                        typeof(IDisposable))),
+                (
+                    $"lib/net11.0/{topLevelAssemblyName}.dll",
+                    BuildTypeDependencyImage(
+                        topLevelAssemblyName,
+                        typeQueryId,
+                        typeof(IAsyncDisposable)))));
+
+        BrowserTypeMetadata metadata = await QueryTypeProjection(
+            packageId,
+            $"{nestedAssemblyName}.dll",
+            typeQueryId,
+            $$"""
+            [
+              {
+                "package": "{{packageId}}",
+                "version": "1.0.0",
+                "framework": "net11.0"
+              }
+            ]
+            """,
+            typeDefinitionId);
+
+        ExactTypeApi exactType =
+            Assert.IsType<ExactTypeApi>(
+                metadata.ExactTypeInspection.Content.Type);
+        Assert.Equal(typeQueryId, exactType.FullName);
+        Assert.Equal(
+            nestedAssemblyName,
+            metadata.ExactTypeInspection.Content
+                .RequestedAssembly?.Identity.Name);
+        Assert.Equal(
+            nestedAssemblyName,
+            metadata.ExactTypeInspection.Content
+                .SupplierAssembly?.Identity.Name);
+        Assert.Contains(typeof(IDisposable).FullName!, exactType.Interfaces);
+        Assert.DoesNotContain(
+            typeof(IAsyncDisposable).FullName!,
+            exactType.Interfaces);
+    }
+
+    [Fact]
     public async Task QueryTypeProjection_DoesNotUseFuzzyDependencyRoot()
     {
         const string packageId =
@@ -576,7 +645,8 @@ public sealed partial class BrowserEngineBoundaryTests
         string packageId,
         string assemblyName,
         string typeName,
-        string workspaceJson)
+        string workspaceJson,
+        string? typeDefinitionId = null)
     {
         string json =
             await DotnetInspect.Web.Interop.Metadata.MetadataExports
@@ -586,6 +656,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     "net11.0",
                     assemblyName,
                     typeName,
+                    typeDefinitionId ?? typeName,
                     workspaceJson);
         var options = new JsonSerializerOptions(
             BrowserMetadataJsonContext.Default.Options);
@@ -708,6 +779,36 @@ public sealed partial class BrowserEngineBoundaryTests
         foreach (Type dependency in dependencies)
             type.AddInterfaceImplementation(dependency);
         type.CreateType();
+
+        using var stream = new MemoryStream();
+        assembly.Save(stream);
+        return stream.ToArray();
+    }
+
+    static byte[] BuildNestedTypeDependencyImage(
+        string assemblyName,
+        string outerTypeName,
+        string nestedTypeName,
+        params Type[] dependencies)
+    {
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName(assemblyName),
+            typeof(object).Assembly);
+        ModuleBuilder module = assembly.DefineDynamicModule(assemblyName);
+        TypeBuilder outer = module.DefineType(
+            outerTypeName,
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Class);
+        TypeBuilder nested = outer.DefineNestedType(
+            nestedTypeName,
+            TypeAttributes.NestedPublic
+                | TypeAttributes.Abstract
+                | TypeAttributes.Class);
+        foreach (Type dependency in dependencies)
+            nested.AddInterfaceImplementation(dependency);
+        nested.CreateType();
+        outer.CreateType();
 
         using var stream = new MemoryStream();
         assembly.Save(stream);

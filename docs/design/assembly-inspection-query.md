@@ -1034,6 +1034,10 @@ projected before a later stop remains available but incomplete with typed
 outcome is `Unavailable`, never a false `NotFound`.
 The requested and supplying assemblies retain Metadata-issued assembly
 identity and MVID; ordered forwarding hops preserve the route between them.
+Browser discovery transports its escaped `DefinitionId` separately from the
+Research-oriented dotted `QueryId`: the exact-Type operation consumes the
+injective definition identity, while the adjacent relationship projection
+continues to consume the Research query identity.
 
 The terminal `InspectionEnvelope<ExactTypeInspectionResult>` is detached. Its
 content contains declaration facts, member signatures and inventory, exact

@@ -171,6 +171,7 @@ function typeRequest(
     framework: "net10.0",
     assembly: "Example.Package.dll",
     type: "Example.Widget",
+    typeIdentity: "Example.Widget",
     workspaceJson:
       '[{"package":"Example.Package","version":"1.2.3","framework":"net10.0"}]',
     isVisible: () => true,
