@@ -175,8 +175,9 @@ public abstract record StructuralSubjectIdentity
             }
 
             Package = package;
-            Identity = new InspectionGraphAssemblyIdentity.Acquired(
-                library.Participant.Assembly);
+            ResolvedAssemblyReference assembly = library.Participant.Assembly;
+            Identity = new NavigationAssemblyIdentity(
+                assembly.Registration, assembly.Identity, assembly.Provenance);
         }
 
         public override WorkspaceSubject Workspace => Package.Workspace;
@@ -193,7 +194,7 @@ public abstract record StructuralSubjectIdentity
         /// <summary>
         /// The exact acquired assembly identity that identifies the Library.
         /// </summary>
-        public InspectionGraphAssemblyIdentity.Acquired Identity { get; }
+        public NavigationAssemblyIdentity Identity { get; }
     }
 
     /// <summary>One exact metadata Type in one acquired Library.</summary>
@@ -206,7 +207,7 @@ public abstract record StructuralSubjectIdentity
             ArgumentNullException.ThrowIfNull(library);
             ArgumentNullException.ThrowIfNull(type);
             Library = library;
-            Identity = new InspectionGraphTypeIdentity.AcquiredDefinition(
+            Identity = new NavigationTypeIdentity(
                 library.Identity.Registration,
                 type);
         }
@@ -223,7 +224,7 @@ public abstract record StructuralSubjectIdentity
             Library.Coordinate;
 
         /// <summary>The exact acquired metadata Type identity.</summary>
-        public InspectionGraphTypeIdentity.AcquiredDefinition Identity
+        public NavigationTypeIdentity Identity
         {
             get;
         }
@@ -239,7 +240,7 @@ public abstract record StructuralSubjectIdentity
             ArgumentNullException.ThrowIfNull(declaringType);
             ArgumentNullException.ThrowIfNull(member);
             DeclaringType = declaringType;
-            Identity = new InspectionGraphMemberIdentity.AcquiredApi(
+            Identity = new NavigationMemberIdentity(
                 declaringType.Identity.Registration,
                 declaringType.Identity.Type,
                 member);
@@ -258,6 +259,6 @@ public abstract record StructuralSubjectIdentity
             DeclaringType.Coordinate;
 
         /// <summary>The exact acquired API Member identity.</summary>
-        public InspectionGraphMemberIdentity.AcquiredApi Identity { get; }
+        public NavigationMemberIdentity Identity { get; }
     }
 }

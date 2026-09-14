@@ -125,6 +125,7 @@
     <Project Path="src/DotnetInspector.Cache/DotnetInspector.Cache.csproj" />
     <Project Path="src/DotnetInspector.DependencyManifests/DotnetInspector.DependencyManifests.csproj" />
     <Project Path="src/DotnetInspector.Ecosystems/DotnetInspector.Ecosystems.csproj" />
+    <Project Path="src/DotnetInspector.Libraries/DotnetInspector.Libraries.csproj" />
     <Project Path="src/DotnetInspector.MetadataRendering/DotnetInspector.MetadataRendering.csproj" />
     <Project Path="src/DotnetInspector.Networking/DotnetInspector.Networking.csproj" />
     <Project Path="src/DotnetInspector.PackageQueries/DotnetInspector.PackageQueries.csproj" />
@@ -161,7 +162,6 @@
     <Project Path="src/ILInspector.JsExportSurface/ILInspector.JsExportSurface.csproj" />
     <Project Path="src/ILInspector.SourceLink/ILInspector.SourceLink.csproj" />
     <Project Path="src/ILInspector.MetadataPrimitives/ILInspector.MetadataPrimitives.csproj" />
-    <Project Path="tests/ILInspector.Research.Tests/ILInspector.Research.Tests.csproj" />
     <Project Path="src/ILInspector.Research/ILInspector.Research.csproj" />
     <Project Path="src/ILInspector.TypeScriptGeneration/ILInspector.TypeScriptGeneration.csproj" />
     <Project Path="src/InertText/InertText.csproj" />
@@ -184,6 +184,7 @@
     <Project Path="tests/DotnetInspector.Ecosystems.Tests/DotnetInspector.Ecosystems.Tests.csproj" />
     <Project Path="tests/DotnetInspector.FixtureInfrastructure/DotnetInspector.FixtureInfrastructure.csproj" />
     <Project Path="tests/DotnetInspector.FixtureInfrastructure.Tests/DotnetInspector.FixtureInfrastructure.Tests.csproj" />
+    <Project Path="tests/DotnetInspector.Libraries.Tests/DotnetInspector.Libraries.Tests.csproj" />
     <Project Path="tests/DotnetInspect.Cli.Tests/DotnetInspect.Cli.Tests.csproj" />
     <Project Path="tests/ILInspector.Analysis.Tests/ILInspector.Analysis.Tests.csproj" />
     <Project Path="tests/ILInspector.CSharp.Tests/ILInspector.CSharp.Tests.csproj" />
@@ -192,6 +193,7 @@
     <Project Path="tests/ILInspector.Instructions.Tests/ILInspector.Instructions.Tests.csproj" />
     <Project Path="tests/ILInspector.Metadata.Tests/ILInspector.Metadata.Tests.csproj" />
     <Project Path="tests/ILInspector.JsExportSurface.Tests/ILInspector.JsExportSurface.Tests.csproj" />
+    <Project Path="tests/ILInspector.Research.Tests/ILInspector.Research.Tests.csproj" />
     <Project Path="tests/Inspector.Artifacts.Tests/Inspector.Artifacts.Tests.csproj" />
     <Project Path="tests/Inspector.Resources.Tests/Inspector.Resources.Tests.csproj" />
     <Project Path="tests/Inspector.Text.Tests/Inspector.Text.Tests.csproj" />
