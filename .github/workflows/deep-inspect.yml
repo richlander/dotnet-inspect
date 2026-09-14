@@ -460,6 +460,7 @@ jobs:
             --corpus-profile classic-state-machines \
             --emit-corpus-snapshot artifacts/deep-inspect/classic-state-machines-snapshot.json \
             --diff-corpus-baseline tools/DecompilerHarness/corpus/classic-state-machines-baseline.json \
+            --corpus-fidelity-oracle compile-back \
             --max-examples 10
 
       - name: Run return-address equivalence census
@@ -700,6 +701,7 @@ jobs:
             --quality-diff-card \
             --compile-cap 25 \
             --corpus-fidelity-cap 25 \
+            --corpus-fidelity-oracle compile-back \
             --max-examples 3 \
             | tee artifacts/opt-in-corpus/quality-diff-card.md
 

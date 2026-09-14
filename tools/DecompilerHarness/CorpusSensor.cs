@@ -45,6 +45,8 @@ internal static class CorpusSensor
 {
     internal const int CurrentSchemaVersion = 7;
     internal const int CurrentFidelityContractVersion = FidelityCheck.CurrentContractVersion;
+    internal const CorpusFidelityOracle DefaultFidelityOracle =
+        CorpusFidelityOracle.ReturnToSenderCutover;
     const string ConditionalBranchBucket = "structuring: conditional-branch";
     const int RiskyValidityCoverageFloorBasisPoints = 100; // 1.00%
     const int RiskyFidelityCoverageFloorBasisPoints = 10;  // 0.10%
@@ -93,7 +95,7 @@ internal static class CorpusSensor
         int methodCap = int.MaxValue,
         int? workers = null,
         bool sequential = false,
-        CorpusFidelityOracle fidelityOracle = CorpusFidelityOracle.CompileBack,
+        CorpusFidelityOracle fidelityOracle = DefaultFidelityOracle,
         CorpusProfile profile = CorpusProfile.RealWorld,
         string? rtsParityKnownGaps = null,
         string? emitRtsParityKnownGaps = null)

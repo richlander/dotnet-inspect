@@ -952,10 +952,11 @@ lane tracks fully-raised rate,
 output, semantic validity defects, native RTS fidelity defects, and pass bugs.
 The validity and fidelity caps are per assembly so the sensor samples every
 corpus member at bounded cost without adding that cost to every PR. When you
-want to compare a baseline cap with a larger exploratory cap, repeat
-`--corpus-fidelity-cap` (or use a comma-separated list) and the harness prints a
-fidelity coverage series with the same per-bucket failure breakdown for each
-cap. The real-world baseline uses independently selected native RTS outcomes
+want to compare native RTS caps, run separate invocations so each cutover
+snapshot retains its complete independently selected ledger. The explicit
+legacy `compile-back` oracle still accepts repeated or comma-separated caps for
+temporary coverage-series comparisons. The real-world baseline uses
+independently selected native RTS outcomes
 (`Exact`, `OpcodeDiff`, and `OperandDiff`) while surfacing unavailable
 comparisons and recompile- and context-failure buckets for triage. It retains
 legacy compile-back only as per-row reference evidence; legacy success cannot
@@ -967,21 +968,34 @@ Completeness runs in all three corpus profiles use the open metadata source for
 sibling-body import and type-disjointness evidence, as product decompilation
 does. The opt-in profile also records per-pass changes for feature coverage;
 the other profiles remain unstaged. This parity is limited to completeness:
-validity and compile-back measurements retain their own pipeline configuration.
+validity and fidelity measurements retain their own pipeline configuration.
+
+The default corpus fidelity oracle is `rts-cutover`: it independently selects
+the target population, runs native RTS first without a compile-back floor, and
+records legacy compile-back afterward only as per-row comparison evidence. No
+separate nightly legacy run is needed for real-world comparison because each
+daily Deep Inspect cutover snapshot already carries both verdicts.
+Direct `--fidelity-check` and compile-back fixture gates are unchanged; they
+remain explicit consumers until later #6199 adoption and retirement slices.
+
+Use `--corpus-fidelity-oracle compile-back` for explicit legacy coverage
+comparisons or when replaying a baseline that still owns the legacy oracle. The
+PR quick, classic state-machine, and net11 opt-in baselines remain pinned this
+way until their own measured migration slices.
 
 Use `--corpus-fidelity-oracle rts-parity` (`return-to-sender` and `rts` remain
-aliases) to run the fidelity sample through RTS instead of the default
-compile-back oracle. The transition mode first selects the same bounded target
-population as compile-back, including getters, setters, constructors, and
-ordinary methods, then records native RTS outcomes under the existing method
-identity and fidelity-status contract. Snapshots name this mode `rts-parity`;
-diffing snapshots from different modes is rejected rather than presenting
-incomparable fidelity movement.
+aliases) for the legacy-selected transition population. It first selects the
+same bounded target population as compile-back, including getters, setters,
+constructors, and ordinary methods, then records native RTS outcomes under the
+existing method identity and fidelity-status contract. Snapshots name this mode
+`rts-parity`; diffing snapshots from different modes is rejected rather than
+presenting incomparable fidelity movement.
 
-The RTS cap is therefore a parity population: methods the default oracle checked
-as `Exact`, `OpcodeDiff`, or `OperandDiff`, re-evaluated through RTS. The report classifies each
-target as rescued, same, or worse and records the compile-back reference status
-beside the native RTS result. Corpus parity deliberately disables RTS's
+The parity cap is therefore a legacy-selected population: methods for which
+compile-back returned `Exact`, `OpcodeDiff`, or `OperandDiff`, re-evaluated
+through RTS. The report classifies each target as rescued, same, or worse and
+records the compile-back reference status beside the native RTS result. Corpus
+parity deliberately disables RTS's
 compile-back floor so compile-back evidence cannot rewrite the RTS verdict.
 Because compile-back selects this population before RTS runs, `NotFullMethods`
 is structurally zero and failure buckets describe only the selected parity
@@ -1305,6 +1319,7 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --quality-diff-card \
   --compile-cap 25 \
   --corpus-fidelity-cap 25 \
+  --corpus-fidelity-oracle compile-back \
   --max-examples 3
 
 bash eng/report-decompiler-opt-in-corpus-drift.sh
@@ -1349,6 +1364,7 @@ dotnet run --project tools/DecompilerHarness -c Release -- \
   artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll \
   --corpus-profile classic-state-machines \
   --diff-corpus-baseline tools/DecompilerHarness/corpus/classic-state-machines-baseline.json \
+  --corpus-fidelity-oracle compile-back \
   --max-examples 10
 ```
 
@@ -1437,8 +1453,8 @@ in-closure failures before building a scoped emitter.
 
 To deliberately rebaseline after reviewed corpus movement, run the same command
 with `--emit-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json`.
-For a quick before/after coverage sweep, repeat `--corpus-fidelity-cap` (for
-example `--corpus-fidelity-cap 3 --corpus-fidelity-cap 10`).
+For a quick native before/after coverage sweep, run one invocation per
+`--corpus-fidelity-cap` so each result retains the complete cutover ledger.
 
 The corpus includes the repo's own assemblies, which grow as unrelated code
 lands, so a baseline captured earlier can disagree with the current run on
@@ -1523,6 +1539,7 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --corpus-method-cap 100 \
   --compile-cap 0 \
   --corpus-fidelity-cap 0 \
+  --corpus-fidelity-oracle compile-back \
   --max-examples 3
 ```
 

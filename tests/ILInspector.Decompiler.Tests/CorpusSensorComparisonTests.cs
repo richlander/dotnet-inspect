@@ -90,6 +90,14 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
+    public void DefaultCorpusFidelityOracle_IsNativeReturnToSenderCutover()
+    {
+        Assert.Equal(
+            CorpusFidelityOracle.ReturnToSenderCutover,
+            CorpusSensor.DefaultFidelityOracle);
+    }
+
+    [Fact]
     public void OptInNet11Profile_UsesDistinctDescriptionAndCardHeading()
     {
         Assert.Contains(
@@ -2357,6 +2365,29 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
+    public void LegacyCorpusBaselines_ExplicitlyPinCompileBack()
+    {
+        string root = AuthoredCorpusRatchetTests.FindRepositoryRoot();
+        string deepInspect = File.ReadAllText(
+            Path.Combine(root, ".github", "workflows", "deep-inspect.yml"));
+        string ci = File.ReadAllText(
+            Path.Combine(root, ".github", "workflows", "ci.yml"));
+
+        Assert.Contains(
+            "--corpus-fidelity-oracle compile-back",
+            WorkflowStep(deepInspect, "Run classic state-machine corpus sensor"),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "--corpus-fidelity-oracle compile-back",
+            WorkflowStep(deepInspect, "Gate net11 opt-in feature corpus"),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "--corpus-fidelity-oracle compile-back",
+            WorkflowStep(ci, "Run PR decompiler corpus sensor"),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Compare_DoesNotGateSemanticCountsWhenPinnedSamplesDiffer()
     {
         var baseline = Snapshot(
@@ -3238,5 +3269,14 @@ public class CorpusSensorComparisonTests
         Assert.Contains(
             "Caveat: the corpus drifted from the baseline (see baseline staleness above).",
             card);
+    }
+
+    static string WorkflowStep(string workflow, string name)
+    {
+        string marker = $"- name: {name}";
+        int start = workflow.IndexOf(marker, StringComparison.Ordinal);
+        Assert.True(start >= 0, $"Workflow step '{name}' was not found.");
+        int end = workflow.IndexOf("\n      - name:", start + marker.Length, StringComparison.Ordinal);
+        return end >= 0 ? workflow[start..end] : workflow[start..];
     }
 }
