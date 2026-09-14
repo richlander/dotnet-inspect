@@ -22,6 +22,7 @@ public class ValidityCoverageReportingTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void ValidityPredicateScan_PrintsExhaustiveNonCompilerCoverageLane()
     {
         string output = CaptureConsole(() => ValidityPredicateScan.Run([FixturePath], maxExamples: 1, workers: 1, sequential: true));

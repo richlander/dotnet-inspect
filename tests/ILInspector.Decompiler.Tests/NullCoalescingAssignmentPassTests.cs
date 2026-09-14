@@ -262,6 +262,7 @@ public class NullCoalescingAssignmentPassTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void LazyFieldGetter_RecompilesOpcodeExact()
     {
         var assembly = typeof(CfgSampleClass).Assembly.Location;

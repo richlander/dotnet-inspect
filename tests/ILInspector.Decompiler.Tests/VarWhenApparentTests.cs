@@ -18,6 +18,7 @@ namespace ILInspector.Decompiler.Tests;
 /// conversion/contextual negatives.
 /// </para>
 /// </summary>
+[Trait("Speed", "Slow")]
 [Trait("Area", "RoundTrip")]
 public sealed class VarWhenApparentTests
 {

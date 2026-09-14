@@ -40,6 +40,7 @@ public class LadderRung4GateTests
     ];
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Rung4Fixture_ExposesExactMemberSet_AndHasNoResidualGaps()
     {
         var members = LoadRaisedMembers();
@@ -155,6 +156,7 @@ public class LadderRung4GateTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Rung4Fixture_HasNoMalformedOrSemanticDefectiveFullOutput()
     {
         var results = ValidityCheck.Evaluate(FixturePath, importSiblingBodies: true)

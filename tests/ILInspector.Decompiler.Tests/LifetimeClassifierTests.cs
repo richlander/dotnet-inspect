@@ -4,6 +4,7 @@ using ILInspector.Research;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Speed", "Slow")]
 public class LifetimeClassifierTests
 {
     static IReadOnlyList<IAnnotation> Classify(string methodName)

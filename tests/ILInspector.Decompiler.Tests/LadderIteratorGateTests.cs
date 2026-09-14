@@ -226,6 +226,7 @@ public class LadderIteratorGateTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void IteratorFixture_HasNoMalformedOrSemanticDefectiveFullOutput()
     {
         var results = ValidityCheck.Evaluate(FixturePath, importSiblingBodies: true)

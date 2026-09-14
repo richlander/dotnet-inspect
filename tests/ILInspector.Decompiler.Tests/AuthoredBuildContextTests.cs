@@ -11,6 +11,7 @@ using Microsoft.CodeAnalysis;
 
 namespace ILInspector.DecompilerHarness;
 
+[Trait("Speed", "Slow")]
 [Trait("Area", "Fidelity")]
 [Collection(FidelityGateCollection.Name)]
 public sealed class AuthoredBuildContextTests

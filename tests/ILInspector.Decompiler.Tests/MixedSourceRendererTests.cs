@@ -5,6 +5,7 @@ using ILInspector.Research;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Speed", "Slow")]
 public class MixedSourceRendererTests
 {
     static string Render(string methodName)
@@ -280,6 +281,7 @@ public class MixedPreambleTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void ImplicitBaseCall_RendersAboveTheStatementItRunsBefore()
     {
         // The implicit base() prints no C#, so it has no range and no line, and

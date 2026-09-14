@@ -3,6 +3,7 @@ using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Speed", "Slow")]
 [Collection(ConsoleMutatorCollection.Name)]
 public class SlotResidualCensusTests
 {
