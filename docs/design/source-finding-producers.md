@@ -178,6 +178,8 @@ failure produces typed evidence and does not publish the fetched bytes to the
 process-local memory cache, so an identical retry cannot silently change from
 failure to PDB-source success. The compatibility `PersistentCache` adapter retains its
 pre-existing best-effort persistence semantics.
+[SourceFetch evidence admission](source-fetch.md) owns that candidate,
+publication, and failure contract.
 `AssemblyContextSourceQueryTests.SourceStoreFailure_FallsBackRepeatablyWithoutPublishingMemoryEntry`
 gates both repeatability and fallback. Store-specific non-cancellation,
 non-fatal exceptions are also typed as storage failures rather than suppressing

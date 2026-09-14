@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Implements target-aware PackageHouse `Realize` execution over the existing
+  compile/runtime selector receipts, preserving acquired package shape,
+  optional Library handoffs, and terminal timeout evidence (#6880).
 - Routes the empty `cache` human result through the generated Markout context
   and documents the bounded one-record JSON/JSONL compatibility contract
   shared by populated and empty cache snapshots (#6833).

@@ -8,6 +8,8 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
+using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -30,6 +32,76 @@ public class DependencyGraphServiceTests : IDisposable
     {
         if (Directory.Exists(_testRoot))
             Directory.Delete(_testRoot, recursive: true);
+    }
+
+    [Fact]
+    public async Task BuildTypeDependencyTreeAsync_LocalAssemblyRetainsQueryParticipant()
+    {
+        using var httpClient = new HttpClient();
+        var result =
+            await DependencyGraphService.BuildTypeDependencyTreeAsync(
+                httpClient,
+                new DependsOptions
+                {
+                    TargetType =
+                        typeof(DependencyGraphServiceTests).FullName!,
+                    Assemblies =
+                    [
+                        typeof(DependencyGraphServiceTests)
+                            .Assembly.Location,
+                    ],
+                },
+                new VerboseLogger(enabled: false),
+                TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsAvailable);
+        Assert.True(result.Dependency.Found);
+        AssemblyContextTypeDependencyEntry participant =
+            Assert.Single(
+                result.Envelope!
+                    .Content
+                    .QueryResult
+                    .Participants);
+        Assert.IsType<
+            AssemblyContextTypeDependencyEntry.Completed>(
+                participant);
+    }
+
+    [Fact]
+    public async Task BuildTypeDependencyTreeAsync_UnsupportedOnlyIsUnavailable()
+    {
+        Directory.CreateDirectory(_testRoot);
+        string path = Path.Combine(
+            _testRoot,
+            "unsupported.dll");
+        File.WriteAllBytes(
+            path,
+            TimelineCommandTests.BuildWindowsMetadataImage());
+        using var httpClient = new HttpClient();
+
+        TypeDependencyExecutionResult result =
+            await DependencyGraphService.BuildTypeDependencyTreeAsync(
+                httpClient,
+                new DependsOptions
+                {
+                    TargetType = "No.Such.Type",
+                    Assemblies = [path],
+                },
+                new VerboseLogger(enabled: false),
+                TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsAvailable);
+        TypeDependencyScanDiagnostic diagnostic =
+            Assert.Single(result.Diagnostics);
+        Assert.Equal(path, diagnostic.Subject);
+        Assert.Equal(
+            CandidateOpenFailureKind.UnsupportedMetadataFormat,
+            diagnostic.Failure.Kind);
+        Assert.Empty(
+            result.Envelope!
+                .Content
+                .QueryResult
+                .Participants);
     }
 
     [Fact]

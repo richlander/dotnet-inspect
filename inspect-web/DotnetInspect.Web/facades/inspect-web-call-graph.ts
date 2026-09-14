@@ -63,7 +63,7 @@ type $ManagedExports = {
       readonly "Interop": {
         readonly "CallGraph": {
           readonly "CallGraphExports": {
-            readonly "ExpandPlatformCallGraph.1136010516": (targetFramework: string, platformVersion: string, assembly: string, pack: string, assemblyVersion: string, assemblyCulture: string | null, assemblyPublicKeyToken: string | null, typeFullName: string, memberName: string, selectorKey: string, metadataToken: number) => Promise<string>;
+            readonly "ExpandPlatformCallGraph.232153955": (targetFramework: string, platformVersion: string, assembly: string, pack: string, assemblyVersion: string, assemblyCulture: string | null, assemblyPublicKeyToken: string | null, typeFullName: string, memberName: string, selectorKey: string, metadataToken: number, contextId: string | null) => Promise<string>;
             readonly "QueryMemberCallGraph.1135530322": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, workspaceJson: string) => Promise<string>;
           };
         };
@@ -121,9 +121,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "CallGraph");
     value = $ownDataProperty(value, "CallGraphExports");
-    value = $ownDataProperty(value, "ExpandPlatformCallGraph.1136010516");
+    value = $ownDataProperty(value, "ExpandPlatformCallGraph.232153955");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.CallGraph.CallGraphExports.ExpandPlatformCallGraph.1136010516\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.CallGraph.CallGraphExports.ExpandPlatformCallGraph.232153955\u0027 is not callable.");
     }
   }
   {
@@ -175,8 +175,8 @@ export function runEntryPoint(
   return $requireRuntime().runMain(mainAssemblyName, args);
 }
 
-export async function expandPlatformCallGraph(targetFramework: string, platformVersion: string, assembly: string, pack: string, assemblyVersion: string, assemblyCulture: string | null, assemblyPublicKeyToken: string | null, typeFullName: string, memberName: string, selectorKey: string, metadataToken: number): Promise<BrowserCallGraph> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["CallGraph"]["CallGraphExports"]["ExpandPlatformCallGraph.1136010516"](targetFramework, platformVersion, assembly, pack, assemblyVersion, assemblyCulture, assemblyPublicKeyToken, typeFullName, memberName, selectorKey, metadataToken);
+export async function expandPlatformCallGraph(targetFramework: string, platformVersion: string, assembly: string, pack: string, assemblyVersion: string, assemblyCulture: string | null, assemblyPublicKeyToken: string | null, typeFullName: string, memberName: string, selectorKey: string, metadataToken: number, contextId: string | null): Promise<BrowserCallGraph> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["CallGraph"]["CallGraphExports"]["ExpandPlatformCallGraph.232153955"](targetFramework, platformVersion, assembly, pack, assemblyVersion, assemblyCulture, assemblyPublicKeyToken, typeFullName, memberName, selectorKey, metadataToken, contextId);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserCallGraph;
 }

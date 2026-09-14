@@ -432,7 +432,8 @@ internal static class LibraryMetadataService
                             visited,
                             logger,
                             deduplicate: true,
-                            failOnReadError: true);
+                            failOnReadError: true,
+                            preserveUnresolvedReferenceNameSpelling: true);
                 }
                 catch (
                     IdentifierConfusionReferenceTraversalException ex)
@@ -852,7 +853,8 @@ internal static class LibraryMetadataService
         int depth = 0,
         bool deduplicate = false,
         int? maxDepth = null,
-        bool failOnReadError = false)
+        bool failOnReadError = false,
+        bool preserveUnresolvedReferenceNameSpelling = false)
     {
         string fullAssemblyPath = Path.GetFullPath(assemblyPath);
         StringComparer pathComparer = ReferenceTreePathComparer(
@@ -882,7 +884,9 @@ internal static class LibraryMetadataService
                 failOnReadError,
                 rootIdentity: null,
                 relationships: null,
-                retainRevisits: false);
+                retainRevisits: false,
+                preserveUnresolvedReferenceNameSpelling:
+                    preserveUnresolvedReferenceNameSpelling);
         }
 
         return BuildTransitiveReferences(
@@ -1093,11 +1097,15 @@ internal static class LibraryMetadataService
             List<AssemblyReferenceRelationship>? relationships,
             bool retainRevisits,
             AssemblyReferenceTraversalState? traversalState = null,
+            bool preserveUnresolvedReferenceNameSpelling = false,
             CancellationToken cancellationToken = default)
     {
         List<DeduplicatedReferenceNode> roots = [];
         var seen = new HashSet<AssemblyReferenceTraversalKey>(
-            AssemblyReferenceTraversalKeyComparer.Instance);
+            preserveUnresolvedReferenceNameSpelling
+                ? AssemblyReferenceTraversalKeyComparer
+                    .PreserveReferenceNameSpelling
+                : AssemblyReferenceTraversalKeyComparer.BindingIdentity);
         var pending = new Queue<PendingAssemblyReference>(
             references
                 .OrderBy(reference => reference.Name)
@@ -1566,10 +1574,21 @@ internal static class LibraryMetadataService
         private static readonly StringComparer PathComparer =
             ReferenceTreePathComparer(OperatingSystem.IsWindows());
 
-        public static AssemblyReferenceTraversalKeyComparer Instance
+        public static AssemblyReferenceTraversalKeyComparer BindingIdentity
+            { get; } = new(preserveReferenceNameSpelling: false);
+
+        public static AssemblyReferenceTraversalKeyComparer
+            PreserveReferenceNameSpelling
+            { get; } = new(preserveReferenceNameSpelling: true);
+
+        private readonly bool _preserveReferenceNameSpelling;
+
+        private AssemblyReferenceTraversalKeyComparer(
+            bool preserveReferenceNameSpelling)
         {
-            get;
-        } = new();
+            _preserveReferenceNameSpelling =
+                preserveReferenceNameSpelling;
+        }
 
         public bool Equals(
             AssemblyReferenceTraversalKey x,
@@ -1590,9 +1609,13 @@ internal static class LibraryMetadataService
                 && PathComparer.Equals(
                     x.BindingScope,
                     y.BindingScope)
-                && AssemblyReferenceIdentity.EquivalentComparer.Equals(
-                    xReference,
-                    yReference);
+                && (_preserveReferenceNameSpelling
+                    ? ReferenceSpellingEquals(
+                        xReference,
+                        yReference)
+                    : AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                        xReference,
+                        yReference));
         }
 
         public int GetHashCode(AssemblyReferenceTraversalKey value)
@@ -1605,12 +1628,38 @@ internal static class LibraryMetadataService
             else if (value.Reference is { } reference)
             {
                 hash.Add(value.BindingScope, PathComparer);
-                hash.Add(
-                    AssemblyReferenceIdentity.EquivalentComparer
-                        .GetHashCode(reference));
+                if (_preserveReferenceNameSpelling)
+                {
+                    hash.Add(reference.Name, StringComparer.Ordinal);
+                    hash.Add(reference.Version);
+                    hash.Add(
+                        reference.Culture,
+                        StringComparer.OrdinalIgnoreCase);
+                    hash.Add(
+                        reference.PublicKeyToken,
+                        StringComparer.OrdinalIgnoreCase);
+                }
+                else
+                {
+                    hash.Add(
+                        AssemblyReferenceIdentity.EquivalentComparer
+                            .GetHashCode(reference));
+                }
             }
             return hash.ToHashCode();
         }
+
+        private static bool ReferenceSpellingEquals(
+            AssemblyReferenceIdentity left,
+            AssemblyReferenceIdentity right) =>
+            StringComparer.Ordinal.Equals(left.Name, right.Name)
+            && left.Version == right.Version
+            && StringComparer.OrdinalIgnoreCase.Equals(
+                left.Culture,
+                right.Culture)
+            && StringComparer.OrdinalIgnoreCase.Equals(
+                left.PublicKeyToken,
+                right.PublicKeyToken);
     }
 
     private static IdentifierConfusionAuditFailureKind

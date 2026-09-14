@@ -32,8 +32,9 @@ full zero-network evidence set:
 Use `Annotated Source` or `IL` when exact opcodes, offsets, branches, tokens, or
 calls matter. Use `--bare` for a whole-type listing.
 `-S @Source` is broader and may fetch network `PDB Source` content when
-SourceLink is available; the fetch verifies the final redirect origin and PDB
-checksum before returning the body.
+SourceLink is available; the fetch follows host-permitted redirects and returns
+the body only when it matches the PDB checksum, without treating the final
+destination as source provenance.
 `--project` reads existing restored assets; restore/build first if dependencies
 changed.
 

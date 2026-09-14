@@ -10,6 +10,12 @@ using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspect.Web.Tests;
 
+[CollectionDefinition(
+    "Browser member declaration operations",
+    DisableParallelization = true)]
+public sealed class BrowserMemberDeclarationOperationCollection;
+
+[Collection("Browser member declaration operations")]
 [SupportedOSPlatform("browser")]
 public sealed class BrowserMemberDeclarationTests
 {

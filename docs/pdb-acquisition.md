@@ -47,6 +47,10 @@ Remote acquisition follows HTTP redirects. A final successful response becomes
 PDB source only when its bytes satisfy the document checksum; an unsuccessful
 response or transport failure remains a typed acquisition failure, after which
 `AssemblyContextSourceQuery` uses decompiled source when available.
+[SourceFetch evidence admission](design/source-fetch.md) owns the remote
+candidate order, host authorization, bounded retrieval, validation-before-use,
+content-store publication, and typed transport outcomes. This PDB owner
+supplies the checksum predicate and retains the settled source meaning.
 
 [Local repository source acquisition](design/local-repository-source-acquisition.md)
 owns that adapter's locator interpretation, byte admission, optional-lookup

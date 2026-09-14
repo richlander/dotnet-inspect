@@ -599,11 +599,13 @@ package evidence added by
 - Metadata owns type-dependency facts and matched participant registration.
 - Queries owns population execution, exact participant selection, typed
   participant outcomes, traversal depth, and resource-free results.
-- Sections owns `TypeDependencySectionPlan` and semantic relationship rows.
+- Sections owns `TypeDependencySectionPlan`, the typed relationship-row schema,
+  and shared predicate, order, and semantic row-selection execution.
 - CLI `depends <type>` lowers `--depth`, `-n`, `--rows`, `--head`, and
-  `--tail` into that plan.
-- Inspect Web Type Relationships constructs the same plan from its retained
-  Workspace, currently with no depth bound and an empty row intent.
+  `--tail` into that row-query plan.
+- Inspect Web Type Relationships executes the same resolved row-query plan from
+  its retained Workspace, currently with no depth bound and an empty query
+  intent.
 - Both hosts consume the same base/interface relationships; Web separately
   composes Research-owned derived-type relationships.
 
