@@ -1507,9 +1507,9 @@ kbd {
 .call-graph-diagram g.node.platform-node polygon { stroke-dasharray: 4 3; }
 .call-graph-diagram { position: relative; min-height: 360px; display: grid; place-items: center; overflow: hidden; padding: 0; border-top: 1px solid var(--line); background: var(--bg); }
 .graph-viewport { position: relative; width: 100%; height: 540px; overflow: hidden; cursor: grab; touch-action: none; }
-.package-dependencies-surface .dependency-graph-section .call-graph-diagram { min-height: 260px; }
+.package-dependencies-surface .dependency-graph-section .call-graph-diagram { min-height: 230px; }
 .package-dependencies-surface .dependency-graph-section .graph-viewport {
-  height: clamp(260px, calc(100dvh - 508px), 360px);
+  height: clamp(230px, calc(100dvh - 538px), 360px);
 }
 .graph-viewport.panning { cursor: grabbing; }
 .graph-viewport:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }

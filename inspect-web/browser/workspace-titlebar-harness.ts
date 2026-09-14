@@ -530,7 +530,18 @@ function detailHtml() {
         <h1 id="package-dependencies-surface-title">Dependencies</h1>
         <p>3 packages · 8 references</p>
       </header>
-      <section class="package-dependencies-controls" aria-label="Dependency coordinate"></section>
+      <section class="package-dependencies-controls" aria-label="Dependency coordinate">
+        <div class="package-coordinate-fields">
+          <label class="version-select">
+            <span>Version</span>
+            <select id="package-version"><option selected>10.0.0</option></select>
+          </label>
+          <label class="framework-select">
+            <span>Framework</span>
+            <select id="framework"><option selected>net10.0</option></select>
+          </label>
+        </div>
+      </section>
       <div class="package-dependencies-scroll">
         <div data-dependency-graph-surface>
           <section class="document-section dependency-group-selector">

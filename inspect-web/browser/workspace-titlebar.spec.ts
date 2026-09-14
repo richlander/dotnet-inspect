@@ -482,7 +482,7 @@ test("Package Dependencies reveals a direct dependency row at ordinary desktop h
   });
 
   expect(geometry.scrollTop).toBe(0);
-  expect(geometry.graphHeight).toBeCloseTo(260, 2);
+  expect(geometry.graphHeight).toBeCloseTo(230, 2);
   expect(geometry.rowTop).toBeGreaterThanOrEqual(geometry.scrollTopEdge);
   expect(geometry.rowBottom).toBeLessThanOrEqual(geometry.scrollBottom);
 });
