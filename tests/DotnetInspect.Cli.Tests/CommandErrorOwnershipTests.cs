@@ -94,6 +94,9 @@ namespace DotnetInspect.Cli.Tests;
 /// </remarks>
 public class CommandErrorOwnershipTests
 {
+    private static readonly TimeSpan MsbuildEvaluationTimeout =
+        TimeSpan.FromMinutes(2);
+
     /// <summary>
     /// The CLI's entry project. Everything else here is derived from it.
     /// </summary>
@@ -205,7 +208,13 @@ public class CommandErrorOwnershipTests
                 + $"(#3319); an unanalyzed project reports nothing and looks identical to a clean one.{Environment.NewLine}"
                 + string.Join(Environment.NewLine, uncovered));
 
-        Assert.Equal(ShippedProjectLibraries(), ClosureProjectNames());
+        SortedSet<string> shipped = ShippedProjectLibraries();
+        SortedSet<string> closure = ClosureProjectNames();
+        Assert.True(
+            shipped.SetEquals(closure),
+            $"Missing from static closure: {string.Join(", ", shipped.Except(closure))}"
+                + $"{Environment.NewLine}Absent from shipped dependency inventory: "
+                + string.Join(", ", closure.Except(shipped)));
     }
 
     /// <summary>
@@ -317,6 +326,10 @@ public class CommandErrorOwnershipTests
     ///
     /// Which is the same lesson as the rule itself: ask the tool that already
     /// knows, rather than re-deriving its answer.
+    ///
+    /// The entry project's assembly name is <c>dotnet-inspect</c>, while the
+    /// static closure names its project file <c>DotnetInspect.Cli</c>. Normalize
+    /// that known distinction before comparing the two inventories.
     /// </remarks>
     private static SortedSet<string> ShippedProjectLibraries()
     {
@@ -329,12 +342,16 @@ public class CommandErrorOwnershipTests
 
         using JsonDocument document = JsonDocument.Parse(File.ReadAllText(deps));
         SortedSet<string> shipped = new(StringComparer.Ordinal);
+        string entryAssemblyName =
+            Path.GetFileNameWithoutExtension(EvaluatedProperty(CliProject, "TargetPath"));
+        string entryProjectName = Path.GetFileNameWithoutExtension(CliProject);
 
         foreach (JsonProperty library in document.RootElement.GetProperty("libraries").EnumerateObject())
         {
             if (library.Value.TryGetProperty("type", out JsonElement type) && type.GetString() == "project")
             {
-                shipped.Add(library.Name.Split('/')[0]);
+                string name = library.Name.Split('/')[0];
+                shipped.Add(name == entryAssemblyName ? entryProjectName : name);
             }
         }
 
@@ -1102,31 +1119,23 @@ public class CommandErrorOwnershipTests
         IReadOnlyCollection<string> items)
     {
         string item = string.Join(',', items);
-
-        using Process process = new()
+        var startInfo = new ProcessStartInfo("dotnet")
         {
-            StartInfo = new ProcessStartInfo("dotnet")
-            {
-                ArgumentList = { "msbuild", projectPath, $"-getItem:{item}", "-p:Configuration=Release" },
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-            },
+            ArgumentList = { "msbuild", projectPath, $"-getItem:{item}", "-p:Configuration=Release" },
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
         };
-
-        process.Start();
-        string output = process.StandardOutput.ReadToEnd();
-        string error = process.StandardError.ReadToEnd();
-        process.WaitForExit();
-
-        if (process.ExitCode != 0)
+        var evaluation = RunMsbuildQuery(startInfo, projectPath, item);
+        if (evaluation.ExitCode != 0)
         {
             throw new InvalidOperationException(
                 $"Could not evaluate {item} for {projectPath}. This class reads what the build was handed rather "
                 + $"than deriving it from project XML, so an evaluation it cannot run is an observation it does "
-                + $"not have.{Environment.NewLine}{output}{Environment.NewLine}{error}");
+                + $"not have.{Environment.NewLine}{evaluation.Output}{Environment.NewLine}{evaluation.Error}");
         }
 
-        using JsonDocument document = JsonDocument.Parse(output);
+        using JsonDocument document = JsonDocument.Parse(evaluation.Output);
         JsonElement evaluatedItems = document.RootElement.GetProperty("Items");
         Dictionary<string, IReadOnlyList<Dictionary<string, string>>> result = new(StringComparer.Ordinal);
 
@@ -1143,6 +1152,56 @@ public class CommandErrorOwnershipTests
 
         return result;
     }
+
+    private static (int ExitCode, string Output, string Error) RunMsbuildQuery(
+        ProcessStartInfo startInfo,
+        string projectPath,
+        string query)
+    {
+        using Process process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException(
+                $"Could not start MSBuild evaluation for {projectPath}.");
+        Task<string> output = process.StandardOutput.ReadToEndAsync();
+        Task<string> error = process.StandardError.ReadToEndAsync();
+
+        if (!process.WaitForExit(MsbuildEvaluationTimeout))
+        {
+            OutOfProcessCliProcess.KillAndWaitForExit(
+                process,
+                TimeSpan.FromSeconds(10));
+            SpinWait.SpinUntil(
+                () => output.IsCompleted && error.IsCompleted,
+                TimeSpan.FromSeconds(10));
+            throw new TimeoutException(
+                $"MSBuild evaluation of {query} for {projectPath} did not exit "
+                    + $"within {MsbuildEvaluationTimeout}."
+                    + $"{Environment.NewLine}stdout:{Environment.NewLine}{CapturedOutput(output)}"
+                    + $"{Environment.NewLine}stderr:{Environment.NewLine}{CapturedOutput(error)}");
+        }
+
+        if (!Task.WaitAll([output, error], TimeSpan.FromSeconds(10)))
+        {
+            throw new TimeoutException(
+                $"MSBuild output streams did not close after evaluating "
+                    + $"{query} for {projectPath}."
+                    + $"{Environment.NewLine}stdout:{Environment.NewLine}{CapturedOutput(output)}"
+                    + $"{Environment.NewLine}stderr:{Environment.NewLine}{CapturedOutput(error)}");
+        }
+
+        return (
+            process.ExitCode,
+            output.GetAwaiter().GetResult(),
+            error.GetAwaiter().GetResult());
+    }
+
+    private static string CapturedOutput(Task<string> capture) =>
+        capture.Status switch
+        {
+            TaskStatus.RanToCompletion => capture.GetAwaiter().GetResult(),
+            TaskStatus.Faulted => $"<capture failed: {capture.Exception!.GetBaseException().Message}>",
+            TaskStatus.Canceled => "<capture canceled>",
+            _ => "<capture did not complete>",
+        };
 
     /// <summary>
     /// The value MSBuild evaluates <paramref name="property"/> to for
@@ -1176,34 +1235,31 @@ public class CommandErrorOwnershipTests
 
     private static Dictionary<string, string> EvaluateProperties(string projectPath)
     {
-        using Process process = new()
+        var startInfo = new ProcessStartInfo("dotnet")
         {
-            StartInfo = new ProcessStartInfo("dotnet")
-            {
-                ArgumentList = { "msbuild", projectPath, "-p:Configuration=Release" },
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-            },
+            ArgumentList = { "msbuild", projectPath, "-p:Configuration=Release" },
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
         };
 
         foreach (string property in Properties)
         {
-            process.StartInfo.ArgumentList.Add($"-getProperty:{property}");
+            startInfo.ArgumentList.Add($"-getProperty:{property}");
         }
 
-        process.Start();
-        string output = process.StandardOutput.ReadToEnd();
-        string error = process.StandardError.ReadToEnd();
-        process.WaitForExit();
-
-        if (process.ExitCode != 0)
+        var evaluation = RunMsbuildQuery(
+            startInfo,
+            projectPath,
+            string.Join(',', Properties));
+        if (evaluation.ExitCode != 0)
         {
             throw new InvalidOperationException(
                 $"Could not evaluate {string.Join(',', Properties)} for {projectPath}."
-                + $"{Environment.NewLine}{output}{Environment.NewLine}{error}");
+                + $"{Environment.NewLine}{evaluation.Output}{Environment.NewLine}{evaluation.Error}");
         }
 
-        using JsonDocument document = JsonDocument.Parse(output);
+        using JsonDocument document = JsonDocument.Parse(evaluation.Output);
         JsonElement properties = document.RootElement.GetProperty("Properties");
 
         return Properties.ToDictionary(
