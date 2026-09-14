@@ -1045,8 +1045,8 @@ The Release gates are:
 
 - `ExactTypeInspectionOperationTests` for detached cold equivalence, exact
   assembly/MVID identity, forwarded supplier identity and hops, not-found,
-  ambiguity, stable diagnostics, and predecessor/successor realization
-  association;
+  ambiguity, visible participant rejection, stable diagnostics, and
+  predecessor/successor realization association;
 - `ExactTypeWorkspaceRouteTests` for non-vacuous CLI retirement and default
   member-signature rendering without the eligible legacy source resolver;
 - `BrowserEngineBoundaryTests.QueryTypeProjection_*` for Browser consumption,

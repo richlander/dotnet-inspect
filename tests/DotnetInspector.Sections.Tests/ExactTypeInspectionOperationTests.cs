@@ -8,6 +8,7 @@ using System.Text.Json;
 
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Services;
 using ILInspector.Metadata;
 using NuGetFetch;
 
@@ -271,6 +272,112 @@ public sealed class ExactTypeInspectionOperationTests
             envelope.Diagnostics,
             diagnostic => diagnostic.Code
                     == "exact-type.inspection-incomplete"
+                && diagnostic.Severity
+                    == InspectionDiagnosticSeverity.Warning);
+    }
+
+    [Fact]
+    public async Task Execute_RejectedParticipantProducesVisibleUnavailableResult()
+    {
+        string typeName =
+            typeof(ExactTypeInspectionOperation).FullName!;
+        string path =
+            typeof(ExactTypeInspectionOperation).Assembly.Location;
+        byte[] bytes = await File.ReadAllBytesAsync(
+            path,
+            TestContext.Current.CancellationToken);
+        ResolvedAssemblyReference healthy =
+            ResolvedAssemblyReference.CreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local("available"));
+        ResolvedAssemblyReference rejected =
+            ResolvedAssemblyReference.Create(
+                healthy.Identity with { Name = "WrongIdentity" },
+                path: null,
+                () => new MemoryStream(bytes, writable: false),
+                AssemblyResolutionProvenance.Local("rejected"));
+        IAcquisitionFreeAssemblyBindingPolicy policy =
+            SourceRelativeAssemblyGroupBindingPolicy.CreateClosedWorld(
+                [
+                    (rejected, NoResolverAssemblyBindingPolicy.Instance),
+                    (healthy, NoResolverAssemblyBindingPolicy.Instance),
+                ]);
+        WorkspaceContextInput input = Input();
+        WorkspaceMemberCoordinate declared = Assert.Single(input.Members);
+        var realized = new RealizedMemberCoordinate.Package(
+            PackageId,
+            Version,
+            NuGetCache.GetSourceKey(SourceUrl),
+            Framework,
+            runtimeIdentifier: null);
+        await using var coordinator =
+            new WorkspaceRealizationCoordinator();
+        WorkspaceRealizationCandidate candidate =
+            Assert.IsType<WorkspaceRealizationCandidateStartResult.Prepared>(
+                await coordinator.BeginCandidateAsync(
+                    new WorkspacePlan([], [input])))
+            .Candidate;
+        WorkspaceContextLoadOutcome.Loaded loaded;
+        using (WorkspaceRealizationConstructionLease construction =
+            candidate.EnterConstruction())
+        {
+            AssemblyContextParticipant rejectedParticipant =
+                new(rejected, policy);
+            AssemblyContextParticipant healthyParticipant =
+                new(healthy, policy);
+            AssemblyContextGroup group =
+                construction.Workspace.CreateAssemblyContextGroup(
+                    [rejectedParticipant, healthyParticipant]);
+            loaded = new WorkspaceContextLoadOutcome.Loaded(
+                construction.Workspace.Identity,
+                group,
+                [
+                    new WorkspaceContextMember(
+                        declared,
+                        realized,
+                        rejectedParticipant),
+                    new WorkspaceContextMember(
+                        declared,
+                        realized,
+                        healthyParticipant),
+                ],
+                [],
+                Framework,
+                runtimeIdentifier: null);
+        }
+        _ = Assert.IsType<WorkspaceRealizationCandidateCompletionResult.Ready>(
+            await coordinator.CompleteCandidateAsync(
+                candidate,
+                TestContext.Current.CancellationToken));
+        _ = Assert.IsType<WorkspaceRealizationCutoverResult.Activated>(
+            coordinator.CutOver(candidate));
+        using WorkspaceRealizationOperationLease authority =
+            Assert.IsType<WorkspaceRealizationOperationAdmission.Admitted>(
+                await coordinator.EnterOperationAsync(
+                    TestContext.Current.CancellationToken))
+            .Lease;
+
+        InspectionEnvelope<ExactTypeInspectionResult> envelope =
+            ExactTypeInspectionOperation.Execute(
+                authority,
+                loaded,
+                new ExactTypeInspectionRequest(
+                    PackageId,
+                    Version,
+                    Framework,
+                    typeName));
+
+        Assert.Equal(
+            ExactTypeInspectionOutcome.Unavailable,
+            envelope.Content.Outcome);
+        Assert.Contains(
+            envelope.Content.Failures,
+            failure => failure.Kind
+                == ExactTypeInspectionFailureKind.ParticipantRejected);
+        Assert.Contains(
+            envelope.Diagnostics,
+            diagnostic => diagnostic.Code
+                    == "exact-type.participant-rejected"
                 && diagnostic.Severity
                     == InspectionDiagnosticSeverity.Warning);
     }
