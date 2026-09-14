@@ -1,5 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
+import { stripTypeScriptTypes } from "node:module";
+import { runInNewContext } from "node:vm";
+import { parseSync } from "oxc-parser";
+import { memberRequestKey } from "../src/data.ts";
+import type {
+  MemberCallGraphRequest,
+  PlatformDrillRequest,
+} from "../src/call-graph-inspection.ts";
 import type {
   BrowserHomeDemoRunResult,
   BrowserPackageSurface,
@@ -93,6 +102,7 @@ function result(
       focusVersion,
       focusFramework,
       focusAssembly,
+      platformContextId: focusKind === "platform" ? "demo-context" : null,
       typeId: `${focusAssembly ?? focusId}.Type`,
       section: "Methods",
       memberName: null,
@@ -179,10 +189,121 @@ test("Platform activation merges one exact target around its non-first focus", (
   if (prepared.kind !== "platform") return;
   assert.equal(prepared.focusAssembly, "System.Text.Json");
   assert.equal(prepared.focusPack, "netcore.app");
+  assert.equal(prepared.contextId, "demo-context");
   assert.equal(prepared.package.assembly, "System.Text.Json");
   assert.deepEqual(
     prepared.package.assemblies.map(assembly => assembly.name),
     ["System.Text.Json", "System.Runtime"]);
+});
+
+test("Platform activation rejects a missing retained context instead of ordinary browsing", () => {
+  const demo = result(
+    "platform", "runtime", "10.0.12", "net10.0", "System.Text.Json",
+    [surface("Microsoft.NETCore.App", "10.0.12", "net10.0", "System.Text.Json", "netcore.app")]);
+  assert.throws(
+    () => prepareProductHomeDemoSource({
+      ...demo,
+      activation: { ...demo.activation!, platformContextId: null },
+    }),
+    /omitted its retained context/);
+});
+
+test("actual app activation, member reload, drill and workspace reset preserve context association", async () => {
+  const source = readFileSync(new URL("../src/dotnet-inspect.ts", import.meta.url), "utf8");
+  const parsed = parseSync("dotnet-inspect.ts", source);
+  assert.deepEqual(parsed.errors, []);
+  const names = new Set([
+    "installPlatformHomeDemoSource", "clearWorkspacePackages",
+    "memberRequestSignature", "loadSelectedMemberCallGraph", "drillPlatformNode",
+  ]);
+  const declarations = parsed.program.body.filter(node =>
+    node.type === "FunctionDeclaration" && names.has(node.id?.name ?? ""));
+  assert.equal(declarations.length, names.size);
+  const demo = result(
+    "platform", "runtime", "10.0.12", "net10.0", "System.Text.Json",
+    [surface("Microsoft.NETCore.App", "10.0.12", "net10.0", "System.Text.Json", "netcore.app")]);
+  const prepared = prepareProductHomeDemoSource(demo);
+  assert.equal(prepared.kind, "platform");
+  if (prepared.kind !== "platform") return;
+  const pkg = prepared.package;
+  const type = pkg.types[0]!;
+  const overload = { name: "Serialize", signature: "Serialize()", graphSelectorKey: "selector", metadataToken: 1 };
+  const state = {
+    package: pkg,
+    packages: [pkg],
+    platformDemoContextId: null as string | null,
+    selectedOverloadIndex: 0,
+    selectedBodyTarget: null,
+  };
+  const loads: MemberCallGraphRequest[] = [];
+  const drills: PlatformDrillRequest[] = [];
+  const context = {
+    state,
+    prepared,
+    activation: demo.activation,
+    drillTarget: {
+      assembly: "System.Text.Json", memberName: "Serialize",
+      typeFullName: type.definitionId, selectorKey: "selector",
+    },
+    memberRequestKey,
+    ensurePlatformCatalog: async () => ({ tfm: "net10.0", version: "10.0.12" }),
+    navigationSequence: { isCurrent: () => true },
+    platformGraphLibraryForTarget: () => ({}),
+    platformLibraryMatchesDescriptor: () => true,
+    retainPackageModel: () => { state.packages = [pkg]; },
+    releasePackageModelCaches: () => {},
+    openPlatformLibrary: async () => { state.package = pkg; return pkg; },
+    selectedType: () => type,
+    selectedMember: () => ({ overloads: [overload] }),
+    selectedConcreteOverload: () => overload,
+    currentPackage: () => pkg,
+    assemblyDescriptorForType: () => pkg.assemblies[0],
+    selectedCallGraphWorkspacePackages: () => [],
+    platformPackForAssembly: () => "netcore.app",
+    callGraphInspection: {
+      load: async (request: MemberCallGraphRequest) => { loads.push(request); },
+      drill: async (request: PlatformDrillRequest) => { drills.push(request); },
+    },
+    platformCatalogFramework: () => "net10.0",
+    runtimePackPackage: () => pkg,
+    runtimePackForFramework: () => pkg,
+    capturedShareTabs: () => ({ resolvedTabs: [] }),
+    resolvedPlatformTargetVersion: () => "10.0.12",
+    platformPackForGraphAssembly: () => "netcore.app",
+    callGraphTargetTypeId: () => type.definitionId,
+    stripArity: (name: string) => name,
+  };
+  runInNewContext(
+    stripTypeScriptTypes(declarations.map(node => source.slice(node.start, node.end)).join("\n")),
+    context);
+  const load = () => Promise.resolve<unknown>(
+    runInNewContext("loadSelectedMemberCallGraph()", context));
+  await Promise.resolve<unknown>(runInNewContext(
+    'installPlatformHomeDemoSource(prepared, activation, "demo", 1)', context));
+  assert.equal(state.platformDemoContextId, prepared.contextId);
+  await load();
+  overload.name = "Deserialize";
+  overload.signature = "Deserialize()";
+  await load();
+  overload.name = "Serialize";
+  overload.signature = "Serialize()";
+  await load();
+  await Promise.resolve<unknown>(runInNewContext("drillPlatformNode(drillTarget)", context));
+  assert.deepEqual(loads.map(request => request.platformContextId),
+    ["demo-context", "demo-context", "demo-context"]);
+  assert.equal(drills[0]!.contextId, "demo-context");
+  assert.equal(loads[0]!.signature, loads[2]!.signature);
+  const retained = { ...state };
+  runInNewContext("clearWorkspacePackages()", context);
+  assert.equal(state.platformDemoContextId, null);
+  state.package = pkg;
+  await load();
+  assert.equal(loads[3]!.platformContextId, null);
+  assert.notEqual(loads[0]!.signature, loads[3]!.signature);
+  Object.assign(state, retained);
+  await load();
+  assert.equal(loads[4]!.platformContextId, "demo-context");
+  assert.equal(loads[4]!.signature, loads[0]!.signature);
 });
 
 test("Platform activation rejects mixed exact targets before model installation", () => {

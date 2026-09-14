@@ -1,6 +1,7 @@
 import type {
   BrowserCallGraph as CallGraphFromCallGraphFacade,
   BrowserCallGraphTarget as CallGraphTargetFromCallGraphFacade,
+  expandPlatformCallGraph,
 } from "./facades/inspect-web-call-graph.d.ts";
 import type {
   BrowserCallGraph as CallGraphFromCatalogFacade,
@@ -46,6 +47,7 @@ export interface MemberCallGraphRequest {
   framework: string;
   assembly: string;
   platformPack: string;
+  platformContextId: string | null;
   platformAssemblyVersion: string | null;
   platformAssemblyCulture: string | null;
   platformAssemblyPublicKeyToken: string | null;
@@ -62,6 +64,7 @@ export interface MemberCallGraphRequest {
 }
 
 export interface PlatformDrillRequest {
+  contextId: string | null;
   framework: string;
   platformVersion: string;
   assembly: string;
@@ -106,6 +109,7 @@ export interface CallGraphInspectionDependencies {
     workspace: CallGraphWorkspacePackage[],
   ): Promise<InspectedCallGraph>;
   queryPlatform(request: {
+    contextId: string | null;
     framework: string;
     platformVersion: string;
     assembly: string;
@@ -135,6 +139,25 @@ export interface CallGraphInspectionCoordinator {
   popDrill(): Promise<void>;
 }
 
+export function queryPlatformCallGraph(
+  query: typeof expandPlatformCallGraph,
+  request: Parameters<CallGraphInspectionDependencies["queryPlatform"]>[0],
+): Promise<InspectedCallGraph> {
+  return query(
+    request.framework,
+    request.platformVersion,
+    request.assembly,
+    request.pack,
+    request.assemblyVersion ?? "",
+    request.assemblyCulture,
+    request.assemblyPublicKeyToken,
+    request.type,
+    request.member,
+    request.selectorKey,
+    request.metadataToken,
+    request.contextId);
+}
+
 export function createCallGraphInspectionCoordinator(
   dependencies: CallGraphInspectionDependencies,
 ): CallGraphInspectionCoordinator {
@@ -147,8 +170,7 @@ export function createCallGraphInspectionCoordinator(
   };
 
   const loadPlatformGraph = async (request: MemberCallGraphRequest) => {
-    // Runtime members have no NuGet workspace to scan for callers; their
-    // implementation is range-fetched through the platform expansion query.
+    // Runtime members use the selected demo context or ordinary Platform scope.
     const sequence = ++state.memberCallGraphSeq;
     resetPlatformDrill();
     state.memberCallGraphLoading = true;
@@ -161,6 +183,7 @@ export function createCallGraphInspectionCoordinator(
       && state.memberCallGraphKey === request.signature;
     try {
       const graph = await dependencies.queryPlatform({
+        contextId: request.platformContextId,
         framework: request.framework,
         platformVersion: request.version,
         assembly: request.assembly,

@@ -38,9 +38,9 @@ function $validateManagedExports(exports) {
         value = $ownDataProperty(value, "Interop");
         value = $ownDataProperty(value, "CallGraph");
         value = $ownDataProperty(value, "CallGraphExports");
-        value = $ownDataProperty(value, "ExpandPlatformCallGraph.1136010516");
+        value = $ownDataProperty(value, "ExpandPlatformCallGraph.232153955");
         if (typeof value !== "function") {
-            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.CallGraph.CallGraphExports.ExpandPlatformCallGraph.1136010516\u0027 is not callable.");
+            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.CallGraph.CallGraphExports.ExpandPlatformCallGraph.232153955\u0027 is not callable.");
         }
     }
     {
@@ -80,8 +80,8 @@ export function initializeRuntime(runtime) {
 export function runEntryPoint(mainAssemblyName, args) {
     return $requireRuntime().runMain(mainAssemblyName, args);
 }
-export async function expandPlatformCallGraph(targetFramework, platformVersion, assembly, pack, assemblyVersion, assemblyCulture, assemblyPublicKeyToken, typeFullName, memberName, selectorKey, metadataToken) {
-    const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["CallGraph"]["CallGraphExports"]["ExpandPlatformCallGraph.1136010516"](targetFramework, platformVersion, assembly, pack, assemblyVersion, assemblyCulture, assemblyPublicKeyToken, typeFullName, memberName, selectorKey, metadataToken);
+export async function expandPlatformCallGraph(targetFramework, platformVersion, assembly, pack, assemblyVersion, assemblyCulture, assemblyPublicKeyToken, typeFullName, memberName, selectorKey, metadataToken, contextId) {
+    const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["CallGraph"]["CallGraphExports"]["ExpandPlatformCallGraph.232153955"](targetFramework, platformVersion, assembly, pack, assemblyVersion, assemblyCulture, assemblyPublicKeyToken, typeFullName, memberName, selectorKey, metadataToken, contextId);
     const $parsed = JSON.parse($result);
     return $parsed;
 }
