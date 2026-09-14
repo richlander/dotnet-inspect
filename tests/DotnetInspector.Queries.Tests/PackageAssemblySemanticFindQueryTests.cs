@@ -36,7 +36,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
     [Fact]
     public async Task CompleteFiveCandidatePopulationPreservesFingerprintAndEnvelope()
     {
-        await using var fixture = new SourceFixture();
+        await using var fixture = new SemanticFindSourceFixture();
         string[] packageIds =
         [
             "Contoso.Match",
@@ -125,7 +125,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
     [Fact]
     public async Task CandidateMatrixPreservesTypedFailuresAndContinuesInOrder()
     {
-        await using var fixture = new SourceFixture();
+        await using var fixture = new SemanticFindSourceFixture();
         string[] packageIds =
         [
             "Contoso.Match",
@@ -223,7 +223,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
     [Fact]
     public async Task PartialSourcePopulationRemainsDistinctFromQueryCompletion()
     {
-        await using var fixture = new SourceFixture();
+        await using var fixture = new SemanticFindSourceFixture();
         await fixture.CacheAssemblyAsync(
             "Contoso.Available",
             NoMatchImage);
@@ -276,7 +276,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
         using var cancellation =
             CancellationTokenSource.CreateLinkedTokenSource(
                 TestContext.Current.CancellationToken);
-        await using var fixture = new SourceFixture();
+        await using var fixture = new SemanticFindSourceFixture();
         PackageSourceOperationLease operation =
             fixture.IssueOperation(cancellation.Token);
         PackageAcquisitionPopulation population =
@@ -309,7 +309,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
         using var cancellation =
             CancellationTokenSource.CreateLinkedTokenSource(
                 TestContext.Current.CancellationToken);
-        await using var fixture = new SourceFixture();
+        await using var fixture = new SemanticFindSourceFixture();
         PackageSourceOperationLease operation =
             fixture.IssueOperation(cancellation.Token);
         var population = new PackageAcquisitionPopulation(
@@ -343,7 +343,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
     [Fact]
     public async Task EmptyPopulationStillPreservesOperationTimeoutClassification()
     {
-        await using var fixture = new SourceFixture();
+        await using var fixture = new SemanticFindSourceFixture();
         TimeSpan timeout = TimeSpan.FromMilliseconds(20);
         PackageSourceOperationLease operation =
             fixture.Root.IssueOperationLease(
@@ -390,7 +390,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
         using var cancellation =
             CancellationTokenSource.CreateLinkedTokenSource(
                 TestContext.Current.CancellationToken);
-        await using var fixture = new SourceFixture();
+        await using var fixture = new SemanticFindSourceFixture();
         fixture.Client.BeforePackage =
             token => Task.Delay(Timeout.InfiniteTimeSpan, token);
         PackageSourceOperationLease operation =
@@ -425,7 +425,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
         using var cancellation =
             CancellationTokenSource.CreateLinkedTokenSource(
                 TestContext.Current.CancellationToken);
-        await using var fixture = new SourceFixture();
+        await using var fixture = new SemanticFindSourceFixture();
         await fixture.CacheAssemblyAsync(
             "Contoso.First",
             NoMatchImage);
@@ -465,8 +465,8 @@ public sealed class PackageAssemblySemanticFindQueryTests
     [Fact]
     public async Task ForeignPopulationIsRejectedWithoutCoordinateFallback()
     {
-        await using var owner = new SourceFixture();
-        await using var foreign = new SourceFixture();
+        await using var owner = new SemanticFindSourceFixture();
+        await using var foreign = new SemanticFindSourceFixture();
         PackageSourceOperationLease ownerOperation =
             owner.IssueOperation(
                 TestContext.Current.CancellationToken);
@@ -495,7 +495,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
     [Fact]
     public async Task InvalidRequestStillReleasesTransferredOperation()
     {
-        await using var fixture = new SourceFixture();
+        await using var fixture = new SemanticFindSourceFixture();
         PackageSourceOperationLease operation =
             fixture.IssueOperation(
                 TestContext.Current.CancellationToken);
@@ -515,7 +515,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
     [Fact]
     public async Task MismatchedDeadlineReleasesTransferredOperation()
     {
-        await using var fixture = new SourceFixture();
+        await using var fixture = new SemanticFindSourceFixture();
         PackageSourceOperationLease operation =
             fixture.Root.IssueOperationLease(
                 TestContext.Current.CancellationToken,
@@ -676,7 +676,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
             authorization;
     }
 
-    private sealed class SourceFixture : IAsyncDisposable
+    private sealed class SemanticFindSourceFixture : IAsyncDisposable
     {
         internal PackageSourceAuthorization Authorization { get; } =
             PackageSourceAuthorization.Authorize(
@@ -693,7 +693,7 @@ public sealed class PackageAssemblySemanticFindQueryTests
         internal PackagePayloadAcquisitionPlan PayloadAcquisition
             { get; }
 
-        internal SourceFixture()
+        internal SemanticFindSourceFixture()
         {
             SourceClient? client = null;
             OwnedClient = PackageSourceClientFactory.CreateCustom(
