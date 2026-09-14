@@ -55,6 +55,7 @@ namespace ILInspector.Decompiler.Tests;
 /// that matters: no package <em>the sweep pools</em> can come from anywhere but the
 /// fixture seeded below.</para>
 /// </summary>
+[Trait("Speed", "Slow")]
 [Trait("Area", "Corpus")]
 [Collection(SweepFileAppCollection.Name)]
 public class EvilPoolSweepGateTests

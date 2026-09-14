@@ -57,6 +57,7 @@ public class EvilPoolPinTests
     /// making everything fail.</para>
     /// </summary>
     [Fact]
+    [Trait("Speed", "Slow")]
     public void TheSweepRefusesEveryPinFileShapeThisSuiteRefuses()
     {
         string root = AuthoredCorpusRatchetTests.FindRepositoryRoot();
@@ -271,6 +272,7 @@ public class EvilPoolPinTests
     /// network.</para>
     /// </summary>
     [Fact]
+    [Trait("Speed", "Slow")]
     public void TheSweepReadsAPinFileTheSameWayInBothModes()
     {
         string root = AuthoredCorpusRatchetTests.FindRepositoryRoot();

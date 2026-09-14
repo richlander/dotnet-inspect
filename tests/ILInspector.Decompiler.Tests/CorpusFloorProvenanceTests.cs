@@ -23,6 +23,7 @@ namespace ILInspector.Decompiler.Tests;
 /// one.
 /// </para>
 /// </remarks>
+[Trait("Speed", "Slow")]
 [Trait("Area", "RoundTrip")]
 public class CorpusFloorProvenanceTests
 {

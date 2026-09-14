@@ -1268,6 +1268,7 @@ public class SourceOracleCandidateLedgerTests
     /// configuration.</para>
     /// </summary>
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Census_ReadsTheCompletePdbMappingFromARealAssembly()
     {
         string assemblyPath = typeof(LadderRung1.CombinedFrontier).Assembly.Location;

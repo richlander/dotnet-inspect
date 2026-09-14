@@ -47,6 +47,7 @@ namespace ILInspector.Decompiler.Tests;
 /// because an earlier round shipped a regression that exited 1 for the wrong reason and
 /// an exit-code-only check read it as correct.</para>
 /// </summary>
+[Trait("Speed", "Slow")]
 [Trait("Area", "Corpus")]
 public partial class AuthoredCorpusHarnessProcessTests
 {
@@ -1855,7 +1856,6 @@ public partial class AuthoredCorpusHarnessProcessTests
     }
 
     [Fact]
-    [Trait("Speed", "Slow")]
     public void Harness_SourceCorrespondenceCensusPopulatesPdbSource()
     {
         string repositoryRoot = AuthoredCorpusRatchetTests.FindRepositoryRoot();

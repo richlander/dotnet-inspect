@@ -55,6 +55,7 @@ public class ElementSlotIdentityTests
     }
 
     [Theory]
+    [Trait("Speed", "Slow")]
     [InlineData(false)]
     [InlineData(true)]
     [Trait("Area", "Fidelity")]

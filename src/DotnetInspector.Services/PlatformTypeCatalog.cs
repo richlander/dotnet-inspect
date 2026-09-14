@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using CSharpText;
 using ILInspector.Metadata;
@@ -157,15 +156,10 @@ public abstract class PlatformTypeLookupOutcome
 
 /// <summary>
 /// Trusted reference-pack index. Metadata produces each declaration inventory;
-/// this service owns platform discovery, caching, and source-selection policy.
+/// this service owns platform discovery and source-selection policy.
 /// </summary>
 internal sealed class PlatformTypeCatalog
 {
-    static readonly ConcurrentDictionary<
-        string,
-        Lazy<PlatformTypeCatalogResult>> Cache =
-            new(StringComparer.Ordinal);
-
     readonly ImmutableArray<PlatformTypeLookupCandidate> _entries;
 
     PlatformTypeCatalog(
@@ -184,27 +178,10 @@ internal sealed class PlatformTypeCatalog
             return new PlatformTypeLookupOutcome.Rejected(invalid.Failure);
 
         string fullReferencePath = Path.GetFullPath(referencePath);
-        Lazy<PlatformTypeCatalogResult> cachedCatalog = Cache.GetOrAdd(
-            fullReferencePath,
-            path => new Lazy<PlatformTypeCatalogResult>(
-                () => Build(path, framework, frameworkVersion),
-                LazyThreadSafetyMode.ExecutionAndPublication));
-        PlatformTypeCatalogResult catalogResult = cachedCatalog.Value;
+        PlatformTypeCatalogResult catalogResult =
+            Build(fullReferencePath, framework, frameworkVersion);
         if (catalogResult is PlatformTypeCatalogResult.Rejected rejected)
-        {
-            if (rejected.Failure.Kind
-                == PlatformTypeLookupFailureKind.CatalogUnavailable)
-            {
-                // Remove only the failed Lazy observed by this caller; a
-                // concurrent retry may already have installed a replacement.
-                ((ICollection<KeyValuePair<
-                    string,
-                    Lazy<PlatformTypeCatalogResult>>>)Cache).Remove(
-                        new(fullReferencePath, cachedCatalog));
-            }
-
             return new PlatformTypeLookupOutcome.Rejected(rejected.Failure);
-        }
 
         var catalog =
             ((PlatformTypeCatalogResult.Ready)catalogResult).Catalog;

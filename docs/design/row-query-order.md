@@ -5,11 +5,14 @@
 Focused L2 design proposal for
 [#5162](https://github.com/richlander/dotnet-inspect/issues/5162), adopting the
 row-selection composition pattern locked by
-[Item and line selection composition](item-and-line-limits.md). The current
-product does not implement this contract.
+[Item and line selection composition](item-and-line-limits.md). The
+host-neutral L2 contract is implemented under
+[#6841](https://github.com/richlander/dotnet-inspect/issues/6841); production
+adoption remains tracked by
+[#6840](https://github.com/richlander/dotnet-inspect/issues/6840).
 
-All asserted behavior is unverified until the Release gates in
-[Required gates](#required-gates) land.
+The Release gates in [Required gates](#required-gates) verify the implemented
+L2 behavior.
 
 Related designs:
 
@@ -70,9 +73,10 @@ For row-query operations, that intent distinguishes:
 - an optional baseline-order operation; and
 - an optional ranking-order operation attached to each intended `Top` stage.
 
-An order operation is either one named-order reference or an ordered list of
-field-and-direction terms. Field terms compose lexicographically in declaration
-order. The intent carries no executable expression string.
+An order operation is either one named-order reference plus direction or an
+ordered list of field-and-direction terms. Field terms compose
+lexicographically in declaration order. The intent carries no executable
+expression string.
 
 Unresolved references use the row schema's canonical query keys. They are not
 display headings. L3-owned compatibility aliases and focused flags lower to
@@ -99,6 +103,10 @@ Successful resolution produces:
 The catalog is total for every order identity emitted into the plan. `Top`
 contains only the opaque identity. The semantic component retains authority
 over lazy, stage-ordered resolver invocation and comparer caching.
+Resolution stores typed comparer-producing bindings without invoking owner
+factories. Baseline execution invokes its factory after predicates and before
+semantic selection; each `Top` factory remains behind the semantic resolver and
+is invoked only when that stage is reached.
 
 Resolution failure produces one structured failure and no executable request.
 
@@ -115,6 +123,10 @@ A row schema exposes queryable structure independently from presentation:
   identity.
 - A queryable field declares its typed value domain and the predicate and order
   capabilities valid for that domain.
+- One typed accessor supplies that field value for both predicate and order
+  evaluation. A field descriptor erases the value type only after construction
+  has paired that accessor with its typed operand binder and typed order
+  comparer factory.
 - A **named order identity** is a stable owner-issued token resolving to one
   deterministic order over the schema's rows. A named order may compose
   multiple typed fields without exposing that composition as a downstream
@@ -139,8 +151,10 @@ other rendered output back into data.
 
 A predicate operation identifies one field, one schema-supported operator, and
 one value token. L2 resolves the field identity, verifies that the operator is
-valid for its typed domain, and normalizes the value before any row is
-evaluated.
+valid for its typed domain, and asks the field's typed binder to normalize the
+value before any row is evaluated. An ordinary binder rejection is the
+structured invalid-value resolution failure. An unexpected binder exception
+propagates unchanged; it is not converted into a user-input failure.
 
 Multiple predicates form one conjunction. A row survives only when every
 predicate succeeds. Predicate evaluation preserves the incoming relative order
@@ -169,6 +183,12 @@ This distinction is semantic, not presentational. Alphabetical, declaration,
 token, source, or insertion order may provide useful sequence stability without
 being a ranking. A relevance, confidence, severity, or explicitly requested
 priority order may be a ranking.
+
+Every order operation has an explicit direction. Direction applies to the
+complete named order or to its individual field term. The schema supplies the
+direction-aware comparer, including any owner-defined placement for missing
+typed values; L2 does not infer missing-value order by reversing rendered
+values.
 
 An ordered list of field terms compares the first term, then each later term
 only when every earlier term compares equal. Rows equal under the complete
@@ -257,14 +277,15 @@ Resolution returns one structured failure when:
 - a field or named order does not resolve in the selected schema;
 - a field does not support the requested predicate or ordering capability;
 - a value token cannot normalize into the field's typed domain;
-- an order has no deterministic comparer;
 - a `Top` stage has neither an explicit ranking order nor a default `Top`
   ranking; or
 - an owner-issued binding is otherwise invalid for that schema.
 
-The failure identifies the operation kind, its one-based position within that
-kind, unresolved or resolved schema identity when available, and reason. A
-`Top` ranking failure also carries its semantic stage number. The failure
+The failure identifies the selected schema, operation kind, its one-based
+position within that kind, reason, and the resolved field or named-order
+identity when lookup succeeded. An unknown reference carries no invented
+target identity; L3 retains its original typed intent at the reported position.
+A `Top` ranking failure also carries its semantic stage number. The failure
 contains no CLI diagnostic sentence, rendered row value, exception text, or
 presentation suggestion.
 
@@ -272,12 +293,41 @@ Validation examines predicates in declaration order, then the baseline-order
 operation, then `Top` ranking operations in semantic stage order. Terms within
 one order operation follow their declaration order. The first failure wins.
 Resolution is atomic: a failure returns no partial predicate set, effective
-order, resolved-order catalog, semantic plan, or source request.
+order, resolved-order catalog, semantic plan, or source request. A binder
+returning ordinary rejection participates in that precedence as an
+invalid-value failure.
 
-An exception thrown while evaluating an already-resolved field accessor,
-predicate, or comparer is not a resolution failure. The implementation must
-surface it according to the owning execution contract rather than converting
-it into an empty result or a successful partial query.
+An unexpected exception thrown by a binder during resolution, or by an
+already-resolved field accessor, predicate, order factory, comparer, or order
+resolver during execution, is not a row-query failure. The implementation must
+surface it unchanged rather than converting it into an invalid-value result,
+empty output, or successful partial query.
+
+## Implementation and adoption sequence
+
+The first implementation is a two-PR stack under
+[#6840](https://github.com/richlander/dotnet-inspect/issues/6840):
+
+1. implement this complete host-neutral L2 schema, resolver, plan, failure, and
+   executor contract with the required gates below; then
+2. migrate the complete Performance Triage field set for `library`, `type`, and
+   `member` without dividing fields between old and new evaluators.
+
+Performance Triage declares no schema default baseline order. L3 supplies its
+Triage or Allocation Fanout baseline only for requests whose current contract
+requires that baseline. The schema independently declares Triage descending as
+the default `Top` ranking, so a Top-only request ranks only at the Top stage.
+Explicit equal-order rows retain incoming order; legacy hidden Member, IL, or
+Shape tie-breakers and reversing equal groups are not part of this contract.
+Focused `--loop` and `--min-confidence` gestures lower to canonical typed
+predicates. `--triage-shape` remains a separate membership or producer control
+because its repeated values are a set and Allocation Fanout may change the
+admitted population.
+
+The browser/Wasm adoption path extends the existing Type Dependency row plan
+that already flows through `DotnetInspect.Web.Interop.Metadata`. Its row schema
+will consume this same L2 resolver and executor through the production browser
+facade rather than adding a host-specific query evaluator.
 
 ## Worked examples
 
@@ -338,12 +388,11 @@ The implementation must add these named Release gates:
 | `EachTopCarriesItsResolvedRankingIdentity` | Repeated `Top` stages may resolve distinct order identities, the semantic plan contains no unresolved field or named-order spelling, and the supplied resolver is total for every emitted identity. |
 | `BaselineAndTopDefaultsAreIndependent` | A baseline default never satisfies `Top` implicitly, a default `Top` ranking never changes baseline order implicitly, and one identity occupies both roles only through two explicit schema declarations. |
 | `RowQueryResolutionIsAtomic` | Any invalid field, operator, value, order, or ranking requirement returns the deterministic first structured failure and no executable plan or source request. |
-| `RowQueryFailureShapeIsPresentationFree` | Resolution failures contain only typed operation position, available schema identity, and reason; no diagnostic sentence, rendered value, or exception text enters the contract. |
-| `RowQueryExecutionFailuresStayVisible` | A sentinel exception from an already-resolved accessor, predicate, or comparer is not converted into successful empty or partial output. |
+| `RowQueryFailureShapeIsPresentationFree` | Resolution failures contain only typed operation position, selected schema identity, available resolved target identity, and reason; no diagnostic sentence, rendered value, or exception text enters the contract. |
+| `RowQueryExecutionFailuresStayVisible` | A sentinel exception from an already-resolved accessor, predicate, order factory, comparer, or resolver is not converted into successful empty or partial output, and an earlier strict-stage failure prevents later resolver invocation. |
 
 ## Non-claims
 
-This design does not select CLI spellings, publish concrete implementation
-types, define source optimization, place count or projection relative to the
-selected rows, or change current product behavior. Those decisions remain with
-their focused owners.
+This design does not select CLI spellings, define source optimization, place
+count or projection relative to the selected rows, or change current product
+behavior. Those decisions remain with their focused owners.

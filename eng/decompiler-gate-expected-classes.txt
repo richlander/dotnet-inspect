@@ -11,12 +11,8 @@
 # This file is not maintained by hand against the preset: GateExpectedClassesTests
 # asserts it matches the `pre-merge` preset's -class arguments exactly, so a class
 # added to the preset without being added here fails, and so does the reverse.
-ILInspector.Decompiler.Tests.FidelityGateTests
-ILInspector.Decompiler.Tests.LoweredFidelityGateTests
 ILInspector.Decompiler.Tests.ByteNeutralityGateTests
 ILInspector.Decompiler.Tests.ByteDivergentGateTests
-ILInspector.Decompiler.Tests.ClusterCaptureTests
-ILInspector.Decompiler.Tests.PrinterPrecedenceTests
 ILInspector.Decompiler.Tests.SkeletonEmitTests
 ILInspector.Decompiler.Tests.DiffFixtureFidelityTests
 ILInspector.Decompiler.Tests.NestedTargetLookupTests
