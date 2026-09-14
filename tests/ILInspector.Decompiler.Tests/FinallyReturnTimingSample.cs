@@ -225,11 +225,119 @@ public static class FinallyReturnTimingSample
         return result;
     }
 
+    public static int RunArgumentAlias(
+        scoped ref int alias,
+        bool loop,
+        bool setValue,
+        bool exit)
+    {
+        int result = 0;
+        alias = ref result;
+        try
+        {
+            while (loop)
+            {
+                if (setValue)
+                {
+                    result = 10;
+                    goto Done;
+                }
+
+                if (exit)
+                    goto Done;
+
+                loop = false;
+            }
+        }
+        finally
+        {
+            alias += 100;
+        }
+
+    Done:
+        return result;
+    }
+
+    public static int RunConstructorAlias(
+        bool loop,
+        bool setValue,
+        bool exit)
+    {
+        int result = 0;
+        scoped RefHolder holder = new(ref result);
+        try
+        {
+            while (loop)
+            {
+                if (setValue)
+                {
+                    result = 10;
+                    goto Done;
+                }
+
+                if (exit)
+                    goto Done;
+
+                loop = false;
+            }
+        }
+        finally
+        {
+            holder.Value += 100;
+        }
+
+    Done:
+        return result;
+    }
+
+    public static int RunHelperAlias(
+        bool loop,
+        bool setValue,
+        bool exit)
+    {
+        int result = 0;
+        scoped RefHolder holder = default;
+        Bind(ref holder, ref result);
+        try
+        {
+            while (loop)
+            {
+                if (setValue)
+                {
+                    result = 10;
+                    goto Done;
+                }
+
+                if (exit)
+                    goto Done;
+
+                loop = false;
+            }
+        }
+        finally
+        {
+            holder.Value += 100;
+        }
+
+    Done:
+        return result;
+    }
+
     static ref int Select(bool first, ref int left, ref int right)
         => ref first ? ref left : ref right;
+
+    static void Bind(
+        scoped ref RefHolder holder,
+        [System.Diagnostics.CodeAnalysis.UnscopedRef] ref int value)
+        => holder.Value = ref value;
 
     ref struct RefHolder
     {
         public ref int Value;
+
+        public RefHolder(ref int value)
+        {
+            Value = ref value;
+        }
     }
 }

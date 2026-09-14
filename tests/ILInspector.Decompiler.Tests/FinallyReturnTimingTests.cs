@@ -146,6 +146,65 @@ public class FinallyReturnTimingTests
     }
 
     [Fact]
+    public void ArgumentAliasReturnStaysAfterFinally()
+    {
+        int alias = 7;
+        Assert.Equal(110, FinallyReturnTimingSample.RunArgumentAlias(
+            ref alias,
+            loop: true,
+            setValue: true,
+            exit: true));
+        Assert.Equal(7, alias);
+        Assert.Equal(100, FinallyReturnTimingSample.RunArgumentAlias(
+            ref alias,
+            loop: true,
+            setValue: false,
+            exit: true));
+        Assert.Equal(7, alias);
+
+        var (fidelity, output) = Render(nameof(FinallyReturnTimingSample.RunArgumentAlias));
+        Assert.Equal(DecompilationFidelity.Full, fidelity);
+        Assert.Equal(1, CountOccurrences(output, "return result;"));
+        Assert.EndsWith("return result;\n", output);
+    }
+
+    [Fact]
+    public void ConstructorAliasReturnStaysAfterFinally()
+    {
+        Assert.Equal(110, FinallyReturnTimingSample.RunConstructorAlias(
+            loop: true,
+            setValue: true,
+            exit: true));
+        Assert.Equal(100, FinallyReturnTimingSample.RunConstructorAlias(
+            loop: true,
+            setValue: false,
+            exit: true));
+
+        var (fidelity, output) = Render(nameof(FinallyReturnTimingSample.RunConstructorAlias));
+        Assert.Equal(DecompilationFidelity.Full, fidelity);
+        Assert.Equal(1, CountOccurrences(output, "return result;"));
+        Assert.EndsWith("return result;\n", output);
+    }
+
+    [Fact]
+    public void HelperAliasReturnStaysAfterFinally()
+    {
+        Assert.Equal(110, FinallyReturnTimingSample.RunHelperAlias(
+            loop: true,
+            setValue: true,
+            exit: true));
+        Assert.Equal(100, FinallyReturnTimingSample.RunHelperAlias(
+            loop: true,
+            setValue: false,
+            exit: true));
+
+        var (fidelity, output) = Render(nameof(FinallyReturnTimingSample.RunHelperAlias));
+        Assert.Equal(DecompilationFidelity.Full, fidelity);
+        Assert.Equal(1, CountOccurrences(output, "return result;"));
+        Assert.EndsWith("return result;\n", output);
+    }
+
+    [Fact]
     [Trait("Speed", "Slow")]
     public void FinallyReturnTimingMethodsCompileBackExactly()
     {
@@ -157,9 +216,12 @@ public class FinallyReturnTimingTests
                 or nameof(FinallyReturnTimingSample.RunAliasedLocal)
                 or nameof(FinallyReturnTimingSample.RunConditionalAlias)
                 or nameof(FinallyReturnTimingSample.RunFieldAlias)
-                or nameof(FinallyReturnTimingSample.RunCallAlias));
+                or nameof(FinallyReturnTimingSample.RunCallAlias)
+                or nameof(FinallyReturnTimingSample.RunArgumentAlias)
+                or nameof(FinallyReturnTimingSample.RunConstructorAlias)
+                or nameof(FinallyReturnTimingSample.RunHelperAlias));
 
-        Assert.Equal(6, results.Count);
+        Assert.Equal(9, results.Count);
         Assert.All(results, result =>
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status));
     }
