@@ -205,6 +205,24 @@ public class FinallyReturnTimingTests
     }
 
     [Fact]
+    public void CopiedFieldAliasReturnStaysAfterFinally()
+    {
+        Assert.Equal(110, FinallyReturnTimingSample.RunCopiedFieldAlias(
+            loop: true,
+            setValue: true,
+            exit: true));
+        Assert.Equal(100, FinallyReturnTimingSample.RunCopiedFieldAlias(
+            loop: true,
+            setValue: false,
+            exit: true));
+
+        var (fidelity, output) = Render(nameof(FinallyReturnTimingSample.RunCopiedFieldAlias));
+        Assert.Equal(DecompilationFidelity.Full, fidelity);
+        Assert.Equal(1, CountOccurrences(output, "return result;"));
+        Assert.EndsWith("return result;\n", output);
+    }
+
+    [Fact]
     [Trait("Speed", "Slow")]
     public void FinallyReturnTimingMethodsCompileBackExactly()
     {
@@ -219,9 +237,10 @@ public class FinallyReturnTimingTests
                 or nameof(FinallyReturnTimingSample.RunCallAlias)
                 or nameof(FinallyReturnTimingSample.RunArgumentAlias)
                 or nameof(FinallyReturnTimingSample.RunConstructorAlias)
-                or nameof(FinallyReturnTimingSample.RunHelperAlias));
+                or nameof(FinallyReturnTimingSample.RunHelperAlias)
+                or nameof(FinallyReturnTimingSample.RunCopiedFieldAlias));
 
-        Assert.Equal(9, results.Count);
+        Assert.Equal(10, results.Count);
         Assert.All(results, result =>
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status));
     }

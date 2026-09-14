@@ -323,6 +323,40 @@ public static class FinallyReturnTimingSample
         return result;
     }
 
+    public static int RunCopiedFieldAlias(
+        bool loop,
+        bool setValue,
+        bool exit)
+    {
+        int result = 0;
+        scoped RefHolder holder = default;
+        holder.Value = ref result;
+        scoped RefHolder copy = holder;
+        try
+        {
+            while (loop)
+            {
+                if (setValue)
+                {
+                    result = 10;
+                    goto Done;
+                }
+
+                if (exit)
+                    goto Done;
+
+                loop = false;
+            }
+        }
+        finally
+        {
+            copy.Value += 100;
+        }
+
+    Done:
+        return result;
+    }
+
     static ref int Select(bool first, ref int left, ref int right)
         => ref first ? ref left : ref right;
 

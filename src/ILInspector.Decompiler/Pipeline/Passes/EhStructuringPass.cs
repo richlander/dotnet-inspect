@@ -788,6 +788,16 @@ public sealed partial class EhStructuringPass : IIrPass
                     fieldAliases,
                     store.Field,
                     store.Instance);
+                if (store.Instance is { } carrier)
+                {
+                    changed |= AddWritableCarrierAlias(
+                        function,
+                        carrier,
+                        localAliases,
+                        argumentAliases,
+                        stackSlotAliases,
+                        fieldAliases);
+                }
             }
 
             foreach (var invocation in root.Descendants.OfType<IrExpression>())
