@@ -14,7 +14,7 @@ Integration scanner implementation, plus product demos that exercise ordinary
 shipping sections over exact pinned inputs.
 
 The Package Set Registry includes Microsoft.Extensions, ASP.NET Core, and the
-audited 82-package Aspire inventory. The static pack registry, four-pack
+audited 82-package Aspire inventory. The static pack registry, five-pack
 manifest, ten-demo contribution, Workspace-owned lazy source binding, CLI
 handoff, inspect-web facade handoff, and the corresponding active Release gates
 named below are implemented. The assembly-friend tests, solution
@@ -46,11 +46,19 @@ The
 owns the explicit projection from one selected pack and the application-owned
 platform or all-known manifest into one resource-free `WorkspacePlan`. Pack
 projection was implemented under #6786; #6791 replaces its live factories with
-two plan factories and leaves live construction explicit at the caller. Their CLI and
-Browser activation remains staged. This catalog retains
-application identity and contribution authorship; the handoff does not make
-Queries or browser Core depend on this assembly, and Workspace exposes no
+two plan factories and leaves live construction explicit at the caller.
+Activation of those plans in the CLI and Browser remains staged. This catalog
+retains application identity and contribution authorship; the handoff does not
+make Queries or browser Core depend on this assembly, and Workspace exposes no
 curated option.
+
+The AI contribution approved in
+[#6234](https://github.com/richlander/dotnet-inspect/issues/6234) is implemented
+as the fifth pack. It contributes current package and namespace starting points
+plus four package-prefix populations to the all-known Workspace plan. It has no
+curated package set, scanner, tool, or demo. Its Microsoft.Extensions package
+families deliberately overlap the existing Microsoft.Extensions pack; neither
+registration claims exclusive ownership or rewrites the other's contributions.
 
 Explicit [tool-package references](#tool-package-references) are implemented
 under #6060, beginning with `Aspire.Cli`. They are independent discovery
@@ -334,6 +342,7 @@ ProductEcosystemPacks
   MicrosoftExtensionsPack.Registration
   AspNetCorePack.Registration
   AspirePack.Registration
+  AIPack.Registration
 ```
 
 The example names are illustrative pack source, not required core types. The
@@ -921,9 +930,9 @@ The registry preserves typed data through both host boundaries. This design
 defines no broad report or output format; hosts render focused discovery and
 action metadata through their existing presentation owners.
 
-## Initial packs and staged adoption
+## Shipped packs and staged adoption
 
-The first application adoption describes four packs from already-owned
+The current application catalog describes five packs from already-owned
 currencies and content:
 
 | Pack identity | Package-set identity | Product demos | Residual capabilities |
@@ -932,6 +941,7 @@ currencies and content:
 | `ecosystem.microsoft-extensions` | `package-set.microsoft-extensions` | `extensions-callgraph`, `config-bind-callgraph`, `options-add-callgraph`, `di-tryadd-callgraph`, `http-addhttpclient-callgraph` | prefix catalog/host adoption remains staged; no scanner contributed yet |
 | `ecosystem.aspnetcore` | `package-set.aspnetcore` | none initially | prefix catalog/host adoption remains staged; no scanner contributed yet |
 | `ecosystem.aspire` | `package-set.aspire` | `aspire-postgres-callgraph`, `aspire-redis-callgraph` | scanner selectable through the catalog; CLI supports ordinary-result narrowing, not scanner selection; browser selection remains staged; prefix catalog/host adoption remains staged |
+| `ecosystem.ai` | absent | none initially | namespace/core-package discovery and all-known Workspace registration are implemented; no scanner, tool, or standalone prefix-discovery action |
 
 The eight existing demo IDs, metadata, global order, records, pins, and run
 plans remain unchanged. Their global orders are assigned in their current
@@ -948,9 +958,10 @@ capabilities:
 | Microsoft.Extensions | `Microsoft.Extensions` | `Microsoft.Extensions.DependencyInjection.Abstractions`, `Microsoft.Extensions.Configuration.Abstractions`, `Microsoft.Extensions.Logging.Abstractions` |
 | ASP.NET Core | `Microsoft.AspNetCore` | `Microsoft.AspNetCore.OpenApi`, `Microsoft.AspNetCore.Authentication.JwtBearer` |
 | Aspire | `Aspire` | `Aspire.Hosting` |
+| AI | `Microsoft.Extensions.AI`, `Microsoft.Extensions.VectorData`, `Microsoft.Agents.AI`, `ModelContextProtocol` | `Microsoft.Extensions.AI`, `Microsoft.Extensions.AI.Abstractions`, `Microsoft.Extensions.VectorData.Abstractions`, `Microsoft.Agents.AI`, `ModelContextProtocol` |
 
 Aspire additionally contributes `Aspire.Cli` in its separate tool-package
-sequence; the other three packs contribute no tool references.
+sequence; the other four packs contribute no tool references.
 
 Each root is a compact descriptive subtree, not a package correspondence.
 The Extensions entries prioritize foundational DI, configuration, and logging
@@ -963,6 +974,36 @@ Platform deliberately contributes no package coordinate as a substitute for
 its future platform-source-owned discovery/acquisition binding. This metadata
 is not derived from package-set membership or demo records.
 
+### AI contribution evidence
+
+The AI row is grounded in current stable package releases observed on
+2026-09-13, not inferred from product or namespace spelling:
+
+| Layer | Package evidence | Namespace hint | Workspace population prefix |
+| --- | --- | --- | --- |
+| Application AI abstractions and middleware | [`Microsoft.Extensions.AI@10.10.0`](https://www.nuget.org/packages/Microsoft.Extensions.AI/10.10.0), [`Microsoft.Extensions.AI.Abstractions@10.10.0`](https://www.nuget.org/packages/Microsoft.Extensions.AI.Abstractions/10.10.0) | `Microsoft.Extensions.AI` | `Microsoft.Extensions.AI` |
+| Vector-store abstractions | [`Microsoft.Extensions.VectorData.Abstractions@10.10.0`](https://www.nuget.org/packages/Microsoft.Extensions.VectorData.Abstractions/10.10.0) | `Microsoft.Extensions.VectorData` | `Microsoft.Extensions.VectorData` |
+| Agent orchestration | [`Microsoft.Agents.AI@1.21.0`](https://www.nuget.org/packages/Microsoft.Agents.AI/1.21.0) | `Microsoft.Agents.AI` | `Microsoft.Agents.AI` |
+| Model Context Protocol | [`ModelContextProtocol@2.2.0`](https://www.nuget.org/packages/ModelContextProtocol/2.2.0) | `ModelContextProtocol` | `ModelContextProtocol` |
+
+Microsoft's [.NET AI ecosystem
+guide](https://learn.microsoft.com/dotnet/ai/dotnet-ai-ecosystem) identifies
+Microsoft.Extensions.AI, VectorData, Agent Framework, and MCP as distinct
+layers commonly composed by .NET AI applications. The focused
+[Microsoft.Extensions.AI
+guide](https://learn.microsoft.com/dotnet/ai/microsoft-extensions-ai) further
+distinguishes the application package from the abstractions package, so both
+are retained as core starting points in application-before-library order.
+
+The population values are literal package-ID prefixes. They omit a trailing
+dot so the root packages and their child package families are both included;
+they are not namespace boundaries, package-set membership, exclusive ownership,
+or evidence that every matching future package is useful. In particular,
+`Microsoft.Extensions.AI*` and `Microsoft.Extensions.VectorData*` remain valid
+members of the Microsoft.Extensions ecosystem at the same time. The AI pack
+does not reference `package-set.microsoft-extensions`, because that curated set
+contains many packages outside this focused AI contribution.
+
 The initial Workspace projection is implemented under
 [the focused handoff](workspace-ecosystem-registration-handoff.md). Its
 application-owned platform order is Platform, ASP.NET Core, then
@@ -972,11 +1013,12 @@ ASP.NET Core requires both its source-owned shared-framework population and
 the recorded `Microsoft.AspNetCore.` prefix; Microsoft.Extensions requires the
 recorded `Microsoft.Extensions.` prefix. Retrieval knowledge alone cannot make
 one of those registrations population-complete. A separate all-known manifest
-uses that order followed by Aspire, retaining its `Aspire.` prefix and exact
-scanner binding. The handoff owns completeness and fresh-construction semantics
-for the two intents approved in #6763; this is not a compatibility catalog of
-earlier manifests. Later product builds may change either manifest without
-changing raw Workspace construction or existing expanded registration sets.
+uses that order followed by Aspire and AI. Aspire retains its `Aspire.` prefix
+and exact scanner binding; AI retains its four package-prefix populations. The
+handoff owns completeness and fresh-construction semantics for the two intents
+approved in #6763; this is not a compatibility catalog of earlier manifests.
+Later product builds may change either manifest without changing raw Workspace
+construction or existing expanded registration sets.
 
 | Global order | Scenario ID | Pack |
 | ---: | --- | --- |
@@ -1181,6 +1223,9 @@ ASP.NET Core
 Aspire
   Add curated packages
   2 demos
+
+AI
+  5 core package starting points
 ```
 
 Listing either projection constructs no definition records. Selecting
@@ -1202,8 +1247,8 @@ consumer gates.
 | `EcosystemPackRegistryTests.InvalidNamespaceRootsFailBeforePublication`, `InvalidCorePackagesFailBeforePublication`, and `MissingKnowledgeSequencesFailBeforePublication` | Malformed roots, missing sequences, and null, invalid, duplicate, versioned, or target-specific core coordinates fail complete construction visibly, without invoking demo sources. |
 | `EcosystemPackRegistryTests.EmptyKnowledgePreservesCapabilityRequirements` | Empty contributions remain empty; knowledge-only registrations fail the existing capability requirement. |
 | `EcosystemPackRegistryTests.ScannerSelectionReturnsOnlyTheSelectedBinding` | Reading knowledge and selecting one capability preserve the selected owner's outcome without invoking neighboring demo/scanner capabilities. |
-| `ProductEcosystemPackTests.ShippedRetrievalKnowledgeMatchesLiteralPolicy` | All four packs retain literal authored roots and core priorities, including Platform's empty core sequence. |
-| `PackageSetRegistryConsumerTests.PublicSurfaceKeepsCoreReferencesSeparateFromCuratedMembership` | An ordinary non-friend consumer reads immutable knowledge through discovery/lookup; Extensions core entries and curated membership remain distinct, and Platform gains no package-set or scanner capability. |
+| `ProductEcosystemPackTests.ShippedRetrievalKnowledgeMatchesLiteralPolicy` | All five packs retain literal authored roots and core priorities, including Platform's empty core sequence and AI's four current namespace families and five core starting points. |
+| `PackageSetRegistryConsumerTests.PublicSurfaceKeepsCoreReferencesSeparateFromCuratedMembership` | An ordinary non-friend consumer reads immutable knowledge through discovery/lookup; Extensions core entries and curated membership remain distinct, Platform gains no package-set or scanner capability, and AI remains uncurated while overlapping existing Microsoft.Extensions membership. |
 
 ### Tool-reference gates
 
@@ -1314,8 +1359,11 @@ The owner tracks may advance independently:
    grouped and flattened discovery, exact lookup and selection; and publish the
    four-pack, ten-demo manifest with its focused gates. Do not change current
    package membership, existing demo execution, or search behavior.
-4. Add each remaining contribution slot independently when its owner track lands;
-   no later slot reopens already implemented selection/materialization semantics.
+4. Add each remaining contribution slot or pack independently when its owner
+   track lands. #6234 adds the fifth AI pack through existing descriptor,
+   retrieval-knowledge, and Workspace-population currencies without a new
+   curated set or host-private path. No later addition reopens already
+   implemented selection/materialization semantics.
 5. Adopt CLI and browser actions through the same implementation slice's
    application-catalog handoff; Integration remains independently adoptable.
 

@@ -13,7 +13,8 @@ public sealed class EcosystemWorkspaceConstructionConsumerTests
         EcosystemPackId[] expected = platformOnly
             ? [EcosystemPackIds.Platform, EcosystemPackIds.AspNetCore, EcosystemPackIds.MicrosoftExtensions]
             : [EcosystemPackIds.Platform, EcosystemPackIds.AspNetCore,
-                EcosystemPackIds.MicrosoftExtensions, EcosystemPackIds.Aspire];
+                EcosystemPackIds.MicrosoftExtensions, EcosystemPackIds.Aspire,
+                EcosystemPackIds.AI];
 
         WorkspaceEcosystemRegistrationDeclaration[] declarations =
             [.. plan.Registrations.Select(item => Assert.IsType<WorkspaceRegistration.Ecosystem>(item).Declaration)];

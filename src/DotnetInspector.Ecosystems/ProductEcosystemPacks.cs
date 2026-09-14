@@ -95,6 +95,40 @@ internal static class ProductEcosystemPacks
             new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
                 new PackagePrefixDeclaration("Aspire.")),
         ]),
+        ProjectWorkspace(new(
+            EcosystemPackIds.AI,
+            "AI",
+            "AI abstractions, agents, vector data, and protocol packages.",
+            500,
+            PackageSet: null,
+            [])
+        {
+            NamespaceRoots =
+            [
+                "Microsoft.Extensions.AI",
+                "Microsoft.Extensions.VectorData",
+                "Microsoft.Agents.AI",
+                "ModelContextProtocol",
+            ],
+            CorePackages =
+            [
+                new("Microsoft.Extensions.AI"),
+                new("Microsoft.Extensions.AI.Abstractions"),
+                new("Microsoft.Extensions.VectorData.Abstractions"),
+                new("Microsoft.Agents.AI"),
+                new("ModelContextProtocol"),
+            ],
+        }, "ecosystem.ai",
+        [
+            new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
+                new PackagePrefixDeclaration("Microsoft.Extensions.AI")),
+            new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
+                new PackagePrefixDeclaration("Microsoft.Extensions.VectorData")),
+            new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
+                new PackagePrefixDeclaration("Microsoft.Agents.AI")),
+            new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
+                new PackagePrefixDeclaration("ModelContextProtocol")),
+        ]),
     ]);
 
     internal static WorkspacePlan PlatformWorkspacePlan { get; } = EcosystemWorkspacePlanFactory.Create(
@@ -112,6 +146,7 @@ internal static class ProductEcosystemPacks
             EcosystemPackIds.AspNetCore,
             EcosystemPackIds.MicrosoftExtensions,
             EcosystemPackIds.Aspire,
+            EcosystemPackIds.AI,
         ],
         requireAllPacks: true);
 
