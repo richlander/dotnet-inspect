@@ -20,7 +20,7 @@ crosses a persistence, host, or version boundary:
 
 ```text
 canonical intent   vocabulary + terms + execution bounds
-                   + ordered selection stages + order references
+                   + ordered selection stages + order operations
       |                          <- serializes; a compatibility surface
       v            resolve exactly once, atomically, against one vocabulary
 typed bindings     owner-issued identities, accessors, comparers
@@ -86,7 +86,7 @@ One query intent is:
 | `terms` | A canonical set of `(key, operator, value)` triples. Composition follows the vocabulary's declared families. |
 | `bounds` | Declared execution bounds, each carrying an owner-issued dimension identity. Unordered. |
 | `stages` | The ordered selection-stage pipeline. Position-significant. |
-| `order` | Optional unresolved order operations: at most one baseline, plus at most one per ranking stage. |
+| `order` | Optional unresolved order operations, keyed by role: at most one baseline, plus at most one per ranking stage. |
 
 A **key** is a canonical query key from the named vocabulary's declared key
 namespace: a bounded ordinal token. It is not a display label, heading, column
@@ -141,13 +141,14 @@ honestly claim; changing stage sequence changes the answer. Keeping them in
 distinct typed slots prevents the error this separation exists to prevent:
 reading an acquisition budget as a view window, or the reverse.
 
-**Order** is a set of unresolved order operations. Each is either one
+**Order** is a role-keyed set of unresolved order operations. Each is either one
 named-order identity plus a direction, or an ordered list of key-and-direction
 terms composing lexicographically in declaration order — the two forms
 `row-query-order.md` admits. Every operation carries its own role, so intent
 holds at most one baseline operation and at most one ranking operation per
 ranking stage, and an operation's internal boundary is never lost by flattening
-it against a neighbour. A
+it against a neighbour. Because the role identifies the operation, the set has
+no meaningful outer sequence and canonicalization supplies one. A
 vocabulary with no order — Package Query has none, because source relevance
 order is not its to own — simply omits the part.
 
@@ -173,13 +174,14 @@ the same query; equality is decided on those bytes and nowhere else.
   question, not the codec's, and so is whether the result is satisfiable.
 - Execution bounds emit in a fixed declared slot order. They are independent
   across dimensions, so their declaration sequence carries no meaning.
-- Selection stages and order operations are **position-significant and never
-  reordered**. Sequence is their meaning, so each emits exactly as declared, and
-  a ranking operation names the stage index it binds to.
-
-Three canonicalization classes therefore exist, and no rule may move a part
-between them: terms sort, independent execution bounds occupy fixed slots, and
-ordered stages and order operations retain their declared sequence.
+- Selection stages are **position-significant and never reordered**. Sequence is
+  their meaning, because each stage consumes the preceding stage's output.
+- Order operations sort by role: the `base` operation first, then ranking
+  operations by ascending stage index. Once every operation names its own role,
+  the outer sequence carries no information, so leaving it unnormalized would
+  give one query two canonical spellings.
+- Sequence **inside** one field-list order operation is preserved exactly, since
+  field terms compose lexicographically in declaration order.
 - Scalar escaping follows the packet's pinned canonical rules rather than a
   second escaping convention.
 - Values are never normalized here. Package identifiers, framework names, and
@@ -187,7 +189,13 @@ ordered stages and order operations retain their declared sequence.
   of them at this layer would make canonical bytes depend on a vocabulary's
   current semantics.
 
-That last rule has a consequence worth stating plainly: two spellings that a
+The governing rule is that **sequence is canonical only where sequence carries
+meaning**. It does inside the stage pipeline and inside one field-list order
+operation, so those emit exactly as declared. It does not among conjoined terms,
+among independent execution bounds, or among role-bearing order operations, so
+those are normalized. No rule may move a part from one treatment to the other.
+
+The value rule has a consequence worth stating plainly: two spellings that a
 vocabulary would resolve to the same query can canonicalize to different bytes
 and therefore share as different links. Share identity is syntactic. A
 vocabulary that wants spelling-independent identity must normalize **before**
@@ -266,6 +274,9 @@ identically to a baseline of `[a asc, b desc]` beside a ranking of `[c asc]`.
 At most one operation carries `base`, and at most one carries any given stage
 index; a role naming a stage that is not `top` is invalid.
 
+Operations emit in role order — `base` first, then ascending stage index — so
+one assignment of baseline and rankings has exactly one spelling.
+
 Numbers are JSON integers with no sign, leading zero, fraction, or exponent.
 Strings use the packet's pinned canonical scalar escaping rather than a second
 convention. Unknown properties, duplicate properties, a present-but-empty array,
@@ -296,7 +307,7 @@ build or by vocabulary.
 | Limit | Maximum |
 | --- | --- |
 | Canonical payload | 3 KiB of UTF-8 |
-| Nesting depth | 6, of which the defined shape uses 4 |
+| Nesting depth | 4, which the defined shape reaches exactly |
 | Terms | 24 |
 | Execution bounds | 8 |
 | Selection stages | 8 |
@@ -314,8 +325,10 @@ limit binds first, and the part counts exist to bound parse work and value count
 before that total is known.
 
 Each limit keeps the payload beneath the packet's per-payload allowance of 4 KiB,
-depth 12, and 256 JSON values. The shape above reaches depth 4 — object, array,
-inner array, scalar — against a declared ceiling of 6.
+depth 12, and 256 JSON values. The shape above reaches depth 4 exactly — object,
+array, inner array, scalar — and the declared maximum is that same 4, so every
+limit in the table is reachable by an admissible payload rather than being a
+ceiling no valid payload can touch.
 
 Its worst-case JSON value count is 197:
 
@@ -422,7 +435,7 @@ the payload it would carry.
 | `IntentCanonicalFormRoundTripsByteForByte` | Parse then canonical write reproduces exact bytes for every supported term, operator, execution bound, selection stage, order operation, and escaping vector, including all four `window` endpoint combinations and both order kinds. |
 | `IntentCanonicalFormIsIndependentOfTermOrder` | Term sequence, duplicate terms, and execution-bound declaration sequence do not change canonical bytes; semantically identical states deduplicate. |
 | `SelectionStageSequenceSurvivesRoundTrip` | Stage sequence survives byte-for-byte and is never sorted, deduplicated, or merged into the bound set; two intents differing only in stage sequence have different canonical bytes, witnessed by the `Head`/`Top` commutation case. |
-| `OrderOperationsAreInjective` | Role, kind, operation boundary, sequence, and direction survive round-trip exactly and are never sorted or deduplicated; a ranking operation stays bound to its stage index; two intents differing only in baseline order, or only in how the same field terms divide between baseline and ranking, have different canonical bytes. |
+| `OrderOperationsAreInjective` | Role, kind, operation boundary, and direction survive round-trip exactly; field-term sequence inside one operation is preserved while outer operations emit in role order, so one assignment of baseline and rankings has exactly one spelling; a ranking operation stays bound to its stage index; two intents differing only in baseline order, or only in how the same field terms divide between baseline and ranking, have different canonical bytes. |
 | `IntentResolutionIsAtomic` | An invalid vocabulary, key, operator, value, or bound returns the deterministic first structured failure with no plan and no partial binding. |
 | `IntentResolutionStartsNoWork` | A rejected intent issues no acquisition, source request, or payload fetch; gated with a source capability that fails the test if invoked. |
 | `UnresolvableTermFailsVisibly` | An intent naming a key, operator, or dimension absent from the current build fails; it is never dropped, defaulted, narrowed, or widened. |
