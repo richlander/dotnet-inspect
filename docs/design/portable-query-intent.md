@@ -235,15 +235,12 @@ parser never sees both in one object, but an implementer reading both documents
 should not assume they mean the same thing.
 
 Property order is exactly `t`, `b`, `s`, `o`, and a part that is absent or empty
-is **omitted entirely** rather than emitted as `null` or `[]`:
+is **omitted entirely** rather than emitted as `null` or `[]`. Emission is
+compact: no whitespace appears between tokens, so every payload in this document
+is shown exactly as it would be written.
 
 ```json
-{
-  "t": [["depends", "eq", "Serilog"]],
-  "b": [["candidates", 200]],
-  "s": [["head", 20]],
-  "o": [["base", "fields", "downloads", "desc"]]
-}
+{"t":[["depends","eq","Serilog"]],"b":[["candidates",200]],"s":[["head",20]],"o":[["base","fields","downloads","desc"]]}
 ```
 
 - `t` is sorted. Each term is three strings, and the operator is its identity
@@ -521,10 +518,11 @@ output. The ranking operation names stage index `1` — the `top` — so it cann
 drift onto the `head`. Operations emit `base` first, then by ascending stage
 index, so this assignment has exactly one spelling.
 
-Reversing the pipeline is a different question, not a different rendering —
-ranking the whole set and then taking a prefix selects different rows from
-taking a prefix and then ranking it, as [the intent
-contract](#the-intent-contract) works through. The bytes differ accordingly:
+Reversing the pipeline asks a different question, not the same one rendered
+differently: ranking the whole set and then taking a prefix **can** select
+different rows from taking a prefix and then ranking it, and coincides only when
+the ranked survivors already fall inside the prefix. Because the question
+differs, the bytes differ whether or not a particular input distinguishes them:
 
 ```json
 {"t":[["confidence","gte","medium"]],"s":[["top",5],["head",20]],"o":[["base","fields","name","asc"],[0,"named","triage","desc"]]}
@@ -555,7 +553,9 @@ Cannot restore query: vocabulary "package.query" does not offer key "depends".
 ```
 
 The alternative — dropping the term and running the rest — would answer a
-narrower question while looking like the shared one, and would report its own
+**broader** question while looking like the shared one. Removing a conjunct
+weakens the predicate, so silent dropping admits matches the sender never asked
+for and authorizes work their bounds never covered, then reports its own
 completion state honestly about a request nobody made.
 
 ## Required gates
