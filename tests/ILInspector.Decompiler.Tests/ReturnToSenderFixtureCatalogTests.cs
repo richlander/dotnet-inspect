@@ -20,6 +20,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Speed", "Slow")]
 [Trait("Area", "RoundTrip")]
 public class ReturnToSenderFixtureCatalogTests
 {

@@ -75,6 +75,13 @@ origin also gained an orchestration-owned delegation association. It retains
 no PackageHouse type or receipt; orchestration keeps the package and platform
 receipts separate.
 
+The implemented contract retains exact requests, capabilities, source
+generations, coordinates, targets, contributions, and settlement dispositions
+directly. It does not mint separate House-local occurrence identities for
+source contributions, source-to-target correspondence, target selection, or
+documentation attempts. The completion identity remains because it binds a
+detached completion receipt to its separately live operation value.
+
 This is one owner claim. The design specifies the House request, settlement,
 result, evidence-retention, and encapsulation contracts. It consumes the
 owner-issued inputs listed above without redefining their identities,
@@ -101,8 +108,8 @@ result must preserve at the shared Library inspection handoff.
 > plan, one closed platform operation, and finite operation work, settle the
 > demand to one exact `PlatformFamilyTarget`, then compose
 > source candidates and owner-issued platform facts into one typed settlement
-> that preserves the request, any selected exact target, selection evidence,
-> source, reference-contract, implementation-supplier, forwarding,
+> that preserves the request, any selected exact target, selected discovery
+> contributions, source, reference-contract, implementation-supplier, forwarding,
 > completion, and failure evidence.
 
 It owns:
@@ -370,12 +377,16 @@ Every contribution retains:
 
 - source-capability identity;
 - the exact requested House target;
-- the source-specific coordinate and owner-issued target correspondence;
+- the source-specific coordinate and exact target;
 - supported view and population demand;
 - source generation or freshness evidence;
 - candidate identities or realized owner result;
 - authoritative, partial, or unavailable completion; and
 - typed rejection or failure when the operation did not succeed.
+
+Those retained values and the contribution object itself establish
+correspondence. A source adapter does not mint an additional House-local
+source-evidence or source-to-target occurrence identity.
 
 Target-discovery results are separate from realization contributions. After
 the House freezes one exact target, a realization source that discovers

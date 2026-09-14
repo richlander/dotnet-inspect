@@ -15,6 +15,7 @@ public class UnsafetyMixedTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void SafeRefDeref_InUnsafeMethod_IsNotFlagged()
     {
         var facts = Classify(nameof(MixedSampleClass.MixedRead));

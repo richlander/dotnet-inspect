@@ -11,6 +11,7 @@ public class DefaultParameterValidityTests
     const string FixtureType = "ILInspector.Decompiler.Tests.DefaultParameterFixtures";
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void DefaultParameterMatrix_ReportsCurrentInvalidHeaders()
     {
         using var stream = File.OpenRead(typeof(DefaultParameterFixtures).Assembly.Location);

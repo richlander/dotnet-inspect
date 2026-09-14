@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Runtime.CompilerServices;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 using ILInspector.CSharp;
@@ -10,6 +11,10 @@ namespace DotnetInspect.Cli.Options;
 /// </summary>
 public sealed record PerformanceTriageOptions
 {
+    private static readonly ConditionalWeakTable<
+        PerformanceTriageOptions,
+        ResolvedPlanCache> ResolvedPlans = new();
+
     /// <summary>
     /// Contains a fragment of the user's own <c>--order-by</c>/<c>--where</c>
     /// text before it is quoted back in a diagnostic. An agent composes these
@@ -286,11 +291,96 @@ public sealed record PerformanceTriageOptions
     {
         if (!TryValidateShapes(options, out error))
             return false;
-        if (!options.TryGetPredicates(out _, out error))
+        if (!options.TryGetPredicates(out RowPredicate[] predicates, out error))
             return false;
-        if (!options.TryGetOrderTerms(out _, out error))
+        if (!options.TryGetOrderTerms(out OrderTerm[] orderTerms, out error))
             return false;
+        if (ResolvedPlans.TryGetValue(
+                options,
+                out ResolvedPlanCache? cached)
+            && cached.Matches(options))
+        {
+            return true;
+        }
+
+        ResolvedPlans.AddOrUpdate(
+            options,
+            new ResolvedPlanCache(
+                options,
+                PerformanceTriageRowQuery.Resolve(
+                    options,
+                    predicates,
+                    orderTerms)));
         return true;
+    }
+
+    internal ResolvedRowQueryPlan<ILInspector.Analysis.OptimizationOpportunity>
+        GetResolvedPlan()
+    {
+        if (ResolvedPlans.TryGetValue(
+                this,
+                out ResolvedPlanCache? cached)
+            && cached.Matches(this))
+        {
+            return cached.Plan;
+        }
+
+        if (!TryValidate(this, out OptionError error))
+        {
+            throw new InvalidOperationException(
+                $"Performance Triage options were not validated: {error}");
+        }
+
+        return ResolvedPlans.GetValue(
+            this,
+            _ => throw new InvalidOperationException(
+                "Performance Triage validation produced no resolved plan."))
+            .Plan;
+    }
+
+    private sealed class ResolvedPlanCache
+    {
+        private readonly bool _loopOnly;
+        private readonly string? _minConfidence;
+        private readonly ImmutableArray<string> _shapes;
+        private readonly int? _top;
+        private readonly ImmutableArray<string> _where;
+        private readonly string? _orderBy;
+
+        internal ResolvedPlanCache(
+            PerformanceTriageOptions options,
+            ResolvedRowQueryPlan<
+                ILInspector.Analysis.OptimizationOpportunity> plan)
+        {
+            _loopOnly = options.LoopOnly;
+            _minConfidence = options.MinConfidence;
+            _shapes = [.. options.Shapes];
+            _top = options.Top;
+            _where = [.. options.Where];
+            _orderBy = options.OrderBy;
+            Plan = plan;
+        }
+
+        internal ResolvedRowQueryPlan<
+            ILInspector.Analysis.OptimizationOpportunity> Plan { get; }
+
+        internal bool Matches(PerformanceTriageOptions options) =>
+            _loopOnly == options.LoopOnly
+            && string.Equals(
+                _minConfidence,
+                options.MinConfidence,
+                StringComparison.Ordinal)
+            && _shapes.SequenceEqual(
+                options.Shapes,
+                StringComparer.Ordinal)
+            && _top == options.Top
+            && _where.SequenceEqual(
+                options.Where,
+                StringComparer.Ordinal)
+            && string.Equals(
+                _orderBy,
+                options.OrderBy,
+                StringComparison.Ordinal);
     }
 
     static bool TryParsePredicate(string expression, out RowPredicate predicate, out OptionError error)

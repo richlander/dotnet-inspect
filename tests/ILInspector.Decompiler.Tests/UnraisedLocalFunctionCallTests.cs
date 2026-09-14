@@ -542,6 +542,7 @@ public class UnraisedLocalFunctionCallTests
     /// here too, because the assertion is set equality in both directions.</para>
     /// </summary>
     [Fact]
+    [Trait("Speed", "Slow")]
     public void EveryMethodRefBearingNodeIsEitherSweptOrJustifiablyUnreachable()
     {
         // Swept by LocalFunctionRaisingPass — each has a MarkLocalFunctionRaiseDeclined.

@@ -8,6 +8,7 @@ using System.Text.Json;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Speed", "Slow")]
 [Trait("Area", "Corpus")]
 public sealed class AuthoredSourceOracleManifestTests
 {

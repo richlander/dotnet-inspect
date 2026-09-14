@@ -2,6 +2,7 @@ using ILInspector.DecompilerHarness;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Speed", "Slow")]
 [Trait("Area", "Corpus")]
 public sealed class AuthoredCorpusFrontierAttributionTests
 {
