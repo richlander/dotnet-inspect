@@ -72,7 +72,7 @@ public abstract record InstalledPlatformHouseResult<T>
 /// </summary>
 public sealed class InstalledPlatformHouseAdapter
 {
-    private static long s_nextEvidence;
+    private static long s_nextIdentity;
     private readonly InstalledReferencePackSource _referenceSource;
     private readonly InstalledImplementationPlatformSource
         _implementationSource;
@@ -398,7 +398,6 @@ public sealed class InstalledPlatformHouseAdapter
     {
         PlatformSourceGeneration generation =
             PlatformSourceGeneration.Create(outcome.Generation.Name);
-        PlatformSourceEvidenceIdentity evidence = NextEvidence();
         return outcome switch
         {
             InstalledPlatformSourceOutcome<
@@ -412,8 +411,7 @@ public sealed class InstalledPlatformHouseAdapter
                             generation,
                             succeeded.Value.Targets.Select(
                                 static target =>
-                                    ToHouseTarget(target.Coordinate)),
-                            evidence)),
+                                    ToHouseTarget(target.Coordinate)))),
             InstalledPlatformSourceOutcome<
                 InstalledReferenceTargetInventory>.Unavailable unavailable =>
                 NotSucceeded(
@@ -424,8 +422,7 @@ public sealed class InstalledPlatformHouseAdapter
                         request.Snapshot,
                         generation,
                         exactTarget: null,
-                        MapUnavailable(unavailable.Reason),
-                        evidence)),
+                        MapUnavailable(unavailable.Reason))),
             InstalledPlatformSourceOutcome<
                 InstalledReferenceTargetInventory>.Rejected rejected =>
                 NotSucceeded(
@@ -435,8 +432,7 @@ public sealed class InstalledPlatformHouseAdapter
                         Capabilities.TargetDiscovery,
                         request.Snapshot,
                         generation,
-                        exactTarget: null,
-                        evidence)),
+                        exactTarget: null)),
             InstalledPlatformSourceOutcome<
                 InstalledReferenceTargetInventory>.Incomplete incomplete =>
                 NotSucceeded(
@@ -446,8 +442,7 @@ public sealed class InstalledPlatformHouseAdapter
                         Capabilities.TargetDiscovery,
                         request.Snapshot,
                         generation,
-                        exactTarget: null,
-                        evidence)),
+                        exactTarget: null)),
             InstalledPlatformSourceOutcome<
                 InstalledReferenceTargetInventory>.Failed failed =>
                 NotSucceeded(
@@ -457,8 +452,7 @@ public sealed class InstalledPlatformHouseAdapter
                         Capabilities.TargetDiscovery,
                         request.Snapshot,
                         generation,
-                        exactTarget: null,
-                        evidence)),
+                        exactTarget: null)),
             _ => throw new InvalidOperationException(
                 "Unknown installed target-discovery outcome."),
         };
@@ -482,7 +476,6 @@ public sealed class InstalledPlatformHouseAdapter
     {
         PlatformSourceGeneration generation =
             PlatformSourceGeneration.Create(outcome.Generation.Name);
-        PlatformSourceEvidenceIdentity evidence = NextEvidence();
         return outcome switch
         {
             InstalledPlatformSourceOutcome<
@@ -500,13 +493,10 @@ public sealed class InstalledPlatformHouseAdapter
                                     "Successful realization requires an exact target."),
                             PlatformSourceCoordinateIdentity.Create(
                                 CoordinateName(succeeded.Value.Coordinate)),
-                            PlatformTargetCorrespondenceIdentity.Create(
-                                NextName("installed-reference-target")),
                             ((PlatformHouseOperationSnapshot.Realize)
                                 request.Snapshot.Operation).Population,
                             PlatformSourceContributionCompleteness
-                                .Authoritative,
-                            evidence)),
+                                .Authoritative)),
             InstalledPlatformSourceOutcome<
                 InstalledReferenceRealization>.Unavailable unavailable =>
                 NotSucceeded(
@@ -517,8 +507,7 @@ public sealed class InstalledPlatformHouseAdapter
                         request.Snapshot,
                         generation,
                         exactTarget,
-                        MapUnavailable(unavailable.Reason),
-                        evidence)),
+                        MapUnavailable(unavailable.Reason))),
             InstalledPlatformSourceOutcome<
                 InstalledReferenceRealization>.Rejected rejected =>
                 NotSucceeded(
@@ -528,8 +517,7 @@ public sealed class InstalledPlatformHouseAdapter
                         Capabilities.ReferenceRealization,
                         request.Snapshot,
                         generation,
-                        exactTarget,
-                        evidence)),
+                        exactTarget)),
             InstalledPlatformSourceOutcome<
                 InstalledReferenceRealization>.Incomplete incomplete =>
                 NotSucceeded(
@@ -539,8 +527,7 @@ public sealed class InstalledPlatformHouseAdapter
                         Capabilities.ReferenceRealization,
                         request.Snapshot,
                         generation,
-                        exactTarget,
-                        evidence)),
+                        exactTarget)),
             InstalledPlatformSourceOutcome<
                 InstalledReferenceRealization>.Failed failed =>
                 NotSucceeded(
@@ -550,8 +537,7 @@ public sealed class InstalledPlatformHouseAdapter
                         Capabilities.ReferenceRealization,
                         request.Snapshot,
                         generation,
-                        exactTarget,
-                        evidence)),
+                        exactTarget)),
             _ => throw new InvalidOperationException(
                 "Unknown installed reference realization outcome."),
         };
@@ -575,7 +561,6 @@ public sealed class InstalledPlatformHouseAdapter
     {
         PlatformSourceGeneration generation =
             PlatformSourceGeneration.Create(outcome.Generation.Name);
-        PlatformSourceEvidenceIdentity evidence = NextEvidence();
         return outcome switch
         {
             InstalledPlatformSourceOutcome<
@@ -592,13 +577,10 @@ public sealed class InstalledPlatformHouseAdapter
                             PlatformSourceCoordinateIdentity.Create(
                                 CoordinateName(
                                     succeeded.Value.Coordinate)),
-                            PlatformTargetCorrespondenceIdentity.Create(
-                                NextName("installed-implementation-target")),
                             ((PlatformHouseOperationSnapshot.Realize)
                                 request.Snapshot.Operation).Population,
                             PlatformSourceContributionCompleteness
-                                .Authoritative,
-                            evidence)),
+                                .Authoritative)),
             InstalledPlatformSourceOutcome<
                 InstalledImplementationRealization>.Unavailable unavailable =>
                 NotSucceeded(
@@ -609,8 +591,7 @@ public sealed class InstalledPlatformHouseAdapter
                         request.Snapshot,
                         generation,
                         exactTarget,
-                        MapUnavailable(unavailable.Reason),
-                        evidence)),
+                        MapUnavailable(unavailable.Reason))),
             InstalledPlatformSourceOutcome<
                 InstalledImplementationRealization>.Rejected rejected =>
                 NotSucceeded(
@@ -620,8 +601,7 @@ public sealed class InstalledPlatformHouseAdapter
                         Capabilities.ImplementationRealization,
                         request.Snapshot,
                         generation,
-                        exactTarget,
-                        evidence)),
+                        exactTarget)),
             InstalledPlatformSourceOutcome<
                 InstalledImplementationRealization>.Incomplete incomplete =>
                 NotSucceeded(
@@ -631,8 +611,7 @@ public sealed class InstalledPlatformHouseAdapter
                         Capabilities.ImplementationRealization,
                         request.Snapshot,
                         generation,
-                        exactTarget,
-                        evidence)),
+                        exactTarget)),
             InstalledPlatformSourceOutcome<
                 InstalledImplementationRealization>.Failed failed =>
                 NotSucceeded(
@@ -642,8 +621,7 @@ public sealed class InstalledPlatformHouseAdapter
                         Capabilities.ImplementationRealization,
                         request.Snapshot,
                         generation,
-                        exactTarget,
-                        evidence)),
+                        exactTarget)),
             _ => throw new InvalidOperationException(
                 "Unknown installed implementation realization outcome."),
         };
@@ -707,12 +685,8 @@ public sealed class InstalledPlatformHouseAdapter
         $"{coordinate.Hive.Name}:{coordinate.Family}:"
         + coordinate.Version.Value;
 
-    static PlatformSourceEvidenceIdentity NextEvidence() =>
-        PlatformSourceEvidenceIdentity.Create(
-            NextName("installed-reference-evidence"));
-
     static string NextName(string prefix) =>
-        prefix + "-" + Interlocked.Increment(ref s_nextEvidence);
+        prefix + "-" + Interlocked.Increment(ref s_nextIdentity);
 
     InstalledPlatformHouseResult<InstalledReferenceTargetInventory>
         RejectDiscovery(
@@ -731,8 +705,7 @@ public sealed class InstalledPlatformHouseAdapter
                     request.Snapshot,
                     PlatformSourceGeneration.Create(
                         NextName(_referenceSource.Hive.Name + "-bridge")),
-                    exactTarget: null,
-                    NextEvidence()));
+                    exactTarget: null));
     }
 
     InstalledPlatformHouseResult<InstalledReferenceRealization>
@@ -753,8 +726,7 @@ public sealed class InstalledPlatformHouseAdapter
                     request.Snapshot,
                     PlatformSourceGeneration.Create(
                         NextName(_referenceSource.Hive.Name + "-bridge")),
-                    exactTarget,
-                    NextEvidence()));
+                    exactTarget));
     }
 
     InstalledPlatformHouseResult<InstalledReferenceTargetInventory>
@@ -774,8 +746,7 @@ public sealed class InstalledPlatformHouseAdapter
                     request.Snapshot,
                     PlatformSourceGeneration.Create(
                         NextName(_referenceSource.Hive.Name + "-bridge")),
-                    exactTarget: null,
-                    NextEvidence()));
+                    exactTarget: null));
     }
 
     InstalledPlatformHouseResult<InstalledReferenceRealization>
@@ -796,8 +767,7 @@ public sealed class InstalledPlatformHouseAdapter
                     request.Snapshot,
                     PlatformSourceGeneration.Create(
                         NextName(_referenceSource.Hive.Name + "-bridge")),
-                    exactTarget,
-                    NextEvidence()));
+                    exactTarget));
     }
 
     InstalledPlatformHouseResult<InstalledImplementationRealization>
@@ -819,8 +789,7 @@ public sealed class InstalledPlatformHouseAdapter
                     PlatformSourceGeneration.Create(
                         NextName(
                             _implementationSource.Hive.Name + "-bridge")),
-                    exactTarget,
-                    NextEvidence()));
+                    exactTarget));
     }
 
     InstalledPlatformHouseResult<InstalledImplementationRealization>
@@ -842,8 +811,7 @@ public sealed class InstalledPlatformHouseAdapter
                     PlatformSourceGeneration.Create(
                         NextName(
                             _implementationSource.Hive.Name + "-bridge")),
-                    exactTarget,
-                    NextEvidence()));
+                    exactTarget));
     }
 
     InstalledPlatformHouseResult<InstalledImplementationRealization>
@@ -865,8 +833,7 @@ public sealed class InstalledPlatformHouseAdapter
                     request.Snapshot,
                     PlatformSourceGeneration.Create(sourceGeneration.Name),
                     exactTarget,
-                    PlatformSourceUnavailabilityKind.Absent,
-                    NextEvidence()));
+                    PlatformSourceUnavailabilityKind.Absent));
     }
 
     static CancellationTokenSource CreateBudgetCancellation(

@@ -22129,6 +22129,10 @@ public partial class CommandExecutionTests
         // Row-query fields remain discoverable (shared triage filter/sort engine).
         Assert.Contains("| Triage desc | default-order |", output);
         Assert.Contains("| Priority desc (high &gt; medium &gt; low) | order-step |", output);
+        Assert.Contains("| RootReach desc | order-step |", output);
+        Assert.DoesNotContain("| Member asc | order-step |", output);
+        Assert.DoesNotContain("| IL asc | order-step |", output);
+        Assert.DoesNotContain("| Shape asc | order-step |", output);
         Assert.Contains("| Shape | filterable |", output);
         Assert.Contains("| RootReach | sortable |", output);
         Assert.Contains("| OncePaths | sortable |", output);

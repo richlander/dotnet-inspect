@@ -209,6 +209,128 @@ public sealed class PackageHouseExecutionTests
     }
 
     [Fact]
+    public async Task CandidateAcquirePreservesResolvedAuthorityCorrespondence()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(["9.0.0"]),
+            new SourceBehavior([Version]));
+        PackageHouse house = environment.CreateHouse(
+            (_, _) => new InMemoryPackageStore());
+        var selectingRequest = new PackageHouseRequest(
+            new PackageHouseDemand.Selecting(
+                new PackageVersionSelectionRequest.LatestStable(
+                    PackageId)),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Settle));
+        PackageHouseSettlement selected =
+            await house.ExecuteAsync(
+                selectingRequest,
+                environment.IssueOperation(
+                    selectingRequest,
+                    TestContext.Current.CancellationToken));
+        PackageAcquisitionCandidate candidate =
+            Assert.IsType<PackageHouseResult.Settled>(selected.Result)
+                .Decision!.Candidate!;
+        Assert.Single(candidate.Authorities);
+
+        var candidateRequest = new PackageHouseRequest(
+            new PackageHouseDemand.Candidate(candidate),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Acquire));
+        PackageHouseSettlement acquired =
+            await house.ExecuteAsync(
+                candidateRequest,
+                environment.IssueOperation(
+                    candidateRequest,
+                    TestContext.Current.CancellationToken));
+
+        Assert.IsType<PackageHouseSettlement.Acquired>(acquired);
+        Assert.Same(candidate, acquired.Result.Decision!.Candidate);
+        Assert.Equal(0, environment.Clients[0].PayloadRequests);
+        Assert.Equal(1, environment.Clients[1].PayloadRequests);
+        Assert.All(
+            environment.Clients,
+            client => Assert.Equal(1, client.VersionRequests));
+    }
+
+    [Fact]
+    public async Task CandidateDemandRejectsAnotherLeaseIssuer()
+    {
+        await using HouseEnvironment first = HouseEnvironment.Create(
+            new SourceBehavior([Version]));
+        await using HouseEnvironment second = HouseEnvironment.Create(
+            new SourceBehavior([Version]));
+        PackageAcquisitionCandidate candidate;
+        using (PackageSourceOperationLease operation =
+            first.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken))
+        {
+            candidate = Assert.IsType<PackageAcquisitionCandidate>(
+                operation.ResolvePinnedCandidate(
+                    first.Authorization.AuthorizeSourcesFor(PackageId),
+                    PackageSourceCoordinate.Create(PackageId, Version))
+                .Candidate);
+        }
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Candidate(candidate),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Settle));
+
+        InvalidOperationException exception =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => second.CreateHouse().ExecuteAsync(
+                    request,
+                    second.IssueOperation(
+                        request,
+                        TestContext.Current.CancellationToken)));
+
+        Assert.Contains(
+            "another Package Source root generation",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CandidateDemandCannotBypassHouseAuthorization()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior([Version]));
+        PackageAcquisitionCandidate candidate;
+        using (PackageSourceOperationLease operation =
+            environment.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken))
+        {
+            candidate = Assert.IsType<PackageAcquisitionCandidate>(
+                operation.ResolvePinnedCandidate(
+                    environment.Authorization.AuthorizeSourcesFor(PackageId),
+                    PackageSourceCoordinate.Create(PackageId, Version))
+                .Candidate);
+        }
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Candidate(candidate),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Acquire));
+        var house = new PackageHouse(
+            new FixedAuthorization(
+                PackageSourceAuthorization.Deny(
+                    "The package is not authorized.")),
+            new PackagePayloadAcquisitionPlan(
+                (_, _) => new InMemoryPackageStore()));
+
+        PackageHouseSettlement settlement =
+            await house.ExecuteAsync(
+                request,
+                environment.IssueOperation(
+                    request,
+                    TestContext.Current.CancellationToken));
+
+        Assert.IsType<PackageHouseSettlement.ResourceFree>(settlement);
+        Assert.IsType<PackageHouseResult.Rejected>(settlement.Result);
+        Assert.Null(settlement.Result.Decision!.Candidate);
+        Assert.Equal(0, environment.Clients[0].PayloadRequests);
+    }
+
+    [Fact]
     public async Task PartialDiscoveryDoesNotReachPayloadOrStore()
     {
         await using HouseEnvironment environment = HouseEnvironment.Create(

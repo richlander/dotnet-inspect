@@ -328,11 +328,11 @@ Tests are xUnit executables. **Use `dotnet run`, not `dotnet test`**;
 `dotnet test` silently executes no tests here. Always use Release because
 compiler-generated IL shapes differ in Debug.
 
-Tag a test `[Trait("Speed", "Slow")]` when its cost comes from exhaustive or
-whole-assembly analysis rather than ordinary unit-test setup, so it runs only
-in nightly Deep Inspect, not the PR-blocking fast leg. See
-[Classifying test cost](docs/testing-cost-classification.md) for the
-threshold, placement convention, and existing consumers.
+Classify every new or materially expanded test as PR-fast or
+`[Trait("Speed", "Slow")]`. Tag exhaustive or whole-assembly tests slow;
+otherwise measure suspected slow tests in isolation. Exclude slow tests from
+PR CI only when daily Deep Inspect or a focused pre-merge gate owns them. See
+[Classifying test cost](docs/testing-cost-classification.md) for details.
 
 | Area | Command |
 | --- | --- |
@@ -395,24 +395,24 @@ that head, reconcile the feedback publicly, make any resulting fixes, and freeze
 the replacement head. These are the binding invariants; the rest of this
 section and [round orchestration](docs/round-orchestration.md) explain them.
 
-1. **One frozen head per round.** The lock begins at the push and ends only
-   when the round closes (reconciled *and* green) or recovery supersedes the
-   attempt. Do not edit a locked head; fixes belong to the next cycle.
+1. **One frozen head per review attempt.** The lock begins at the push and ends
+   only when the round closes or applicable recovery supersedes the candidate.
+   Do not edit a locked head; fixes belong to the next candidate.
 2. **A candidate includes its effective base.** Integrate twice before pushing
    — once before fixing, once after — because the fix window is long enough for
    `main` to move.
 3. **Base movement alone never invalidates a pushed candidate**, and never
    justifies another round.
-4. **A round that pushes a fix is not review-clean.** Only the replacement head
-   can earn that.
+4. **Every usable fixed-head review spends its round.** A finding-producing round
+   is not review-clean; fixes form the next numbered round.
 5. **Never claim merge readiness from label state alone.** Confirm current-head
    CI and GitHub's live mergeability immediately before every merge attempt.
-6. **A round closes only when reconciled and its applicable gates are green.**
-   For a non-Markdown-only PR, known-red `ci-required` blocks; pending status follows
-   [Bounded status waiting](docs/round-orchestration.md#bounded-status-waiting).
-   At non-boundary rounds, a Markdown-only PR's gate is pre-commit
-   `markdownlint`; do not wait for CI before review. A gate failure requiring an
-   author change restarts the *same* round.
+6. **A round closes only after reconciliation and its applicable gate result.**
+   Green closes normally; a post-review author-change failure closes as failed
+   and advances its repair. Pre-review failure retries the pending round.
+   Pending status follows [Bounded status
+   waiting](docs/round-orchestration.md#bounded-status-waiting); non-boundary
+   Markdown-only rounds substitute pre-commit `markdownlint`.
 7. **Six rounds, then stop** and ask for another block.
 8. **Never merge without explicit user authorization** for that specific PR.
    A recorded exact-head merge authorization satisfies this rule; see the
@@ -425,28 +425,28 @@ definition live in
 [Candidate lifecycle](docs/round-orchestration.md#candidate-lifecycle). The
 essentials: integrate the effective base, make the change, run the focused
 gate, integrate again, push to lock the head, satisfy the eligibility row,
-dispatch reviewers, reconcile publicly, and close only when reconciliation and
-the applicable gates are green.
+dispatch reviewers, reconcile publicly, and close under the applicable
+gate-result transition.
 
 ### Recovery transitions
 
 Applied without waiting for CI; full conditions live in
 [Candidate lifecycle](docs/round-orchestration.md#candidate-lifecycle).
 
-- **Conflict:** supersede, integrate, resolve, push immediately, and restart
-  the same round — or take the exact-head trivial-interaction waiver when
-  eligible.
+- **Conflict:** before a usable review result, supersede and retry the pending
+  round; afterward, recover in the next numbered round — or take the
+  exact-head trivial-interaction waiver when eligible.
 - **Scope violation:** keep the locked head unchanged while the user chooses
   split, abandonment, or an approved broad exception (see
   [Recovering from an over-broad design](docs/design-scope.md#recovering-from-an-over-broad-design)).
-- **Failure requiring an author change:** supersede, push the fix, satisfy the
-  failed-gate row, and restart the same round.
+- **Failure requiring an author change:** pre-review failures retry the pending
+  round; review-driven fixes form the next numbered round.
 - **Cancelled or evidenced transient failure:** keep the lock and retry the
   unchanged head with concrete transient evidence; otherwise treat it as an
   author change.
 
-A superseded attempt spends no round and gets no completion report; carry every
-returned finding forward.
+A candidate superseded before its required review returns a usable result spends
+no round. Once it does, the round is spent; carry every finding forward.
 
 ### Forming a candidate
 
