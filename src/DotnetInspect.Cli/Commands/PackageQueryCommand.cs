@@ -24,15 +24,20 @@ internal static class PackageQueryCommand
             return DiscoverOutput.Execute(
                 options.Discover,
                 PackageQuerySections.CreateSchema(),
-                tree: options.Tree,
-                json: options.JsonOutput,
-                tsv: options.Tsv,
-                jsonl: options.Jsonl,
+                DiscoveryOutputRequest.Create(
+                    options.JsonOutput ? OutputFormat.Json
+                        : options.Jsonl ? OutputFormat.Jsonl
+                        : options.Tsv ? OutputFormat.Tsv
+                        : options.Tabular ? OutputFormat.Table
+                        : OutputFormat.Markdown,
+                    options.Tree,
+                    options.Tabular,
+                    options.NoHeader,
+                    projection: options),
                 sectionCostAnnotations:
                     PackageQuerySections.Catalog.Pipeline.GetCostAnnotations(),
                 sectionCategories:
                     PackageQuerySections.Catalog.SelectionCategoryMap,
-                projection: options,
                 semanticRowSelection: options.RowSelection,
                 semanticSelectionName: "Package Query");
         }
