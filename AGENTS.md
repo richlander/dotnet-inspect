@@ -396,8 +396,8 @@ the replacement head. These are the binding invariants; the rest of this
 section and [round orchestration](docs/round-orchestration.md) explain them.
 
 1. **One frozen head per review attempt.** The lock begins at the push and ends
-   when the review is reconciled or pre-review recovery supersedes the
-   candidate. Do not edit a locked head; fixes belong to the next candidate.
+   only when the round closes or applicable recovery supersedes the candidate.
+   Do not edit a locked head; fixes belong to the next candidate.
 2. **A candidate includes its effective base.** Integrate twice before pushing
    — once before fixing, once after — because the fix window is long enough for
    `main` to move.
@@ -407,12 +407,12 @@ section and [round orchestration](docs/round-orchestration.md) explain them.
    is not review-clean; fixes form the next numbered round.
 5. **Never claim merge readiness from label state alone.** Confirm current-head
    CI and GitHub's live mergeability immediately before every merge attempt.
-6. **A round closes only when reconciled and its applicable gates are green.**
-   For a non-Markdown-only PR, known-red `ci-required` blocks; pending status follows
-   [Bounded status waiting](docs/round-orchestration.md#bounded-status-waiting).
-   At non-boundary rounds, a Markdown-only PR's gate is pre-commit
-   `markdownlint`; do not wait for CI before review. Pre-review failure retries
-   the pending round; review findings advance to the next round.
+6. **A round closes only after reconciliation and its applicable gate result.**
+   Green closes normally; a post-review author-change failure closes as failed
+   and advances its repair. Pre-review failure retries the pending round.
+   Pending status follows [Bounded status
+   waiting](docs/round-orchestration.md#bounded-status-waiting); non-boundary
+   Markdown-only rounds substitute pre-commit `markdownlint`.
 7. **Six rounds, then stop** and ask for another block.
 8. **Never merge without explicit user authorization** for that specific PR.
    A recorded exact-head merge authorization satisfies this rule; see the
@@ -425,8 +425,8 @@ definition live in
 [Candidate lifecycle](docs/round-orchestration.md#candidate-lifecycle). The
 essentials: integrate the effective base, make the change, run the focused
 gate, integrate again, push to lock the head, satisfy the eligibility row,
-dispatch reviewers, reconcile publicly, and close only when reconciliation and
-the applicable gates are green.
+dispatch reviewers, reconcile publicly, and close under the applicable
+gate-result transition.
 
 ### Recovery transitions
 
