@@ -318,18 +318,19 @@ public static class DirectCallDefinitionResolver
             (CatalogCallGraphParticipant Participant, int MethodToken),
             EvidenceGenericScopeResult>();
         long invocationOccurrences = 0;
-        var signatureNodes = new SignatureNodeBudget(
-            limits.MaxSignatureNodes);
         foreach (CatalogCallGraphParticipant participant in population)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            foreach (DirectCall call in participant.Index.DirectCalls)
+            invocationOccurrences += participant.Index.DirectCalls.Length;
+        }
+        if (invocationOccurrences > limits.MaxInvocationOccurrences)
+        {
+            foreach (CatalogCallGraphParticipant participant in population)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                invocationOccurrences++;
-                if (invocationOccurrences
-                    > limits.MaxInvocationOccurrences)
+                foreach (DirectCall call in participant.Index.DirectCalls)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     pending.Add(PendingInvocation.Incomplete(
                         participant,
                         call,
@@ -340,8 +341,26 @@ public static class DirectCallDefinitionResolver
                                 .InvocationOccurrences,
                             limits.MaxInvocationOccurrences,
                             invocationOccurrences)));
-                    continue;
                 }
+            }
+            return CompleteWithWorkLimit(
+                catalog,
+                bindingPolicy,
+                population,
+                pending.ToImmutable(),
+                DirectCallDefinitionWorkDimension.InvocationOccurrences,
+                limits.MaxInvocationOccurrences,
+                invocationOccurrences,
+                cancellationToken);
+        }
+        var signatureNodes = new SignatureNodeBudget(
+            limits.MaxSignatureNodes);
+        foreach (CatalogCallGraphParticipant participant in population)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            foreach (DirectCall call in participant.Index.DirectCalls)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (signatureNodes.IsExceeded)
                 {
                     pending.Add(PendingInvocation.Incomplete(
@@ -582,12 +601,13 @@ public static class DirectCallDefinitionResolver
             pending.ToImmutable();
         if (signatureNodes.IsExceeded)
         {
-            return CompleteWithSignatureLimit(
+            return CompleteWithWorkLimit(
                 catalog,
                 bindingPolicy,
                 population,
                 invocationPlans,
-                limits,
+                DirectCallDefinitionWorkDimension.SignatureNodes,
+                limits.MaxSignatureNodes,
                 signatureNodes.RequiredWork,
                 cancellationToken);
         }
@@ -611,12 +631,13 @@ public static class DirectCallDefinitionResolver
         }
         if (signatureNodes.IsExceeded)
         {
-            return CompleteWithSignatureLimit(
+            return CompleteWithWorkLimit(
                 catalog,
                 bindingPolicy,
                 population,
                 invocationPlans,
-                limits,
+                DirectCallDefinitionWorkDimension.SignatureNodes,
+                limits.MaxSignatureNodes,
                 signatureNodes.RequiredWork,
                 cancellationToken);
         }
@@ -650,10 +671,11 @@ public static class DirectCallDefinitionResolver
                 cancellationToken);
         if (signatureNodes.IsExceeded)
         {
-            return CompleteWithSignatureLimit(
+            return CompleteWithWorkLimit(
                 context,
                 invocationPlans,
-                limits,
+                DirectCallDefinitionWorkDimension.SignatureNodes,
+                limits.MaxSignatureNodes,
                 signatureNodes.RequiredWork);
         }
         return new DirectCallDefinitionResolutionOutcome.Completed(
@@ -663,12 +685,13 @@ public static class DirectCallDefinitionResolver
     }
 
     static DirectCallDefinitionResolutionOutcome.Completed
-        CompleteWithSignatureLimit(
+        CompleteWithWorkLimit(
             TypeResolutionCatalog catalog,
             IAssemblyBindingPolicy bindingPolicy,
             ImmutableArray<CatalogCallGraphParticipant> population,
             ImmutableArray<PendingInvocation> pending,
-            DirectCallDefinitionResolutionLimits limits,
+            DirectCallDefinitionWorkDimension dimension,
+            long limit,
             long requiredWork,
             CancellationToken cancellationToken)
     {
@@ -691,17 +714,18 @@ public static class DirectCallDefinitionResolver
                         WorkGap(
                             item.Participant,
                             item.Call,
-                            DirectCallDefinitionWorkDimension.SignatureNodes,
-                            limits.MaxSignatureNodes,
+                            dimension,
+                            limit,
                             requiredWork))),
             ]);
     }
 
     static DirectCallDefinitionResolutionOutcome.Completed
-        CompleteWithSignatureLimit(
+        CompleteWithWorkLimit(
             TypeResolutionContext context,
             ImmutableArray<PendingInvocation> pending,
-            DirectCallDefinitionResolutionLimits limits,
+            DirectCallDefinitionWorkDimension dimension,
+            long limit,
             long requiredWork) =>
         new(
             context.Catalog,
@@ -715,8 +739,8 @@ public static class DirectCallDefinitionResolver
                         WorkGap(
                             item.Participant,
                             item.Call,
-                            DirectCallDefinitionWorkDimension.SignatureNodes,
-                            limits.MaxSignatureNodes,
+                            dimension,
+                            limit,
                             requiredWork))),
             ]);
 

@@ -1047,6 +1047,45 @@ public sealed class DirectCallDefinitionResolutionTests
     }
 
     [Fact]
+    public void InvocationOccurrenceLimitPublishesNoPartialSuccess()
+    {
+        SyntheticParticipant participant = CreateSynthetic(new()
+        {
+            CallCount = 2,
+        });
+
+        DirectCallDefinitionResolutionOutcome.Completed completed =
+            Resolve(
+                participant,
+                new DirectCallDefinitionResolutionLimits(
+                    maxInvocationOccurrences: 1));
+
+        Assert.Equal(2, completed.Results.Length);
+        Assert.All(
+            completed.Results,
+            result =>
+            {
+                DirectCallDefinitionResolution.Incomplete incomplete =
+                    Assert.IsType<
+                        DirectCallDefinitionResolution.Incomplete>(result);
+                Assert.Equal(
+                    DirectCallDefinitionGapKind.WorkLimitExceeded,
+                    incomplete.Gap.Kind);
+                Assert.Equal(
+                    DirectCallDefinitionWorkDimension.InvocationOccurrences,
+                    incomplete.Gap.WorkDimension);
+                Assert.Equal(1, incomplete.Gap.Limit);
+                Assert.Equal(2, incomplete.Gap.RequiredWork);
+                Assert.Equal(
+                    incomplete.PhysicalInvocation,
+                    incomplete.Gap.PhysicalInvocation);
+            });
+        Assert.NotEqual(
+            completed.Results[0].PhysicalInvocation,
+            completed.Results[1].PhysicalInvocation);
+    }
+
+    [Fact]
     public void SignatureNodeLimitPublishesNoPartialSuccess()
     {
         SyntheticParticipant participant = CreateSynthetic(new()
