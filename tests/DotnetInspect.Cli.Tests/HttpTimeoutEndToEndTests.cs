@@ -8,7 +8,7 @@ namespace DotnetInspect.Cli.Tests;
 
 /// <summary>
 /// End-to-end cover for the configured request timeout, against a stub feed that answers the
-/// service index and then never answers the search query.
+/// service index and then never answers the package payload request.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -20,8 +20,8 @@ namespace DotnetInspect.Cli.Tests;
 /// </para>
 /// <para>
 /// The stub has to answer the service index rather than refuse the connection. A dead index
-/// fails earlier, in the branch that reports no searchable endpoint, and never reaches the
-/// search query where the timeout applies.
+/// fails earlier, before package acquisition reaches the payload request where the timeout
+/// applies.
 /// </para>
 /// <para>
 /// Nothing here asserts on elapsed time. The stub never answers, so the request always outlasts
@@ -64,11 +64,11 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
     [InlineData("--http-timeout", "3")]
     [InlineData("--http-timeout=3", null)]
     [InlineData("--http-timeout:3", null)]
-    public void HttpTimeout_FlagGovernsTheSearchRequest(string flag, string? value)
+    public void HttpTimeout_FlagGovernsThePackageRequest(string flag, string? value)
     {
         string[] args = value is null ? [flag] : [flag, value];
 
-        string error = RunSearch(args, environmentValue: null);
+        string error = RunPackageRequest(args, environmentValue: null);
 
         Assert.Contains(3, TimeoutSeconds(error));
     }
@@ -78,9 +78,9 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
     /// </summary>
     [Fact]
     [Trait("Speed", "Slow")]
-    public void HttpTimeout_EnvironmentVariableGovernsTheSearchRequest()
+    public void HttpTimeout_EnvironmentVariableGovernsThePackageRequest()
     {
-        string error = RunSearch([], environmentValue: "4");
+        string error = RunPackageRequest([], environmentValue: "4");
 
         Assert.Contains(4, TimeoutSeconds(error));
     }
@@ -90,12 +90,11 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
     /// </summary>
     [Fact]
     [Trait("Speed", "Slow")]
-    public void HttpTimeout_AboveDefaultExtendsTheSearchRequest()
+    public void HttpTimeout_AboveDefaultExtendsThePackageRequest()
     {
-        string error = RunSearch(
+        string error = RunPackageRequest(
             ["--http-timeout", "31"],
-            environmentValue: null,
-            stallServiceIndex: true);
+            environmentValue: null);
 
         Assert.Contains(31, TimeoutSeconds(error));
         Assert.DoesNotContain(30, TimeoutSeconds(error));
@@ -109,7 +108,8 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
     [Trait("Speed", "Slow")]
     public void HttpTimeout_FlagOutranksTheEnvironmentVariable()
     {
-        IReadOnlyList<int> seconds = TimeoutSeconds(RunSearch(["--http-timeout", "2"], environmentValue: "9"));
+        IReadOnlyList<int> seconds = TimeoutSeconds(
+            RunPackageRequest(["--http-timeout", "2"], environmentValue: "9"));
 
         Assert.Contains(2, seconds);
         Assert.DoesNotContain(9, seconds);
@@ -118,7 +118,7 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
     [Theory]
     [InlineData("explicit: net_http_request_timedout, 7")]
     [InlineData("explicit: The request was canceled due to the configured HttpClient.Timeout of 7 seconds elapsing.")]
-    [InlineData("explicit: NuGet request did not complete within 00:00:07.")]
+    [InlineData("explicit: NuGet payload request did not complete within 00:00:07.")]
     public void TimeoutSeconds_RecognizesOwnedAndRuntimeMessageShapes(string error)
     {
         Assert.Contains(7, TimeoutSeconds(error));
@@ -147,9 +147,7 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
         if (start < 0)
             start = error.IndexOf("HttpClient.Timeout", StringComparison.Ordinal);
         if (start < 0)
-            start = error.IndexOf(
-                "NuGet request did not complete within",
-                StringComparison.Ordinal);
+            start = error.IndexOf("request did not complete within", StringComparison.Ordinal);
         Assert.True(start >= 0, $"Expected a timeout in the error, got: {error}");
 
         int end = error.IndexOf('\n', start);
@@ -167,10 +165,9 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
         return numbers;
     }
 
-    private string RunSearch(
+    private string RunPackageRequest(
         string[] leadingArgs,
-        string? environmentValue,
-        bool stallServiceIndex = false)
+        string? environmentValue)
     {
         string executable = Path.Combine(
             Path.GetDirectoryName(ProductAssemblyPath())!,
@@ -187,14 +184,10 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
         {
             psi.ArgumentList.Add(arg);
         }
-
         psi.ArgumentList.Add("package");
-        psi.ArgumentList.Add("search");
-        psi.ArgumentList.Add("dotnet-inspect-timeout-probe");
+        psi.ArgumentList.Add("dotnet-inspect-timeout-probe@1.0.0");
         psi.ArgumentList.Add("--source");
-        psi.ArgumentList.Add(
-            $"http://127.0.0.1:{_port}/"
-            + (stallServiceIndex ? "slow-index.json" : "index.json"));
+        psi.ArgumentList.Add($"http://127.0.0.1:{_port}/index.json");
 
         // Explicitly cleared, not merely unset: an ambient value on the developer's machine
         // would otherwise decide the result of the cases that pass none.
@@ -254,31 +247,14 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
                 string request = Encoding.ASCII.GetString(buffer, 0, read);
                 string path = request.Split(' ').Skip(1).FirstOrDefault() ?? string.Empty;
 
-                if (path.StartsWith("/slow-index.json", StringComparison.Ordinal))
-                {
-                    // Send service-index headers and a partial body, then stall. The
-                    // above-default test proves discovery does not restore the old
-                    // 30-second package-helper body clamp.
-                    byte[] indexHead = Encoding.ASCII.GetBytes(
-                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
-                        + "Content-Length: 1024\r\nConnection: close\r\n\r\n");
-                    await stream.WriteAsync(indexHead, cancellationToken);
-                    await stream.WriteAsync(
-                        Encoding.UTF8.GetBytes("{"),
-                        cancellationToken);
-                    await stream.FlushAsync(cancellationToken);
-                    await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
-                    return;
-                }
-
                 if (!path.StartsWith("/index.json", StringComparison.Ordinal))
                 {
-                    // The search query. Send headers and a partial body, then stall so this
+                    // The package payload. Send headers and a partial body, then stall so this
                     // reaches the body phase that historically clamped values above 30 seconds.
-                    byte[] searchHead = Encoding.ASCII.GetBytes(
+                    byte[] payloadHead = Encoding.ASCII.GetBytes(
                         "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
                         + "Content-Length: 1024\r\nConnection: close\r\n\r\n");
-                    await stream.WriteAsync(searchHead, cancellationToken);
+                    await stream.WriteAsync(payloadHead, cancellationToken);
                     await stream.WriteAsync(
                         Encoding.UTF8.GetBytes("{"),
                         cancellationToken);
@@ -289,7 +265,7 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
 
                 string body =
                     $$"""
-                    {"version":"3.0.0","resources":[{"@id":"http://127.0.0.1:{{_port}}/query","@type":"SearchQueryService"}]}
+                    {"version":"3.0.0","resources":[{"@id":"http://127.0.0.1:{{_port}}/flat/","@type":"PackageBaseAddress/3.0.0"}]}
                     """;
                 byte[] bytes = Encoding.UTF8.GetBytes(body);
                 byte[] head = Encoding.ASCII.GetBytes(
