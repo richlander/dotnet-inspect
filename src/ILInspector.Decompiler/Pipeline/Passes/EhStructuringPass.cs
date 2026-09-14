@@ -634,7 +634,8 @@ public sealed partial class EhStructuringPass : IIrPass
                         returned.Index,
                         returned.IsArgument,
                         aliases.Locals,
-                        aliases.StackSlots)))
+                        aliases.StackSlots,
+                        aliases.Fields)))
             {
                 return true;
             }
@@ -648,7 +649,8 @@ public sealed partial class EhStructuringPass : IIrPass
         int index,
         bool isArgument,
         IReadOnlySet<int> localAliases,
-        IReadOnlySet<int> stackSlotAliases)
+        IReadOnlySet<int> stackSlotAliases,
+        IReadOnlyList<ByRefFieldAlias> fieldAliases)
     {
         foreach (var node in body.Descendants)
         {
@@ -663,6 +665,8 @@ public sealed partial class EhStructuringPass : IIrPass
                 LoadArgumentAddress address when isArgument => address.Index == index,
                 LoadLocal load => localAliases.Contains(load.Index),
                 LoadStackSlot load => stackSlotAliases.Contains(load.Slot),
+                LoadField load => fieldAliases.Any(alias =>
+                    SameFieldAlias(alias, load.Field, load.Instance)),
                 _ => false,
             };
             if (mayWrite)
@@ -672,13 +676,17 @@ public sealed partial class EhStructuringPass : IIrPass
         return false;
     }
 
-    static (HashSet<int> Locals, HashSet<int> StackSlots) ByRefAliases(
+    static (
+        HashSet<int> Locals,
+        HashSet<int> StackSlots,
+        List<ByRefFieldAlias> Fields) ByRefAliases(
         BlockContainer root,
         int index,
         bool isArgument)
     {
         var localAliases = new HashSet<int>();
         var stackSlotAliases = new HashSet<int>();
+        var fieldAliases = new List<ByRefFieldAlias>();
         bool changed;
         do
         {
@@ -688,18 +696,16 @@ public sealed partial class EhStructuringPass : IIrPass
                 if (ReferenceOwnership.IsInsideNestedFunctionBody(store))
                     continue;
 
-                bool aliasesPlace = store.Value switch
+                if (AliasesPlace(
+                    store.Value,
+                    index,
+                    isArgument,
+                    localAliases,
+                    stackSlotAliases,
+                    fieldAliases))
                 {
-                    LoadLocalAddress address when !isArgument =>
-                        address.Index == index,
-                    LoadArgumentAddress address when isArgument =>
-                        address.Index == index,
-                    LoadLocal load => localAliases.Contains(load.Index),
-                    LoadStackSlot load => stackSlotAliases.Contains(load.Slot),
-                    _ => false,
-                };
-                if (aliasesPlace)
                     changed |= localAliases.Add(store.Index);
+                }
             }
 
             foreach (var store in root.Descendants.OfType<StoreStackSlot>())
@@ -707,23 +713,112 @@ public sealed partial class EhStructuringPass : IIrPass
                 if (ReferenceOwnership.IsInsideNestedFunctionBody(store))
                     continue;
 
-                bool aliasesPlace = store.Value switch
+                if (AliasesPlace(
+                    store.Value,
+                    index,
+                    isArgument,
+                    localAliases,
+                    stackSlotAliases,
+                    fieldAliases))
                 {
-                    LoadLocalAddress address when !isArgument =>
-                        address.Index == index,
-                    LoadArgumentAddress address when isArgument =>
-                        address.Index == index,
-                    LoadLocal load => localAliases.Contains(load.Index),
-                    LoadStackSlot load => stackSlotAliases.Contains(load.Slot),
-                    _ => false,
-                };
-                if (aliasesPlace)
                     changed |= stackSlotAliases.Add(store.Slot);
+                }
+            }
+
+            foreach (var store in root.Descendants.OfType<StoreField>())
+            {
+                if (ReferenceOwnership.IsInsideNestedFunctionBody(store)
+                    || !AliasesPlace(
+                        store.Value,
+                        index,
+                        isArgument,
+                        localAliases,
+                        stackSlotAliases,
+                        fieldAliases))
+                {
+                    continue;
+                }
+
+                var alias = new ByRefFieldAlias(store.Field, store.Instance);
+                if (!fieldAliases.Any(existing =>
+                    SameFieldAlias(existing, alias.Field, alias.Instance)))
+                {
+                    fieldAliases.Add(alias);
+                    changed = true;
+                }
             }
         }
         while (changed);
 
-        return (localAliases, stackSlotAliases);
+        return (localAliases, stackSlotAliases, fieldAliases);
+    }
+
+    static bool AliasesPlace(
+        IrExpression value,
+        int index,
+        bool isArgument,
+        IReadOnlySet<int> localAliases,
+        IReadOnlySet<int> stackSlotAliases,
+        IReadOnlyList<ByRefFieldAlias> fieldAliases)
+        => value switch
+        {
+            LoadLocalAddress address when !isArgument => address.Index == index,
+            LoadArgumentAddress address when isArgument => address.Index == index,
+            LoadLocal load => localAliases.Contains(load.Index),
+            LoadStackSlot load => stackSlotAliases.Contains(load.Slot),
+            LoadField load => fieldAliases.Any(alias =>
+                SameFieldAlias(alias, load.Field, load.Instance)),
+            { ResultType.Kind: TypeRefKind.ByRef } => value.Children
+                .OfType<IrExpression>()
+                .Any(child => AliasesPlace(
+                    child,
+                    index,
+                    isArgument,
+                    localAliases,
+                    stackSlotAliases,
+                    fieldAliases)),
+            _ => false,
+        };
+
+    readonly record struct ByRefFieldAlias(FieldRef Field, IrExpression? Instance);
+
+    static bool SameFieldAlias(
+        ByRefFieldAlias alias,
+        FieldRef field,
+        IrExpression? instance)
+        => alias.Field.Equals(field)
+            && SameCarrierPlace(alias.Instance, instance);
+
+    static bool SameCarrierPlace(IrExpression? left, IrExpression? right)
+    {
+        if (left is null || right is null)
+            return left is null && right is null;
+
+        return (left, right) switch
+        {
+            (LoadLocal a, LoadLocal b) => a.Index == b.Index,
+            (LoadLocal a, LoadLocalAddress b) => a.Index == b.Index,
+            (LoadLocalAddress a, LoadLocal b) => a.Index == b.Index,
+            (LoadLocalAddress a, LoadLocalAddress b) => a.Index == b.Index,
+            (LoadArgument a, LoadArgument b) => PlaceIdentity.SameArgument(
+                a.Index, a.Parameter, b.Index, b.Parameter),
+            (LoadArgument a, LoadArgumentAddress b) => PlaceIdentity.SameArgument(
+                a.Index, a.Parameter, b.Index, b.Parameter),
+            (LoadArgumentAddress a, LoadArgument b) => PlaceIdentity.SameArgument(
+                a.Index, a.Parameter, b.Index, b.Parameter),
+            (LoadArgumentAddress a, LoadArgumentAddress b) => PlaceIdentity.SameArgument(
+                a.Index, a.Parameter, b.Index, b.Parameter),
+            (LoadStackSlot a, LoadStackSlot b) => a.Slot == b.Slot,
+            (LoadField a, LoadField b) => a.Field.Equals(b.Field)
+                && SameCarrierPlace(a.Instance, b.Instance),
+            (LoadField a, LoadFieldAddress b) => a.Field.Equals(b.Field)
+                && SameCarrierPlace(a.Instance, b.Instance),
+            (LoadFieldAddress a, LoadField b) => a.Field.Equals(b.Field)
+                && SameCarrierPlace(a.Instance, b.Instance),
+            (LoadFieldAddress a, LoadFieldAddress b) => a.Field.Equals(b.Field)
+                && SameCarrierPlace(a.Instance, b.Instance),
+            _ => false,
+        };
     }
 
     static bool IsDescendantOf(IrNode node, IrNode ancestor)

@@ -160,4 +160,76 @@ public static class FinallyReturnTimingSample
     Done:
         return result;
     }
+
+    public static int RunFieldAlias(bool loop, bool setValue, bool exit)
+    {
+        int result = 0;
+        scoped RefHolder holder = default;
+        holder.Value = ref result;
+        try
+        {
+            while (loop)
+            {
+                if (setValue)
+                {
+                    result = 10;
+                    goto Done;
+                }
+
+                if (exit)
+                    goto Done;
+
+                loop = false;
+            }
+        }
+        finally
+        {
+            holder.Value += 100;
+        }
+
+    Done:
+        return result;
+    }
+
+    public static int RunCallAlias(
+        bool useResult,
+        bool loop,
+        bool setValue,
+        bool exit)
+    {
+        int result = 0;
+        int other = 0;
+        ref int alias = ref Select(useResult, ref result, ref other);
+        try
+        {
+            while (loop)
+            {
+                if (setValue)
+                {
+                    result = 10;
+                    goto Done;
+                }
+
+                if (exit)
+                    goto Done;
+
+                loop = false;
+            }
+        }
+        finally
+        {
+            alias += 100;
+        }
+
+    Done:
+        return result;
+    }
+
+    static ref int Select(bool first, ref int left, ref int right)
+        => ref first ? ref left : ref right;
+
+    ref struct RefHolder
+    {
+        public ref int Value;
+    }
 }

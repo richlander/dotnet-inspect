@@ -108,6 +108,44 @@ public class FinallyReturnTimingTests
     }
 
     [Fact]
+    public void FieldAliasReturnStaysAfterFinally()
+    {
+        Assert.Equal(110, FinallyReturnTimingSample.RunFieldAlias(
+            loop: true,
+            setValue: true,
+            exit: true));
+        Assert.Equal(100, FinallyReturnTimingSample.RunFieldAlias(
+            loop: true,
+            setValue: false,
+            exit: true));
+
+        var (fidelity, output) = Render(nameof(FinallyReturnTimingSample.RunFieldAlias));
+        Assert.Equal(DecompilationFidelity.Full, fidelity);
+        Assert.Equal(1, CountOccurrences(output, "return result;"));
+        Assert.EndsWith("return result;\n", output);
+    }
+
+    [Fact]
+    public void CallAliasReturnStaysAfterFinally()
+    {
+        Assert.Equal(100, FinallyReturnTimingSample.RunCallAlias(
+            useResult: true,
+            loop: true,
+            setValue: false,
+            exit: true));
+        Assert.Equal(10, FinallyReturnTimingSample.RunCallAlias(
+            useResult: false,
+            loop: true,
+            setValue: true,
+            exit: true));
+
+        var (fidelity, output) = Render(nameof(FinallyReturnTimingSample.RunCallAlias));
+        Assert.Equal(DecompilationFidelity.Full, fidelity);
+        Assert.Equal(1, CountOccurrences(output, "return result;"));
+        Assert.EndsWith("return result;\n", output);
+    }
+
+    [Fact]
     [Trait("Speed", "Slow")]
     public void FinallyReturnTimingMethodsCompileBackExactly()
     {
@@ -117,9 +155,11 @@ public class FinallyReturnTimingTests
             method => method.Method is nameof(FinallyReturnTimingSample.Run)
                 or nameof(FinallyReturnTimingSample.RunArgument)
                 or nameof(FinallyReturnTimingSample.RunAliasedLocal)
-                or nameof(FinallyReturnTimingSample.RunConditionalAlias));
+                or nameof(FinallyReturnTimingSample.RunConditionalAlias)
+                or nameof(FinallyReturnTimingSample.RunFieldAlias)
+                or nameof(FinallyReturnTimingSample.RunCallAlias));
 
-        Assert.Equal(4, results.Count);
+        Assert.Equal(6, results.Count);
         Assert.All(results, result =>
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status));
     }
