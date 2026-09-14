@@ -31301,6 +31301,9 @@ public partial class CommandExecutionTests
                 (
                     "content",
                     ["--content", "--path", "README.md", "-n", "1"]),
+                (
+                    "content-readme-role",
+                    ["--content", "--path", "@readme", "-n", "1"]),
             ];
 
             foreach (var testCase in cases)
@@ -36720,8 +36723,8 @@ public partial class CommandExecutionTests
         string placeholder = InertString.ContainmentRequiredPlaceholder.ToString();
         var (packagePath, tempDir) = CreateLocalReadmePackage(
             "Test.Projection.SkillWindows",
-            "README.md",
-            "readme",
+            "skills/readme-skill/SKILL.md",
+            safe,
             null,
             null,
             ("skills/safe/SKILL.md", safe),
@@ -36739,6 +36742,16 @@ public partial class CommandExecutionTests
                 (
                     "content-safe",
                     ["--content", "--path", "skills/safe/SKILL.md", "--bare", "-n1"],
+                    "safe-first\n",
+                    "safe-first\n"),
+                (
+                    "print-readme-skill",
+                    ["-S", "Package README file", "--print", "--bare", "-n1"],
+                    "safe-first\n",
+                    "safe-first\n"),
+                (
+                    "content-readme-skill",
+                    ["--content", "--path", "@readme", "--bare", "-n1"],
                     "safe-first\n",
                     "safe-first\n"),
                 (

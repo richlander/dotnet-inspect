@@ -3028,7 +3028,10 @@ public class PackageCommand
                 options.Jsonl,
                 options.JsonArray,
                 options.Bare,
-                PackagePayloadDestination(options)));
+                PackagePayloadDestination(options),
+                row => PackagePayloadDestination(
+                    options,
+                    PackageFileFamily.IsSkillDocument(sourceByRow[row]))));
     }
 
     private static List<ShapeProjectionRow> ProjectPackageFiles(IEnumerable<PackageFileRow>? files, string section, ShapeProjectionKind kind, InspectionOptions options)
@@ -4060,13 +4063,17 @@ public class PackageCommand
             && !options.Jsonl
             && !options.JsonArray;
 
-    private static bool IsGuaranteedSkillPayload(InspectionOptions options)
+    private static bool MayResolveToSkillPayloadBeforeAcquisition(
+        InspectionOptions options)
     {
-        if (options.Print
+        if ((options.Print || options.Bare)
             && options.IncludeSections is { Count: 1 } sections
-            && sections.Single().Equals(
-                PackageSections.FilesSkills,
-                StringComparison.OrdinalIgnoreCase))
+            && (sections.Single().Equals(
+                    PackageSections.FilesSkills,
+                    StringComparison.OrdinalIgnoreCase)
+                || sections.Single().Equals(
+                    PackageSections.FilesReadme,
+                    StringComparison.OrdinalIgnoreCase)))
         {
             return true;
         }
@@ -4075,9 +4082,10 @@ public class PackageCommand
         return options.ShowContent
             && selectors.Length > 0
             && selectors.All(static selector =>
-                !selector.Contains('*')
-                && !selector.Contains('?')
-                && PackageFileFamily.IsSkillDocumentPath(selector));
+                selector.Equals("@readme", StringComparison.OrdinalIgnoreCase)
+                || !selector.Contains('*')
+                    && !selector.Contains('?')
+                    && PackageFileFamily.IsSkillDocumentPath(selector));
     }
 
     private static ProjectionDestination PackagePayloadDestination(
@@ -4089,7 +4097,8 @@ public class PackageCommand
             ExactTransfer: (options.Print || RequiresUnaryPackageContent(options))
                 && HasUnstructuredOutputPath(options)
                 && options.ContentScope == PackageFileContentScope.Full
-                && !(resolvedSkillPayload ?? IsGuaranteedSkillPayload(options)));
+                && !(resolvedSkillPayload
+                    ?? MayResolveToSkillPayloadBeforeAcquisition(options)));
 
     /// <summary>
     /// Restores the readme role to the document the manifest declares when
