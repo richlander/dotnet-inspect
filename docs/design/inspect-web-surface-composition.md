@@ -129,8 +129,8 @@ state. Search and Demos are both visible in the initial 390 by 844 CSS-pixel
 content viewport; artwork never precedes them.
 
 Home does not repeat links already owned by the data bar. The data bar is the
-shared entry for the CLI tool, agent skill, and Credits. The current Home-bar
-action inventory remains unchanged by this composition.
+shared entry for the CLI tool, agent skill, Diagnostics, and Credits. The
+current Home-bar action inventory remains unchanged by this composition.
 
 Loading, catalog-unavailable, query-notice, and long-label states retain the
 same primary hierarchy. They do not replace Search with artwork, turn failure
@@ -1335,8 +1335,8 @@ closed. Changes may apply live, but one Settings component renders each
 owner-issued setting descriptor and dispatches its typed action. Domain owners
 retain validation and state semantics.
 
-Diagnostics is a separate full-bleed experience launched from Settings or
-Spotlight. It is not another settings implementation.
+Diagnostics is a separate full-bleed experience launched from the data bar or
+Settings. It is not another settings implementation or a Spotlight command.
 
 ## Package-source presentation
 
@@ -1437,7 +1437,7 @@ expand, or host runtime diagnostics:
 
 <!-- markdownlint-disable MD013 -->
 ```text
-dotnet-inspect v0.35.2 · abc1234 · Aug 27, 2026 UTC · Package source: Corporate mirror (pkgs.dev.azure.com/org/_packaging/feed/nuget/v3/index.json) · CLI tool · Agent skill · Credits
+dotnet-inspect v0.35.2 · abc1234 · Aug 27, 2026 UTC · Package source: Corporate mirror (pkgs.dev.azure.com/org/_packaging/feed/nuget/v3/index.json) · CLI tool · Agent skill · Diagnostics · Credits
 ```
 <!-- markdownlint-enable MD013 -->
 
@@ -1448,7 +1448,8 @@ The data bar includes:
 - concise UTC build date without a `built` prefix;
 - read-only package producer, or the applicable non-package acquisition kind;
 - `CLI tool`;
-- `Agent skill`; and
+- `Agent skill`;
+- `Diagnostics`; and
 - `Credits`.
 
 On a narrow viewport, the line remains non-wrapping and horizontally scrollable.
@@ -1467,11 +1468,11 @@ The data bar does not contain:
 - an API-surface label; or
 - an expansion toggle.
 
-Diagnostics opens at `/diagnostics` as a routed full-bleed surface. Settings
-and Spotlight Commands expose the route; the Application menu does not. The
-destination receives focus on its single `Diagnostics` level-one heading, and
-Back restores the preceding routed surface without discarding its retained
-Workspace. A direct entry falls back to Home.
+Diagnostics opens at `/diagnostics` as a routed full-bleed surface. The data
+bar and Settings expose the route; Spotlight Commands and the Application menu
+do not. The destination receives focus on its single `Diagnostics` level-one
+heading. Its prominent `Back` control restores the preceding routed surface
+without discarding its retained Workspace. A direct entry falls back to Home.
 
 The first implemented Diagnostics snapshot contains only evidence already
 issued for the current browser session:
@@ -1767,10 +1768,11 @@ with the absence of a synthesized `Default feed` control.
 ### Data and diagnostics
 
 1. Confirm that version, commit, UTC date, the complete owner-issued compact
-   producer label, CLI tool, and agent skill occupy one non-expanding data-bar
-   line.
+   producer label, CLI tool, agent skill, Diagnostics, and Credits occupy one
+   non-expanding data-bar line.
 2. Confirm that timings, cache counts, runtime readiness, assembly identity,
    and framework do not appear in that line.
-3. Open Diagnostics and confirm that detailed runtime, source, and cache
-   evidence and owner-authorized cache actions appear in the full-bleed
-   surface.
+3. Open Diagnostics from the data bar and Settings, confirm that it is absent
+   from Spotlight Commands and the Application menu, and confirm that detailed
+   runtime, source, and cache evidence and owner-authorized cache actions appear
+   in the full-bleed surface with a visible Back control.

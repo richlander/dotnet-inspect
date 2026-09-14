@@ -32,28 +32,61 @@ public class PlatformPrunePolicyTests
                 "NETStandard.Library|2.0.3",
             ]);
 
-    [Fact]
-    public void SubsumedIdentityReportsFamilyAndSuppliedVersion()
+    [Theory]
+    [InlineData(
+        "System.Text.Json",
+        "9.0.0",
+        "11.0.0-preview.7.26381.103",
+        PlatformSubsumption.Subsumed,
+        true)]
+    [InlineData(
+        "System.Text.Json",
+        "12.0.0",
+        "11.0.0-preview.7.26381.103",
+        PlatformSubsumption.NotSubsumed,
+        false)]
+    [InlineData(
+        "System.Runtime",
+        "4.0.0",
+        "4.3.1",
+        PlatformSubsumption.Subsumed,
+        true)]
+    [InlineData(
+        "System.Runtime",
+        "4.3.2",
+        "4.3.1",
+        PlatformSubsumption.NotSubsumed,
+        false)]
+    [InlineData(
+        "NETStandard.Library",
+        "2.0.3",
+        "2.0.3",
+        PlatformSubsumption.Subsumed,
+        true)]
+    [InlineData(
+        "NETStandard.Library",
+        "2.1.0",
+        "2.0.3",
+        PlatformSubsumption.NotSubsumed,
+        false)]
+    public void KnownPackageVersionMatrixPreservesSupplyAndDelegation(
+        string packageId,
+        string requestedVersion,
+        string suppliedVersion,
+        PlatformSubsumption expectedSubsumption,
+        bool delegatesToPlatform)
     {
-        PlatformSupply supply = PlatformPrunePolicy.Decide(Net11(), At("System.Text.Json", "9.0.0"));
+        PlatformSupply supply =
+            PlatformPrunePolicy.Decide(
+                Net11(),
+                At(packageId, requestedVersion));
 
-        Assert.Equal(PlatformSubsumption.Subsumed, supply.Subsumption);
-        Assert.True(supply.DelegatesToPlatform);
+        Assert.Equal(expectedSubsumption, supply.Subsumption);
+        Assert.Equal(delegatesToPlatform, supply.DelegatesToPlatform);
         Assert.Equal("Microsoft.NETCore.App", supply.Family);
-        Assert.Equal(Net11Pack, supply.SuppliedVersion);
-    }
-
-    [Fact]
-    public void LeapfroggingVersionKeepsTheEntryButDoesNotDelegate()
-    {
-        // The identity is known and the entry is still worth reporting -- a consumer explaining
-        // the outcome needs it -- but the platform cannot answer for this version.
-        PlatformSupply supply = PlatformPrunePolicy.Decide(Net11(), At("System.Text.Json", "12.0.0"));
-
-        Assert.Equal(PlatformSubsumption.NotSubsumed, supply.Subsumption);
-        Assert.False(supply.DelegatesToPlatform);
-        Assert.Equal("Microsoft.NETCore.App", supply.Family);
-        Assert.Equal(Net11Pack, supply.SuppliedVersion);
+        Assert.Equal(
+            NuGetVersion.Parse(suppliedVersion),
+            supply.SuppliedVersion);
     }
 
     [Fact]
