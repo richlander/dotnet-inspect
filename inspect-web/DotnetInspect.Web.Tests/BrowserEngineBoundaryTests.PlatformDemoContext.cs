@@ -12,6 +12,7 @@ namespace DotnetInspect.Web.Tests;
 public sealed partial class BrowserEngineBoundaryTests
 {
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task PlatformHomeDemo_ExportRetainsExactContextAcrossReloadAndDrill()
     {
         const string framework = "net10.0";
@@ -80,6 +81,28 @@ public sealed partial class BrowserEngineBoundaryTests
             target => target.Kind == "focus"
                 && target.Assembly == "Microsoft.Extensions.Logging");
         Assert.Equal(reloaded.Mermaid, (await QueryAsync(focus, contextId)).Mermaid);
+
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                "microsoft.netcore.app.runtime.linux-x64",
+                version,
+                PlatformPackage(
+                    framework,
+                    new[] { "System.Runtime", "System.Private.CoreLib" }.Select(name =>
+                        ($"{name}.dll", File.ReadAllBytes(
+                            Path.Combine(assetDirectory, $"{name}.dll")))).ToArray()),
+                fromCache: false));
+        BrowserCallGraphTarget runtimeTarget = initial.CallGraph.Targets.First(target =>
+            target.TypeDefinitionId == "System.Object"
+                && target.MemberName == "GetType") with
+        {
+            PlatformPack = "netcore.app",
+        };
+        Assert.Equal("System.Runtime", runtimeTarget.Assembly);
+        BrowserCallGraph crossFamily = await QueryAsync(runtimeTarget, contextId);
+        Assert.Equal(5, crossFamily.Scope.Assemblies);
+        Assert.Equal(5, (await QueryAsync(focus, contextId)).Scope.Assemblies);
+        Assert.Equal(1, (await QueryAsync(focus, null)).Scope.Assemblies);
 
         var plan = new WorkspacePlan(
             [],

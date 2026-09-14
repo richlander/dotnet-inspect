@@ -744,8 +744,9 @@ internal static class BrowserPlatformWorkspace
         await using ScopeReservation reservation =
             await BrowserPackageWorkspace.ReserveScopeAsync(deadline.Token)
                 .ConfigureAwait(false);
+        BrowserPlatformScope basis = (retained ?? current).Scope;
         ImmutableArray<RealizedMemberCoordinate.Platform> coordinates =
-            (retained ?? current).Scope.Coordinates;
+            basis.Coordinates;
         foreach (PlatformSelection selection in selections)
         {
             if (coordinates.Any(candidate =>
@@ -761,10 +762,40 @@ internal static class BrowserPlatformWorkspace
             }
 
             EnsureAssemblyCapacity(coordinates.Length + 1);
-            coordinates = coordinates.Add(
-                (retained ?? current).Scope.PlatformCoordinate(
-                    selection.Family,
-                    selection.Assembly));
+            RealizedMemberCoordinate.Platform? familyCoordinate =
+                coordinates.FirstOrDefault(candidate =>
+                    candidate.Family.Equals(
+                        selection.Family,
+                        StringComparison.Ordinal));
+            if (familyCoordinate is null)
+            {
+                await using PlatformLoadAttempt declared =
+                    await LoadDeclaredAttemptAsync(
+                        basis.Framework,
+                        current.Coordinate.Version,
+                        selection.Family,
+                        selection.Assembly,
+                        host,
+                        deadline,
+                        packageLeases).ConfigureAwait(false);
+                if (declared.Failure is not null)
+                    throw Failure(declared.Failure);
+                coordinates = coordinates.Add(
+                    AssertSingleCoordinate(
+                        declared.Scope!,
+                        selection.Family,
+                        selection.Assembly));
+            }
+            else
+            {
+                coordinates = coordinates.Add(
+                    new RealizedMemberCoordinate.Platform(
+                        familyCoordinate.Family,
+                        familyCoordinate.Version,
+                        familyCoordinate.Producer,
+                        familyCoordinate.Framework,
+                        selection.Assembly));
+            }
         }
 
         (BrowserPlatformScope candidate, ImmutableHashSet<string> packageKeys) =

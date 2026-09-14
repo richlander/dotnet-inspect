@@ -292,10 +292,18 @@ also expires it. A request naming an unavailable selection fails with
 
 `PlatformHomeDemo_ExportRetainsExactContextAcrossReloadAndDrill` gates the
 shipped Extensions scenario, ordinary browsing, another same-target context,
-on-demand drill expansion and expiry. Its real managed inputs are pinned from
-`Microsoft.AspNetCore.App.Runtime.linux-x64` 10.0.10 and staged at the shipped
+on-demand drill expansion and expiry. The emitted `System.Object.GetType`
+destination gates expansion from ASP.NET Core into a previously unselected
+runtime family and return to the original demo. A new family uses the existing
+validated acquisition path at the retained target before its realized
+coordinate joins the demo; existing families retain their exact producer.
+Its real managed inputs are pinned from
+`Microsoft.AspNetCore.App.Runtime.linux-x64` and
+`Microsoft.NETCore.App.Runtime.linux-x64` 10.0.10 and staged at the shipped
 scenario's target in the test archive; the test inspects rather than executes
-them on every host. `PlatformCallGraph_ResolvesDefinitionsBehindFacadesWithoutHostProbing`
+them on every host. This measured `Speed=Slow` contract remains covered by the
+unfiltered `inspect-web engine tests` pre-merge gate.
+`PlatformCallGraph_ResolvesDefinitionsBehindFacadesWithoutHostProbing`
 gates exported continuation after forwarding expands the selected context.
 The frontend `product-home-demos.test.ts` executes the actual activation,
 reload, drill and reset handoffs; `call-graph-inspection.test.ts` gates
