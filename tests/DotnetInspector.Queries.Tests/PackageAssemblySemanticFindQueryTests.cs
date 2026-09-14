@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.IO.Compression;
 using System.Reflection;
 using System.Text;
+using System.Text.Json;
 using DotnetInspector.Fixtures;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
@@ -120,6 +121,156 @@ public sealed class PackageAssemblySemanticFindQueryTests
         Assert.Throws<ObjectDisposedException>(
             operation.ThrowIfExpired);
         Assert.Equal(0, fixture.Client.PackageRequests);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task PinnedProductionFingerprintMatchesAuthorityBearingQuery()
+    {
+        using Stream manifestStream = Assert.IsAssignableFrom<Stream>(
+            typeof(PackageAssemblySemanticFindQueryTests).Assembly
+                .GetManifestResourceStream(
+                    "DotnetInspector.Queries.Tests.PackageAssemblyQueryBenchmark.json"));
+        using JsonDocument manifest =
+            await JsonDocument.ParseAsync(
+                manifestStream,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        JsonElement root = manifest.RootElement;
+        string literal = root.GetProperty("literal").GetString()!;
+        string targetFramework =
+            root.GetProperty("targetFramework").GetString()!;
+        string[] packageTexts =
+        [
+            .. root.GetProperty("packages")
+                .EnumerateArray()
+                .Select(value => value.GetString()!),
+        ];
+        PackageSourceCoordinate[] coordinates =
+        [
+            .. packageTexts.Select(text =>
+            {
+                int separator = text.IndexOf('@');
+                return PackageSourceCoordinate.Create(
+                    text[..separator],
+                    text[(separator + 1)..]);
+            }),
+        ];
+        PackageAssemblySemanticFindBudget budget =
+            PackageAssemblySemanticFindBudget.Default;
+        JsonElement limits = root.GetProperty("limits");
+        Assert.Equal(
+            PackageAcquisitionPopulation.MaximumCandidates,
+            limits.GetProperty("maximumPackages").GetInt32());
+        Assert.Equal(
+            budget.Evaluation.MaximumEntryBytes,
+            limits.GetProperty("maximumEntryBytes").GetInt64());
+        Assert.Equal(
+            budget.Evaluation.MaximumRetainedImageBytes,
+            limits.GetProperty(
+                "maximumRetainedImageBytes").GetInt64());
+        Assert.Equal(
+            budget.MaximumDuration.TotalSeconds,
+            limits.GetProperty(
+                "maximumDurationSeconds").GetInt32());
+
+        PackageSourceAuthorization authorization =
+            PackageSourceAuthorization.Authorize(
+                [PackageSource.NuGetOrg]);
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.CreateGallery(
+                authorization.Authorities[0].Association);
+        await using PackageSourceSettlementLease rootLease =
+            PackageSourceSettlementService.IssueLease(
+                _ => source);
+        PackageSourceOperationLease operation =
+            rootLease.IssueOperationLease(
+                TestContext.Current.CancellationToken,
+                operationTimeout: budget.MaximumDuration);
+        PackageAcquisitionPopulation population =
+            await operation.ResolvePinnedPopulationAsync(
+                new FixedAuthorization(authorization),
+                coordinates);
+        var store = new InMemoryPackageStore();
+        var request = new PackageAssemblySemanticFindRequest(
+            population,
+            PackageHouseTargetContext.Exact(
+                targetFramework),
+            PackageAssemblyPatterns.CreateRequest(
+                PackageAssemblyPatterns.StringLiteralContains,
+                literal),
+            budget);
+
+        PackageAssemblySemanticFindResult result =
+            (await PackageAssemblySemanticFindInspection.ExecuteAsync(
+                request,
+                operation,
+                new PackagePayloadAcquisitionPlan(
+                    (_, _) => store),
+                TestContext.Current.CancellationToken)).Content;
+
+        JsonElement expected = root.GetProperty("expected");
+        JsonElement[] expectedCandidates =
+            [.. expected.GetProperty("candidates").EnumerateArray()];
+        Assert.Equal(expectedCandidates.Length, result.CandidateCount);
+        for (int index = 0;
+             index < expectedCandidates.Length;
+             index++)
+        {
+            JsonElement candidate = expectedCandidates[index];
+            PackageAssemblySemanticFindCandidateOutcome outcome =
+                result.CandidateOutcomes[index];
+            Assert.Equal(
+                candidate.GetProperty("package").GetString(),
+                outcome.Coordinate.PackageId);
+            Assert.Equal(
+                candidate.GetProperty("version").GetString(),
+                outcome.Coordinate.Version);
+            Assert.Equal(
+                candidate.GetProperty("outcome").GetString(),
+                OutcomeName(outcome));
+            Assert.Equal(
+                candidate.GetProperty("asset").GetString(),
+                Evaluation(outcome).SelectedAsset!.Asset.Path.ToString());
+        }
+
+        JsonElement[] expectedMatches =
+            [.. expected.GetProperty("matches").EnumerateArray()];
+        Assert.Equal(1, result.MatchedCandidateCount);
+        Assert.Equal(4, result.SemanticMissCount);
+        Assert.Equal(expectedMatches.Length, result.OccurrenceCount);
+        Assert.True(result.Completion.IsRequestedPopulationComplete);
+        Assert.True(result.Completion.IsSemanticEvaluationComplete);
+        for (int index = 0;
+             index < expectedMatches.Length;
+             index++)
+        {
+            JsonElement match = expectedMatches[index];
+            PackageAssemblySemanticFindOccurrence occurrence =
+                result.Occurrences[index];
+            Assert.Equal(
+                match.GetProperty("package").GetString(),
+                occurrence.Coordinate.PackageId);
+            Assert.Equal(
+                match.GetProperty("version").GetString(),
+                occurrence.Coordinate.Version);
+            Assert.Equal(
+                match.GetProperty("assembly").GetString(),
+                occurrence.SelectedAsset.Asset.AssemblyName.ToString());
+            Assert.Equal(
+                Convert.ToInt32(
+                    match.GetProperty("method").GetString(),
+                    16),
+                occurrence.Evidence.Address.MethodDefinitionToken);
+            Assert.Equal(
+                Convert.ToInt32(
+                    match.GetProperty("offset").GetString()![3..],
+                    16),
+                occurrence.Evidence.Address.ILOffset);
+            Assert.Equal(
+                match.GetProperty("literal").GetString(),
+                occurrence.Evidence.LiteralText.ToString());
+        }
     }
 
     [Fact]
@@ -627,6 +778,22 @@ public sealed class PackageAssemblySemanticFindQueryTests
                 evaluation.Evidence,
             _ => throw new InvalidOperationException(
                 "The outcome has no evaluation evidence."),
+        };
+
+    private static string OutcomeName(
+        PackageAssemblySemanticFindCandidateOutcome outcome) =>
+        outcome switch
+        {
+            PackageAssemblySemanticFindCandidateOutcome.Matched =>
+                "matched",
+            PackageAssemblySemanticFindCandidateOutcome.NoMatch =>
+                "no-match",
+            PackageAssemblySemanticFindCandidateOutcome.NotApplicable =>
+                "not-applicable",
+            PackageAssemblySemanticFindCandidateOutcome.Failure =>
+                "failure",
+            _ => throw new InvalidOperationException(
+                "Unknown semantic Find candidate outcome."),
         };
 
     private sealed class RecordingObserver(
