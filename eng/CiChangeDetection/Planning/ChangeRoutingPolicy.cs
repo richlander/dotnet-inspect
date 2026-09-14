@@ -10,7 +10,7 @@ namespace CiChangeDetection.Planning;
 internal sealed class ChangeRoutingPolicy
 {
     private const string TlaExpectedExitCodes =
-        "eng/tla-expected-exit-codes.txt";
+        TlaManifestChanges.ManifestPath;
 
     private readonly ProjectInventory? webProjects;
     private readonly ProjectInventory? decompilerSkipProjects;
