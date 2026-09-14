@@ -60,12 +60,10 @@ public abstract class PlatformTargetSettlement
         internal Selected(
             PlatformTargetDemand.Selecting demand,
             PlatformFamilyTarget target,
-            IEnumerable<PlatformSourceContribution> discoveries,
-            PlatformSourceEvidenceIdentity selectionEvidence)
+            IEnumerable<PlatformSourceContribution> discoveries)
             : base(demand, target)
         {
             ArgumentNullException.ThrowIfNull(discoveries);
-            ArgumentNullException.ThrowIfNull(selectionEvidence);
             PlatformSourceContribution[] snapshot = [.. discoveries];
             if (snapshot.Length == 0)
             {
@@ -103,11 +101,9 @@ public abstract class PlatformTargetSettlement
             }
 
             Discoveries = Array.AsReadOnly(snapshot);
-            SelectionEvidence = selectionEvidence;
         }
 
         public IReadOnlyList<PlatformSourceContribution> Discoveries { get; }
-        public PlatformSourceEvidenceIdentity SelectionEvidence { get; }
 
         internal override IReadOnlyList<PlatformSourceContribution>
             SelectedDiscoveries => Discoveries;
@@ -115,16 +111,10 @@ public abstract class PlatformTargetSettlement
 
     public sealed class Unsettled : PlatformTargetSettlement
     {
-        internal Unsettled(
-            PlatformTargetDemand demand,
-            PlatformSourceEvidenceIdentity evidence)
+        internal Unsettled(PlatformTargetDemand demand)
             : base(demand, null)
         {
-            ArgumentNullException.ThrowIfNull(evidence);
-            Evidence = evidence;
         }
-
-        public PlatformSourceEvidenceIdentity Evidence { get; }
     }
 
     static void ValidateCorrespondence(
@@ -169,8 +159,7 @@ public sealed class PlatformDocumentationAttempt
     public PlatformDocumentationAttempt(
         PlatformSourceFacet facet,
         PlatformDocumentationAttemptKind kind,
-        IEnumerable<PlatformSourceSettlement> sourceSettlements,
-        PlatformSourceEvidenceIdentity evidence)
+        IEnumerable<PlatformSourceSettlement> sourceSettlements)
     {
         if (facet is not PlatformSourceFacet.CompiledXml
             and not PlatformSourceFacet.SourceDerivedDocumentation)
@@ -182,7 +171,6 @@ public sealed class PlatformDocumentationAttempt
         if (!Enum.IsDefined(kind))
             throw new ArgumentOutOfRangeException(nameof(kind));
         ArgumentNullException.ThrowIfNull(sourceSettlements);
-        ArgumentNullException.ThrowIfNull(evidence);
         PlatformSourceSettlement[] snapshot = [.. sourceSettlements];
         if (snapshot.Length == 0
             && kind != PlatformDocumentationAttemptKind.Unavailable)
@@ -214,13 +202,11 @@ public sealed class PlatformDocumentationAttempt
         Facet = facet;
         Kind = kind;
         SourceSettlements = Array.AsReadOnly(snapshot);
-        Evidence = evidence;
     }
 
     public PlatformSourceFacet Facet { get; }
     public PlatformDocumentationAttemptKind Kind { get; }
     public IReadOnlyList<PlatformSourceSettlement> SourceSettlements { get; }
-    public PlatformSourceEvidenceIdentity Evidence { get; }
 }
 
 /// <summary>Terminal assembly-reference forms that count as completed.</summary>
