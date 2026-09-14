@@ -1059,6 +1059,23 @@ jobs:
           'DotnetInspect.Cli.Tests.Z*'
           --filter-not-trait "Speed=Slow"
 
+      # These whole-assembly command and render-document gates are correctly
+      # classified Slow, but they define the complete shared Performance
+      # Triage query path across library, type, and member scopes.
+      - name: Run Performance Triage contract tests
+        run: |
+          dotnet run --project tests/DotnetInspect.Cli.Tests -c Release --no-build -- \
+            --filter-method '*RenderTypeSectionsMarkdown_AppliesPerformanceTriagePlan*' \
+            --filter-method '*PerformanceTriageOrderByCallerLoopDepth_PutsMissingEvidenceLast*' \
+            --filter-method '*PerformanceTriageCount_AppliesWhereBeforeTop*' \
+            --filter-method '*LibraryCommand_DiscoverPerformanceTriage_ListsRenderableColumns*' \
+            --filter-method '*PerformanceTriageWhere_NormalizesMetadataToken*' \
+            --filter-method '*PerformanceTriageWhere_MemberAcceptsDisplayedShortSignature*' \
+            --filter-method '*PerformanceTriageOrderBy_OrdersBeforeTop*' \
+            --filter-method '*PerformanceTriageWhere_InvalidValuesReportDiagnostics*' \
+            --filter-method '*PerformanceTriageWhere_UnknownFieldReportsSuggestion*' \
+            --minimum-expected-tests 12
+
       - name: Run GitHub Packages fixture test
         if: matrix.shard == 'host-policy'
         id: package_fixture
