@@ -48,8 +48,8 @@ platform or all-known manifest into one resource-free `WorkspacePlan`. Pack
 projection was implemented under #6786; #6791 replaces its live factories with
 two plan factories and leaves live construction explicit at the caller.
 Activation of those plans in the CLI and Browser remains staged. This catalog
-retains application identity and contribution authorship; the handoff does not make
-Queries or browser Core depend on this assembly, and Workspace exposes no
+retains application identity and contribution authorship; the handoff does not
+make Queries or browser Core depend on this assembly, and Workspace exposes no
 curated option.
 
 The AI contribution approved in
