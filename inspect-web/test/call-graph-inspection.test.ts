@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   callGraphErrorForView,
   createCallGraphInspectionCoordinator,
+  queryPlatformCallGraph,
   type CallGraphInspectionDependencies,
   type CallGraphInspectionState,
   type MemberCallGraphRequest,
@@ -89,6 +90,7 @@ function memberRequest(
     framework: "net10.0",
     assembly: "Example.Package.dll",
     platformPack: "netcore.app",
+    platformContextId: null,
     platformAssemblyVersion: "1.0.0.0",
     platformAssemblyCulture: null,
     platformAssemblyPublicKeyToken: null,
@@ -110,6 +112,7 @@ function drillRequest(
   overrides: Partial<PlatformDrillRequest> = {},
 ): PlatformDrillRequest {
   return {
+    contextId: null,
     framework: "net10.0",
     platformVersion: "10.0.10",
     assembly: "System.Text.Json.dll",
@@ -183,6 +186,46 @@ test("cached call graphs render without querying again", async () => {
   assert.equal(queries, 0);
   assert.equal(state.memberCallGraph, cached);
   assert.deepEqual(events, ["render", "graph"]);
+});
+
+test("Platform reload and drill forward the exact context through the generated facade adapter", async () => {
+  const contexts: (string | null)[] = [];
+  const state = inspectionState();
+  const coordinator = createCallGraphInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryPlatform: request => queryPlatformCallGraph(async (...args) => {
+        contexts.push(args[11]);
+        if (args[11] === "expired")
+          throw new Error("ContextUnavailable: selected context expired.");
+        return graph(args[11] ?? "ordinary");
+      }, request),
+    }));
+  const request = memberRequest({
+    isRuntimePack: true,
+    platformContextId: "demo-a",
+  });
+  await coordinator.load(request);
+  await coordinator.load({ ...request, signature: "other-member" });
+  await coordinator.load(request);
+  await coordinator.drill(drillRequest({ contextId: "demo-a" }));
+  assert.deepEqual(contexts, ["demo-a", "demo-a", "demo-a", "demo-a"]);
+  await coordinator.popDrill();
+  await coordinator.load({
+    ...request, signature: "ordinary", platformContextId: null,
+  });
+  assert.equal(state.memberCallGraph?.mermaid, "ordinary");
+  await coordinator.load({
+    ...request, signature: "demo-b", platformContextId: "demo-b",
+  });
+  assert.equal(state.memberCallGraph?.mermaid, "demo-b");
+  await coordinator.load({
+    ...request, signature: "expired", platformContextId: "expired",
+  });
+  assert.equal(state.memberCallGraph, null);
+  assert.match(state.memberCallGraphError, /ContextUnavailable/);
+  await coordinator.drill(drillRequest({ contextId: "expired" }));
+  assert.match(state.platformDrillError, /ContextUnavailable/);
+  assert.deepEqual(contexts.slice(4), [null, "demo-b", "expired", "expired"]);
 });
 
 test("same-key requests in flight are not mistaken for cached results", async () => {

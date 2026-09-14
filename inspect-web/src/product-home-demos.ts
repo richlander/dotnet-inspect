@@ -39,6 +39,7 @@ export type PreparedProductHomeDemoSource =
     package: AppPackage;
     focusAssembly: string;
     focusPack: PlatformPack;
+    contextId: string;
   };
 
 let catalogEntries: readonly ProductHomeDemoCatalogEntry[] = [];
@@ -119,6 +120,9 @@ export function prepareProductHomeDemoSource(
   }
 
   if (activation.focusKind === "platform") {
+    if (!activation.platformContextId) {
+      throw new Error("The engine-run Platform demo omitted its retained context.");
+    }
     const focusAssembly = activation.focusAssembly;
     if (!focusAssembly) {
       throw new Error("The engine-run Platform demo omitted its focus assembly.");
@@ -164,6 +168,7 @@ export function prepareProductHomeDemoSource(
       package: packageModel,
       focusAssembly,
       focusPack,
+      contextId: activation.platformContextId,
     };
   }
 

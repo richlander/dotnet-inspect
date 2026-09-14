@@ -281,58 +281,35 @@ public static partial class CatalogExports
         return RunHomeDemoCore(plan, resolution);
     }
 
-    static async Task<BrowserHomeDemoRunResult> RunPlatformHomeDemoAsync(
+    internal static async Task<BrowserHomeDemoRunResult> RunPlatformHomeDemoAsync(
         BrowserHomeDemoRunPlan plan)
     {
-        BrowserHomeDemoRunRequest.Platform[] requests =
-        [
-            .. plan.Requests.Select(request =>
-                request as BrowserHomeDemoRunRequest.Platform
+        BrowserHomeDemoRunRequest.Platform focus =
+            plan.Requests[plan.FocusRequestIndex]
+                as BrowserHomeDemoRunRequest.Platform
                 ?? throw new InvalidOperationException(
-                    "A Platform home demo run contains a non-Platform request.")),
-        ];
-        string[] frameworks =
-        [
-            .. requests.Select(request => request.TargetFramework)
-                .Distinct(StringComparer.OrdinalIgnoreCase),
-        ];
-        string[] versions =
-        [
-            .. requests.Select(request => request.Version)
-                .Distinct(StringComparer.OrdinalIgnoreCase),
-        ];
-        if (frameworks.Length != 1 || versions.Length != 1)
-        {
-            throw new InspectionDefinitionException(
-                "A Browser Platform home demo must use one exact target framework "
-                + "and Platform version.");
-        }
+                    "A Platform home demo run has a non-Platform focus request.");
 
         return await BrowserPackageWorkspace.RunPackageOperationAsync(
             async deadline =>
             {
-                BrowserPlatformHomeDemoPreparation preparation;
                 await using (BrowserPlatformScopeResolution resolution =
-                    await BrowserPlatformWorkspace.OpenAssembliesAsync(
-                        frameworks[0],
-                        versions[0],
-                        [
-                            .. requests.Select(request =>
-                                new BrowserPlatformAssemblyRequest(
-                                    BrowserPlatformIdentity.AssemblyFileName(
-                                        request.Assembly),
-                                    BrowserPlatformWorkspace.Pack(
-                                        request.Family))),
-                        ],
+                    await BrowserPlatformWorkspace.OpenContextAsync(
+                        plan.WorkspacePlan,
+                        plan.ContextInput,
+                        focus.Family,
+                        focus.Assembly,
                         deadline.Token))
                 {
-                    preparation = PreparePlatformHomeDemo(
+                    BrowserPlatformHomeDemoPreparation preparation =
+                        PreparePlatformHomeDemo(
                         plan,
                         resolution);
+                    return await CompletePlatformHomeDemoAsync(
+                        preparation,
+                        deadline.Token,
+                        resolution);
                 }
-                return await CompletePlatformHomeDemoAsync(
-                    preparation,
-                    deadline.Token);
             },
             BrowserPackageWorkspace.PackageOperationTimeout);
     }
@@ -432,7 +409,8 @@ public static partial class CatalogExports
                         MemberName: null,
                         MemberKind: null,
                         MemberAnchorDigest: null,
-                        MemberSection: null),
+                        MemberSection: null,
+                        PlatformContextId: resolution.ContextId),
                     null),
                 Graph: null);
         }
@@ -463,7 +441,8 @@ public static partial class CatalogExports
                     member.Name,
                     member.Kind,
                     member.AnchorDigest,
-                    memberPlan.MemberSection),
+                    memberPlan.MemberSection,
+                    PlatformContextId: resolution.ContextId),
                 CallGraph: null),
             new BrowserPlatformHomeDemoGraphRequest(
                 focusFramework,
@@ -485,13 +464,28 @@ public static partial class CatalogExports
     static async Task<BrowserHomeDemoRunResult>
         CompletePlatformHomeDemoAsync(
             BrowserPlatformHomeDemoPreparation preparation,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            BrowserPlatformScopeResolution? resolution = null)
     {
         if (preparation.Graph is not { } request)
             return preparation.Result;
 
-        BrowserCallGraphInfo graph =
-            await BrowserPlatformCallGraph.QueryAsync(
+        BrowserCallGraphInfo graph = resolution is null
+            ? await BrowserPlatformCallGraph.QueryAsync(
+                request.TargetFramework,
+                request.PlatformVersion,
+                request.Assembly,
+                request.Pack,
+                request.AssemblyVersion,
+                request.AssemblyCulture,
+                request.AssemblyPublicKeyToken,
+                request.TypeFullName,
+                request.MemberName,
+                request.SelectorKey,
+                request.MetadataToken,
+                cancellationToken)
+            : await BrowserPlatformCallGraph.QueryAsync(
+                resolution,
                 request.TargetFramework,
                 request.PlatformVersion,
                 request.Assembly,
@@ -516,13 +510,31 @@ public static partial class CatalogExports
             HttpClient client,
             IPackageSourceAuthorization sourceAuthorization,
             TimeSpan operationTimeout,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            BrowserPlatformScopeResolution? resolution = null)
     {
         if (preparation.Graph is not { } request)
             return preparation.Result;
 
-        BrowserCallGraphInfo graph =
-            await BrowserPlatformCallGraph.QueryAsync(
+        BrowserCallGraphInfo graph = resolution is null
+            ? await BrowserPlatformCallGraph.QueryAsync(
+                request.TargetFramework,
+                request.PlatformVersion,
+                request.Assembly,
+                request.Pack,
+                request.AssemblyVersion,
+                request.AssemblyCulture,
+                request.AssemblyPublicKeyToken,
+                request.TypeFullName,
+                request.MemberName,
+                request.SelectorKey,
+                request.MetadataToken,
+                client,
+                sourceAuthorization,
+                operationTimeout,
+                cancellationToken)
+            : await BrowserPlatformCallGraph.QueryAsync(
+                resolution,
                 request.TargetFramework,
                 request.PlatformVersion,
                 request.Assembly,
