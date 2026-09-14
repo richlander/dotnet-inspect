@@ -17,17 +17,16 @@ public static class OpaqueUnsafe
 {
     /// <summary>
     /// Whether <paramref name="method"/> hides its requires-unsafe obligation from
-    /// its signature: it requires unsafe (<see cref="CallerUnsafeMode"/> is not
-    /// <see cref="CallerUnsafeMode.None"/>) yet no parameter or return type
-    /// contains a pointer. The obligation therefore comes from the attribute or
-    /// <c>unsafe</c> modifier, not a visible pointer.
+    /// its signature: it has an implicit or explicit propagating contract yet no
+    /// parameter or return type contains a pointer. The obligation therefore
+    /// comes from the attribute or <c>unsafe</c> modifier, not a visible pointer.
     /// </summary>
     /// <remarks>
     /// This is a positive, sound structural claim — it never asserts the body is
     /// safe, only that the requires-unsafe contract is invisible in the signature.
     /// </remarks>
     public static bool IsOpaque(MethodIdentity method)
-        => method.CallerUnsafeMode != CallerUnsafeMode.None
+        => CallerUnsafeModeFacts.RequiresUnsafe(method.CallerUnsafeMode)
             && !method.ParameterTypes.Any(type => type.ContainsPointer())
             && !method.ReturnType.ContainsPointer();
 

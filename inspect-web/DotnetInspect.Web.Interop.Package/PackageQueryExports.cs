@@ -4,6 +4,7 @@ using System.Text.Json;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.Package;
 using NuGetFetch;
@@ -50,7 +51,7 @@ namespace DotnetInspect.Web.Interop.Package
                 maximumMatches,
                 includePrerelease);
 
-        internal static async Task<BrowserPackageQueryEvent> ExecuteAsync(
+        internal static async Task<BrowserPackageQueryInspection> ExecuteAsync(
             string prefix,
             string[] facetIds,
             int maximumCandidates,
@@ -72,7 +73,7 @@ namespace DotnetInspect.Web.Interop.Package
                 cancellationToken,
                 deadline).ConfigureAwait(false);
 
-        internal static async Task<BrowserPackageQueryEvent> ExecuteAsync(
+        internal static async Task<BrowserPackageQueryInspection> ExecuteAsync(
             string prefix,
             string[] facetIds,
             int maximumCandidates,
@@ -98,16 +99,18 @@ namespace DotnetInspect.Web.Interop.Package
 
             PackageQueryPlan plan =
                 ((PackageQueryPlanResult.Accepted)planResult).Plan;
-            return await PumpAsync(
-                PackageQuery.ExecuteAsync(
+            var observer = new EventObserver(
+                matchCredit,
+                emit,
+                deadline);
+            var envelope = await PackageQueryInspection.ExecuteAsync(
                     BrowserPackageWorkspace.Gallery,
                     plan,
                     contentProvider,
-                    cancellationToken),
-                matchCredit,
-                emit,
-                cancellationToken,
-                deadline).ConfigureAwait(false);
+                    observer,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            return observer.Complete(envelope);
         }
 
         internal static Task<BrowserPackageQueryEvent> PumpAsync(
@@ -310,6 +313,111 @@ namespace DotnetInspect.Web.Interop.Package
                     "The package-query stream ended without a completion event.");
         }
 
+        internal sealed class EventObserver(
+            BrowserPackageQueryMatchCredit? matchCredit,
+            Action<BrowserPackageQueryEvent> emit,
+            BrowserPackageWorkspace.BrowserPackageOperationDeadline? deadline)
+            : IPackageQueryEventObserver
+        {
+            private BrowserPackageQueryEvent? _completed;
+
+            public async ValueTask ObserveAsync(
+                PackageQueryEvent queryEvent,
+                CancellationToken cancellationToken)
+            {
+                BrowserPackageQueryEvent projected = Project(queryEvent);
+                if (_completed is not null)
+                {
+                    throw new InvalidOperationException(
+                        "The package-query stream produced an event after completion.");
+                }
+
+                if (projected.Kind == BrowserPackageQueryEventKind.Completed)
+                {
+                    _completed = projected;
+                    return;
+                }
+
+                if (projected.Kind == BrowserPackageQueryEventKind.Match
+                    && matchCredit is not null)
+                {
+                    try
+                    {
+                        if (deadline is null)
+                        {
+                            await matchCredit.WaitAsync(cancellationToken)
+                                .ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            await deadline.WaitForConsumerAsync(
+                                    matchCredit.WaitAsync)
+                                .ConfigureAwait(false);
+                        }
+                    }
+                    catch (OperationCanceledException)
+                        when (cancellationToken.IsCancellationRequested
+                            && (deadline is null
+                                || deadline.CallerCancellation
+                                    .IsCancellationRequested))
+                    {
+                        emit(projected);
+                        throw;
+                    }
+                }
+
+                emit(projected);
+            }
+
+            internal BrowserPackageQueryInspection Complete(
+                InspectionEnvelope<
+                    System.Collections.Immutable.ImmutableArray<
+                        PackageQueryEvent>> envelope)
+            {
+                BrowserPackageQueryEvent[] content =
+                    [.. envelope.Content.Select(Project)];
+                BrowserPackageQueryEvent completed = content
+                    .Single(queryEvent =>
+                        queryEvent.Kind == BrowserPackageQueryEventKind.Completed);
+                if (_completed != completed)
+                {
+                    throw new InvalidOperationException(
+                        "The Package Query envelope does not match the observed completion.");
+                }
+
+                return new BrowserPackageQueryInspection(
+                    content,
+                    Project(envelope.Share),
+                    [.. envelope.Diagnostics.Select(diagnostic =>
+                        new BrowserInspectionDiagnostic(
+                            diagnostic.Code,
+                            diagnostic.Severity.ToString(),
+                            diagnostic.Summary.ToString(),
+                            diagnostic.Correspondence?.ToString()))]);
+            }
+        }
+
+        static BrowserInspectionShare Project(InspectionShare share) =>
+            share switch
+            {
+                InspectionShare.Available available =>
+                    new(
+                        BrowserInspectionShareKind.Available,
+                        available.FullUrl,
+                        available.Packet,
+                        Path: null,
+                        Reason: null),
+                InspectionShare.NonProjectable nonProjectable =>
+                    new(
+                        BrowserInspectionShareKind.NonProjectable,
+                        FullUrl: null,
+                        Packet: null,
+                        nonProjectable.Path,
+                        nonProjectable.Reason.ToString()),
+                _ => throw new InvalidOperationException(
+                    "Unknown inspection Share outcome."),
+            };
+
         internal static BrowserPackageQueryEvent Project(
             PackageQueryEvent queryEvent) =>
             queryEvent switch
@@ -377,7 +485,13 @@ namespace DotnetInspect.Web.Interop.Package
                         match.Value.Package.TotalDownloads,
                         match.Value.Package.Verified,
                         match.Value.Package.Source.Producer.Display.ToString(),
-                        match.Value.Package.Description),
+                        match.Value.Package.Description)
+                    {
+                        Owners = [.. match.Value.Package.Owners],
+                        Manifest = match.Value.Package.Manifest is { } manifest
+                            ? Project(manifest)
+                            : null,
+                    },
                     Failure: null,
                     Completion: null),
             PackageQueryEvent.Failure failure =>
@@ -407,7 +521,28 @@ namespace DotnetInspect.Web.Interop.Package
                             _ => throw new InvalidOperationException(
                                 "Unknown package-query failure kind."),
                         },
-                        failure.Value.Message),
+                        failure.Value.Message)
+                    {
+                        ManifestFailureReason =
+                            failure.Value.ManifestFailureReason switch
+                            {
+                                PackageManifestFailureReason.MalformedXml =>
+                                    BrowserPackageQueryManifestFailureReason.MalformedXml,
+                                PackageManifestFailureReason.UnsupportedDocumentShape =>
+                                    BrowserPackageQueryManifestFailureReason.UnsupportedDocumentShape,
+                                PackageManifestFailureReason.IdentityMismatch =>
+                                    BrowserPackageQueryManifestFailureReason.IdentityMismatch,
+                                PackageManifestFailureReason.InvalidDependencyContract =>
+                                    BrowserPackageQueryManifestFailureReason.InvalidDependencyContract,
+                                PackageManifestFailureReason.ConfiguredLimitExceeded =>
+                                    BrowserPackageQueryManifestFailureReason.ConfiguredLimitExceeded,
+                                PackageManifestFailureReason.InvalidIdentityContract =>
+                                    BrowserPackageQueryManifestFailureReason.InvalidIdentityContract,
+                                null => null,
+                                _ => throw new InvalidOperationException(
+                                    "Unknown package-manifest failure reason."),
+                            },
+                    },
                     Completion: null),
             PackageQueryEvent.Completed completed =>
                 new BrowserPackageQueryEvent(
@@ -447,6 +582,46 @@ namespace DotnetInspect.Web.Interop.Package
                 _ => throw new InvalidOperationException(
                     "Unknown package-query event."),
             };
+
+        private static BrowserPackageQueryManifest Project(
+            PackageManifestFacts manifest) =>
+            new(
+                manifest.Coordinate.PackageId,
+                manifest.Coordinate.Version,
+                manifest.ManifestVersion,
+                manifest.Description?.ToString(),
+                manifest.Authors,
+                manifest.Repository,
+                manifest.RepositoryType,
+                manifest.RepositoryCommit,
+                manifest.License,
+                manifest.LicenseUrl,
+                [.. manifest.PackageTypes],
+                manifest.IsToolPackage,
+                manifest.ReadmeFile,
+                [
+                    .. manifest.DependencyGroups.Select(group =>
+                        new BrowserPackageQueryDeclaredDependencyGroup(
+                            group.TargetFramework,
+                            [
+                                .. group.Dependencies.Select(dependency =>
+                                    new BrowserPackageQueryDeclaredDependency(
+                                        dependency.Id,
+                                        dependency.VersionRange)),
+                            ],
+                            group.IsImplicitManifestGroup)),
+                ],
+                manifest.IconFile,
+                manifest.IconUrl,
+                manifest.IdentityProvenance switch
+                {
+                    PackageManifestIdentityProvenance.ExpectedCoordinate =>
+                        BrowserPackageQueryManifestIdentityProvenance.ExpectedCoordinate,
+                    PackageManifestIdentityProvenance.SelfAttested =>
+                        BrowserPackageQueryManifestIdentityProvenance.SelfAttested,
+                    _ => throw new InvalidOperationException(
+                        "Unknown package-manifest identity provenance."),
+                });
 
         internal static string Serialize(BrowserPackageQueryEvent queryEvent) =>
             JsonSerializer.Serialize(
@@ -643,11 +818,11 @@ public static partial class PackageExports
             BrowserPackageJsonContext.Default.StringArray) ?? [];
 
         BrowserManagedOperationResult<
-            BrowserPackageQueryEvent,
+            BrowserPackageQueryInspection,
             string,
             string> result =
             await BrowserPackageQueryOperationCoordinator.RunAsync<
-                BrowserPackageQueryEvent,
+                BrowserPackageQueryInspection,
                 BrowserPackageQueryEvent>(
                 BrowserManagedOperationId.From(operationId),
                 initialMatchCredit,

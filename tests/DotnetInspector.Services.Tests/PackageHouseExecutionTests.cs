@@ -1,5 +1,7 @@
 using System.Reflection;
 using DotnetInspector.Packages;
+using DotnetInspector.Platforms;
+using NuGet.Versioning;
 using NuGetFetch;
 
 namespace DotnetInspector.Services.Tests;
@@ -8,6 +10,7 @@ public sealed class PackageHouseExecutionTests
 {
     private const string PackageId = "microsoft.extensions.logging";
     private const string Version = "10.0.0";
+    private const string PrunablePackageId = "system.text.json";
 
     [Fact]
     public async Task CompleteVersionDiscoveryIssuesReporterBoundCandidate()
@@ -251,6 +254,207 @@ public sealed class PackageHouseExecutionTests
         Assert.All(
             environment.Clients,
             client => Assert.Equal(1, client.VersionRequests));
+    }
+
+    [Fact]
+    public async Task CandidateAcquireDelegatesBeforePayloadCapability()
+    {
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateForPackage(
+                PrunablePackageId,
+                new SourceBehavior(["9.0.0"]));
+        PackageAcquisitionCandidate candidate =
+            ResolveCandidate(
+                environment,
+                PrunablePackageId,
+                "9.0.0");
+        PackageHouseRequest request = CandidateRequest(
+            candidate,
+            PackageHouseOperationProfile.Acquire);
+        PackageHousePruningReceipt pruning =
+            PackageHousePruningReceipt.Evaluate(
+                request,
+                PlatformInventory(
+                    PrunablePackageId,
+                    suppliedVersion: "11.0.0"));
+
+        PackageHouseSettlement settlement =
+            await environment.CreateHouse().ExecuteAsync(
+                request,
+                environment.IssueOperation(
+                    request,
+                    TestContext.Current.CancellationToken),
+                pruning);
+
+        PackageHouseResult.Delegated delegated =
+            Assert.IsType<PackageHouseResult.Delegated>(
+                settlement.Result);
+        Assert.IsType<PackageHouseSettlement.ResourceFree>(
+            settlement);
+        Assert.Same(pruning, delegated.Evidence.Decision!.Pruning);
+        Assert.Same(candidate, delegated.Evidence.Decision.Candidate);
+        Assert.Equal(0, environment.Clients[0].PayloadRequests);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task NonSubsumedCandidateRetainsPruningAndAcquiresPayload()
+    {
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateForPackage(
+                PrunablePackageId,
+                new SourceBehavior(["12.0.0"]));
+        PackageAcquisitionCandidate candidate =
+            ResolveCandidate(
+                environment,
+                PrunablePackageId,
+                "12.0.0");
+        PackageHouseRequest request = CandidateRequest(
+            candidate,
+            PackageHouseOperationProfile.Acquire);
+        PackageHousePruningReceipt pruning =
+            PackageHousePruningReceipt.Evaluate(
+                request,
+                PlatformInventory(
+                    PrunablePackageId,
+                    suppliedVersion: "11.0.0"));
+
+        PackageHouseSettlement settlement =
+            await environment.CreateHouse(
+                (_, _) => new InMemoryPackageStore()).ExecuteAsync(
+                    request,
+                    environment.IssueOperation(
+                        request,
+                        TestContext.Current.CancellationToken),
+                    pruning);
+
+        PackageHouseSettlement.Acquired acquired =
+            Assert.IsType<PackageHouseSettlement.Acquired>(
+                settlement);
+        Assert.Same(pruning, acquired.Result.Decision!.Pruning);
+        Assert.False(
+            acquired.Result.Decision.Pruning!.Supply
+                .DelegatesToPlatform);
+        Assert.Equal(1, environment.Clients[0].PayloadRequests);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task PruningCannotBypassCandidateGenerationOrAuthorization()
+    {
+        await using HouseEnvironment first = HouseEnvironment.Create(
+            new SourceBehavior([Version]));
+        await using HouseEnvironment second = HouseEnvironment.Create(
+            new SourceBehavior([Version]));
+        PackageAcquisitionCandidate candidate =
+            ResolveCandidate(first);
+        PackageHouseRequest request = CandidateRequest(
+            candidate,
+            PackageHouseOperationProfile.Acquire);
+        PackageHousePruningReceipt pruning =
+            PackageHousePruningReceipt.Evaluate(
+                request,
+                PlatformInventory(
+                    PackageId,
+                    suppliedVersion: "11.0.0"));
+
+        InvalidOperationException foreignGeneration =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => second.CreateHouse().ExecuteAsync(
+                    request,
+                    second.IssueOperation(
+                        request,
+                        TestContext.Current.CancellationToken),
+                    pruning));
+        Assert.Contains(
+            "another Package Source root generation",
+            foreignGeneration.Message,
+            StringComparison.Ordinal);
+
+        var deniedHouse = new PackageHouse(
+            new FixedAuthorization(
+                PackageSourceAuthorization.Deny(
+                    "The package is not authorized.")));
+        PackageHouseSettlement denied =
+            await deniedHouse.ExecuteAsync(
+                request,
+                first.IssueOperation(
+                    request,
+                    TestContext.Current.CancellationToken),
+                pruning);
+        Assert.IsType<PackageHouseResult.Rejected>(denied.Result);
+        Assert.Null(denied.Result.Decision!.Pruning);
+        Assert.Equal(0, first.Clients[0].PayloadRequests);
+        Assert.Equal(0, second.Clients[0].PayloadRequests);
+        await first.AssertRootSettledAsync();
+        await second.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task MismatchedPruningReceiptReleasesTransferredOperation()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior([Version]));
+        PackageAcquisitionCandidate candidate =
+            ResolveCandidate(environment);
+        PackageHouseRequest receiptRequest = CandidateRequest(
+            candidate,
+            PackageHouseOperationProfile.Acquire);
+        PackageHousePruningReceipt pruning =
+            PackageHousePruningReceipt.Evaluate(
+                receiptRequest,
+                PlatformInventory(
+                    PackageId,
+                    suppliedVersion: "11.0.0"));
+        PackageHouseRequest executionRequest = CandidateRequest(
+            candidate,
+            PackageHouseOperationProfile.Acquire);
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => environment.CreateHouse().ExecuteAsync(
+                executionRequest,
+                environment.IssueOperation(
+                    executionRequest,
+                    TestContext.Current.CancellationToken),
+                pruning));
+
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task ReceiptAwareExecutionDoesNotBroadenExactDemand()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior([Version]));
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(
+                PackageSourceCoordinate.Create(
+                    PackageId,
+                    Version)),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Acquire),
+            PackageHouseTargetContext.Exact(
+                "net11.0",
+                platformTarget: new PlatformFamilyTarget(
+                    PlatformFamily.DotNetRuntime,
+                    PlatformTargetFramework.Parse("net11.0"),
+                    PlatformVersion.Parse("11.0.0"))));
+        PackageHousePruningReceipt pruning =
+            PackageHousePruningReceipt.Evaluate(
+                request,
+                PlatformInventory(
+                    PackageId,
+                    suppliedVersion: "11.0.0"));
+
+        await Assert.ThrowsAsync<NotSupportedException>(
+            () => environment.CreateHouse().ExecuteAsync(
+                request,
+                environment.IssueOperation(
+                    request,
+                    TestContext.Current.CancellationToken),
+                pruning));
+
+        await environment.AssertRootSettledAsync();
     }
 
     [Fact]
@@ -710,6 +914,46 @@ public sealed class PackageHouseExecutionTests
                     Version)),
             PackageHouseOperation.Create(profile));
 
+    private static PackageHouseRequest CandidateRequest(
+        PackageAcquisitionCandidate candidate,
+        PackageHouseOperationProfile profile) =>
+        new(
+            new PackageHouseDemand.Candidate(candidate),
+            PackageHouseOperation.Create(profile),
+            PackageHouseTargetContext.Exact(
+                "net11.0",
+                platformTarget: new PlatformFamilyTarget(
+                    PlatformFamily.DotNetRuntime,
+                    PlatformTargetFramework.Parse("net11.0"),
+                    PlatformVersion.Parse("11.0.0"))));
+
+    private static PackageAcquisitionCandidate ResolveCandidate(
+        HouseEnvironment environment,
+        string packageId = PackageId,
+        string version = Version)
+    {
+        using PackageSourceOperationLease operation =
+            environment.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken);
+        return Assert.IsType<PackageAcquisitionCandidate>(
+            operation.ResolvePinnedCandidate(
+                environment.Authorization.AuthorizeSourcesFor(
+                    packageId),
+                PackageSourceCoordinate.Create(
+                    packageId,
+                    version)).Candidate);
+    }
+
+    private static PlatformPruneInventory PlatformInventory(
+        string packageId,
+        string suppliedVersion) =>
+        PlatformPruneInventory.FromExactFamily(
+            new PlatformPruneTarget(
+                "Microsoft.NETCore.App",
+                "net11.0",
+                NuGetVersion.Parse("11.0.0")),
+            [$"{packageId}|{suppliedVersion}"]);
+
     private sealed record SourceBehavior(
         IReadOnlyList<string> Versions,
         PackageSourceFailureKind? VersionFailure = null,
@@ -742,6 +986,11 @@ public sealed class PackageHouseExecutionTests
         private IReadOnlyList<IPackageSourceClient> OwnedClients { get; }
 
         public static HouseEnvironment Create(
+            params SourceBehavior[] behaviors)
+            => CreateForPackage(PackageId, behaviors);
+
+        public static HouseEnvironment CreateForPackage(
+            string packageId,
             params SourceBehavior[] behaviors)
         {
             PackageSource[] sources =
@@ -796,7 +1045,9 @@ public sealed class PackageHouseExecutionTests
                             : throw new InvalidOperationException(
                                 "Unknown source association."));
             return new(
-                new FixedAuthorization(authorization),
+                new FixedAuthorization(
+                    authorization,
+                    packageId),
                 lease,
                 clients,
                 [.. clientsByAssociation.Values]);
@@ -836,14 +1087,15 @@ public sealed class PackageHouseExecutionTests
     }
 
     private sealed class FixedAuthorization(
-        PackageSourceAuthorization authorization)
+        PackageSourceAuthorization authorization,
+        string expectedPackageId = PackageId)
         : IPackageSourceAuthorization
     {
         public PackageSourceAuthorization AuthorizeSourcesFor(
             string packageId)
         {
             Assert.Equal(
-                PackageId,
+                expectedPackageId,
                 packageId,
                 ignoreCase: false);
             return authorization;

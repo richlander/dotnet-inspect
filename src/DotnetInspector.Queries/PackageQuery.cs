@@ -303,6 +303,17 @@ public interface IPackageQueryContentProvider
         CancellationToken cancellationToken);
 }
 
+/// <summary>
+/// Optional progress sink for a host that presents Package Query events while
+/// the completed inspection envelope is being produced.
+/// </summary>
+public interface IPackageQueryEventObserver
+{
+    ValueTask ObserveAsync(
+        PackageQueryEvent queryEvent,
+        CancellationToken cancellationToken);
+}
+
 internal sealed record PackageQueryFacetDefinition(
     PackageQueryFacetDescriptor Descriptor,
     Func<PackageQueryPackage, bool> MatchesManifest,
@@ -615,8 +626,7 @@ public static partial class PackageQuery
                 packageInput));
     }
 
-    /// <summary>Executes and materializes one validated package query.</summary>
-    public static async ValueTask<ImmutableArray<PackageQueryEvent>>
+    internal static async ValueTask<ImmutableArray<PackageQueryEvent>>
         ExecuteToArrayAsync(
             IPackageSourceClient source,
             PackageQueryPlan plan,
@@ -625,17 +635,15 @@ public static partial class PackageQuery
             source,
             plan,
             contentProvider: null,
+            observer: null,
             cancellationToken).ConfigureAwait(false);
 
-    /// <summary>
-    /// Executes and materializes one validated package query with the explicit
-    /// package-content capability required by package-content facets.
-    /// </summary>
-    public static async ValueTask<ImmutableArray<PackageQueryEvent>>
+    internal static async ValueTask<ImmutableArray<PackageQueryEvent>>
         ExecuteToArrayAsync(
             IPackageSourceClient source,
             PackageQueryPlan plan,
             IPackageQueryContentProvider? contentProvider,
+            IPackageQueryEventObserver? observer,
             CancellationToken cancellationToken = default)
     {
         var events = ImmutableArray.CreateBuilder<PackageQueryEvent>();
@@ -646,12 +654,18 @@ public static partial class PackageQuery
             cancellationToken).ConfigureAwait(false))
         {
             events.Add(queryEvent);
+            if (observer is not null)
+            {
+                await observer.ObserveAsync(
+                    queryEvent,
+                    cancellationToken).ConfigureAwait(false);
+            }
         }
 
         return events.ToImmutable();
     }
 
-    public static async IAsyncEnumerable<PackageQueryEvent> ExecuteAsync(
+    internal static async IAsyncEnumerable<PackageQueryEvent> ExecuteAsync(
         IPackageSourceClient source,
         PackageQueryPlan plan,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
@@ -670,7 +684,7 @@ public static partial class PackageQuery
     /// Executes a package query with the explicit host capability required to
     /// acquire admitted package content.
     /// </summary>
-    public static async IAsyncEnumerable<PackageQueryEvent> ExecuteAsync(
+    internal static async IAsyncEnumerable<PackageQueryEvent> ExecuteAsync(
         IPackageSourceClient source,
         PackageQueryPlan plan,
         IPackageQueryContentProvider? contentProvider,

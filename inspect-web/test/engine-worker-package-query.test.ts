@@ -18,15 +18,18 @@ import {
   engineWorkerPackageQueryCompletionEvent,
   engineWorkerPackageQueryDurableEvent,
   engineWorkerPackageQueryInput,
+  engineWorkerPackageQueryTerminal,
   mapEngineWorkerPackageQueryCredit,
   mapEngineWorkerPackageQueryResult,
   registerEngineWorkerPackageQueryOperation,
   type EngineWorkerPackageQueryCompletionEvent,
   type EngineWorkerPackageQueryDurableEvent,
   type EngineWorkerPackageQueryFacade,
+  type EngineWorkerPackageQueryTerminal,
   type EngineWorkerPackageQueryTerminalFailure,
 } from "../src/engine-worker-package-query.ts";
 import type {
+  BrowserPackageQueryEvent,
   BrowserPackageQueryResult,
 } from "../src/facades/inspect-web-package.d.ts";
 import {
@@ -103,6 +106,33 @@ const matchEvent: EngineWorkerPackageQueryDurableEvent = {
     producer: "nuget-gallery",
     description: "A test package.",
     rootRequest: "root1:Contoso.Library@1.2.3",
+    owners: ["Contoso"],
+    manifest: {
+      packageId: "Contoso.Library",
+      version: "1.2.3",
+      manifestVersion: "nuspec",
+      description: "A test package.",
+      authors: "Contoso",
+      repository: "https://example.test/contoso/library",
+      repositoryType: "git",
+      repositoryCommit: "0123456789abcdef",
+      license: "MIT",
+      licenseUrl: "https://example.test/licenses/mit",
+      packageTypes: ["Dependency"],
+      isToolPackage: false,
+      readmeFile: "README.md",
+      dependencyGroups: [{
+        targetFramework: "net10.0",
+        dependencies: [{
+          id: "Contoso.Dependency",
+          versionRange: "[2.0.0,3.0.0)",
+        }],
+        isImplicitManifestGroup: false,
+      }],
+      iconFile: "icon.png",
+      iconUrl: "https://example.test/icon.png",
+      identityProvenance: "ExpectedCoordinate",
+    },
   },
   failure: null,
   completion: null,
@@ -119,6 +149,7 @@ const failureEvent: EngineWorkerPackageQueryDurableEvent = {
     producer: "manifest",
     kind: "ManifestAcquisition",
     message: "manifest unavailable",
+    manifestFailureReason: "InvalidDependencyContract",
   },
   completion: null,
   progress: null,
@@ -167,9 +198,40 @@ function succeeded(
   value: EngineWorkerPackageQueryCompletionEvent = completionEvent,
 ): BrowserPackageQueryResult {
   return {
-    version: 1,
+    version: 2,
     kind: "Succeeded",
     value,
+    inspection: null,
+    failureKind: null,
+    error: null,
+    diagnostic: null,
+    reason: null,
+  };
+}
+
+function inspected(
+  content: readonly BrowserPackageQueryEvent[] = [completionEvent],
+): BrowserPackageQueryResult {
+  return {
+    version: 2,
+    kind: "Succeeded",
+    value: null,
+    inspection: {
+      content,
+      share: {
+        kind: "NonProjectable",
+        fullUrl: null,
+        packet: null,
+        path: "package-query/share",
+        reason: "No canonical Workspace packet.",
+      },
+      diagnostics: [{
+        code: "package-query-note",
+        severity: "Information",
+        summary: "Package Query completed.",
+        correspondence: null,
+      }],
+    },
     failureKind: null,
     error: null,
     diagnostic: null,
@@ -179,9 +241,10 @@ function succeeded(
 
 function canceled(reason: string): BrowserPackageQueryResult {
   return {
-    version: 1,
+    version: 2,
     kind: "Canceled",
     value: null,
+    inspection: null,
     failureKind: null,
     error: null,
     diagnostic: null,
@@ -195,9 +258,10 @@ function failed(
   diagnostic: string,
 ): BrowserPackageQueryResult {
   return {
-    version: 1,
+    version: 2,
     kind: "Failed",
     value: null,
+    inspection: null,
     failureKind,
     error,
     diagnostic,
@@ -211,12 +275,24 @@ function emit(
     | EngineWorkerPackageQueryDurableEvent
     | EngineWorkerPackageQueryCompletionEvent,
 ): void {
+  emitSerialized(eventSink, JSON.stringify(event));
+}
+
+function emitSerialized(eventSink: unknown, serialized: string): void {
   if (typeof eventSink !== "object" || eventSink === null) {
     throw new Error("Expected an event sink.");
   }
-  if (!Reflect.set(eventSink, "event", JSON.stringify(event))) {
+  if (!Reflect.set(eventSink, "event", serialized)) {
     throw new Error("Package Query event sink rejected an event.");
   }
+}
+
+function serializeLikeSystemTextJson(value: unknown): string {
+  return JSON.stringify(value).replace(
+    /[^\p{ASCII}]/gu,
+    character =>
+      `\\u${character.charCodeAt(0).toString(16).padStart(4, "0").toUpperCase()}`,
+  );
 }
 
 interface Harness {
@@ -353,7 +429,7 @@ async function startReady(harness: Harness): Promise<void> {
 }
 
 type PackageQueryFeatureEvent = OperationFeatureEvent<
-  EngineWorkerPackageQueryCompletionEvent,
+  EngineWorkerPackageQueryTerminal,
   EngineWorkerPackageQueryTerminalFailure,
   never,
   EngineWorkerPackageQueryDurableEvent
@@ -361,7 +437,7 @@ type PackageQueryFeatureEvent = OperationFeatureEvent<
 
 type PackageQuerySession = OperationSession<
   QueryRequest,
-  EngineWorkerPackageQueryCompletionEvent,
+  EngineWorkerPackageQueryTerminal,
   EngineWorkerPackageQueryTerminalFailure,
   never,
   WorkerRuntimePreparationError,
@@ -389,7 +465,7 @@ function createQuerySession(
       },
     }).createSession<
       QueryRequest,
-      EngineWorkerPackageQueryCompletionEvent,
+      EngineWorkerPackageQueryTerminal,
       EngineWorkerPackageQueryTerminalFailure,
       never,
       WorkerRuntimePreparationError,
@@ -413,7 +489,7 @@ function startQuery(
   sessionState = createQuerySession([operationId]),
 ): {
   readonly handle: OperationHandle<
-    EngineWorkerPackageQueryCompletionEvent,
+    EngineWorkerPackageQueryTerminal,
     EngineWorkerPackageQueryTerminalFailure
   >;
   readonly events: PackageQueryFeatureEvent[];
@@ -480,12 +556,42 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
   });
   assert.deepEqual(credits, [["package-query-operation", 10]]);
 
-  terminal.resolve(succeeded());
+  terminal.resolve(inspected([
+    progressEvent,
+    matchEvent,
+    failureEvent,
+    assessmentEvent,
+    completionEvent,
+  ]));
   await Promise.resolve();
   await harness.environment.flushAsync();
   assert.deepEqual(await handle.outcome, {
     kind: "succeeded",
-    value: completionEvent,
+    value: {
+      event: completionEvent,
+      inspection: {
+        content: [
+          progressEvent,
+          matchEvent,
+          failureEvent,
+          assessmentEvent,
+          completionEvent,
+        ],
+        share: {
+          kind: "NonProjectable",
+          fullUrl: null,
+          packet: null,
+          path: "package-query/share",
+          reason: "No canonical Workspace packet.",
+        },
+        diagnostics: [{
+          code: "package-query-note",
+          severity: "Information",
+          summary: "Package Query completed.",
+          correspondence: null,
+        }],
+      },
+    },
   });
   await handle.quiesced;
   assert.deepEqual(
@@ -526,6 +632,87 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
   });
   assert.doesNotThrow(() => structuredClone(payload));
   harness.host.dispose();
+});
+
+test("Package Query Worker accepts escaped owner-valid manifest callbacks", async () => {
+  const packageType = "\u00E9".repeat(32 * 1_024);
+  const expandedMatch: EngineWorkerPackageQueryDurableEvent = {
+    ...matchEvent,
+    row: {
+      ...matchEvent.row,
+      manifest: {
+        ...matchEvent.row.manifest!,
+        packageTypes: Array.from({ length: 8 }, () => packageType),
+      },
+    },
+  };
+  const serialized = serializeLikeSystemTextJson(expandedMatch);
+  assert.ok(serialized.length > 1_048_576);
+
+  const facade: EngineWorkerPackageQueryFacade = {
+    cancelPackageQuery: () => ({ kind: "NotActive", reason: null }),
+    requestPackageQueryMatches: () => ({
+      kind: "NotActive",
+      additionalMatchCredit: null,
+    }),
+    runPackageAssemblyQuery: () => Promise.resolve(succeeded()),
+    runPackageQuery(...args) {
+      emitSerialized(args[7], serialized);
+      return Promise.resolve(inspected([expandedMatch, completionEvent]));
+    },
+  };
+  const harness = createHarness(facade);
+  await startReady(harness);
+  const { handle } = startQuery(harness.adapter);
+  await harness.environment.flushAsync();
+
+  const outcome = await handle.outcome;
+  assert.equal(outcome.kind, "succeeded");
+  if (outcome.kind !== "succeeded")
+    throw new Error("Expected Package Query to succeed.");
+  assert.equal(
+    outcome.value.inspection?.content[0]?.row?.manifest?.packageTypes.length,
+    8,
+  );
+  assert.equal(
+    outcome.value.inspection?.content[0]?.row?.manifest?.packageTypes[0]?.length,
+    32 * 1_024,
+  );
+
+  harness.host.dispose();
+  await handle.quiesced;
+});
+
+test("Package Query Worker rejects callbacks above the encoded wire bound", async () => {
+  const facade: EngineWorkerPackageQueryFacade = {
+    cancelPackageQuery: () => ({ kind: "NotActive", reason: null }),
+    requestPackageQueryMatches: () => ({
+      kind: "NotActive",
+      additionalMatchCredit: null,
+    }),
+    runPackageAssemblyQuery: () => Promise.resolve(succeeded()),
+    runPackageQuery(...args) {
+      emitSerialized(args[7], " ".repeat(8 * 1_024 * 1_024));
+      return Promise.resolve(succeeded());
+    },
+  };
+  const harness = createHarness(facade);
+  await startReady(harness);
+  const { handle } = startQuery(harness.adapter);
+  await harness.environment.flushAsync();
+
+  assert.deepEqual(await handle.outcome, {
+    kind: "failed",
+    error: {
+      failureKind: "Unexpected",
+      error: "Worker reported a runtime failure.",
+      diagnostic: "Worker reported a runtime failure.",
+    },
+  });
+  assert.equal(harness.host.snapshot().phase, "draining");
+
+  harness.host.dispose();
+  await handle.quiesced;
 });
 
 test("Package Query binding preserves caller identity and expected diagnostics", async () => {
@@ -570,6 +757,40 @@ test("Package Query binding preserves caller identity and expected diagnostics",
   ));
   assert.equal(runs[0]?.[0], "caller-package-query");
 
+  binding.dispose();
+  harness.host.dispose();
+});
+
+test("Package Query binding preserves the inspection envelope", async () => {
+  const expected = inspected([progressEvent, completionEvent]);
+  const facade: EngineWorkerPackageQueryFacade = {
+    cancelPackageQuery: () => ({ kind: "NotActive", reason: null }),
+    requestPackageQueryMatches: () => ({
+      kind: "NotActive",
+      additionalMatchCredit: null,
+    }),
+    runPackageAssemblyQuery: () => Promise.resolve(succeeded()),
+    runPackageQuery: () => Promise.resolve(expected),
+  };
+  const harness = createHarness(facade);
+  await startReady(harness);
+  const binding = bindPackageQueryFacade(
+    harness.adapter,
+    () => undefined,
+    createSharedEngineOperationAuthority(),
+  );
+
+  const result = await binding.runPackageQuery(
+    "envelope-package-query",
+    "Contoso.",
+    "[]",
+    20,
+    10,
+    false,
+    20,
+    {});
+
+  assert.deepEqual(result, expected);
   binding.dispose();
   harness.host.dispose();
 });
@@ -687,7 +908,7 @@ test("Package Query retains an already-posted credit response across settlement"
   await harness.environment.flushAsync();
   assert.deepEqual(await handle.outcome, {
     kind: "succeeded",
-    value: completionEvent,
+    value: { event: completionEvent, inspection: null },
   });
   assert.deepEqual(
     await harness.adapter.requestControl(handle.id, 10),
@@ -712,7 +933,7 @@ test("Package Query generated terminal validation contains malformed results to 
     }),
     runPackageAssemblyQuery: () => Promise.resolve({
       ...succeeded(),
-      version: 2,
+      version: 3,
     }),
     runPackageQuery: () => Promise.resolve({
       ...succeeded(),
@@ -761,7 +982,7 @@ test("Package Query generated terminal validation contains malformed results to 
     error: {
       failureKind: "Unexpected",
       error: "Package Query returned invalid Worker boundary data.",
-      diagnostic: "Expected a version 1 Package Query result.",
+      diagnostic: "Expected a version 2 Package Query result.",
     },
   });
   await assembly.handle.quiesced;
@@ -826,6 +1047,43 @@ test("Package Query codecs reject terminal callbacks, malformed descriptors, and
       description: "x".repeat(1_048_577),
     },
   }).kind, "rejected");
+  assert.equal(engineWorkerPackageQueryDurableEvent.decode({
+    ...matchEvent,
+    row: {
+      ...matchEvent.row,
+      owners: "Contoso",
+    },
+  }).kind, "rejected");
+  assert.equal(engineWorkerPackageQueryDurableEvent.decode({
+    ...matchEvent,
+    row: {
+      ...matchEvent.row,
+      owners: Array.from({ length: 4_097 }, () => "Contoso"),
+    },
+  }).kind, "rejected");
+  assert.equal(engineWorkerPackageQueryDurableEvent.decode({
+    ...matchEvent,
+    row: {
+      ...matchEvent.row,
+      manifest: {
+        ...matchEvent.row.manifest!,
+        dependencyGroups: [{
+          ...matchEvent.row.manifest!.dependencyGroups[0]!,
+          dependencies: [{
+            id: "Contoso.Dependency",
+            versionRange: 2,
+          }],
+        }],
+      },
+    },
+  }).kind, "rejected");
+  assert.equal(engineWorkerPackageQueryDurableEvent.decode({
+    ...failureEvent,
+    failure: {
+      ...failureEvent.failure,
+      manifestFailureReason: "UnknownReason",
+    },
+  }).kind, "rejected");
 
   const accessor = { ...matchEvent };
   Object.defineProperty(accessor, "row", {
@@ -833,6 +1091,97 @@ test("Package Query codecs reject terminal callbacks, malformed descriptors, and
   });
   assert.equal(
     engineWorkerPackageQueryDurableEvent.decode(accessor).kind,
+    "rejected",
+  );
+});
+
+test("Package Query Worker accepts owner maximum manifest collections", () => {
+  const result = engineWorkerPackageQueryDurableEvent.decode({
+    ...matchEvent,
+    row: {
+      ...matchEvent.row,
+      owners: Array.from({ length: 4_096 }, () => "Contoso"),
+      manifest: {
+        ...matchEvent.row.manifest!,
+        packageTypes: Array.from({ length: 128 }, () => "Dependency"),
+        dependencyGroups: Array.from(
+          { length: 1_024 },
+          (_group, groupIndex) => ({
+            targetFramework: `net10.0-${groupIndex}`,
+            dependencies: Array.from(
+              { length: 4 },
+              (_dependency, dependencyIndex) => ({
+                id: `Dependency.${groupIndex}.${dependencyIndex}`,
+                versionRange: "[1.0.0,2.0.0)",
+              })),
+            isImplicitManifestGroup: false,
+          })),
+      },
+    },
+  });
+
+  assert.equal(result.kind, "decoded");
+});
+
+test("Package Query inspection accepts the maximum valid event scale", () => {
+  const content = [
+    ...Array.from({ length: 4_097 }, () => progressEvent),
+    completionEvent,
+  ];
+
+  assert.equal(
+    mapEngineWorkerPackageQueryResult(inspected(content)).kind,
+    "succeeded",
+  );
+
+  const combined = inspected([
+    ...Array.from({ length: 16_000 }, () => progressEvent),
+    completionEvent,
+  ]);
+  assert.notEqual(combined.inspection, null);
+  assert.equal(mapEngineWorkerPackageQueryResult({
+    ...combined,
+    inspection: {
+      ...combined.inspection,
+      diagnostics: Array.from({ length: 4_096 }, () => ({
+        code: "package-query-note",
+        severity: "Information",
+        summary: "Package Query completed.",
+        correspondence: null,
+      })),
+    },
+  }).kind, "succeeded");
+
+  const result = inspected();
+  assert.notEqual(result.inspection, null);
+  assert.equal(mapEngineWorkerPackageQueryResult({
+    ...result,
+    inspection: {
+      ...result.inspection,
+      diagnostics: Array.from({ length: 4_097 }, () => ({
+        code: "package-query-note",
+        severity: "Information",
+        summary: "Package Query completed.",
+        correspondence: null,
+      })),
+    },
+  }).kind, "failed");
+});
+
+test("Package Query terminal rejects completion that differs from inspection", () => {
+  const result = inspected();
+  assert.notEqual(result.inspection, null);
+  assert.equal(
+    engineWorkerPackageQueryTerminal.decode({
+      event: {
+        ...completionEvent,
+        completion: {
+          ...completionEvent.completion,
+          matches: completionEvent.completion.matches + 1,
+        },
+      },
+      inspection: result.inspection,
+    }).kind,
     "rejected",
   );
 });
@@ -869,9 +1218,10 @@ test("Package Query cancellation, credit, and terminal mappers enforce exact res
   }, 10), /different match-credit amount/);
 
   assert.deepEqual(mapEngineWorkerPackageQueryResult({
-    version: 1,
+    version: 2,
     kind: "Failed",
     value: null,
+    inspection: null,
     failureKind: "Expected",
     error: "query unavailable",
     diagnostic: "expected detail",
@@ -891,9 +1241,10 @@ test("Package Query cancellation, credit, and terminal mappers enforce exact res
     reason: "timeout",
   });
   assert.deepEqual(mapEngineWorkerPackageQueryResult({
-    version: 1,
+    version: 2,
     kind: "Failed",
     value: null,
+    inspection: null,
     failureKind: "Unexpected",
     error: "query failed",
     diagnostic: "x".repeat(65_537),

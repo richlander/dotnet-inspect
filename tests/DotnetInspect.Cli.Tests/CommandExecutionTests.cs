@@ -34251,6 +34251,65 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Project_Discover_ExplicitTableDoesNotPromoteToTree()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "project",
+            "-D", "Skills,Package README file",
+            "--table");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Package      column", output);
+        Assert.Contains("Description  column", output);
+        Assert.DoesNotContain("├─", output);
+        Assert.DoesNotContain("└─", output);
+    }
+
+    [Fact]
+    public async Task Project_Discover_TsvNoHeaderOmitsHeader()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "project",
+            "-D", "Skills",
+            "--tsv",
+            "--no-header",
+            "--rows", "1");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal("Package\tcolumn\n", output.ReplaceLineEndings("\n"));
+    }
+
+    [Fact]
+    public async Task Project_Discover_JsonOutWritesOnlyToFile()
+    {
+        var tempDirectory = Directory.CreateTempSubdirectory("project-discovery-out-");
+        try
+        {
+            string path = Path.Combine(tempDirectory.FullName, "discovery.json");
+
+            var (exit, output, error) = await RunAppAsync(
+                "project",
+                "-D", "Skills",
+                "--json",
+                "--out", path);
+
+            Assert.Equal(0, exit);
+            Assert.Empty(output);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            var first = document.RootElement.EnumerateArray().First();
+            Assert.Equal("Package", first.GetProperty("name").GetString());
+            Assert.Equal("column", first.GetProperty("kind").GetString());
+        }
+        finally
+        {
+            tempDirectory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Project_BareSelect_UsesSkillsOverview()
     {
         var skill = CompliantProjectSkill("skills/default/SKILL.md", "default");

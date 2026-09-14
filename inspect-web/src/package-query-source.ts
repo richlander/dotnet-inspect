@@ -5,6 +5,8 @@ import type {
   BrowserPackageAssemblyAssessment,
   BrowserPackageQueryCompletion as BrowserPackageQueryCompletionPayload,
   BrowserPackageQueryFailure as BrowserPackageQueryFailurePayload,
+  BrowserPackageQueryInspection,
+  BrowserPackageQueryManifest,
   BrowserPackageQueryProgress as BrowserPackageQueryProgressPayload,
   BrowserPackageQueryRow as BrowserPackageQueryRowPayload,
   BrowserPackageQueryEvent as BrowserPackageQueryEventPayload,
@@ -24,6 +26,16 @@ import type {
 import { PACKAGE_QUERY_INITIAL_MATCH_CREDIT } from "./package-query.ts";
 
 export type { BrowserPackageAssemblyQueryPattern } from "./facades/inspect-web-package.d.ts";
+export type { BrowserPackageQueryInspection } from "./facades/inspect-web-package.d.ts";
+
+type PackageQueryManifestFailureReason = Extract<
+  BrowserPackageQueryFailurePayload["manifestFailureReason"],
+  string
+>;
+type PackageQueryManifestIdentityProvenance = Extract<
+  BrowserPackageQueryManifest["identityProvenance"],
+  string
+>;
 
 export interface BrowserPackageQueryEngine {
   cancel(
@@ -58,6 +70,9 @@ export interface BrowserPackageQueryEngine {
 
 export interface BrowserPackageQueryDataSourceOptions {
   createOperationId?: () => string;
+  onInspection?: (
+    inspection: BrowserPackageQueryInspection | null,
+  ) => void;
   reportUnexpectedFailure?: (
     operationId: string,
     error: Error,
@@ -113,6 +128,7 @@ export function createBrowserPackageQueryDataSource(
         `Package Query managed operation '${operationId}' failed unexpectedly.`,
         diagnostic ?? error);
     });
+  const onInspection = options.onInspection ?? (() => {});
   return {
     initialMatchCredit: PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
     requestMore: async additionalMatchCredit => {
@@ -138,6 +154,7 @@ export function createBrowserPackageQueryDataSource(
           "The Browser package-query operation ID allocator returned no ID.");
       }
       activeOperationId = operationId;
+      onInspection(null);
 
       let completion: TerminalQueryCompletion | null = null;
       const flushState: {
@@ -229,7 +246,7 @@ export function createBrowserPackageQueryDataSource(
               eventSink);
         flushEvents();
         let unexpectedFailure: Error | null = null;
-        if (result.version === 1
+        if (result.version === 2
             && result.kind === "Failed"
             && result.failureKind === "Unexpected") {
           unexpectedFailure = new Error(
@@ -247,7 +264,7 @@ export function createBrowserPackageQueryDataSource(
           }
         }
         if (flushState.failed) throw flushState.error;
-        if (result.version !== 1) {
+        if (result.version !== 2) {
           throw new Error(
             "The Browser package-query result version is unsupported.");
         }
@@ -256,12 +273,31 @@ export function createBrowserPackageQueryDataSource(
           throw unexpectedFailure ?? new Error(
             result.error ?? "The Browser package query failed without an error.");
         }
-        if (result.kind !== "Succeeded" || result.value === null) {
+        if (result.kind !== "Succeeded") {
           throw new TypeError(
             "The Browser package-query result was not a supported terminal result.");
         }
         if (abortSignal.aborted) return { kind: "cancelled" };
-        const finalEvent = result.value;
+        let finalEvent: BrowserPackageQueryEventPayload;
+        if (request.assemblyPattern) {
+          if (result.value === null || result.inspection !== null) {
+            throw new TypeError(
+              "The Browser assembly-query result had invalid inspection data.");
+          }
+          finalEvent = result.value;
+        } else {
+          if (result.value !== null || result.inspection === null) {
+            throw new TypeError(
+              "The Browser package-query result did not contain its inspection envelope.");
+          }
+          const content = result.inspection.content;
+          const terminal = content.at(-1);
+          if (terminal?.kind !== "Completed") {
+            throw new TypeError(
+              "The Browser package-query inspection did not end with completion.");
+          }
+          finalEvent = terminal;
+        }
         if (finalEvent.kind !== "Completed") {
           throw new TypeError(
             "The Browser package-query result was not a terminal event.");
@@ -273,12 +309,17 @@ export function createBrowserPackageQueryDataSource(
           onProgress,
           onAssessment,
           terminal => { completion = terminal; });
-        return completion
-          ?? {
+        if (completion === null) {
+          return {
             kind: "failed",
             reason:
               "The Browser package-query stream ended without a completion event.",
           };
+        }
+        if (!request.assemblyPattern) {
+          onInspection(result.inspection);
+        }
+        return completion;
       } catch (error) {
         flushEvents();
         if (flushState.failed) throw flushState.error;
@@ -468,6 +509,10 @@ function parseRow(value: unknown): BrowserPackageQueryRowPayload {
     throw new TypeError(
       "The Browser package-query row evidence was not an array.");
   }
+  if (!Array.isArray(row.owners)) {
+    throw new TypeError(
+      "The Browser package-query row owners were not an array.");
+  }
   return {
     packageId: stringValue(row.packageId, "package-query package ID"),
     version: stringValue(row.version, "package-query version"),
@@ -495,6 +540,102 @@ function parseRow(value: unknown): BrowserPackageQueryRowPayload {
     rootRequest: optionalNullableStringValue(
       row.rootRequest,
       "package-query Root request"),
+    owners: row.owners.map(item =>
+      stringValue(item, "package-query owner")),
+    manifest: parseManifest(row.manifest),
+  };
+}
+
+function parseManifest(
+  value: unknown,
+): BrowserPackageQueryManifest | null {
+  if (value === null) return null;
+  const manifest = objectValue(value, "package-query manifest");
+  if (!Array.isArray(manifest.packageTypes)) {
+    throw new TypeError(
+      "The Browser package-query manifest package types were not an array.");
+  }
+  if (!Array.isArray(manifest.dependencyGroups)) {
+    throw new TypeError(
+      "The Browser package-query manifest dependency groups were not an array.");
+  }
+  return {
+    packageId: stringValue(
+      manifest.packageId,
+      "package-query manifest package ID"),
+    version: stringValue(
+      manifest.version,
+      "package-query manifest version"),
+    manifestVersion: stringValue(
+      manifest.manifestVersion,
+      "package-query manifest schema version"),
+    description: nullableStringValue(
+      manifest.description,
+      "package-query manifest description"),
+    authors: nullableStringValue(
+      manifest.authors,
+      "package-query manifest authors"),
+    repository: nullableStringValue(
+      manifest.repository,
+      "package-query manifest repository"),
+    repositoryType: nullableStringValue(
+      manifest.repositoryType,
+      "package-query manifest repository type"),
+    repositoryCommit: nullableStringValue(
+      manifest.repositoryCommit,
+      "package-query manifest repository commit"),
+    license: nullableStringValue(
+      manifest.license,
+      "package-query manifest license"),
+    licenseUrl: nullableStringValue(
+      manifest.licenseUrl,
+      "package-query manifest license URL"),
+    packageTypes: manifest.packageTypes.map(item =>
+      stringValue(item, "package-query manifest package type")),
+    isToolPackage: booleanValue(
+      manifest.isToolPackage,
+      "package-query tool package flag"),
+    readmeFile: nullableStringValue(
+      manifest.readmeFile,
+      "package-query manifest README file"),
+    dependencyGroups: manifest.dependencyGroups.map(groupValue => {
+      const group = objectValue(
+        groupValue,
+        "package-query manifest dependency group");
+      if (!Array.isArray(group.dependencies)) {
+        throw new TypeError(
+          "The Browser package-query manifest dependencies were not an array.");
+      }
+      return {
+        targetFramework: stringValue(
+          group.targetFramework,
+          "package-query dependency target framework"),
+        dependencies: group.dependencies.map(dependencyValue => {
+          const dependency = objectValue(
+            dependencyValue,
+            "package-query manifest dependency");
+          return {
+            id: stringValue(
+              dependency.id,
+              "package-query dependency ID"),
+            versionRange: stringValue(
+              dependency.versionRange,
+              "package-query dependency version range"),
+          };
+        }),
+        isImplicitManifestGroup: booleanValue(
+          group.isImplicitManifestGroup,
+          "package-query implicit manifest group"),
+      };
+    }),
+    iconFile: nullableStringValue(
+      manifest.iconFile,
+      "package-query manifest icon file"),
+    iconUrl: nullableStringValue(
+      manifest.iconUrl,
+      "package-query manifest icon URL"),
+    identityProvenance: manifestIdentityProvenanceValue(
+      manifest.identityProvenance),
   };
 }
 
@@ -561,6 +702,8 @@ function parseFailure(value: unknown): BrowserPackageQueryFailurePayload {
     producer: stringValue(failure.producer, "package-query failure producer"),
     kind: failureKindValue(failure.kind),
     message: stringValue(failure.message, "package-query failure message"),
+    manifestFailureReason: manifestFailureReasonValue(
+      failure.manifestFailureReason),
   };
 }
 
@@ -637,6 +780,45 @@ function failureKindValue(
     default:
       throw new TypeError(
         `Unknown package-query failure kind '${String(value)}'.`);
+  }
+}
+
+function manifestFailureReasonValue(
+  value: unknown,
+): PackageQueryManifestFailureReason | null {
+  if (value === null) return null;
+  switch (value) {
+    case "MalformedXml":
+      return "MalformedXml";
+    case "UnsupportedDocumentShape":
+      return "UnsupportedDocumentShape";
+    case "IdentityMismatch":
+      return "IdentityMismatch";
+    case "InvalidDependencyContract":
+      return "InvalidDependencyContract";
+    case "ConfiguredLimitExceeded":
+      return "ConfiguredLimitExceeded";
+    case "InvalidIdentityContract":
+      return "InvalidIdentityContract";
+    default:
+      throw new TypeError(
+        "Unknown package-query manifest failure reason "
+          + `'${typeof value === "string" ? value : typeof value}'.`);
+  }
+}
+
+function manifestIdentityProvenanceValue(
+  value: unknown,
+): PackageQueryManifestIdentityProvenance {
+  switch (value) {
+    case "ExpectedCoordinate":
+      return "ExpectedCoordinate";
+    case "SelfAttested":
+      return "SelfAttested";
+    default:
+      throw new TypeError(
+        "Unknown package-query manifest identity provenance "
+          + `'${typeof value === "string" ? value : typeof value}'.`);
   }
 }
 
