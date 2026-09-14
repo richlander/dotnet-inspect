@@ -1019,9 +1019,11 @@ uses, and fully settles one owner-bounded realization per request.
 The Metadata query considers only participants realized from the requested
 package coordinate. It projects public members for public Types and complete
 members for an exact non-public Type, prefers an exact full-name declaration
-over fuzzy generic-name matching, follows Type forwarders through the group
-binding policy, and collapses roots only when Metadata resolves them to the
-same terminal definition. Distinct terminal definitions are ambiguous. The
+over fuzzy generic-name matching, and retains every declaration matched by a
+non-full-name lookup through terminal resolution. It follows Type forwarders
+through the group binding policy and collapses roots only when Metadata resolves
+them to the same terminal definition. Distinct terminal definitions are
+ambiguous. The
 requested and supplying assemblies retain Metadata-issued assembly identity
 and MVID; ordered forwarding hops preserve the route between them.
 

@@ -716,8 +716,7 @@ public static class TypeCommand
                 packageId,
                 version,
                 options.Tfm,
-                options.TypeName,
-                options.IncludeAll);
+                options.TypeName);
             return true;
         }
         catch (ArgumentException)
@@ -769,39 +768,11 @@ public static class TypeCommand
         ExactTypeInspectionResult result = envelope.Content;
         if (!result.IsAvailable)
         {
-            switch (result.Outcome)
-            {
-                case ExactTypeInspectionOutcome.NotFound:
-                    CommandError.Write(
-                        $"Type '{result.RequestedType}' not found.",
-                        [
-                            .. ApiTypeLookupResult.SuggestionDetails(
-                                result.Suggestions),
-                        ]);
-                    break;
-                case ExactTypeInspectionOutcome.Ambiguous:
-                    CommandError.Write(
-                        $"Type '{result.RequestedType}' is ambiguous.");
-                    break;
-                default:
-                    CommandError.Write(
-                        $"Could not inspect Type '{result.RequestedType}'.",
-                        [
-                            .. envelope.Diagnostics.Select(diagnostic =>
-                                diagnostic.Summary.ToString()),
-                        ]);
-                    break;
-            }
+            WriteExactTypeNonSuccess(envelope);
             return 1;
         }
 
-        foreach (InspectionDiagnostic diagnostic in envelope.Diagnostics
-            .Where(static diagnostic =>
-                diagnostic.Severity
-                    == InspectionDiagnosticSeverity.Warning))
-        {
-            CommandError.WriteWarning(diagnostic.Summary.ToString());
-        }
+        WriteExactTypeDiagnostics(envelope.Diagnostics);
 
         ExactTypeApi exactType = result.Type!;
         var type = new ApiType
@@ -892,11 +863,79 @@ public static class TypeCommand
             PackageReplaySourceUrls: null,
             PackageReplayUsesOriginalSources: false,
             Context: new CommandContext(options.Verbose));
-        return await ExecuteCoreAsync(
+        int exitCode = await ExecuteCoreAsync(
             options,
             plan,
             source,
             loaded).ConfigureAwait(false);
+        return exitCode != 0 || !result.IsComplete
+            ? 1
+            : 0;
+    }
+
+    static void WriteExactTypeNonSuccess(
+        InspectionEnvelope<ExactTypeInspectionResult> envelope)
+    {
+        ExactTypeInspectionResult result = envelope.Content;
+        string? primaryCode = result.Outcome switch
+        {
+            ExactTypeInspectionOutcome.NotFound =>
+                "exact-type.not-found",
+            ExactTypeInspectionOutcome.Ambiguous =>
+                "exact-type.ambiguous",
+            _ => null,
+        };
+        InspectionDiagnostic? primary = primaryCode is null
+            ? null
+            : envelope.Diagnostics.FirstOrDefault(diagnostic =>
+                diagnostic.Code == primaryCode);
+        WriteExactTypeDiagnostics(
+            primary is null
+                ? envelope.Diagnostics
+                : envelope.Diagnostics.Where(diagnostic =>
+                    !ReferenceEquals(diagnostic, primary)));
+        if (primary is not null)
+        {
+            CommandError.Write(
+                primary.Summary.ToString(),
+                [
+                    .. ApiTypeLookupResult.SuggestionDetails(
+                        result.Suggestions),
+                ]);
+        }
+        else if (!envelope.Diagnostics.Any(diagnostic =>
+            diagnostic.Severity
+                == InspectionDiagnosticSeverity.Error))
+        {
+            CommandError.Write(
+                $"Could not inspect Type '{result.RequestedType}'.");
+        }
+    }
+
+    static void WriteExactTypeDiagnostics(
+        IEnumerable<InspectionDiagnostic> diagnostics)
+    {
+        foreach (InspectionDiagnostic diagnostic in diagnostics)
+        {
+            string message = diagnostic.Summary.ToString();
+            switch (diagnostic.Severity)
+            {
+                case InspectionDiagnosticSeverity.Information:
+                    CommandError.WriteNote(message);
+                    break;
+                case InspectionDiagnosticSeverity.Warning:
+                    CommandError.WriteWarning(message);
+                    break;
+                case InspectionDiagnosticSeverity.Error:
+                    CommandError.Write(message);
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(
+                        nameof(diagnostics),
+                        diagnostic.Severity,
+                        "Unknown exact Type diagnostic severity.");
+            }
+        }
     }
 
     private static bool CanUsePlatformSummary(

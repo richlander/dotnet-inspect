@@ -243,6 +243,36 @@ public sealed class ExactTypeInspectionOperationTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_DistinctSimpleNameDefinitionsAreAmbiguous()
+    {
+        var store = await CachedStoreAsync(
+            ("lib/net11.0/Collision.dll",
+                BuildAssembly(
+                    "Collision",
+                    ("First.Widget", typeof(IDisposable)),
+                    ("Second.Widget", typeof(IAsyncDisposable)))));
+        using var client = new HttpClient(new FailingHandler());
+
+        InspectionEnvelope<ExactTypeInspectionResult> envelope =
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                new ExactTypeInspectionRequest(
+                    PackageId,
+                    Version,
+                    Framework,
+                    "Widget"),
+                LoadOptions(client, store),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            ExactTypeInspectionOutcome.Ambiguous,
+            envelope.Content.Outcome);
+        Assert.Null(envelope.Content.MatchedType);
+        Assert.Contains(
+            envelope.Diagnostics,
+            diagnostic => diagnostic.Code == "exact-type.ambiguous");
+    }
+
+    [Fact]
     public async Task ExecuteAsync_MalformedSelectedTypeRemainsVisible()
     {
         var store = await CachedStoreAsync(
@@ -315,7 +345,8 @@ public sealed class ExactTypeInspectionOperationTests
         WorkspaceRealizationCandidate candidate =
             Assert.IsType<WorkspaceRealizationCandidateStartResult.Prepared>(
                 await coordinator.BeginCandidateAsync(
-                    new WorkspacePlan([], [input])))
+                    new WorkspacePlan([], [input]),
+                    TestContext.Current.CancellationToken))
             .Candidate;
         WorkspaceContextLoadOutcome.Loaded loaded;
         using (WorkspaceRealizationConstructionLease construction =
@@ -578,19 +609,29 @@ public sealed class ExactTypeInspectionOperationTests
     static byte[] BuildAssembly(
         string assemblyName,
         string typeName,
-        Type implementedInterface)
+        Type implementedInterface) =>
+        BuildAssembly(
+            assemblyName,
+            (typeName, implementedInterface));
+
+    static byte[] BuildAssembly(
+        string assemblyName,
+        params (string TypeName, Type ImplementedInterface)[] types)
     {
         var assembly = new PersistedAssemblyBuilder(
             new AssemblyName(assemblyName),
             typeof(object).Assembly);
         ModuleBuilder module = assembly.DefineDynamicModule(assemblyName);
-        TypeBuilder type = module.DefineType(
-            typeName,
-            TypeAttributes.Public
-                | TypeAttributes.Abstract
-                | TypeAttributes.Class);
-        type.AddInterfaceImplementation(implementedInterface);
-        type.CreateType();
+        foreach ((string typeName, Type implementedInterface) in types)
+        {
+            TypeBuilder type = module.DefineType(
+                typeName,
+                TypeAttributes.Public
+                    | TypeAttributes.Abstract
+                    | TypeAttributes.Class);
+            type.AddInterfaceImplementation(implementedInterface);
+            type.CreateType();
+        }
 
         using var stream = new MemoryStream();
         assembly.Save(stream);

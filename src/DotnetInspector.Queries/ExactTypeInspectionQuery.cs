@@ -15,8 +15,7 @@ public sealed record ExactTypeInspectionRequest
         string packageId,
         string version,
         string targetFramework,
-        string type,
-        bool includeAll = false)
+        string type)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         ArgumentException.ThrowIfNullOrWhiteSpace(version);
@@ -45,7 +44,6 @@ public sealed record ExactTypeInspectionRequest
         Version = parsedVersion.ToNormalizedString();
         TargetFramework = targetFramework;
         Type = type;
-        IncludeAll = includeAll;
     }
 
     public string PackageId { get; }
@@ -55,8 +53,6 @@ public sealed record ExactTypeInspectionRequest
     public string TargetFramework { get; }
 
     public string Type { get; }
-
-    public bool IncludeAll { get; }
 }
 
 public enum ExactTypeInspectionOutcome
@@ -325,9 +321,6 @@ internal static class ExactTypeInspectionQuery
                 "The admitted realization does not contain the requested package coordinate.");
         }
 
-        ApiSurfaceScope scope = request.IncludeAll
-            ? ApiSurfaceScope.IncludeAll
-            : ApiSurfaceScope.PublicWithNonPublicTypes;
         ImmutableArray<Projection> projections =
         [
             .. participants.Select(
@@ -337,7 +330,7 @@ internal static class ExactTypeInspectionQuery
                     AssemblyContextApiSurfaceQuery.ExecuteParticipant(
                         loaded.Group,
                         participant,
-                        scope))),
+                        ApiSurfaceScope.PublicWithNonPublicTypes))),
         ];
         ImmutableArray<ExactTypeInspectionFailure> participantFailures =
             ParticipantFailures(projections);
@@ -364,11 +357,19 @@ internal static class ExactTypeInspectionQuery
             name.Equals(
                 request.Type,
                 StringComparison.OrdinalIgnoreCase));
-        LookupResult lookup = exactName is null
-            ? TypeMatcher.Lookup(declarationNames, request.Type)
-            : new LookupResult(exactName, []);
-        if (lookup.Match is null)
+        string[] matchingNames = exactName is not null
+            ? [exactName]
+            :
+            [
+                .. declarationNames.Where(name =>
+                    TypeMatcher.MatchesTypeFilter(
+                        name,
+                        request.Type)),
+            ];
+        if (matchingNames.Length == 0)
         {
+            LookupResult lookup =
+                TypeMatcher.Lookup(declarationNames, request.Type);
             return new ExactTypeInspectionResult(
                 ExactTypeInspectionOutcome.NotFound,
                 request.Type,
@@ -389,17 +390,18 @@ internal static class ExactTypeInspectionQuery
         ImmutableArray<Candidate> matching =
         [
             .. declarations.Where(candidate =>
-                candidate.Definition.ToEscapedFullName().Equals(
-                    lookup.Match,
-                    StringComparison.OrdinalIgnoreCase)),
+                matchingNames.Contains(
+                    candidate.Definition.ToEscapedFullName(),
+                    StringComparer.OrdinalIgnoreCase)),
         ];
+        string? matchedType = matchingNames.Length == 1
+            ? matchingNames[0]
+            : null;
         var resolved = ImmutableArray.CreateBuilder<ResolvedCandidate>();
         var resolutionFailures =
             ImmutableArray.CreateBuilder<ExactTypeInspectionFailure>();
         bool ambiguous = false;
-        foreach (Candidate candidate in matching
-            .DistinctBy(static candidate =>
-                candidate.Participant.Assembly.Registration))
+        foreach (Candidate candidate in matching)
         {
             AssemblyContextTypeResolutionResult resolution =
                 AssemblyContextTypeResolutionQuery.Execute(
@@ -453,7 +455,7 @@ internal static class ExactTypeInspectionQuery
             return new ExactTypeInspectionResult(
                 ExactTypeInspectionOutcome.Ambiguous,
                 request.Type,
-                lookup.Match,
+                matchedType,
                 Type: null,
                 RequestedAssembly: null,
                 SupplierAssembly: null,
@@ -472,7 +474,7 @@ internal static class ExactTypeInspectionQuery
             return new ExactTypeInspectionResult(
                 ExactTypeInspectionOutcome.Unavailable,
                 request.Type,
-                lookup.Match,
+                matchedType,
                 Type: null,
                 RequestedAssembly: null,
                 SupplierAssembly: null,
@@ -503,7 +505,7 @@ internal static class ExactTypeInspectionQuery
             return new ExactTypeInspectionResult(
                 ExactTypeInspectionOutcome.Unavailable,
                 request.Type,
-                lookup.Match,
+                matchedType,
                 Type: null,
                 RequestedAssembly:
                     AssemblyIdentity(
@@ -533,7 +535,7 @@ internal static class ExactTypeInspectionQuery
             return new ExactTypeInspectionResult(
                 ExactTypeInspectionOutcome.Unavailable,
                 request.Type,
-                lookup.Match,
+                matchedType,
                 Type: null,
                 RequestedAssembly:
                     AssemblyIdentity(
@@ -562,7 +564,7 @@ internal static class ExactTypeInspectionQuery
         return new ExactTypeInspectionResult(
             ExactTypeInspectionOutcome.Available,
             request.Type,
-            lookup.Match,
+            selected.Candidate.Definition.ToEscapedFullName(),
             ExactTypeApi.From(type),
             AssemblyIdentity(
                 loaded.Group,
