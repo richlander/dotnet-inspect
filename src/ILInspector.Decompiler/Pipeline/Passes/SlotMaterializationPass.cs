@@ -9,7 +9,6 @@ public enum SlotMaterializationVeto
     MissingLoad = 1 << 2,
     UnderivableTypeTestimony = 1 << 3,
     ConflictingTypeTestimony = 1 << 4,
-    NestedSlotNumberCollision = 1 << 5,
     OutsideCoercionDomain = 1 << 6,
     UnrenderableStoreType = 1 << 7,
     MultiStoreSingleLoadFold = 1 << 8,
@@ -102,7 +101,6 @@ public sealed class SlotMaterializationPass : IIrPass
                 (loads.TryGetValue(load.Slot, out var ls) ? ls : loads[load.Slot] = []).Add(load);
         }
 
-        var nestedSlots = new HashSet<int>();
         var nestedDecisions = new List<SlotMaterializationDecision>();
         // #2356 made nested generated names collision-free, but recursively
         // materializing each nested body's own locals table is a separate
@@ -118,7 +116,6 @@ public sealed class SlotMaterializationPass : IIrPass
                 else if (node is LoadStackSlot load)
                     slots.Add(load.Slot);
             }
-            nestedSlots.UnionWith(slots);
             nestedDecisions.AddRange(slots
                 .Order()
                 .Select(slot => new SlotMaterializationDecision(
@@ -168,9 +165,6 @@ public sealed class SlotMaterializationPass : IIrPass
             {
                 throw new InvalidOperationException($"Slot {candidate.Slot} loads had no testimony decision.");
             }
-
-            if (nestedSlots.Contains(candidate.Slot))
-                candidate.Vetoes |= SlotMaterializationVeto.NestedSlotNumberCollision;
 
             if (candidate.Stores.Count > 1 && candidate.Loads.Count == 1)
                 candidate.Vetoes |= SlotMaterializationVeto.MultiStoreSingleLoadFold;

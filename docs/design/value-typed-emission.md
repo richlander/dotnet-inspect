@@ -490,8 +490,11 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    residual: ambiguous testimony, cross-family (true disjoint ranges),
    unproven element-store identity recovery, incomplete
    slot-copy components, and nested `Lambda`/`LocalFunctionStatement` scopes.
-   The nested-name prerequisite #2275 landed in #2356; recursively materializing
-   each nested body's own locals table remains. Direct slot-copy components now
+   The nested-name prerequisite #2275 landed in #2356. Lambda and local-function
+   raising already run the default pipeline, including materialization, on
+   imported bodies before embedding them. Late re-materialization of residual
+   nested webs remains deferred; it is not a missing first materialization
+   step. Direct slot-copy components now
    materialize atomically when every member clears the same type, scope, and
    rendering gates; otherwise every member stays printer-owned.
    `MaterializesCompleteDirectCopyComponent` and
@@ -560,6 +563,26 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    and incomplete copies. Its compile-back gate preserves the existing
    retained-temporary `OpcodeDiff`, not an exact-IL claim. The existing
    `CharElementStorePrinterTests` binding gate remains in force.
+
+   Slot identity is the owning body plus its number, not the number alone.
+   A nested web therefore cannot veto an otherwise decided outer web merely
+   by reusing its number. Outer materialization preserves nested node identity,
+   local tables, and residual slots. The shared-versus-isolated local-scope
+   discriminator is an IR fact consumed by local-reference tracking and the
+   printer; its existing behavior is unchanged.
+
+   The measured witnesses are Microsoft.CodeAnalysis 5.0.0
+   `SyntaxDiffer.RecordChange` (`int S_256`) and
+   Microsoft.CodeAnalysis.CSharp 5.0.0
+   `OverloadResolution.BetterConversionTargetCore` (`bool S_256`).
+   `NestedSlotMaterializationTests` preserves the corresponding overloads from
+   the repository's compiler dependency and gates outer activation, retained
+   nested nodes, coercion obligations, and local-slot invariants.
+   `NestedScopeNameCollisionTests` gates binding with and without outer
+   materialization for lambda, local-function, already-materialized nested,
+   and deeply nested naming cases. This slice does not expand the coercion
+   domain or allocate more nested locals: all 140 nested residual webs in the
+   14-assembly investigation still failed the existing type-domain gate.
 
    `MaterializesSingleStoreConditionalWithSingleRead` and
    `MaterializesBooleanIdentityWhenConditionalFeedsBooleanLocal` gate

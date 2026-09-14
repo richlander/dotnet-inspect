@@ -90,6 +90,14 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
+    public void DefaultCorpusFidelityOracle_IsNativeReturnToSenderCutover()
+    {
+        Assert.Equal(
+            CorpusFidelityOracle.ReturnToSenderCutover,
+            CorpusSensor.DefaultFidelityOracle);
+    }
+
+    [Fact]
     public void OptInNet11Profile_UsesDistinctDescriptionAndCardHeading()
     {
         Assert.Contains(
@@ -2325,26 +2333,36 @@ public class CorpusSensorComparisonTests
         string root = AuthoredCorpusRatchetTests.FindRepositoryRoot();
         string workflow = File.ReadAllText(
             Path.Combine(root, ".github", "workflows", "deep-inspect.yml"));
+        string censusJob = WorkflowJob(workflow, "census");
+        string scheduledFailureJob = WorkflowJob(workflow, "report-scheduled-failure");
 
         Assert.Contains(
             "artifacts/deep-inspect/corpus-snapshot.json",
-            workflow,
+            censusJob,
             StringComparison.Ordinal);
         Assert.Contains(
             "--diff-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json",
-            workflow,
+            censusJob,
             StringComparison.Ordinal);
         Assert.Contains(
             "--corpus-fidelity-oracle rts-cutover",
-            workflow,
+            censusJob,
             StringComparison.Ordinal);
         Assert.Contains(
             "--corpus-fidelity-cap 50",
-            workflow,
+            censusJob,
             StringComparison.Ordinal);
         Assert.Contains(
             "artifacts/deep-inspect/corpus-assemblies.txt",
-            workflow,
+            censusJob,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "(github.event_name == 'schedule' && github.event.schedule == '0 6 * * *')",
+            censusJob,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "- census",
+            scheduledFailureJob,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
             "artifacts/deep-inspect/rts-cutover-snapshot.json",
@@ -2353,6 +2371,29 @@ public class CorpusSensorComparisonTests
         Assert.DoesNotContain(
             "Record independently selected native RTS cutover evidence",
             workflow,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LegacyCorpusBaselines_ExplicitlyPinCompileBack()
+    {
+        string root = AuthoredCorpusRatchetTests.FindRepositoryRoot();
+        string deepInspect = File.ReadAllText(
+            Path.Combine(root, ".github", "workflows", "deep-inspect.yml"));
+        string ci = File.ReadAllText(
+            Path.Combine(root, ".github", "workflows", "ci.yml"));
+
+        Assert.Contains(
+            "--corpus-fidelity-oracle compile-back",
+            WorkflowStep(deepInspect, "Run classic state-machine corpus sensor"),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "--corpus-fidelity-oracle compile-back",
+            WorkflowStep(deepInspect, "Gate net11 opt-in feature corpus"),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "--corpus-fidelity-oracle compile-back",
+            WorkflowStep(ci, "Run PR decompiler corpus sensor"),
             StringComparison.Ordinal);
     }
 
@@ -3238,5 +3279,34 @@ public class CorpusSensorComparisonTests
         Assert.Contains(
             "Caveat: the corpus drifted from the baseline (see baseline staleness above).",
             card);
+    }
+
+    static string WorkflowStep(string workflow, string name)
+    {
+        string marker = $"- name: {name}";
+        int start = workflow.IndexOf(marker, StringComparison.Ordinal);
+        Assert.True(start >= 0, $"Workflow step '{name}' was not found.");
+        int end = workflow.IndexOf("\n      - name:", start + marker.Length, StringComparison.Ordinal);
+        return end >= 0 ? workflow[start..end] : workflow[start..];
+    }
+
+    static string WorkflowJob(string workflow, string jobId)
+    {
+        string[] lines = workflow.Split('\n');
+        string marker = $"  {jobId}:";
+        int start = Array.FindIndex(lines, line => line == marker);
+        Assert.True(start >= 0, $"Workflow job '{jobId}' was not found.");
+
+        int end = start + 1;
+        while (end < lines.Length
+            && !(lines[end].StartsWith("  ", StringComparison.Ordinal)
+                && lines[end].Length > 2
+                && lines[end][2] != ' '
+                && lines[end].EndsWith(':')))
+        {
+            end++;
+        }
+
+        return string.Join('\n', lines[start..end]);
     }
 }
