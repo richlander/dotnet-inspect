@@ -289,6 +289,45 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.Empty(result.Failures);
     }
 
+    [Fact]
+    public async Task AcquireSelected_OutOfRangeAddressRetainsInputFailure()
+    {
+        const string Id = "Selected.RangeAddress";
+        string source = Path.Combine(_root, "range-address");
+        foreach (string version in
+                 new[] { "1.0.0", "2.0.0", "3.0.0" })
+        {
+            WriteLocalPackage(
+                source,
+                Id,
+                $"range {version}",
+                version: version);
+        }
+        await using var composition = LocalComposition();
+
+        ConfiguredPackagePayloadResult result =
+            await composition.AcquireSelectedAsync(
+                Id,
+                "1.0.0..3.0.0",
+                (_, _) => new InMemoryPackageStore(),
+                new NuGetSourceOptions { Sources = [source] },
+                rangeAddress: "#4",
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.Null(result.Payload);
+        Assert.Null(result.Authority);
+        PackageAuthorityFailure failure =
+            Assert.Single(result.Failures);
+        Assert.Equal(
+            PackageAuthorityFailureKind.Input,
+            failure.Kind);
+        Assert.Contains(
+            "outside #1..#3",
+            failure.Message,
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("1.0.0..bad", "first")]
     [InlineData("1.0.0..2.0.0", null)]

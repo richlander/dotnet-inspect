@@ -404,8 +404,62 @@ public sealed partial class DesktopPackageSourceComposition
                         result.Request.Operation.OperationTimeout),
                 });
         }
+        if (result.Request.Demand
+                is PackageHouseDemand.Selecting
+                {
+                    Request:
+                        PackageVersionSelectionRequest.Range range,
+                }
+            && result.Decision?.VersionResolution
+                is PackageVersionResolutionReceipt.NoMatch noMatch)
+        {
+            failures.Add(
+                ProjectRangeNoMatchFailure(
+                    range,
+                    noMatch));
+        }
 
         return failures;
+    }
+
+    private static PackageAuthorityFailure ProjectRangeNoMatchFailure(
+        PackageVersionSelectionRequest.Range range,
+        PackageVersionResolutionReceipt.NoMatch noMatch)
+    {
+        string message;
+        try
+        {
+            PackageVersionVector vector = PackageVersionVector.Create(
+                range.VersionRange,
+                noMatch.Discovery.Versions,
+                range.Discovery.IncludePrerelease);
+            string address = range.Selection switch
+            {
+                PackageVersionRangeSelection.First => "first",
+                PackageVersionRangeSelection.Last => "last",
+                PackageVersionRangeSelection.Ordinal ordinal =>
+                    $"#{ordinal.Value}",
+                PackageVersionRangeSelection.Exact exact =>
+                    exact.Version,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(range)),
+            };
+            message = vector.TrySelect(
+                    address,
+                    out _,
+                    out string? error)
+                ? noMatch.Reason.ToString()
+                : error!;
+        }
+        catch (ArgumentException exception)
+        {
+            message = exception.Message;
+        }
+
+        return new PackageAuthorityFailure(
+            InertString.Empty,
+            PackageAuthorityFailureKind.Input,
+            message);
     }
 
     private static bool HasOperationTimeout(
