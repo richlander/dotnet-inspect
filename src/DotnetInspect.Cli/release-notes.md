@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Routes the empty `cache` human result through the generated Markout context
+  and documents the bounded one-record JSON/JSONL compatibility contract
+  shared by populated and empty cache snapshots (#6833).
 - Routes vocabulary Markdown, plain text, table, TSV, JSONL, and projected JSON
   through one generated Markout serializer view while preserving the
   schema-versioned unprojected JSON contract (#6811).
