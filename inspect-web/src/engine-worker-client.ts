@@ -32,8 +32,8 @@ import {
 } from "./engine-worker-source.ts";
 import {
   createEngineWorkerPackageQueryHostRegistration,
-  type EngineWorkerPackageQueryCompletionEvent,
   type EngineWorkerPackageQueryDurableEvent,
+  type EngineWorkerPackageQueryTerminal,
   type EngineWorkerPackageQueryTerminalFailure,
 } from "./engine-worker-package-query.ts";
 import {
@@ -122,7 +122,7 @@ export function registerEngineWorkerTypeSourceAdapter(
 export type EngineWorkerPackageQueryAdapter =
   WorkerRuntimeControlledOperationAdapter<
     QueryRequest,
-    EngineWorkerPackageQueryCompletionEvent,
+    EngineWorkerPackageQueryTerminal,
     EngineWorkerPackageQueryTerminalFailure,
     never,
     WorkerRuntimePreparationError,
@@ -387,12 +387,12 @@ export function bindPackageQueryFacade(
 > & { readonly dispose: () => void } {
   interface ActivePackageQuery {
     readonly handle: OperationHandle<
-      EngineWorkerPackageQueryCompletionEvent,
+      EngineWorkerPackageQueryTerminal,
       EngineWorkerPackageQueryTerminalFailure
     >;
     readonly session: OperationSession<
       QueryRequest,
-      EngineWorkerPackageQueryCompletionEvent,
+      EngineWorkerPackageQueryTerminal,
       EngineWorkerPackageQueryTerminalFailure,
       never,
       WorkerRuntimePreparationError,
@@ -410,7 +410,7 @@ export function bindPackageQueryFacade(
       throw new Error(`Package Query operation '${operationId}' is already active.`);
     const session = authority.page.createSession<
       QueryRequest,
-      EngineWorkerPackageQueryCompletionEvent,
+      EngineWorkerPackageQueryTerminal,
       EngineWorkerPackageQueryTerminalFailure,
       never,
       WorkerRuntimePreparationError,
@@ -440,9 +440,12 @@ export function bindPackageQueryFacade(
       await started.handle.quiesced;
       if (outcome.kind === "succeeded") {
         return {
-          version: 1,
+          version: 2,
           kind: "Succeeded",
-          value: outcome.value,
+          value: outcome.value.inspection === null
+            ? outcome.value.event
+            : null,
+          inspection: outcome.value.inspection,
           failureKind: null,
           error: null,
           diagnostic: null,
@@ -451,9 +454,10 @@ export function bindPackageQueryFacade(
       }
       if (outcome.kind === "failed") {
         return {
-          version: 1,
+          version: 2,
           kind: "Failed",
           value: null,
+          inspection: null,
           failureKind: outcome.error.failureKind,
           error: outcome.error.error,
           diagnostic: outcome.error.diagnostic,
@@ -461,9 +465,10 @@ export function bindPackageQueryFacade(
         };
       }
       return {
-        version: 1,
+        version: 2,
         kind: "Canceled",
         value: null,
+        inspection: null,
         failureKind: null,
         error: null,
         diagnostic: null,

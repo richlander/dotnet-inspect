@@ -64,6 +64,11 @@ public sealed class BrowserSpotlightDestinationProjectionTests
         Assert.Equal(
             BrowserSpotlightWorkspaceDisposition.PreserveCurrent,
             descriptor.WorkspaceDisposition);
+        Assert.Equal(
+            BrowserSpotlightDestinationHome.Workspace,
+            descriptor.SourceHome);
+        Assert.IsType<BrowserSpotlightDestinationAvailability.Available>(
+            descriptor.Availability);
     }
 
     [Fact]
@@ -336,19 +341,20 @@ public sealed class BrowserSpotlightDestinationProjectionTests
         Assert.Equal(
             packageLibrary.LibraryIdentity.Identity.Name,
             platformLibrary.LibraryIdentity.Identity.Name);
+        var platformRegistration = new WorkspaceRegistration.Ecosystem(
+            new WorkspaceEcosystemRegistrationDeclaration(
+                WorkspaceEcosystemRegistrationId.Create(
+                    "ecosystem.platform"),
+                namespaceRoots: [],
+                corePackages: [],
+                populations:
+                [
+                    new WorkspaceEcosystemPopulationDeclaration.Platform(
+                        DotNetRuntimePopulation()),
+                ]));
         await using var workspace = new InspectionWorkspace(
         [
-            new WorkspaceRegistration.Ecosystem(
-                new WorkspaceEcosystemRegistrationDeclaration(
-                    WorkspaceEcosystemRegistrationId.Create(
-                        "ecosystem.platform"),
-                    namespaceRoots: [],
-                    corePackages: [],
-                    populations:
-                    [
-                        new WorkspaceEcosystemPopulationDeclaration.Platform(
-                            DotNetRuntimePopulation()),
-                    ])),
+            platformRegistration,
         ]);
         BrowserSpotlightActivationBasis basis = await Basis(workspace);
 
@@ -368,13 +374,63 @@ public sealed class BrowserSpotlightDestinationProjectionTests
 
         Assert.IsType<Plan.Unavailable>(package.Plan);
         Assert.Empty(package.Coverage);
+        Assert.Equal(
+            BrowserSpotlightDestinationHome.Package,
+            package.SourceHome);
         var platformPlan =
             Assert.IsType<Plan.ActivateCurrentPlatformDestination>(
                 platform.Plan);
         Assert.Same(platformAction, platformPlan.Action);
         Assert.Single(platform.Coverage);
+        Assert.Equal(
+            BrowserSpotlightDestinationHome.Platform,
+            platform.SourceHome);
+        Assert.Equal(
+            BrowserSpotlightWorkspaceRelationship.RegistrationCovered,
+            platform.WorkspaceRelationship);
+        Assert.IsType<BrowserSpotlightDestinationAvailability.Available>(
+            platform.Availability);
         Assert.IsType<WorkspaceEcosystemPopulationDeclaration.Platform>(
             platform.Coverage[0].Population);
+
+        WorkspaceRegistrationOperationResult replaced =
+            workspace.ReplaceRegistrations(
+                basis.Registrations,
+                [
+                    new WorkspaceRegistration.PackagePrefix(
+                        new PackagePrefixDeclaration("System.Text.")),
+                    platformRegistration,
+                ]);
+        Assert.IsType<WorkspaceRegistrationOperationResult.Committed>(
+            replaced);
+        BrowserSpotlightActivationBasis coveredBasis =
+            await Basis(workspace);
+        Descriptor coveredPackage = Projected(
+            coveredBasis,
+            new Destination.PackageLibrary(
+                packageLibrary,
+                PackageRequest(packageLibrary.PackageCoordinate),
+                new TestLibraryIntent("package-covered")));
+        BrowserSpotlightPlatformAction<TestPlatformAction>
+            coveredPlatformAction =
+                PlatformAction(coveredBasis, "platform-covered");
+        Descriptor coveredPlatform = Projected(
+            coveredBasis,
+            new Destination.PlatformLibrary(
+                platformLibrary,
+                coveredPlatformAction));
+
+        Assert.IsType<Plan.AddCurrentPackage>(coveredPackage.Plan);
+        Assert.Equal(
+            BrowserSpotlightDestinationHome.Package,
+            coveredPackage.SourceHome);
+        Assert.Same(
+            coveredPlatformAction,
+            Assert.IsType<Plan.ActivateCurrentPlatformDestination>(
+                coveredPlatform.Plan).Action);
+        Assert.Equal(
+            BrowserSpotlightDestinationHome.Platform,
+            coveredPlatform.SourceHome);
     }
 
     [Fact]
@@ -405,6 +461,12 @@ public sealed class BrowserSpotlightDestinationProjectionTests
                 descendant.Plan).Action.Action);
         Assert.Empty(library.Coverage);
         Assert.Empty(descendant.Coverage);
+        Assert.Equal(
+            BrowserSpotlightDestinationHome.Platform,
+            library.SourceHome);
+        Assert.Equal(
+            BrowserSpotlightWorkspaceRelationship.Admitted,
+            library.WorkspaceRelationship);
     }
 
     [Fact]
@@ -437,6 +499,11 @@ public sealed class BrowserSpotlightDestinationProjectionTests
         Assert.Equal(
             BrowserSpotlightWorkspaceRelationship.External,
             package.WorkspaceRelationship);
+        Assert.Equal(
+            BrowserSpotlightDestinationHome.Package,
+            package.SourceHome);
+        Assert.IsType<BrowserSpotlightDestinationAvailability.Available>(
+            package.Availability);
         Assert.IsType<Plan.Unavailable>(packageLibrary.Plan);
         Assert.IsType<Plan.Unavailable>(platformLibrary.Plan);
         Assert.Equal(
@@ -445,6 +512,18 @@ public sealed class BrowserSpotlightDestinationProjectionTests
         Assert.Equal(
             BrowserSpotlightWorkspaceRelationship.Unavailable,
             packageLibrary.WorkspaceRelationship);
+        var unavailable = Assert.IsType<
+            BrowserSpotlightDestinationAvailability.Unavailable>(
+                packageLibrary.Availability);
+        Assert.Equal(
+            BrowserSpotlightDestinationUnavailableReason.UncoveredLibrary,
+            unavailable.Reason);
+        Assert.Equal(
+            BrowserSpotlightDestinationHome.Package,
+            packageLibrary.SourceHome);
+        Assert.Equal(
+            BrowserSpotlightDestinationHome.Platform,
+            platformLibrary.SourceHome);
     }
 
     [Fact]

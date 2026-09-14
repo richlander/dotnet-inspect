@@ -23,9 +23,67 @@ internal enum BrowserSpotlightWorkspaceRelationship
     Unavailable,
 }
 
+internal enum BrowserSpotlightDestinationHome
+{
+    Workspace,
+    Package,
+    Platform,
+}
+
 internal enum BrowserSpotlightDestinationUnavailableReason
 {
     UncoveredLibrary,
+}
+
+internal abstract record BrowserSpotlightDestinationAvailability
+{
+    private protected BrowserSpotlightDestinationAvailability()
+    {
+    }
+
+    internal sealed record Available :
+        BrowserSpotlightDestinationAvailability
+    {
+        internal static Available Instance { get; } = new();
+
+        private Available()
+        {
+        }
+    }
+
+    internal sealed record Unavailable(
+        BrowserSpotlightDestinationUnavailableReason Reason) :
+        BrowserSpotlightDestinationAvailability;
+}
+
+internal sealed class BrowserSpotlightDestinationPresentation
+{
+    internal BrowserSpotlightDestinationPresentation(
+        BrowserSpotlightDestinationHome sourceHome,
+        BrowserSpotlightWorkspaceRelationship workspaceRelationship,
+        BrowserSpotlightWorkspaceDisposition workspaceDisposition,
+        BrowserSpotlightDestinationAvailability availability)
+    {
+        ArgumentNullException.ThrowIfNull(availability);
+        SourceHome = sourceHome;
+        WorkspaceRelationship = workspaceRelationship;
+        WorkspaceDisposition = workspaceDisposition;
+        Availability = availability;
+    }
+
+    internal BrowserSpotlightDestinationHome SourceHome { get; }
+
+    internal BrowserSpotlightWorkspaceRelationship WorkspaceRelationship
+    {
+        get;
+    }
+
+    internal BrowserSpotlightWorkspaceDisposition WorkspaceDisposition
+    {
+        get;
+    }
+
+    internal BrowserSpotlightDestinationAvailability Availability { get; }
 }
 
 internal enum BrowserSpotlightProjectionStaleReason
@@ -148,6 +206,8 @@ internal abstract record BrowserSpotlightDestination<
     {
     }
 
+    internal abstract BrowserSpotlightDestinationHome SourceHome { get; }
+
     internal sealed record Current : BrowserSpotlightDestination<
         TPackageRequest,
         TNavigationAction,
@@ -167,6 +227,11 @@ internal abstract record BrowserSpotlightDestination<
         internal StructuralSubjectIdentity Subject { get; }
 
         internal TNavigationAction Action { get; }
+
+        internal override BrowserSpotlightDestinationHome SourceHome =>
+            Subject is StructuralSubjectIdentity.WorkspaceSubject
+                ? BrowserSpotlightDestinationHome.Workspace
+                : BrowserSpotlightDestinationHome.Package;
     }
 
     internal sealed record Package : BrowserSpotlightDestination<
@@ -186,6 +251,9 @@ internal abstract record BrowserSpotlightDestination<
         {
             get;
         }
+
+        internal override BrowserSpotlightDestinationHome SourceHome =>
+            BrowserSpotlightDestinationHome.Package;
     }
 
     internal sealed record CurrentPackageLibrary : BrowserSpotlightDestination<
@@ -226,6 +294,9 @@ internal abstract record BrowserSpotlightDestination<
         internal TLibraryIntent Intent { get; }
 
         internal WorkspacePackageOccurrence Occurrence { get; }
+
+        internal override BrowserSpotlightDestinationHome SourceHome =>
+            BrowserSpotlightDestinationHome.Package;
     }
 
     internal sealed record PackageLibrary : BrowserSpotlightDestination<
@@ -261,6 +332,9 @@ internal abstract record BrowserSpotlightDestination<
         }
 
         internal TLibraryIntent Intent { get; }
+
+        internal override BrowserSpotlightDestinationHome SourceHome =>
+            BrowserSpotlightDestinationHome.Package;
     }
 
     internal sealed record CurrentPlatformLibrary : BrowserSpotlightDestination<
@@ -285,6 +359,9 @@ internal abstract record BrowserSpotlightDestination<
         {
             get;
         }
+
+        internal override BrowserSpotlightDestinationHome SourceHome =>
+            BrowserSpotlightDestinationHome.Platform;
     }
 
     internal sealed record PlatformLibrary : BrowserSpotlightDestination<
@@ -309,6 +386,9 @@ internal abstract record BrowserSpotlightDestination<
         {
             get;
         }
+
+        internal override BrowserSpotlightDestinationHome SourceHome =>
+            BrowserSpotlightDestinationHome.Platform;
     }
 
     internal sealed record PlatformDescendant : BrowserSpotlightDestination<
@@ -328,6 +408,9 @@ internal abstract record BrowserSpotlightDestination<
         {
             get;
         }
+
+        internal override BrowserSpotlightDestinationHome SourceHome =>
+            BrowserSpotlightDestinationHome.Platform;
     }
 }
 
@@ -541,6 +624,18 @@ internal sealed class BrowserSpotlightDestinationDescriptor<
         Destination = destination;
         Coverage = coverage;
         Plan = plan;
+        Presentation = new(
+            destination.SourceHome,
+            Relationship(destination, plan),
+            plan.WorkspaceDisposition,
+            plan is BrowserSpotlightDestinationActivationPlan<
+                TPackageRequest,
+                TNavigationAction,
+                TPlatformAction,
+                TLibraryIntent>.Unavailable unavailable
+                ? new BrowserSpotlightDestinationAvailability.Unavailable(
+                    unavailable.Reason)
+                : BrowserSpotlightDestinationAvailability.Available.Instance);
     }
 
     internal BrowserSpotlightActivationBasis Basis { get; }
@@ -560,11 +655,32 @@ internal sealed class BrowserSpotlightDestinationDescriptor<
         TPlatformAction,
         TLibraryIntent> Plan { get; }
 
+    internal BrowserSpotlightDestinationPresentation Presentation { get; }
+
+    internal BrowserSpotlightDestinationHome SourceHome =>
+        Presentation.SourceHome;
+
     internal BrowserSpotlightWorkspaceDisposition WorkspaceDisposition =>
-        Plan.WorkspaceDisposition;
+        Presentation.WorkspaceDisposition;
 
     internal BrowserSpotlightWorkspaceRelationship WorkspaceRelationship =>
-        Plan switch
+        Presentation.WorkspaceRelationship;
+
+    internal BrowserSpotlightDestinationAvailability Availability =>
+        Presentation.Availability;
+
+    private static BrowserSpotlightWorkspaceRelationship Relationship(
+        BrowserSpotlightDestination<
+            TPackageRequest,
+            TNavigationAction,
+            TPlatformAction,
+            TLibraryIntent> destination,
+        BrowserSpotlightDestinationActivationPlan<
+            TPackageRequest,
+            TNavigationAction,
+            TPlatformAction,
+            TLibraryIntent> plan) =>
+        plan switch
         {
             BrowserSpotlightDestinationActivationPlan<
                 TPackageRequest,
@@ -589,7 +705,7 @@ internal sealed class BrowserSpotlightDestinationDescriptor<
                 TNavigationAction,
                 TPlatformAction,
                 TLibraryIntent>.ActivateCurrentPlatformDestination
-                when Destination is BrowserSpotlightDestination<
+                when destination is BrowserSpotlightDestination<
                     TPackageRequest,
                     TNavigationAction,
                     TPlatformAction,
