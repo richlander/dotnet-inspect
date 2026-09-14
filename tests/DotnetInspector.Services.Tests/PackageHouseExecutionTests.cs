@@ -499,6 +499,10 @@ public sealed class PackageHouseExecutionTests
         Assert.Same(
             acquired.Payload.Content.GenerationIdentity,
             realization.Receipt.Generation);
+        Assert.Same(
+            acquired.Payload,
+            acquired.SourcePayloadResult!.Payload);
+        Assert.True(acquired.SelectionUsesOriginalSources);
         Assert.Contains(
             failed.Evidence.Failures,
             failure => failure is PackageHouseFailure.Timeout
@@ -550,6 +554,10 @@ public sealed class PackageHouseExecutionTests
             "exact target framework",
             rejected.Reason.ToString(),
             StringComparison.Ordinal);
+        Assert.Same(
+            acquired.Payload,
+            acquired.SourcePayloadResult!.Payload);
+        Assert.True(acquired.SelectionUsesOriginalSources);
         await environment.AssertRootSettledAsync();
     }
 

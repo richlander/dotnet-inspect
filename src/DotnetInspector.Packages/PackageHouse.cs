@@ -489,7 +489,9 @@ public sealed class PackageHouse
                     return new PackageHouseSettlement.Acquired(
                         new PackageHouseResult.Settled(
                             acquiredEvidence),
-                        payload);
+                        payload,
+                        payloadResult,
+                        selectionUsesOriginalSources);
                 }
 
                 if (failures.Any(IsOperationTimeout))
@@ -497,6 +499,8 @@ public sealed class PackageHouse
                     return OperationTimedOut(
                         request,
                         payload,
+                        payloadResult,
+                        selectionUsesOriginalSources,
                         decision,
                         acquisition,
                         realization: null,
@@ -512,6 +516,8 @@ public sealed class PackageHouse
                     return OperationTimedOut(
                         request,
                         payload,
+                        payloadResult,
+                        selectionUsesOriginalSources,
                         decision,
                         acquisition,
                         realization: null,
@@ -537,7 +543,9 @@ public sealed class PackageHouse
                             rejectedEvidence,
                             Reason(
                                 "Runtime package realization requires an exact target framework.")),
-                        payload);
+                        payload,
+                        payloadResult,
+                        selectionUsesOriginalSources);
                 }
 
                 PackageHouseRealizationReceipt realization =
@@ -561,6 +569,8 @@ public sealed class PackageHouse
                     return OperationTimedOut(
                         request,
                         payload,
+                        payloadResult,
+                        selectionUsesOriginalSources,
                         decision,
                         acquisition,
                         realization,
@@ -869,6 +879,8 @@ public sealed class PackageHouse
     private static PackageHouseSettlement OperationTimedOut(
         PackageHouseRequest request,
         AcquiredPackageSourcePayload payload,
+        ConfiguredPackagePayloadResult sourcePayloadResult,
+        bool selectionUsesOriginalSources,
         PackageHouseDecisionReceipt decision,
         PackageHouseAcquisitionReceipt acquisition,
         PackageHouseRealizationReceipt? realization,
@@ -895,7 +907,9 @@ public sealed class PackageHouse
             new PackageHouseResult.Failed(
                 evidence,
                 Reason("The PackageHouse operation deadline expired.")),
-            payload);
+            payload,
+            sourcePayloadResult,
+            selectionUsesOriginalSources);
     }
 
     private static PackageHouseSettlement.ResourceFree ResourceFree(
