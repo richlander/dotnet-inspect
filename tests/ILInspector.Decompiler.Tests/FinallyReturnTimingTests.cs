@@ -83,6 +83,31 @@ public class FinallyReturnTimingTests
     }
 
     [Fact]
+    public void ConditionalAliasReturnStaysAfterFinally()
+    {
+        Assert.Equal(110, FinallyReturnTimingSample.RunConditionalAlias(
+            useResult: true,
+            loop: true,
+            setValue: true,
+            exit: true));
+        Assert.Equal(100, FinallyReturnTimingSample.RunConditionalAlias(
+            useResult: true,
+            loop: true,
+            setValue: false,
+            exit: true));
+        Assert.Equal(10, FinallyReturnTimingSample.RunConditionalAlias(
+            useResult: false,
+            loop: true,
+            setValue: true,
+            exit: true));
+
+        var (fidelity, output) = Render(nameof(FinallyReturnTimingSample.RunConditionalAlias));
+        Assert.Equal(DecompilationFidelity.Full, fidelity);
+        Assert.Equal(1, CountOccurrences(output, "return result;"));
+        Assert.EndsWith("return result;\n", output);
+    }
+
+    [Fact]
     [Trait("Speed", "Slow")]
     public void FinallyReturnTimingMethodsCompileBackExactly()
     {
@@ -91,9 +116,10 @@ public class FinallyReturnTimingTests
             type => type == SampleType.FullName,
             method => method.Method is nameof(FinallyReturnTimingSample.Run)
                 or nameof(FinallyReturnTimingSample.RunArgument)
-                or nameof(FinallyReturnTimingSample.RunAliasedLocal));
+                or nameof(FinallyReturnTimingSample.RunAliasedLocal)
+                or nameof(FinallyReturnTimingSample.RunConditionalAlias));
 
-        Assert.Equal(3, results.Count);
+        Assert.Equal(4, results.Count);
         Assert.All(results, result =>
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status));
     }

@@ -633,7 +633,8 @@ public sealed partial class EhStructuringPass : IIrPass
                         tryFinally.FinallyBody,
                         returned.Index,
                         returned.IsArgument,
-                        aliases)))
+                        aliases.Locals,
+                        aliases.StackSlots)))
             {
                 return true;
             }
@@ -646,7 +647,8 @@ public sealed partial class EhStructuringPass : IIrPass
         BlockContainer body,
         int index,
         bool isArgument,
-        IReadOnlySet<int> aliases)
+        IReadOnlySet<int> localAliases,
+        IReadOnlySet<int> stackSlotAliases)
     {
         foreach (var node in body.Descendants)
         {
@@ -659,7 +661,8 @@ public sealed partial class EhStructuringPass : IIrPass
                 LoadLocalAddress address when !isArgument => address.Index == index,
                 StoreArgument store when isArgument => store.Index == index,
                 LoadArgumentAddress address when isArgument => address.Index == index,
-                LoadLocal load => aliases.Contains(load.Index),
+                LoadLocal load => localAliases.Contains(load.Index),
+                LoadStackSlot load => stackSlotAliases.Contains(load.Slot),
                 _ => false,
             };
             if (mayWrite)
@@ -669,12 +672,13 @@ public sealed partial class EhStructuringPass : IIrPass
         return false;
     }
 
-    static HashSet<int> ByRefAliases(
+    static (HashSet<int> Locals, HashSet<int> StackSlots) ByRefAliases(
         BlockContainer root,
         int index,
         bool isArgument)
     {
-        var aliases = new HashSet<int>();
+        var localAliases = new HashSet<int>();
+        var stackSlotAliases = new HashSet<int>();
         bool changed;
         do
         {
@@ -690,16 +694,36 @@ public sealed partial class EhStructuringPass : IIrPass
                         address.Index == index,
                     LoadArgumentAddress address when isArgument =>
                         address.Index == index,
-                    LoadLocal load => aliases.Contains(load.Index),
+                    LoadLocal load => localAliases.Contains(load.Index),
+                    LoadStackSlot load => stackSlotAliases.Contains(load.Slot),
                     _ => false,
                 };
                 if (aliasesPlace)
-                    changed |= aliases.Add(store.Index);
+                    changed |= localAliases.Add(store.Index);
+            }
+
+            foreach (var store in root.Descendants.OfType<StoreStackSlot>())
+            {
+                if (ReferenceOwnership.IsInsideNestedFunctionBody(store))
+                    continue;
+
+                bool aliasesPlace = store.Value switch
+                {
+                    LoadLocalAddress address when !isArgument =>
+                        address.Index == index,
+                    LoadArgumentAddress address when isArgument =>
+                        address.Index == index,
+                    LoadLocal load => localAliases.Contains(load.Index),
+                    LoadStackSlot load => stackSlotAliases.Contains(load.Slot),
+                    _ => false,
+                };
+                if (aliasesPlace)
+                    changed |= stackSlotAliases.Add(store.Slot);
             }
         }
         while (changed);
 
-        return aliases;
+        return (localAliases, stackSlotAliases);
     }
 
     static bool IsDescendantOf(IrNode node, IrNode ancestor)
