@@ -61,7 +61,7 @@ public sealed partial class EhStructuringPass : IIrPass
         var continuations = new Dictionary<IrNode, int>();
         var rebuilt = BuildContainer(function, blocks, 0, blocks.Count, forest.Roots, offsetToIndex, continuations);
         TrimTailLeaves(rebuilt, continuations);
-        InlineReturnLeaves(rebuilt, continuations);
+        InlineReturnLeaves(rebuilt);
         SynthesizeInlineCatchVariables(function, rebuilt);
         context.Stepper.StepOver("raise exception regions into try/catch/finally", function.Body);
         function.Body.ReplaceWith(rebuilt);
@@ -576,13 +576,11 @@ public sealed partial class EhStructuringPass : IIrPass
     /// the return/throw at the leave site — a C# <c>return</c> inside a try runs
     /// exactly the finallys the leave did — and drop each return block once it
     /// is unreachable (no remaining reference, not reached by falling out of the
-    /// previous block). A normal-continuation return may also be this accumulator
-    /// idiom; keep it outside only when an enclosing finally may change the local
-    /// it returns. With the leaves gone the structuring pass raises the bodies.
+    /// previous block). Keep a return outside when reaching it first exits an
+    /// enclosing finally that may change the local it returns. With the leaves
+    /// gone the structuring pass raises the bodies.
     /// </summary>
-    static void InlineReturnLeaves(
-        BlockContainer root,
-        IReadOnlyDictionary<IrNode, int> continuations)
+    static void InlineReturnLeaves(BlockContainer root)
     {
         var byOffset = new Dictionary<int, Block>();
         foreach (var block in root.Descendants.OfType<Block>())
@@ -592,11 +590,7 @@ public sealed partial class EhStructuringPass : IIrPass
             if (byOffset.TryGetValue(leave.TargetOffset, out var target)
                 && CloneTerminator(target) is { } clone)
             {
-                if (TerminatorValueMayChangeAcrossFinally(
-                    root,
-                    leave,
-                    target,
-                    continuations))
+                if (TerminatorValueMayChangeAcrossFinally(root, leave, target))
                 {
                     continue;
                 }
@@ -612,29 +606,33 @@ public sealed partial class EhStructuringPass : IIrPass
     static bool TerminatorValueMayChangeAcrossFinally(
         BlockContainer root,
         Leave leave,
-        Block target,
-        IReadOnlyDictionary<IrNode, int> continuations)
+        Block target)
     {
-        int? localIndex = target.Children is [var terminator]
+        (int Index, bool IsArgument)? place = target.Children is [var terminator]
             ? terminator switch
             {
-                Return { Value: LoadLocal local } => local.Index,
-                Throw { Value: LoadLocal local } => local.Index,
+                Return { Value: LoadLocal local } => (local.Index, false),
+                Throw { Value: LoadLocal local } => (local.Index, false),
+                Return { Value: LoadArgument argument } => (argument.Index, true),
+                Throw { Value: LoadArgument argument } => (argument.Index, true),
                 _ => null,
             }
             : null;
-        if (localIndex is not int index)
+        if (place is not { } returned)
             return false;
 
-        bool addressTaken = LocalAddressTaken(root, index);
+        bool addressTaken = AddressTaken(root, returned.Index, returned.IsArgument);
         for (IrNode? ancestor = leave.Parent;
              ancestor is not null;
              ancestor = ancestor.Parent)
         {
             if (ancestor is TryFinally tryFinally
-                && continuations.TryGetValue(tryFinally, out int continuation)
-                && continuation == leave.TargetOffset
-                && (MayWriteLocal(tryFinally.FinallyBody, index)
+                && IsDescendantOf(leave, tryFinally.TryBody)
+                && !IsDescendantOf(target, tryFinally)
+                && (MayWritePlace(
+                        tryFinally.FinallyBody,
+                        returned.Index,
+                        returned.IsArgument)
                     || addressTaken))
             {
                 return true;
@@ -644,14 +642,16 @@ public sealed partial class EhStructuringPass : IIrPass
         return false;
     }
 
-    static bool MayWriteLocal(BlockContainer body, int index)
+    static bool MayWritePlace(BlockContainer body, int index, bool isArgument)
     {
         foreach (var node in body.Descendants)
         {
             int? writtenIndex = node switch
             {
-                StoreLocal store => store.Index,
-                LoadLocalAddress address => address.Index,
+                StoreLocal store when !isArgument => store.Index,
+                LoadLocalAddress address when !isArgument => address.Index,
+                StoreArgument store when isArgument => store.Index,
+                LoadArgumentAddress address when isArgument => address.Index,
                 _ => null,
             };
             if (writtenIndex == index
@@ -664,12 +664,26 @@ public sealed partial class EhStructuringPass : IIrPass
         return false;
     }
 
-    static bool LocalAddressTaken(BlockContainer root, int index)
-        => root.Descendants
-            .OfType<LoadLocalAddress>()
-            .Any(address =>
-                address.Index == index
-                && !ReferenceOwnership.IsInsideNestedFunctionBody(address));
+    static bool AddressTaken(BlockContainer root, int index, bool isArgument)
+        => root.Descendants.Any(node =>
+            node switch
+            {
+                LoadLocalAddress address when !isArgument =>
+                    address.Index == index
+                    && !ReferenceOwnership.IsInsideNestedFunctionBody(address),
+                LoadArgumentAddress address when isArgument =>
+                    address.Index == index
+                    && !ReferenceOwnership.IsInsideNestedFunctionBody(address),
+                _ => false,
+            });
+
+    static bool IsDescendantOf(IrNode node, IrNode ancestor)
+    {
+        for (var current = node.Parent; current is not null; current = current.Parent)
+            if (ReferenceEquals(current, ancestor))
+                return true;
+        return false;
+    }
 
     static HashSet<int> ReferencedOffsets(BlockContainer root)
     {
