@@ -528,6 +528,21 @@ dotnet-inspect timeline --package Markout@0.33.0..0.35.2 --type Markout.MarkoutW
 dotnet-inspect timeline --package System.Text.Json@8.0.0..9.0.0 --type System.Text.Json.JsonSerializer --members --at all -S Evaluations --rows 2..
 ```
 
+Ordinary API diffs with one Library at each endpoint consume the shared
+[Library API Diff contract](docs/design/library-api-diff-presentation.md)
+intended for website Compare. This includes single-Library packages, platform
+libraries, and local DLL pairs. `--type` narrows the complete comparison;
+`--all` widens its API scope. The endpoints must be versions of the same
+logical Library (assembly name, culture, and public-key token).
+
+Changes without a compatibility classification remain visible under
+**Other API Changes**, or as `unclassified` rows in detailed output. They are
+not classified as breaking or additive. An incomplete or rejected comparison
+returns nonzero and says **not compared**, rather than claiming no changes.
+Multi-Library packages, member-filtered diffs, Analysis Diff, Implementation
+Diff, Finding Transitions, and mixed-section requests retain their existing
+routes; this adoption does not add the website Compare UI.
+
 ### Structural matching
 
 Use the `Clone Candidates` section for a globally ranked search from an exact
