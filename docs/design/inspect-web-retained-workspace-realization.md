@@ -4,6 +4,13 @@
 
 Accepted; implementation is in progress.
 
+The Browser realization host seam is implemented. Production replacement of
+retained application snapshots is blocked until Workspace Definitions supplies
+its complete resource-free restoration path. The current Browser URL
+projection is intentionally partial and is not a complete retained-definition
+recipe. [Adoption and retirement](#adoption-and-retirement) records the exact
+entry condition and prerequisite implementation issues.
+
 This document is the normative owner for how Inspect Web retains selectable
 Workspace definitions, selects one definition, realizes it, and composes that
 selection with browser history and presentation. It consumes:
@@ -527,9 +534,11 @@ tracks the end-to-end architecture retirement.
    cutover, operation admission, predecessor settlement, the four-realization
    aggregate admission bound, and visible failure.
 2. **Retained definitions and activation transaction.** Replace TypeScript
-   full-application snapshot exchange with resource-free retained records,
-   asynchronous selection, rollback presentation, and exact history
-   composition.
+   full-application snapshot exchange by consuming the owner-issued complete
+   restoration path for resource-free retained records, asynchronous
+   selection, rollback presentation, and exact history composition. This slice
+   does not create a Browser-private restoration recipe or treat a currently
+   projectable version-1 URL as a complete record.
 3. **Fresh materialization producers.** Route saved Open, Spotlight external
    packages, package-query handoff, demos, shared links, and initial/history
    restoration through the one activation transaction.
@@ -551,6 +560,15 @@ The sequence is independently landable only when each slice preserves the
 current production behavior for paths not yet migrated and refuses mixed
 authority within migrated paths. Final #6757 completion requires all seven
 slices.
+
+Slice 2 begins only after Workspace Definitions can restore the complete
+retained view into an unpublished fresh Workspace and return one typed
+installation result. That owner-issued path must include the exact Navigation
+participant and retained result producer, plus its Scope restoration
+prerequisites. Until then, the Browser must retain the existing snapshot path;
+it may not replace it with a stale-location fallback, a partial definition, or
+a parallel Browser restoration coordinator. This is an external entry
+condition, not an additional #6757 implementation slice.
 
 ### Required retirement inventory
 
@@ -582,6 +600,13 @@ saved definition records are not retired.
 
 - [#6750](https://github.com/richlander/dotnet-inspect/issues/6750) supplies
   definition lowering and fresh realization association.
+- [#5525](https://github.com/richlander/dotnet-inspect/issues/5525) supplies
+  portable Workspace and Package subjects and coordinates the complete
+  Workspace Definitions restoration path, including its Scope prerequisites.
+- [#6112](https://github.com/richlander/dotnet-inspect/issues/6112) supplies
+  the Navigation-owned canonical restoration participant.
+- [#6113](https://github.com/richlander/dotnet-inspect/issues/6113) supplies
+  retained Navigation results for Browser consumption.
 - [#6752](https://github.com/richlander/dotnet-inspect/issues/6752) supplies the
   realization coordinator.
 - [#6756](https://github.com/richlander/dotnet-inspect/issues/6756) supplies
@@ -618,6 +643,9 @@ construction and operation paths. Tests must demonstrate:
 
 - definition A, definition B, then definition A receiving distinct realization
   identities,
+- a retained committed view that the version-1 URL cannot project restoring
+  from complete resource-free owner-issued state rather than a stale URL or
+  live application snapshot,
 - candidate failure preserving B's selection and usable operation admission,
 - a late A completion failing to replace a newer selection,
 - predecessor operations finishing without republishing stale results,
