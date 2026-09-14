@@ -128,6 +128,20 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
         Assert.Contains(7, TimeoutSeconds(error));
     }
 
+    [Fact]
+    public void PayloadTimeoutSeconds_UsesOnlyTheOwnedMessage()
+    {
+        const string error = """
+            NuGet payload request did not complete within 00:00:30.
+            inner: net_http_request_timedout, 31
+            """;
+
+        IReadOnlyList<int> seconds = PayloadTimeoutSeconds(error);
+
+        Assert.Contains(30, seconds);
+        Assert.DoesNotContain(31, seconds);
+    }
+
     /// <summary>
     /// Reads the numbers out of the timed-out clause of the error.
     /// </summary>
@@ -156,6 +170,19 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
                 StringComparison.Ordinal);
         Assert.True(start >= 0, $"Expected a timeout in the error, got: {error}");
 
+        return SecondsInLine(error, start);
+    }
+
+    private static IReadOnlyList<int> PayloadTimeoutSeconds(string error)
+    {
+        const string marker = "NuGet payload request did not complete within";
+        int start = error.IndexOf(marker, StringComparison.Ordinal);
+        Assert.True(start >= 0, $"Expected a payload timeout in the error, got: {error}");
+        return SecondsInLine(error, start);
+    }
+
+    private static IReadOnlyList<int> SecondsInLine(string error, int start)
+    {
         int end = error.IndexOf('\n', start);
         string clause = end < 0 ? error[start..] : error[start..end];
 
@@ -169,14 +196,6 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
 
         Assert.NotEmpty(numbers);
         return numbers;
-    }
-
-    private static IReadOnlyList<int> PayloadTimeoutSeconds(string error)
-    {
-        const string marker = "NuGet payload request did not complete within";
-        int start = error.IndexOf(marker, StringComparison.Ordinal);
-        Assert.True(start >= 0, $"Expected a payload timeout in the error, got: {error}");
-        return TimeoutSeconds(error[start..]);
     }
 
     private string RunPackageRequest(
