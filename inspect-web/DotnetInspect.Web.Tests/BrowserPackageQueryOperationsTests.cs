@@ -414,6 +414,68 @@ public sealed class BrowserPackageQueryOperationsTests
     }
 
     [Fact]
+    public async Task Serialize_AllowsOwnerValidUnicodeManifestToExpandPastDecodedBudget()
+    {
+        string packageType = new(
+            '\u00E9',
+            PackageManifestFactsQuery.MaxScalarCharacters);
+        string[] packageTypes = Enumerable
+            .Repeat(packageType, 8)
+            .ToArray();
+        var queryEvent = new BrowserPackageQueryEvent(
+            BrowserPackageQueryEventKind.Match,
+            Row: new BrowserPackageQueryRow(
+                "Contoso.Unicode",
+                "1.0.0",
+                BrowserPackageQueryFacetTier.Nuspec,
+                Evidence: [],
+                TotalDownloads: null,
+                Verified: null,
+                Producer: PackageProducerIdentity.NuGetOrg.Display.ToString(),
+                RootRequest: "root1:Contoso.Unicode@1.0.0")
+            {
+                Manifest = new BrowserPackageQueryManifest(
+                    "Contoso.Unicode",
+                    "1.0.0",
+                    "nuspec",
+                    Description: null,
+                    Authors: null,
+                    Repository: null,
+                    RepositoryType: null,
+                    RepositoryCommit: null,
+                    License: null,
+                    LicenseUrl: null,
+                    packageTypes,
+                    IsToolPackage: false,
+                    ReadmeFile: null,
+                    DependencyGroups: [],
+                    IconFile: null,
+                    IconUrl: null,
+                    BrowserPackageQueryManifestIdentityProvenance.ExpectedCoordinate),
+            },
+            Failure: null,
+            Completion: null);
+
+        Assert.True(packageTypes.Length <= PackageManifestFactsQuery.MaxPackageTypes);
+        Assert.True(
+            packageTypes.Sum(value => value.Length)
+            < PackageManifestFactsQuery.MaxManifestCharacters);
+
+        BrowserPackageQueryOperations.StartSerializationPreparation();
+        await BrowserPackageQueryOperations.WaitForSerializationPreparationAsync();
+        string json = BrowserPackageQueryOperations.Serialize(queryEvent);
+        BrowserPackageQueryEvent? roundTripped = JsonSerializer.Deserialize(
+            json,
+            BrowserPackageJsonContext.Default.BrowserPackageQueryEvent);
+
+        Assert.True(json.Length > 1_048_576);
+        Assert.Contains("\\u00E9", json, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(
+            packageTypes,
+            roundTripped!.Row!.Manifest!.PackageTypes);
+    }
+
+    [Fact]
     public async Task ListFacets_PreparesSerializationWithoutChangingCatalog()
     {
         string json = PackageExports.ListPackageQueryFacets();

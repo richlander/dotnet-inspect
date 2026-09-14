@@ -52,6 +52,16 @@ const maximumEventCollectionItems =
   + maximumManifestPackageTypes
   + maximumManifestDependencyGroups
   + maximumManifestDependencies;
+// System.Text.Json can encode one UTF-16 code unit as six JSON characters.
+// Repeated contract structure is bounded separately by the maximum collection
+// shape, while fixed event structure fits within the final allowance.
+const maximumJsonCharactersPerTextCharacter = 6;
+const maximumEventWireCharactersPerCollectionItem = 128;
+const maximumEventWireFixedCharacters = 64 * 1_024;
+const maximumEventWireCharacters =
+  maximumEventCharacters * maximumJsonCharactersPerTextCharacter
+  + maximumEventCollectionItems * maximumEventWireCharactersPerCollectionItem
+  + maximumEventWireFixedCharacters;
 const maximumDiagnosticCharacters = 64 * 1024;
 // A 10,000-candidate query can emit one progress and one match/failure event
 // per candidate, plus search progress and terminal completion.
@@ -1617,9 +1627,9 @@ function parseManagedDurableEvent(
     throw new PackageQueryPayloadError(
       "Package Query callback payload was not JSON text.");
   }
-  if (value.length > maximumEventCharacters) {
+  if (value.length > maximumEventWireCharacters) {
     throw new PackageQueryPayloadError(
-      `Package Query callback exceeds ${maximumEventCharacters} characters.`,
+      `Package Query callback exceeds ${maximumEventWireCharacters} characters.`,
       "oversized",
     );
   }

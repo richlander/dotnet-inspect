@@ -275,12 +275,24 @@ function emit(
     | EngineWorkerPackageQueryDurableEvent
     | EngineWorkerPackageQueryCompletionEvent,
 ): void {
+  emitSerialized(eventSink, JSON.stringify(event));
+}
+
+function emitSerialized(eventSink: unknown, serialized: string): void {
   if (typeof eventSink !== "object" || eventSink === null) {
     throw new Error("Expected an event sink.");
   }
-  if (!Reflect.set(eventSink, "event", JSON.stringify(event))) {
+  if (!Reflect.set(eventSink, "event", serialized)) {
     throw new Error("Package Query event sink rejected an event.");
   }
+}
+
+function serializeLikeSystemTextJson(value: unknown): string {
+  return JSON.stringify(value).replace(
+    /[^\p{ASCII}]/gu,
+    character =>
+      `\\u${character.charCodeAt(0).toString(16).padStart(4, "0").toUpperCase()}`,
+  );
 }
 
 interface Harness {
@@ -620,6 +632,87 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
   });
   assert.doesNotThrow(() => structuredClone(payload));
   harness.host.dispose();
+});
+
+test("Package Query Worker accepts escaped owner-valid manifest callbacks", async () => {
+  const packageType = "\u00E9".repeat(32 * 1_024);
+  const expandedMatch: EngineWorkerPackageQueryDurableEvent = {
+    ...matchEvent,
+    row: {
+      ...matchEvent.row,
+      manifest: {
+        ...matchEvent.row.manifest!,
+        packageTypes: Array.from({ length: 8 }, () => packageType),
+      },
+    },
+  };
+  const serialized = serializeLikeSystemTextJson(expandedMatch);
+  assert.ok(serialized.length > 1_048_576);
+
+  const facade: EngineWorkerPackageQueryFacade = {
+    cancelPackageQuery: () => ({ kind: "NotActive", reason: null }),
+    requestPackageQueryMatches: () => ({
+      kind: "NotActive",
+      additionalMatchCredit: null,
+    }),
+    runPackageAssemblyQuery: () => Promise.resolve(succeeded()),
+    runPackageQuery(...args) {
+      emitSerialized(args[7], serialized);
+      return Promise.resolve(inspected([expandedMatch, completionEvent]));
+    },
+  };
+  const harness = createHarness(facade);
+  await startReady(harness);
+  const { handle } = startQuery(harness.adapter);
+  await harness.environment.flushAsync();
+
+  const outcome = await handle.outcome;
+  assert.equal(outcome.kind, "succeeded");
+  if (outcome.kind !== "succeeded")
+    throw new Error("Expected Package Query to succeed.");
+  assert.equal(
+    outcome.value.inspection?.content[0]?.row?.manifest?.packageTypes.length,
+    8,
+  );
+  assert.equal(
+    outcome.value.inspection?.content[0]?.row?.manifest?.packageTypes[0]?.length,
+    32 * 1_024,
+  );
+
+  harness.host.dispose();
+  await handle.quiesced;
+});
+
+test("Package Query Worker rejects callbacks above the encoded wire bound", async () => {
+  const facade: EngineWorkerPackageQueryFacade = {
+    cancelPackageQuery: () => ({ kind: "NotActive", reason: null }),
+    requestPackageQueryMatches: () => ({
+      kind: "NotActive",
+      additionalMatchCredit: null,
+    }),
+    runPackageAssemblyQuery: () => Promise.resolve(succeeded()),
+    runPackageQuery(...args) {
+      emitSerialized(args[7], " ".repeat(8 * 1_024 * 1_024));
+      return Promise.resolve(succeeded());
+    },
+  };
+  const harness = createHarness(facade);
+  await startReady(harness);
+  const { handle } = startQuery(harness.adapter);
+  await harness.environment.flushAsync();
+
+  assert.deepEqual(await handle.outcome, {
+    kind: "failed",
+    error: {
+      failureKind: "Unexpected",
+      error: "Worker reported a runtime failure.",
+      diagnostic: "Worker reported a runtime failure.",
+    },
+  });
+  assert.equal(harness.host.snapshot().phase, "draining");
+
+  harness.host.dispose();
+  await handle.quiesced;
 });
 
 test("Package Query binding preserves caller identity and expected diagnostics", async () => {
