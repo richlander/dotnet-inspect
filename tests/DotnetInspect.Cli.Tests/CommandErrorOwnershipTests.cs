@@ -1158,11 +1158,24 @@ public class CommandErrorOwnershipTests
         string projectPath,
         string query)
     {
+        // Reusable MSBuild nodes inherit the redirected handles and can keep
+        // the capture tasks open after the query process exits.
+        startInfo.ArgumentList.Add("-nodeReuse:false");
+        startInfo.Environment["MSBUILDDISABLENODEREUSE"] = "1";
+
         using Process process = Process.Start(startInfo)
             ?? throw new InvalidOperationException(
                 $"Could not start MSBuild evaluation for {projectPath}.");
-        Task<string> output = process.StandardOutput.ReadToEndAsync();
-        Task<string> error = process.StandardError.ReadToEndAsync();
+        Task<string> output = Task.Factory.StartNew(
+            process.StandardOutput.ReadToEnd,
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+        Task<string> error = Task.Factory.StartNew(
+            process.StandardError.ReadToEnd,
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
 
         if (!process.WaitForExit(MsbuildEvaluationTimeout))
         {
