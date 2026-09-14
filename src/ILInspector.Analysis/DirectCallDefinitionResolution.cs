@@ -613,6 +613,7 @@ public static class DirectCallDefinitionResolver
         }
         Dictionary<PendingInvocation, DefinitionCandidateSet>
             definitionCandidates;
+        WorkLimitObservation? discoveryLimit;
         using (TypeResolutionContext discoveryContext =
             catalog.CreateContextWithCancellation(
                 bindingPolicy,
@@ -627,6 +628,19 @@ public static class DirectCallDefinitionResolver
                 discoveryContext,
                 limits,
                 signatureNodes,
+                cancellationToken,
+                out discoveryLimit);
+        }
+        if (discoveryLimit is not null)
+        {
+            return CompleteWithWorkLimit(
+                catalog,
+                bindingPolicy,
+                population,
+                invocationPlans,
+                discoveryLimit.Dimension,
+                discoveryLimit.Limit,
+                discoveryLimit.RequiredWork,
                 cancellationToken);
         }
         if (signatureNodes.IsExceeded)
@@ -668,7 +682,8 @@ public static class DirectCallDefinitionResolver
                 context,
                 limits,
                 signatureNodes,
-                cancellationToken);
+                cancellationToken,
+                out WorkLimitObservation? resolutionLimit);
         if (signatureNodes.IsExceeded)
         {
             return CompleteWithWorkLimit(
@@ -677,6 +692,15 @@ public static class DirectCallDefinitionResolver
                 DirectCallDefinitionWorkDimension.SignatureNodes,
                 limits.MaxSignatureNodes,
                 signatureNodes.RequiredWork);
+        }
+        if (resolutionLimit is not null)
+        {
+            return CompleteWithWorkLimit(
+                context,
+                invocationPlans,
+                resolutionLimit.Dimension,
+                resolutionLimit.Limit,
+                resolutionLimit.RequiredWork);
         }
         return new DirectCallDefinitionResolutionOutcome.Completed(
             context.Catalog,
@@ -942,8 +966,10 @@ public static class DirectCallDefinitionResolver
             TypeResolutionContext context,
             DirectCallDefinitionResolutionLimits limits,
             SignatureNodeBudget signatureNodes,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            out WorkLimitObservation? workLimit)
     {
+        workLimit = null;
         var result =
             new Dictionary<PendingInvocation, DefinitionCandidateSet>(
                 ReferenceEqualityComparer.Instance);
@@ -991,6 +1017,13 @@ public static class DirectCallDefinitionResolver
                     byLocalMethod.Add(localKey, localCandidates);
                 }
                 result.Add(item, localCandidates);
+                if (TryGetWorkLimit(
+                        localCandidates,
+                        limits,
+                        out workLimit))
+                {
+                    return result;
+                }
                 if (signatureNodes.IsExceeded)
                     break;
                 continue;
@@ -1026,10 +1059,36 @@ public static class DirectCallDefinitionResolver
                     signatureNodes);
             byType.Add(resolved.Definition.Key, discovered);
             result.Add(item, discovered);
+            if (TryGetWorkLimit(discovered, limits, out workLimit))
+                return result;
             if (signatureNodes.IsExceeded)
                 break;
         }
         return result;
+    }
+
+    static bool TryGetWorkLimit(
+        DefinitionCandidateSet candidates,
+        DirectCallDefinitionResolutionLimits limits,
+        out WorkLimitObservation? workLimit)
+    {
+        if (candidates is
+            {
+                Failure:
+                    DirectCallDefinitionGapKind.WorkLimitExceeded,
+                WorkDimension: { } dimension,
+            })
+        {
+            long limit = WorkLimit(limits, dimension);
+            workLimit = new(
+                dimension,
+                limit,
+                candidates.RequiredWork ?? limit + 1);
+            return true;
+        }
+
+        workLimit = null;
+        return false;
     }
 
     static DefinitionCandidateSet DiscoverDefinitionCandidates(
@@ -1537,8 +1596,10 @@ public static class DirectCallDefinitionResolver
             TypeResolutionContext context,
             DirectCallDefinitionResolutionLimits limits,
             SignatureNodeBudget signatureNodes,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            out WorkLimitObservation? workLimit)
     {
+        workLimit = null;
         var results =
             ImmutableArray.CreateBuilder<DirectCallDefinitionResolution>(
                 pending.Length);
@@ -1697,6 +1758,14 @@ public static class DirectCallDefinitionResolver
                 ref invocationBindings);
             if (signatureNodes.IsExceeded)
                 break;
+            if (selected is SelectedMemberOutcome.Limit limit)
+            {
+                workLimit = new(
+                    limit.Dimension,
+                    limit.Maximum,
+                    limit.RequiredWork);
+                break;
+            }
             results.Add(CreateResult(
                 context,
                 item,
@@ -2706,6 +2775,11 @@ public static class DirectCallDefinitionResolver
                 DirectCallDefinitionWorkDimension.MetadataAssociations,
                 requiredWork);
     }
+
+    sealed record WorkLimitObservation(
+        DirectCallDefinitionWorkDimension Dimension,
+        long Limit,
+        long RequiredWork);
 
     abstract record SelectedMemberOutcome
     {

@@ -1086,6 +1086,89 @@ public sealed class DirectCallDefinitionResolutionTests
     }
 
     [Fact]
+    public void InvocationBindingLimitPublishesNoPartialSuccess()
+    {
+        SyntheticParticipant participant = CreateSynthetic(new()
+        {
+            CallCount = 2,
+        });
+
+        DirectCallDefinitionResolutionOutcome.Completed completed =
+            Resolve(
+                participant,
+                new DirectCallDefinitionResolutionLimits(
+                    maxInvocationBindings: 1));
+
+        Assert.Equal(2, completed.Results.Length);
+        Assert.All(
+            completed.Results,
+            result =>
+            {
+                DirectCallDefinitionResolution.Incomplete incomplete =
+                    Assert.IsType<
+                        DirectCallDefinitionResolution.Incomplete>(result);
+                Assert.Equal(
+                    DirectCallDefinitionGapKind.WorkLimitExceeded,
+                    incomplete.Gap.Kind);
+                Assert.Equal(
+                    DirectCallDefinitionWorkDimension.InvocationBindings,
+                    incomplete.Gap.WorkDimension);
+                Assert.Equal(1, incomplete.Gap.Limit);
+                Assert.Equal(2, incomplete.Gap.RequiredWork);
+                Assert.Equal(
+                    incomplete.PhysicalInvocation,
+                    incomplete.Gap.PhysicalInvocation);
+            });
+        Assert.NotEqual(
+            completed.Results[0].PhysicalInvocation,
+            completed.Results[1].PhysicalInvocation);
+    }
+
+    [Theory]
+    [InlineData(DirectCallDefinitionWorkDimension.DefinitionCandidates)]
+    [InlineData(DirectCallDefinitionWorkDimension.MetadataAssociations)]
+    public void DiscoveryWorkLimitsPublishNoPartialSuccess(
+        DirectCallDefinitionWorkDimension dimension)
+    {
+        DirectCallDefinitionResolutionLimits limits = dimension switch
+        {
+            DirectCallDefinitionWorkDimension.DefinitionCandidates =>
+                new(maxDefinitionCandidates: 1),
+            DirectCallDefinitionWorkDimension.MetadataAssociations =>
+                new(maxMetadataAssociations: 1),
+            _ => throw new InvalidOperationException(),
+        };
+
+        DirectCallDefinitionResolutionOutcome.Completed completed =
+            ResolveOwnershipFixture(limits);
+
+        Assert.NotEmpty(completed.Results);
+        Assert.All(
+            completed.Results,
+            result =>
+            {
+                DirectCallDefinitionResolution.Incomplete incomplete =
+                    Assert.IsType<
+                        DirectCallDefinitionResolution.Incomplete>(result);
+                Assert.Equal(
+                    DirectCallDefinitionGapKind.WorkLimitExceeded,
+                    incomplete.Gap.Kind);
+                Assert.Equal(dimension, incomplete.Gap.WorkDimension);
+                Assert.NotNull(incomplete.Gap.Limit);
+                Assert.True(
+                    incomplete.Gap.RequiredWork > incomplete.Gap.Limit);
+                Assert.Equal(
+                    incomplete.PhysicalInvocation,
+                    incomplete.Gap.PhysicalInvocation);
+            });
+        Assert.Single(
+            completed.Results
+                .Cast<DirectCallDefinitionResolution.Incomplete>()
+                .Select(result => result.Gap.RequiredWork)
+                .Distinct());
+    }
+
+    [Fact]
     public void SignatureNodeLimitPublishesNoPartialSuccess()
     {
         SyntheticParticipant participant = CreateSynthetic(new()
@@ -1407,7 +1490,8 @@ public sealed class DirectCallDefinitionResolutionTests
     }
 
     static DirectCallDefinitionResolutionOutcome.Completed
-        ResolveOwnershipFixture()
+        ResolveOwnershipFixture(
+            DirectCallDefinitionResolutionLimits? limits = null)
     {
         LibraryBodyIndex index = LibraryBodyIndex.Open(
             OwnershipFixturePath,
@@ -1424,6 +1508,7 @@ public sealed class DirectCallDefinitionResolutionTests
                         new AssemblyDependencyResolutionOptions(
                             OwnershipFixturePath)),
                     [new CatalogCallGraphParticipant(index, assembly)],
+                    limits,
                     cancellationToken:
                         TestContext.Current.CancellationToken));
     }
