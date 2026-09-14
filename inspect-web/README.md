@@ -2406,12 +2406,10 @@ distinct deployment token, and the non-promotable `inspect-web-coreclr-site`
 artifact. The site is
 interpreter-only while CoreCLR native relinking remains outside the comparison
 scope. Mono staging stays on the repository's .NET 11 Preview 7 SDK. The
-CoreCLR workflow instead installs the exact runtime-main daily cohort
-`12.0.100-alpha.1.26459.112` SDK and
-`12.0.0-alpha.1.26459.112` runtime/workload packs from the `dotnet12` feed.
-The workload package identifies dotnet/dotnet VMR commit
-`7792b064d8573a30d8527944de8184b7e108837e`; the workflow verifies that
-provenance before publication.
+CoreCLR workflow instead installs the exact runtime-main daily cohort from
+`runtime-cohort-pin.json`. The workflow verifies that the SDK, runtime,
+workload packs, and workload package provenance identify the same
+dotnet/dotnet VMR commit before publication.
 That cohort's browser workload still targets `net11.0`; the runtime is .NET 12
 CoreCLR even though the application graph retains its current target framework.
 The workflow enables `runtime-async=on` across this application graph and
