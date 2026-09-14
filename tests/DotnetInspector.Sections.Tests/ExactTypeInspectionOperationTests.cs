@@ -307,6 +307,116 @@ public sealed class ExactTypeInspectionOperationTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_BoundedProjectionPreservesPartialTypeAndPreventsFalseAbsence()
+    {
+        const string selectedType = "Exact.Type.Selected";
+        const string omittedType = "Exact.Type.Omitted";
+        var store = await CachedStoreAsync(
+            ("lib/net11.0/First.dll",
+                BuildAssembly(
+                    "First",
+                    selectedType,
+                    typeof(IDisposable))),
+            ("lib/net11.0/Second.dll",
+                BuildAssembly(
+                    "Second",
+                    omittedType,
+                    typeof(IAsyncDisposable))));
+        using var client = new HttpClient(new FailingHandler());
+        var limits = new ApiSurfaceProjectionLimits(
+            maxParticipants: 2,
+            maxTypes: 1,
+            maxMembers: 100,
+            maxInspectionFailures: 100,
+            maxTypeForwarders: 100,
+            maxMetadataRows: 10_000);
+
+        InspectionEnvelope<ExactTypeInspectionResult> available =
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                new ExactTypeInspectionRequest(
+                    PackageId,
+                    Version,
+                    Framework,
+                    selectedType),
+                LoadOptions(client, store),
+                limits,
+                TestContext.Current.CancellationToken);
+        InspectionEnvelope<ExactTypeInspectionResult> unavailable =
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                new ExactTypeInspectionRequest(
+                    PackageId,
+                    Version,
+                    Framework,
+                    omittedType),
+                LoadOptions(client, store),
+                limits,
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            ExactTypeInspectionOutcome.Available,
+            available.Content.Outcome);
+        Assert.False(available.Content.IsComplete);
+        Assert.Contains(
+            available.Content.Failures,
+            failure => failure.Kind
+                == ExactTypeInspectionFailureKind.ProjectionTruncated);
+        Assert.Contains(
+            available.Diagnostics,
+            diagnostic => diagnostic.Code
+                    == "exact-type.projection-truncated"
+                && diagnostic.Severity
+                    == InspectionDiagnosticSeverity.Warning);
+        Assert.Equal(
+            ExactTypeInspectionOutcome.Unavailable,
+            unavailable.Content.Outcome);
+        Assert.DoesNotContain(
+            unavailable.Diagnostics,
+            diagnostic => diagnostic.Code == "exact-type.not-found");
+        Assert.Contains(
+            unavailable.Diagnostics,
+            diagnostic => diagnostic.Code
+                == "exact-type.projection-truncated");
+    }
+
+    [Fact]
+    public async Task ProjectDiagnostics_ConstraintFailureIsVisibleAndNonfatal()
+    {
+        var store = await CachedStoreAsync();
+        using var client = new HttpClient(new FailingHandler());
+        InspectionEnvelope<ExactTypeInspectionResult> baseline =
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                new ExactTypeInspectionRequest(
+                    PackageId,
+                    Version,
+                    Framework,
+                    typeof(ExactTypeInspectionOperation).FullName!),
+                LoadOptions(client, store),
+                TestContext.Current.CancellationToken);
+        var failure = new ExactTypeApiInspectionFailure(
+            ApiSurface.ConstraintResolutionOperation,
+            SubjectToken: 0x02000001,
+            MetadataTypeNameFailureMechanism.Metadata,
+            Kind: "Missing",
+            Detail: "The generic constraint dependency was unavailable.",
+            SubjectAssembly:
+                baseline.Content.SupplierAssembly?.Identity,
+            DependencyAssembly: null);
+        ExactTypeInspectionResult result =
+            baseline.Content with
+            {
+                InspectionFailures = [failure],
+            };
+
+        Assert.True(result.IsComplete);
+        Assert.Contains(
+            ExactTypeInspectionOperation.ProjectDiagnostics(result),
+            diagnostic => diagnostic.Code
+                    == "exact-type.constraint-resolution-incomplete"
+                && diagnostic.Severity
+                    == InspectionDiagnosticSeverity.Warning);
+    }
+
+    [Fact]
     public async Task Execute_RejectedParticipantProducesVisibleUnavailableResult()
     {
         string typeName =

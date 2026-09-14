@@ -1092,6 +1092,39 @@ test("type metadata renders exact diagnostics for incomplete available content",
   assert.match(html, /One metadata row could not be decoded/);
 });
 
+test("type metadata renders nonfatal exact constraint diagnostics", () => {
+  const packageContext = { id: "System.Text.Json", version: "9.0.0", activeFramework: "net9.0" };
+  const html = renderTypeMetadata({
+    item: jsonSerializer,
+    packageContext,
+    metadataState: {
+      typeMetadataKey: typeMetadataSignature(jsonSerializer, packageContext),
+      typeMetadataLoading: false,
+      typeMetadataError: null,
+      typeMetadata: {
+        exactTypeInspection: availableExactTypeInspection(
+          {},
+          [{
+            code: "exact-type.constraint-resolution-incomplete",
+            severity: 1,
+            summary: "Generic-constraint classification was incomplete.",
+            correspondence: null,
+          }],
+          true),
+      },
+    },
+    memberCompositionHtml: "",
+    escapeHtml,
+    relatedTypeChip: escapeHtml,
+    factRows,
+  });
+
+  assert.match(html, /Type shape/);
+  assert.match(html, /Exact type inspection may be incomplete/);
+  assert.match(html, /exact-type\.constraint-resolution-incomplete/);
+  assert.match(html, /Generic-constraint classification was incomplete/);
+});
+
 for (const nodeCount of [0, 1, 2]) {
   test(`type metadata keeps relationship warnings visible with ${nodeCount} graph nodes`, () => {
     const packageContext = { id: "System.Text.Json", version: "9.0.0", activeFramework: "net9.0" };

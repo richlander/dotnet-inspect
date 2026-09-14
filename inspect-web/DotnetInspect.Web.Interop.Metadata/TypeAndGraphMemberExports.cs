@@ -96,7 +96,8 @@ public static partial class MetadataExports
                         BrowserPackageWorkspace.PackageTransferPolicy,
                     PayloadLimits =
                         BrowserPackageWorkspace.PackageLimits,
-                });
+                },
+                BrowserApiSurfacePolicy.Limits);
 
         (ResearchViews.TypeProjectionResult Projection,
             TypeDependencySectionResult Dependencies) result =

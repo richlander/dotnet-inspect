@@ -72,6 +72,7 @@ public enum ExactTypeInspectionFailureKind
     TypeResolutionUnavailable,
     SupplierUnavailable,
     InspectionIncomplete,
+    ProjectionTruncated,
 }
 
 /// <summary>
@@ -296,7 +297,8 @@ internal static class ExactTypeInspectionQuery
     internal static ExactTypeInspectionResult Execute(
         WorkspaceRealizationOperationLease authority,
         ExactTypeInspectionContext context,
-        ExactTypeInspectionRequest request)
+        ExactTypeInspectionRequest request,
+        ApiSurfaceProjectionLimits? projectionLimits = null)
     {
         ArgumentNullException.ThrowIfNull(authority);
         ArgumentNullException.ThrowIfNull(context);
@@ -321,19 +323,47 @@ internal static class ExactTypeInspectionQuery
                 "The admitted realization does not contain the requested package coordinate.");
         }
 
+        AssemblyContextApiSurfaceResult? boundedProjection =
+            projectionLimits is null
+                ? null
+                : AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                    loaded.Group,
+                    ApiSurfaceScope.PublicWithNonPublicTypes,
+                    projectionLimits,
+                    participants);
         ImmutableArray<Projection> projections =
-        [
-            .. participants.Select(
-                (participant, order) => new Projection(
-                    order,
-                    participant,
-                    AssemblyContextApiSurfaceQuery.ExecuteParticipant(
-                        loaded.Group,
-                        participant,
-                        ApiSurfaceScope.PublicWithNonPublicTypes))),
-        ];
+            boundedProjection is null
+                ? [
+                    .. participants.Select(
+                        (participant, order) => new Projection(
+                            order,
+                            participant,
+                            AssemblyContextApiSurfaceQuery.ExecuteParticipant(
+                                loaded.Group,
+                                participant,
+                                ApiSurfaceScope.PublicWithNonPublicTypes))),
+                ]
+                : [
+                    .. boundedProjection.Assemblies.Assemblies.Select(
+                        (entry, order) => new Projection(
+                            order,
+                            participants[order],
+                            entry)),
+                ];
         ImmutableArray<ExactTypeInspectionFailure> participantFailures =
             ParticipantFailures(projections);
+        if (boundedProjection?.Truncation is { } truncation)
+        {
+            participantFailures =
+                participantFailures.Add(
+                    new ExactTypeInspectionFailure(
+                        ExactTypeInspectionFailureKind.ProjectionTruncated,
+                        "API-surface projection was truncated by the "
+                            + $"{truncation.Limit} bound of "
+                            + $"{truncation.Bound}; "
+                            + $"{truncation.OmittedParticipants} "
+                            + "participant(s) were omitted."));
+        }
         ImmutableArray<ApiSurfaceInspectionFailure> inspectionFailures =
             InspectionFailures(projections);
         ImmutableArray<ExactTypeApiInspectionFailure>
@@ -368,6 +398,25 @@ internal static class ExactTypeInspectionQuery
             ];
         if (matchingNames.Length == 0)
         {
+            if (boundedProjection?.Truncation is not null)
+            {
+                return new ExactTypeInspectionResult(
+                    ExactTypeInspectionOutcome.Unavailable,
+                    request.Type,
+                    MatchedType: null,
+                    Type: null,
+                    RequestedAssembly: null,
+                    SupplierAssembly: null,
+                    ForwardingHops: [],
+                    Suggestions: [],
+                    InspectionFailures: detachedInspectionFailures,
+                    Failures:
+                    [
+                        .. participantFailures,
+                        .. incompleteness,
+                    ]);
+            }
+
             LookupResult lookup =
                 TypeMatcher.Lookup(declarationNames, request.Type);
             return new ExactTypeInspectionResult(

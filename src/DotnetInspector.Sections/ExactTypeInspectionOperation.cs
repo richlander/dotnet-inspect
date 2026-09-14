@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Sections;
 
@@ -16,6 +17,37 @@ public static class ExactTypeInspectionOperation
             ExactTypeInspectionRequest request,
             WorkspaceContextLoadOptions capabilities,
             CancellationToken cancellationToken = default)
+        => await ExecuteAsyncCore(
+            request,
+            capabilities,
+            projectionLimits: null,
+            cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// Executes one cold exact-Type inspection under caller-supplied
+    /// API-surface projection limits.
+    /// </summary>
+    public static async Task<InspectionEnvelope<ExactTypeInspectionResult>>
+        ExecuteAsync(
+            ExactTypeInspectionRequest request,
+            WorkspaceContextLoadOptions capabilities,
+            ApiSurfaceProjectionLimits projectionLimits,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(projectionLimits);
+        return await ExecuteAsyncCore(
+            request,
+            capabilities,
+            projectionLimits,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    static async Task<InspectionEnvelope<ExactTypeInspectionResult>>
+        ExecuteAsyncCore(
+            ExactTypeInspectionRequest request,
+            WorkspaceContextLoadOptions capabilities,
+            ApiSurfaceProjectionLimits? projectionLimits,
+            CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(capabilities);
@@ -116,10 +148,11 @@ public static class ExactTypeInspectionOperation
         using (WorkspaceRealizationOperationLease authority =
             admitted.Lease)
         {
-            return Execute(
+            return ExecuteCore(
                 authority,
                 (WorkspaceContextLoadOutcome.Loaded)load,
-                request);
+                request,
+                projectionLimits);
         }
     }
 
@@ -131,11 +164,37 @@ public static class ExactTypeInspectionOperation
         WorkspaceRealizationOperationLease authority,
         WorkspaceContextLoadOutcome.Loaded loaded,
         ExactTypeInspectionRequest request) =>
+        ExecuteCore(
+            authority,
+            loaded,
+            request,
+            projectionLimits: null);
+
+    /// <summary>
+    /// Executes against one admitted realization under caller-supplied
+    /// API-surface projection limits.
+    /// </summary>
+    public static InspectionEnvelope<ExactTypeInspectionResult> Execute(
+        WorkspaceRealizationOperationLease authority,
+        WorkspaceContextLoadOutcome.Loaded loaded,
+        ExactTypeInspectionRequest request,
+        ApiSurfaceProjectionLimits projectionLimits)
+    {
+        ArgumentNullException.ThrowIfNull(projectionLimits);
+        return ExecuteCore(authority, loaded, request, projectionLimits);
+    }
+
+    static InspectionEnvelope<ExactTypeInspectionResult> ExecuteCore(
+        WorkspaceRealizationOperationLease authority,
+        WorkspaceContextLoadOutcome.Loaded loaded,
+        ExactTypeInspectionRequest request,
+        ApiSurfaceProjectionLimits? projectionLimits) =>
         Envelope(
             ExactTypeInspectionQuery.Execute(
                 authority,
                 new ExactTypeInspectionContext(loaded),
-                request),
+                request,
+                projectionLimits),
             request);
 
     static InspectionEnvelope<ExactTypeInspectionResult> Envelope(
@@ -144,7 +203,7 @@ public static class ExactTypeInspectionOperation
         new(
             result,
             ProjectShare(request, result),
-            Diagnostics(result));
+            ProjectDiagnostics(result));
 
     static InspectionShare ProjectShare(
         ExactTypeInspectionRequest request,
@@ -208,7 +267,7 @@ public static class ExactTypeInspectionOperation
             encoded);
     }
 
-    static ImmutableArray<InspectionDiagnostic> Diagnostics(
+    internal static ImmutableArray<InspectionDiagnostic> ProjectDiagnostics(
         ExactTypeInspectionResult result)
     {
         var diagnostics =
@@ -219,6 +278,7 @@ public static class ExactTypeInspectionOperation
                 failure.Kind
                     is ExactTypeInspectionFailureKind.InspectionIncomplete
                     or ExactTypeInspectionFailureKind.ParticipantRejected
+                    or ExactTypeInspectionFailureKind.ProjectionTruncated
                     ? InspectionDiagnosticSeverity.Warning
                     : InspectionDiagnosticSeverity.Error;
             diagnostics.Add(
@@ -227,6 +287,31 @@ public static class ExactTypeInspectionOperation
                     severity,
                     failure.Detail,
                     failure.Assembly?.Name));
+        }
+
+        foreach (ExactTypeApiInspectionFailure failure
+                 in result.InspectionFailures)
+        {
+            if (!string.Equals(
+                    failure.Operation,
+                    ApiSurface.ConstraintResolutionOperation,
+                    StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string subject = failure.SubjectToken == 0
+                ? string.Empty
+                : $" for metadata subject 0x{failure.SubjectToken:x8}";
+            diagnostics.Add(
+                new InspectionDiagnostic(
+                    "exact-type.constraint-resolution-incomplete",
+                    InspectionDiagnosticSeverity.Warning,
+                    "Generic-constraint classification was incomplete"
+                        + subject
+                        + $" ({failure.Mechanism}/{failure.Kind}): "
+                        + failure.Detail,
+                    failure.SubjectAssembly?.Name));
         }
 
         switch (result.Outcome)
@@ -268,6 +353,8 @@ public static class ExactTypeInspectionOperation
                 "exact-type.supplier-unavailable",
             ExactTypeInspectionFailureKind.InspectionIncomplete =>
                 "exact-type.inspection-incomplete",
+            ExactTypeInspectionFailureKind.ProjectionTruncated =>
+                "exact-type.projection-truncated",
             _ => throw new ArgumentOutOfRangeException(
                 nameof(kind),
                 kind,

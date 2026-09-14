@@ -123,6 +123,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     PayloadLimits =
                         BrowserPackageWorkspace.PackageLimits,
                 },
+                BrowserApiSurfacePolicy.Limits,
                 TestContext.Current.CancellationToken);
         Assert.Equal(
             JsonSerializer.Serialize(
@@ -146,6 +147,82 @@ public sealed partial class BrowserEngineBoundaryTests
             StringComparison.Ordinal);
         Assert.NotEmpty(share.Packet);
         Assert.Empty(workspace.TypeDependencyInspection.Diagnostics);
+    }
+
+    [Fact]
+    public async Task ExactTypeInspection_BoundedProjectionReportsAdjacentParticipantTruncation()
+    {
+        const string packageId = "Browser.ExactType.Bounds";
+        const string selectedType = "Browser.Bounds.Selected";
+        const string omittedType = "Browser.Bounds.Omitted";
+        _ = await Coordinate(
+            packageId,
+            PackageEntries(
+                ("lib/net11.0/First.dll",
+                    BuildTypeDependencyImage(
+                        "Browser.Bounds.First",
+                        selectedType,
+                        typeof(IDisposable))),
+                ("lib/net11.0/Second.dll",
+                    BuildTypeDependencyImage(
+                        "Browser.Bounds.Second",
+                        omittedType,
+                        typeof(IAsyncDisposable)))));
+        var limits = new ApiSurfaceProjectionLimits(
+            maxParticipants: 2,
+            maxTypes: 1,
+            maxMembers: 100,
+            maxInspectionFailures: 100,
+            maxTypeForwarders: 100,
+            maxMetadataRows: 10_000);
+        WorkspaceContextLoadOptions capabilities = new()
+        {
+            HttpClient = BrowserPackageWorkspace.NetworkClient,
+            SourceAuthorization =
+                BrowserPackageWorkspace.PackageSourceAuthorization,
+            PackageStore =
+                BrowserPackageWorkspace.SessionPackageStore,
+            PackageTransferPolicy =
+                BrowserPackageWorkspace.PackageTransferPolicy,
+            PayloadLimits =
+                BrowserPackageWorkspace.PackageLimits,
+        };
+
+        InspectionEnvelope<ExactTypeInspectionResult> available =
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                new ExactTypeInspectionRequest(
+                    packageId,
+                    "1.0.0",
+                    "net11.0",
+                    selectedType),
+                capabilities,
+                limits,
+                TestContext.Current.CancellationToken);
+        InspectionEnvelope<ExactTypeInspectionResult> unavailable =
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                new ExactTypeInspectionRequest(
+                    packageId,
+                    "1.0.0",
+                    "net11.0",
+                    omittedType),
+                capabilities,
+                limits,
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            ExactTypeInspectionOutcome.Available,
+            available.Content.Outcome);
+        Assert.False(available.Content.IsComplete);
+        Assert.Contains(
+            available.Diagnostics,
+            diagnostic => diagnostic.Code
+                == "exact-type.projection-truncated");
+        Assert.Equal(
+            ExactTypeInspectionOutcome.Unavailable,
+            unavailable.Content.Outcome);
+        Assert.DoesNotContain(
+            unavailable.Diagnostics,
+            diagnostic => diagnostic.Code == "exact-type.not-found");
     }
 
     [Fact]

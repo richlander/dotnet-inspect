@@ -19,4 +19,8 @@
     <ProjectReference Include="../DotnetInspector.RowSelection/DotnetInspector.RowSelection.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="DotnetInspector.Sections.Tests" />
+  </ItemGroup>
+
 </Project>

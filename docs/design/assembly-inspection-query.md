@@ -1023,9 +1023,15 @@ over fuzzy generic-name matching, and retains every declaration matched by a
 non-full-name lookup through terminal resolution. It follows Type forwarders
 through the group binding policy and collapses roots only when Metadata resolves
 them to the same terminal definition. Distinct terminal definitions are
-ambiguous. The
-requested and supplying assemblies retain Metadata-issued assembly identity
-and MVID; ordered forwarding hops preserve the route between them.
+ambiguous. Execution bounds are caller-owned: desktop callers may select the
+explicit unbounded overload, while Browser/Wasm must supply
+`BrowserApiSurfacePolicy.Limits`. Bounded execution uses
+`AssemblyContextApiSurfaceQuery.ExecuteBounded` over the requested package
+participants. A selected Type projected before a later stop remains available
+but incomplete with typed `ProjectionTruncated` evidence; when a stop prevents
+a conclusive match, the outcome is `Unavailable`, never a false `NotFound`.
+The requested and supplying assemblies retain Metadata-issued assembly
+identity and MVID; ordered forwarding hops preserve the route between them.
 
 The terminal `InspectionEnvelope<ExactTypeInspectionResult>` is detached. Its
 content contains declaration facts, member signatures and inventory, exact
@@ -1034,6 +1040,10 @@ evidence. It contains no Workspace, realization identity, lease, reader,
 acquired content, opener, callback, or other resource-bearing handle. Share
 projection and diagnostics are computed once by the shared operation. CLI and
 Browser/Wasm consume that envelope rather than reconstructing its facts.
+Generic-constraint resolution failures remain typed and nonfatal for completion
+and exit status, and the shared operation also projects each one as an
+`exact-type.constraint-resolution-incomplete` warning so every host discloses
+the retained evidence.
 
 The CLI cutover is intentionally limited to the default quiet/minimal exact-Type
 view for an explicit package version and TFM. Explicit sections, alternate
@@ -1047,12 +1057,16 @@ The Release gates are:
 
 - `ExactTypeInspectionOperationTests` for detached cold equivalence, exact
   assembly/MVID identity, forwarded supplier identity and hops, not-found,
-  ambiguity, visible participant rejection, stable diagnostics, and
-  predecessor/successor realization association;
+  ambiguity, visible participant rejection, bounded truncation, nonfatal
+  constraint diagnostics, stable diagnostics, and predecessor/successor
+  realization association;
 - `ExactTypeWorkspaceRouteTests` for non-vacuous CLI retirement and default
-  member-signature rendering without the eligible legacy source resolver;
+  member-signature rendering without the eligible legacy source resolver, plus
+  nonfatal constraint-warning visibility;
 - `BrowserEngineBoundaryTests.QueryTypeProjection_*` for Browser consumption,
-  exact non-public selection, and isolation from fuzzy dependency roots; and
+  exact non-public selection, bounded exact-Type truncation, and isolation from
+  fuzzy dependency roots; `BannedSymbols.txt` prevents Browser production code
+  from selecting the unbounded exact-Type overload; and
 - `metadata-inspection.test.ts` plus `type-panel.test.ts` for the generated
   Browser contract and presentation composition.
 

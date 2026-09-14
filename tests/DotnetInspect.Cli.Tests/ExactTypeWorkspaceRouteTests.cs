@@ -9,6 +9,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using NuGetFetch;
 
@@ -189,6 +190,79 @@ public sealed class ExactTypeWorkspaceRouteTests
             StringComparison.Ordinal);
         Assert.Contains(
             "Type 'Exact.Type.Malformed' was not found.",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SharedRouteRendersConstraintDiagnosticAsNonfatal()
+    {
+        var store = await CachedStoreAsync();
+        using var client = new HttpClient(new FailingHandler());
+        string typeName = typeof(ApiType).FullName!;
+        var options = new TypeOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName = typeName,
+            TipLevel = TipLevel.Quiet,
+        };
+        var request = new ExactTypeInspectionRequest(
+            PackageId,
+            Version,
+            Framework,
+            typeName);
+        InspectionEnvelope<ExactTypeInspectionResult> baseline =
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                request,
+                new WorkspaceContextLoadOptions
+                {
+                    HttpClient = client,
+                    SourceAuthorization =
+                        new UniformPackageSourceAuthorization([Source]),
+                    PackageStore = store,
+                },
+                TestContext.Current.CancellationToken);
+        var failure = new ExactTypeApiInspectionFailure(
+            ApiSurface.ConstraintResolutionOperation,
+            SubjectToken: 0x02000001,
+            MetadataTypeNameFailureMechanism.Metadata,
+            Kind: "Missing",
+            Detail: "The generic constraint dependency was unavailable.",
+            SubjectAssembly:
+                baseline.Content.SupplierAssembly?.Identity,
+            DependencyAssembly: null);
+        ExactTypeInspectionResult result =
+            baseline.Content with
+            {
+                InspectionFailures = [failure],
+            };
+        InspectionEnvelope<ExactTypeInspectionResult> envelope =
+            new(
+                result,
+                baseline.Share,
+                [
+                    .. baseline.Diagnostics,
+                    new InspectionDiagnostic(
+                        "exact-type.constraint-resolution-incomplete",
+                        InspectionDiagnosticSeverity.Warning,
+                        "Generic-constraint classification was incomplete."),
+                ]);
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.RenderSharedExactTypeAsync(
+                    options,
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(options),
+                    request,
+                    envelope));
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains(typeName, output, StringComparison.Ordinal);
+        Assert.Contains("Warning:", error, StringComparison.Ordinal);
+        Assert.Contains(
+            "Generic-constraint classification was incomplete",
             error,
             StringComparison.Ordinal);
     }
