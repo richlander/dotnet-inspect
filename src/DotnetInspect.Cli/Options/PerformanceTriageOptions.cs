@@ -1,7 +1,6 @@
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 using DotnetInspector.Sections;
-using DotnetInspect.Cli.Sections;
 using ILInspector.CSharp;
 
 namespace DotnetInspect.Cli.Options;
@@ -36,73 +35,11 @@ public sealed record PerformanceTriageOptions
     public sealed record OrderTerm(string Field, bool Descending);
 
     public static PerformanceTriageOptions Default { get; } = new();
-    public static readonly string[] FilterableFields =
-    [
-        "Member",
-        "Candidate",
-        "Finding",
-        "Provenance",
-        "RootReach",
-        "Shape",
-        "Operation",
-        "Token",
-        "EvidenceMethod",
-        "Evidence",
-        "Fix",
-        "Priority",
-        "Confidence",
-        "Loop",
-        "CallerLoop",
-        "CallerLoopDepth",
-        "CallerLoopWitness",
-        "Allocation",
-        "Path",
-        "PathConfidence",
-        "PostDominance",
-        "IL",
-        "Weight",
-        "DirectSites",
-        "OncePaths",
-        "ConditionalPaths",
-        "RepeatedPaths",
-        "UnknownPaths",
-        "CachedSites",
-        "OpaquePaths",
-        "Saturated",
-    ];
+    public static IReadOnlyList<string> FilterableFields =>
+        PerformanceTriageRowQuery.FilterableFields;
 
-    public static readonly string[] SortableFields =
-    [
-        "Triage",
-        "RootReach",
-        "Priority",
-        "Confidence",
-        "Loop",
-        "CallerLoop",
-        "CallerLoopDepth",
-        "CallerLoopWitness",
-        "Member",
-        "Candidate",
-        "Finding",
-        "Provenance",
-        "Shape",
-        "Operation",
-        "Token",
-        "EvidenceMethod",
-        "IL",
-        "Allocation",
-        "Path",
-        "PathConfidence",
-        "PostDominance",
-        "Weight",
-        "DirectSites",
-        "OncePaths",
-        "ConditionalPaths",
-        "RepeatedPaths",
-        "UnknownPaths",
-        "CachedSites",
-        "OpaquePaths",
-    ];
+    public static IReadOnlyList<string> SortableFields =>
+        PerformanceTriageRowQuery.SortableFields;
 
     public static readonly string[] KnownShapes =
     [
@@ -126,32 +63,6 @@ public sealed record PerformanceTriageOptions
         "sync-call-in-async",
         "temporary-byte-array-copy",
     ];
-
-    public static ImmutableArray<SectionQueryFacet> QueryFacets { get; } =
-        [.. FilterableFields.Concat(SortableFields).Distinct(StringComparer.Ordinal)
-            .Select(CreateQueryFacet)];
-
-    private static SectionQueryFacet CreateQueryFacet(string field)
-    {
-        bool filterable = FilterableFields.Contains(field);
-        bool sortable = SortableFields.Contains(field);
-        bool ranked = IsRankedField(field);
-        string value = IsNumericField(field) ? "10" : ranked ? "high" : "*";
-        return new(
-            field,
-            [.. filterable ? new[] { "--where" } : [],
-                .. sortable ? new[] { "--order-by", "--top" } : []],
-            filterable
-                ? SupportsOrderedComparison(field) ? ["=", "!=", ">=", "<="] : ["=", "!="]
-                : [],
-            filterable
-                ? IsNumericField(field) ? "integer" : ranked ? "rank" : "text/glob"
-                : "order",
-            ranked ? ["low", "medium", "high"] : [],
-            filterable
-                ? $"--where \"{field}{(SupportsOrderedComparison(field) ? ">=" : "=")}{value}\""
-                : $"--top 10 --order-by \"{field} desc\"");
-    }
 
     public bool LoopOnly { get; init; }
     public string? MinConfidence { get; init; }
@@ -436,26 +347,16 @@ public sealed record PerformanceTriageOptions
     }
 
     static bool IsKnownConfidence(string value)
-        => value.Equals("low", StringComparison.OrdinalIgnoreCase)
-           || value.Equals("medium", StringComparison.OrdinalIgnoreCase)
-           || value.Equals("high", StringComparison.OrdinalIgnoreCase);
+        => PerformanceTriageRowQuery.IsRankedValue(value);
 
     private static bool IsRankedField(string field)
-        => field is "Priority" or "Confidence" or "Weight";
+        => PerformanceTriageRowQuery.IsRankedField(field);
 
     private static bool SupportsOrderedComparison(string field)
-        => IsNumericField(field) || IsRankedField(field);
+        => PerformanceTriageRowQuery.SupportsOrderedComparison(field);
 
     internal static bool IsNumericField(string field)
-        => field is "RootReach"
-            or "CallerLoopDepth"
-            or "DirectSites"
-            or "OncePaths"
-            or "ConditionalPaths"
-            or "RepeatedPaths"
-            or "UnknownPaths"
-            or "CachedSites"
-            or "OpaquePaths";
+        => PerformanceTriageRowQuery.IsNumericField(field);
 
     static string? NormalizeField(string field, IReadOnlyList<string> knownFields)
     {
