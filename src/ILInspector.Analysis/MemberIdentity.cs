@@ -351,6 +351,12 @@ public sealed record DirectCall(
     public AllocationMultiplicity Multiplicity { get; init; }
     public bool ExactTarget { get; init; }
     /// <summary>
+    /// Normalized caller contract when this invocation resolves to a MethodDef
+    /// in the inspected image; <see langword="null"/> for external, unresolved,
+    /// indirect, and function-load targets.
+    /// </summary>
+    public CallerUnsafeMode? TargetCallerUnsafeMode { get; init; }
+    /// <summary>
     /// Conservative use of the value produced by this call.
     /// <c>MethodCallAnalysisTests.ClassifiesReturnedAndDiscardedCallResults</c>
     /// gates direct uses when
