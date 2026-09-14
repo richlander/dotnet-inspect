@@ -2500,7 +2500,7 @@ test("data bar shows versioned linked build provenance", () => {
     /producer: \{ kind: "acquisition", label: "Platform" \}/);
   assert.match(
     dataBarSource,
-    /href="\$\{CLI_TOOL_URL\}"[\s\S]*href="\$\{AGENT_SKILL_URL\}"[\s\S]*href="\$\{ROUTED_ENTRY_PATHS\.credits\}"/);
+    /href="\$\{CLI_TOOL_URL\}"[\s\S]*href="\$\{AGENT_SKILL_URL\}"[\s\S]*href="\$\{ROUTED_ENTRY_PATHS\.diagnostics\}"[\s\S]*href="\$\{ROUTED_ENTRY_PATHS\.credits\}"/);
   assert.match(
     dataBarSource,
     /identity\.commitUrl[\s\S]*target="_blank" rel="noopener noreferrer"/);
@@ -2524,6 +2524,9 @@ test("Diagnostics is a routed typed surface outside the Application menu", () =>
     /<h1 id="diagnostics-heading" tabindex="-1">Diagnostics<\/h1>/);
   assert.match(
     diagnosticsViewSource,
+    /id="diagnostics-back"[\s\S]*aria-label="Back to previous page"/);
+  assert.match(
+    diagnosticsViewSource,
     /runtimeCardHtml\(model\.runtime[\s\S]*buildCardHtml\(model\.build[\s\S]*cacheCardHtml\(model\.packageCache/);
   assert.match(
     diagnosticsRouteSource,
@@ -2533,6 +2536,7 @@ test("Diagnostics is a routed typed surface outside the Application menu", () =>
       /export function renderApplicationMenu\([\s\S]*?\n}/)?.[0]
     ?? "";
   assert.doesNotMatch(applicationMenu, /Diagnostics|diagnostics/);
+  assert.doesNotMatch(commandBarSource, /"diagnostics"/);
 });
 
 test("bootstrap reconciles persisted style choices with the product catalog", () => {
