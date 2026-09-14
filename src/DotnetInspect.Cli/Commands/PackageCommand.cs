@@ -146,7 +146,13 @@ public class PackageCommand
 
             return DiscoverOutput.Execute(options.Discover, schemaMap,
                 DiscoveryOutputRequest.Create(
-                    options.Format,
+                    OutputFormatResolver.ResolveStored(
+                        options.Format,
+                        options.JsonOutput,
+                        plainText: false,
+                        options.Tabular,
+                        options.Tsv,
+                        options.Jsonl),
                     options.Tree,
                     options.TabularExplicitlySet,
                     options.NoHeader,
@@ -1281,7 +1287,13 @@ public class PackageCommand
                         effective,
                         schemaMap,
                         DiscoveryOutputRequest.Create(
-                            options.Format,
+                            OutputFormatResolver.ResolveStored(
+                                options.Format,
+                                options.JsonOutput,
+                                plainText: false,
+                                options.Tabular,
+                                options.Tsv,
+                                options.Jsonl),
                             options.Tree,
                             options.TabularExplicitlySet,
                             options.NoHeader,

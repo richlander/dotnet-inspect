@@ -39,7 +39,13 @@ public static class VocabularyCommand
                 discover,
                 schema,
                 DiscoveryOutputRequest.Create(
-                    options.Format,
+                    OutputFormatResolver.ResolveStored(
+                        options.Format,
+                        options.JsonOutput,
+                        options.PlainText,
+                        options.Tabular,
+                        options.Tsv,
+                        options.Jsonl),
                     options.Tree,
                     options.Format == OutputFormat.Table,
                     options.NoHeader,

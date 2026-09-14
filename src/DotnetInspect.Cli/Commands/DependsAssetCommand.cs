@@ -68,7 +68,13 @@ public partial class DependsCommand
                 discover,
                 DependsAssetSections.CreateSchema(),
                 DiscoveryOutputRequest.Create(
-                    options.Format,
+                    OutputFormatResolver.ResolveStored(
+                        options.Format,
+                        options.JsonOutput,
+                        plainText: false,
+                        options.Tabular,
+                        options.Tsv,
+                        options.Jsonl),
                     options.Tree,
                     options.Tabular,
                     options.NoHeader,
@@ -132,7 +138,13 @@ public partial class DependsCommand
                     effective,
                     DependsAssetSections.CreateSchema(),
                     DiscoveryOutputRequest.Create(
-                        options.Format,
+                        OutputFormatResolver.ResolveStored(
+                            options.Format,
+                            options.JsonOutput,
+                            plainText: false,
+                            options.Tabular,
+                            options.Tsv,
+                            options.Jsonl),
                         options.Tree,
                         options.Tabular,
                         options.NoHeader,

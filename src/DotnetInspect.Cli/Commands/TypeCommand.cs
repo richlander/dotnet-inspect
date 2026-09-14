@@ -1102,7 +1102,13 @@ public static class TypeCommand
         var effective = typePipeline.GetDiscoverableSections(api, options.IncludeSections);
         return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
             DiscoveryOutputRequest.Create(
-                options.Format,
+                OutputFormatResolver.ResolveStored(
+                    options.Format,
+                    options.JsonOutput,
+                    options.PlainText,
+                    options.Tabular,
+                    options.Tsv,
+                    options.Jsonl),
                 options.Tree,
                 options.TabularExplicitlySet,
                 options.NoHeader,

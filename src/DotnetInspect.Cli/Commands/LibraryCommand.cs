@@ -238,7 +238,13 @@ public class LibraryCommand
             {
                 return DiscoverOutput.Execute(options.Discover, schemaMap,
                     DiscoveryOutputRequest.Create(
-                        options.Format,
+                        OutputFormatResolver.ResolveStored(
+                            options.Format,
+                            options.JsonOutput,
+                            options.PlainText,
+                            options.Tabular,
+                            options.Tsv,
+                            options.Jsonl),
                         options.Tree,
                         options.TabularExplicitlySet,
                         options.NoHeader,
@@ -2855,7 +2861,13 @@ public class LibraryCommand
         var rootLabel = Path.GetFileNameWithoutExtension(assemblyPath);
         int discoveryExitCode = DiscoverOutput.ExecuteEffective(options.Discover, effective, filteredSchema,
             DiscoveryOutputRequest.Create(
-                options.Format,
+                OutputFormatResolver.ResolveStored(
+                    options.Format,
+                    options.JsonOutput,
+                    options.PlainText,
+                    options.Tabular,
+                    options.Tsv,
+                    options.Jsonl),
                 options.Tree,
                 options.TabularExplicitlySet,
                 options.NoHeader,
@@ -3022,7 +3034,13 @@ public class LibraryCommand
     {
         return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
             DiscoveryOutputRequest.Create(
-                options.Format,
+                OutputFormatResolver.ResolveStored(
+                    options.Format,
+                    options.JsonOutput,
+                    options.PlainText,
+                    options.Tabular,
+                    options.Tsv,
+                    options.Jsonl),
                 options.Tree,
                 options.TabularExplicitlySet,
                 options.NoHeader,
