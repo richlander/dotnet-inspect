@@ -61,7 +61,7 @@ public sealed partial class EhStructuringPass : IIrPass
         var continuations = new Dictionary<IrNode, int>();
         var rebuilt = BuildContainer(function, blocks, 0, blocks.Count, forest.Roots, offsetToIndex, continuations);
         TrimTailLeaves(rebuilt, continuations);
-        InlineReturnLeaves(rebuilt);
+        InlineReturnLeaves(rebuilt, continuations);
         SynthesizeInlineCatchVariables(function, rebuilt);
         context.Stepper.StepOver("raise exception regions into try/catch/finally", function.Body);
         function.Body.ReplaceWith(rebuilt);
@@ -579,19 +579,43 @@ public sealed partial class EhStructuringPass : IIrPass
     /// previous block). The single normal-continuation return stays put. With
     /// the leaves gone the structuring pass raises the bodies.
     /// </summary>
-    static void InlineReturnLeaves(BlockContainer root)
+    static void InlineReturnLeaves(
+        BlockContainer root,
+        IReadOnlyDictionary<IrNode, int> continuations)
     {
         var byOffset = new Dictionary<int, Block>();
         foreach (var block in root.Descendants.OfType<Block>())
             byOffset.TryAdd(block.StartOffset, block);
 
         foreach (var leave in root.Descendants.OfType<Leave>().ToList())
-            if (byOffset.TryGetValue(leave.TargetOffset, out var target) && CloneTerminator(target) is { } clone)
+            if (!TargetsEnclosingNormalContinuation(leave, continuations)
+                && byOffset.TryGetValue(leave.TargetOffset, out var target)
+                && CloneTerminator(target) is { } clone)
+            {
                 leave.ReplaceWith(clone);
+            }
 
         // The multi-return blocks sit in the top-level slice after the
         // constructs; once their leaves are inlined they are unreachable.
         RemoveDeadReturns(root, ReferencedOffsets(root));
+    }
+
+    static bool TargetsEnclosingNormalContinuation(
+        Leave leave,
+        IReadOnlyDictionary<IrNode, int> continuations)
+    {
+        for (IrNode? ancestor = leave.Parent;
+             ancestor is not null;
+             ancestor = ancestor.Parent)
+        {
+            if (continuations.TryGetValue(ancestor, out int continuation)
+                && continuation == leave.TargetOffset)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     static HashSet<int> ReferencedOffsets(BlockContainer root)
