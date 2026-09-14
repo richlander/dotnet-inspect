@@ -138,7 +138,7 @@ public sealed class IrInvariantCheckTests
         // review, GPT): a lambda/local-function with an EMPTY local table shares
         // its host's scope and references the outer function's locals by their
         // outer index — exactly how LambdaRaisingPass substitutes captured locals
-        // and how the C# printer scopes it (NeedsNestedLambdaScope). Treating the
+        // and how the C# printer scopes it (NeedsIsolatedLocalScope). Treating the
         // empty-Locals lambda as its own zero-slot scope would reject the valid
         // outer reference. Outer declares one local; the empty lambda reads slot 0.
         var valid = FunctionWithLocalsReturningEmptyLambdaThatStores(outerLocals: 1, lambdaSlot: 0);
