@@ -463,22 +463,32 @@ prereleases, over the first 200 candidates. Three spellings, one intent:
 rail      Microsoft.Extensions.*   [depends: Serilog]  [+ prerelease]
 CLI       package query "Microsoft.Extensions.*" \
             --where "depends=Serilog" --where "prerelease=include" --take 200
-intent    terms  (depends, eq, Serilog), (prerelease, eq, include)
+intent    terms  (depends, eq, Serilog), (prefix, eq, Microsoft.Extensions.*),
+                 (prerelease, eq, include)
           bounds (candidates, 200)
 ```
 
-Terms sort ordinally, `depends` before `prerelease`. There is no stage pipeline
-and no order, so `s` and `o` are omitted rather than emitted empty:
+The source input travels as a term like everything else. Intent has **no
+privileged scope slot**: a vocabulary that selects a population expresses that
+selection in its own key namespace, and a typed distinction it needs to preserve
+— an exact identifier against a literal prefix, say — is carried by using
+distinct keys, not by a slot this layer defines. A restored query that lost its
+scope would run against a different population while looking like the one that
+was shared, so the scope is not optional context around the query; it is part of
+the query.
+
+Terms sort ordinally: `depends`, `prefix`, `prerelease`. There is no stage
+pipeline and no order, so `s` and `o` are omitted rather than emitted empty:
 
 ```json
-{"t":[["depends","eq","Serilog"],["prerelease","eq","include"]],"b":[["candidates",200]]}
+{"t":[["depends","eq","Serilog"],["prefix","eq","Microsoft.Extensions.*"],["prerelease","eq","include"]],"b":[["candidates",200]]}
 ```
 
 The packet tuple pairs those bytes with the vocabulary, and the share link
 carries that same pair:
 
 ```json
-["package.query",{"t":[["depends","eq","Serilog"],["prerelease","eq","include"]],"b":[["candidates",200]]}]
+["package.query",{"t":[["depends","eq","Serilog"],["prefix","eq","Microsoft.Extensions.*"],["prerelease","eq","include"]],"b":[["candidates",200]]}]
 ```
 
 Opening the link re-runs the request. It restores no rows, no counts, and no
@@ -491,7 +501,7 @@ the codec in the opposite order and produces identical bytes, so both people
 share one link and the packet deduplicates the two states into one:
 
 ```json
-{"t":[["depends","eq","Serilog"],["prerelease","eq","include"]],"b":[["candidates",200]]}
+{"t":[["depends","eq","Serilog"],["prefix","eq","Microsoft.Extensions.*"],["prerelease","eq","include"]],"b":[["candidates",200]]}
 ```
 
 Term sequence carries no meaning, so canonicalization removes it. Contrast the
@@ -553,10 +563,18 @@ Cannot restore query: vocabulary "package.query" does not offer key "depends".
 ```
 
 The alternative — dropping the term and running the rest — would answer a
-**broader** question while looking like the shared one. Removing a conjunct
-weakens the predicate, so silent dropping admits matches the sender never asked
-for and authorizes work their bounds never covered, then reports its own
-completion state honestly about a request nobody made.
+different question while looking like the shared one, and which direction it
+moves depends on where the term sat. `depends` here is a plain conjunct,
+belonging to no combining family, so removing it weakens the predicate: silent
+dropping would admit matches the sender never asked for and authorize work their
+execution bounds never covered. Drop a member of a multi-member OR-family
+instead and the family narrows — under `(A OR B) AND C`, losing `A` rejects
+items that satisfied only `A` and `C`.
+
+Both directions are equally forbidden, which is why the rule is stated as
+failure rather than as a bound on how far the answer may move. A restored query
+either asks what was shared or refuses; it never asks something adjacent and
+reports completion honestly about a request nobody made.
 
 ## Required gates
 
