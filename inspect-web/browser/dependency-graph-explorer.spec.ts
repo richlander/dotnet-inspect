@@ -132,16 +132,56 @@ test("coordinate replacement closes the viewer and notices travel with the graph
   await expect(page.locator("#dependency-graph-diagram svg")).toBeVisible();
 });
 
-for (const size of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
-  test(`Dependencies keeps a bounded inline preview and uses the Explore viewport at ${size.width}px`, async ({ page }) => {
-    await page.setViewportSize(size);
+for (const layout of [
+  {
+    name: "wide inspector",
+    viewport: { width: 1440, height: 1000 },
+    surfaceWidth: 900,
+    inlineHeight: 360,
+  },
+  {
+    name: "constrained inspector in a wide browser",
+    viewport: { width: 1440, height: 1000 },
+    surfaceWidth: 560,
+    inlineHeight: 240,
+  },
+  {
+    name: "phone inspector",
+    viewport: { width: 390, height: 844 },
+    surfaceWidth: 390,
+    inlineHeight: 240,
+  },
+]) {
+  test(`Dependencies keeps a bounded inline preview and uses the Explore viewport for a ${layout.name}`, async ({ page }) => {
+    await page.setViewportSize(layout.viewport);
+    await page.locator(".package-dependencies-surface").evaluate(
+      (surface, width) => { surface.style.width = `${width}px`; },
+      layout.surfaceWidth,
+    );
+    expect((await page.locator(".package-dependencies-surface").boundingBox())!.width)
+      .toBeCloseTo(layout.surfaceWidth, 2);
     const inline = await page.locator(".graph-viewport").boundingBox();
-    expect(inline!.height).toBeCloseTo(size.width === 1440 ? 360 : 240, 2);
+    expect(inline!.height).toBeCloseTo(layout.inlineHeight, 2);
+    const initialList = await page.evaluate(() => {
+      const scroll = document.querySelector<HTMLElement>(".package-dependencies-scroll")!;
+      const list = document.querySelector<HTMLElement>("#dep-list-section")!;
+      const scrollRect = scroll.getBoundingClientRect();
+      const listRect = list.getBoundingClientRect();
+      return {
+        listTop: listRect.top,
+        scrollBottom: scrollRect.bottom,
+        scrollTop: scroll.scrollTop,
+        scrollTopEdge: scrollRect.top,
+      };
+    });
+    expect(initialList.scrollTop).toBe(0);
+    expect(initialList.listTop).toBeGreaterThanOrEqual(initialList.scrollTopEdge);
+    expect(initialList.listTop).toBeLessThan(initialList.scrollBottom);
     await expect(page.locator("#dep-list-section")).toBeInViewport();
     await page.getByRole("button", { name: "Explore", exact: true }).click();
     const viewport = await page.locator(".graph-viewport").boundingBox();
-    expect(viewport!.width).toBeGreaterThan(size.width - 30);
-    expect(viewport!.height).toBeGreaterThan(size.height * 0.7);
+    expect(viewport!.width).toBeGreaterThan(layout.viewport.width - 30);
+    expect(viewport!.height).toBeGreaterThan(layout.viewport.height * 0.7);
     await page.getByRole("button", { name: "netstandard2.0", exact: true }).click();
     await expect(page.getByRole("status")).toHaveText("Dependency graph truncated at 80 nodes.");
     await expect(page.getByRole("status")).toBeInViewport();
@@ -150,7 +190,8 @@ for (const size of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }])
     const legend = await page.locator(".graph-legend").boundingBox();
     expect(controls!.y + controls!.height).toBeLessThanOrEqual(warning!.y);
     expect(warning!.y + warning!.height).toBeLessThanOrEqual(legend!.y);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(size.width);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth))
+      .toBe(layout.viewport.width);
     await page.getByRole("button", { name: "Fit", exact: true }).click();
     const extent = await page.evaluate(() => {
       const graphViewport =
@@ -165,7 +206,7 @@ for (const size of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }])
         top: viewportRect.top - svgRect.top,
       };
     });
-    if (size.width === 1440) {
+    if (layout.viewport.width === 1440) {
       expect(Math.max(extent.bottom, extent.left, extent.right, extent.top))
         .toBeLessThanOrEqual(1);
     } else {
@@ -175,7 +216,7 @@ for (const size of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }])
     await expect(page.getByRole("button", { name: "Close", exact: true })).toBeInViewport();
     await page.getByRole("button", { name: "Close", exact: true }).click();
     expect((await page.locator(".graph-viewport").boundingBox())!.height)
-      .toBeCloseTo(size.width === 1440 ? 360 : 240, 2);
+      .toBeCloseTo(layout.inlineHeight, 2);
     await expect(page.locator("#dep-list-section")).toBeInViewport();
   });
 }

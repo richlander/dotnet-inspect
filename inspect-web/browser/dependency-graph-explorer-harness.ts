@@ -146,31 +146,42 @@ function patchGroup() {
 async function render() {
   explorer.beforeRender(key());
   app.innerHTML = `
-    <main class="package-dependencies-layout-harness">
-      <h1 tabindex="-1">Dependencies: ${pkg.id}</h1>
+    <main style="height: 100%; display: grid; grid-template-rows: 40px minmax(0, 1fr)">
       <div class="working-surface-actions"><button type="button" id="explore" data-graph-explore${state === "query-error" || state === "no-groups" ? " disabled" : ""}>Explore</button></div>
-      <button type="button" id="coordinates">Package coordinate controls</button>
-      ${notice ? `<p role="status">${notice}</p>` : ""}
-      <div class="package-dependencies-scroll">
-        <div data-dependency-graph-surface>
-          ${state === "query-error" || state === "no-groups"
-            ? `<section class="document-section empty-document"><h2>${state === "query-error" ? "Dependency query failed" : "No package dependencies"}</h2><p>${state === "query-error" ? "Fixture query failure" : "Self-contained package"}</p></section>`
-            : `
-              ${notices ? '<section class="document-section empty-document"><h2>No exact dependency group</h2><p>The package has no manifest group matching the active coordinate.</p></section>' : ""}
-              <section class="document-section dependency-group-selector">
-                <div class="section-title"><h2>Target frameworks</h2><span>one framework at a time</span></div>
-                <div class="type-chip-list" id="dep-tfm-chips">${groups.map(group => `<button type="button" class="type-chip" data-dep-group="${group.index}">${group.framework}</button>`).join("")}</div>
-              </section>
-              <section class="document-section dependency-graph-section">
-                <div class="section-title"><h2>Dependency graph</h2><span>callers above · dependencies below · click a package to open</span></div>
-                ${notices ? '<div class="graph-drill-error" role="status">Some workspace manifests could not be read.</div>' : ""}
-                <div id="dependency-graph-diagram" class="call-graph-diagram"><p>Rendering graph...</p></div>
-                ${dependencyGraphLegendHtml()}
-              </section>`}
+      <section class="package-dependencies-surface" aria-labelledby="package-dependencies-surface-title">
+        <header class="api-surface-head package-dependencies-surface-head">
+          <h1 id="package-dependencies-surface-title" tabindex="-1">Dependencies: ${pkg.id}</h1>
+          <p>${groups[groupIndex]?.dependencies.length ?? 0} packages</p>
+        </header>
+        <section class="package-dependencies-controls" aria-label="Dependency coordinate">
+          <button type="button" id="coordinates">Package coordinate controls</button>
+        </section>
+        <div class="package-dependencies-scroll">
+          ${notice ? `<p role="status">${notice}</p>` : ""}
+          <div data-dependency-graph-surface>
+            ${state === "query-error" || state === "no-groups"
+              ? `<section class="document-section empty-document"><h2>${state === "query-error" ? "Dependency query failed" : "No package dependencies"}</h2><p>${state === "query-error" ? "Fixture query failure" : "Self-contained package"}</p></section>`
+              : `
+                ${notices ? '<section class="document-section empty-document"><h2>No exact dependency group</h2><p>The package has no manifest group matching the active coordinate.</p></section>' : ""}
+                <section class="document-section dependency-group-selector">
+                  <div class="section-title"><h2>Target frameworks</h2><span>one framework at a time</span></div>
+                  <div class="type-chip-list" id="dep-tfm-chips">${groups.map(group => `<button type="button" class="type-chip" data-dep-group="${group.index}">${group.framework}</button>`).join("")}</div>
+                </section>
+                <section class="document-section dependency-graph-section">
+                  <div class="section-title"><h2>Dependency graph</h2><span>callers above · dependencies below · click a package to open</span></div>
+                  ${notices ? '<div class="graph-drill-error" role="status">Some workspace manifests could not be read.</div>' : ""}
+                  <div id="dependency-graph-diagram" class="call-graph-diagram"><p>Rendering graph...</p></div>
+                  ${dependencyGraphLegendHtml()}
+                </section>`}
+          </div>
+          <section class="document-section" id="dep-list-section"></section>
+          <section class="document-section" id="assembly-references">Assembly references</section>
         </div>
-        <section class="document-section" id="dep-list-section"></section>
-        <section class="document-section" id="assembly-references">Assembly references</section>
-      </div>
+        <footer class="api-surface-footer package-dependencies-surface-footer">
+          <span>${pkg.id}@${pkg.version}</span>
+          <span>${pkg.activeFramework}</span>
+        </footer>
+      </section>
     </main>`;
   bindGraphExplore(document, () => explorer.open(target()));
   bindPackageView(document, {
