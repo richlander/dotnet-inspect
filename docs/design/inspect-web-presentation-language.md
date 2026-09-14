@@ -58,6 +58,43 @@ This document consumes, without redefining:
 - product-issued source-provenance results, including optional
   producer-authorized browse URLs.
 
+## Theme palette
+
+Inspect Web uses the modern .NET and C# purple family as its shared identity.
+The official .NET brand purple, `#512BD4`, is the strong selected fill in both
+themes. Dark-theme interactive foregrounds use the official light purple
+`#B9AAEE`; light-theme interactive foregrounds use brand purple. Selected
+surfaces use deep purple in dark mode and the official pale lavender
+`#EEEAFB` in light mode. The inspected graph subject uses the same family,
+pairing the official `#311A7F` shade with light purple in dark mode and pale
+lavender with brand purple in light mode.
+
+Dark and light themes share those semantic roles rather than acquiring
+unrelated identities:
+
+| Role | Dark theme | Light theme |
+| ---- | ---------- | ----------- |
+| Foundation | Purple-black and midnight-purple neutrals | White and pale-lavender neutrals |
+| Interactive foreground and focus | Light purple | Brand purple |
+| Strong selected fill | Brand purple | Brand purple |
+| Selected surface | Deep purple | Pale lavender |
+| Inspected graph subject | Purple shade with light-purple stroke | Pale lavender with brand-purple stroke |
+
+Blue and cyan remain available for information and structural graph roles.
+Green, yellow, and red remain semantic status colors. Warm colors may identify
+warnings, Findings, exceptional states, or conventional source syntax; they do
+not act as the persistent website selection identity. In particular, Inspect
+Web does not use the legacy green C# association. Allocation Findings use a
+dedicated warm role, and every Finding category retains its semantic border
+when selection or another shared control treatment is also present.
+
+Theme neutrals may be tonal adaptations rather than logo colors, but they stay
+within the same purple-to-lavender family. Text, control boundaries, selected
+fills, and focus indicators retain their accessibility contrast and non-color
+cues. A focused control on the strong selected fill uses its contrasting
+foreground for the inset focus ring. The browser palette gate checks the shared
+CSS roles, their representative consumers, and contrast in both themes.
+
 ## Selector controls
 
 Selector controls are compact pill-shaped buttons used to choose a value or
