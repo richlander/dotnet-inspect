@@ -95,14 +95,14 @@ capabilities or content of the active Workspace.
 The Navigation Presentation-owned Subject and Inspector region shares row one
 with those shell controls. `Share`, `Settings`, `Keyboard help`, and contextual
 working-surface actions are not children of that region or items in either
-SlideStrip.
+adaptive navigation group.
 
 The shell exposes one stable Application menu control separately from the
 Subject and Inspector region. [Inspect Web Surface
 Composition](inspect-web-surface-composition.md) owns its page-level placement,
-its relationship to overflowing content, and the responsive allocation that
-keeps it outside the subject and inspector region. The control's interaction
-identity and menu inventory do not change with viewport width.
+its relationship to constrained content, and the responsive allocation that
+keeps it outside the adaptive subject and inspector groups. The control's
+interaction identity and menu inventory do not change with viewport width.
 
 Search is an input-like control in row one that opens Spotlight. It is
 not editable in place and does not become a dominant centered command control.

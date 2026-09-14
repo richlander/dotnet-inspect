@@ -851,6 +851,31 @@ jobs:
         include:
           - os: ubuntu-24.04
             rid: linux-x64
+            shard: cli-a-c
+          - os: ubuntu-24.04
+            rid: linux-x64
+            shard: cli-d-i
+          - os: ubuntu-24.04
+            rid: linux-x64
+            shard: cli-ma
+          - os: ubuntu-24.04
+            rid: linux-x64
+            shard: cli-mem
+          - os: ubuntu-24.04
+            rid: linux-x64
+            shard: cli-q-z
+          - os: ubuntu-24.04
+            rid: linux-x64
+            shard: cli-rest
+          - os: ubuntu-24.04
+            rid: linux-x64
+            shard: contracts
+          - os: ubuntu-24.04
+            rid: linux-x64
+            shard: analysis
+          - os: ubuntu-24.04
+            rid: linux-x64
+            shard: host-policy
     runs-on: ${{ matrix.os }}
     env:
       DOTNET_INSPECT_TIPS: q
@@ -874,29 +899,37 @@ jobs:
         run: dotnet build dotnet-inspect.slnx -c Release
 
       - name: Test dependency policy
+        if: matrix.shard == 'host-policy'
         run: dotnet run --project eng/DependencyPolicy.Tests -c Release --no-build
 
       - name: Validate dependency policy
+        if: matrix.shard == 'host-policy'
         run: dotnet run --project eng/DependencyPolicy -c Release --no-build
 
       - name: Test CLI runtime flavor across publish modes
+        if: matrix.shard == 'host-policy'
         run: bash eng/test-runtime-flavor.sh ${{ matrix.rid }}
 
       - name: Run MethodSemantics NativeAOT probe
+        if: matrix.shard == 'host-policy'
         run: eng/run-method-semantics-platform-probe.sh nativeaot ${{ matrix.rid }}
 
       - name: Run local-path admission NativeAOT probe
+        if: matrix.shard == 'host-policy'
         run: eng/run-local-path-admission-platform-probe.sh nativeaot ${{ matrix.rid }}
 
       - name: Build package-manifest corpus verifier
+        if: matrix.shard == 'host-policy'
         run: dotnet build eng/verify-package-manifest-corpus.cs -c Release
 
       - name: Prepare PR decompiler corpus
+        if: matrix.shard == 'host-policy'
         run: |
           mkdir -p artifacts/decompiler-pr-corpus
           bash eng/prepare-decompiler-pr-corpus.sh artifacts/decompiler-pr-corpus/assemblies.txt
 
       - name: Run PR decompiler corpus sensor
+        if: matrix.shard == 'host-policy'
         id: decompiler_pr_corpus
         continue-on-error: true
         shell: bash
@@ -917,7 +950,7 @@ jobs:
           exit "$status"
 
       - name: Upload PR decompiler corpus artifact
-        if: always()
+        if: matrix.shard == 'host-policy' && always()
         uses: actions/upload-artifact@v7
         with:
           name: decompiler-pr-corpus
@@ -925,29 +958,109 @@ jobs:
           if-no-files-found: error
 
       - name: Check PR decompiler corpus result
-        if: steps.decompiler_pr_corpus.outcome == 'failure'
+        if: matrix.shard == 'host-policy' && steps.decompiler_pr_corpus.outcome == 'failure'
         run: exit 1
 
-      # --mdv matters here because this lane runs
-      # tests/ILInspector.Metadata.Tests, whose cross-implementation oracle
-      # skips without it -- and a skipped oracle is a green leg that compared
-      # nothing. Deep Inspect restores the same oracle for its platform lane.
-      #
-      # continue-on-error lets the rest of the lane still report, so a feed
-      # outage does not cost every other result in the job. It does not make
-      # the failure survivable: `Check ilasm/ildasm/mdv result` below fails the
-      # lane once the tests have run. Losing oracle coverage must be red, not a
-      # quietly shorter skip list.
-      - name: Install ilasm/ildasm/mdv
-        id: iltools
+      # The contract shard needs mdv for the metadata cross-implementation
+      # oracle. The analysis shard needs ilasm for hand-authored decompiler
+      # fixtures. Restore only the tools each parallel shard consumes.
+      - name: Install ilasm/ildasm/mdv for contract tests
+        if: matrix.shard == 'contracts'
+        id: iltools_contracts
         continue-on-error: true
         shell: bash
         run: eng/restore-iltools.sh --rid ${{ matrix.rid }} --mdv >> "$GITHUB_PATH"
 
-      - name: Run CLI tests (fast)
-        run: dotnet run --project tests/DotnetInspect.Cli.Tests -c Release -- --filter-not-trait "Speed=Slow"
+      - name: Install ilasm/ildasm for analysis tests
+        if: matrix.shard == 'analysis'
+        id: iltools_analysis
+        continue-on-error: true
+        shell: bash
+        run: eng/restore-iltools.sh --rid ${{ matrix.rid }} >> "$GITHUB_PATH"
+
+      # The first five shards select explicit class-name prefixes. The final
+      # shard is their complement, so new or unusually named test classes
+      # cannot fall between ranges and silently disappear from PR CI.
+      - name: Run CLI tests A-C (fast)
+        if: matrix.shard == 'cli-a-c'
+        run: >-
+          dotnet run --project tests/DotnetInspect.Cli.Tests -c Release --no-build --
+          --filter-class 'DotnetInspect.Cli.Tests.A*'
+          'DotnetInspect.Cli.Tests.B*'
+          'DotnetInspect.Cli.Tests.C*'
+          --filter-not-trait "Speed=Slow"
+
+      - name: Run CLI tests D-I (fast)
+        if: matrix.shard == 'cli-d-i'
+        run: >-
+          dotnet run --project tests/DotnetInspect.Cli.Tests -c Release --no-build --
+          --filter-class 'DotnetInspect.Cli.Tests.D*'
+          'DotnetInspect.Cli.Tests.E*'
+          'DotnetInspect.Cli.Tests.F*'
+          'DotnetInspect.Cli.Tests.G*'
+          'DotnetInspect.Cli.Tests.H*'
+          'DotnetInspect.Cli.Tests.I*'
+          --filter-not-trait "Speed=Slow"
+
+      - name: Run CLI Markout and Match tests (fast)
+        if: matrix.shard == 'cli-ma'
+        run: >-
+          dotnet run --project tests/DotnetInspect.Cli.Tests -c Release --no-build --
+          --filter-class 'DotnetInspect.Cli.Tests.Ma*'
+          --filter-not-trait "Speed=Slow"
+
+      - name: Run CLI Member tests (fast)
+        if: matrix.shard == 'cli-mem'
+        run: >-
+          dotnet run --project tests/DotnetInspect.Cli.Tests -c Release --no-build --
+          --filter-class 'DotnetInspect.Cli.Tests.Mem*'
+          --filter-not-trait "Speed=Slow"
+
+      - name: Run CLI tests Q-Z (fast)
+        if: matrix.shard == 'cli-q-z'
+        run: >-
+          dotnet run --project tests/DotnetInspect.Cli.Tests -c Release --no-build --
+          --filter-class 'DotnetInspect.Cli.Tests.Q*'
+          'DotnetInspect.Cli.Tests.R*'
+          'DotnetInspect.Cli.Tests.S*'
+          'DotnetInspect.Cli.Tests.T*'
+          'DotnetInspect.Cli.Tests.U*'
+          'DotnetInspect.Cli.Tests.V*'
+          'DotnetInspect.Cli.Tests.W*'
+          'DotnetInspect.Cli.Tests.X*'
+          'DotnetInspect.Cli.Tests.Y*'
+          'DotnetInspect.Cli.Tests.Z*'
+          --filter-not-trait "Speed=Slow"
+
+      - name: Run remaining CLI tests (fast)
+        if: matrix.shard == 'cli-rest'
+        run: >-
+          dotnet run --project tests/DotnetInspect.Cli.Tests -c Release --no-build --
+          --filter-not-class 'DotnetInspect.Cli.Tests.A*'
+          'DotnetInspect.Cli.Tests.B*'
+          'DotnetInspect.Cli.Tests.C*'
+          'DotnetInspect.Cli.Tests.D*'
+          'DotnetInspect.Cli.Tests.E*'
+          'DotnetInspect.Cli.Tests.F*'
+          'DotnetInspect.Cli.Tests.G*'
+          'DotnetInspect.Cli.Tests.H*'
+          'DotnetInspect.Cli.Tests.I*'
+          'DotnetInspect.Cli.Tests.Ma*'
+          'DotnetInspect.Cli.Tests.Mem*'
+          'DotnetInspect.Cli.Tests.Q*'
+          'DotnetInspect.Cli.Tests.R*'
+          'DotnetInspect.Cli.Tests.S*'
+          'DotnetInspect.Cli.Tests.T*'
+          'DotnetInspect.Cli.Tests.U*'
+          'DotnetInspect.Cli.Tests.V*'
+          'DotnetInspect.Cli.Tests.W*'
+          'DotnetInspect.Cli.Tests.X*'
+          'DotnetInspect.Cli.Tests.Y*'
+          'DotnetInspect.Cli.Tests.Z*'
+          --filter-not-trait "Speed=Slow"
 
       - name: Run GitHub Packages fixture test
+        if: matrix.shard == 'host-policy'
         id: package_fixture
         continue-on-error: true
         shell: bash
@@ -970,87 +1083,115 @@ jobs:
           fi
 
       - name: Run CSharpText tests
+        if: matrix.shard == 'contracts'
         run: dotnet run --project tests/CSharpText.Tests -c Release -- --filter-not-trait "Speed=Slow"
 
       - name: Run CSharp tests
+        if: matrix.shard == 'contracts'
         run: dotnet run --project tests/ILInspector.CSharp.Tests -c Release
 
       - name: Run artifact contract tests
+        if: matrix.shard == 'contracts'
         run: dotnet run --project tests/Inspector.Artifacts.Tests -c Release
 
       - name: Run Library contract tests
+        if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.Libraries.Tests -c Release
 
       - name: Run resource ownership contract tests
+        if: matrix.shard == 'contracts'
         run: dotnet run --project tests/Inspector.Resources.Tests -c Release
 
       - name: Run ecosystem registry tests
+        if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.Ecosystems.Tests -c Release
 
       - name: Run ecosystem consumer tests
+        if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.Ecosystems.Consumer.Tests -c Release
 
       - name: Run platform target currency tests
+        if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.Platforms.Tests -c Release
 
       - name: Run platform manifest format tests
+        if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.Platforms.Formats.Tests -c Release
 
       - name: Run application dependency manifest format tests
+        if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.DependencyManifests.Tests -c Release
 
       - name: Run PlatformHouse contract tests
+        if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.PlatformHouse.Tests -c Release
 
       - name: Run installed PlatformHouse adapter tests
+        if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.PlatformHouse.Installed.Tests -c Release
 
       - name: Run row-selection tests
+        if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.RowSelection.Tests -c Release
 
       - name: Run source-selection public contract tests
+        if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.SourceSelection.Tests -c Release
 
       - name: Run source-delegation public contract tests
+        if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.SourceDelegation.Tests -c Release
 
       - name: Run section-row tests
+        if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.Sections.Tests -c Release
 
       - name: Run instruction-substrate tests
+        if: matrix.shard == 'contracts'
         run: dotnet run --project tests/ILInspector.Instructions.Tests -c Release
 
       - name: Run IL diff tests
+        if: matrix.shard == 'contracts'
         run: dotnet run --project tests/ILInspector.ILDiff.Tests -c Release
 
       - name: Run metadata tests
+        if: matrix.shard == 'contracts'
         run: dotnet run --project tests/ILInspector.Metadata.Tests -c Release -- --filter-not-trait "Speed=Slow"
 
       - name: Run fixture catalog tests
+        if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.FixtureInfrastructure.Tests -c Release
 
       - name: Run services tests
+        if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.Services.Tests -c Release
 
       - name: Run inspection query tests
+        if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.Queries.Tests -c Release -- --filter-not-trait "Speed=Slow"
 
       - name: Run presentation tests
+        if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.Presentation.Tests -c Release
 
       - name: Run NetworkAccess tests
+        if: matrix.shard == 'host-policy'
         run: dotnet run --project tests/NetworkAccess.Tests -c Release
 
       - name: Run UntrustedDocuments tests
+        if: matrix.shard == 'host-policy'
         run: dotnet run --project tests/UntrustedDocuments.Tests -c Release
 
       - name: Run DotnetInspector.Networking tests
+        if: matrix.shard == 'host-policy'
         run: dotnet run --project tests/DotnetInspector.Networking.Tests -c Release
 
       - name: Run DotnetInspector.Cache tests
+        if: matrix.shard == 'host-policy'
         run: dotnet run --project tests/DotnetInspector.Cache.Tests -c Release
 
       - name: Run DotnetInspector.Packages tests
+        if: matrix.shard == 'host-policy'
         run: dotnet run --project tests/DotnetInspector.Packages.Tests -c Release
 
       # NuGetFetch is the NuGet protocol and credential layer. Its live-network tests are tagged
@@ -1059,21 +1200,25 @@ jobs:
       # token that CI — and any fork PR — does not have. Everything that can be proven with an
       # in-memory transport, including the whole credential-mechanism matrix, runs here.
       - name: Run NuGetFetch tests (offline)
+        if: matrix.shard == 'host-policy'
         run: >-
           dotnet run --project tests/NuGetFetch.Tests -c Release --
           --filter-not-trait "Network=Live"
           --filter-not-trait "Speed=Slow"
 
       - name: Exercise Catalog research probe (offline)
+        if: matrix.shard == 'host-policy'
         run: dotnet run tools/CatalogChangeBenchmark.cs -c Release -- --self-test
 
       - name: Exercise package assembly-query benchmark (offline)
+        if: matrix.shard == 'analysis'
         run: dotnet run tools/PackageAssemblyQueryBenchmark.cs -c Release -- --self-test
 
       # InertText sits below every other project, so a regression here reaches every assembly
       # that prints artifact-derived text. The gates are pure and fast — a full BMP sweep and a
       # round-trip — so they run unconditionally rather than behind a path filter.
       - name: Run InertText tests
+        if: matrix.shard == 'host-policy'
         run: dotnet run --project tests/InertText.Tests -c Release
 
       # Fast decompiler unit tests: pass logic, printer, importer facts, identity,
@@ -1089,20 +1234,22 @@ jobs:
       # touch it still gets both the fast unit tests here and the slow
       # pre-merge gate preset in decompiler-gates.
       - name: Run decompiler unit tests (fast)
-        if: fromJSON(needs.changes.outputs.plan).validations.decompilerGates
+        if: matrix.shard == 'analysis' && fromJSON(needs.changes.outputs.plan).validations.decompilerGates
         run: dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
 
       - name: Run DecompilerHarness tests
-        if: fromJSON(needs.changes.outputs.plan).validations.decompilerGates
+        if: matrix.shard == 'analysis' && fromJSON(needs.changes.outputs.plan).validations.decompilerGates
         run: dotnet run --project tests/DecompilerHarness.Tests -c Release
 
       - name: Run analysis tests (fast)
+        if: matrix.shard == 'analysis'
         run: dotnet run --project tests/ILInspector.Analysis.Tests -c Release -- --filter-not-trait "Speed=Slow"
 
       # The runtime-async compiler switch changes IL lowering without changing
       # whether the fixture builds. Run the focused owner gates so CI proves
       # both lowerings issue equal authenticated JSExport wire facts.
       - name: Run JSExport runtime-async wire gates
+        if: matrix.shard == 'host-policy'
         run: |
           set -euo pipefail
           results_dir="$RUNNER_TEMP"
@@ -1133,6 +1280,7 @@ jobs:
           done
 
       - name: Run ts-jsexport generator acceptance gates
+        if: matrix.shard == 'host-policy'
         run: |
           set -euo pipefail
           results_dir="$RUNNER_TEMP"
@@ -1182,9 +1330,11 @@ jobs:
           done
 
       - name: Run ts-jsexport context NativeAOT gate
+        if: matrix.shard == 'host-policy'
         run: eng/test-ts-jsexport-context-aot.sh "${{ matrix.rid }}"
 
       - name: Run runfaster tests
+        if: matrix.shard == 'host-policy'
         run: dotnet run --project tests/runfaster.Tests -c Release
 
       # Fast IL round-trip oracle: focused fixture and handwritten IL cases run
@@ -1192,25 +1342,32 @@ jobs:
       # assembly-wide sweep is tagged [Trait("Speed", "Slow")] and runs in
       # Deep Inspect / full local runs.
       - name: Restore vendored ILAssembler
-        if: matrix.rid == 'linux-x64' && fromJSON(needs.changes.outputs.plan).validations.ilRoundTrip
+        if: matrix.shard == 'analysis' && matrix.rid == 'linux-x64' && fromJSON(needs.changes.outputs.plan).validations.ilRoundTrip
         run: bash eng/restore-ilassembler.sh
 
       - name: Run IL round-trip tests (fast)
-        if: matrix.rid == 'linux-x64' && fromJSON(needs.changes.outputs.plan).validations.ilRoundTrip
+        if: matrix.shard == 'analysis' && matrix.rid == 'linux-x64' && fromJSON(needs.changes.outputs.plan).validations.ilRoundTrip
         run: dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release -- --filter-not-trait "Speed=Slow"
 
       # Terminal checks: the suites above still report their results when
       # acquisition fails, but the lane must not go green having silently
       # traded external evidence for skips.
-      - name: Check ilasm/ildasm/mdv result
-        if: steps.iltools.outcome == 'failure'
+      - name: Check contract test ilasm/ildasm/mdv result
+        if: matrix.shard == 'contracts' && steps.iltools_contracts.outcome == 'failure'
         run: |
-          echo "::error::Restoring ilasm/ildasm/mdv failed, so every test that uses them skipped." >&2
-          echo "This lane cannot certify oracle-backed results. See the 'Install ilasm/ildasm/mdv' step." >&2
+          echo "::error::Restoring ilasm/ildasm/mdv failed, so contract tests that use them skipped." >&2
+          echo "This lane cannot certify oracle-backed results. See the contract tool installation step." >&2
+          exit 1
+
+      - name: Check analysis test ilasm/ildasm result
+        if: matrix.shard == 'analysis' && steps.iltools_analysis.outcome == 'failure'
+        run: |
+          echo "::error::Restoring ilasm/ildasm failed, so analysis tests that use them skipped." >&2
+          echo "This lane cannot certify oracle-backed results. See the analysis tool installation step." >&2
           exit 1
 
       - name: Check GitHub Packages fixture result
-        if: steps.package_fixture.outcome == 'failure'
+        if: matrix.shard == 'host-policy' && steps.package_fixture.outcome == 'failure'
         run: |
           echo "::error::The authenticated GitHub Packages fixture test failed." >&2
           echo "This lane cannot certify hosted fixture consumption. See the fixture test step." >&2

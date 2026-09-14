@@ -228,6 +228,7 @@ import {
   type DocumentViewerState,
 } from "./document-inspection.ts";
 import {
+  renderLibraryOverviewContent,
   renderOverviewSurface,
   renderPackageOverviewContent,
 } from "./overview-surface.ts";
@@ -6347,15 +6348,20 @@ function renderLibraryOverview() {
     .join("");
   const nsOverflow = nsCounts.size > 12 ? `<span class="ns-overflow">+${nsCounts.size - 12} more</span>` : "";
 
-  const contentHtml = `
+  const typeKindsHtml = `
     <section class="document-section">
-      <div class="section-title"><h2>Public surface</h2><span>${library.types} types · ${library.members.toLocaleString()} members</span></div>
+      <div class="section-title"><h2>Type kinds</h2></div>
       <div class="type-chip-list">${kindChips || '<span class="empty-list">No public types.</span>'}</div>
-    </section>
+    </section>`;
+  const namespacesHtml = `
     <section class="document-section">
       <div class="section-title"><h2>Namespaces</h2><span>${nsCounts.size} — click to filter</span></div>
-      <div class="type-chip-list">${namespaceChips}${nsOverflow}</div>
+      <div class="type-chip-list">${namespaceChips || '<span class="empty-list">No public namespaces.</span>'}${nsOverflow}</div>
     </section>`;
+  const contentHtml = renderLibraryOverviewContent({
+    namespacesHtml,
+    typeKindsHtml,
+  });
 
   const pkg = currentPackage();
   return renderOverviewSurface({

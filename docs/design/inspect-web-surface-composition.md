@@ -760,11 +760,20 @@ targets. Package documents precede comparison setup because they describe the
 current package, while comparison choices prepare a later operation. The
 platform library picker remains with the Libraries section.
 Library rows enter the existing Library subject, whose Overview retains kind
-and namespace navigation. Comparison selection, document opening, counts, and
-ordering retain their semantics.
+and namespace navigation. At wide inspector widths, Library Overview makes
+Namespaces the primary region and Type kinds a compact secondary region. This
+follows the assembly -> namespace -> type hierarchy used by conventional .NET
+assembly browsers without adopting their tree or workbench chrome. At
+constrained widths, the same sections return to one ordered stack: Namespaces,
+then Type kinds. Libraries with no public types render explicit empty states for
+both sections rather than an empty bordered region. Comparison selection,
+document opening, counts, and ordering retain their semantics.
 `System.Text.Json@10.0.0` is the motivating ordinary package: its admitted
 libraries remain primary while its README and comparison setup stay visible
-without requiring a second scroll through sparse full-width sections.
+without requiring a second scroll through sparse full-width sections. Its main
+library is also the motivating Library Overview: six public namespaces provide
+the primary navigation while five type-kind counts remain a compact secondary
+summary.
 
 The bottom context row preserves the exact package/version and active
 framework. At narrow widths the Libraries (Package) or Types (Library) return

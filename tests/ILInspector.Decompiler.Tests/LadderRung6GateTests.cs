@@ -85,7 +85,7 @@ public class LadderRung6GateTests
     [Fact]
     public void Rung6Fixtures_HaveNoInvalidFullOutput()
     {
-        var results = ValidityCheck.Evaluate([NewUnsafePath, LegacyUnsafePath], importSiblingBodies: true)
+        var results = ValidityCheck.Evaluate([NewUnsafePath, LegacyUnsafePath])
             .Where(r => r.TypeName == NewUnsafeType || r.TypeName == LegacyUnsafeType)
             .ToList();
 
