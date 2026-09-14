@@ -210,9 +210,32 @@ design fixes them. Two independent implementations — the .NET codec and the
 Browser adapter — must produce identical bytes, so none of this may be left to
 an implementation's choice.
 
-The payload is one closed JSON object. Property order is exactly `t`, `b`, `s`,
-`o`, and a part that is absent or empty is **omitted entirely** rather than
-emitted as `null` or `[]`:
+The payload is one closed JSON object whose four properties are the four
+serializable parts of [the intent contract](#the-intent-contract). Each wire
+property is an abbreviation of exactly one part name, and the two spellings are
+never interchangeable: the long name is how this document and its consumers
+refer to the part, and the short one is the only form that appears on the wire.
+
+| Property | Part | Contents |
+| --- | --- | --- |
+| `t` | `terms` | The term set, each `[key, operator, value]` |
+| `b` | `bounds` | The execution-bound set, each `[dimension, maximum]` |
+| `s` | `stages` | The selection-stage pipeline |
+| `o` | `order` | The order operations |
+
+The fifth part, `vocabulary`, has no property here: it is the tuple's `queryId`,
+as [Packet projection](#packet-projection) describes.
+
+Abbreviations are used because the payload's budget is 3 KiB and the packet
+family already spells its own fields this way — format 2's top level is `f`,
+`t`, `g`, `a`, `x`, `q`, `v`. Note that the packet's top-level `t` is its
+coordinate-tuple table while this payload's `t` is the term set. The reuse is
+deliberate and unambiguous, because the two live at different scopes and a
+parser never sees both in one object, but an implementer reading both documents
+should not assume they mean the same thing.
+
+Property order is exactly `t`, `b`, `s`, `o`, and a part that is absent or empty
+is **omitted entirely** rather than emitted as `null` or `[]`:
 
 ```json
 {
@@ -223,13 +246,11 @@ emitted as `null` or `[]`:
 }
 ```
 
-- `t` is the sorted term set. Each term is `[key, operator, value]`, three
-  strings. The operator is its identity token, not a symbol.
-- `b` is the execution-bound set in fixed slot order. Each bound is
-  `[dimension, maximum]`: a string and a JSON integer.
-- `s` is the selection-stage sequence in declared order, encoded per the stage
-  table below.
-- `o` is the order-operation set in role order — `base` first, then ranking
+- `t` is sorted. Each term is three strings, and the operator is its identity
+  token, not a symbol.
+- `b` is in fixed slot order. Each bound is a string and a JSON integer.
+- `s` is in declared order, encoded per the stage table below.
+- `o` is in role order — `base` first, then ranking
   operations by ascending stage index — encoded per the order table below.
   Declaration order is not preserved here; only the field-term sequence inside
   one operation is.
