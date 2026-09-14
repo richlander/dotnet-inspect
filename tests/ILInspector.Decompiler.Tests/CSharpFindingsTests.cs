@@ -234,6 +234,7 @@ public class CSharpFindingsTests
     }
 
     [Theory]
+    [Trait("Speed", "Slow")]
     [InlineData(typeof(CSharpBodyDiff))]
     [InlineData(typeof(CSharpFindingsTests))]
     [InlineData(typeof(System.Linq.Enumerable))]

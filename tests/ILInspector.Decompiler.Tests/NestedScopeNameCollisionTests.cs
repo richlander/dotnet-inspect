@@ -15,8 +15,10 @@ public class NestedScopeNameCollisionTests
         [TypeRef.CoreLib("System", "Int32"), TypeRef.CoreLib("System", "Int32")]);
     static readonly TypeRef Owner = TypeRef.Definition("Synthetic", "", "Holder");
 
-    [Fact]
-    public void LambdaStackSlot_AvoidsOuterStackSlotName()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LambdaStackSlot_AvoidsOuterStackSlotName(bool materialize)
     {
         var lambdaBody = Body(
             new StoreStackSlot(0, new Constant(2, Int32)),
@@ -30,7 +32,7 @@ public class NestedScopeNameCollisionTests
             skipLocalsInit: false,
             lambdaBody);
 
-        string body = RenderBody(
+        string body = RenderBody(materialize,
             [Int32, Action],
             new StoreStackSlot(0, new Constant(1, Int32)),
             new StoreLocal(0, Int32, new LoadStackSlot(0, Int32)),
@@ -42,8 +44,10 @@ public class NestedScopeNameCollisionTests
         AssertCompiles(body);
     }
 
-    [Fact]
-    public void MaterializedLambdaSlot_AvoidsOuterStackSlotName()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void MaterializedLambdaSlot_AvoidsOuterStackSlotName(bool materialize)
     {
         var lambdaBody = Body(
             new StoreLocal(0, Int32, new Constant(2, Int32)),
@@ -60,7 +64,7 @@ public class NestedScopeNameCollisionTests
             SynthesizedLocalNames = ["S_2"],
         };
 
-        string body = RenderBody(
+        string body = RenderBody(materialize,
             [Int32, Action],
             new StoreStackSlot(2, new Constant(1, Int32)),
             new StoreLocal(0, Int32, new LoadStackSlot(2, Int32)),
@@ -98,8 +102,10 @@ public class NestedScopeNameCollisionTests
         AssertCompiles(body);
     }
 
-    [Fact]
-    public void LocalFunctionStackSlot_AvoidsOuterStackSlotName()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LocalFunctionStackSlot_AvoidsOuterStackSlotName(bool materialize)
     {
         var localBody = Body(
             new StoreStackSlot(0, new Constant(2, Int32)),
@@ -115,7 +121,7 @@ public class NestedScopeNameCollisionTests
             skipLocalsInit: false,
             localBody);
 
-        string body = RenderBody(
+        string body = RenderBody(materialize,
             [Int32],
             new StoreStackSlot(0, new Constant(1, Int32)),
             new StoreLocal(0, Int32, new LoadStackSlot(0, Int32)),
@@ -153,8 +159,10 @@ public class NestedScopeNameCollisionTests
         AssertCompiles(body);
     }
 
-    [Fact]
-    public void DeepNestedLambda_CarriesGrandparentReservedNames()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void DeepNestedLambda_CarriesGrandparentReservedNames(bool materialize)
     {
         var innerBody = Body(
             new StoreStackSlot(0, new Constant(3, Int32)),
@@ -177,7 +185,7 @@ public class NestedScopeNameCollisionTests
             skipLocalsInit: false,
             middleBody);
 
-        string body = RenderBody(
+        string body = RenderBody(materialize,
             [Int32, Action],
             new StoreStackSlot(0, new Constant(1, Int32)),
             new StoreLocal(0, Int32, new LoadStackSlot(0, Int32)),
@@ -258,6 +266,9 @@ public class NestedScopeNameCollisionTests
     }
 
     static string RenderBody(IReadOnlyList<TypeRef> locals, params IrNode[] statements)
+        => RenderBody(false, locals, statements);
+
+    static string RenderBody(bool materialize, IReadOnlyList<TypeRef> locals, params IrNode[] statements)
     {
         var function = new IrFunction(
             "M",
@@ -265,6 +276,14 @@ public class NestedScopeNameCollisionTests
             new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
             [.. locals],
             Body(statements));
+        if (materialize)
+        {
+            Assert.Single(SlotMaterializationPass.Analyze(function), decision => decision.WillMaterialize);
+            new SlotMaterializationPass().Run(function, PassContext.None);
+            Assert.DoesNotContain(CoercionSinks.ScopeNodes(function.Body),
+                node => node is StoreStackSlot or LoadStackSlot);
+            function.CheckInvariant(includeSemantics: true);
+        }
         return CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").Trim();
     }
 

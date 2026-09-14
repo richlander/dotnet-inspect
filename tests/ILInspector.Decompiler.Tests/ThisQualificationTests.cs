@@ -19,6 +19,7 @@ namespace ILInspector.Decompiler.Tests;
 /// render is byte-identical to before the knobs existed. A genuine
 /// <c>base.M()</c> call is never rewritten (that would re-enable virtual dispatch).
 /// </summary>
+[Trait("Speed", "Slow")]
 [Trait("Area", "RoundTrip")]
 public sealed class ThisQualificationTests
 {

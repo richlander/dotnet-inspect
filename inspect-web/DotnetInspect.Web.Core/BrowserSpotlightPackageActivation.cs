@@ -2,37 +2,6 @@ using DotnetInspector.Queries;
 
 namespace DotnetInspect.Web;
 
-internal enum BrowserSpotlightPackageActivationStaleReason
-{
-    WorkspaceIdentity,
-    RegistrationRevision,
-    ScopeRevision,
-    ScopePublicationBase,
-    PackageOccurrence,
-}
-
-internal abstract record BrowserSpotlightPackageActivationBlock
-{
-    private protected BrowserSpotlightPackageActivationBlock()
-    {
-    }
-
-    internal sealed record Stale(
-        BrowserSpotlightPackageActivationStaleReason Reason,
-        WorkspaceScopeSnapshot? CurrentScope,
-        WorkspaceRegistrationRevision? CurrentRegistrations) :
-        BrowserSpotlightPackageActivationBlock;
-
-    internal sealed record RegistrationUnavailable(
-        WorkspaceRegistrationReadResult.Unavailable Result) :
-        BrowserSpotlightPackageActivationBlock;
-
-    internal sealed record ScopeUnavailable(
-        WorkspaceScopeReadResult.Unavailable Result,
-        WorkspaceRegistrationRevision CurrentRegistrations) :
-        BrowserSpotlightPackageActivationBlock;
-}
-
 internal abstract record BrowserSpotlightPackageAcquisitionResult<TFailure>
     where TFailure : class
 {
@@ -269,13 +238,13 @@ internal abstract record BrowserSpotlightPackageFocusResult
     internal sealed record Blocked :
         BrowserSpotlightPackageFocusResult
     {
-        internal Blocked(BrowserSpotlightPackageActivationBlock reason)
+        internal Blocked(BrowserSpotlightActivationBlock reason)
         {
             ArgumentNullException.ThrowIfNull(reason);
             Reason = reason;
         }
 
-        internal BrowserSpotlightPackageActivationBlock Reason { get; }
+        internal BrowserSpotlightActivationBlock Reason { get; }
     }
 }
 
@@ -322,14 +291,14 @@ internal abstract record BrowserSpotlightCurrentPackageActivationResult<
                 TNavigationAction,
                 TPlatformAction,
                 TLibraryIntent> descriptor,
-            BrowserSpotlightPackageActivationBlock reason)
+            BrowserSpotlightActivationBlock reason)
             : base(descriptor)
         {
             ArgumentNullException.ThrowIfNull(reason);
             Reason = reason;
         }
 
-        internal BrowserSpotlightPackageActivationBlock Reason { get; }
+        internal BrowserSpotlightActivationBlock Reason { get; }
     }
 
     internal sealed record PackageNotAcquired :
@@ -371,7 +340,7 @@ internal abstract record BrowserSpotlightCurrentPackageActivationResult<
                 TPlatformAction,
                 TLibraryIntent> descriptor,
             PackageRootBinding binding,
-            BrowserSpotlightPackageActivationBlock reason)
+            BrowserSpotlightActivationBlock reason)
             : base(descriptor)
         {
             ArgumentNullException.ThrowIfNull(binding);
@@ -382,7 +351,7 @@ internal abstract record BrowserSpotlightCurrentPackageActivationResult<
 
         internal PackageRootBinding Binding { get; }
 
-        internal BrowserSpotlightPackageActivationBlock Reason { get; }
+        internal BrowserSpotlightActivationBlock Reason { get; }
     }
 
     internal sealed record Settled :
@@ -474,9 +443,10 @@ internal static class BrowserSpotlightCurrentPackageActivation
                 nameof(descriptor));
         }
 
-        BasisRead initial = await ReadBasisAsync(
-            workspace,
-            descriptor.Basis).ConfigureAwait(false);
+        BrowserSpotlightActivationBasisRead initial =
+            await BrowserSpotlightActivationAuthority.ReadAsync(
+                workspace,
+                descriptor.Basis).ConfigureAwait(false);
         if (initial.Block is { } initialBlock)
         {
             return new BrowserSpotlightCurrentPackageActivationResult<
@@ -571,8 +541,8 @@ internal static class BrowserSpotlightCurrentPackageActivation
                 TLibraryIntent,
                 TPackageFailure>.Blocked(
                     descriptor,
-                    new BrowserSpotlightPackageActivationBlock.Stale(
-                        BrowserSpotlightPackageActivationStaleReason
+                    new BrowserSpotlightActivationBlock.Stale(
+                        BrowserSpotlightActivationStaleReason
                             .PackageOccurrence,
                         currentScope,
                         descriptor.Basis.Registrations));
@@ -674,9 +644,10 @@ internal static class BrowserSpotlightCurrentPackageActivation
                 TPackageFailure>.Acquired)acquisition).Binding;
         ValidateBinding(plan.Package, binding);
 
-        BasisRead beforeScope = await ReadBasisAsync(
-            workspace,
-            descriptor.Basis).ConfigureAwait(false);
+        BrowserSpotlightActivationBasisRead beforeScope =
+            await BrowserSpotlightActivationAuthority.ReadAsync(
+                workspace,
+                descriptor.Basis).ConfigureAwait(false);
         if (beforeScope.Block is { } beforeScopeBlock)
         {
             return new BrowserSpotlightCurrentPackageActivationResult<
@@ -744,9 +715,10 @@ internal static class BrowserSpotlightCurrentPackageActivation
             descriptor.Basis.ResultGeneration,
             scope,
             descriptor.Basis.Registrations);
-        BasisRead beforeFocus = await ReadBasisAsync(
-            workspace,
-            committedBasis).ConfigureAwait(false);
+        BrowserSpotlightActivationBasisRead beforeFocus =
+            await BrowserSpotlightActivationAuthority.ReadAsync(
+                workspace,
+                committedBasis).ConfigureAwait(false);
         if (beforeFocus.Block is { } beforeFocusBlock)
         {
             return new BrowserSpotlightCurrentPackageActivationResult<
@@ -804,97 +776,4 @@ internal static class BrowserSpotlightCurrentPackageActivation
         }
     }
 
-    private static async ValueTask<BasisRead> ReadBasisAsync(
-        InspectionWorkspace workspace,
-        BrowserSpotlightActivationBasis expected)
-    {
-        if (!ReferenceEquals(
-                workspace.Identity,
-                expected.Scope.Revision.Workspace)
-            || !ReferenceEquals(
-                workspace.Identity,
-                expected.Registrations.Workspace))
-        {
-            return new(
-                Block: new BrowserSpotlightPackageActivationBlock.Stale(
-                    BrowserSpotlightPackageActivationStaleReason
-                        .WorkspaceIdentity,
-                    CurrentScope: null,
-                    CurrentRegistrations: null));
-        }
-
-        WorkspaceScopeReadResult scopeRead =
-            await workspace.GetScopeSnapshotAsync().ConfigureAwait(false);
-
-        WorkspaceRegistrationReadResult registrationRead =
-            workspace.GetRegistrationSnapshot();
-        if (registrationRead
-            is WorkspaceRegistrationReadResult.Unavailable
-                registrationUnavailable)
-        {
-            return new(
-                Block:
-                    new BrowserSpotlightPackageActivationBlock
-                        .RegistrationUnavailable(
-                            registrationUnavailable));
-        }
-
-        WorkspaceRegistrationRevision registrations =
-            ((WorkspaceRegistrationReadResult.Available)registrationRead)
-                .Revision;
-        if (!ReferenceEquals(
-                registrations.Identity,
-                expected.Registrations.Identity))
-        {
-            return new(
-                Block: new BrowserSpotlightPackageActivationBlock.Stale(
-                    BrowserSpotlightPackageActivationStaleReason
-                        .RegistrationRevision,
-                    CurrentScope: null,
-                    CurrentRegistrations: registrations));
-        }
-
-        if (scopeRead
-            is WorkspaceScopeReadResult.Unavailable scopeUnavailable)
-        {
-            return new(
-                Block:
-                    new BrowserSpotlightPackageActivationBlock
-                        .ScopeUnavailable(
-                            scopeUnavailable,
-                            registrations));
-        }
-
-        WorkspaceScopeSnapshot scope =
-            ((WorkspaceScopeReadResult.Available)scopeRead).Snapshot;
-        if (!ReferenceEquals(
-                scope.Revision.Identity,
-                expected.Scope.Revision.Identity))
-        {
-            return new(
-                Block: new BrowserSpotlightPackageActivationBlock.Stale(
-                    BrowserSpotlightPackageActivationStaleReason
-                        .ScopeRevision,
-                    scope,
-                    registrations));
-        }
-        if (!ReferenceEquals(
-                scope.PublicationBase,
-                expected.Scope.PublicationBase))
-        {
-            return new(
-                Block: new BrowserSpotlightPackageActivationBlock.Stale(
-                    BrowserSpotlightPackageActivationStaleReason
-                        .ScopePublicationBase,
-                    scope,
-                    registrations));
-        }
-
-        return new(scope, registrations, Block: null);
-    }
-
-    private sealed record BasisRead(
-        WorkspaceScopeSnapshot? Scope = null,
-        WorkspaceRegistrationRevision? Registrations = null,
-        BrowserSpotlightPackageActivationBlock? Block = null);
 }

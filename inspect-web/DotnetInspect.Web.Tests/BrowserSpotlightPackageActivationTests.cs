@@ -369,10 +369,10 @@ public sealed class BrowserSpotlightPackageActivationTests
         var blocked = Assert.IsType<ActivationResult.Blocked>(result);
         var stale =
             Assert.IsType<
-                BrowserSpotlightPackageActivationBlock.Stale>(
+                BrowserSpotlightActivationBlock.Stale>(
                     blocked.Reason);
         Assert.Equal(
-            BrowserSpotlightPackageActivationStaleReason
+            BrowserSpotlightActivationStaleReason
                 .RegistrationRevision,
             stale.Reason);
         Assert.False(acquired);
@@ -411,10 +411,10 @@ public sealed class BrowserSpotlightPackageActivationTests
                     result);
         var stale =
             Assert.IsType<
-                BrowserSpotlightPackageActivationBlock.Stale>(
+                BrowserSpotlightActivationBlock.Stale>(
                     blocked.Reason);
         Assert.Equal(
-            BrowserSpotlightPackageActivationStaleReason
+            BrowserSpotlightActivationStaleReason
                 .RegistrationRevision,
             stale.Reason);
         Assert.Same(binding, blocked.Binding);
@@ -464,10 +464,10 @@ public sealed class BrowserSpotlightPackageActivationTests
                     settled.Focus);
         var stale =
             Assert.IsType<
-                BrowserSpotlightPackageActivationBlock.Stale>(
+                BrowserSpotlightActivationBlock.Stale>(
                     focus.Reason);
         Assert.Equal(
-            BrowserSpotlightPackageActivationStaleReason
+            BrowserSpotlightActivationStaleReason
                 .RegistrationRevision,
             stale.Reason);
         Assert.False(focused);

@@ -227,6 +227,12 @@ interface DiagnosticsFixture {
   cachePending?: boolean;
 }
 
+interface PackageLoadingFixture {
+  deferInitial?: boolean;
+  deferChanges?: boolean;
+  failFrameworkOnce?: string;
+}
+
 // Exercise the production composition root and bindings with deterministic facade
 // responses. Codec and participant-query behavior have separate engine outcome gates.
 async function installFacades(
@@ -240,6 +246,7 @@ async function installFacades(
   analysis: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
   homeDemos?: HomeDemoFixture,
   diagnostics: DiagnosticsFixture = {},
+  packageLoading: PackageLoadingFixture = {},
 ) {
   const catalogTarget: PlatformCatalogTarget = {
     ...platformTarget,
@@ -345,6 +352,8 @@ async function installFacades(
       const platformTarget = ${JSON.stringify(catalogTarget)};
       const platformOptions = ${JSON.stringify(platform ?? {})};
       const diagnosticsOptions = ${JSON.stringify(diagnostics)};
+      const packageLoading = ${JSON.stringify(packageLoading)};
+      let packageFrameworkFailed = false;
       let warmupAttempts = 0;
       export async function getPlatformVersions(tfm) {
         document.documentElement.dataset.platformVersionsRequest = tfm;
@@ -410,6 +419,20 @@ async function installFacades(
       }
       export async function queryPackage(id, version, framework) {
         const surface = surfaceFor(id);
+        if (packageLoading.deferInitial || (packageLoading.deferChanges
+          && (id !== surfaces[0].package || version !== surface.version
+            || framework !== surface.activeFramework))) {
+          document.documentElement.dataset.packageQueryPending =
+            JSON.stringify([id, version, framework]);
+          await new Promise(resolve => document.addEventListener(
+            "finish-package-query", resolve, { once: true }));
+          document.documentElement.dataset.packageQuerySettled =
+            JSON.stringify([id, version, framework]);
+          if (!packageFrameworkFailed && framework === packageLoading.failFrameworkOnce) {
+            packageFrameworkFailed = true;
+            throw new Error("Framework inspection failed");
+          }
+        }
         return {
           ...surface,
           package: id,
@@ -837,6 +860,120 @@ async function releaseFacade(page: Page, name: string): Promise<void> {
 }
 
 const root = "/?package=Example.Package&version=1.0.0&framework=net10.0#pkg";
+
+const frameworkSurface: BrowserPackageSurface = {
+  ...surface,
+  package: "System.Text.Json",
+  version: "10.0.0",
+  frameworks: ["net10.0", "net9.0"],
+};
+const frameworkRoot = "/?package=System.Text.Json&version=10.0.0&framework=net10.0#pkg";
+
+async function installPackageLoadingFacades(
+  page: Page,
+  options: PackageLoadingFixture = {},
+) {
+  await installFacades(
+    page, frameworkSurface, [], "ready", "ready", undefined,
+    "ready", "ready", undefined, {},
+    { deferChanges: true, ...options });
+}
+
+for (const width of [1280, 390]) {
+  test(`package TFM loading stays in the content pane at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await installPackageLoadingFacades(page);
+    await page.goto(frameworkRoot);
+    await expect(page.locator("#framework")).toHaveValue("net10.0");
+    const target = await page.locator(".targetbar").textContent();
+    const titlebar = await page.locator(".titlebar").boundingBox();
+    const url = page.url();
+    await page.evaluate(() => {
+      new MutationObserver(records => {
+        if (records.some(record => [...record.addedNodes].some(node =>
+          node instanceof Element
+          && (node.matches(".loading-screen")
+            || node.querySelector(".loading-screen"))))) {
+          document.documentElement.dataset.interstitialShown = "true";
+        }
+      }).observe(document.querySelector("#app")!, { childList: true, subtree: true });
+    });
+    await page.locator("#framework").focus();
+    await page.locator("#framework").selectOption("net9.0");
+
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-package-query-pending",
+      JSON.stringify(["System.Text.Json", "10.0.0", "net9.0"]));
+    await expect(page.locator("#package-content-loading")).toHaveText("Loading net9.0 content…");
+    await expect(page.locator("#package-content-loading")).toBeFocused();
+    await expect(page.locator("#inspector-panel")).toHaveAttribute("aria-busy", "true");
+    await expect(page.locator(".loading-screen, .loading-bot")).toHaveCount(0);
+    await expect(page.locator(".targetbar")).toHaveText(target!);
+    await expect(page.locator(".data-bar")).toBeVisible();
+    expect(await page.locator(".titlebar").boundingBox()).toEqual(titlebar);
+    expect(page.url()).toBe(url);
+    expect(await page.evaluate(() =>
+      document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+    await releaseFacade(page, "finish-package-query");
+    await expect(page.locator("#framework")).toHaveValue("net9.0");
+    await expect(page.locator("#framework")).toBeFocused();
+    await expect(page.locator("#inspector-panel")).not.toHaveAttribute("aria-busy", "true");
+    await expect(page.locator("#package-content-loading, .loading-screen")).toHaveCount(0);
+    await expect(page.locator(".package-overview-surface")).toBeVisible();
+    await expect(page.locator("html")).not.toHaveAttribute("data-interstitial-shown");
+  });
+}
+
+test("package TFM failure restores content and retries inside the same page", async ({ page }) => {
+  await installPackageLoadingFacades(page, { failFrameworkOnce: "net9.0" });
+  await page.goto(frameworkRoot);
+  await page.locator("#framework").selectOption("net9.0");
+  await expect(page.locator("html")).toHaveAttribute("data-package-query-pending");
+  await releaseFacade(page, "finish-package-query");
+  await expect(page.locator("#framework")).toHaveValue("net10.0");
+  await expect(page.locator(".query-notice")).toContainText("Framework inspection failed");
+  await expect(page.locator(".loading-screen")).toHaveCount(0);
+  await page.locator(".query-notice").getByRole("button", { name: "Retry" }).click();
+  await expect(page.locator("#package-content-loading")).toBeVisible();
+  await releaseFacade(page, "finish-package-query");
+  await expect(page.locator("#framework")).toHaveValue("net9.0");
+  await expect(page.locator(".query-notice")).toHaveCount(0);
+});
+
+test("leaving a pending package TFM ignores its late completion", async ({ page }) => {
+  await installPackageLoadingFacades(page);
+  await page.goto(frameworkRoot);
+  await page.locator("#framework").selectOption("net9.0");
+  await expect(page.locator("html")).toHaveAttribute("data-package-query-pending");
+  await page.locator(".brand").click();
+  await expect(page.locator(".home-search")).toBeVisible();
+  await releaseFacade(page, "finish-package-query");
+  await expect(page.locator("html")).toHaveAttribute("data-package-query-settled");
+  await expect(page.locator(".home-search")).toBeVisible();
+  await expect(page.locator("#package-content-loading, .loading-screen")).toHaveCount(0);
+});
+
+test("a new package version retains the full acquisition interstitial", async ({ page }) => {
+  await installPackageLoadingFacades(page);
+  await page.goto(frameworkRoot);
+  await page.locator("#package-version").selectOption("0.9.0");
+  await expect(page.locator("html")).toHaveAttribute("data-package-query-pending");
+  await expect(page.locator(".loading-screen .loading-bot")).toBeVisible();
+  await expect(page.locator("#package-content-loading, .titlebar")).toHaveCount(0);
+  await releaseFacade(page, "finish-package-query");
+  await expect(page.locator("#package-version")).toHaveValue("0.9.0");
+});
+
+test("initial package loading retains the full acquisition interstitial", async ({ page }) => {
+  await installPackageLoadingFacades(page, { deferInitial: true });
+  await page.goto(frameworkRoot);
+  await expect(page.locator("html")).toHaveAttribute("data-package-query-pending");
+  await expect(page.locator(".loading-screen .loading-bot")).toBeVisible();
+  await expect(page.locator("#package-content-loading, .titlebar")).toHaveCount(0);
+  await releaseFacade(page, "finish-package-query");
+  await expect(page.locator("#framework")).toHaveValue("net10.0");
+});
 
 async function installDiagnosticsFacades(
   page: Page,
@@ -1575,6 +1712,7 @@ function homeDemoResult(
       focusVersion: platform ? platformVersion : surface.version,
       focusFramework: platform ? "net11.0" : surface.activeFramework,
       focusAssembly: platform ? platformFocusAssembly.name : null,
+      platformContextId: platform ? "platform-demo-context" : null,
       typeId: platform ? platformFocusType.id : surface.types[0]!.id,
       section,
       memberName: callGraph ? run.name : null,

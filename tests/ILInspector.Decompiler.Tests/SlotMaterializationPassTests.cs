@@ -56,6 +56,7 @@ public class SlotMaterializationPassTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     [Trait("Area", "Fidelity")]
     public void CompilerProducedPropertyConditionalRecompilesWithRetainedTemporary()
     {
@@ -208,11 +209,8 @@ public class SlotMaterializationPassTests
         function.CheckInvariant();
     }
 
-    // Historical 5b-2 boundary: #2356 made inner naming collision-free, but
-    // removing this conservative gate is a separate behavior slice from
-    // exposing its measured population.
     [Fact]
-    public void DefersSlotWhoseNumberAppearsInNestedLambdaScope()
+    public void MaterializesOuterSlotWhoseNumberAppearsInNestedLambdaScope()
     {
         var lambdaBody = new BlockContainer();
         var lambdaBlock = new Block(0);
@@ -233,16 +231,20 @@ public class SlotMaterializationPassTests
         var decisions = SlotMaterializationPass.Analyze(function);
         Assert.Contains(decisions, decision => decision.Slot == 0
             && ReferenceEquals(decision.Scope, function)
-            && decision.Vetoes.HasFlag(SlotMaterializationVeto.NestedSlotNumberCollision));
+            && decision.WillMaterialize);
         Assert.Contains(decisions, decision => decision.Slot == 0
             && ReferenceEquals(decision.Scope, lambda)
             && decision.Vetoes == SlotMaterializationVeto.NestedScope);
 
         new SlotMaterializationPass().Run(function, PassContext.None);
 
-        // Outer slot 0 deferred; the lambda's slot 0 untouched.
-        Assert.Equal(2, function.Descendants.OfType<StoreStackSlot>().Count());
-        Assert.Equal(2, function.Locals.Length);
+        Assert.Single(lambda.Descendants.OfType<StoreStackSlot>());
+        Assert.Single(lambda.Descendants.OfType<LoadStackSlot>());
+        Assert.DoesNotContain(CoercionSinks.ScopeNodes(function.Body), node => node is StoreStackSlot or LoadStackSlot);
+        Assert.Empty(lambda.Locals);
+        Assert.Equal(3, function.Locals.Length);
+        Assert.Equal("S_0", function.SynthesizedLocalNames[2]);
+        function.CheckInvariant();
     }
 
     // 5b-2 Opus review (de-inlining): a multi-store slot with a single read is

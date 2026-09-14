@@ -629,6 +629,9 @@ public class IlToolsActivationTests
         string jobHeader = job[..stepsStart];
         Assert.DoesNotContain("continue-on-error:", jobHeader);
 
+        int build = job.IndexOf(
+            "- name: Build solution (tool + fixtures)",
+            StringComparison.Ordinal);
         int install = job.IndexOf(
             "- name: Install ilasm/ildasm",
             StringComparison.Ordinal);
@@ -645,10 +648,21 @@ public class IlToolsActivationTests
             "\n      - ",
             install + 1,
             StringComparison.Ordinal);
+        int nextBuildStep = job.IndexOf(
+            "\n      - ",
+            build + 1,
+            StringComparison.Ordinal);
+        int nextDecompilerStep = job.IndexOf(
+            "\n      - ",
+            decompilerTests + 1,
+            StringComparison.Ordinal);
         int terminalCheck = job.IndexOf(
             "- name: Check ilasm/ildasm result",
             StringComparison.Ordinal);
 
+        Assert.True(build >= 0);
+        Assert.True(build < nextBuildStep);
+        Assert.True(nextBuildStep <= install);
         Assert.True(install >= 0);
         Assert.True(install < nextInstallStep);
         Assert.True(nextInstallStep <= cliTests);
@@ -657,6 +671,16 @@ public class IlToolsActivationTests
         Assert.True(cliTests < roundTrip);
         Assert.True(decompilerTests < roundTrip);
         Assert.True(roundTrip < terminalCheck);
+
+        string buildStep = job[build..nextBuildStep];
+        Assert.Contains(
+            "id: build",
+            buildStep.Split('\n').Select(line => line.Trim()));
+
+        string decompilerStep = job[decompilerTests..nextDecompilerStep];
+        Assert.Contains(
+            "if: ${{ !cancelled() && steps.build.outcome == 'success' }}",
+            decompilerStep.Split('\n').Select(line => line.Trim()));
 
         string installStep = job[install..nextInstallStep];
         Assert.Equal(

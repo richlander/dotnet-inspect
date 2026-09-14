@@ -1082,7 +1082,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     expandPlatformCallGraph: valueOperation(
       "ordinary-call-graph-expand-platform",
-      11,
+      12,
       (
         facades,
         ...args: Parameters<CallGraphFacade["expandPlatformCallGraph"]>

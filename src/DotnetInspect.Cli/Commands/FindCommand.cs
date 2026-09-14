@@ -39,11 +39,17 @@ public class FindCommand
                     return DiscoverOutput.Execute(
                         options.Discover,
                         PackageAssemblyQuerySections.CreateSchema(),
-                        tree: options.Tree,
-                        json: options.JsonOutput,
-                        tsv: options.Tsv,
-                        jsonl: options.Jsonl,
-                        projection: options,
+                        DiscoveryOutputRequest.Create(
+                            options.JsonOutput ? OutputFormat.Json
+                                : options.Jsonl ? OutputFormat.Jsonl
+                                : options.Tsv ? OutputFormat.Tsv
+                                : options.Tabular ? OutputFormat.Table
+                                : OutputFormat.Markdown,
+                            options.Tree,
+                            options.Tabular,
+                            options.NoHeader,
+                            (int)options.Verbosity,
+                            options),
                         semanticRowSelection: options.RowSelection,
                         semanticSelectionName: "Find");
                 }
@@ -54,8 +60,17 @@ public class FindCommand
                     : new DocumentSchema()
                         .Add("Results", "column", "Pattern", "Type", "Namespace", "Kind", "Library", "Source", "Match", "Sim");
                 return DiscoverOutput.Execute(options.Discover, schema,
-                    tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl,
-                    projection: options,
+                    DiscoveryOutputRequest.Create(
+                        options.JsonOutput ? OutputFormat.Json
+                            : options.Jsonl ? OutputFormat.Jsonl
+                            : options.Tsv ? OutputFormat.Tsv
+                            : options.Tabular ? OutputFormat.Table
+                            : OutputFormat.Markdown,
+                        options.Tree,
+                        options.Tabular,
+                        options.NoHeader,
+                        (int)options.Verbosity,
+                        options),
                     semanticRowSelection: options.RowSelection,
                     semanticSelectionName: "Find");
             }

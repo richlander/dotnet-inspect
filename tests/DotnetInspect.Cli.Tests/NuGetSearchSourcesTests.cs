@@ -1750,6 +1750,34 @@ public class NuGetSearchSourcesTests
     }
 
     [Fact]
+    public void SourcePolicyAuthorization_RetainsHealthyPeerAndConfigurationFailure()
+    {
+        const string unsupported = "ftp://legacy.example/packages";
+        var authorization = new SourcePolicyPackageSourceAuthorization(
+            new NuGetSourceOptions
+            {
+                Sources = [IndexUrl, unsupported],
+            });
+
+        PackageSourceAuthorization observation =
+            authorization.AuthorizeSourcesFor("contoso.package");
+
+        Assert.Equal(
+            IndexUrl,
+            Assert.Single(observation.Authorities).Source.Url);
+        PackageAuthorityFailure failure =
+            Assert.Single(observation.Failures);
+        Assert.Equal(
+            PackageAuthorityFailureKind.Configuration,
+            failure.Kind);
+        Assert.Contains(
+            "HTTP(S)",
+            failure.Message,
+            StringComparison.Ordinal);
+        Assert.Null(observation.DenialReason);
+    }
+
+    [Fact]
     public void ResolveSourcesForPackageWithFailures_ExplicitUnsupportedSourceRetainsMappedAlias()
     {
         const string Unsupported =
@@ -2048,6 +2076,9 @@ public class NuGetSearchSourcesTests
 
         Assert.Empty(authorization.Authorities);
         Assert.Empty(authorization.Sources);
+        Assert.Equal(
+            PackageAuthorityFailureKind.Configuration,
+            Assert.Single(authorization.Failures).Kind);
         Assert.Contains(
             "HTTP(S)",
             authorization.DenialReason!,

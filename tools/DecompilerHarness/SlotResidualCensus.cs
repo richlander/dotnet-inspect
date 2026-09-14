@@ -296,7 +296,6 @@ static class SlotResidualCensus
         SlotMaterializationVeto.MissingLoad => "missing load",
         SlotMaterializationVeto.UnderivableTypeTestimony => "underivable type testimony",
         SlotMaterializationVeto.ConflictingTypeTestimony => "conflicting type testimony",
-        SlotMaterializationVeto.NestedSlotNumberCollision => "nested slot-number collision",
         SlotMaterializationVeto.OutsideCoercionDomain => "outside coercion domain",
         SlotMaterializationVeto.UnrenderableStoreType => "cross-family/unrenderable store",
         SlotMaterializationVeto.MultiStoreSingleLoadFold => "multi-store/single-load fold",

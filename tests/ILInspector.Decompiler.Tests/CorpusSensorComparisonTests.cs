@@ -10,6 +10,7 @@ using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Speed", "Slow")]
 [Trait("Area", "Corpus")]
 public class CorpusSensorComparisonTests
 {
@@ -54,6 +55,38 @@ public class CorpusSensorComparisonTests
         var baseline = CorpusSensor.ReadBaselineForTesting(path);
 
         Assert.True(baseline.SchemaVersion > 0);
+    }
+
+    [Fact]
+    public void CommittedRealWorldBaseline_UsesNativeReturnToSenderWithoutFloor()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null
+            && !File.Exists(Path.Combine(directory.FullName, "dotnet-inspect.slnx")))
+        {
+            directory = directory.Parent;
+        }
+        Assert.NotNull(directory);
+        string path = Path.Combine(
+            directory.FullName,
+            "tools/DecompilerHarness/corpus/real-world-baseline.json");
+
+        var baseline = CorpusSensor.ReadBaselineForTesting(path);
+        var cutover = Assert.IsType<ReturnToSenderCutoverMetrics>(
+            baseline.Metrics.Fidelity.ReturnToSenderCutover);
+        int legacyExactNativeUncheckable = baseline.Methods!.Count(method =>
+            method.FidelityReference == nameof(FidelityCheck.CompileBackStatus.Exact)
+            && method.FidelityCheck is
+                nameof(FidelityCheck.CompileBackStatus.RecompileFail)
+                or nameof(FidelityCheck.CompileBackStatus.ContextFail));
+
+        Assert.Equal(CorpusSensor.CurrentSchemaVersion, baseline.SchemaVersion);
+        Assert.Equal(CorpusFidelityOracle.ReturnToSenderCutover, baseline.FidelityOracle);
+        Assert.Equal(700, cutover.SelectedMethods);
+        Assert.Equal(43, cutover.ExactLossMethods);
+        Assert.Equal(44, cutover.AvailabilityLossMethods);
+        Assert.Equal(36, legacyExactNativeUncheckable);
+        Assert.Equal(0, cutover.CompileBackFloorAppliedMethods);
     }
 
     [Fact]
@@ -2287,18 +2320,18 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
-    public void DeepInspectCensus_RetainsNativeReturnToSenderCutoverEvidence()
+    public void DeepInspectCensus_UsesNativeReturnToSenderForRealWorldBaseline()
     {
         string root = AuthoredCorpusRatchetTests.FindRepositoryRoot();
         string workflow = File.ReadAllText(
             Path.Combine(root, ".github", "workflows", "deep-inspect.yml"));
 
         Assert.Contains(
-            "artifacts/deep-inspect/rts-cutover-snapshot.json",
+            "artifacts/deep-inspect/corpus-snapshot.json",
             workflow,
             StringComparison.Ordinal);
         Assert.Contains(
-            "artifacts/deep-inspect/rts-cutover.txt",
+            "--diff-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json",
             workflow,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -2313,14 +2346,14 @@ public class CorpusSensorComparisonTests
             "artifacts/deep-inspect/corpus-assemblies.txt",
             workflow,
             StringComparison.Ordinal);
-        Assert.True(
-            workflow.IndexOf(
-                "Record independently selected native RTS cutover evidence",
-                StringComparison.Ordinal)
-            < workflow.IndexOf(
-                "Run real-world corpus sensor",
-                StringComparison.Ordinal),
-            "Native RTS cutover evidence must run before baseline-gated census steps.");
+        Assert.DoesNotContain(
+            "artifacts/deep-inspect/rts-cutover-snapshot.json",
+            workflow,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Record independently selected native RTS cutover evidence",
+            workflow,
+            StringComparison.Ordinal);
     }
 
     [Fact]

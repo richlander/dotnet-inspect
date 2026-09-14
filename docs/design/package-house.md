@@ -29,8 +29,11 @@ selecting `Settle` and `Acquire` requests by consuming one Package Source
 Model-issued operation lease. `PackageHouseDependencyInputAdapter` in
 `DotnetInspector.PackageQueries` adopts normalized declaration or produced-
 relationship evidence without copying its authorship or processing semantics.
+`PackageHouseDependencyPruningQuery` preserves explicit non-evaluated states
+or creates one PackageHouse-issued policy receipt, and candidate-bound House
+execution applies that receipt before payload acquisition.
 `DesktopPackageSourceComposition` still constructs desktop capabilities and
-exposes the shipping compatibility surface. `Realize`, pruning,
+exposes the shipping compatibility surface. `Realize`, target-aware
 dependency-edge realization, Workspace admission, and host adoption remain
 later steps.
 [#4653](https://github.com/richlander/dotnet-inspect/pull/4653) remains useful
@@ -280,10 +283,12 @@ One `PackageHouse` instance retains the host's package-source authorization and
 an optional `PackagePayloadAcquisitionPlan`. Each invocation accepts the
 request and consumes one request-deadline-matched
 `PackageSourceOperationLease` by ordinary resource-parameter ownership
-transfer. Caller cancellation and the operation ceiling are carried only by
-the lease's Package Source-owned context. House operation declarations accept
-only deadlines representable by that lower-owner context. `Realize` is
-rejected until the realization owner is composed in its adoption step.
+transfer. A candidate-bound dependency invocation may additionally carry the
+exact PackageHouse-issued pruning receipt for that request. Caller cancellation
+and the operation ceiling are carried only by the lease's Package Source-owned
+context. House operation declarations accept only deadlines representable by
+that lower-owner context. `Realize` is rejected until the realization owner is
+composed in its adoption step.
 
 Execution returns the `PackageHouseSettlement` union. Both arms carry one
 closed, immutable, resource-free `Result`. `ResourceFree` carries no live
@@ -515,11 +520,36 @@ The package owner invokes the focused platform package supply policy before
 payload acquisition when the request has complete comparable target and
 package version evidence.
 
-PackageHouse consumes the policy-issued `PlatformSupplyReceipt`; it does not
-attach an independently supplied `PlatformSupply` to package and target
-labels. Delegation additionally requires the actual supplying shared-framework
-family and exact inventory family version to match the retained
-`PlatformFamilyTarget`.
+`PackageHousePruningReceipt.Evaluate` is the PackageHouse-owned policy entry
+point. It derives the normalized policy coordinate from an exact or
+candidate-bound House demand, invokes `PlatformPrunePolicy`, and validates the
+returned inventory, package, requested framework, runtime identifier, platform
+family, and family-version correspondence. Callers cannot attach an
+independently supplied `PlatformSupply` to package and target labels.
+
+The normalized-input consumer in `DotnetInspector.PackageQueries` authorizes a
+new evaluation only for one library-declared, pre-processing declaration whose
+group is the root's exact selected group. The selection must itself be
+`Selected`, and its requested framework must equal the exact PackageHouse
+requested framework. The selected group's own framework may be a compatible
+fallback or universal group and therefore is not required to equal the
+request.
+
+Applicability precedence is explicit:
+
+1. application-authored declarations receive an explicit exemption;
+2. unattributed authorship remains unattributed;
+3. incomplete, unavailable, or failed processing remains non-evaluating;
+4. complete runtime projection remains runtime evidence, not restore evidence;
+5. complete prior package-pruning evaluation is not evaluated again;
+6. complete processing without pruning observation remains not evidenced; and
+7. only `NotApplicable` pre-processing evidence proceeds to declaration,
+   selection, target, and inventory correspondence checks.
+
+Produced relationships remain non-evaluating until #6424 supplies their exact
+target-aware edge realization. Missing selection, selected-group mismatch,
+missing exact target, requested-framework mismatch, missing platform target,
+and unavailable inventory remain distinct typed target-unavailable results.
 
 Only `Subsumed` authorizes delegation. The package decision receipt retains:
 
@@ -536,6 +566,14 @@ platform settlement receipts.
 
 `NotSubsumed`, `NotComparable`, unavailable, ambiguous, stale, or incomplete
 pruning evidence cannot become delegation.
+
+Receipt-aware execution currently accepts only candidate-bound dependency
+demands. It verifies that the candidate belongs to the operation's root
+generation and remains authorized by the current House before applying the
+receipt. A `Subsumed` result returns resource-free delegation without requiring
+or invoking payload acquisition. Every other policy result remains on the
+package path with the exact pruning receipt retained; an `Acquire` operation
+then requires the ordinary authority-scoped package store capability.
 
 ## Package-shaped and library-focused results
 

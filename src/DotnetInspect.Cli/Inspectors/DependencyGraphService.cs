@@ -40,49 +40,6 @@ internal sealed record TypeDependencyExecutionResult(
             Diagnostics: [],
             IsAvailable: false);
 
-    internal static TypeDependencyExecutionResult FromLegacy(
-        TypeDependencyResult dependency,
-        TypeDependencySectionPlan plan,
-        InspectionShare share)
-    {
-        TypeDependencyRowSelectionResult selection =
-            TypeDependencySectionExecutor.Select(
-                dependency,
-                plan);
-        return Create(
-            new TypeDependencySectionResult(
-                new AssemblyContextTypeDependencyResult(dependency, []),
-                selection),
-            dependency.Rejections.Select(
-                static rejection =>
-                    new TypeDependencyScanDiagnostic(
-                        Path.GetFileName(rejection.AssemblyPath),
-                        new CandidateOpenFailure(
-                            rejection.Kind
-                                is TypeDependencyRejectionKind
-                                    .UnsupportedMetadataFormat
-                                ? CandidateOpenFailureKind
-                                    .UnsupportedMetadataFormat
-                                : CandidateOpenFailureKind.InvalidImage,
-                            rejection.Kind switch
-                            {
-                                TypeDependencyRejectionKind
-                                    .UnsupportedMetadataFormat =>
-                                    "unsupported metadata format (Windows Metadata)",
-                                TypeDependencyRejectionKind
-                                    .MalformedMetadataRoot =>
-                                    "malformed metadata root",
-                                _ => "invalid image",
-                            })
-                        {
-                            MetadataRootReason =
-                                rejection.MetadataRootReason,
-                        }))
-                .ToArray(),
-            isAvailable: true,
-            share);
-    }
-
     internal static TypeDependencyExecutionResult FromContent(
         TypeDependencySectionResult content,
         IReadOnlyList<TypeDependencyScanDiagnostic> diagnostics,
@@ -219,26 +176,61 @@ internal static class DependencyGraphService
                         ?? options.TargetType));
         }
 
-        return await WithAssemblySetAsync(
-            httpClient,
-            request,
-            logger,
-            assemblySet =>
+        using AssemblySet assemblySet =
+            await AssemblySetResolver.CollectAsync(
+                httpClient,
+                request,
+                logger.Log).ConfigureAwait(false);
+        AssemblySetDiagnosticWriter.Write(assemblySet);
+
+        cancellationToken.ThrowIfCancellationRequested();
+        logger.Log(
+            $"Scanning {assemblySet.Assemblies.Count} libraries for type {options.TargetType}");
+        TypeDependencySectionResult content =
+            TypeDependencySectionResult.NotFound();
+        var fallbackDiagnostics =
+            new List<TypeDependencyScanDiagnostic>();
+        await using var inspectionWorkspace =
+            new AssemblySetInspectionWorkspace();
+        inspectionWorkspace.RunGroupWithTypedFailures(
+            assemblySet,
+            (group, entries) =>
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                logger.Log($"Scanning {assemblySet.Assemblies.Count} libraries for type {options.TargetType}");
-                var assemblyPaths = assemblySet.Assemblies.Select(a => a.Path).ToList();
-                TypeDependencyResult dependency =
-                    TypeDependencyScanner.BuildDependencyTree(
-                        options.TargetType,
-                        assemblyPaths,
-                        options.Depth);
+                content =
+                    TypeDependencySectionExecutor.Execute(
+                        group,
+                        plan);
+                fallbackDiagnostics.AddRange(
+                    content.QueryResult.Participants
+                        .OfType<
+                            AssemblyContextTypeDependencyEntry.Rejected>()
+                        .Select(
+                            rejected =>
+                                new TypeDependencyScanDiagnostic(
+                                    SearchAssemblySource
+                                        .FromAssemblySet(
+                                            entries.EntryFor(
+                                                rejected.Subject))
+                                        .DiagnosticSubject,
+                                    rejected.Failure)));
                 cancellationToken.ThrowIfCancellationRequested();
-                return TypeDependencyExecutionResult.FromLegacy(
-                    dependency,
-                    plan,
-                    ShareFor(dependency.MatchedType ?? options.TargetType));
-            }).ConfigureAwait(false);
+            },
+            (entry, failure) =>
+                fallbackDiagnostics.Add(
+                    new TypeDependencyScanDiagnostic(
+                        SearchAssemblySource
+                            .FromAssemblySet(entry)
+                            .DiagnosticSubject,
+                        failure)));
+        return TypeDependencyExecutionResult.FromContent(
+            content,
+            fallbackDiagnostics,
+            assemblySet.Assemblies.Count == 0
+                || content.QueryResult.HasSurvivingParticipant,
+            ShareFor(
+                content.QueryResult.Dependency.MatchedType
+                    ?? options.TargetType));
     }
 
     public static Task<LibraryDependencyGraphResult> BuildLibraryDependencyTreeAsync(
@@ -932,17 +924,6 @@ internal static class DependencyGraphService
             + Environment.NewLine
             + "Use an exact version to skip version discovery, for example: "
             + $"dotnet-inspect package {packageName}@{cachedVersions[0]}";
-    }
-
-    private static async Task<TResult> WithAssemblySetAsync<TResult>(
-        HttpClient httpClient,
-        AssemblySetRequest request,
-        VerboseLogger logger,
-        Func<AssemblySet, TResult> operation)
-    {
-        using var assemblySet = await AssemblySetResolver.CollectAsync(httpClient, request, logger.Log);
-        AssemblySetDiagnosticWriter.Write(assemblySet);
-        return operation(assemblySet);
     }
 
     private static void CleanupTempDir(string? tempDir)

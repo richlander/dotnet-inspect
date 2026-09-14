@@ -15,10 +15,10 @@ processing, and independent phase-count vocabulary for package-manifest and
 restored-project inputs. The authored-project facts provider and normalized
 adapter are implemented by `AuthoredProjectDependencyFactsQuery` and this
 query. The runtime provider and normalized adapter are implemented by
-`RuntimeDependencyFactsQuery` and this query. The PackageHouse input adapter
-retains this owner-issued evidence as the prerequisite to policy composition.
-Pruning composition and host adoption remain staged work. Restored-project
-inputs consume typed
+`RuntimeDependencyFactsQuery` and this query. The PackageHouse input adapter retains this owner-issued evidence, and the
+PackageHouse pruning consumer uses its exact authorship, processing, and
+selection states without redefining them. CLI and Browser/Wasm adoption remain
+staged work. Restored-project inputs consume typed
 pruning-processing evidence from their artifact owner. Optional owner
 observations remain dependent on issue #5315.
 
@@ -73,11 +73,12 @@ one exact normalized dependency subject and root beside the source-authorized
 candidate and House request without translating this owner's authorship,
 processing, completion, or failure states.
 
-The first policy consumer is the subsequent package-pruning composition
-required by
-[#6228](https://github.com/richlander/dotnet-inspect/issues/6228). That policy
-combines this owner-issued shape with the independently owned platform prune
-inventory. It does not move pruning policy into this owner.
+The first policy consumer is the PackageHouse pruning composition tracked by
+[#6899](https://github.com/richlander/dotnet-inspect/issues/6899) and
+[#6228](https://github.com/richlander/dotnet-inspect/issues/6228). It combines
+this owner-issued shape with the independently owned platform prune inventory
+while retaining explicit exemption, processing, and target-unavailable states.
+It does not move pruning policy into this owner.
 
 Issue #6266 is the end-to-end tracker for the larger shape. Its eight delivery
 steps are:
@@ -91,7 +92,7 @@ steps are:
 4. Add typed authored-project facts and their normalized adapter.
 5. Add a typed runtime-dependency provider for `.deps.json` and adapt its
    facts into this owner.
-6. Adopt the shape in package-pruning policy.
+6. Adopt the shape in package-pruning policy (implemented by #6899).
 7. Adopt the composed policy result in the CLI dependency experience.
 8. Adopt the same result in inspect-web Browser/Wasm.
 

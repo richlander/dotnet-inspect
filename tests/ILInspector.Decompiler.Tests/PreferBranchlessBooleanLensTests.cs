@@ -22,6 +22,7 @@ namespace ILInspector.Decompiler.Tests;
 /// (user-defined truthiness and a managed by-ref operand) and the deterministic
 /// ternary-wins precedence when both lenses are enabled.
 /// </summary>
+[Trait("Speed", "Slow")]
 [Trait("Area", "RoundTrip")]
 public sealed class PreferBranchlessBooleanLensTests
 {

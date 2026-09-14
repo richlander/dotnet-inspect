@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using DotnetInspector.Packages;
+using InertText;
 using Inspector.Resources;
 using NuGetFetch;
 
@@ -158,6 +159,38 @@ public sealed class PackageSourceOperationOwnershipTests
         operation.Dispose();
         Assert.Throws<ObjectDisposedException>(context.ThrowIfExpired);
         Assert.Same(content.GenerationIdentity, payload.Payload.Content.GenerationIdentity);
+    }
+
+    [Fact]
+    public async Task AuthorizationFailuresFlowThroughPinnedAndVersionDiscovery()
+    {
+        await using var fixture = new SourceFixture();
+        var failure = new PackageAuthorityFailure(
+            new InertString(TextPolicy.Field, "legacy"),
+            PackageAuthorityFailureKind.Configuration,
+            "A configured peer could not be used.");
+        PackageSourceAuthorization authorization =
+            PackageSourceAuthorization.ObserveAuthorities(
+                fixture.Authorization.Authorities,
+                [failure]);
+        using PackageSourceOperationLease operation = Issue(fixture.Root);
+
+        PackageAcquisitionCandidateResult pinned =
+            operation.ResolvePinnedCandidate(
+                authorization,
+                Coordinate);
+        Assert.NotNull(pinned.Candidate);
+        Assert.Same(failure, Assert.Single(pinned.Failures));
+
+        PackageVersionDiscoveryResult discovery =
+            await operation.DiscoverDependencyVersionsAsync(
+                Coordinate.PackageId,
+                authorization);
+        Assert.Equal(
+            PackageVersionDiscoveryState.Partial,
+            discovery.State);
+        Assert.Same(failure, Assert.Single(discovery.Failures));
+        Assert.NotEmpty(discovery.SourceListings);
     }
 
     [Fact]

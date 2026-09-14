@@ -618,7 +618,8 @@ internal sealed class LibraryMethodAnalysisRunner(
                 declarationSafety.HasUnsafeApiMember;
             bool hasUnsafeSignature =
                 declarationSafety.HasUnsafeSignature;
-            if (caller.CallerUnsafeMode != CallerUnsafeMode.None
+            if (CallerUnsafeModeFacts.RequiresUnsafe(
+                    caller.CallerUnsafeMode)
                 || hasUnsafeApiMember)
             {
                 result.IsLeverage = true;

@@ -3571,11 +3571,22 @@ public class ApiCommand
         var schema = DiscoverOutput.FilterSchemaToRenderedColumns(
             queryEffective, fullSchema, renderManifest, TypeFieldLayoutSections);
         return DiscoverOutput.ExecuteEffective(options.Discover, queryEffective, schema,
-            tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
-            verbosity: (int)options.Verbosity, fullSchema: fullSchema,
+            DiscoveryOutputRequest.Create(
+                OutputFormatResolver.ResolveStored(
+                    options.Format,
+                    options.JsonOutput,
+                    options.PlainText,
+                    options.Tabular,
+                    options.Tsv,
+                    options.Jsonl),
+                options.Tree,
+                options.TabularExplicitlySet,
+                options.NoHeader,
+                (int)options.Verbosity,
+                options),
+            fullSchema: fullSchema,
             sectionCostAnnotations: displayAnnotations,
-            sectionCategories: ApiMemberSectionPipelines.GetCategoryMap(memberPipeline),
-            projection: options);
+            sectionCategories: ApiMemberSectionPipelines.GetCategoryMap(memberPipeline));
     }
 
     /// <summary>
