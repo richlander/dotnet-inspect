@@ -589,7 +589,7 @@ public class SlotMaterializationPassTests
         block.Add(new StoreStackSlot(2, new Constant(2, Int32)));
         block.Add(new StoreLocal(2, Int32, new LoadStackSlot(3, Int32)));
 
-        block.Add(new StoreStackSlot(4, new Constant("x", StringType)));
+        block.Add(new StoreStackSlot(4, new Constant(null, TypeRef.CoreLib("System", "Object"))));
         block.Add(new StoreLocal(3, StringType, new LoadStackSlot(4, StringType)));
 
         block.Add(new StoreStackSlot(5, new Constant(5, Int32)));

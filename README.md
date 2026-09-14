@@ -185,7 +185,7 @@ stderr rather than mixed into structured output.
 | `match A B` | Compare two unambiguous `Type.Member` names by identity-agnostic structural equivalence; add `--body` for decompiled C# and IL body differences. |
 | `match A --similar` | Rank structural candidates for one seed method, within a single assembly. Ranks candidates only; it establishes no relation. |
 | `vocabulary` | Discover product-owned query vocabularies such as `Accessibility`, `C# Style Choices`, and `C# Body Kinds`. |
-| `ecosystem [name]` | Inspect the ecosystem knowledge configured into this product build. Omit the name to list packs; use `-S Integrations` for configured Integration concepts, distinct from observations in a library. |
+| `ecosystem [name]` | Inspect the ecosystem knowledge configured into this product build. Omit the name to list packs; use `-S Integrations` for configured Integration concepts, distinct from observations in a library. Add `--changes` to a named ecosystem for bounded recent nuget.org Catalog activity with GitHub-reviewed advisory context. |
 | `workspace` | Render the committed ordered Package occurrences of one Workspace, including packages with no compile assemblies. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; omit packages for a typed empty Workspace. Pass `--root-request TOKEN` instead to reopen the exact Package Root a `find --literal` result names. Add `--active-package N` to evaluate the exact one-based occurrence and expose its Navigation hierarchy, Library asset IDs, Type and Member inventories, lenses, and diagnostics. |
 | `workspace-state encode` / `decode` | Convert validated workspace-state JSON and canonical base64url packets; pass `-` for stdin or use `--file`. |
 | `skill` | Print the base LLM skill and route to focused built-in guidance (`skill list`, `skill query`, `skill decompiler`, `skill relationships`, and more). |
@@ -214,6 +214,30 @@ dotnet-inspect ecosystem ai -S "Core Packages"
 dotnet-inspect ecosystem microsoft-extensions -S "Core Packages"
 dotnet-inspect ecosystem platform -S Pruning
 ```
+
+Add `--changes` to report package activity in one named ecosystem's exact
+product-owned package set. This network-backed mode defaults to the interval
+`(reference time - 42 days, reference time]`, reports the exact UTC bounds and
+source horizon, and overlays current GitHub-reviewed advisory context and
+evidenced security releases:
+
+```bash
+dotnet-inspect ecosystem aspire --changes
+dotnet-inspect ecosystem aspnetcore --changes --security-only
+dotnet-inspect ecosystem microsoft-extensions --changes -n 25 --json
+dotnet-inspect ecosystem aspire --changes \
+  --from 2026-02-01T00:00:00Z \
+  --through 2026-03-01T00:00:00Z
+```
+
+`--from` is exclusive and `--through` is inclusive; specify both with explicit
+UTC offsets, and keep the interval at 42 days or less. `--security-only` keeps
+activity with positive current-advisory or exact security-release evidence.
+Unavailable evidence is not treated as a negative. Human output uses the shared
+report view; `--json` emits the lossless schema-versioned report, with
+`--compact` for minified JSON. Use `--verbose` for bounded acquisition progress
+on stderr. Single-table formats and catalog-only section projections are not
+available in change-report mode.
 
 `ecosystem platform -S Pruning` is the exception to "catalog knowledge": it reads
 the reference pack installed on this machine to list the package identities the

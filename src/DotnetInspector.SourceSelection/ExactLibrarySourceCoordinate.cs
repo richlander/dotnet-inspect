@@ -4,7 +4,7 @@ using NuGetFetch;
 namespace DotnetInspector.SourceSelection;
 
 /// <summary>
-/// Identifies one exact managed library within a package or platform population.
+/// Identifies one exact managed library within an exact source domain.
 /// </summary>
 public abstract class ExactLibrarySourceCoordinate :
     IEquatable<ExactLibrarySourceCoordinate>
@@ -134,6 +134,52 @@ public abstract class ExactLibrarySourceCoordinate :
             HashCode.Combine(
                 1,
                 Population,
+                LibraryIdentityHashCode(LibraryIdentity));
+    }
+
+    /// <summary>
+    /// Identifies an exact managed library produced by a project.
+    /// </summary>
+    public sealed class Project : ExactLibrarySourceCoordinate
+    {
+        public Project(ManagedMetadataIdentity.Assembly libraryIdentity)
+            : base(libraryIdentity)
+        {
+        }
+
+        private protected override bool EqualsCore(
+            ExactLibrarySourceCoordinate other) =>
+            LibraryIdentityEquals(
+                LibraryIdentity,
+                other.LibraryIdentity);
+
+        /// <inheritdoc/>
+        public override int GetHashCode() =>
+            HashCode.Combine(
+                2,
+                LibraryIdentityHashCode(LibraryIdentity));
+    }
+
+    /// <summary>
+    /// Identifies an exact managed library supplied as a local assembly.
+    /// </summary>
+    public sealed class Local : ExactLibrarySourceCoordinate
+    {
+        public Local(ManagedMetadataIdentity.Assembly libraryIdentity)
+            : base(libraryIdentity)
+        {
+        }
+
+        private protected override bool EqualsCore(
+            ExactLibrarySourceCoordinate other) =>
+            LibraryIdentityEquals(
+                LibraryIdentity,
+                other.LibraryIdentity);
+
+        /// <inheritdoc/>
+        public override int GetHashCode() =>
+            HashCode.Combine(
+                3,
                 LibraryIdentityHashCode(LibraryIdentity));
     }
 }
