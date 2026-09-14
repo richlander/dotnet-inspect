@@ -177,3 +177,49 @@ test("Annotated Source uses shared roles for persistent selection", async ({
     }
   }
 });
+
+test("ordinary keyboard focus uses the shared accent", async ({ page }) => {
+  const expected = {
+    dark: "rgb(185, 170, 238)",
+    light: "rgb(81, 43, 212)",
+  };
+
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+  const signatureControl = page.locator(".signature-language button");
+  for (const theme of ["dark", "light"] as const) {
+    await page.evaluate(value => {
+      document.documentElement.dataset.theme = value;
+    }, theme);
+    await signatureControl.focus();
+    await expect(signatureControl).toHaveCSS("outline-color", expected[theme]);
+  }
+
+  await page.goto("/browser/annotated-source.html");
+  await page.locator("#explore-annotated").click();
+  const invocation = page.locator(
+    '#annotated-source-modal .annotated-source-segment.invocation:has-text("object")',
+  ).first();
+  await invocation.click({ position: { x: 8, y: 8 } });
+  const selected = page.locator(
+    "#annotated-source-modal .annotated-source-segment.selected",
+  ).first();
+  const pressedControl = page.locator(
+    '#annotated-source-modal [aria-pressed="true"]',
+  ).first();
+
+  for (const theme of ["dark", "light"] as const) {
+    await page.evaluate(value => {
+      document.documentElement.dataset.theme = value;
+    }, theme);
+    await selected.focus();
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Shift+Tab");
+    await expect(selected).toBeFocused();
+    await expect(selected).toHaveCSS("outline-color", expected[theme]);
+    await pressedControl.focus();
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Shift+Tab");
+    await expect(pressedControl).toBeFocused();
+    await expect(pressedControl).toHaveCSS("outline-color", expected[theme]);
+  }
+});
