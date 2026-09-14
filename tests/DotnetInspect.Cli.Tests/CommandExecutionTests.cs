@@ -31301,6 +31301,9 @@ public partial class CommandExecutionTests
                 (
                     "content",
                     ["--content", "--path", "README.md", "-n", "1"]),
+                (
+                    "content-readme-role",
+                    ["--content", "--path", "@readme", "-n", "1"]),
             ];
 
             foreach (var testCase in cases)
@@ -31397,13 +31400,8 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Theory]
-    [InlineData("content", "Package README file")]
-    [InlineData("print", "package readme file")]
-    [InlineData("bare", "PACKAGE README FILE")]
-    public async Task PackageExactTransfer_LineWindowRejectsBeforePackageAcquisition(
-        string mode,
-        string section)
+    [Fact]
+    public async Task PackageExactTransfer_ExplicitPathLineWindowRejectsBeforePackageAcquisition()
     {
         string packageName =
             $"Test.Projection.NoAcquire.{Guid.NewGuid():N}";
@@ -31412,15 +31410,14 @@ public partial class CommandExecutionTests
             $"{packageName}.txt");
         try
         {
-            string[] projection = mode == "content"
-                ? ["--content", "--path", "README.md"]
-                : ["-S", section, $"--{mode}"];
             var result = await RunAppAsync(
                 [
                     "--offline",
                     "package",
                     packageName,
-                    .. projection,
+                    "--content",
+                    "--path",
+                    "README.md",
                     "-n1",
                     "--out",
                     outputPath,
@@ -36705,6 +36702,155 @@ public partial class CommandExecutionTests
             Assert.Empty(exactExport.Output);
             Assert.Empty(exactExport.Error);
             Assert.Equal("first", File.ReadAllText(exactOutputPath));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageSkillDestinations_ApplyLineWindowsToSelectedText()
+    {
+        const string bidi = "\u202E";
+        const string safe = "safe-first\nsafe-second";
+        string placeholder = InertString.ContainmentRequiredPlaceholder.ToString();
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Projection.SkillWindows",
+            "skills/readme-skill/SKILL.md",
+            safe,
+            null,
+            null,
+            ("skills/safe/SKILL.md", safe),
+            ("skills/contained/SKILL.md", $"contained{bidi}skill"),
+            ("skills/example/SKILL.md/payload.txt", "first\nsecond"));
+        try
+        {
+            (string Name, string[] Arguments, string Stdout, string File)[] cases =
+            [
+                (
+                    "print-safe",
+                    ["-S", "Package skill files", "--print", "--row", "2", "--bare", "-n1"],
+                    "safe-first\n",
+                    "safe-first\n"),
+                (
+                    "content-safe",
+                    ["--content", "--path", "skills/safe/SKILL.md", "--bare", "-n1"],
+                    "safe-first\n",
+                    "safe-first\n"),
+                (
+                    "print-readme-skill",
+                    ["-S", "Package README file", "--print", "--bare", "-n1"],
+                    "safe-first\n",
+                    "safe-first\n"),
+                (
+                    "content-readme-skill",
+                    ["--content", "--path", "@readme", "--bare", "-n1"],
+                    "safe-first\n",
+                    "safe-first\n"),
+                (
+                    "print-contained",
+                    ["-S", "Package skill files", "--print", "--row", "1", "--bare", "-n1"],
+                    placeholder,
+                    placeholder),
+                (
+                    "content-contained",
+                    ["--content", "--path", "skills/contained/SKILL.md", "--bare", "-n1"],
+                    placeholder + "\n",
+                    placeholder),
+            ];
+
+            foreach (var testCase in cases)
+            {
+                var outputPath = Path.Combine(tempDir, $"{testCase.Name}.txt");
+                var stdout = await RunAppInDirectoryAsync(
+                    tempDir,
+                    ["package", packagePath, .. testCase.Arguments, "--tips", "q"]);
+                var redirected = await RunAppInDirectoryAsync(
+                    tempDir,
+                    [
+                        "package", packagePath, .. testCase.Arguments,
+                        "--out", outputPath, "--tips", "q",
+                    ]);
+
+                Assert.Equal(0, stdout.Exit);
+                Assert.Equal(0, redirected.Exit);
+                Assert.Empty(stdout.Error);
+                Assert.Empty(redirected.Error);
+                Assert.Empty(redirected.Output);
+                Assert.Equal(testCase.Stdout, stdout.Output);
+                Assert.Equal(testCase.File, File.ReadAllText(outputPath));
+                Assert.DoesNotContain(bidi, stdout.Output, StringComparison.Ordinal);
+                Assert.DoesNotContain(bidi, File.ReadAllText(outputPath), StringComparison.Ordinal);
+            }
+
+            var wildcardPath = Path.Combine(tempDir, "wildcard.md");
+            var wildcard = await RunAppAsync(
+                "package", packagePath,
+                "--content", "--path", "skills/safe/*.md", "--bare", "-n1",
+                "--out", wildcardPath, "--tips", "q");
+
+            Assert.Equal(1, wildcard.Exit);
+            Assert.Empty(wildcard.Output);
+            Assert.Contains(
+                "a rendered line limit cannot be combined with exact --out transfer",
+                wildcard.Error,
+                StringComparison.Ordinal);
+            Assert.False(File.Exists(wildcardPath));
+
+            var directoryPath = Path.Combine(tempDir, "directory.md");
+            File.WriteAllText(directoryPath, "sentinel");
+            var directory = await RunAppAsync(
+                "package", packagePath,
+                "--content", "--path", "skills/example/SKILL.md", "--bare", "-n1",
+                "--out", directoryPath, "--tips", "q");
+
+            Assert.Equal(1, directory.Exit);
+            Assert.Empty(directory.Output);
+            Assert.Contains(
+                "a rendered line limit cannot be combined with exact --out transfer",
+                directory.Error,
+                StringComparison.Ordinal);
+            Assert.Equal("sentinel", File.ReadAllText(directoryPath));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageOutputPath_RejectsExplicitEmptyValuesWithoutStdoutFallback()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Projection.EmptyOutputPath",
+            "README.md",
+            "must-not-reach-stdout");
+        try
+        {
+            foreach (string option in new[] { "--out", "--output", "-o" })
+            {
+                foreach (string[] prefix in new[]
+                {
+                    new[] { "package", packagePath },
+                    new[] { packagePath },
+                })
+                {
+                    var result = await RunAppAsync(
+                        [
+                            .. prefix,
+                            "-S", "Package README file", "--print", "--bare",
+                            option, "",
+                        ]);
+
+                    Assert.Equal(1, result.Exit);
+                    Assert.Empty(result.Output);
+                    Assert.Contains(
+                        "--out requires a non-empty path.",
+                        result.Error,
+                        StringComparison.Ordinal);
+                }
+            }
         }
         finally
         {
