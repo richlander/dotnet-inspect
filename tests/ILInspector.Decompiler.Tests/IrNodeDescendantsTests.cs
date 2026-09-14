@@ -73,6 +73,7 @@ public class IrNodeDescendantsTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Descendants_PooledStack_AllocationIndependentOfSubtreeSize()
     {
         // A shallow tree and a large deep tree. With the work stack pooled, a traversal

@@ -90,6 +90,22 @@ public class CiWorkflowTests
     }
 
     [Fact]
+    public void DecompilerFastSuites_RunInTheParallelPathGatedJob()
+    {
+        string job = Job("decompiler-gates");
+
+        Assert.Contains("- name: Run decompiler unit tests (fast)", job);
+        Assert.Contains("--no-build -- --gate fast", job);
+        Assert.Contains("- name: Run DecompilerHarness tests", job);
+        Assert.Contains(
+            "dotnet run --project tests/DecompilerHarness.Tests -c Release --no-build",
+            job);
+        Assert.DoesNotContain(
+            "- name: Run decompiler unit tests (fast)",
+            Job("test"));
+    }
+
+    [Fact]
     public void HostedPackageFixture_UsesOneStepScopedReadToken()
     {
         string testHeader = JobHeader("test");
@@ -173,6 +189,34 @@ public class CiWorkflowTests
         int stepsStart = Workflow.IndexOf("\n    steps:\n", jobStart, StringComparison.Ordinal);
         Assert.True(stepsStart > jobStart, $"CI job '{jobName}' does not define steps.");
         return Workflow[jobStart..stepsStart];
+    }
+
+    static string Job(string jobName)
+    {
+        int jobStart = Workflow.IndexOf(
+            $"\n  {jobName}:\n",
+            StringComparison.Ordinal);
+        Assert.True(
+            jobStart >= 0,
+            $"CI workflow does not define the '{jobName}' job.");
+
+        int nextJob = Workflow.IndexOf(
+            "\n  ",
+            jobStart + $"\n  {jobName}:\n".Length,
+            StringComparison.Ordinal);
+        while (nextJob >= 0
+            && (nextJob + 3 >= Workflow.Length
+                || char.IsWhiteSpace(Workflow[nextJob + 3])))
+        {
+            nextJob = Workflow.IndexOf(
+                "\n  ",
+                nextJob + 3,
+                StringComparison.Ordinal);
+        }
+
+        return nextJob >= 0
+            ? Workflow[jobStart..nextJob]
+            : Workflow[jobStart..];
     }
 
     static string NamedStep(string stepName)

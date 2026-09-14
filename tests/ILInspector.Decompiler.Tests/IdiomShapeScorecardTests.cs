@@ -48,6 +48,7 @@ public class IdiomShapeScorecardTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void FixtureIdioms_RecoverExpectedSyntaxShapes()
     {
         List<string> failures = [];

@@ -63,6 +63,7 @@ public class LadderRung2GateTests
     const string AnonymousFrontier = "Program::AnonymousSummary";
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Rung2Fixture_ExposesExactMemberSet_AllFullExceptAnonymousFrontier_AndFullyRaised()
     {
         var members = LoadRaisedMembers();
@@ -164,6 +165,7 @@ public class LadderRung2GateTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Rung2Fixture_HasNoMalformedOrSemanticDefects()
     {
         var results = ValidityCheck.Evaluate(FixturePath)
