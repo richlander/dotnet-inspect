@@ -11,7 +11,7 @@ public sealed class ProductEcosystemPackTests
     public void AspireIsTheOnlyShippedScannerAndRetainsTheOwnerBinding()
     {
         Assert.Equal(
-            [false, false, false, true],
+            [false, false, false, true, false],
             EcosystemPackCatalog.Discover().Select(pack => pack.HasScanner));
         var selected = Assert.IsType<EcosystemScannerSelectionResult.Known>(
             EcosystemPackCatalog.SelectScanner(EcosystemPackIds.Aspire));
@@ -22,6 +22,7 @@ public sealed class ProductEcosystemPackTests
                 EcosystemPackIds.Platform,
                 EcosystemPackIds.MicrosoftExtensions,
                 EcosystemPackIds.AspNetCore,
+                EcosystemPackIds.AI,
             },
             id => Assert.IsType<EcosystemScannerSelectionResult.Unavailable>(
                 EcosystemPackCatalog.SelectScanner(id)));
@@ -67,7 +68,13 @@ public sealed class ProductEcosystemPackTests
                 400,
                 PackageSetIds.Aspire,
                 ProductDemoIds.AspirePostgresCallGraph,
-                ProductDemoIds.AspireRedisCallGraph));
+                ProductDemoIds.AspireRedisCallGraph),
+            ai => AssertPack(
+                ai,
+                EcosystemPackIds.AI,
+                "AI",
+                500,
+                packageSet: null));
     }
 
     [Fact]
@@ -136,7 +143,22 @@ public sealed class ProductEcosystemPackTests
                     "Microsoft.AspNetCore.OpenApi",
                     "Microsoft.AspNetCore.Authentication.JwtBearer",
                 ]),
-            aspire => AssertKnowledge(aspire, ["Aspire"], ["Aspire.Hosting"]));
+            aspire => AssertKnowledge(aspire, ["Aspire"], ["Aspire.Hosting"]),
+            ai => AssertKnowledge(
+                ai,
+                [
+                    "Microsoft.Extensions.AI",
+                    "Microsoft.Extensions.VectorData",
+                    "Microsoft.Agents.AI",
+                    "ModelContextProtocol",
+                ],
+                [
+                    "Microsoft.Extensions.AI",
+                    "Microsoft.Extensions.AI.Abstractions",
+                    "Microsoft.Extensions.VectorData.Abstractions",
+                    "Microsoft.Agents.AI",
+                    "ModelContextProtocol",
+                ]));
 
         static void AssertKnowledge(
             EcosystemPackDescriptor pack,
@@ -165,7 +187,8 @@ public sealed class ProductEcosystemPackTests
             aspNetCore => Assert.Empty(aspNetCore.ToolPackages),
             aspire => Assert.Equal(
                 new PackageCoordinate("Aspire.Cli"),
-                Assert.Single(aspire.ToolPackages)));
+                Assert.Single(aspire.ToolPackages)),
+            ai => Assert.Empty(ai.ToolPackages));
     }
 
     [Fact]
