@@ -124,8 +124,10 @@ belongs to the vocabulary's binder at resolution.
 An **execution bound** is the `ExecutionBoundIntent(Dimension, RequestedMaximum)`
 shape owned by [CLI execution bounds](cli-execution-bounds.md), limiting one
 owner-named dimension of upstream work; reaching it produces a completion state
-and proves nothing about exhaustion. Bounds in different dimensions are
-independent, so the set is unordered and emits in a fixed declared slot order.
+and proves nothing about exhaustion. A dimension carries **at most one** bound:
+two maxima for one dimension are not a narrower request, they are a
+contradiction. Bounds in different dimensions are independent, so their
+declaration sequence carries no meaning and canonicalization supplies one.
 
 A **selection stage** is owned by
 [semantic row selection](semantic-row-selection.md), which defines an ordered
@@ -172,8 +174,12 @@ the same query; equality is decided on those bytes and nowhere else.
   operator or value is preserved. How the surviving terms compose — conjunction,
   or an OR-union inside a declared combining family — is the vocabulary's
   question, not the codec's, and so is whether the result is satisfiable.
-- Execution bounds emit in a fixed declared slot order. They are independent
-  across dimensions, so their declaration sequence carries no meaning.
+- Execution bounds sort by dimension identity, ordinal. A repeated dimension is
+  **invalid**, not collapsed and not last-wins, even when both entries carry the
+  same maximum. Duplicate terms collapse because conjunction is idempotent —
+  asking twice for the same predicate asks the same question — while a second
+  bound on one dimension has no meaning to preserve, and silently choosing one
+  would let a share link authorize work its author did not request.
 - Selection stages are **position-significant and never reordered**. Sequence is
   their meaning, because each stage consumes the preceding stage's output.
 - Order operations sort by role: the `base` operation first, then ranking
@@ -245,7 +251,8 @@ is shown exactly as it would be written.
 
 - `t` is sorted. Each term is three strings, and the operator is its identity
   token, not a symbol.
-- `b` is in fixed slot order. Each bound is a string and a JSON integer.
+- `b` is sorted by dimension. Each bound is a string and a JSON integer, and
+  no dimension appears twice.
 - `s` is in declared order, encoded per the stage table below.
 - `o` is in role order — `base` first, then ranking
   operations by ascending stage index — encoded per the order table below.
@@ -299,8 +306,9 @@ one assignment of baseline and rankings has exactly one spelling.
 
 Numbers are JSON integers with no sign, leading zero, fraction, or exponent.
 Strings use the packet's pinned canonical scalar escaping rather than a second
-convention. Unknown properties, duplicate properties, a present-but-empty array,
-and any non-canonical scalar form are invalid payloads.
+convention. Unknown properties, duplicate properties, a repeated bound dimension,
+a present-but-empty array, and any non-canonical scalar form are invalid
+payloads, refused during payload validation before any vocabulary binder runs.
 
 Inheriting that escaping means inheriting its rejections. `workspace-definitions.md`
 refuses unpaired surrogates rather than substituting U+FFFD, so an unpaired
@@ -591,7 +599,8 @@ reports completion honestly about a request nobody made.
 | Gate | Contract |
 | --- | --- |
 | `IntentCanonicalFormRoundTripsByteForByte` | Parse then canonical write reproduces exact bytes for every supported term, operator, execution bound, selection stage, order operation, and escaping vector, including all four `window` endpoint combinations and both order kinds. |
-| `IntentCanonicalFormIsIndependentOfTermOrder` | Term sequence, duplicate terms, and execution-bound declaration sequence do not change canonical bytes; semantically identical states deduplicate. |
+| `IntentCanonicalFormIsIndependentOfTermOrder` | Term sequence, duplicate terms, and execution-bound declaration sequence do not change canonical bytes; bounds sort by dimension identity; semantically identical states deduplicate. |
+| `RepeatedBoundDimensionIsRefused` | A payload carrying one dimension twice is refused during payload validation before any vocabulary binder runs, whether the two maxima differ or are identical, and is never collapsed, reordered, or resolved last-wins. |
 | `SelectionStageSequenceSurvivesRoundTrip` | Stage sequence survives byte-for-byte and is never sorted, deduplicated, or merged into the bound set; two intents differing only in stage sequence have different canonical bytes, witnessed by the `Head`/`Top` commutation case. |
 | `OrderOperationsAreInjective` | Role, kind, operation boundary, and direction survive round-trip exactly; field-term sequence inside one operation is preserved while outer operations emit in role order, so one assignment of baseline and rankings has exactly one spelling; a ranking operation stays bound to its stage index; two intents differing only in baseline order, or only in how the same field terms divide between baseline and ranking, have different canonical bytes. |
 | `IntentResolutionIsAtomic` | An invalid vocabulary, key, operator, value, or bound returns the deterministic first structured failure with no plan and no partial binding. |
