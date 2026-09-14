@@ -20,11 +20,72 @@ public class FinallyReturnTimingTests
             setValue: false,
             exit: true));
 
+        var (fidelity, output) = Render(nameof(FinallyReturnTimingSample.Run));
+        Assert.Equal(DecompilationFidelity.Full, fidelity);
+        Assert.Equal(1, CountOccurrences(output, "return result;"));
+        Assert.EndsWith("return result;\n", output);
+    }
+
+    [Fact]
+    public void NestedFinallyReturnStaysAfterExitedFinallys()
+    {
+        Assert.Equal(110, FinallyReturnTimingSample.RunNested(
+            loop: true,
+            setValue: true,
+            exit: true));
+        Assert.Equal(100, FinallyReturnTimingSample.RunNested(
+            loop: true,
+            setValue: false,
+            exit: true));
+
+        var (fidelity, output) = Render(nameof(FinallyReturnTimingSample.RunNested));
+        Assert.Equal(DecompilationFidelity.Full, fidelity);
+        Assert.Equal(1, CountOccurrences(output, "return result;"));
+        Assert.EndsWith("return result;\n", output);
+    }
+
+    [Fact]
+    public void ArgumentReturnStaysAfterFinally()
+    {
+        Assert.Equal(110, FinallyReturnTimingSample.RunArgument(
+            result: 0,
+            loop: true,
+            setValue: true,
+            exit: true));
+        Assert.Equal(100, FinallyReturnTimingSample.RunArgument(
+            result: 0,
+            loop: true,
+            setValue: false,
+            exit: true));
+
+        var (fidelity, output) = Render(nameof(FinallyReturnTimingSample.RunArgument));
+        Assert.Equal(DecompilationFidelity.Full, fidelity);
+        Assert.Equal(1, CountOccurrences(output, "return result;"));
+        Assert.EndsWith("return result;\n", output);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void FinallyReturnTimingMethodsCompileBackExactly()
+    {
+        var results = FidelityCheck.Evaluate(
+            SampleType.Assembly.Location,
+            type => type == SampleType.FullName,
+            method => method.Method is nameof(FinallyReturnTimingSample.Run)
+                or nameof(FinallyReturnTimingSample.RunArgument));
+
+        Assert.Equal(2, results.Count);
+        Assert.All(results, result =>
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status));
+    }
+
+    static (DecompilationFidelity Fidelity, string Output) Render(string methodName)
+    {
         using var source = MetadataSource.Open(SampleType.Assembly.Location);
         var function = Assert.IsType<IrFunction>(IrImporter.Import(
             source,
             SampleType.FullName!,
-            nameof(FinallyReturnTimingSample.Run)));
+            methodName));
 
         var result = CSharpPrinter.PrintRaised(
             function,
@@ -32,22 +93,7 @@ public class FinallyReturnTimingTests
             typesProvablyDisjoint: source.AreProvablyDisjoint);
         string output = Assert.IsType<string>(result.Output)
             .ReplaceLineEndings("\n");
-
-        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
-        Assert.Equal(1, CountOccurrences(output, "return result;"));
-        Assert.EndsWith("return result;\n", output);
-    }
-
-    [Fact]
-    [Trait("Speed", "Slow")]
-    public void NormalContinuationReturnCompilesBackExactly()
-    {
-        var result = Assert.Single(FidelityCheck.Evaluate(
-            SampleType.Assembly.Location,
-            type => type == SampleType.FullName,
-            method => method.Method == nameof(FinallyReturnTimingSample.Run)));
-
-        Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+        return (function.Fidelity, output);
     }
 
     static int CountOccurrences(string text, string value)
