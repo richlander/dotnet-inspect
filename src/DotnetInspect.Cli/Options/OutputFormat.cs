@@ -51,6 +51,33 @@ public enum OutputFormat
 public static class OutputFormatResolver
 {
     /// <summary>
+    /// Resolves output state already stored on an options record. Command-line
+    /// parsers populate both the canonical format and format-specific
+    /// convenience flags, while direct typed callers may populate only the
+    /// flags.
+    /// </summary>
+    public static OutputFormat ResolveStored(
+        OutputFormat format,
+        bool jsonOutput,
+        bool plainText,
+        bool tabular,
+        bool tsv,
+        bool jsonl)
+    {
+        if (jsonOutput)
+            return OutputFormat.Json;
+        if (plainText)
+            return OutputFormat.PlainText;
+        if (jsonl)
+            return OutputFormat.Jsonl;
+        if (tsv)
+            return OutputFormat.Tsv;
+        if (tabular)
+            return OutputFormat.Table;
+        return format;
+    }
+
+    /// <summary>
     /// Resolves format. Any -v flag implies Markdown. --json implies Json. --markdown implies Markdown.
     /// Commands may supply a <paramref name="defaultFormat"/> to override the global default (Markdown).
     /// </summary>
