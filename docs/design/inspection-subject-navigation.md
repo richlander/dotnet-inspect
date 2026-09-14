@@ -91,9 +91,14 @@ metadata names made only of whitespace or line separators remain selectable.
 Runtime Workspace, occurrence, generation, action, and authority identities
 are not serialized.
 
-Snapshot installation, reconciliation, revision behavior, retained sessions,
-synchronization, and restoration remain unverified until their implementation
-gates in [Verification](#verification) land. The workspace-owned identity
+Issue #6113 adopts the stateless-core pattern within this existing Navigation
+owner: immutable product-issued `NavigationState` is passed explicitly to
+`NavigationTransitions`, while the host owns the current-state slot and
+operation execution. The approved slice separates semantic revision from
+action-publication generation; it does not implement Browser cutover (#6757),
+protected Scope-result admission (#5584), or restoration (#6112).
+Implementation conformance remains unverified until the relevant Release
+gates in [Verification](#verification) pass. The workspace-owned identity
 prerequisite is implemented by `InspectionWorkspaceIdentity`; the observational
 occurrence view remains available for its unmigrated Browser consumer.
 Registry adoption is tracked by #5509, and portable Workspace/Package subject
@@ -128,8 +133,9 @@ The first host-neutral implementation slice is #5518. Workspace Definitions
 adoption for portable Workspace and Package subjects is #5525.
 
 This is shared product substrate; no single-consumer or single-host exception
-applies. The simplest sufficient boundary is one Navigation session bound to
-one exact Workspace, with one Workspace inventory subject and one Package
+applies. The simplest sufficient boundary is one product-issued Navigation
+state lineage bound to one exact active Workspace realization, with one
+Workspace inventory subject and one Package
 subject for each retained package occurrence. It adds no generic Root, global
 Package, `All packages` subject, cross-Workspace correspondence, or second
 concurrency protocol.
@@ -153,12 +159,12 @@ that same two-host adoption:
   CLI request supplies an exact subject and facet. The CLI receives the same
   exact Registry mapping and complete snapshot result, but no action ID,
   retained effect authority, Browser history, or Compare mode.
-- #6113's retained Navigation session binds the same request to current intent
+- #6113's explicit Navigation state binds the same request to current intent
   and synchronization authority. #5510 and #5511 adopt the resulting opaque
   interactive action and complete result in Browser/Wasm; Compare uses it in
   stages 4 and 5 of its nine-stage adoption path.
 
-The pure exact-pair evaluator and retained wrapper are one Navigation
+The pure exact-pair evaluator and retained-state transitions are one Navigation
 capability, not separate host policies. The CLI does not acquire a retained
 terminal session, and Browser/Wasm does not reconstruct the exact pair from
 display state.
@@ -280,8 +286,10 @@ The owner consumes:
 - typed identity-resolution and correspondence outcomes; and
 - either a retained-session operation or an explicit stateless evaluation.
 
-A retained operation reads prior state only from its navigation session.
-Stateless evaluation may receive an explicit prior snapshot as data.
+A retained operation receives the host's current product-issued
+`NavigationState` explicitly. A UI consumer cannot substitute a consumer
+snapshot or author semantic fields. Standalone evaluation may receive an
+explicit prior snapshot as data without retaining a state lineage.
 
 ### Outputs
 
@@ -298,6 +306,29 @@ The owner returns:
 - opaque retained-session authority; and
 - a typed consumer-synchronization disposition plus a fresh-authority
   synchronization result for retained consumers.
+
+Evaluation returns detached evidence bound to its exact work ticket, including
+exact lens-resolution and descendant-request evidence when available.
+Completion returns `NavigationOperationResult(Consumer, LensResolution)`;
+operation evidence is never recovered from a mutable `LastLensResolution`
+side channel. No state, work ticket, transition, or result retains a service,
+availability provider, task, live operation authority, lease, or resource.
+Facts and providers are invocation inputs only. The invocation-availability
+retention gate covers that provider's object graph.
+`NavigationDetachmentTests.ArtifactBackedStateTicketsAndExactResults_DoNotRetainAcquisitionAuthority`
+exercises the real Package Root producer and retains Navigation state, tickets,
+and exact Library, Type, and Member results after Workspace settlement; its
+acquisition registration, artifact identity, and producer exception must remain
+collectible.
+
+Retained participant failure evidence preserves an erasing exact failure
+identity, exception type, HRESULT, message, and diagnostic detail, not the
+exception's arbitrary object graph or `Data` attachments. Producer participant
+identity likewise projects exact registration identity without access
+authority. Stateless inventory classification retains its original
+producer-evidence contract. Exact Registry evidence remains owner-issued;
+availability providers must supply detached diagnostic evidence, not resource
+owners or callbacks.
 
 ### Adjacent owners
 
@@ -355,6 +386,15 @@ complete restoration composition. #4787 established the current version-2
 shape; #5525 tracks adoption of explicit Workspace and Package subjects plus an
 optional retained occurrence and descendant context independent from the active
 subject.
+
+[Stateless core services](stateless-core-services.md) owns the explicit-state
+composition pattern. Navigation adopts it without redefining Workspace
+admission or the retained host's operation-authority and current-slot
+contracts. One active realization gets one Navigation state lineage; a saved
+`WorkspacePlan` or definition carries detached intent, not live Navigation
+state, actions, receipts, work tickets, or authority. Realizing the same plan
+again creates fresh state and authority. This consumes the existing
+realization boundary; #6757's Browser cutover is not part of #6113.
 
 ### Non-claims
 
@@ -436,6 +476,26 @@ Acquisition issues the Workspace identity under #5508; Workspace Scope and
 Expansion constructs and retires the occurrence identity under that live
 Workspace authority.
 
+Navigation's acquired Library, Type, and Member identity projections preserve
+the exact Metadata registration association without retaining that registration.
+An artifact-backed registration has a live-authority backlink, so the
+Inspection Graph acquired-identity objects are not suitable retained Navigation
+data. `NavigationRegistrationIdentity` is an erasing reference identity, shared
+only for the same exact registration. Different registrations remain distinct
+even when their metadata and artifact coordinates compare equal.
+
+The implementation uses weak exact-object memoization: the key is the original
+owner-issued registration and the value has no backlink. The same rule applies
+to erasing producer-exception identity. These associations neither retain
+content nor resolve a different generation and are not a new state port or
+architecture owner under [Stateless core services](stateless-core-services.md).
+Only current owner-issued operation authority can acquire content; a detached
+Navigation identity cannot recover it.
+`NavigationDetachmentTests.ErasingIdentity_PreservesExactRegistrationEquality`
+checks that equal metadata and provenance do not collapse different
+registrations, while repeated projection of the same registration preserves
+exact identity.
+
 The current coordinate-rooted `StructuralSubjectIdentity` implementation is
 replaced in place rather than retained as a parallel identity family. Its
 closed-kind, component-binding, and construction gates must be updated to this
@@ -465,7 +525,7 @@ One navigation snapshot contains:
 
 | Field | Purpose |
 | --- | --- |
-| Generation | Scopes action IDs and snapshot-relative commands |
+| Generation | Identifies an action publication and scopes action IDs and snapshot-relative commands; not a semantic revision |
 | Workspace | Binds the session, every subject, descriptor, action, lens, basis, and diagnostic to one exact isolation boundary |
 | Active package occurrence | Names the exact Package ancestry whenever one occurrence is active, including while Workspace is the active subject |
 | Active subject | The one committed Workspace, Package, Library, Type, or Member |
@@ -478,13 +538,20 @@ One navigation snapshot contains:
 | Lens outcome | Effective identity or non-effective outcome, evaluation basis, and exact Registry evidence |
 | Diagnostics | Partial evidence and scoped failures |
 
-The snapshot is the retained session's only committed subject and lens state.
-One retained session is bound to one exact Workspace occurrence for its
-lifetime. Workspace binding is carried transitively by every subject identity,
-and therefore by every subject-bound lens and evaluation basis. The session
-never installs or reconciles a subject or accepts an action or restoration
-payload from another Workspace. A host cannot supply a second retained-state
-value.
+The semantic snapshot is the state lineage's only committed subject and lens
+state. It includes complete descriptors, retained context, diagnostics, and
+exact evaluation evidence, but excludes opaque action-publication identity.
+Semantic revision advances exactly when that complete semantic value changes.
+Renewing consumed actions for retry may instead publish a new generation with
+the same semantic revision. The publication receipt is the composite
+`NavigationPublication(Revision, Generation)`, not either component alone.
+
+One lineage is bound to one exact Workspace realization for its lifetime.
+Workspace binding is carried transitively by every subject identity, and
+therefore by every subject-bound lens and evaluation basis. Navigation never
+installs or reconciles a subject or accepts an action or restoration payload
+from another Workspace. Only the host's current product-issued state supplies
+retained prior state; an old state value does not authorize replacing that slot.
 
 A lens outcome retains one evaluation basis:
 
@@ -540,7 +607,10 @@ are scoped to one exact Workspace and generation and are distinct from
 structured identities.
 
 Stale, foreign-Workspace, unknown, or duplicated action IDs produce typed
-rejection without state change. Canonical product peers may submit structured
+rejection without semantic snapshot change. Ordinary current results still
+issue fresh effect authority. A consumed advertised action can be renewed for
+retry by a new action generation without changing semantic revision; the old
+action remains unusable. Canonical product peers may submit structured
 identities through typed seams; browser display text never becomes a command
 currency.
 
@@ -1120,8 +1190,46 @@ refresh remains ordinary maintenance.
 
 ## Retained navigation session
 
-Retained hosts use a product-owned session rather than coordinating snapshots
-with host-local counters. The authoritative state machine is
+"Session" names one Navigation state lineage, not a retained service instance.
+The immutable, opaque `NavigationState` holds the semantic snapshot, published
+actions, acknowledged publication receipt, FIFO request identities, current
+intent, active attempts, and effect/installation evidence. Product functions
+own all policy. The host retains only the current state slot and executes
+operations under the existing host and Workspace owners' authority.
+
+The stateless transition boundary is:
+
+| Operation | Navigation obligation |
+| --- | --- |
+| `Initialize` | Issue fresh state and a complete initial result for one exact Workspace realization |
+| `Begin`, `BeginLens` | Validate an opaque action or exact product-peer lens request, supersede older explicit intent, and issue exact work or a current typed rejection |
+| `Evaluate` | Consume the issued ticket and invocation-local prepared facts; return detached semantic and exact-lens evidence, never effect authority |
+| `Complete` | Validate the ticket and current attempt; return the next state and operation-correlated result |
+| `QueueMaintenance`, `QueueSynchronization`, `Advance` | Retain exact request identities, preserve maintenance FIFO, and issue work or dedicated synchronization when eligible |
+| `RecordConsumerInstallation`, `Acknowledge`, `Abandon` | Validate current effect authority; keep installation, receipt advancement, and debt-preserving release distinct |
+| `Cancel` | Settle only the exact cancelled request; do not manufacture a successful evaluation or discard another queued request |
+| `CanCommit(current, transition)` | Accept only the exact current-state object from which that transition was computed |
+
+The host serializes the short current-slot check and replacement, not fact
+gathering. It commits `Begin` before executing issued work, evaluates outside
+that critical section, then completes against the current slot. A transition
+computed from a replaced slot cannot be committed, even when both states have
+equal semantic revisions and generations. The host does not merge competing
+states or reconstruct the product's admission policy.
+
+Each product-issued work ticket binds the exact session, Workspace, request,
+attempt, intent, and snapshot/publication basis. Completion rejects foreign
+Workspace/session tickets, an evaluation from a different ticket, and a stale
+attempt. A later explicit intent makes an older explicit result `Superseded`
+without authority. Stale maintenance completion discards only the attempt:
+the same request keeps its FIFO position and must gather again under fresh
+host operation authority against the then-current product state.
+
+This boundary consumes admission, execution, and authority from their existing
+owners; a ticket is correlation data, not permission to acquire or inspect.
+It neither introduces a new architecture owner nor implements #5584.
+
+The bounded ordering model is
 [`NavigationSession.tla`](models/inspection-subject-navigation/NavigationSession.tla).
 
 The model establishes these design guarantees:
@@ -1141,6 +1249,8 @@ The model establishes these design guarantees:
   effect-epoch authority;
 - every semantically changed snapshot advances the state revision regardless
   of its outcome label;
+- retry action renewal may advance generation alone; the receipt and
+  consumer installation distinguish that publication from its predecessor;
 - every current result carries the complete installed snapshot and identifies
   whether the retained consumer must synchronize it before acknowledgement;
 - consumer installation and product acknowledgement are separate state
@@ -1150,26 +1260,33 @@ The model establishes these design guarantees:
   installation;
 - abandonment never advances the receipt, including when the consumer
   installed the snapshot but lost authority before acknowledgement;
-- every bounded model synchronization request is settled by dedicated fresh
-  authority or by acknowledgement of an intervening current result, without a
-  product-side retry ceiling;
+- every bounded model synchronization request retains its identity through
+  an intervening acknowledgement and settles under dedicated fresh authority,
+  without a product-side retry ceiling;
 - stale or foreign authority cannot authorize a consumer-visible effect;
 - prerequisite failure terminates the explicit operation without inventing a
   navigation result; and
 - acknowledgement or abandonment releases queued maintenance.
 
 A retained consumer treats tokens and authority as opaque. It validates
-authority through the session before applying a returned result and again
+authority against the host's current product state before applying a result and again
 before each deferred consumer-visible effect. Earlier validation is not
 continuing authority.
 
-Retained operations read the session's installed snapshot. The separate
-stateless variant may consume an explicit prior snapshot and has no implicit
-cross-command state.
+The four-part effect authority remains session, semantic revision, intent, and
+epoch. Its epoch is bound to exactly one publication, including generation;
+generation-only renewal requires fresh authority. It is not a fifth
+caller-supplied authority component.
+
+Retained operations read the installed snapshot from the explicitly passed
+product state, not a UI snapshot. Standalone evaluation has no implicit
+cross-command state. `SnapshotAuthority.tla` models this custody distinction;
+exact object-identity commit races and full work-ticket validation remain
+implementation-gated, not model-proved.
 
 ### Consumer synchronization
 
-One retained navigation session records the revision of the complete snapshot
+One retained navigation state records the composite publication of the snapshot
 last acknowledged by its retained consumer. This is a product-owned receipt,
 not a caller-supplied prior snapshot. The consumer neither orders revisions nor
 uses them as command identity.
@@ -1184,7 +1301,7 @@ installed snapshot and one typed disposition:
 
 | Disposition | Consumer obligation |
 | --- | --- |
-| Current | The product-owned acknowledged consumer receipt already names this result's complete snapshot revision |
+| Current | The product-owned acknowledged consumer receipt already names this result's exact semantic revision and action generation |
 | Synchronization required | Install the complete result snapshot before acknowledging its authority |
 
 The disposition is independent of semantic outcome. A rejected, failed,
@@ -1192,7 +1309,9 @@ aborted, or unchanged-unavailable result is still `Synchronization required`
 when an earlier applied or maintenance result advanced the session before the
 consumer installed it. The consumer presents the current semantic outcome only
 after synchronizing the complete snapshot, so descriptors, generation-scoped
-actions, diagnostics, and lens state come from one revision.
+actions, diagnostics, and lens state come from one publication. Equal semantic
+revisions alone do not establish synchronization. `Current` still requires
+installation evidence under this result's fresh epoch before acknowledgement.
 
 Acknowledgement confirms consumption of the result snapshot named by the
 current authority and advances the product-owned consumer receipt. The session
@@ -1206,8 +1325,13 @@ lens, retained-coordinate, or restoration command. The session returns the
 latest complete installed snapshot with fresh current authority and no
 semantic navigation change. If standalone maintenance is already queued, its
 eventual current result may discharge the same debt without changing request
-order; otherwise the dedicated synchronization result is admitted after the
-queue drains. Repeated remounts may request fresh authority again after
+order. An implementation may settle the pending synchronization request on that
+acknowledgement, or preserve its exact identity for a dedicated response after
+the queue drains. #6113 implements the latter: even when an intervening
+maintenance acknowledgement makes the receipt `Current`, the queued request
+receives its own fresh authority. The representative model follows that path;
+it does not require the alternate acknowledgement-discharge implementation.
+Repeated remounts may request fresh authority again after
 abandonment; the product contract imposes no retry ceiling.
 
 A newer current result is also a synchronization vehicle. Product-side discard
@@ -1317,7 +1441,10 @@ the migration historically tracked by
 ### Canonical state
 
 The canonical-state owner consumes structured subject and lens identities.
-Action IDs and retained-session authority are never serialized.
+Definitions and plans remain detached. Navigation state, action IDs, receipts,
+work tickets, and retained-session authority are never serialized or reused in
+a new realization. The fresh-initialization contract above remains #6112's
+separate implementation scope.
 
 ### Other hosts
 
@@ -1331,9 +1458,9 @@ retaining a navigation session.
 
 | Model | Checked design properties |
 | --- | --- |
-| `NavigationSession.tla` | Latest admitted Navigation-local explicit intent wins; completed unavailable and failed revision behavior follows complete-snapshot change; Navigation preparation failure retains snapshot and revision with a distinct source and fresh retained authority; maintenance is request ordered; abort and acknowledgement preserve liveness; stale authority has no effect; consumer acknowledgement requires synchronization; abandoned lag can obtain the latest snapshot under fresh authority |
+| `NavigationSession.tla` | Latest admitted Navigation-local explicit intent wins; semantic revision follows semantic snapshot change; retry publication can renew generation alone; composite receipt and exact-epoch installation govern acknowledgement; maintenance is request ordered; dedicated synchronization preserves exact request identity even after an intervening acknowledgement makes the receipt current |
 | `AtomicRestoration.tla` | One exact requested subject+lens pair initializes atomically; failed or superseded initialization is not published |
-| `SnapshotAuthority.tla` | Retained state comes only from the installed snapshot; applied lens results equal the independently retained request; stale or foreign authority is rejected |
+| `SnapshotAuthority.tla` | Explicit host-current product state supplies retained prior state, never a consumer-supplied snapshot; applied lens results equal the independently retained request; stale or foreign authority is rejected |
 
 The model README records the TLC commands and scope. Model checking validates
 these finite specifications, not the implementation.
@@ -1424,6 +1551,18 @@ The eventual subject-navigation implementation must include named gates for:
 - `RetainedSession_BindsOneExactWorkspaceOccurrence`
 - `RetainedSession_RejectsCallerSuppliedPriorSnapshot`
 - `RetainedSession_RejectsSuppliedSameSessionSnapshotCustody`
+- `NavigationStateTests.SameStateAndInput_ProduceEquivalentResultsWithoutChangingInput`
+- `NavigationStateTests.InvocationAvailabilityTarget_IsNotRetainedByStateTicketEvaluationOrResult`
+- `NavigationDetachmentTests.ArtifactBackedStateTicketsAndExactResults_DoNotRetainAcquisitionAuthority`
+- `NavigationDetachmentTests.DetachedFailure_RefreshPreservesExactFailureIdentityAndSemanticRevision`
+- `NavigationDetachmentTests.ErasingIdentity_PreservesExactRegistrationEquality`
+- `NavigationStateTests.Complete_DuplicateCannotRepublishOrCommitAgainstReplacedCurrentSlot`
+- `NavigationStateTests.Complete_RejectsWrongTicketAttemptSessionAndWorkspaceWithoutChangingState`
+- `NavigationStateTests.Maintenance_RegatherPreservesRequestIdentityButRejectsRetiredAttempt`
+- `NavigationStateTests.Initialize_EqualFactsSeedIndependentSessionIdentities`
+- `NavigationStateTests.IndependentStates_InterleaveWithoutSharingHistoryOrAuthority`
+- `NavigationSessionRegressionTests.DescendantNonSuccess_RetainsExactEvidenceUnderActionAuthority`
+- `NavigationSessionRegressionTests.SupersededDescendantCompletion_DoesNotReplaceCurrentResolutionEvidence`
 - `SuppliedPriorRejection_CorrelatesExactOperation`
 - `AppliedResult_EqualsExactRequestedSubjectAndLens`
 - `Maintenance_SerializesInRequestOrderAcrossCompletionTiming`
@@ -1431,7 +1570,9 @@ The eventual subject-navigation implementation must include named gates for:
 - `Maintenance_CannotInstallDuringUnconsumedEffect`
 - `StaleBasisMaintenance_SameRequestRebuildsRegathersAndIsAdmitted`
 - `EffectAuthority_RequiresExactCurrentSessionRevisionIntentAndEpoch`
-- `ConsumerSynchronization_DispositionComesFromAcknowledgedRevision`
+- `ConsumerSynchronization_DispositionComesFromAcknowledgedPublication`
+- `NavigationSessionRegressionTests.PreparationNonSuccess_ReturnsFreshRetryWithoutSemanticRevisionChange`
+- `NavigationSessionRegressionTests.RetryGenerationDebt_SurvivesAbandonmentWithoutSemanticRevisionChange`
 - `ConsumerSynchronization_DispositionIsIndependentOfSemanticOutcome`
 - `ConsumerSynchronization_NonInstallingSuccessorCarriesCurrentSnapshot`
 - `ConsumerSynchronization_InstallationDoesNotAdvanceReceipt`
@@ -1439,6 +1580,7 @@ The eventual subject-navigation implementation must include named gates for:
 - `ConsumerSynchronization_AcknowledgementRequiresInstalledResult`
 - `ConsumerSynchronization_AbandonmentPreservesDebt`
 - `ConsumerSynchronization_RequestReturnsLatestSnapshotWithFreshAuthority`
+- `NavigationSessionTests.Synchronization_WaitsForExplicitWorkAndQueuedMaintenance`
 - `ConsumerSynchronization_RemountCanRequestAgainAfterAbandonment`
 - `ConsumerSynchronization_EveryRequestSettlesByCurrentResult`
 - `ConsumerSynchronization_MaintenanceOrderAndLivenessArePreserved`
@@ -1569,6 +1711,12 @@ publication protocol. The exact pair and descendant relationship remain
 | Non-installing successor follows an abandoned applied result | Successor carries the complete current snapshot with `Synchronization required` |
 | Maintenance completes while the consumer lags | Current maintenance result carries the complete current snapshot and may discharge the lag without bypassing request order |
 | Consumer requests synchronization after abandonment | Latest complete snapshot returns under fresh current authority with no semantic navigation change |
+| Queued synchronization follows acknowledged maintenance | The same synchronization request returns a dedicated `Current` result under fresh authority |
+| Retryable action completes without semantic snapshot change | Semantic revision is retained, actions renew under a new generation, and the old composite receipt is not current |
+| Host supplies current product-issued state explicitly | Product transitions accept its retained basis; consumer snapshots remain inadmissible as retained state |
+| Host slot changes after a transition was computed | `CanCommit` rejects the stale transition by exact state identity, independent of publication equality |
+| Maintenance attempt becomes stale | Discard attempt evidence, preserve request identity and FIFO position, and re-gather under fresh host authority |
+| Same saved plan is realized again | Fresh Workspace-bound Navigation state and authority; no live state restored from the plan |
 | Consumer abandons synchronization and remounts | Receipt remains behind and a later request can obtain fresh synchronization authority again |
 | Consumer acknowledges while still lagging | Acknowledgement is rejected and the product-owned consumer receipt does not advance |
 | Snapshot contents return to an earlier value at a newer revision | `Synchronization required`; equal contents do not make generation-scoped state current |
