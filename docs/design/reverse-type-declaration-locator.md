@@ -62,10 +62,11 @@ the same query without constructing a long-lived Workspace.
 [Artifact acquisition](artifact-acquisition-and-workspaces.md#provenance-and-correspondence)
 owns the association between source evidence, artifact occurrence, and assembly
 projection. [Exact Library Source Coordinate](exact-library-source-coordinate.md)
-owns the logical coordinate, whose current closed arms are Package and
-Platform. Neither arm identifies selected bytes, a TFM, a RID, or a view;
-Platform also omits the selected Platform version. Thus the coordinate alone
-is insufficient to reproduce an observation.
+owns the logical coordinate, whose closed arms are Package, Platform, Project,
+and Local. No arm identifies selected bytes, a TFM, a RID, or a view; Platform
+also omits the selected Platform version, while Project and Local omit project
+and filesystem paths. Thus the coordinate alone is insufficient to reproduce
+an observation.
 
 The producer handoffs below are a prerequisite map, not new source contracts:
 
@@ -74,14 +75,16 @@ The producer handoffs below are a prerequisite map, not new source contracts:
 | Package | Exact `PackageSourceCoordinate` plus Metadata-issued assembly definition identity from that package's selected asset. Retain the acquisition owner's exact producer/target/asset correspondence as observation context. |
 | Platform | `PlatformLibraryPopulationDeclaration` plus Metadata-issued assembly definition identity attributed to that focus population. Preserve exact target/view and source realization separately. Package transport of a Platform pack does not turn its members into Package coordinates. |
 | Restored project package asset | The project adapter's package provenance and exact selected-asset correspondence may supply the Package arm. A display package label or path under a package cache cannot. |
-| Project output or bare local assembly | The current coordinate has no applicable arm. Record `CoordinateUnavailable`; Source Selection must settle this gap in a focused successor before these members can yield locator candidates. Never manufacture a package or Platform coordinate. |
+| Project output | Project arm over the Metadata-issued assembly definition identity, attached through the project owner's output association. Preserve project, target, output, and occurrence evidence as observation context. |
+| Bare local assembly | Local arm over the Metadata-issued assembly definition identity, attached through the local-file owner's occurrence association. Preserve path and occurrence evidence as observation context. |
 
 Likewise, a file copied from a Platform pack and supplied only as a local file
 does not acquire Platform provenance from its filename or assembly identity.
 The same bytes can legitimately be observed through distinct source domains.
-The local/project successor must preserve that distinction. Until adopted,
-these inputs remain visibly unsupported for coordinate location, not silently
-excluded from an otherwise complete result.
+Project and Local arms preserve that distinction without moving acquisition
+paths into Library identity. A producer that cannot establish the required
+source-owner occurrence association records `CoordinateUnavailable`; it does
+not silently exclude the member or infer an arm from path shape.
 
 ## Request and matching
 
@@ -189,14 +192,16 @@ unsupported declaration form leaves visible incomplete member evidence.
 
 Candidate ordering is deterministic for the same population regardless of
 producer enumeration order. Order by namespace and root-to-leaf metadata
-segments (ordinal), then source arm (Package before Platform), source-owner
-identity components, Metadata assembly identity components, and declaration
-kind (Definition before Forwarder), then the population-issued stable occurrence
-order. That final order belongs to the fixed population and is not reassigned
-when producer enumeration is permuted. Source/assembly component comparison uses
-owner-normalized equality components and stable ordinal/numeric ordering,
-not culture, paths, display names, hashes, or acquisition timing. Future
-coordinate arms need their own owner-defined stable ordering before admission.
+segments (ordinal), then source arm (Package, Platform, Project, Local),
+source-owner identity components, Metadata assembly identity components, and
+declaration kind (Definition before Forwarder), then the population-issued
+stable occurrence order. Project and Local have no additional source-owner
+identity components. That final order belongs to the fixed population and is
+not reassigned when producer enumeration is permuted. Source/assembly component
+comparison uses owner-normalized equality components and stable ordinal/numeric
+ordering, not culture, paths, display names, hashes, or acquisition timing.
+Future coordinate arms need their own owner-defined stable ordering before
+admission.
 
 Ordering is not ranking or resolution precedence. In particular, a definition
 does not suppress a forwarder, a namespace-prefix assembly name does not win,

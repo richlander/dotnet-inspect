@@ -209,6 +209,16 @@ public sealed class AssemblyInspectionSession :
         bool typesOnly = false)
         => ApiSurfaceExtractor.ExtractBounded(_image.PEReader, scope, bounds, typesOnly);
 
+    /// <summary>Projects bounded API facts with resolution-aware generic constraints.</summary>
+    public ApiSurfaceExtractionResult BoundedApiSurface(
+        ResolvedAssemblyReference source,
+        TypeResolutionCatalog catalog,
+        IAssemblyBindingPolicy bindingPolicy,
+        ApiSurfaceExtractionScope scope,
+        ApiSurfaceExtractionBounds bounds)
+        => ApiSurfaceExtractor.ExtractBounded(
+            _image.PEReader, source, catalog, bindingPolicy, scope, bounds);
+
     /// <summary>Manifest resources.</summary>
     public List<ManifestResourceInfo> Resources()
     {

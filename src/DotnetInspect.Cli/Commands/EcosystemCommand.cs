@@ -282,7 +282,7 @@ public static class EcosystemCommand
         return 0;
     }
 
-    private static bool TryResolveFocus(
+    internal static bool TryResolveFocus(
         string? value,
         ImmutableArray<EcosystemPackDescriptor> packs,
         out EcosystemPackDescriptor? focus)
