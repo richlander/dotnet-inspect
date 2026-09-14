@@ -91,8 +91,9 @@ when selection or another shared control treatment is also present.
 Theme neutrals may be tonal adaptations rather than logo colors, but they stay
 within the same purple-to-lavender family. Text, control boundaries, selected
 fills, and focus indicators retain their accessibility contrast and non-color
-cues. The browser palette gate checks the shared CSS roles, their representative
-consumers, and contrast in both themes.
+cues. A focused control on the strong selected fill uses its contrasting
+foreground for the inset focus ring. The browser palette gate checks the shared
+CSS roles, their representative consumers, and contrast in both themes.
 
 ## Selector controls
 

@@ -2896,6 +2896,12 @@ kbd {
 .settings-seg + .settings-seg { border-left: 1px solid var(--line-strong); }
 .settings-seg:hover { color: var(--text); }
 .settings-seg.active { background: var(--accent-fill); color: #fff; }
+.scope-switch button.scope-seg.active:focus-visible,
+.settings-seg.active:focus-visible {
+  outline-color: currentColor;
+  outline-width: 2px;
+  outline-offset: -3px;
+}
 .settings-taste {
   border: 1px solid var(--line);
   border-radius: 8px;

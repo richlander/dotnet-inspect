@@ -127,11 +127,12 @@ test("shared theme roles use the modern .NET and C# palette", async ({
   }
 });
 
-test("Annotated Source uses shared roles for persistent selection", async ({
+test("Annotated Source uses shared roles for selection and Findings", async ({
   page,
 }) => {
   await page.goto("/browser/annotated-source.html");
   await page.locator("#explore-annotated").click();
+  await page.locator("#annotated-set-all").click();
   const invocation = page.locator(
     '#annotated-source-modal .annotated-source-segment.invocation:has-text("object")',
   ).first();
@@ -146,29 +147,38 @@ test("Annotated Source uses shared roles for persistent selection", async ({
       '.annotated-coordinate-toggle[aria-pressed="true"]',
     ].join(","),
   );
-  const allocationFinding = page.locator(
-    ".annotated-inspector-action.category-allocation",
-  );
-  const costFinding = page.locator(
-    ".annotated-inspector-action.category-cost",
-  ).first();
   expect(await selected.count()).toBeGreaterThan(0);
   expect(await pressedControls.count()).toBeGreaterThan(0);
 
   const expected = {
     dark: {
       accent: "rgb(185, 170, 238)",
-      allocation: "rgb(229, 102, 63)",
-      cost: "rgb(213, 173, 92)",
+      findings: {
+        allocation: "rgb(229, 102, 63)",
+        cost: "rgb(213, 173, 92)",
+        lifetime: "rgb(160, 139, 232)",
+        semantics: "rgb(135, 174, 202)",
+        unsafety: "rgb(217, 112, 112)",
+      },
       selectedSurface: "rgb(43, 32, 84)",
     },
     light: {
       accent: "rgb(81, 43, 212)",
-      allocation: "rgb(183, 71, 40)",
-      cost: "rgb(138, 101, 13)",
+      findings: {
+        allocation: "rgb(183, 71, 40)",
+        cost: "rgb(138, 101, 13)",
+        lifetime: "rgb(104, 70, 218)",
+        semantics: "rgb(36, 95, 134)",
+        unsafety: "rgb(217, 112, 112)",
+      },
       selectedSurface: "rgb(238, 234, 251)",
     },
   };
+  const findingTreatments = [
+    ".annotated-finding-chip",
+    ".annotated-finding-toggle",
+    ".annotated-inspector-action",
+  ] as const;
 
   for (const theme of ["dark", "light"] as const) {
     await page.evaluate(value => {
@@ -188,14 +198,17 @@ test("Annotated Source uses shared roles for persistent selection", async ({
       await expect(control).toHaveCSS("border-color", expected[theme].accent);
       await expect(control).toHaveCSS("color", expected[theme].accent);
     }
-    await expect(allocationFinding).toHaveCSS(
-      "border-left-color",
-      expected[theme].allocation,
-    );
-    await expect(costFinding).toHaveCSS(
-      "border-left-color",
-      expected[theme].cost,
-    );
+    for (const [category, borderColor] of Object.entries(
+      expected[theme].findings,
+    )) {
+      for (const treatment of findingTreatments) {
+        const finding = page.locator(
+          `${treatment}.category-${category}`,
+        ).first();
+        await expect(finding).toBeVisible();
+        await expect(finding).toHaveCSS("border-left-color", borderColor);
+      }
+    }
   }
 });
 
@@ -205,6 +218,7 @@ test("ordinary keyboard focus uses the shared accent", async ({ page }) => {
       accent: "rgb(185, 170, 238)",
       background: "rgb(29, 23, 48)",
       border: "rgb(81, 67, 111)",
+      fillFocus: "rgb(255, 255, 255)",
       hoverBorder: "rgb(130, 122, 146)",
       muted: "rgb(170, 162, 187)",
       text: "rgb(240, 237, 247)",
@@ -213,6 +227,7 @@ test("ordinary keyboard focus uses the shared accent", async ({ page }) => {
       accent: "rgb(81, 43, 212)",
       background: "rgb(248, 246, 252)",
       border: "rgb(185, 170, 238)",
+      fillFocus: "rgb(255, 255, 255)",
       hoverBorder: "rgb(117, 108, 132)",
       muted: "rgb(98, 90, 112)",
       text: "rgb(33, 26, 50)",
@@ -243,6 +258,36 @@ test("ordinary keyboard focus uses the shared accent", async ({ page }) => {
       "outline-color",
       expected[theme].accent,
     );
+    const activeScope = page.locator(".scope-seg.active");
+    await activeScope.focus();
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Shift+Tab");
+    await expect(activeScope).toBeFocused();
+    await expect(activeScope).toHaveCSS(
+      "outline-color",
+      expected[theme].fillFocus,
+    );
+    await expect(activeScope).toHaveCSS("outline-width", "2px");
+    await expect(activeScope).toHaveCSS("outline-offset", "-3px");
+  }
+
+  await page.locator("#application-menu-button").click();
+  await page.getByRole("menuitem", { name: "Settings" }).click();
+  const activeTheme = page.locator(".settings-seg.active");
+  for (const theme of ["dark", "light"] as const) {
+    await page.evaluate(value => {
+      document.documentElement.dataset.theme = value;
+    }, theme);
+    await activeTheme.focus();
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Shift+Tab");
+    await expect(activeTheme).toBeFocused();
+    await expect(activeTheme).toHaveCSS(
+      "outline-color",
+      expected[theme].fillFocus,
+    );
+    await expect(activeTheme).toHaveCSS("outline-width", "2px");
+    await expect(activeTheme).toHaveCSS("outline-offset", "-3px");
   }
 
   await page.goto("/browser/annotated-source.html");
@@ -276,4 +321,14 @@ test("ordinary keyboard focus uses the shared accent", async ({ page }) => {
       expected[theme].accent,
     );
   }
+});
+
+test("startup failure uses the modern foundation", async ({ page }) => {
+  await page.route("**/src/dotnet-inspect.ts*", route => route.abort());
+  await page.goto("/");
+
+  const app = page.locator("#app");
+  await expect(app).toContainText("Inspect Web startup failed");
+  await expect(app).toHaveCSS("background-color", "rgb(16, 13, 29)");
+  await expect(app).toHaveCSS("color", "rgb(240, 237, 247)");
 });
