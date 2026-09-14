@@ -10,6 +10,9 @@ using DotnetInspector.Services;
 using Markout;
 using NuGetFetch;
 
+using NetworkHttpClientFactory =
+    DotnetInspector.Networking.HttpClientFactory;
+
 namespace DotnetInspect.Cli.Commands;
 
 internal static class EcosystemChangesCommand
@@ -21,10 +24,7 @@ internal static class EcosystemChangesCommand
     {
         NuGetFetchOptions fetchOptions =
             NuGetFetchOptions.FromRequestTimeout(context.HttpClient.Timeout);
-        using IPackageSourceClient source = PackageSourceClientFactory.Create(
-            PackageSource.NuGetOrg,
-            PackageSourceAssociation.Create(),
-            fetchOptions);
+        using IPackageSourceClient source = CreateCatalogSource(fetchOptions);
         if (source is not INuGetCatalogPackageSourceClient catalog)
         {
             CommandError.Write(
@@ -52,6 +52,27 @@ internal static class EcosystemChangesCommand
             TimeProvider.System,
             cancellationToken,
             operation).ConfigureAwait(false);
+    }
+
+    private static IPackageSourceClient CreateCatalogSource(
+        NuGetFetchOptions fetchOptions)
+    {
+        HttpMessageHandler transport =
+            NetworkHttpClientFactory.CreateCredentialFreePackageSourceHandler(
+                PackageSource.NuGetOrg.Url);
+        try
+        {
+            return PackageSourceClientFactory.Create(
+                PackageSource.NuGetOrg,
+                PackageSourceAssociation.Create(),
+                transport,
+                fetchOptions);
+        }
+        catch
+        {
+            transport.Dispose();
+            throw;
+        }
     }
 
     internal static async Task<int> ExecuteAsync(

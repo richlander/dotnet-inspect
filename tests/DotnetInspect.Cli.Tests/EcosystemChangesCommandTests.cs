@@ -11,6 +11,9 @@ using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using NuGetFetch;
 
+using CoreHttpClientFactory =
+    DotnetInspector.Networking.HttpClientFactory;
+
 namespace DotnetInspect.Cli.Tests;
 
 [Collection("Console")]
@@ -303,6 +306,102 @@ public sealed class EcosystemChangesCommandTests
     }
 
     [Fact]
+    public async Task InvocationOwnsSemanticLimitWithoutTruncatingJson()
+    {
+        bool wasOffline = CoreHttpClientFactory.IsOffline;
+        try
+        {
+            CoreHttpClientFactory.Initialize(
+                new DotnetInspector.Networking.HttpClientFactoryOptions());
+            CoreHttpClientFactory.ResetSharedForTesting();
+            CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+                _ => StandardCatalog(Utc(2026, 9, 15)));
+
+            var result = await InvokeAsync(
+                [
+                    "ecosystem",
+                    "aspire",
+                    "--changes",
+                    "--from",
+                    "2026-09-14T17:59:00Z",
+                    "--through",
+                    "2026-09-14T18:00:00Z",
+                    "--json",
+                    "-n",
+                    "1",
+                ]);
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            using JsonDocument document = JsonDocument.Parse(result.Output);
+            Assert.Equal(
+                1,
+                document.RootElement
+                    .GetProperty("request")
+                    .GetProperty("maximum_rows")
+                    .GetInt32());
+            Assert.Equal(
+                "Complete",
+                document.RootElement
+                    .GetProperty("summary")
+                    .GetProperty("completion")
+                    .GetString());
+        }
+        finally
+        {
+            CoreHttpClientFactory.Initialize(
+                new DotnetInspector.Networking.HttpClientFactoryOptions
+                {
+                    Offline = wasOffline,
+                });
+            CoreHttpClientFactory.ResetSharedForTesting();
+        }
+    }
+
+    [Fact]
+    public async Task InvocationHonorsOfflineCatalogPolicy()
+    {
+        bool wasOffline = CoreHttpClientFactory.IsOffline;
+        try
+        {
+            CoreHttpClientFactory.Initialize(
+                new DotnetInspector.Networking.HttpClientFactoryOptions
+                {
+                    Offline = true,
+                });
+            CoreHttpClientFactory.ResetSharedForTesting();
+
+            var result = await InvokeAsync(
+                [
+                    "ecosystem",
+                    "aspire",
+                    "--changes",
+                    "--from",
+                    "2026-09-14T17:59:00Z",
+                    "--through",
+                    "2026-09-14T18:00:00Z",
+                    "--json",
+                ]);
+
+            Assert.Equal(1, result.ExitCode);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "Network access is disabled (--offline mode)",
+                result.Error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            CoreHttpClientFactory.Initialize(
+                new DotnetInspector.Networking.HttpClientFactoryOptions
+                {
+                    Offline = wasOffline,
+                });
+            CoreHttpClientFactory.ResetSharedForTesting();
+        }
+    }
+
+    [Fact]
     public async Task EcosystemWithoutPackageSetFailsBeforeAcquisition()
     {
         using INuGetCatalogPackageSourceClient source =
@@ -354,6 +453,18 @@ public sealed class EcosystemChangesCommandTests
             MaximumRows = 100,
             Format = format,
         };
+
+    private static Task<(int ExitCode, string Output, string Error)> InvokeAsync(
+        string[] arguments) =>
+        ConsoleCapture.RunAsync(() =>
+        {
+            var root = CommandLineBuilder.CreateRootCommand();
+            string[] processed =
+                CommandLineBuilder.PreprocessArgs(arguments, root);
+            return CommandLineBuilder.InvokeAsync(
+                root.Parse(processed),
+                processed);
+        });
 
     private static INuGetCatalogPackageSourceClient CreateSource(
         HttpMessageHandler handler)

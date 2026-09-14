@@ -413,6 +413,22 @@ public static partial class PackageSourceClientFactory
     }
 
     /// <summary>
+    /// Adapts the existing desktop source model over a caller-created,
+    /// credential-free transport owned by the returned client.
+    /// </summary>
+    public static IPackageSourceClient Create(
+        PackageSource source,
+        PackageSourceAssociation association,
+        HttpMessageHandler ownedCredentialFreeTransport,
+        NuGetFetchOptions? options = null) =>
+        CreateWithTransport(
+            source,
+            association,
+            ownedCredentialFreeTransport,
+            options,
+            authenticationContext: null);
+
+    /// <summary>
     /// Adapts the existing desktop source model to a typed runtime client with
     /// source-scoped plugin authentication.
     /// </summary>
@@ -601,7 +617,7 @@ public static partial class PackageSourceClientFactory
             options ?? new NuGetFetchOptions());
     }
 
-    internal static IPackageSourceClient Create(
+    internal static IPackageSourceClient CreateWithTransport(
         PackageSource source,
         PackageSourceAssociation association,
         HttpMessageHandler transport,
