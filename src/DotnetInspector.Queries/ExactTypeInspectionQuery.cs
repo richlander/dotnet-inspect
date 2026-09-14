@@ -367,14 +367,20 @@ internal static class ExactTypeInspectionQuery
         }
         ImmutableArray<ApiSurfaceInspectionFailure> inspectionFailures =
             InspectionFailures(projections);
+        ImmutableArray<ApiSurfaceInspectionFailure> lookupFailures =
+        [
+            .. inspectionFailures.Where(static failure =>
+                failure.Operation
+                    != ApiSurface.ConstraintResolutionOperation),
+        ];
         ImmutableArray<ExactTypeApiInspectionFailure>
             detachedInspectionFailures =
         [
-            .. inspectionFailures.Select(
+            .. lookupFailures.Select(
                 ExactTypeApiInspectionFailure.From),
         ];
         ImmutableArray<ExactTypeInspectionFailure> incompleteness =
-            Incompleteness(inspectionFailures);
+            Incompleteness(lookupFailures);
         ImmutableArray<Candidate> declarations =
             Declarations(projections);
         string[] declarationNames =
@@ -611,6 +617,12 @@ internal static class ExactTypeInspectionQuery
         }
 
         type.IsForwarded = !selected.Resolution.Hops.IsDefaultOrEmpty;
+        ImmutableArray<ApiSurfaceInspectionFailure>
+            selectedInspectionFailures =
+                SelectedInspectionFailures(
+                    inspectionFailures,
+                    supplierSurface.Value.Surface,
+                    type);
         return new ExactTypeInspectionResult(
             ExactTypeInspectionOutcome.Available,
             request.Type,
@@ -624,7 +636,10 @@ internal static class ExactTypeInspectionQuery
                 terminal.Address.ModuleVersionId),
             ForwardingHops(selected.Resolution),
             Suggestions: [],
-            detachedInspectionFailures,
+            [
+                .. selectedInspectionFailures.Select(
+                    ExactTypeApiInspectionFailure.From),
+            ],
             [
                 .. participantFailures,
                 .. resolutionFailures,
@@ -745,6 +760,43 @@ internal static class ExactTypeInspectionQuery
                     : [])
             .Distinct(),
     ];
+
+    static ImmutableArray<ApiSurfaceInspectionFailure>
+        SelectedInspectionFailures(
+            ImmutableArray<ApiSurfaceInspectionFailure> inspectionFailures,
+            ApiSurface surface,
+            ApiType type)
+    {
+        var retainedTokens = new HashSet<int>();
+        Add(type.MetadataToken);
+        foreach (ApiMember member in type.Members)
+        {
+            Add(member.MetadataToken);
+            Add(member.GetterToken);
+            Add(member.SetterToken);
+            Add(member.AdderToken);
+            Add(member.RemoverToken);
+        }
+
+        var projected = new ApiSurface();
+        projected.MergeInspectionFailuresFrom(
+            surface,
+            subject => retainedTokens.Contains(subject.SubjectToken),
+            includeNonConstraintFailures: false);
+        return
+        [
+            .. inspectionFailures.Where(static failure =>
+                failure.Operation
+                    != ApiSurface.ConstraintResolutionOperation),
+            .. projected.InspectionFailures,
+        ];
+
+        void Add(int? token)
+        {
+            if (token is int value)
+                retainedTokens.Add(value);
+        }
+    }
 
     static ImmutableArray<ExactTypeInspectionFailure> Incompleteness(
         ImmutableArray<ApiSurfaceInspectionFailure> inspectionFailures) =>

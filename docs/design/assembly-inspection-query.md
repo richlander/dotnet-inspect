@@ -1049,7 +1049,10 @@ Browser/Wasm consume that envelope rather than reconstructing its facts.
 Generic-constraint resolution failures remain typed and nonfatal for completion
 and exit status, and the shared operation also projects each one as an
 `exact-type.constraint-resolution-incomplete` warning so every host discloses
-the retained evidence.
+the retained evidence. That projection is scoped to the selected terminal Type
+and its retained members; failures owned by discarded declarations do not
+become exact-Type warnings. Non-constraint failures remain package-wide because
+they may establish that lookup or extraction was incomplete.
 
 The CLI cutover is intentionally limited to the default quiet/minimal exact-Type
 view for an explicit package version and TFM. Explicit sections, alternate

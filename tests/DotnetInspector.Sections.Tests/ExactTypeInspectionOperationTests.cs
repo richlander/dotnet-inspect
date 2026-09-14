@@ -432,6 +432,58 @@ public sealed class ExactTypeInspectionOperationTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_UnrelatedConstraintFailureIsNotProjected()
+    {
+        var store = await CachedStoreAsync(
+            ("lib/net11.0/Constraint.dll",
+                BuildModuleConstraintAssembly()));
+        using var client = new HttpClient(new FailingHandler());
+        var request = new ExactTypeInspectionRequest(
+            PackageId,
+            Version,
+            Framework,
+            "N.Selected");
+        WorkspaceContextLoadOptions capabilities =
+            LoadOptions(client, store);
+
+        InspectionEnvelope<ExactTypeInspectionResult> unbounded =
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                request,
+                capabilities,
+                TestContext.Current.CancellationToken);
+        InspectionEnvelope<ExactTypeInspectionResult> bounded =
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                request,
+                capabilities,
+                new ApiSurfaceProjectionLimits(
+                    maxParticipants: 10,
+                    maxTypes: 100,
+                    maxMembers: 100,
+                    maxInspectionFailures: 100,
+                    maxTypeForwarders: 100,
+                    maxMetadataRows: 10_000),
+                TestContext.Current.CancellationToken);
+
+        Assert.All(
+            new[] { unbounded, bounded },
+            envelope =>
+            {
+                Assert.Equal(
+                    ExactTypeInspectionOutcome.Available,
+                    envelope.Content.Outcome);
+                Assert.True(envelope.Content.IsComplete);
+                Assert.DoesNotContain(
+                    envelope.Content.InspectionFailures,
+                    failure => failure.Operation
+                        == ApiSurface.ConstraintResolutionOperation);
+                Assert.DoesNotContain(
+                    envelope.Diagnostics,
+                    diagnostic => diagnostic.Code
+                        == "exact-type.constraint-resolution-incomplete");
+            });
+    }
+
+    [Fact]
     public async Task Execute_RejectedParticipantProducesVisibleUnavailableResult()
     {
         string typeName =
@@ -923,6 +975,13 @@ public sealed class ExactTypeInspectionOperationTests
                 metadata.GetOrAddString("T"),
                 index: 0);
         metadata.AddGenericParameterConstraint(parameter, constraint);
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Selected"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
 
         var builder = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
