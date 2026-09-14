@@ -121,6 +121,33 @@ internal static class GitCandidateReader
         return ParseNameStatusStream(stream);
     }
 
+    internal static IReadOnlyList<byte[]> ReadTlaManifestChanges(
+        string repository,
+        CandidateProvenance provenance,
+        ChangeEvidence evidence)
+    {
+        ChangeRecord? manifest = evidence.Records.FirstOrDefault(record =>
+            record.Path.SequenceEqual("eng/tla-expected-exit-codes.txt"u8));
+        if (manifest is null)
+        {
+            return [];
+        }
+
+        // Only an endpoint's recorded addition/deletion permits an absent
+        // image. Failure to read a required blob is not an empty manifest.
+        byte[] before = manifest.Status == ChangeStatus.Added
+            ? []
+            : RunForBytes(repository,
+                ["cat-file", "blob",
+                    $"{provenance.BaseObjectId}:{TlaManifestChanges.ManifestPath}"]);
+        byte[] after = manifest.Status == ChangeStatus.Deleted
+            ? []
+            : RunForBytes(repository,
+                ["cat-file", "blob",
+                    $"{provenance.CandidateObjectId}:{TlaManifestChanges.ManifestPath}"]);
+        return TlaManifestChanges.Compare(before, after);
+    }
+
     /// <summary>
     /// Parses a <c>--name-status -z</c> byte stream. The canonical record is
     /// exactly <c>status-byte NUL path-bytes NUL</c>; anything else, including
