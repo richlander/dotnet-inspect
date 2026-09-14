@@ -215,12 +215,24 @@ public class SharedOptions
         };
         option.Aliases.Add("--output");
         option.Aliases.Add("-o");
-        option.Validators.Add(result =>
+        return option;
+    }
+
+    public static void AddOutputPathValidator(
+        Command command,
+        Option<string?> option)
+    {
+        command.Validators.Add(result =>
         {
-            if (result.Tokens is [{ Value.Length: 0 }])
+            if (result.Errors.Any()
+                || result.Children.Any(static child => child.Errors.Any()))
+            {
+                return;
+            }
+
+            if (result.GetResult(option) is { Tokens: [{ Value.Length: 0 }] })
                 result.AddError("--out requires a non-empty path.");
         });
-        return option;
     }
 
     /// <summary>

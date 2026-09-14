@@ -114,6 +114,7 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(opts.BrowsableUrls);
         packageCommand.Options.Add(opts.Bare);
         packageCommand.Options.Add(outOption);
+        SharedOptions.AddOutputPathValidator(packageCommand, outOption);
         opts.AddTableOptionsTo(packageCommand);
         packageCommand.Options.Add(opts.Json);
         packageCommand.Options.Add(opts.Markdown);
