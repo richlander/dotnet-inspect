@@ -235,6 +235,44 @@ use `ReadonlyArray<T>`, and string-keyed dictionaries use
 `Readonly<Record<string, T>>`. Direct JS-interop arrays remain mutable because
 they are runtime values, not serialized snapshots.
 
+### Translating unions and nullability
+
+C# and TypeScript can both describe alternative and nullable values, but they
+do not use the same type-system representation. On the C# side, this design
+receives union alternatives from the generated `union` declaration model.
+Nullability is separate: nullable-reference annotations such as `string?` are
+compiler metadata over the same CLR reference type, while `int?` is
+`System.Nullable<int>`. On the TypeScript side, a native union represents both
+case alternatives and nullability; with strict null checking, nullable `T` is
+spelled `T | null`.
+
+The generator therefore translates meaning rather than preserving source
+syntax:
+
+- `string?` becomes `string | null`.
+- `int?` becomes `number | null`.
+- `GenericNested<string?>` becomes `GenericNested<string | null>`.
+- `GenericNested<string?>?` becomes
+  `GenericNested<string | null> | null`.
+- Union cases `TValue` and `int`, plus a default-null case, become
+  `TValue | number | null`.
+
+These rows remain distinct before translation. Union case evidence determines
+the alternatives; nullable metadata and authenticated serializer evidence
+determine where `null` is possible. Their TypeScript forms then compose and
+normalize as unions. In particular, `property?: T` is not another spelling of
+`property: T | null`: the former permits an absent property and introduces
+`undefined`, while the latter describes a present JSON property whose value
+may be `null`.
+
+This document uses *lowering* for the broader conversion into the public
+TypeScript facade, but union and nullable projection does not materially lower
+the abstraction level. It is closer to type-level transpilation: one
+source-language wire-type vocabulary is translated into another at roughly the
+same semantic altitude. The representation changes because TypeScript uses
+union syntax for both concepts, while the distinctions established by C# and
+System.Text.Json evidence must remain observable in the translated type.
+
 ### JSON union lowering
 
 Slice 3 of [#5892](https://github.com/richlander/dotnet-inspect/issues/5892),

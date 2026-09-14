@@ -187,8 +187,9 @@ Navigation returns typed descriptors, identities, evidence, and outcomes. The
 CLI consumer lowers those types through Markout. Browser/Wasm uses the
 host-specific interactive rendering owned by
 [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md)
-because focus, accessibility, and responsive SlideStrip behavior are browser
-concerns; it does not reconstruct product semantics from rendered text.
+because focus, accessibility, and responsive interactive navigation are
+browser concerns; it does not reconstruct product semantics from rendered
+text.
 
 ## Design demo
 

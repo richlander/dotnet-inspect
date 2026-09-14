@@ -445,62 +445,8 @@ body:has(:not([hidden]) > [role="dialog"][aria-modal="true"])
   margin-right: 7px;
   color: var(--shell-accent);
 }
-.slide-strip {
-  position: relative;
-  flex: none;
-  min-width: 0;
-  height: 100%;
-  overflow: hidden;
-  box-sizing: border-box;
-}
-.slide-strip-items {
-  display: flex;
-  align-items: center;
-  width: max-content;
-  height: 100%;
-  gap: 2px;
-}
-.slide-strip[data-fallback="true"][data-oversized-alignment="end"] .slide-strip-items {
-  position: absolute;
-  right: 0;
-}
-.slide-strip-item[hidden] { display: none; }
-.slide-strip [data-slide-strip-representation] { display: none; }
-.slide-strip[data-mode="label"] [data-slide-strip-representation="label"],
-.slide-strip[data-mode="short-label"] [data-slide-strip-representation="short-label"],
-.slide-strip[data-mode="icon"] [data-slide-strip-representation="icon"],
-.slide-strip[data-mode="index"] [data-slide-strip-representation="index"] {
-  display: inline;
-}
-.slide-strip button {
-  height: 34px;
-  padding: 0 10px;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: transparent;
-  color: var(--muted);
-  font-size: 12px;
-}
 .lensbar button:hover { color: var(--text); background: rgba(255,255,255,.015); }
 .lensbar button.active { color: var(--text); border-bottom-color: var(--shell-accent); }
-.slide-strip-edge {
-  position: absolute;
-  z-index: 2;
-  top: 6px;
-  bottom: 6px;
-  width: 8px;
-  pointer-events: none;
-}
-.slide-strip-edge.before {
-  left: 0;
-  border-left: 2px solid var(--shell-accent);
-  background: linear-gradient(90deg, var(--panel), transparent);
-}
-.slide-strip-edge.after {
-  right: 0;
-  border-right: 2px solid var(--shell-accent);
-  background: linear-gradient(270deg, var(--panel), transparent);
-}
 .home-lens { color: var(--text) !important; font-weight: 600; cursor: pointer; }
 .home-lens.active { border-bottom-color: var(--shell-accent); }
 .home-lens span { color: var(--shell-accent); margin-right: 6px; }
@@ -1323,6 +1269,51 @@ kbd {
 .overview-scroll .doc-chip,
 .overview-scroll .type-chip { max-width: 100%; white-space: normal; text-align: left; }
 .overview-scroll .doc-name { min-width: 0; }
+.package-overview-content {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(320px, .75fr);
+  align-items: start;
+  gap: 28px;
+  padding: 0 16px 24px;
+}
+.package-overview-inventory,
+.package-overview-resources { min-width: 0; }
+.package-overview-content .document-section { padding-top: 24px; }
+.package-overview-resources > .document-section + .document-section {
+  margin-top: 24px;
+  border-top: 1px solid var(--line);
+}
+.library-overview-content {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(260px, .6fr);
+  align-items: start;
+  gap: 32px;
+  padding: 0 16px 24px;
+}
+.library-overview-namespaces,
+.library-overview-kinds { min-width: 0; }
+.library-overview-content .document-section { padding-top: 24px; }
+.package-overview-resources .doc-chip {
+  width: 100%;
+}
+.package-overview-resources .doc-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.package-overview-resources .doc-kind {
+  flex: none;
+  white-space: nowrap;
+}
+.package-overview-resources .comparison-target-row {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding: 12px 10px;
+}
+.package-overview-resources .comparison-target-selection { max-width: none; }
+.package-overview-resources .comparison-target-status { min-height: 0; }
 .comparison-targets-title { margin-bottom: 10px; }
 .comparison-target-list { border: 1px solid var(--line); background: var(--panel); }
 .comparison-target-row {
@@ -2305,6 +2296,18 @@ kbd {
   .comparison-target-status { min-height: 0; }
 }
 
+@container overview-surface (max-width: 860px) {
+  .package-overview-content,
+  .library-overview-content {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+  .package-overview-resources > .document-section + .document-section {
+    margin-top: 0;
+    border-top: 0;
+  }
+}
+
 @media (max-width: 760px) {
   .brand { width: 48px; padding: 0 14px; }
   .brand span:last-child { display: none; }
@@ -2346,6 +2349,8 @@ kbd {
   .package-metadata-controls { padding-inline: 10px; }
   .overview-identity,
   .overview-scroll > .document-section,
+  .package-overview-content,
+  .library-overview-content,
   .package-dependencies-scroll > .document-section,
   .package-dependencies-scroll > [data-dependency-graph-surface] > .document-section,
   .package-metadata-scroll > .document-section { padding-inline: 12px; }
