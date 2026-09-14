@@ -279,13 +279,15 @@ substrates, and inspection producers that will extend that space.
 - The target
   [DocumentationHouse Composition](design/documentation-house.md) owner defines
   the sole host-neutral documentation settlement facade over one exact
-  library-scoped type or member subject. It composes owner-issued compiled XML
-  contributions and SourceHouse-authored source through CSharpText mechanics,
-  preserves independent channel attempts and field-level provenance, and
-  retains conflicts instead of overwriting one source. PackageHouse,
-  PlatformHouse, and direct-library adapters construct documentation-ready
-  contributions; Metadata, CSharpText, SourceHouse, artifact lifetime, and host
-  presentation retain their focused authority.
+  library-scoped type or member subject, an exact shared Library reference,
+  request-selected API content, and a transferred operation lease. It reads
+  eligible compiled XML through synchronous Library snapshots, may transfer
+  the lease onward to a deferred SourceHouse-authored operation, preserves
+  independent channel attempts and field-level provenance, and retains
+  conflicts instead of overwriting one source. PackageHouse, PlatformHouse,
+  and direct-library adapters bind resource-free source evidence to exact
+  Library content references; Metadata, CSharpText, SourceHouse, Library
+  ownership, and host presentation retain their focused authority.
 - The target
   [Library Ownership and Borrowing](design/library-ownership-and-borrowing.md)
   owner defines the shared lifetime seam beneath those Houses: one
