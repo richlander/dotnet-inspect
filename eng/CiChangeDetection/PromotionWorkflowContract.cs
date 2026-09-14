@@ -1262,7 +1262,6 @@ internal static class PromotionWorkflowContract
               -o "$getter_script"
             bash "$getter_script" --install-dir "$dotnetup_dir"
             "$dotnetup_dir/dotnetup" sdk install "$DOTNET_SDK_VERSION" \
-              --quality daily \
               --install-path "$DOTNET_ROOT" \
               --untracked \
               --set-default-install false \
