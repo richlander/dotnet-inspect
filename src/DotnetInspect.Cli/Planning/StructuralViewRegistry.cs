@@ -121,11 +121,9 @@ public sealed record StructuralDiscoveryRequest(
     string[]? Select,
     bool SelectDefault,
     bool Tree,
-    bool Json,
-    bool Tsv,
-    bool Jsonl,
-    bool Markdown,
-    bool PlainText,
+    OutputFormat Format,
+    bool TableExplicitlySet,
+    bool NoHeader,
     Verbosity Verbosity,
     IReadOnlySet<string>? IncludeSections,
     bool Schema,
@@ -145,11 +143,9 @@ public sealed record StructuralDiscoveryRequest(
             options.Select,
             options.SelectDefault,
             options.Tree,
-            options.JsonOutput,
-            options.Tsv,
-            options.Jsonl,
-            options.Format == OutputFormat.Markdown,
-            options.Format == OutputFormat.PlainText,
+            options.Format,
+            options.TabularExplicitlySet,
+            options.NoHeader,
             options.Verbosity,
             options.IncludeSections,
             options.Schema,
@@ -161,11 +157,9 @@ public sealed record StructuralDiscoveryRequest(
             options.Select,
             options.SelectDefault,
             options.Tree,
-            options.JsonOutput,
-            options.Tsv,
-            options.Jsonl,
-            options.Format == OutputFormat.Markdown,
-            options.PlainText,
+            options.Format,
+            options.TabularExplicitlySet,
+            options.NoHeader,
             options.Verbosity,
             null,
             options.Schema,
@@ -178,14 +172,9 @@ public sealed record StructuralDiscoveryRequest(
             options.Select,
             options.SelectDefault,
             options.Tree,
-            options.JsonOutput,
-            options.Tsv,
-            options.Jsonl,
-            options.Markdown
-            || (!options.Tabular
-                && !options.JsonOutput
-                && !options.PlainText),
-            options.PlainText,
+            options.Format,
+            options.TabularExplicitlySet,
+            options.NoHeader,
             options.Verbosity,
             options.IncludeSections,
             options.Schema,
@@ -203,11 +192,9 @@ public sealed record StructuralDiscoveryRequest(
             options.ParseSelect(parseResult),
             options.ParseSelectDefault(parseResult),
             options.ParseTree(parseResult),
-            format == OutputFormat.Json,
-            format == OutputFormat.Tsv,
-            format == OutputFormat.Jsonl,
-            format == OutputFormat.Markdown,
-            format == OutputFormat.PlainText,
+            format,
+            options.IsTableExplicitlySet(parseResult),
+            parseResult.GetValue(options.NoHeaders),
             options.ParseVerbosity(parseResult),
             null,
             options.ParseSchema(parseResult),
@@ -1046,13 +1033,13 @@ public static class StructuralViewRegistry
         return DiscoverOutput.Execute(
             request.Discover,
             schema,
-            tree: request.Tree,
-            json: request.Json,
-            tsv: request.Tsv,
-            jsonl: request.Jsonl,
-            markdown: request.Markdown,
-            plainText: request.PlainText,
-            verbosity: (int)request.Verbosity,
+            DiscoveryOutputRequest.Create(
+                request.Format,
+                request.Tree,
+                request.TableExplicitlySet,
+                request.NoHeader,
+                (int)request.Verbosity,
+                request.Projection),
             sectionCostAnnotations:
                 projection.SectionCostAnnotations,
             sectionCategories: projection.SectionCategories,
@@ -1060,8 +1047,7 @@ public static class StructuralViewRegistry
                 ? null
                 : projection.CatalogHiddenSections,
             listedCategoryDoors:
-                projection.ListedCategoryDoors,
-            projection: request.Projection);
+                projection.ListedCategoryDoors);
     }
 
     public static int Execute(
@@ -1284,16 +1270,15 @@ public static class StructuralViewRegistry
         return DiscoverOutput.Execute(
             discover: null,
             schema,
-            tree: request.Tree,
-            json: request.Json,
-            tsv: request.Tsv,
-            jsonl: request.Jsonl,
-            markdown: request.Markdown,
-            plainText: request.PlainText,
-            verbosity: (int)request.Verbosity,
+            DiscoveryOutputRequest.Create(
+                request.Format,
+                request.Tree,
+                request.TableExplicitlySet,
+                request.NoHeader,
+                (int)request.Verbosity,
+                request.Projection),
             sectionCostAnnotations: annotations,
-            sectionCategories: categories,
-            projection: request.Projection);
+            sectionCategories: categories);
     }
 
     public static StructuralCatalogAlternatives CreateAlternatives(

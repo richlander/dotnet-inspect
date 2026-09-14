@@ -2144,7 +2144,10 @@ public class OutputFormatterTests
             .Add("Results", "column", "Pattern", "Type", "Sim");
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(() =>
-            Task.FromResult(DiscoverOutput.Execute(["Results"], schema, tsv: true)));
+            Task.FromResult(DiscoverOutput.Execute(
+                ["Results"],
+                schema,
+                DiscoveryOutputRequest.Create(OutputFormat.Tsv))));
 
         Assert.Equal(0, exit);
         Assert.Equal(
@@ -2159,7 +2162,10 @@ public class OutputFormatterTests
             .Add("Results", "column", "Pattern", "Type");
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(() =>
-            Task.FromResult(DiscoverOutput.Execute(["Results"], schema, jsonl: true)));
+            Task.FromResult(DiscoverOutput.Execute(
+                ["Results"],
+                schema,
+                DiscoveryOutputRequest.Create(OutputFormat.Jsonl))));
 
         Assert.Equal(0, exit);
         var lines = output.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries);
@@ -2177,7 +2183,10 @@ public class OutputFormatterTests
             .Add("Results", "column", "Pattern", "Type");
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(() =>
-            Task.FromResult(DiscoverOutput.Execute(["Results"], schema, json: true)));
+            Task.FromResult(DiscoverOutput.Execute(
+                ["Results"],
+                schema,
+                DiscoveryOutputRequest.Create(OutputFormat.Json))));
 
         Assert.Equal(0, exit);
         Assert.Contains("\"name\":\"Pattern\"", output);

@@ -1101,11 +1101,15 @@ public static class TypeCommand
         var schema = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
         var effective = typePipeline.GetDiscoverableSections(api, options.IncludeSections);
         return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
-            tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
-            verbosity: (int)options.Verbosity,
+            DiscoveryOutputRequest.Create(
+                options.Format,
+                options.Tree,
+                options.TabularExplicitlySet,
+                options.NoHeader,
+                (int)options.Verbosity,
+                options),
             sectionCostAnnotations: typePipeline.GetCostAnnotations(),
-            sectionCategories: typePipeline.GetCategoryMap(),
-            projection: options);
+            sectionCategories: typePipeline.GetCategoryMap());
     }
 
     private static List<ApiType> FindPrefixMatches(IEnumerable<ApiType> types, string query)

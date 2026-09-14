@@ -145,15 +145,19 @@ public class PackageCommand
             }
 
             return DiscoverOutput.Execute(options.Discover, schemaMap,
-                tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
-                verbosity: (int)options.Verbosity,
+                DiscoveryOutputRequest.Create(
+                    options.Format,
+                    options.Tree,
+                    options.TabularExplicitlySet,
+                    options.NoHeader,
+                    (int)options.Verbosity,
+                    options),
                 sectionCostAnnotations: pipeline.GetCostAnnotations(),
                 sectionCategories: sectionCatalog.SelectionCategoryMap,
                 // --schema reveals the full catalog including the @Hidden pole; a static -D
                 // without --schema keeps the curated top-level view.
                 catalogHiddenSections: options.Schema ? null : pipeline.GetCatalogHiddenSections(),
-                listedCategoryDoors: pipeline.GetListedCategoryDoors(),
-                projection: options);
+                listedCategoryDoors: pipeline.GetListedCategoryDoors());
         }
 
         // Bare -S selects the network-free "fixed" overview: only sections whose declared growth
@@ -1276,14 +1280,13 @@ public class PackageCommand
                         options.Discover,
                         effective,
                         schemaMap,
-                        tree: options.Tree,
-                        json: options.JsonOutput,
-                        tsv: options.Tsv,
-                        jsonl: options.Jsonl,
-                        markdown:
-                            !options.Tabular
-                            && !options.JsonOutput,
-                        verbosity: (int)userVerbosity,
+                        DiscoveryOutputRequest.Create(
+                            options.Format,
+                            options.Tree,
+                            options.TabularExplicitlySet,
+                            options.NoHeader,
+                            (int)userVerbosity,
+                            options),
                         rootLabel: $"package {packageName}",
                         fullSchema: fullSchemaMap,
                         sectionCostAnnotations:
@@ -1296,8 +1299,7 @@ public class PackageCommand
                                 : pipeline
                                     .GetCatalogHiddenSections(),
                         listedCategoryDoors:
-                            pipeline.GetListedCategoryDoors(),
-                        projection: options),
+                            pipeline.GetListedCategoryDoors()),
                     result);
             }
             WarnEmptySections(result, options, pipeline);
