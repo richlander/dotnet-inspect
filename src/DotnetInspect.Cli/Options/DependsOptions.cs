@@ -114,9 +114,9 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
     public RowWindow? Rows { get; init; }
 
     /// <summary>
-    /// Host-neutral semantic selection over type-dependency relationship rows.
+    /// Host-neutral query over type-dependency relationship rows.
     /// </summary>
-    public RowSelectionIntent<TypeDependencyRowOrder>? TypeDependencyRows
+    public RowQueryIntent? TypeDependencyRowQuery
     {
         get;
         init;
