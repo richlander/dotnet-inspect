@@ -95,7 +95,7 @@ internal static class LibraryBodyAsyncSiblingSignatureMatcher
                 & MethodAttributes.Static) == 0;
         if (signature.Header.IsInstance
                 != metadataIsInstance
-            || !HasExactGenericParameters(
+            || !MemberResolver.HasExactGenericParameters(
                 reader,
                 methodDefinition.GetGenericParameters(),
                 signature.GenericParameterCount))
@@ -148,26 +148,6 @@ internal static class LibraryBodyAsyncSiblingSignatureMatcher
                     candidate.ReturnType))
                 ? candidate
                 : null;
-    }
-
-    static bool HasExactGenericParameters(
-        MetadataReader reader,
-        GenericParameterHandleCollection parameters,
-        int signatureCount)
-    {
-        if (parameters.Count != signatureCount)
-            return false;
-
-        int expectedIndex = 0;
-        foreach (var handle in parameters)
-        {
-            if (reader.GetGenericParameter(handle).Index
-                != expectedIndex++)
-            {
-                return false;
-            }
-        }
-        return true;
     }
 
     internal static ImmutableArray<string> GenericParameterNames(
