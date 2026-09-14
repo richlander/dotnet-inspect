@@ -85,20 +85,50 @@ public sealed class PackageHouse
         PackageSourceOperationLease sourceOperation)
     {
         ArgumentNullException.ThrowIfNull(sourceOperation);
-        return ExecuteCoreAsync(request, sourceOperation);
+        return ExecuteCoreAsync(request, sourceOperation, pruning: null);
+    }
+
+    /// <summary>
+    /// Consumes one source operation lease to settle a candidate-bound
+    /// dependency request with its PackageHouse-issued pruning receipt.
+    /// </summary>
+    public Task<PackageHouseSettlement> ExecuteAsync(
+        PackageHouseRequest request,
+        PackageSourceOperationLease sourceOperation,
+        PackageHousePruningReceipt pruning)
+    {
+        ArgumentNullException.ThrowIfNull(sourceOperation);
+        return ExecuteCoreAsync(request, sourceOperation, pruning);
     }
 
     private async Task<PackageHouseSettlement> ExecuteCoreAsync(
         PackageHouseRequest request,
-        PackageSourceOperationLease sourceOperation)
+        PackageSourceOperationLease sourceOperation,
+        PackageHousePruningReceipt? pruning)
     {
         using (sourceOperation)
         {
             ArgumentNullException.ThrowIfNull(request);
+            if (pruning is not null)
+            {
+                if (!ReferenceEquals(pruning.Request, request))
+                {
+                    throw new ArgumentException(
+                        "The pruning receipt must belong to the exact PackageHouse request.",
+                        nameof(pruning));
+                }
+                if (request.Demand
+                    is not PackageHouseDemand.Candidate)
+                {
+                    throw new NotSupportedException(
+                        "Receipt-aware PackageHouse execution currently requires a candidate-bound dependency demand.");
+                }
+            }
             if ((request.Operation.Profile
                     is PackageHouseOperationProfile.Acquire
                         or PackageHouseOperationProfile.Realize)
-                && _payloadAcquisition is null)
+                && _payloadAcquisition is null
+                && pruning is null)
             {
                 throw new InvalidOperationException(
                     "An Acquire or Realize operation requires an authority-scoped package store capability.");
@@ -289,6 +319,34 @@ public sealed class PackageHouse
                             "Unknown PackageHouse demand.");
                 }
 
+                if (pruning is not null)
+                {
+                    if (pruning.Supply.DelegatesToPlatform)
+                    {
+                        decision =
+                            PackageHouseDecisionReceipt.DelegateToPlatform(
+                                request,
+                                candidate.Coordinate,
+                                candidate,
+                                pruning);
+                        PackageHouseEvidence evidence = new(
+                            request,
+                            decision,
+                            failures: failures);
+                        return ResourceFree(
+                            new PackageHouseResult.Delegated(
+                                evidence,
+                                new PlatformDelegation(decision)));
+                    }
+
+                    decision =
+                        PackageHouseDecisionReceipt.RetainPackage(
+                            request,
+                            candidate.Coordinate,
+                            candidate,
+                            pruning);
+                }
+
                 if (request.Operation.Profile
                     == PackageHouseOperationProfile.Settle)
                 {
@@ -303,7 +361,7 @@ public sealed class PackageHouse
                 PackagePayloadAcquisitionPlan payloadAcquisition =
                     _payloadAcquisition
                     ?? throw new InvalidOperationException(
-                        "An Acquire or Realize operation requires a payload acquisition plan.");
+                        "An Acquire or Realize operation requires an authority-scoped package store capability.");
                 ConfiguredPackagePayloadResult payloadResult =
                     await sourceOperation
                         .AcquireCandidatePayloadAsync(
