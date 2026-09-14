@@ -76,6 +76,7 @@ One query intent is:
 | `vocabulary` | Owner-issued identity of the vocabulary the terms resolve against. It is the packet's `queryId`. |
 | `terms` | A canonical set of `(key, operator, value)` triples, conjoined. |
 | `bounds` | Declared execution bounds and selection stages, each typed by kind. |
+| `order` | Optional unresolved order references: one baseline, plus one per ranking selection stage. |
 
 A **key** is a canonical query key from the named vocabulary's declared key
 namespace: a bounded ordinal token. It is not a display label, heading, column
@@ -109,6 +110,23 @@ state can honestly claim. Keeping them in distinct typed slots prevents the
 error this separation exists to prevent: reading an acquisition budget as a
 view window, or the reverse.
 
+**Order** is an unresolved order reference: either one named-order identity
+plus a direction, or an ordered list of key-and-direction terms composing
+lexicographically in declaration order. Intent carries at most one baseline
+order, and one ranking order bound to each selection stage that ranks. A
+vocabulary with no order — Package Query has none, because source relevance
+order is not its to own — simply omits the part.
+
+Order references live in the same unresolved namespace as keys: named-order
+identities and canonical keys, never a resolved comparer, comparer factory, or
+opaque order identity. [L2 row query and ordering](row-query-order.md) resolves
+them, owns the baseline-versus-ranking distinction, and decides what a missing
+or defaulted order means; this design only carries the reference across the
+boundary. Without this part, two supported row queries differing only in
+baseline order would serialize identically and a restored link would answer a
+different question than the one shared, which is the failure this whole
+contract exists to prevent.
+
 ## Canonicalization
 
 Canonicalization is syntactic. Two intents with identical canonical bytes are
@@ -119,6 +137,10 @@ the same query; equality is decided on those bytes and nowhere else.
   operator or value is preserved: terms conjoin, and whether the conjunction is
   satisfiable is the vocabulary's question, not the codec's.
 - Bounds emit in a fixed declared slot order.
+- Order is **position-significant and never reordered**. Terms conjoin, so
+  their sequence carries no meaning and they sort; an order operand's
+  sequence is its meaning, so it emits exactly as declared. A ranking order
+  emits with the selection stage it binds to.
 - Scalar escaping follows the packet's pinned canonical rules rather than a
   second escaping convention.
 - Values are never normalized here. Package identifiers, framework names, and
@@ -150,8 +172,18 @@ the owner's executable plan or one structured failure.
   contract.
 - The distinguishable reasons are at least: unknown vocabulary, unknown key,
   operator not admitted for that key, value rejected by the key's binder,
-  duplicate-after-canonicalization, unknown bound dimension, and a bound value
-  outside its declared range.
+  duplicate-after-binding, unknown bound dimension, a bound value outside its
+  declared range, and an unknown or inadmissible order reference.
+
+Duplicate-after-binding is a **vocabulary-stage** outcome, not a codec-stage
+one. Exactly duplicated terms have already collapsed during canonicalization,
+so resolution never receives one; what it can receive is two syntactically
+distinct terms that the vocabulary's binder maps to the same predicate, because
+canonicalization deliberately does not normalize values. Whether that collision
+collapses idempotently or fails is the vocabulary's decision, declared by that
+owner. It follows from syntactic canonicalization that two links differing only
+in a spelling the vocabulary treats as equal may behave differently; that is the
+stated cost of keeping share identity independent of vocabulary semantics.
 
 ## Replay and compatibility
 
@@ -203,13 +235,15 @@ the payload it would carry.
 | Gate | Contract |
 | --- | --- |
 | `IntentCanonicalFormRoundTripsByteForByte` | Parse then canonical write reproduces exact bytes for every supported term, operator, bound kind, and escaping vector. |
-| `IntentCanonicalFormIsIndependentOfInputOrder` | Term order, duplicate terms, and bound declaration order do not change canonical bytes; semantically identical states deduplicate. |
+| `IntentCanonicalFormIsIndependentOfTermOrder` | Term sequence, duplicate terms, and bound declaration order do not change canonical bytes; semantically identical states deduplicate. |
+| `OrderOperandsRetainDeclaredSequence` | An order operand's sequence and direction survive round-trip exactly, are never sorted or deduplicated, and a ranking order stays bound to its selection stage; two intents differing only in baseline order have different canonical bytes. |
 | `IntentResolutionIsAtomic` | An invalid vocabulary, key, operator, value, or bound returns the deterministic first structured failure with no plan and no partial binding. |
 | `IntentResolutionStartsNoWork` | A rejected intent issues no acquisition, source request, or payload fetch; gated with a source capability that fails the test if invoked. |
 | `UnresolvableTermFailsVisibly` | An intent naming a key, operator, or dimension absent from the current build fails; it is never dropped, defaulted, narrowed, or widened. |
 | `IntentCarriesNoResolvedOrPresentationState` | Serialized intent contains no resolved identity, accessor, comparer, label, rendered value, or outcome. |
 | `BoundKindsRemainDistinct` | An execution bound never resolves as a selection stage or the reverse, and each retains its owner-issued dimension identity. |
 | `IntentFailureShapeIsPresentationFree` | Failures carry only position, vocabulary identity, offending identity, and typed reason. |
+| `DuplicateAfterBindingIsReachableAndVocabularyOwned` | Two syntactically distinct terms that a vocabulary binds to one predicate reach the vocabulary stage and take that owner's declared collapse-or-fail outcome; no duplicate reaches resolution as canonical bytes. |
 | `IntentBoundsPrecedeVocabularyBinding` | Declared value, term-count, and byte limits are enforced, with cancellation observed, before any vocabulary binder runs. |
 | `HostileIntentTextRemainsContained` | Adversarial value tokens round-trip through `InertText` construction and canonical escaping without escaping containment or reaching a diagnostic. |
 
@@ -235,6 +269,8 @@ integer would be the single most likely way to make a shared query dishonest.
 - No vocabulary. Package Query's keys, operands, tiers, and UI are
   [#6972](https://github.com/richlander/dotnet-inspect/issues/6972).
 - No change to row-schema resolution, order resolution, or plan execution.
+  Intent carries unresolved order references; it does not resolve them, rank
+  anything, or define what a missing order means.
 - No change to the packet's coordinate arms, outer bounds, hardening, or
   record family, and no new packet format defined here.
 - No acquisition, pushdown, pagination, merge, or completion-evidence
