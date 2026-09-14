@@ -729,9 +729,6 @@ public static class DiscoverOutput
             "Confidence desc (high > medium > low)",
             "Weight desc (high > medium > low > none)",
             "RootReach desc",
-            "Member asc",
-            "IL asc",
-            "Shape asc",
         })
         {
             yield return new DiscoveryRow(step, "order-step");

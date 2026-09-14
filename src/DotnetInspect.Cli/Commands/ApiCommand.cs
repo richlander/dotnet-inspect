@@ -3829,6 +3829,7 @@ public class ApiCommand
                 && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.PerformanceTriage))
             {
                 ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, TypeAnalysisIndex(), renderOptions.IncludeSections,
+                    renderOptions.PerformanceTriage,
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(renderOptions)
                         || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(renderOptions));
             }

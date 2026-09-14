@@ -1,6 +1,5 @@
 using DotnetInspect.Cli.Models;
 using System.Collections.Immutable;
-using System.Globalization;
 using System.Reflection;
 using DotnetInspect.Cli.Inspectors;
 using ILInspector.Metadata;
@@ -9,6 +8,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.RowSelection;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
@@ -2000,53 +2000,29 @@ internal static class LibraryMetadataService
         => Analysis.OptimizationOpportunityRanking.IteratesInLoop(
             opportunity);
 
-    // Triage ordering weight for a confidence label (high allocations are the surest pay-dirt).
-    static int ConfidenceRank(string confidence)
-    {
-        if (confidence.Equals("high", StringComparison.OrdinalIgnoreCase))
-            return 2;
-        if (confidence.Equals("medium", StringComparison.OrdinalIgnoreCase))
-            return 1;
-        return 0;
-    }
-
-    // Null (non-allocation, no weight) sorts distinctly below "low" rather than tying it.
-    static int WeightSortRank(string? weight) => weight is null ? -1 : ConfidenceRank(weight);
-
     internal static IEnumerable<Analysis.OptimizationOpportunity> FilterAndOrderTriageOpportunities(
         IEnumerable<Analysis.OptimizationOpportunity> opportunities,
         PerformanceTriageOptions? options)
     {
         options ??= PerformanceTriageOptions.Default;
-        var filtered = opportunities;
-        if (options.LoopOnly)
-            filtered = filtered.Where(IteratesInLoop);
-        if (options.MinConfidence is { Length: > 0 } confidence)
-        {
-            var minimumRank = ConfidenceRank(confidence);
-            filtered = filtered.Where(opportunity => ConfidenceRank(opportunity.Confidence) >= minimumRank);
-        }
+        IEnumerable<Analysis.OptimizationOpportunity> filtered = opportunities;
         if (options.Shapes.Length > 0)
         {
             var shapes = options.Shapes.ToHashSet(StringComparer.OrdinalIgnoreCase);
             filtered = filtered.Where(opportunity => shapes.Contains(opportunity.Shape));
         }
-        if (options.TryGetPredicates(out var predicates, out _))
+
+        RowSelectionResult<Analysis.OptimizationOpportunity> result =
+            RowQueryExecutor.Apply(
+                filtered.ToArray(),
+                options.GetResolvedPlan());
+        if (!result.IsSuccess)
         {
-            foreach (var predicate in predicates)
-                filtered = filtered.Where(opportunity => MatchesTriagePredicate(opportunity, predicate));
+            throw new InvalidOperationException(
+                "Performance Triage produced an unexpected row-window failure.");
         }
 
-        var ordered = options.OrderBy is null && options.IncludesAllocationFanout
-            ? filtered
-                .OrderByDescending(opportunity => opportunity.OnceAllocationPaths ?? -1)
-                .ThenByDescending(opportunity => opportunity.RepeatedAllocationPaths ?? -1)
-                .ThenByDescending(opportunity => opportunity.ConditionalAllocationPaths ?? -1)
-                .ThenBy(opportunity => FormatMethod(opportunity.Method), StringComparer.Ordinal)
-            : options.TryGetOrderTerms(out var orderTerms, out _)
-                ? OrderTriageRows(filtered, orderTerms)
-                : OrderByTriagePriority(filtered);
-        return options.Top is { } top ? ordered.Take(top) : ordered;
+        return result.Values;
     }
 
     internal static IEnumerable<Analysis.OptimizationOpportunity> TriageOpportunities(
@@ -2055,217 +2031,6 @@ internal static class LibraryMetadataService
         => options?.IncludesAllocationFanout == true
             ? index.OptimizationOpportunities.Concat(index.AllocationFanoutOpportunities)
             : index.OptimizationOpportunities;
-
-    static IEnumerable<Analysis.OptimizationOpportunity> OrderTriageRows(
-        IEnumerable<Analysis.OptimizationOpportunity> opportunities,
-        IReadOnlyList<PerformanceTriageOptions.OrderTerm> orderTerms)
-    {
-        if (orderTerms.Count == 1
-            && orderTerms[0].Field.Equals("Triage", StringComparison.OrdinalIgnoreCase))
-        {
-            var ordered = OrderByTriagePriority(opportunities);
-            return orderTerms[0].Descending ? ordered : ordered.Reverse();
-        }
-
-        return opportunities.OrderBy(opportunity => opportunity, Comparer<Analysis.OptimizationOpportunity>.Create((left, right) =>
-        {
-            foreach (var term in orderTerms)
-            {
-                if (term.Field == "CallerLoopDepth")
-                {
-                    bool leftMissing = left.CallerLoop is null;
-                    bool rightMissing = right.CallerLoop is null;
-                    if (leftMissing != rightMissing)
-                        return leftMissing ? 1 : -1;
-                }
-
-                int compare = CompareTriageField(left, right, term.Field);
-                if (compare != 0)
-                    return term.Descending ? -compare : compare;
-            }
-
-            int memberCompare = string.Compare(FormatMethod(left.Method), FormatMethod(right.Method), StringComparison.OrdinalIgnoreCase);
-            if (memberCompare != 0)
-                return memberCompare;
-            int ilCompare = (left.ILOffset ?? -1).CompareTo(right.ILOffset ?? -1);
-            if (ilCompare != 0)
-                return ilCompare;
-            return string.Compare(left.Shape, right.Shape, StringComparison.OrdinalIgnoreCase);
-        }));
-    }
-
-    static bool MatchesTriagePredicate(Analysis.OptimizationOpportunity opportunity, PerformanceTriageOptions.RowPredicate predicate)
-    {
-        if (NumericTriageField(opportunity, predicate.Field) is { } actualNumber)
-        {
-            if (!long.TryParse(predicate.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long value))
-                return false;
-            int compare = actualNumber.CompareTo(value);
-            return MatchCompare(compare, predicate.Operator);
-        }
-        if (PerformanceTriageOptions.IsNumericField(predicate.Field))
-            return false;
-
-        if (predicate.Field == "Priority")
-        {
-            int expected = ConfidenceRank(predicate.Value);
-            if (expected == 0 && !predicate.Value.Equals("low", StringComparison.OrdinalIgnoreCase))
-                return false;
-            int compare = Analysis.OptimizationOpportunityRanking
-                .Priority(opportunity)
-                .CompareTo(
-                    (Analysis.OptimizationOpportunityPriority)expected);
-            return MatchCompare(compare, predicate.Operator);
-        }
-
-        if (predicate.Field == "Confidence")
-        {
-            int expected = ConfidenceRank(predicate.Value);
-            if (expected == 0 && !predicate.Value.Equals("low", StringComparison.OrdinalIgnoreCase))
-                return false;
-            int compare = ConfidenceRank(opportunity.Confidence).CompareTo(expected);
-            return MatchCompare(compare, predicate.Operator);
-        }
-
-        if (predicate.Field == "Weight")
-        {
-            // Non-allocation opportunities have no weight; a weight predicate never
-            // matches them (rather than treating null as the "low" rank).
-            if (opportunity.Weight is null)
-                return false;
-            int expected = ConfidenceRank(predicate.Value);
-            if (expected == 0 && !predicate.Value.Equals("low", StringComparison.OrdinalIgnoreCase))
-                return false;
-            int compare = ConfidenceRank(opportunity.Weight).CompareTo(expected);
-            return MatchCompare(compare, predicate.Operator);
-        }
-
-        if (predicate.Field == "Member")
-        {
-            var full = FormatMethod(opportunity.Method);
-            var shortSignature = ShortMemberSignature(opportunity.Method);
-            bool memberMatches = WildcardMatch(full, predicate.Value)
-                || WildcardMatch(shortSignature, predicate.Value);
-            return predicate.Operator switch
-            {
-                PerformanceTriageOptions.RowOperator.Equals => memberMatches,
-                PerformanceTriageOptions.RowOperator.NotEquals => !memberMatches,
-                _ => false,
-            };
-        }
-
-        if (predicate.Field == "Token"
-            && !predicate.Value.Contains('*')
-            && !predicate.Value.Contains('?')
-            && TryParseMetadataToken(predicate.Value, out int expectedToken))
-        {
-            bool matches = opportunity.OperandToken == expectedToken;
-            return predicate.Operator switch
-            {
-                PerformanceTriageOptions.RowOperator.Equals => matches,
-                PerformanceTriageOptions.RowOperator.NotEquals => !matches,
-                _ => false,
-            };
-        }
-
-        var actual = TriageFieldValue(opportunity, predicate.Field) ?? "";
-        bool match = WildcardMatch(actual, predicate.Value);
-        return predicate.Operator switch
-        {
-            PerformanceTriageOptions.RowOperator.Equals => match,
-            PerformanceTriageOptions.RowOperator.NotEquals => !match,
-            _ => false,
-        };
-    }
-
-    static bool MatchCompare(int compare, PerformanceTriageOptions.RowOperator op)
-        => op switch
-        {
-            PerformanceTriageOptions.RowOperator.Equals => compare == 0,
-            PerformanceTriageOptions.RowOperator.NotEquals => compare != 0,
-            PerformanceTriageOptions.RowOperator.GreaterOrEqual => compare >= 0,
-            PerformanceTriageOptions.RowOperator.LessOrEqual => compare <= 0,
-            _ => false,
-        };
-
-    static int CompareTriageField(Analysis.OptimizationOpportunity left, Analysis.OptimizationOpportunity right, string field)
-    {
-        if (NumericTriageField(left, field) is { } leftNumber
-            && NumericTriageField(right, field) is { } rightNumber)
-        {
-            return leftNumber.CompareTo(rightNumber);
-        }
-        if (field == "Priority")
-            return Analysis.OptimizationOpportunityRanking
-                .Priority(left)
-                .CompareTo(
-                    Analysis.OptimizationOpportunityRanking.Priority(
-                        right));
-        if (field == "Confidence")
-            return ConfidenceRank(left.Confidence).CompareTo(ConfidenceRank(right.Confidence));
-        if (field == "Weight")
-            return WeightSortRank(left.Weight).CompareTo(WeightSortRank(right.Weight));
-        if (field == "Loop")
-            return IteratesInLoop(left).CompareTo(IteratesInLoop(right));
-        if (field == "IL")
-            return (left.ILOffset ?? -1).CompareTo(right.ILOffset ?? -1);
-        return string.Compare(
-            TriageFieldValue(left, field) ?? "",
-            TriageFieldValue(right, field) ?? "",
-            StringComparison.OrdinalIgnoreCase);
-    }
-
-    static string? TriageFieldValue(Analysis.OptimizationOpportunity opportunity, string field)
-        => field switch
-        {
-            "Member" => FormatMethod(opportunity.Method),
-            "Candidate" => opportunity.CandidateId,
-            "Finding" => opportunity.SourceFinding,
-            "Provenance" => FormatProvenance(opportunity.Provenance),
-            "Shape" => opportunity.Shape,
-            "Operation" => opportunity.Operation,
-            "Token" => FormatToken(opportunity.OperandToken),
-            "EvidenceMethod" => FormatToken(opportunity.EvidenceMethodToken),
-            "Evidence" => opportunity.Evidence,
-            "Fix" => opportunity.SafeFixDirection,
-            "Priority" => TriagePriority(opportunity),
-            "Confidence" => opportunity.Confidence,
-            "Loop" => IteratesInLoop(opportunity) ? "loop" : "",
-            "CallerLoop" => FormatCallerLoop(opportunity.CallerLoop),
-            "CallerLoopDepth" => opportunity.CallerLoop?.Depth.ToString(CultureInfo.InvariantCulture),
-            "CallerLoopWitness" => FormatCallerLoopWitness(opportunity.CallerLoop),
-            "Allocation" => opportunity.RuntimeAllocationType,
-            "Path" => opportunity.PathContext,
-            "PathConfidence" => opportunity.PathConfidence,
-            "PostDominance" => opportunity.PostDominance,
-            "Weight" => opportunity.Weight,
-            "DirectSites" => opportunity.DirectAllocationSites?.ToString(CultureInfo.InvariantCulture),
-            "OncePaths" => opportunity.OnceAllocationPaths?.ToString(CultureInfo.InvariantCulture),
-            "ConditionalPaths" => opportunity.ConditionalAllocationPaths?.ToString(CultureInfo.InvariantCulture),
-            "RepeatedPaths" => opportunity.RepeatedAllocationPaths?.ToString(CultureInfo.InvariantCulture),
-            "UnknownPaths" => opportunity.UnknownAllocationPaths?.ToString(CultureInfo.InvariantCulture),
-            "CachedSites" => opportunity.CachedAllocationSites?.ToString(CultureInfo.InvariantCulture),
-            "OpaquePaths" => opportunity.OpaqueCallPaths?.ToString(CultureInfo.InvariantCulture),
-            "Saturated" => opportunity.AllocationCountSaturated ? "yes" : null,
-            "IL" => opportunity.ILOffset is { } offset ? $"IL_{offset:X4}" : null,
-            "RootReach" => opportunity.RootReach.ToString(CultureInfo.InvariantCulture),
-            _ => null,
-        };
-
-    static long? NumericTriageField(Analysis.OptimizationOpportunity opportunity, string field)
-        => field switch
-        {
-            "RootReach" => opportunity.RootReach,
-            "CallerLoopDepth" => opportunity.CallerLoop?.Depth,
-            "DirectSites" => opportunity.DirectAllocationSites,
-            "OncePaths" => opportunity.OnceAllocationPaths,
-            "ConditionalPaths" => opportunity.ConditionalAllocationPaths,
-            "RepeatedPaths" => opportunity.RepeatedAllocationPaths,
-            "UnknownPaths" => opportunity.UnknownAllocationPaths,
-            "CachedSites" => opportunity.CachedAllocationSites,
-            "OpaquePaths" => opportunity.OpaqueCallPaths,
-            _ => null,
-        };
 
     static string? FormatToken(int? token)
         => token is { } value ? $"0x{value:X8}" : null;
@@ -2289,64 +2054,6 @@ internal static class LibraryMetadataService
 
         var calls = evidence.Witness.Select(step => $"{FormatMethod(step.Caller)} @ IL_{step.ILOffset:X4}");
         return $"{string.Join(" -> ", calls)} -> {FormatMethod(evidence.Witness[^1].Callee)}";
-    }
-
-    static bool TryParseMetadataToken(string value, out int token)
-    {
-        token = default;
-        value = value.Trim();
-        return value.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
-            && int.TryParse(
-                value.AsSpan(2),
-                NumberStyles.AllowHexSpecifier,
-                CultureInfo.InvariantCulture,
-                out token);
-    }
-
-    static string ShortMemberSignature(Analysis.MethodIdentity method)
-        => $"{method.Name}({string.Join(", ", method.ParameterTypes.Select(p => p.ToQualifiedDisplayString()))})";
-
-    static bool WildcardMatch(string actual, string pattern)
-    {
-        if (!pattern.Contains('*') && !pattern.Contains('?'))
-            return string.Equals(actual, pattern, StringComparison.OrdinalIgnoreCase);
-
-        return WildcardMatch(actual.AsSpan(), pattern.AsSpan());
-
-        static bool WildcardMatch(ReadOnlySpan<char> text, ReadOnlySpan<char> pattern)
-        {
-            int textIndex = 0;
-            int patternIndex = 0;
-            int starIndex = -1;
-            int matchIndex = 0;
-            while (textIndex < text.Length)
-            {
-                if (patternIndex < pattern.Length
-                    && (pattern[patternIndex] == '?' || char.ToUpperInvariant(pattern[patternIndex]) == char.ToUpperInvariant(text[textIndex])))
-                {
-                    textIndex++;
-                    patternIndex++;
-                }
-                else if (patternIndex < pattern.Length && pattern[patternIndex] == '*')
-                {
-                    starIndex = patternIndex++;
-                    matchIndex = textIndex;
-                }
-                else if (starIndex >= 0)
-                {
-                    patternIndex = starIndex + 1;
-                    textIndex = ++matchIndex;
-                }
-                else
-                {
-                    return false;
-                }
-            }
-
-            while (patternIndex < pattern.Length && pattern[patternIndex] == '*')
-                patternIndex++;
-            return patternIndex == pattern.Length;
-        }
     }
 
     private static void ApplyQueryResults(

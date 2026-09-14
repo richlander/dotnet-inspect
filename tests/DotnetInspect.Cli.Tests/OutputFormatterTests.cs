@@ -13,6 +13,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.RowSelection;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
@@ -803,6 +804,62 @@ public class OutputFormatterTests
         Assert.Contains("| Priority | Confidence |", markdown);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    [Trait("Speed", "Slow")]
+    public void RenderTypeSectionsMarkdown_AppliesPerformanceTriagePlan(
+        bool memberScope)
+    {
+        var method = typeof(OutputFormatterTests).GetMethod(
+            nameof(CreateAllocationFanout),
+            BindingFlags.NonPublic | BindingFlags.Static)!;
+        var type = new ApiType
+        {
+            Namespace = typeof(OutputFormatterTests).Namespace,
+            Name = nameof(OutputFormatterTests),
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Kind = "method",
+                    Name = nameof(CreateAllocationFanout),
+                    MetadataToken = method.MetadataToken,
+                },
+            ],
+        };
+        var options = new MemberOptions
+        {
+            DllPath = typeof(OutputFormatterTests).Assembly.Location,
+            IncludeSections = new HashSet<string>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                SectionNames.PerformanceTriage,
+            },
+            PerformanceTriage = new PerformanceTriageOptions
+            {
+                Shapes = ["allocation-fanout"],
+                Where = [$"Member={nameof(CreateAllocationFanout)}()"],
+                Top = 1,
+            },
+        };
+        if (memberScope)
+        {
+            options = options with
+            {
+                OverloadIndex = 1,
+                MemberFilter = [nameof(CreateAllocationFanout)],
+            };
+        }
+
+        var markdown = ApiCommand.RenderTypeSectionsMarkdown(type, options);
+
+        Assert.Contains(nameof(CreateAllocationFanout), markdown);
+        Assert.Contains("allocation-fanout", markdown);
+        Assert.DoesNotContain("small-array", markdown);
+    }
+
     [Fact]
     [Trait("Speed", "Slow")]
     public void RenderTypeSectionsMarkdown_ScopesOptimizationOpportunitiesToSelectedMember()
@@ -1467,6 +1524,316 @@ public class OutputFormatterTests
             .ToList();
 
         Assert.Equal(["OffsetSmall", "OffsetLarge"], filtered);
+    }
+
+    [Fact]
+    public void FilterAndOrderTriageOpportunities_TriageAscendingPreservesStableTies()
+    {
+        var opportunities = new[]
+        {
+            Opp("TieZ", inLoop: false, confidence: "low", rootReach: 1, shape: "capturing-delegate"),
+            Opp("TieA", inLoop: false, confidence: "low", rootReach: 1, shape: "capturing-delegate"),
+            Opp("High", inLoop: false, confidence: "high", rootReach: 1, shape: "capturing-delegate"),
+        };
+
+        var ordered = LibraryMetadataService.FilterAndOrderTriageOpportunities(
+                opportunities,
+                new PerformanceTriageOptions
+                {
+                    OrderBy = "Triage asc",
+                })
+            .Select(opportunity => opportunity.Method.Name)
+            .ToList();
+
+        Assert.Equal(["TieZ", "TieA", "High"], ordered);
+    }
+
+    [Fact]
+    public void FilterAndOrderTriageOpportunities_ExplicitEqualOrderPreservesInputOrder()
+    {
+        var opportunities = new[]
+        {
+            Opp("TieZ", inLoop: false, confidence: "high", rootReach: 10, shape: "small-array") with
+            {
+                ILOffset = 20,
+            },
+            Opp("TieA", inLoop: true, confidence: "low", rootReach: 10, shape: "box-value-type") with
+            {
+                ILOffset = 1,
+            },
+            Opp("First", inLoop: false, confidence: "medium", rootReach: 1, shape: "capturing-delegate"),
+        };
+
+        var ordered = LibraryMetadataService.FilterAndOrderTriageOpportunities(
+                opportunities,
+                new PerformanceTriageOptions
+                {
+                    OrderBy = "RootReach asc",
+                })
+            .Select(opportunity => opportunity.Method.Name)
+            .ToList();
+
+        Assert.Equal(["First", "TieZ", "TieA"], ordered);
+    }
+
+    [Fact]
+    public void PerformanceTriageTop_UsesRankingWithoutPromotingItToBaseline()
+    {
+        var options = new PerformanceTriageOptions { Top = 2 };
+        Assert.True(
+            PerformanceTriageOptions.TryValidate(options, out var error),
+            error.ToString());
+
+        var plan = options.GetResolvedPlan();
+        Assert.Null(plan.BaselineOrder);
+        Assert.Single(plan.ResolvedOrders);
+        Assert.Equal(
+            RowSelectionStageKind.Top,
+            Assert.Single(plan.SelectionPlan.Stages).Kind);
+
+        var selected = LibraryMetadataService.FilterAndOrderTriageOpportunities(
+                [
+                    Opp("Low", inLoop: false, confidence: "low", rootReach: 1, shape: "capturing-delegate"),
+                    Opp("High", inLoop: false, confidence: "high", rootReach: 1, shape: "capturing-delegate"),
+                    Opp("Medium", inLoop: false, confidence: "medium", rootReach: 1, shape: "capturing-delegate"),
+                ],
+                options)
+            .Select(opportunity => opportunity.Method.Name)
+            .ToList();
+
+        Assert.Equal(["High", "Medium"], selected);
+    }
+
+    [Fact]
+    public void FilterAndOrderTriageOpportunities_PreservesAllocationFanoutRanking()
+    {
+        var opportunities = new[]
+        {
+            Opp("TieZ", inLoop: false, confidence: "low", rootReach: 1, shape: "allocation-fanout") with
+            {
+                OnceAllocationPaths = 5,
+                RepeatedAllocationPaths = 2,
+                ConditionalAllocationPaths = 1,
+            },
+            Opp("TieA", inLoop: false, confidence: "high", rootReach: 100, shape: "allocation-fanout") with
+            {
+                OnceAllocationPaths = 5,
+                RepeatedAllocationPaths = 2,
+                ConditionalAllocationPaths = 1,
+            },
+            Opp("Winner", inLoop: false, confidence: "low", rootReach: 1, shape: "allocation-fanout") with
+            {
+                OnceAllocationPaths = 6,
+                RepeatedAllocationPaths = 0,
+                ConditionalAllocationPaths = 0,
+            },
+        };
+        var options = new PerformanceTriageOptions
+        {
+            Shapes = ["allocation-fanout"],
+        };
+
+        var ordered = LibraryMetadataService.FilterAndOrderTriageOpportunities(
+                opportunities,
+                options)
+            .Select(opportunity => opportunity.Method.Name)
+            .ToList();
+        var top = LibraryMetadataService.FilterAndOrderTriageOpportunities(
+                opportunities,
+                options with { Top = 1 })
+            .Select(opportunity => opportunity.Method.Name)
+            .ToList();
+
+        Assert.Equal(["Winner", "TieZ", "TieA"], ordered);
+        Assert.Equal(["Winner"], top);
+    }
+
+    [Fact]
+    public void FilterAndOrderTriageOpportunities_PreservesTokenAndMemberPredicates()
+    {
+        var target = Opp(
+            "Target",
+            inLoop: false,
+            confidence: "medium",
+            rootReach: 1,
+            shape: "small-array") with
+        {
+            OperandToken = 0x0A00113D,
+        };
+        var other = Opp(
+            "Other",
+            inLoop: false,
+            confidence: "medium",
+            rootReach: 1,
+            shape: "small-array") with
+        {
+            OperandToken = 0x0A00113E,
+        };
+
+        foreach (string predicate in new[]
+        {
+            "Token=0x0A00113D",
+            "Token=0xA00113D",
+            "Token=0x?A00113D",
+            "Member=Ns.Type.Target()",
+            "Member=Target()",
+        })
+        {
+            var selected =
+                LibraryMetadataService.FilterAndOrderTriageOpportunities(
+                        [target, other],
+                        new PerformanceTriageOptions
+                        {
+                            Where = [predicate],
+                        })
+                    .Select(opportunity => opportunity.Method.Name)
+                    .ToList();
+            Assert.Equal(["Target"], selected);
+        }
+
+        Assert.Empty(
+            LibraryMetadataService.FilterAndOrderTriageOpportunities(
+                [target, other],
+                new PerformanceTriageOptions
+                {
+                    Where = ["Token=not-a-token"],
+                }));
+    }
+
+    [Fact]
+    public void PerformanceTriageFocusedPredicatesMatchCanonicalWherePredicates()
+    {
+        var opportunities = new[]
+        {
+            Opp("LoopHigh", inLoop: true, confidence: "high", rootReach: 1, shape: "capturing-delegate"),
+            Opp("LoopLow", inLoop: true, confidence: "low", rootReach: 1, shape: "capturing-delegate"),
+            Opp("OnceHigh", inLoop: false, confidence: "high", rootReach: 1, shape: "capturing-delegate"),
+        };
+
+        static string[] Select(
+            IEnumerable<ILInspector.Analysis.OptimizationOpportunity> rows,
+            PerformanceTriageOptions options) =>
+            [
+                .. LibraryMetadataService.FilterAndOrderTriageOpportunities(
+                        rows,
+                        options)
+                    .Select(opportunity => opportunity.Method.Name),
+            ];
+
+        Assert.Equal(
+            Select(
+                opportunities,
+                new PerformanceTriageOptions { Where = ["Loop=loop"] }),
+            Select(
+                opportunities,
+                new PerformanceTriageOptions { LoopOnly = true }));
+        Assert.Equal(
+            Select(
+                opportunities,
+                new PerformanceTriageOptions
+                {
+                    Where = ["Confidence>=medium"],
+                }),
+            Select(
+                opportunities,
+                new PerformanceTriageOptions
+                {
+                    MinConfidence = "medium",
+                }));
+    }
+
+    [Fact]
+    public void FilterAndOrderTriageOpportunities_PreservesNullableNumericOrdering()
+    {
+        var missing = Opp(
+            "Missing",
+            inLoop: false,
+            confidence: "medium",
+            rootReach: 1,
+            shape: "small-array");
+        var present = Opp(
+            "Present",
+            inLoop: false,
+            confidence: "medium",
+            rootReach: 1,
+            shape: "allocation-fanout") with
+        {
+            OnceAllocationPaths = 5,
+        };
+
+        string[] Ascending() =>
+        [
+            .. LibraryMetadataService.FilterAndOrderTriageOpportunities(
+                    [present, missing],
+                    new PerformanceTriageOptions
+                    {
+                        OrderBy = "OncePaths asc",
+                    })
+                .Select(opportunity => opportunity.Method.Name),
+        ];
+        string[] Descending() =>
+        [
+            .. LibraryMetadataService.FilterAndOrderTriageOpportunities(
+                    [missing, present],
+                    new PerformanceTriageOptions
+                    {
+                        OrderBy = "OncePaths desc",
+                    })
+                .Select(opportunity => opportunity.Method.Name),
+        ];
+
+        Assert.Equal(["Missing", "Present"], Ascending());
+        Assert.Equal(["Present", "Missing"], Descending());
+    }
+
+    [Fact]
+    public void PerformanceTriageSchema_ResolvesEveryAdvertisedField()
+    {
+        foreach (string field in PerformanceTriageOptions.FilterableFields)
+        {
+            string value = PerformanceTriageOptions.IsNumericField(field)
+                ? "1"
+                : field is "Priority" or "Confidence" or "Weight"
+                    ? "low"
+                    : "*";
+            Assert.True(
+                PerformanceTriageOptions.TryValidate(
+                    new PerformanceTriageOptions
+                    {
+                        Where = [$"{field}={value}"],
+                    },
+                    out var error),
+                $"{field}: {error}");
+        }
+
+        foreach (string field in PerformanceTriageOptions.SortableFields)
+        {
+            Assert.True(
+                PerformanceTriageOptions.TryValidate(
+                    new PerformanceTriageOptions
+                    {
+                        OrderBy = $"{field} asc",
+                    },
+                    out var error),
+                $"{field}: {error}");
+        }
+    }
+
+    [Fact]
+    public void PerformanceTriageResolvedPlan_IsReusedWithoutCrossingRecordCopies()
+    {
+        var options = new PerformanceTriageOptions { Top = 1 };
+        Assert.True(
+            PerformanceTriageOptions.TryValidate(options, out var error),
+            error.ToString());
+
+        var plan = options.GetResolvedPlan();
+        Assert.Same(plan, options.GetResolvedPlan());
+
+        var copied = options with { Top = null };
+        var copiedPlan = copied.GetResolvedPlan();
+        Assert.NotSame(plan, copiedPlan);
+        Assert.NotNull(copiedPlan.BaselineOrder);
     }
 
     static ILInspector.Analysis.OptimizationOpportunity Opp(string name, bool inLoop, string confidence, int rootReach, string shape, string? multiplicity = null, string? weight = null)

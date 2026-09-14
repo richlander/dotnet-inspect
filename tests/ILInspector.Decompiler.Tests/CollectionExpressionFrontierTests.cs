@@ -3,6 +3,7 @@ using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Speed", "Slow")]
 public class CollectionExpressionFrontierTests
 {
     static IrFunction Raised(string methodName)

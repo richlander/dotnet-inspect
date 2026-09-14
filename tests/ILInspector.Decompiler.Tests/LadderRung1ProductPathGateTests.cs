@@ -48,6 +48,7 @@ public class LadderRung1ProductPathGateTests
     ];
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Rung1ProductPath_ExposesExactMemberSet_AllFullAndFullyRaised()
     {
         var members = LoadProductPathMembers();
@@ -106,6 +107,7 @@ public class LadderRung1ProductPathGateTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Rung1ProductPath_OutputIsSyntacticallyValid()
     {
         var members = LoadProductPathMembers();
