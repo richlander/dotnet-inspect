@@ -407,7 +407,10 @@ jobs:
 
   census:
     name: Census lane
-    if: inputs.lane == 'census' || inputs.lane == 'all'
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '0 6 * * *') ||
+      inputs.lane == 'census' ||
+      inputs.lane == 'all'
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
@@ -832,6 +835,7 @@ jobs:
       - decompiler-corpus
       - release-certification
       - inspect-web
+      - census
       - authored-corpus-ratchet
     if: ${{ github.event_name == 'schedule' && failure() }}
     runs-on: ubuntu-26.04
