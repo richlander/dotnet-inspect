@@ -7,11 +7,12 @@ composition boundary. It is tracked by
 [#6512](https://github.com/richlander/dotnet-inspect/issues/6512).
 
 The user approved `SourceHouse` as the product-facing source settlement
-concept. It composes `SourceLinkService` and `CSharpDecompilerService` over an
-owner-issued content-backed library representation. Source selection and PDB
-use remain independent consumer choices: requesting decompiled source does not
-forbid acquiring or using a PDB, and requesting best-available source does not
-implicitly authorize network or filesystem access.
+concept. It composes `SourceLinkService` and `CSharpDecompilerService` over one
+exact resource-free `LibraryReference` and a transferred matching
+`LibraryOperationLease`. Source selection and PDB use remain independent
+consumer choices: requesting decompiled source does not forbid acquiring or
+using a PDB, and requesting best-available source does not implicitly authorize
+network or filesystem access.
 
 This is an explicitly approved broad source-composition design. It establishes
 one new owner and transfers the cohesive product source-settlement
@@ -37,14 +38,14 @@ not the target public composition boundary.
 
 **SourceHouse Composition** owns:
 
-> Given one exact type or member target, one owner-issued source-ready library
-> representation, one consumer-selected source-result demand, one independent
-> PDB-access policy, one host-authorized source operation plan, and finite
-> work, compose SourceLink-authored source and C# decompilation into one typed
-> settlement that preserves the request, input correspondence, PDB
-> contribution, producer attempts, selected source, provenance, failures,
-> completion, and retained lifetime without reconstructing authority from
-> paths or display text.
+> Given one exact type or member target, one owner-issued `LibraryReference`,
+> ownership of one matching `LibraryOperationLease`, one consumer-selected
+> source-result demand, one independent PDB-access policy, one host-authorized
+> source operation plan, and finite work, compose SourceLink-authored source
+> and C# decompilation into one typed settlement that preserves the request,
+> input correspondence, PDB contribution, producer attempts, selected source,
+> provenance, failures, completion, and resource-free lease-settlement evidence
+> without reconstructing authority from paths or display text.
 
 The owner defines:
 
@@ -59,6 +60,8 @@ The owner defines:
   remote capabilities;
 - producer ordering, short-circuiting, and fallback;
 - reuse of supplied or acquired PDB content across producer attempts;
+- consumption and terminal settlement of the transferred Library operation
+  lease;
 - the source result envelope and settlement receipt;
 - visible rejected, unavailable, failed, and incomplete outcomes; and
 - the rule that product source selection is not reconstructed in hosts,
@@ -67,8 +70,10 @@ The owner defines:
 It does not define:
 
 - package, platform, project, direct-library, or Workspace realization;
-- library, assembly, artifact, Portable PDB, or source-document identity;
-- assembly-to-PDB correspondence validation;
+- Library construction, content roles, correspondence, ownership, operation
+  lease issuance, retirement, or scoped-borrowing mechanics;
+- assembly, artifact, Portable PDB, or source-document identity;
+- substantive assembly-to-PDB correspondence validation;
 - package or symbol source authority;
 - PDB discovery, acquisition, parsing, or storage algorithms;
 - SourceLink map grammar, document correlation, provenance interpretation,
@@ -78,7 +83,7 @@ It does not define:
 - source-byte transport, redirect policy, authorization, or caching;
 - XML documentation, source-comment extraction, or documentation settlement;
 - comparison of authored and decompiled source;
-- Workspace admission, replacement, revisions, leases, or binding policy;
+- Workspace admission, replacement, revisions, or binding policy;
 - CLI flags, browser interaction, rendering, or serialized transport; or
 - host credentials, ambient filesystem policy, network policy, cancellation
   gesture, or display policy.
@@ -91,7 +96,7 @@ composes them and preserves their evidence.
 Source production crosses two independently useful producers:
 
 ```text
-source-ready library representation
+LibraryReference + transferred LibraryOperationLease
   -> optional PDB contribution
   -> SourceLink-authored source
   -> PDB-enriched or PDB-free C# decompilation
@@ -139,8 +144,9 @@ Neither service references SourceHouse or the other service.
 `SourceLinkService` is the PDB and SourceLink interpretation service.
 SourceHouse supplies:
 
-- the retained assembly content;
-- an optional applicable Portable PDB content reference;
+- detached assembly input obtained through a synchronous Library snapshot;
+- optional detached Portable PDB input with its exact content reference and
+  provenance;
 - one exact member or type target;
 - bounded work and cancellation.
 
@@ -169,7 +175,7 @@ tracked implementation step rather than an expansion of the
 `CSharpDecompilerService` is the reconstructed-source producer. SourceHouse
 supplies:
 
-- the same retained assembly content;
+- detached assembly input from the same Library operation;
 - the same exact member or type target;
 - the applicable binding context;
 - optional PDB content selected under the request's PDB policy;
@@ -194,54 +200,64 @@ carries the host authorization that makes that capability available, but it
 does not interpret URLs, redirects, HTTP status, byte limits, or storage
 outcomes.
 
-An assembly and PDB supplied by the input representation eliminate assembly
-and symbol acquisition. They do not imply that the mapped source-document
-bytes are already present. Authored-source production may still use an
-authorized source-content store, local repository, or network fetch.
+An assembly and PDB supplied by the exact `LibraryReference` eliminate assembly
+and symbol acquisition. They do not imply that the mapped source-document bytes
+are already present. Authored-source production may still use an authorized
+source-content store, local repository, or network fetch.
 
-## Source-ready library representation
+## Library input and operation ownership
 
-The primary SourceHouse input is an owner-issued, content-backed library
-representation. PackageHouse, PlatformHouse, and direct-library or Workspace
-adapters can produce the same source-neutral shape.
+The primary SourceHouse inputs are one exact resource-free `LibraryReference`
+and ownership of one matching `LibraryOperationLease`. PackageHouse,
+PlatformHouse, and direct-library or Workspace adapters produce the shared
+Library shape; the host or orchestrator obtains operation authority from its
+`LibraryContentOwner` and transfers that authority into SourceHouse.
 
-The representation supplies:
+The reference supplies:
 
 - one exact logical library and physical assembly correspondence;
-- a guarded, repeatable content reference for the selected assembly;
+- an exact `LibraryContentReference` for the selected assembly;
 - optional companion Portable PDB content associated with that assembly;
 - any embedded Portable PDB carried inside the supplied assembly content;
 - owner-issued assembly/PDB correspondence or the evidence needed by the PDB
   owner to validate that correspondence;
 - source-specific provenance records without flattening them to labels;
-- artifact generation and lifetime correspondence; and
+- Artifact-registration correspondence; and
 - any already-retained source content that an authorized lower service can
   address by typed identity.
 
-The representation is not a path bundle. A local path may be source-specific
+The resource-free reference carries no stream, callback, opener, or other live
+authority. The transferred lease authorizes synchronous snapshots of exact
+content references in that Library. SourceHouse materializes a detached or
+independently owned value before a snapshot callback returns; no borrow, view,
+or owner-backed span crosses `await`.
+
+The reference is not a path bundle. A local path may be source-specific
 provenance or an adapter capability, but SourceHouse cannot require it, derive
-another path from it, or reopen content that the representation already
-supplies.
+another path from it, or reopen content that the Library already supplies.
 
 PackageHouse is the preferred package path. A package realization can provide
 the selected assembly and an available companion PDB in one retained
-representation. SourceHouse consumes that representation without reopening
-the package, resolving its coordinate again, probing an output directory, or
-reacquiring the supplied PDB.
+Library. SourceHouse consumes its exact references and transferred lease
+without reopening the package, resolving its coordinate again, probing an
+output directory, or reacquiring the supplied PDB.
 
-PlatformHouse supplies the same shape while retaining its reference and
-implementation view correspondence. A direct-library adapter snapshots
+PlatformHouse supplies the same Library shape while retaining its reference and
+implementation view correspondence. A direct-library adapter registers
 explicitly authorized local inputs into the same content form before invoking
-SourceHouse. SourceHouse does not branch on which of these owners produced the
-representation.
+SourceHouse. SourceHouse does not branch on which source owner produced the
+Library.
 
-The concrete representation type, construction, correspondence validation,
-and lifetime are owned by the focused representation step in #6512. This
-document states only the input obligations SourceHouse consumes.
+`LibraryReference`, `LibraryContentOwner`, `LibraryOperationLease`, content
+roles, correspondence preservation, retirement, and scoped snapshots are owned
+by [Library ownership and borrowing](library-ownership-and-borrowing.md).
+SourceHouse consumes that contract; it does not define a source-ready wrapper
+or substitute lease.
 
 ## Exact source target
 
-Every request addresses one target in the supplied assembly representation:
+Every request addresses one target in the selected assembly content named by
+the exact `LibraryReference`:
 
 - an exact metadata type definition identity; or
 - an exact method definition identity plus its declaring-type and member
@@ -287,8 +303,8 @@ is:
 
 - **None** does not extract, open, acquire, or supply PDB content to either
   producer.
-- **SuppliedOnly** may use companion PDB content already carried by the
-  library representation or extract an embedded PDB from the supplied assembly
+- **SuppliedOnly** may use companion PDB content named by the exact
+  `LibraryReference` or extract an embedded PDB from the supplied assembly
   content, but does not acquire an external replacement.
 - **AllowAcquisition** uses supplied PDB content first and, when no applicable
   PDB is available, permits one attempt through the host-authorized PDB
@@ -359,9 +375,10 @@ needed to explain the operation.
 
 SourceHouse preserves this semantic order:
 
-1. retain the exact request, source-ready representation, and policy
-   generation;
-2. resolve the exact target against the supplied assembly content;
+1. accept the exact request, `LibraryReference`, transferred matching
+   `LibraryOperationLease`, and policy generation;
+2. resolve the exact target against assembly content accessed through a
+   synchronous Library snapshot;
 3. apply the PDB policy, always preferring applicable supplied companion or
    embedded content over acquisition;
 4. when authored source is permitted, ask `SourceLinkService` for typed
@@ -372,11 +389,17 @@ SourceHouse preserves this semantic order:
 6. when decompiled source is permitted and not already short-circuited, ask
    `CSharpDecompilerService` using the same assembly and applicable PDB
    content; and
-7. issue one terminal result retaining every attempted contribution.
+7. materialize one terminal result retaining every attempted contribution,
+   settle the transferred Library lease, and return only resource-free
+   evidence.
 
 The ordering does not require one implementation method. It requires that:
 
 - supplied assembly or PDB content is not reacquired;
+- no Library borrow, callback view, or owner-backed span crosses `await`;
+- the transferred Library lease is settled on success, rejection, failure,
+  cancellation, and incomplete completion;
+- owner retirement after lease issuance does not invalidate the operation;
 - one acquired PDB is reused across both producers;
 - `BestAvailable` does not decompile after an authored-source result meets the
   requested source unit;
@@ -385,15 +408,15 @@ The ordering does not require one implementation method. It requires that:
 - no producer runs without request and host authorization;
 - producer failure does not become absence;
 - successful fallback retains the earlier unsuccessful attempt; and
-- no result is published after input generation or binding correspondence
-  becomes invalid.
+- reference mismatch, absent content membership, rejected correspondence, or
+  borrow failure cannot publish a successful source result.
 
 ## Result and receipt
 
 Every SourceHouse result preserves:
 
 - the exact source request and target;
-- the source-ready library representation identity and generation;
+- the exact `LibraryReference` and `LibraryContentReference` values used;
 - the selected source-result demand;
 - the PDB-access policy and operation-plan identity;
 - one PDB contribution: not requested, supplied, acquired, unavailable,
@@ -403,7 +426,7 @@ Every SourceHouse result preserves:
 - the selected provider and source text when available;
 - producer-specific provenance and diagnostics;
 - operation completion and charged work; and
-- the retained content lifetime needed by any non-materialized result.
+- resource-free evidence that the transferred Library lease settled.
 
 The terminal result family is closed:
 
@@ -431,6 +454,10 @@ decompiled source, identify which PDB contribution was used, inspect why an
 earlier attempt failed, and retain the exact input correspondence without
 parsing a label or diagnostic.
 
+Every result contains detached or independently owned values. It retains no
+Library lease, callback, borrow, span, stream, opener, or path-reopening
+authority.
+
 Candidate rejection is contribution-local. An unauthorized source URL,
 checksum-rejected source document, unusable optional PDB, or unavailable PDB
 capability remains in its producer contribution and may permit another
@@ -441,27 +468,32 @@ input correspondence is invalid.
 A supplied PDB candidate that does not match the assembly is disqualified and
 retained as a rejected contribution. With `AllowAcquisition`, the House may
 attempt an authorized replacement; with `SuppliedOnly`, it proceeds as though
-no usable PDB contribution exists. If the input representation claimed that
-the mismatched PDB had already been validated as corresponding, the broken
-owner-issued claim rejects the input rather than becoming an ordinary
-candidate miss.
+no usable PDB contribution exists. If the `LibraryReference` carries
+owner-issued correspondence that claims the mismatched PDB is applicable, the
+broken claim rejects the input rather than becoming an ordinary candidate
+miss.
 
 ## Content and lifetime
 
 SourceHouse is content-first:
 
-- assembly and PDB inputs use guarded repeatable content references;
+- assembly and PDB inputs use exact resource-free content references;
+- one transferred Library operation lease governs the complete async
+  settlement;
+- content is borrowed only through synchronous snapshots, and values needed
+  after a callback are detached before it returns;
 - the House and both services operate without requiring filesystem paths;
 - supplied content remains tied to its artifact generation and provenance;
-- producer readers do not outlive the operation or retained content lease;
+- producer readers and borrowed views do not outlive their synchronous
+  snapshots;
 - materialized source text does not retain live metadata or PDB readers; and
-- failure or cancellation disposes every acquired resource without publishing
-  a success whose evidence could not be retained.
+- success, rejection, failure, cancellation, and incomplete completion settle
+  the transferred lease and every acquired resource.
 
-The House does not mutate the supplied representation when it acquires a PDB.
-Its result records the acquired contribution and its lifetime. Publication
-into a reusable artifact or Workspace generation is a separate owner
-operation.
+The House does not mutate the supplied `LibraryReference` when it acquires a
+PDB. Its result records detached contribution evidence. Publishing acquired
+content into a reusable Artifact or a new Workspace-owned Library is a separate
+owner operation.
 
 ## Failure boundaries
 
@@ -501,7 +533,7 @@ requested source unit, not on an invented stronger correspondence.
 
 ### Decompiled-only source with authorized PDB acquisition
 
-The representation supplies only assembly content. The consumer requests
+The `LibraryReference` names only assembly content. The consumer requests
 `DecompiledOnly` with `AllowAcquisition`. SourceHouse attempts one authorized
 PDB acquisition, supplies any resulting PDB to the decompiler, and never
 selects authored source. PDB acquisition failure remains visible beside a
@@ -515,20 +547,32 @@ decompiled source while preserving the integrity failure.
 `AuthoredOnly` returns the authored-source non-success and does not invoke the
 decompiler.
 
-### Supplied content is stale
+### Library retirement and exact authority
 
-The source-ready representation or its lease no longer denotes the generation
-captured by the request. SourceHouse rejects or fails the operation according
-to the owner-issued lifetime contract. It does not reopen a path, reacquire a
-same-named package, or use a newer Workspace participant to manufacture
-correspondence.
+If Library retirement begins before operation-lease issuance, the Library owner
+returns its visible `OwnerRetiring` or `OwnerReleased` outcome and SourceHouse
+does not start. If retirement begins after issuance, the transferred lease
+remains usable while the owner drains it; SourceHouse completes or fails
+normally and settles the lease on its terminal path.
+
+A lease for another exact `LibraryReference`, a moved or settled lease, or a
+content reference outside the Library is rejected. SourceHouse does not reopen
+a path, reacquire a same-named package, or use a newer Workspace participant to
+manufacture correspondence.
+
+The concrete case is the .NET 11 Platform `System.Text.Json` Library. Its
+runtime assembly and matching Portable PDB belong to one exact Platform
+`LibraryReference`; a separately realized NuGet package may expose the same
+assembly identity but remains another Library. A lease for either Library
+cannot borrow the other's assembly or PDB.
 
 ### Browser/Wasm has no paths
 
-PackageHouse supplies in-memory assembly and PDB content. SourceHouse invokes
-the same services and settlement as the CLI without a filesystem path.
-Authored source may use an authorized in-memory content store or network
-fetch; decompilation consumes the retained content directly.
+PackageHouse supplies an in-memory Library owner and resource-free assembly and
+PDB references. The host transfers a matching operation lease to SourceHouse,
+which invokes the same services and settlement as the CLI without a filesystem
+path. Authored source may use an authorized in-memory content store or network
+fetch; decompilation consumes detached content snapshots.
 
 ### Assembly content contains an embedded PDB
 
@@ -562,14 +606,15 @@ checksum contract.
 end-to-end tracker. Its current total is 12 steps:
 
 1. lock this focused SourceHouse structure and input contract;
-2. define the shared source-ready library representation;
+2. reconcile SourceHouse input and lifetime with the shared Library ownership
+   and borrowing contract;
 3. introduce `CSharpDecompilerService`;
 4. expose content-backed PDB and SourceLink interpretation through
    `SourceLinkService` without moving transport or product policy into it;
 5. implement SourceHouse authored-source candidate settlement and retire the
    public `PdbSourceHouse` composition;
 6. implement SourceHouse decompiler composition, fallback, and receipts;
-7. adopt the representation in PackageHouse;
+7. adopt the shared Library contract in PackageHouse;
 8. adopt it in PlatformHouse;
 9. adopt it for direct-library and Workspace assembly-context inputs;
 10. delegate `AssemblyContextSourceQuery` to SourceHouse and retire its fallback
@@ -581,6 +626,12 @@ end-to-end tracker. Its current total is 12 steps:
 Each step changes one owner. Steps 2-9 establish the reusable path; steps 10-12
 migrate production consumers and retire the alternative architecture. A change
 to the count or host coverage requires an explicit tracker update.
+
+Step 2 is the design correction tracked by
+[#6934](https://github.com/richlander/dotnet-inspect/issues/6934). SourceHouse
+implementation remains staged behind the Library contract floor, concrete
+owner, and producer adoption in #6621; this document does not claim those
+implementation steps are complete.
 
 ## Evidence plan
 
@@ -598,12 +649,18 @@ The implementation slices must provide Release gates for:
 - successful decompiled fallback retaining PDB and authored-source failure;
 - contribution-local PDB or source rejection permitting valid fallback while
   invalid owner-issued input correspondence rejects the whole request;
+- an issued Library lease remaining usable when owner retirement begins, while
+  issuance after retirement fails visibly;
+- no borrowed content or Library authority crossing `await` or entering a
+  result or receipt;
 - authored type results retaining mapping strength, source-unit scope, and
   partiality without claiming a complete declaration;
 - checksum-rejected source never becoming available;
-- exact target, representation generation, and result correspondence;
+- exact target, Library reference, content membership, lease settlement, and
+  result correspondence;
 - finite-work incomplete outcomes;
-- resource disposal on success, failure, and cancellation;
+- Library-lease and acquired-resource settlement on success, rejection,
+  failure, cancellation, and incomplete completion;
 - equivalent CLI and Browser/Wasm settlement for the same typed request; and
 - dependency-policy enforcement that keeps SourceLink and Decompiler
   independent beneath SourceHouse.
