@@ -147,9 +147,37 @@ public sealed class EcosystemCommandTests
         Assert.Contains("ecosystem.microsoft-extensions", result.Output);
         Assert.Contains("ecosystem.aspnetcore", result.Output);
         Assert.Contains("ecosystem.aspire", result.Output);
+        Assert.Contains("ecosystem.ai", result.Output);
         Assert.Contains(
             "| ecosystem.aspire | Aspire | Aspire package and demo content. | configured | 1 | 2 |",
             result.Output);
+        Assert.Contains(
+            "| ecosystem.ai | AI | AI abstractions, agents, vector data, and protocol packages. | none | 0 | 0 |",
+            result.Output);
+    }
+
+    [Fact]
+    public async Task AiCorePackagesExposeCurrentSupportedStartingPoints()
+    {
+        var result = await ExecuteCommandLineAsync(
+            "ecosystem",
+            "ai",
+            "-S",
+            "Core Packages",
+            "--tsv");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            """
+            package
+            Microsoft.Extensions.AI
+            Microsoft.Extensions.AI.Abstractions
+            Microsoft.Extensions.VectorData.Abstractions
+            Microsoft.Agents.AI
+            ModelContextProtocol
+            """,
+            result.Output.Trim());
     }
 
     [Fact]
@@ -531,6 +559,7 @@ public sealed class EcosystemCommandTests
         Assert.Empty(result.Output);
         Assert.Contains("Unknown ecosystem 'unknown'.", result.Error);
         Assert.Contains("aspire (ecosystem.aspire)", result.Error);
+        Assert.Contains("ai (ecosystem.ai)", result.Error);
     }
 
     [Theory]
