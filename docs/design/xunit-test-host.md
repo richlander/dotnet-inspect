@@ -275,6 +275,12 @@ outcome-level host gate without changing the suite's candidate lookup, byte
 attribution, multiplicity, type confirmation, trace correlation, triage
 validation, leak-watch, or end-to-end CLI evidence.
 
+`DependencyPolicy.Tests` is the twenty-first migrated adopter. Its required PR
+and developer commands remain unfiltered. These paths reuse the pinned
+outcome-level host gate without changing the suite's strict schema, graph
+classification, rule evaluation, non-vacuity, deterministic diagnostic,
+MSBuild graph, assembly-closure, or fail-closed boundary evidence.
+
 If the selected MTP version cannot produce the independent discovery and
 execution identities required by the decompiler completeness receipt, that
 suite remains on its transitional host until its owner has an equally strong
