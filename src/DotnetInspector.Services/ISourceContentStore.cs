@@ -4,10 +4,12 @@ namespace DotnetInspector.Services;
 
 /// <summary>
 /// Host-owned cache for caller-validated source document bytes.
-/// Backend failures may use any exception appropriate to the implementation;
-/// callers preserve cancellation and fatal runtime exceptions while converting
-/// other failures to typed source-acquisition evidence. Implementations must
-/// observe the supplied cancellation token before making a write visible.
+/// Implementations own whether backend failures are reported or treated as
+/// best-effort misses or acceptance. Reported failures may use any exception
+/// appropriate to the implementation; callers preserve cancellation and fatal
+/// runtime exceptions while converting other failures to typed
+/// source-acquisition evidence. Implementations must observe the supplied
+/// cancellation token before making a write visible.
 /// </summary>
 public interface ISourceContentStore
 {

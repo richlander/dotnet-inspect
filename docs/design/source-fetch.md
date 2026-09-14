@@ -57,7 +57,10 @@ The adapter consumes, but does not redefine, these owner-issued behaviors:
   callers use `PdbSourceHouse.VerifyChecksum`, which owns portable-PDB checksum
   meaning and line-ending normalization.
 - `ISourceContentStore` is the host persistence port. Its implementation owns
-  its storage mechanics and must honor cancellation before committing a write.
+  its storage mechanics, whether backend failures are reported or treated as
+  best-effort misses or acceptance, and cancellation before committing a
+  write. The desktop compatibility adapter preserves `PersistentCache`'s
+  best-effort read and write semantics.
 - `PdbSourceHouse` owns local/repository/remote ordering, decoding, and settled
   PDB-source outcomes.
 - `SourceAvailabilityService` and `SourceIntegrityService` own their distinct
@@ -99,15 +102,19 @@ candidate is bypassed; the generic store port has no delete operation. An
 invalid network body produces `ValidationFailed` and is not stored.
 
 A valid content-store candidate is promoted to process memory. A valid network
-body must be stored successfully before it is promoted to process memory or
-returned. This strict publication rule keeps a host-store failure visible and
-prevents one request from succeeding on bytes that an identical request cannot
-subsequently observe through its required store.
+body is offered to the content store before it is promoted to process memory or
+returned. If the store reports failure, `SourceFetch` returns `StorageFailed`
+without either publication. A completed store call means that the configured
+adapter accepted the candidate according to its own semantics; it does not by
+itself claim durable persistence.
 
 The compatibility disk adapter stores Base64-encoded bytes in
-`source-bytes-v2`; its entries have no expiry. Permanent storage does not claim
-that a URL is immutable. Revalidation against the caller's current semantic
-predicate is what makes a stored candidate usable.
+`source-bytes-v2`; its entries have no expiry. It deliberately retains
+`PersistentCache`'s best-effort behavior, so an unreadable entry is a miss and
+a suppressed write failure does not prevent the current request from returning
+validated bytes. Permanent storage does not claim that a URL is immutable or
+that every successful request was persisted. Revalidation against the caller's
+current semantic predicate is what makes an available stored candidate usable.
 
 ## Redirects and provenance
 
@@ -143,15 +150,15 @@ The adapter returns validated bytes or one of these failures:
 | `NotFound` | The final HTTP status is 404. |
 | `Unavailable` | Expected transport, response, timeout, offline, or body-limit handling produced no bytes. |
 | `ValidationFailed` | Newly acquired bytes fail the caller validator. |
-| `StorageFailed` | The host store could not read or durably accept the candidate. |
+| `StorageFailed` | The host store reported a non-fatal read or write failure. |
 
 HTTP 404 is the only transport outcome promoted to document absence by current
 PDB composition. Other transport failures remain acquisition failures.
 
-Content-store implementations may report operational failures with ordinary
-exceptions. `SourceFetch` converts non-cancellation, non-fatal store exceptions
-to `StorageFailed`. Cancellation and fatal runtime exceptions remain
-exceptional.
+Content-store implementations choose whether backend failures are reported or
+treated as best-effort misses or acceptance. `SourceFetch` converts reported
+non-cancellation, non-fatal store exceptions to `StorageFailed`. Cancellation
+and fatal runtime exceptions remain exceptional.
 
 Unexpected caller-validator exceptions are not transport evidence. They
 propagate consistently for memory, stored, and network candidates rather than
@@ -201,10 +208,12 @@ retrieval. The adapter therefore follows the repository's typed-acquisition and
 visible-failure conventions rather than importing a debugger-specific cache
 policy.
 
-The deliberate divergence from conventional best-effort caches is strict
-content-store failure: a configured host store is part of this operation, so a
-read or write failure remains visible and fetched bytes are not returned. The
-repeatable-fallback gates below keep that cost explicit.
+The host-neutral port keeps reported content-store failures strict: once a
+configured store reports a read or write failure, fetched bytes are not
+returned or published to process memory. The desktop compatibility adapter is
+the deliberate exception at the backend boundary because it preserves
+`PersistentCache`'s established best-effort semantics. The
+repeatable-fallback gates below cover stores that report failure.
 
 ## Pathological cases and gates
 
@@ -220,8 +229,8 @@ The contract-defining cases are:
   propagates before the next publication stage;
 - expected transport failure becomes `Unavailable`, while an unexpected
   validator exception escapes; and
-- store read/write failures remain typed and do not publish a process-memory
-  candidate.
+- store read/write failures reported by the port remain typed and do not
+  publish a process-memory candidate.
 
 `SourceFetchTests` gates ordering, reuse, cancellation, and validator/transport
 failure separation. `PdbSourceHouseTests` gates invalid-cache repair,
@@ -242,6 +251,7 @@ This decision does not claim:
 - availability or integrity-audit semantics;
 - single-flight acquisition;
 - recovery from a failed required content store;
+- durable acceptance by the best-effort desktop compatibility adapter;
 - protection from deliberate misuse by trusted in-process callers or stores;
 - PDB candidate ordering, checksum grammar, decoding, or source settlement; or
 - the project extraction and dependency boundary tracked by #6335.
