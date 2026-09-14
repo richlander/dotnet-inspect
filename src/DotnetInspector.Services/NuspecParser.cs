@@ -1,5 +1,5 @@
 using System.Xml.Linq;
-using DotnetInspector.Core;
+using UntrustedDocuments;
 using DotnetInspector.Packages;
 using InertText;
 
@@ -91,10 +91,7 @@ public static class NuspecParser
         XElement root = doc.Root
             ?? throw new InvalidDataException(
                 "The package manifest is missing its document root.");
-        if (!root.Name.LocalName.Equals(
-                "package",
-                StringComparison.Ordinal)
-            || !IsNuspecNamespace(root.Name.Namespace))
+        if (!IsPackageRoot(root))
         {
             throw new InvalidDataException(
                 "The package manifest has an invalid document root.");
@@ -199,7 +196,9 @@ public static class NuspecParser
             }
         }
 
-        // Parse readme file path
+        // Parse embedded and legacy presentation assets.
+        result.IconFile = metadata.Element(ns + "icon")?.Value;
+        result.IconUrl = metadata.Element(ns + "iconUrl")?.Value;
         result.ReadmeFile = metadata.Element(ns + "readme")?.Value;
 
         // Parse dependencies
@@ -264,6 +263,10 @@ public static class NuspecParser
         const string suffix = "/nuspec.xsd";
         return uri[prefix.Length..^suffix.Length];
     }
+
+    internal static bool IsPackageRoot(XElement root) =>
+        root.Name.LocalName.Equals("package", StringComparison.Ordinal)
+        && IsNuspecNamespace(root.Name.Namespace);
 
     private static bool IsNuspecNamespace(XNamespace ns)
     {

@@ -9,10 +9,11 @@ shared vocabulary for the output flags
 do.
 
 The item-limit, projection-role, typed-L2 result, and multi-item print passages
-describe the approved
-[#4677](https://github.com/richlander/dotnet-inspect/issues/4677) target, not
-released behavior. [Item and line limits](item-and-line-limits.md) records its
-implementation status and required gates.
+describe historical
+[#4677](https://github.com/richlander/dotnet-inspect/issues/4677) target
+behavior, not released or implementation-ready contracts. [Item and line
+limits](item-and-line-limits.md) records the replacement composition and
+focused-owner gaps; it defines no product syntax, behavior, or gates.
 
 Related docs:
 
@@ -20,10 +21,11 @@ Related docs:
 - [Projected JSON output](projected-json.md) — typed versus lowered JSON, representability, and atomic failure
 - [Rendering model](rendering-model.md) — verbosity vs mode-switch flags
 - [Schema query](schema-query.md) — `-D` discovery of sections and columns
-- [Command model](command-model.md) — command surface and shared options
-- [Item and line limits](item-and-line-limits.md) — the approved target for
-  `-n`, range-only `--rows`, ranked `--top`, line windows, and multi-item
-  printable payloads
+- [CLI change classification and obsolete
+  inputs](cli-change-classification.md) — published surfaces, change
+  disclosure, invalid-input guards, and routing reservations
+- [Item and line limits](item-and-line-limits.md) — composition history for the
+  retired umbrella target and an index of its focused owners
 - [Section-row shaping](section-row-shaping.md) — typed declared-row-set
   binding, projection roles, and terminal Count semantics
 - [The package query CLI](package-query-cli.md) — a facet-matched package
@@ -214,6 +216,31 @@ Formatters decide presentation, not content:
   tree or diagram, a table row) and have no verbosity dial — they either show a
   thing or they do not (see [rendering-model.md](rendering-model.md)).
 
+### Approved `extensions --json` compatibility boundary
+
+The CLI host's `extensions --json` path is an approved bounded exception to
+the ordinary Markout lowering rule. Its typed input is the final
+`List<ExtensionMethodResult>` produced by the extension query, and its lowering
+boundary is the generated `ExtensionMethodJsonResult` contract in
+`ExtensionsJsonContext` / `ExtensionsCompactJsonContext`. The visible result
+is a bare JSON array with the established `method`, `class`, `extended_type`,
+`library`, `signature`, `signatures`, numeric `overloads`, `kind`, source, and
+reachable-path fields; null values remain omitted and `--compact` remains a
+whitespace-only modifier.
+
+This boundary exists to preserve an established machine contract that the
+current lowered Markout formatter cannot represent without changing the
+top-level array shape and converting typed numeric/list values to string table
+cells. It is limited to this CLI host and this plain `--json` output; Markdown,
+table, TSV, JSONL, count, and semantic row selection remain on the normal typed
+view/Markout path. The Release gates are
+`SearchJsonResultTests.ExtensionResult_PreservesPublicJsonFieldNames`,
+`ExtensionsCommandTests.ExecuteAsync_CompactJsonPreservesTypedArrayContract`,
+and the extension JSON cases in `CommandExecutionTests`. The exception is
+owned by the `extensions` adoption tracked in
+[#6697](https://github.com/richlander/dotnet-inspect/issues/6697) and should be
+retired only when a compatible Markout typed-JSON lowering is available.
+
 The current `CountProjectionFormatter` establishes cardinality by intercepting
 structured Markout rows without writing them. Under the target
 [section-row-shaping contract](section-row-shaping.md#result-binding-and-failure),
@@ -221,6 +248,62 @@ formatters instead consume typed L2 Row-outcomes, Count, or failure results and
 do not establish cardinality. Rendered Markdown is never parsed back into rows.
 Producers outside Markout, such as metadata tables, expose the same declared
 logical rows to L2 that their renderers consume.
+
+### Approved `vocabulary --json` compatibility boundary
+
+The CLI host's plain, unprojected `vocabulary --json` path is an approved
+bounded exception to ordinary Markout lowering. Its typed input is the selected
+owner-issued `VocabularySection` sequence plus the catalog schema version, and
+its lowering boundary is `VocabularyWireDocument` through the generated
+`VocabularyWireJsonContext` or `VocabularyWireCompactJsonContext`. The visible
+result is the established schema-versioned document containing section
+metadata, accepted-command identities, field schemas, operators, and typed
+value cells.
+
+This boundary exists because the lowered Markout table shape intentionally
+contains display rows, not the catalog's schema and typed values. Moving this
+path through Markout would discard that information or change the public wire
+contract. The exception is limited to this CLI host and plain unprojected
+`--json`; Markdown, plain text, table, TSV, JSONL, and projected JSON serialize
+one typed `VocabularyView` through `VocabularyViewContext`. The Release gates
+are
+`VocabularyCommandTests.JsonSerialization_PreservesWireShapeAcrossIndentationModes`,
+`Command_JsonCarriesTypedSchemaAndValues`,
+`Command_DefaultRendersTheSelfDescribingSectionIndex`,
+`Command_PlainTextUsesThePlainTextFormatter`,
+`Command_JsonlUsesProjectedRuntimeColumns`, and
+`Command_PartialMachineKeyProjectionKeepsSectionIdentityAcrossFormats`.
+The focused adoption is tracked by
+[#6811](https://github.com/richlander/dotnet-inspect/issues/6811).
+
+### Approved cache JSON compatibility boundary
+
+The CLI host's `cache --json` and `cache --jsonl` paths are an approved bounded
+exception to ordinary Markout lowering. Their typed input is the owner-issued
+`PackageCacheService.CacheInfo` snapshot, and their lowering boundary is
+`CacheInfoJson` through the generated `CacheInfoJsonContext`. Both formats
+expose one object containing the active cache `location`, formatted `total`,
+and a `categories` array whose rows contain `name`, `size`, and `items`.
+JSONL emits that complete object as exactly one line. An empty cache retains the
+same object shape with `categories: []`.
+
+This boundary exists because generated Markout list sections do not emit an
+empty section, so lowered JSON cannot preserve the required empty array.
+Ordinary Markout JSONL would instead emit one object per category row and
+discard the snapshot's location and total. The exception is limited to these
+two machine formats for cache inspection. Markdown, plain text, table, and TSV
+serialize `CacheInfoView` through `CacheInfoContext`; the empty human state
+serializes `EmptyCacheInfoView` through the same generated context. The scalar
+acknowledgements from `cache clear` expose no format selection and are not a
+cache inspection document.
+
+The Release gates are
+`CacheCommandTests.EmptyCacheInfoView_DocumentFormatsRenderExactMessage`,
+`ExecuteAsync_EmptyCache_JsonFormat_EmitsValidJson`,
+`ExecuteAsync_EmptyCache_JsonlFormat_EmitsSingleValidLine`, and
+`ExecuteAsync_PopulatedCache_JsonAndJsonlPreserveOneRecordContract`. The
+focused adoption is tracked by
+[#6833](https://github.com/richlander/dotnet-inspect/issues/6833).
 
 An incomplete comparison is not narrowed into a clean result. Diff document
 formats include typed inspection-failure rows. Single-shape diff formats
@@ -298,8 +381,12 @@ merge from labels or presentation.
 
 Trees and graphs do not acquire row semantics from whichever presentation a
 formatter happens to choose. A producer that supports counting such a shape
-must declare and count its product-owned lowering, as the dependency commands
-do for graph nodes.
+must declare and count its product-owned lowering. Current dependency commands
+count graph nodes. The target
+[Dependency Inspection Command](dependency-inspection-command.md) instead
+declares one directed logical dependency edge as the shared graph row across
+tree, Mermaid, table, JSON, row selection, and count; that target becomes
+current only when its migration lands.
 
 `-D`/`--discover` is orthogonal: it does not render the subject, it lists the
 *available* shapes — the sections of the Document and the columns of a Table (see
@@ -307,10 +394,9 @@ do for graph nodes.
 
 ### Printable payload projections
 
-The target contract from
-[Item and line limits](item-and-line-limits.md) makes normal `--print` a batch
-projection over the selected rows. Every selected row is projected to its
-declared printable payload:
+The historical #4677 target made normal `--print` a batch projection over the
+selected rows. Every selected row was projected to its declared printable
+payload:
 
 | Selected rows | `--print` | `--print --row N\|first\|last` |
 | ---: | --- | --- |
@@ -323,6 +409,9 @@ before projection. `--row` is the mutually exclusive exactly-one alternative to
 the item/range windows; line-mode `-n` remains available under `--lines`.
 `--paths` and `--urls` project the same selected rows without acquiring their
 content.
+
+This batch behavior remains pending focused L3 payload-projection ownership and
+must not guide implementation until that owner adopts it with its gates.
 
 Numeric `--row N` addresses a row by its position after filtering and effective
 ordering, but before item/range windows or payload projection. Sections do not
@@ -578,7 +667,8 @@ Every command that exposes `--print` also exposes and wires unary `--bare` and
 the projection rather than accidents of its parent command. Structured
 multi-item `--out` is a different mode: after atomic preflight it may publish
 complete result records incrementally, including typed row failures, as
-specified by [Item and line limits](item-and-line-limits.md).
+described by the historical #4677 target. It remains pending focused L3
+payload-projection ownership and gates.
 
 Tool-authored companion sections still use the stream split: for example,
 `package X -S "Package README file" --print --info` writes the framed, encoded
@@ -625,7 +715,7 @@ the caller made.
 | Flag | Effect |
 | --- | --- |
 | `--markdown` | force the full Markdown Document format |
-| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`). Accepted lenses and payload projections claim their own output first. Plain document `--json` keeps the pre-lowered typed document; an otherwise-unclaimed, non-empty `--fields`/`--columns` request names lowered vocabulary and opts into the lowered display view (#3494), with the same machine table keys as `--jsonl` and with semantic item/range windows and `--compact` preserved. `find` and `vocabulary` currently wire lowered document paths, while discovery owns projected JSON under its lens contract; unadopted projection-capable routes reject unsupported combinations before typed JSON serialization. Complete structured values under item and line limits remain unverified; `ProjectedJsonWindowingTests` and the gates in [Item and line limits](item-and-line-limits.md) own the target. See [Projected JSON output](projected-json.md) for routing, representability, diagnostics, and compatibility. |
+| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`). Accepted lenses and payload projections claim their own output first. Plain document `--json` keeps the pre-lowered typed document; an otherwise-unclaimed, non-empty `--fields`/`--columns` request names lowered vocabulary and opts into the lowered display view (#3494), with the same machine table keys as `--jsonl` and with semantic item/range windows and `--compact` preserved. `find` and `vocabulary` currently wire lowered document paths, while discovery owns projected JSON under its lens contract; unadopted projection-capable routes reject unsupported combinations before typed JSON serialization. Complete structured values for the historical item/line target remain unverified and await focused ownership; `ProjectedJsonWindowingTests` covers only its named current projected-JSON paths. See [Projected JSON output](projected-json.md) for routing, representability, diagnostics, and compatibility. |
 | `--tsv` / `--jsonl` | render the single selected section as TSV / JSON Lines (a Table or Vector) |
 | `--table` | render the single selected section as a space-padded pretty table |
 | `--no-header` (`--no-headers`) | drop the Table header row |

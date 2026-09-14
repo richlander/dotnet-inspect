@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
 using System.Text;
 using ILInspector.MetadataPrimitives;
-using ILInspector.Text;
+using Inspector.Text;
 
 namespace ILInspector.Decompiler;
 

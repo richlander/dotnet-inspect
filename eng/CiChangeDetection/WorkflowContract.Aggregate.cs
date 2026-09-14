@@ -77,7 +77,7 @@ internal static partial class WorkflowContract
         RequireScalarValue(
             checkout,
             "uses",
-            "actions/checkout@v6",
+            "actions/checkout@v7",
             "jobs.ci-required checkout step");
         var namedSteps =
             new Dictionary<string, (int Index, YamlMappingNode Step)>(

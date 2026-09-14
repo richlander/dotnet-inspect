@@ -59,15 +59,17 @@ Consumers must preserve the distinction between these states:
 | State | Meaning |
 | --- | --- |
 | Legacy, unmarked | The module has no `MemorySafetyRulesAttribute`; apply v1 compatibility rules. |
-| Updated v2 | The module has one valid module attribute with version `2`; apply v2 rules. |
-| Unsupported version | The module attribute contains another integer. Preserve it as unrecognized; Roslyn also applies legacy compatibility inference and reports the unsupported marker when imported methods or accessors are consumed. |
+| Updated v2 | Every decoded module marker has version `2`; apply v2 rules. |
+| Unsupported version | Every decoded module marker has the same other integer. Preserve it as unrecognized; Roslyn also applies legacy compatibility inference and reports the unsupported marker when imported methods or accessors are consumed. |
 | Malformed marker | The attribute cannot be decoded according to its expected constructor shape. Preserve the failure; Roslyn likewise uses compatibility inference while treating imported methods and accessors as carrying an unrecognized marker. |
-| Conflicting markers | More than one candidate marker prevents a unique module judgment; member contracts are unavailable. |
+| Conflicting markers | Decoded module markers disagree, preventing a unique module judgment; member contracts are unavailable. |
 
 The conflicting-marker result is a conservative dotnet-inspect policy, not
 current Roslyn parity. Current Roslyn uses the first matching module attribute,
 so duplicate-marker interpretation is order-sensitive. This product instead
 refuses to invent one authoritative module judgment from conflicting evidence.
+Repeated identical decoded markers preserve every row but do not conflict,
+because they still establish one unique rules model.
 
 The raw integer and the recognized model are separate facts. Reporting an
 actual version must not silently turn every value greater than or equal to `2`
@@ -433,7 +435,7 @@ not imply that the original source used the same block or expression form.
 | Which methods are safe boundaries? | Recognized v2 module, no member propagation contract, and positive inner-unsafe evidence | Not currently exposed as a composed census. |
 | How do safe and unsafe methods connect? | Typed method roles plus bounded incoming and outgoing call traversal over a finite cross-assembly context | Call-graph infrastructure supports both directions and cross-assembly identities. It can expose a conflating `MethodSignals.Unsafe` cue, but no current query composes the separate propagation, inner-use, and safe-boundary roles onto paths. |
 | How should C# declarations spell safety contracts? | Binary model, declaration shape, and member contract | CSharp does not yet consume the complete typed facts required for v2 `unsafe` and derived `safe` spelling. |
-| How should reconstructed bodies express unsafe context? | Binary model, member contract, recovered body requirements, and the runtime placement oracle | Decompiler owns this through [memory-safety rendering modes](memory-safety-modes.md); current output uses blocks while `unsafe(expr)` compile-back support remains tracked by #2021. |
+| How should reconstructed bodies express unsafe context? | Binary model, member contract, recovered body requirements, and the runtime placement oracle | Decompiler owns this through [memory-safety rendering modes](memory-safety-modes.md); current output uses compiler-validated `unsafe(expr)` forms when one rendered expression contains the obligation and minimal blocks for the remaining compiler, scope, or data-flow cases. |
 | Is the project configured for the strongest default? | Updated project policy, unsafe-context permission disabled, v2 binary, and no propagators or unsafe users | No single current query composes this answer. |
 | Did this project produce this binary? | Affirmative provenance evidence | Unverified unless supplied separately. |
 

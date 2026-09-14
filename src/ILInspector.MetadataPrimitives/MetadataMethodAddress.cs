@@ -26,14 +26,8 @@ public readonly record struct MetadataMethodAddress(
     public static MetadataMethodAddress Create(
         MetadataReader reader,
         MethodDefinitionHandle handle)
-    {
-        var module = reader.GetModuleDefinition();
-        return new MetadataMethodAddress(reader.GetGuid(module.Mvid), handle);
-    }
+        => new(MetadataModuleIdentity.ReadVersionId(reader), handle);
 
     public bool BelongsTo(MetadataReader reader)
-    {
-        var module = reader.GetModuleDefinition();
-        return ModuleVersionId == reader.GetGuid(module.Mvid);
-    }
+        => ModuleVersionId == MetadataModuleIdentity.ReadVersionId(reader);
 }

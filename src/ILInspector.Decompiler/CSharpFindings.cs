@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata;
 
 using ILInspector.Decompiler.Pipeline;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Decompiler;
@@ -247,7 +247,7 @@ public static class CSharpFindings
             new FindingInspection<CSharpCanonicalLine>.Complete(ProjectAtoms(newLines, subject)),
             acceptanceThreshold);
 
-    static FindingComparison<CSharpCanonicalLine> CompareInspections(
+    internal static FindingComparison<CSharpCanonicalLine> CompareInspections(
         FindingInspection<CSharpCanonicalLine> oldInspection,
         FindingInspection<CSharpCanonicalLine> newInspection,
         int acceptanceThreshold)

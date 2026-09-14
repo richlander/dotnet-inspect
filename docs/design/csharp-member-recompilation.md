@@ -78,8 +78,10 @@ context.
 - Do not require stricter metadata, exception-region, local-signature, PDB, or PE
   comparison before the first useful round-trip measurements.
 - Do not add Metadata forwarding or accessibility semantics. Compile-back
-  consumes the signature-spellability aggregate owned by
-  [`type-forwarding-resolution.md`](type-forwarding-resolution.md).
+  consumes per-occurrence resolution evidence from
+  [`type-forwarding-resolution.md`](type-forwarding-resolution.md) and the
+  separate terminal-accessibility result tracked by
+  [#5302](https://github.com/richlander/dotnet-inspect/issues/5302).
 - Do not expand C# lexical-precedence policy. Issue
   [#4721](https://github.com/richlander/dotnet-inspect/issues/4721) owns that
   concern; this contract only refuses to equate equal spellings with equal
@@ -414,10 +416,8 @@ diff evidence:
 - `Unavailable` retains the endpoint's `Absent` or `Failed` inspection, identity
   failure, or decompilation/diff failure reason.
 
-This target arbiter is **unverified** until
-`CSharpRoundTripChangedRejectsFailureRows` runs in Release. The shipping
-round-trip envelope currently maps any non-exact diff with complete endpoint
-inspections to `Changed`, including a diff whose only rows are failures.
+`CSharpRoundTripChangedRejectsFailureRows` gates producer failure rows and
+identity failures, both alone and alongside change rows, in Release.
 
 This precondition is deliberate: `CSharpBodyDiffResult.IsExact` alone is not the
 arbiter because an empty native diff can also arise when a body fingerprint is
@@ -426,6 +426,36 @@ and preserves all producer-owned rows and failures.
 
 C# equality is useful for spelling and decompiler stability. It does not prove
 that authored source, reconstructed source, or compiled behavior is equivalent.
+
+### Comparison query consumption
+
+`DotnetInspector.RoundTripCompilation` owns this consumer envelope.
+`RoundTripComparison` and `RoundTripScopeComparison` consume the public
+`DirectMemberComparisonQuery` for each pair admitted by their existing
+correspondence and context checks. The
+[direct-member contract](direct-member-comparison.md) supplies exact input
+association; [local publication](local-comparison-publication.md) supplies
+terminal and native evidence. Neither dependency establishes donor
+correspondence or a harness fidelity verdict.
+
+The tools retain the exact `LocalComparisonQueryResult` in the non-serialized
+`Evidence` property. Their materialized rows and independent C#/IL statuses
+come from its native outcomes. Query-origin non-success, non-completed Research
+execution, and unavailable producer evidence stay unavailable, with the
+owner-issued result retained. They do not become an exact or changed result
+because rows are absent. Endpoint inspections are consumed from that result,
+not repeated by the tool.
+
+Original-to-donor correspondence and hashes, compilation-context eligibility,
+and the separate direct cluster-to-all comparison remain required.
+`RoundTripComparisonTests` gates exact and changed pairs, bodyless and malformed
+body evidence, failed correspondence, query designation rejection, retained
+physical addresses and native rows, and direct donor-pair association in
+Release. This is the focused two-helper adoption slice of
+[#6134](https://github.com/richlander/dotnet-inspect/issues/6134), within
+[#4706](https://github.com/richlander/dotnet-inspect/issues/4706) step 10.
+ReturnToSender's separate comparison path and fidelity oracle, supported Source
+composition, and final Research retirement are not changed by this adoption.
 
 ### IL arbiter
 
@@ -482,15 +512,15 @@ The owner consumes, but does not redefine:
 
 - the source artifact, selected-member anchor, and declaration plan from the C#
   artifact producer;
-- the signature-spellability aggregate, including its external definitions and
-  local requirements, from `ILInspector.Metadata`;
+- named signature occurrences, per-occurrence resolution outcomes, and required
+  terminal-accessibility evidence from `ILInspector.Metadata`;
 - `MethodInstructions` and `DecodedInstruction` from the shared instruction
   substrate;
 - guarded metadata name, signature, and resolution operations;
 - compiler diagnostics and rebuilt PE bytes from the tools compiler adapter;
 - C# and IL comparison results from their existing owners.
 
-Seven adjacent-owner prerequisites are now explicit:
+The adjacent-owner prerequisites are explicit:
 
 - [#4881](https://github.com/richlander/dotnet-inspect/issues/4881) is the
   `ILInspector.CSharp` design for an artifact-digest-bound participant manifest.
@@ -505,13 +535,23 @@ Seven adjacent-owner prerequisites are now explicit:
   compiler-generated definitions. Current per-side ordinal-normalized names do
   not identify counterpart definitions.
 - [#4885](https://github.com/richlander/dotnet-inspect/issues/4885) implements
-  the landed `ILInspector.Metadata` signature-spellability aggregate. Current
-  `SignatureSpellabilityResult` collapses the result to `CanSpell` plus decode
-  status and cannot supply the closed evidence consumed here.
+  the bounded single-signature occurrence decode owned by
+  [`metadata-signature-decoding.md`](metadata-signature-decoding.md), landed in
+  [#5927](https://github.com/richlander/dotnet-inspect/pull/5927). Tools adoption
+  remains tracked by [#5890](https://github.com/richlander/dotnet-inspect/issues/5890).
+  The legacy `SignatureSpellabilityResult` collapses the result to `CanSpell`
+  plus decode status and is not a substitute for that per-occurrence evidence.
+- [#5302](https://github.com/richlander/dotnet-inspect/issues/5302) owns terminal
+  accessibility independently of resolution. Until its owner-issued result is
+  available, tools cannot complete a signature requirement that needs external
+  accessibility evidence. Source-local declaration inclusion and nameability
+  are tools-owned obligations, not external-accessibility questions.
 - [#4916](https://github.com/richlander/dotnet-inspect/issues/4916) implements
-  the artifact owner's on-demand digest over retained immutable content.
-  Current artifact sessions expose `OpenRead`, while the owning design reserves
-  digest authority to the session and marks this API unverified.
+  the artifact owner's on-demand digest over retained immutable content,
+  landed in [#5968](https://github.com/richlander/dotnet-inspect/pull/5968).
+  `ArtifactSetSession.GetContentDigest` and its lease-bound
+  `ArtifactContentReference` forwarding operation supply owner-issued results;
+  tools consume those results rather than compute replacement content digests.
 - [#4930](https://github.com/richlander/dotnet-inspect/issues/4930) is the
   `MemberBodyProducer` design for a complete typed occurrence manifest over each
   receipt-bearing product `CSharpBlockBody`. Original or rebuilt IL cannot prove
@@ -542,7 +582,8 @@ produces a `CompileReferenceInventory` containing every candidate considered.
 Selection produces either one immutable `CompileReferenceSet` or a typed
 failure. Discovery order is never a binding policy.
 
-Before descriptor construction or selection, discovery requests the
+Before constructing frozen-reference descriptors or selecting compiler
+references, discovery requests the
 owner-issued retained-content digest from
 [#4916](https://github.com/richlander/dotnet-inspect/issues/4916) for the source
 artifact and every candidate. If any required digest capability or result is
@@ -569,7 +610,13 @@ The selected set records the current source artifact separately, including its
 acquisition registration, retained snapshot, digest, and module identity. The
 current artifact contributes source-local declaration identities but is not
 silently reintroduced as a metadata reference to satisfy its own generated
-source.
+source. After retaining the complete discovery inventory, tools classify every
+candidate with equivalent full assembly identity, MVID, and retained-content
+digest as another acquisition of the current source module. Those candidates
+remain inventory evidence but cannot enter exact or platform selections.
+Explicitly requesting one returns `SourceReferenceExcluded`; unavailable
+identity, module, digest, or retained-content evidence fails through its
+existing typed inventory failure rather than weakening source exclusion.
 
 Selection follows these rules:
 
@@ -587,7 +634,10 @@ Selection follows these rules:
 5. Trusted-platform preference applies only when acquisition and platform
    contracts authorize that exact candidate. It does not erase conflicting
    package or local candidates from the inventory.
-6. Metadata resolution and Roslyn references use the same selected descriptors
+6. Source-module exclusion is distinct from candidate coalescing: registrations
+   remain separate evidence even when an exact source replica is ineligible for
+   compiler selection.
+7. Metadata resolution and Roslyn references use the same selected descriptors
    and owner-retained immutable snapshots under one current query lease.
    Neither consumer reopens the source path. If retained content cannot be
    opened, selection fails visibly rather than reacquiring replacement bytes.
@@ -599,6 +649,254 @@ every compiler-relevant role. Reordering discovery input without changing
 policy or candidates cannot change the selected order, identity, or outcome.
 The digest authenticates the retained snapshot; it is not a substitute for
 retention, and bracketing hashes of a mutable path are insufficient.
+
+#### Initial selection policy
+
+The initial tools API accepts exact Metadata assembly identities with a required
+version. Neutral culture and an absent public-key token mean neutral and
+unsigned, not wildcard requests. An optional owner-issued artifact identity
+pins one inventory candidate; a mismatching pin does not weaken identity
+matching. Different registrations with equivalent full identities cannot both
+enter a selected set, even through separate pins or aliases, because Metadata
+resolution must remain unique.
+
+Aliases are sorted and deduplicated; an omitted or empty alias list means
+`global`. Repeated selection of one registration coalesces only when compiler
+roles agree. This initial policy grants no platform authorization or preference
+and performs no version roll-forward.
+
+Inventory IDs are owner-issued artifact identities, not durable or displayed
+addresses. Canonical order follows their deterministic generation-local order.
+The set key is the artifact generation together with the set digest; its hex
+value alone is not a cross-generation identity. The digest binds the separate
+source association and ordered selected registrations, content digests, full
+assembly identities, MVIDs, and compiler roles.
+
+The caller owns the original session and query lease through discovery,
+selection, and scoped `Use` operations. Each operation requires current
+authority; a scoped context is not a replacement for that authority. Metadata
+uses the selected guarded openers and Roslyn uses the matching retained
+immutable images. Source locations remain inert provenance, not reopen paths.
+
+`CompileReferenceSetTests` gates this initial policy through exact-identity and
+ambiguity cases, generation-scoped keys, role-sensitive selection and compiler
+binding, digest-before-descriptor ordering, source exclusion, stale authority,
+and retained-snapshot consumption by both Metadata and Roslyn. These gates do
+not establish the later closure, admission, or rebuilt-binding receipts.
+
+#### Explicit platform compatibility policy
+
+[#6120](https://github.com/richlander/dotnet-inspect/issues/6120) adds an
+explicit tools policy for the existing RTS platform-compatibility cases. The
+initial exact-only policy remains the default. The user approved this
+prerequisite to preserve supported behavior before the RTS migration in
+[#6103](https://github.com/richlander/dotnet-inspect/issues/6103); it does not
+authorize a general local roll-forward policy or new platform entitlement.
+
+The policy consumes Services-issued platform selections for a finite set of
+explicit binding requests. Services owns candidate acquisition, platform
+eligibility, precedence, and version selection. Tools records those answers;
+it does not reproduce the owner's probing or forwarding algorithms. Metadata
+may prepare forwarding requests under that policy before the context freezes.
+This preparation is not a signature or body closure receipt.
+
+The initial explicit mode accepts `Platform`-scope assembly-reference requests
+with a required version and either a global or registered source-relative
+origin. It preserves Services' seed continuations; contextual or foreign
+continuations and other target kinds produce a typed unsupported outcome.
+Platform-selected compiler references use the global alias without embedded
+interop types. Ordinary exact requests retain their existing role options;
+conflicting roles cannot silently replace the platform roles.
+
+For each platform-reference request:
+
+1. Services must select a platform acquisition for the original identity and
+   origin in `Platform` scope. The selected acquisition must carry the owner's
+   `PlatformAsset` provenance. Platform scope alone is insufficient: a
+   designated acquisition is not thereby a platform acquisition. Caller-supplied
+   provenance labels, names, paths, keys, and content digests do not grant this
+   authority.
+2. The requested name, culture, and public-key token must match the selected
+   full identity under the initial policy's exact-family semantics. Only the
+   owner-authorized one-way version substitution is permitted; omitted token
+   and culture do not become wildcards.
+3. Services must also select an acquisition in `Any` scope for the
+   platform-selected full identity, retaining the requesting origin. Using
+   the selected version here permits an older platform request without
+   weakening the sibling comparison.
+4. After artifact admission and digest-first discovery, both selections must
+   agree in full identity, MVID, and owner-issued retained-content digest.
+   Missing, ambiguous, unavailable, or disagreeing selections remain visible
+   failures, including a version-skewed sibling that owns the name but cannot
+   satisfy the selected identity.
+5. The compiler set explicitly selects the platform acquisition. An identical
+   sibling remains a distinct, unselected inventory candidate with its own
+   provenance. Digest agreement establishes compatibility for this policy;
+   it neither coalesces registrations nor grants the sibling platform authority.
+
+Supporting-owner acquisition precedes artifact admission; tools descriptor
+construction and compiler selection still follow owner digest acquisition.
+Preparation retains the acquired images before returning, so later publication
+and query consumption cannot reacquire changed path content.
+The tools preparation result retains the association between each original
+Services acquisition registration and the contribution actually registered
+with the artifact owner. It cannot accept a separately asserted association
+based on path, display identity, or digest equality.
+
+The frozen result binds the declared requests, their origin and scope,
+owner policy version, selected registrations, and agreement evidence to one
+artifact generation. The set encoding includes the policy mode and accepted
+binding mappings: different accepted requested versions cannot share a set
+key merely because their compiler images match. Opaque issuer-version
+identity also participates in equality alongside the artifact generation and
+digest. It remains typed; object display text or hash codes are not durable
+policy identity.
+
+Scoped Metadata binding preserves request and origin distinctions and uses
+only the frozen mappings and artifact-guarded images. Roslyn receives the same
+selected images. Unprepared platform bindings remain unavailable; `Use` cannot
+invoke Services, reopen paths, acquire another candidate, or substitute a new
+policy answer. Existing source separation and query-lease lifetime rules still
+apply.
+Origin-free lookup remains exact and `Any`-scope only over the selected set;
+platform compatibility uses the origin-aware `IAssemblyBindingPolicy` surface.
+
+`CompileReferencePlatformPolicyTests` gates unchanged exact-only behavior,
+older platform requests and identical siblings, differing-content and
+version-skewed siblings, and policy-sensitive ordering and identity.
+`OlderPlatformRequestPreparesForwardingAndBindsRetainedCoreLib` and
+`SupportingAcquisitionsAreRetainedBeforeArtifactSealAndScopedUse` exercise
+Metadata forwarding and Roslyn binding to retained images.
+`FrozenBindingsRemapArtifactOriginsAndPreserveScopeAndSeedOccurrences`
+gates origin remapping and unavailable unprepared platform bindings.
+These cases run in the ordinary Release harness contract suite.
+The platform-policy API alone does not expose Services' complete discovery
+inventory or complete a consumer migration.
+
+#### Tools adoption
+
+[#6005](https://github.com/richlander/dotnet-inspect/issues/6005) tracks the
+frozen-reference implementation within the overall decoder-adoption tracker
+[#5890](https://github.com/richlander/dotnet-inspect/issues/5890).
+The compatibility-preserving frozen-reference adoption path has four steps:
+
+1. Implement the inventory, selected set, and scoped context API. The immediate
+   production host for this test infrastructure is the decompiler harness
+   contract suite, which exercises Metadata and Roslyn with the selected images.
+   This step landed in [#6006](https://github.com/richlander/dotnet-inspect/pull/6006).
+2. Add the explicit platform policy in
+   [#6120](https://github.com/richlander/dotnet-inspect/issues/6120), with the
+   same harness contract suite as its immediate production consumer.
+   This step landed in [#6133](https://github.com/richlander/dotnet-inspect/pull/6133).
+3. Expose the Services-owned
+   [candidate inventory](assembly-dependency-candidate-inventory.md) in
+   [#6201](https://github.com/richlander/dotnet-inspect/issues/6201), preserving
+   discovery evidence before consumer selection. The typed inventory landed in
+   [#6214](https://github.com/richlander/dotnet-inspect/pull/6214); ordered
+   `.deps.json` physical-location selection landed in
+   [#6360](https://github.com/richlander/dotnet-inspect/pull/6360). The
+   [Application Dependency Manifest Format](application-dependency-manifest-format.md)
+   later separates SDK byte interpretation from that physical resolver policy.
+4. Migrate ReturnToSender's compiler-closure acquisition to the frozen context
+   in [#6103](https://github.com/richlander/dotnet-inspect/issues/6103) and retire
+   its simple-name-first-wins reference enumeration and competing compiler
+   binding projection on that path.
+
+RTS performs step 4 by requiring the complete `Captured` Services result; a
+`Failed` result and its partial entries cannot become a smaller successful
+compiler inventory. The target occurrence becomes the selected set's separate
+source association. Every acquired non-target registration is retained through
+the platform policy's single capture map and artifact-registration pass, so
+platform preparation and ordinary inventory admission cannot register parallel
+artifacts for one Services acquisition.
+
+Platform preparation is finite and driven by target reachability or an exact
+captured collision. RTS does not enumerate the harness process's trusted
+platform assembly list into the inspected candidate inventory: that list
+contains the harness application closure as well as runtime assemblies and
+therefore cannot authorize platform treatment for the inspected artifact.
+Instead, starting at the target, RTS asks Services for `Platform`-scope
+selection of each encountered assembly reference. Installed-platform fallback
+is enabled for those requests and for the policy's matching `Any`-scope
+agreement lookup; Services remains the authority for whether the requested
+name is an installed platform candidate.
+
+An exact captured non-platform candidate precedes platform version
+substitution and becomes the next reachable origin. If no exact candidate
+exists, a Services-selected `PlatformAsset` forms the explicit platform
+request and becomes another reachable origin whose ordinary assembly references
+receive the same request-driven classification. If both exist with the same
+complete identity, RTS retains the platform request so the existing agreement
+gate verifies full identity, MVID, and retained digest. A different-version
+installed platform selection does not displace the exact package or application
+asset. Metadata owns forwarder traversal from the prepared requests. RTS also
+prepares a global request for an exact captured candidate when Services
+independently selects the same complete identity as a platform asset, even if
+the collision is not target-reachable.
+
+When a matching `<target>.deps.json` exists, RTS reads its bounded bytes and
+directly invokes the application dependency-manifest format owner. That result
+selects the exact runtime target and, for RID-specific SDK output, its
+associated RID-less compilation target. RTS supplies the immutable result to
+Services, which projects application-relative, package-root, and adjacent
+project-output locations without interpreting JSON. Broad sibling-directory
+discovery is disabled only after format interpretation succeeds.
+
+Scanning the same directory as a separate source would create distinct
+provenance-bearing registrations for one physical asset. The
+candidate-inventory contract forbids coalescing those registrations by path or
+bytes, so avoiding the second discovery source prevents an artificial
+selection ambiguity without weakening the evidence model. Targets without a
+matching dependency manifest retain sibling discovery; a rejected or
+incomplete matching manifest fails visibly rather than selecting that fallback.
+
+Selection requests every captured candidate except the platform and agreement
+registrations explicitly covered by prepared binding evidence. Another
+registration with the same complete identity remains visible and produces
+`ReferenceSelectionAmbiguous`; one checked agreement does not suppress an
+unchecked occurrence. A platform request for one version likewise does not
+suppress an exact package or application candidate at another version.
+Unprepared platform assets therefore remain ordinary exact compiler references
+rather than receiving implicit compatibility authority. Distinct equivalent
+registrations without platform authority remain a typed ambiguity rather than
+regaining first-wins behavior.
+
+`ReturnToSenderCompilationClosureTests` gates these consumer boundaries in the
+ordinary Release `DecompilerHarness.Tests` suite. One case places an ordinary
+application dependency in the harness process TPA set and requires RTS to
+retain the target-local identity rather than granting the host copy platform
+authority. Another
+requires a selected platform assembly's ordinary reference closure to join the
+compiler set. A renamed extra occurrence with the selected platform identity
+must remain ambiguous because it is outside the binding's agreement evidence.
+An exact candidate at another version remains in the compiler set rather than
+being suppressed by the prepared platform family.
+The manifest case uses an SDK project entry with no declared physical path,
+projects its nested logical asset to the adjacent output file, ignores an
+unselected target, and requires exactly one compiler reference despite the
+same file also being sibling-discoverable. A malformed matching manifest must
+fail before sibling fallback. The pinned cutover population adds real evidence
+from
+`dotnet-inspect.any/0.14.0` application dependencies and the
+`microsoft.codeanalysis.csharp/5.0.0` package graph: package-local dependencies
+reach member-level RTS without being compared to unrelated current-harness or
+installed-platform versions.
+
+One RTS compilation closure owns the sealed artifact session, query lease, and
+selected set. Initial decompiler compilation, external-interface Metadata
+resolution, fault isolation, and authored replay enter
+`CompileReferenceSet.Use` and consume one scoped `CompileReferenceContext`;
+neither a context nor a detached reference array survives the callback.
+Ordinary synchronous RTS entry points dispose their owned closure before
+returning and clear the request association. Authored replay explicitly owns
+one shared closure across every result for the assembly and disposes it after
+the final replay. Disposing the closure revokes further scoped use.
+
+The user-approved tools-first scope defers CLI/browser production adoption.
+The first step does not relabel the legacy ReturnToSender path as conforming,
+adopt the signature decoder there, or complete closure and admission. These
+steps are prerequisites within #5890's second decoder-adoption step, not a
+claim about the total number of compile-back implementation slices.
 
 ### Compile-context definition identity
 
@@ -711,27 +1009,45 @@ primary-only scan cannot cover an artifact that also renders companions or
 is a pre-commit policy refusal; after that policy's attempt commit, a missing or
 mismatched manifest is an artifact-production failure.
 
-Signature requirements come from the Metadata-owned immutable
-signature-spellability aggregate. Until
-[#4885](https://github.com/richlander/dotnet-inspect/issues/4885) implements
-that owner-issued surface, tools retain
-`SignatureSpellabilityAggregateUnavailable` and decline before
-`ProductAttemptCommit`; they do not infer a typed reason from the current
-`CanSpell` boolean. Once available, an accessible external definition becomes
-an exact selected-reference requirement. Metadata's authoritative
-`Inaccessible` outcome becomes `Unspellable` with the original
-terminal-definition and accessibility evidence; it cannot become an exact
-reference requirement. Unresolved or rejected aggregate outcomes retain their
-exact Metadata failure as `Incomplete`. Every `LocalRequirement` needs a
-`LocalDeclarationReceipt` proving that the exact source `TypeDef`, including its
-containing declaration chain, is present and nameable in the generated
-artifact. A same-named external definition cannot satisfy it.
+Signature requirements compose Metadata-owned named occurrences from
+[#4885](https://github.com/richlander/dotnet-inspect/issues/4885) with
+per-occurrence resolution outcomes under the frozen compile context. Tools
+retain an explicit missing-decode capability reason and decline before
+`ProductAttemptCommit` until that occurrence surface exists. The current
+`CanSpell` boolean supplies neither the missing identities nor typed failure
+evidence.
 
-Metadata's compatibility `CanSpell` projection may authorize this artifact only
-after tools have discharged all local requirements. Metadata retains the
-artifact-independent aggregate; tools own the artifact-specific receipt.
-Planning consumes the aggregate's closed evidence entries rather than treating
-`CanSpell: false` as one undifferentiated failure.
+For each occurrence resolved to the source candidate that is not covered by a
+`CompilerSynthesizedDefinition` obligation, tools check that the exact source
+`TypeDef`, including its containing declaration chain, is present and nameable
+in the artifact's declaration plan. A same-named external definition cannot
+satisfy this obligation. The tools-owned
+`LocalDeclarationReceipt` records that obligation's discharge; resolution alone
+does not prove it. A source-local definition need not be externally accessible,
+but it must be nameable from the occurrence's generated context. An undischarged
+obligation prevents complete closure and, if declaration planning cannot
+resolve it, produces pre-commit `Declined`. Rendered inclusion remains subject
+to the existing artifact-manifest coverage and rebuilt-binding requirements;
+the planner's receipt is not evidence that rendering occurred.
+
+For a resolved external occurrence participating in the emitted signature,
+tools consume the terminal-accessibility evidence tracked by
+[#5302](https://github.com/richlander/dotnet-inspect/issues/5302). An accessible
+terminal definition becomes an exact selected-reference requirement.
+Metadata's authoritative `Inaccessible` outcome becomes `Unspellable` with the
+original terminal-definition and accessibility evidence; it cannot become an
+exact reference requirement. Unresolved or rejected decode, resolution, or
+accessibility outcomes retain their exact Metadata failure as `Incomplete`.
+Missing required accessibility capability likewise prevents complete closure
+and produces pre-commit `Declined` with its own capability reason, not
+`Unspellable`. Occurrences not spelled by the artifact still retain their
+resolution outcomes; non-participation cannot erase a resolution failure.
+
+Tools compose these results into closure and artifact admission. Metadata does
+not authorize the artifact through a compatibility `CanSpell` projection or a
+local proof object. This consumer contract remains design-only and unverified
+until its named gates below are implemented; it neither recreates the removed
+aggregate protocol nor defines the adjacent Metadata operations.
 
 ### Declaration-reference census
 
@@ -880,12 +1196,12 @@ artifact production, produces one closed `CompileClosureOutcome`:
 - `Complete` maps every requirement to an intrinsic,
   `LocalDeclarationReceipt`, exact `CompileReferenceDescriptor`, or retained
   compiler-synthesized binding obligation;
-- `Unspellable` retains every authoritative Metadata accessibility rejection;
+- `Unspellable` retains authoritative Metadata `Inaccessible` outcomes;
 - `Missing` retains every requirement for which no provider exists;
 - `Ambiguous` retains every requirement with multiple non-corresponding
   providers;
-- `Incomplete` retains decode, resolution, safety-bound, unsupported-scope, and
-  missing adjacent-owner evidence.
+- `Incomplete` retains decode, resolution, rejected accessibility, safety-bound,
+  unsupported-scope, and missing adjacent-owner evidence.
 
 `Complete` means the candidate is statically ready to cross
 `ProductAttemptCommit` under its mapped providers. It is not rendered-artifact
@@ -1100,11 +1416,12 @@ when opcode and C# comparers independently return equality.
 planning transition:
 
 - `Declined` is the pre-`ProductAttemptCommit` policy refusal from reference
-  discovery or selection, declaration planning, closure, local requirements,
-  Metadata aggregate capability, retained-content digest capability,
-  artifact-manifest capability, product-body occurrence capability, or required
-  generated-correspondence capability. It carries the typed reasons and selected
-  legacy policy, when permitted.
+  discovery or selection, declaration planning, closure, tools-owned local
+  declaration obligations, signature-decode or required terminal-accessibility
+  capability, retained-content digest capability, artifact-manifest capability,
+  product-body occurrence capability, or required generated-correspondence
+  capability. It carries the typed reasons and selected legacy policy, when
+  permitted.
 - `Failed` when artifact production, compilation, rebuilt resolution, or
   binding fails after `ProductAttemptCommit`, including participant-manifest
   mismatch, a stalled post-commit diagnostic, and root/iteration budget
@@ -1112,11 +1429,11 @@ planning transition:
   receipt that exists.
 - `Admitted` only after the exact artifact and typed declaration plan exist, the
   frozen reference set is unambiguous, signature/declaration/generated-fragment/
-  body closure is `Complete`, every Metadata `LocalRequirement` has a
-  declaration receipt, artifact coverage exactly matches the producer manifest,
-  and the exact artifact-specific `CompileContextReceipt` is complete. It
-  carries artifact, compile-context digest, closure, coverage, compilation, and
-  rebuilt-binding receipts.
+  body closure is `Complete`, every tools-owned source-local declaration
+  obligation has a `LocalDeclarationReceipt`, artifact coverage exactly matches
+  the producer manifest, and the exact artifact-specific `CompileContextReceipt`
+  is complete. It carries artifact, compile-context digest, closure, coverage,
+  compilation, and rebuilt-binding receipts.
 
 The current `UsedProductWholeMember` boolean cannot represent these states. It
 may remain as a compatibility projection only if it means `Admission is
@@ -1190,7 +1507,9 @@ No layer converts failure or unavailability into an empty successful result.
 - [#4883](https://github.com/richlander/dotnet-inspect/issues/4883) defines
   compiler-generated cross-reader definition correspondence.
 - [#4885](https://github.com/richlander/dotnet-inspect/issues/4885) implements
-  the Metadata signature-spellability aggregate designed by #4809 and PR #4821.
+  the Metadata bounded single-signature occurrence decode.
+- [#5302](https://github.com/richlander/dotnet-inspect/issues/5302) defines the
+  separate Metadata terminal-accessibility result for external requirements.
 - [#4916](https://github.com/richlander/dotnet-inspect/issues/4916) implements
   owner-mediated retained-content digests.
 - [#4930](https://github.com/richlander/dotnet-inspect/issues/4930) defines
@@ -1330,9 +1649,10 @@ required preservation boundary.
 
 Issue #4810 adds these named gates:
 
-1. `CompileReferenceSelectionDoesNotUseSimpleNameFirstWins` supplies two
-   non-corresponding candidates with one simple name and proves that reversing
-   discovery order produces the same typed ambiguity.
+1. `CompileReferenceSelectionDoesNotUseSimpleNameFirstWins` supplies
+   non-corresponding candidates with one simple name and proves that exact
+   identity selection is independent of discovery order. Requests admitting
+   multiple candidates produce the same typed ambiguity in either order.
 2. `CompileReferenceSelectionRejectsSameIdentityDifferentContent` proves equal
    assembly identity with a different digest or MVID is not coalesced.
 3. `CompileReferenceSetBindsMetadataAndCompilerToSameSnapshot` replaces a
@@ -1349,9 +1669,15 @@ Issue #4810 adds these named gates:
    catch types participate without an instruction operand naming them.
 6. `CompileClosureDoesNotTurnIncompleteCensusIntoEmptySuccess` rejects one body
    token or signature and proves `Incomplete`.
-7. `CompileClosureDischargesMetadataLocalRequirementsByExactTypeDef` proves a
-   same-named external definition cannot satisfy a source-local requirement and
-   including the exact local declaration can.
+7. `CompileClosureDischargesLocalDeclarationsByExactTypeDef` uses a source-local
+   nested type. An omitted local declaration, missing containing declaration,
+   or declaration not nameable from the generated context prevents complete
+   closure and produces pre-commit `Declined` when planning cannot resolve it.
+   A same-named external definition cannot satisfy the obligation. Including the
+   exact source declaration and its containing chain in a nameable context
+   discharges the tools-owned receipt, including for a source-local type that
+   is not externally accessible. Resolution alone cannot issue the receipt;
+   rendered coverage and rebuilt binding remain separate gates.
 8. `CompileClosureIncludesDeclarationShapeRequirements` uses body-free compiled
    fixtures for base, interface, generic-constraint, explicit-interface, and
    emitted-attribute types. Each exact provider produces `Complete`; removing
@@ -1448,14 +1774,17 @@ Issue #4810 adds these named gates:
     lowers into multiple constructors requires the complete destination set;
     omitting or stubbing any receiver is also unavailable. No arm parses the
     generated expression.
-24. `CompileClosureConsumesMetadataSpellabilityOutcome` uses forwarded
-    signatures. Until #4885 lands, the missing aggregate capability produces
-    pre-commit `Declined`; the current `CanSpell` boolean cannot substitute.
-    With the owner-issued aggregate, an accessible terminal definition
-    contributes the exact external requirement. An inaccessible terminal
-    retains Metadata's definition and accessibility evidence as `Unspellable`,
-    produces pre-commit `Declined`, and cannot be converted into `Complete` by
-    direct-name lookup or permissive compiler binding.
+24. `CompileClosureComposesMetadataSignatureEvidence` uses forwarded signatures.
+    Missing #4885 decode capability or required #5302 accessibility capability
+    produces pre-commit `Declined` with the specific missing-capability reason;
+    neither `CanSpell` nor a missing result can substitute for the evidence.
+    With both owner results, an accessible external terminal contributes the
+    exact selected-reference requirement. An inaccessible terminal retains
+    Metadata's definition and accessibility evidence as `Unspellable`, produces
+    pre-commit `Declined`, and cannot become `Complete` through direct-name
+    lookup or permissive compiler binding. Unresolved or rejected occurrences
+    remain `Incomplete` with the exact Metadata reason, including a
+    non-participating occurrence whose resolution fails.
 25. `SuppliedBodyCannotIssueReceiptWithoutCompleteOccurrenceOwner` uses a
     replacement body with a source-only same-FQN dependency that is absent from
     emitted IL. Its isolated comparison-only artifact compiles and both C#/IL
@@ -1478,7 +1807,7 @@ Issue #4810 adds these named gates:
     after disposal but cannot make this gate pass without the captured owner
     outcome.
 28. `CompileReferenceDigestComesFromRetainedArtifactOwner` declines before
-    descriptor construction or selection while #4916's capability is
+    descriptor construction or selection if any required owner digest is
     unavailable. With every required owner result, descriptor construction may
     begin and each digest matches the retained bytes opened under the same query
     lease. Hashing a mutable path, hashing an independently reopened stream, or

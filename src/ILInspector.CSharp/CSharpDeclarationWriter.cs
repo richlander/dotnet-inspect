@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 using System.Text;
 using CSharpText;
 using ILInspector.Metadata;
-using ILInspector.Text;
+using Inspector.Text;
 
 namespace ILInspector.CSharp;
 
@@ -31,6 +31,10 @@ internal sealed record CSharpDeclarationOptions
     public IReadOnlyCollection<string> AdditionalDeclaredTypeFullNames = [];
     public IReadOnlyCollection<string> AdditionalImportedDeclaredTypeFullNames = [];
     public IReadOnlyCollection<string> AdditionalKnownNamespaces = [];
+    public CSharpMemorySafetyLanguage? MemorySafetyLanguage;
+    public bool IsExtern;
+    public CSharpDeclaredTypeSelfNameAdmission.Admitted? DeclaredTypeSelfName { get; init; }
+    public string? LegacyDeclaredTypeIdentifier { get; init; }
     public CSharpNamespaceMode NamespaceMode { get; init; } = CSharpNamespaceMode.Omit;
     public bool AbbreviateSignature { get; init; }
     public bool TerminateMemberDeclaration { get; init; }
@@ -104,7 +108,12 @@ internal static class CSharpDeclarationWriter
             memberReferences.Except(explicitInterfaceReferences).ToHashSet(StringComparer.Ordinal),
             attributeValueReferences,
             synthesizedAttributeReferences);
-        var declaration = RenderMemberDeclarationCore(type, member, options, methodParameters);
+        var declaration = RenderMemberDeclarationCore(
+            type,
+            member,
+            options,
+            methodParameters,
+            isStandaloneMember: true);
         declaration = plan.Apply(declaration);
 
         if (options.TerminateMemberDeclaration && NeedsTerminator(declaration))
@@ -118,7 +127,8 @@ internal static class CSharpDeclarationWriter
         ApiType type,
         ApiMember member,
         CSharpDeclarationOptions? options = null,
-        IReadOnlyList<string>? methodParameters = null)
+        IReadOnlyList<string>? methodParameters = null,
+        IReadOnlyList<string>? parameterNames = null)
     {
         options ??= new CSharpDeclarationOptions();
         ApiMember? signatureMember = options.IncludeSignatureAttributes ? member : null;
@@ -155,7 +165,13 @@ internal static class CSharpDeclarationWriter
             memberReferences.Except(explicitInterfaceReferences).ToHashSet(StringComparer.Ordinal),
             attributeValueReferences,
             synthesizedAttributeReferences);
-        var declaration = RenderMemberDeclarationCore(type, member, options, methodParameters);
+        var declaration = RenderMemberDeclarationCore(
+            type,
+            member,
+            options,
+            methodParameters,
+            parameterNames,
+            isStandaloneMember: true);
         declaration = plan.Apply(declaration);
         return options.TerminateMemberDeclaration && NeedsTerminator(declaration)
             ? declaration + ";"
@@ -171,6 +187,7 @@ internal static class CSharpDeclarationWriter
         options ??= new CSharpDeclarationOptions { NamespaceMode = CSharpNamespaceMode.FileScoped };
         var memberList = members?.ToList() ?? type.Members;
         var parameters = primaryConstructorParameters ?? [];
+        CheckMemorySafetyType(type, options, parameters.Count);
         var attributeReferences = CollectAttributeTypeReferences(type.Attributes)
             .Concat(memberList.SelectMany(member => CollectAttributeTypeReferences(
                 member.Attributes,
@@ -273,6 +290,7 @@ internal static class CSharpDeclarationWriter
     {
         options ??= new CSharpDeclarationOptions();
         var parameters = primaryConstructorParameters ?? [];
+        CheckMemorySafetyType(type, options, parameters.Count);
         if (delegateInvoke is not null)
         {
             if (delegateInvoke.SignatureModel is not { } signature)
@@ -327,7 +345,7 @@ internal static class CSharpDeclarationWriter
                 ? $"[return: {string.Join(", ", signature.ReturnAttributes)}]\n"
                 : "";
             string delegateDeclaration =
-                $"{attributes}{returnAttributes}{TypeAccessibility(type)}{unsafeText} delegate {signature.ReturnType ?? "void"} {FormatTypeDisplayName(type)}{parameterList}";
+                $"{attributes}{returnAttributes}{TypeAccessibility(type)}{unsafeText} delegate {signature.ReturnType ?? "void"} {FormatTypeDisplayName(type, options)}{parameterList}";
             delegateDeclaration = AppendTypeParameterConstraints(delegateDeclaration, type.TypeParameters);
             return delegatePlan.Apply(delegateDeclaration + ";");
         }
@@ -1012,7 +1030,7 @@ internal static class CSharpDeclarationWriter
         }
 
         parts.Add(type.Kind == "enum" ? "enum" : type.Kind);
-        parts.Add(FormatTypeDisplayName(type));
+        parts.Add(FormatTypeDisplayName(type, options));
         var declaration = string.Join(" ", parts);
 
         var bases = new List<string>();
@@ -1027,10 +1045,18 @@ internal static class CSharpDeclarationWriter
             declaration += " : " + string.Join(", ", bases);
 
         declaration = AppendTypeParameterConstraints(declaration, type.TypeParameters);
-        if (!options.IncludeCustomAttributes || type.Attributes.Count == 0)
+        List<string> attributeLines = [];
+        if (CSharpMemorySafetySpelling.TypeLayoutAttribute(
+                type,
+                options.MemorySafetyLanguage) is { } layoutAttribute)
+        {
+            attributeLines.Add($"[{layoutAttribute}]");
+        }
+        if (options.IncludeCustomAttributes)
+            attributeLines.AddRange(type.Attributes.Select(attribute => $"[{attribute}]"));
+        if (attributeLines.Count == 0)
             return declaration;
-        return string.Join("\n", type.Attributes.Select(attribute => $"[{attribute}]"))
-            + "\n" + declaration;
+        return string.Join("\n", attributeLines) + "\n" + declaration;
     }
 
     static bool NeedsTerminator(string declaration)
@@ -1040,21 +1066,44 @@ internal static class CSharpDeclarationWriter
         ApiType type,
         ApiMember member,
         CSharpDeclarationOptions options,
-        IReadOnlyList<string>? methodParameters = null)
+        IReadOnlyList<string>? methodParameters = null,
+        IReadOnlyList<string>? parameterNames = null,
+        bool isStandaloneMember = false)
     {
+        var safety = CSharpMemorySafetySpelling.Member(
+            type,
+            member,
+            options.MemorySafetyLanguage,
+            options.IsExtern,
+            options.ForceUnsafe,
+            isStandaloneMember);
+        if (safety.Failure is { } failure)
+            throw new NotSupportedException(failure);
+
         string signature;
         var renderedFromModel = false;
         if (member.Kind == "field" && member.Signature == null && !string.IsNullOrWhiteSpace(member.ReturnType))
         {
             signature = $"{member.ReturnType} {member.Name}";
         }
-        else if (TryRenderSignatureModel(type, member, options, methodParameters, out var modelSignature))
+        else if (TryRenderSignatureModel(
+            type,
+            member,
+            options,
+            methodParameters,
+            parameterNames,
+            out var modelSignature))
         {
             signature = modelSignature;
             renderedFromModel = true;
         }
         else
         {
+            if (parameterNames is { Count: > 0 })
+            {
+                throw new InvalidOperationException(
+                    $"Member '{member.Name}' cannot apply changed body-owned parameter names without a renderable structured signature.");
+            }
             if (!options.IncludeSignatureAttributes
                 && !CanSafelySuppressCompatibilitySignatureAttributes(member))
             {
@@ -1078,15 +1127,15 @@ internal static class CSharpDeclarationWriter
 
         if (member.Name == ".cctor")
         {
-            signature = $"{FormatConstructorTypeName(type)}()";
+            signature = $"{FormatConstructorTypeName(type, options)}()";
         }
         else if (member.IsFinalizer && !options.SuppressFinalizerSpelling)
         {
-            signature = $"~{FormatConstructorTypeName(type)}()";
+            signature = $"~{FormatConstructorTypeName(type, options)}()";
         }
         else if (member.Kind == "constructor")
         {
-            var typeName = FormatConstructorTypeName(type);
+            var typeName = FormatConstructorTypeName(type, options);
             signature = $"{typeName}{FormatConstructorCall(signature)}";
         }
         else if (member.Name.StartsWith("op_", StringComparison.Ordinal))
@@ -1142,6 +1191,15 @@ internal static class CSharpDeclarationWriter
             signature = EscapeParameterLists(signature);
 
         List<string> attributeLines = [];
+        bool hasLayoutAttribute = false;
+        if (CSharpMemorySafetySpelling.FieldLayoutAttribute(
+                type,
+                member,
+                options.MemorySafetyLanguage) is { } fieldLayoutAttribute)
+        {
+            attributeLines.Add($"[{fieldLayoutAttribute}]");
+            hasLayoutAttribute = true;
+        }
         if (options.IncludeCustomAttributes)
         {
             foreach (var attribute in member.Attributes)
@@ -1158,8 +1216,6 @@ internal static class CSharpDeclarationWriter
         if (member.Name == ".cctor")
         {
             modifiers.Add("static");
-            if (member.IsUnsafe || options.ForceUnsafe)
-                modifiers.Add("unsafe");
         }
         else if (member.IsFinalizer)
         {
@@ -1170,8 +1226,6 @@ internal static class CSharpDeclarationWriter
             // `public`/`virtual` would misrepresent it as a new virtual slot
             // (CS0465) rather than the object-finalizer override it is, so keep
             // the fallback modifier-free too.
-            if (member.IsUnsafe || options.ForceUnsafe)
-                modifiers.Add("unsafe");
         }
         else if (member.Kind != "explicit-interface-implementation")
         {
@@ -1196,19 +1250,20 @@ internal static class CSharpDeclarationWriter
                 else if (!member.IsAbstract && member.IsVirtual && !member.IsStatic)
                     modifiers.Add("virtual");
             }
-            if (member.IsUnsafe || options.ForceUnsafe)
-                modifiers.Add("unsafe");
         }
         else
         {
             // Explicit interface implementations omit the access modifier but must still
             // carry `static` (C# 11 static-abstract interface members implemented explicitly)
-            // and `unsafe`. Order mirrors the .cctor branch: static then unsafe.
+            // and their safety modifier.
             if (member.IsStatic)
                 modifiers.Add("static");
-            if (member.IsUnsafe || options.ForceUnsafe)
-                modifiers.Add("unsafe");
         }
+
+        if (safety.Modifier is { } safetyModifier)
+            modifiers.Add(safetyModifier);
+        if (options.IsExtern)
+            modifiers.Add("extern");
 
         if ((options.ForceAsync || member.IsAsync)
             && !member.IsFinalizer
@@ -1227,7 +1282,9 @@ internal static class CSharpDeclarationWriter
         // the full type printer) each leading attribute goes on its own line, as is
         // idiomatic C#. Single-line/table contexts (which never emit custom
         // attributes) keep obsolete/return attributes inline so the row stays intact.
-        string separator = options.IncludeCustomAttributes ? "\n" : " ";
+        string separator = options.IncludeCustomAttributes || hasLayoutAttribute
+            ? "\n"
+            : " ";
         return string.Join(separator, attributeLines) + separator + declarationLine;
     }
 
@@ -1239,6 +1296,19 @@ internal static class CSharpDeclarationWriter
                 && (!parameter.HasDefault
                     || !string.IsNullOrWhiteSpace(parameter.DefaultValueText)))
             && model.Accessors.All(accessor => accessor.ReturnAttributes.Count == 0);
+
+    static void CheckMemorySafetyType(
+        ApiType type,
+        CSharpDeclarationOptions options,
+        int primaryConstructorParameterCount)
+    {
+        if (options.MemorySafetyLanguage is { } language
+            && CSharpMemorySafetySpelling.TypeFailure(
+                type, language, primaryConstructorParameterCount) is { } failure)
+        {
+            throw new NotSupportedException(failure);
+        }
+    }
 
     static IEnumerable<string> CollectTypeReferences(ApiType type)
     {
@@ -1786,11 +1856,18 @@ internal static class CSharpDeclarationWriter
         ApiMember member,
         CSharpDeclarationOptions options,
         IReadOnlyList<string>? methodParameters,
+        IReadOnlyList<string>? parameterNames,
         out string signature)
     {
         signature = "";
         if (member.SignatureModel is not { } model)
             return false;
+        if (parameterNames is not null
+            && parameterNames.Count != model.Parameters.Count)
+        {
+            throw new InvalidOperationException(
+                $"Member '{member.Name}' has {model.Parameters.Count} signature parameter(s), but its body supplied {parameterNames.Count} final name(s).");
+        }
 
         // Compatibility text may still carry metadata-only default attributes
         // that have not been projected into the structured parameter shape.
@@ -1811,27 +1888,41 @@ internal static class CSharpDeclarationWriter
 
         var parameters = string.Join(
             ", ",
-            model.Parameters.Select(parameter =>
-                FormatParameter(parameter, options.IncludeSignatureAttributes)));
+            model.Parameters.Select((parameter, index) =>
+                FormatParameter(
+                    parameter,
+                    options.IncludeSignatureAttributes,
+                    parameterNames?[index])));
         if (member.Name == ".cctor")
         {
-            signature = $"{FormatConstructorTypeName(type)}()";
+            signature = $"{FormatConstructorTypeName(type, options)}()";
             return true;
         }
 
         if (member.Kind == "constructor")
         {
-            signature = $"{FormatConstructorTypeName(type)}({parameters})";
+            signature = $"{FormatConstructorTypeName(type, options)}({parameters})";
             return true;
         }
-        if (member.Kind == "method"
-            && methodParameters is not { Count: > 0 }
+        if (((member.Kind == "method"
+                && methodParameters is not { Count: > 0 })
+            || (parameterNames is { Count: > 0 }
+                && member.Kind is "method" or "extension-method"))
             && model.MemberName is { Length: > 0 } memberName
             && model.ReturnType is { Length: > 0 } returnType)
         {
             if (memberName.Contains('<', StringComparison.Ordinal) && model.TypeParameters.Count == 0)
                 return false;
-            signature = AppendMemberTypeParameterConstraints($"{returnType} {memberName}({parameters})", member, model.TypeParameters);
+            if (methodParameters is { Count: > 0 }
+                && !memberName.Contains('<', StringComparison.Ordinal))
+            {
+                memberName +=
+                    $"<{string.Join(", ", methodParameters.Select(SanitizeIdentifier))}>";
+            }
+            signature = AppendMemberTypeParameterConstraints(
+                $"{returnType} {memberName}({parameters})",
+                member,
+                model.TypeParameters);
             return true;
         }
         if ((member.Kind == "property" || IsExplicitInterfaceProperty(member))
@@ -1918,15 +2009,17 @@ internal static class CSharpDeclarationWriter
 
     internal static string FormatParameter(
         ApiParameter parameter,
-        bool includeAttributes = true)
+        bool includeAttributes = true,
+        string? name = null)
     {
         string type = EscapeTypeKeywords(parameter.Type);
         string head = string.IsNullOrEmpty(parameter.Modifier)
             ? type
             : $"{parameter.Modifier} {type}";
-        var declaration = string.IsNullOrWhiteSpace(parameter.Name)
+        name ??= parameter.Name;
+        var declaration = string.IsNullOrWhiteSpace(name)
             ? head
-            : $"{head} {SanitizeIdentifier(parameter.Name)}";
+            : $"{head} {SanitizeIdentifier(name)}";
         declaration = parameter.HasDefault && parameter.DefaultValueText is { Length: > 0 }
             ? $"{declaration} = {parameter.DefaultValueText}"
             : declaration;
@@ -2127,10 +2220,20 @@ internal static class CSharpDeclarationWriter
     // component and a backtick that is not a canonical suffix stays in the name
     // (MetadataNameArity). Truncating at the first backtick dropped every
     // following component, spelling Outer`1.Inner as the unrelated type Outer.
-    static string FormatTypeDisplayName(ApiType type)
-        => CSharpFormatter.FormatTypeName(
-            type,
-            includeVariance: true);
+    static string FormatTypeDisplayName(
+        ApiType type,
+        CSharpDeclarationOptions options)
+        => options.DeclaredTypeSelfName is { } selfName
+            ? type.TypeParameters.Count == 0
+                ? selfName.Identifier
+                : $"{selfName.Identifier}<{string.Join(", ", type.TypeParameters.Select(TypeParameterDisplayName))}>"
+            : options.LegacyDeclaredTypeIdentifier is { } legacyIdentifier
+                ? type.TypeParameters.Count == 0
+                    ? legacyIdentifier
+                    : $"{legacyIdentifier}<{string.Join(", ", type.TypeParameters.Select(TypeParameterDisplayName))}>"
+            : CSharpFormatter.FormatTypeName(
+                type,
+                includeVariance: true);
 
     static string? EnumUnderlyingBase(ApiType type)
     {
@@ -2264,9 +2367,13 @@ internal static class CSharpDeclarationWriter
         return false;
     }
 
-    static string FormatConstructorTypeName(ApiType type)
-        => SanitizeIdentifier(
-            CSharpFormatter.FormatDeclarationLeafMetadataName(type));
+    static string FormatConstructorTypeName(
+        ApiType type,
+        CSharpDeclarationOptions options)
+        => options.DeclaredTypeSelfName?.Identifier
+            ?? options.LegacyDeclaredTypeIdentifier
+            ?? SanitizeIdentifier(
+                CSharpFormatter.FormatDeclarationLeafMetadataName(type));
 
     static string EscapeMemberNameInSignature(string signature, string memberName)
     {

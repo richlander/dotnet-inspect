@@ -3,7 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
-using ILInspector.Findings;
+using Inspector.Findings;
 
 namespace ILInspector.Metadata.Tests;
 
@@ -108,6 +108,30 @@ public class ApiSurfaceRelationshipFailureTests
         Assert.Equal("type identity", failure.Operation);
         Assert.Equal(0x02000002, failure.SubjectToken);
         Assert.Equal(MetadataTypeNameFailureMechanism.Relationship, failure.Mechanism);
+        Assert.Equal("Cycle", failure.Kind);
+    }
+
+    [Fact]
+    public void ExtractSummary_CyclicTypePreservesValidSiblingAndFailure()
+    {
+        using var stream = new MemoryStream(BuildImage(
+            cyclicTypeName: "Rejected",
+            validTypeNames: ["Sibling"]));
+        using var peReader = new PEReader(stream);
+
+        ApiSurface surface = ApiSurfaceExtractor.ExtractSummary(peReader);
+
+        ApiType sibling = Assert.Single(surface.Types);
+        Assert.Equal("Sibling", sibling.Name);
+        Assert.NotNull(sibling.DefinitionName);
+        Assert.Equal(1, surface.PublicTypeCount);
+        ApiSurfaceInspectionFailure failure =
+            Assert.Single(surface.InspectionFailures);
+        Assert.Equal("type identity", failure.Operation);
+        Assert.Equal(0x02000002, failure.SubjectToken);
+        Assert.Equal(
+            MetadataTypeNameFailureMechanism.Relationship,
+            failure.Mechanism);
         Assert.Equal("Cycle", failure.Kind);
     }
 

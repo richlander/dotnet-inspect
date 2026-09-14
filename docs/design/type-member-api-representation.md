@@ -80,6 +80,9 @@ binding is unverified pending
 
 #### `CSharpText`
 
+The focused [member signature shape](member-signature-shape.md) owner defines
+projection, correspondence, and transport for the following currencies.
+
 | Currency | Scope | Answers | Does not answer |
 | --- | --- | --- | --- |
 | `MemberSignatureShape` | One same-named source/metadata candidate set | Whether generic arity, parameter type shapes, and a conversion return shape discriminate one candidate | Member identity, named-type binding through using/alias context, or proof that source belongs to a MethodDef |
@@ -93,10 +96,25 @@ binding is unverified pending
 | `TypeNode` | One API extraction operation | Rich signature facts and inputs to display or identity projections | Cross-layer public currency or definition correspondence |
 | `MetadataMemberSignatureShape` adapter | One MethodDef signature | How an SRM signature projects into the model-free `CSharpText` correspondence shape | Source binding, authoritative identity, or ordinal fallback policy |
 | `ApiType`, `ApiMember`, `ApiParameter` | Materialized, JSON-capable API output | API inventory, presentation fields, and persisted identity projections | Reader-local resolution or body identity |
-| `ApiTypeShape` | One identity-sensitive API signature or serializer root | Primitive code, array rank, exact named definition, and constructed generic arguments | Display spelling, assembly resolution, or universal type correspondence |
+| `ApiTypeShape` | One identity-sensitive API signature or serializer root | Primitive code, array kind and rank, exact named definition, and constructed generic arguments | Display spelling, assembly resolution, or universal type correspondence |
 | `MemberTargetSelector` | One member-selection request | The user's member question, including overload and digest syntax | Evidence that selection succeeded |
 | `MetadataNamedTypeReference` | One decoded signature detached from its reader | Which exact named type definition and metadata scope the signature denotes | Resolution to an acquired assembly, constructed-type shape, or display spelling |
-| `StateMachineRelationship` and `StateMachineRelationshipResult` | One physical metadata module | Which kickoff, same-module state-machine type, and exact interface implementation methods form an authenticated compiler-state-machine relationship, or why structural authentication failed | Analysis attribution, decompiler reconstruction eligibility, source ownership, or presentation policy |
+| `StateMachineRelationship` and `StateMachineRelationshipResult` | One physical metadata module | Which kickoff, same-module state-machine type, and closed interface-role dispositions form an authenticated compiler-state-machine relationship, or why structural authentication failed | Analysis attribution, decompiler reconstruction eligibility, source ownership, or presentation policy |
+
+`ApiType.HasUnionAttribute` preserves the presence of the exact metadata
+attribute name `System.Runtime.CompilerServices.UnionAttribute`. The marker
+may come from the runtime or a downlevel polyfill; assembly provenance is not
+part of this name-based marker contract. A fully extracted type reports true
+or false, while an older serialized type or summary-only projection reports
+null (not inspected). Marker presence does not establish a valid union, its
+case set, or a serializer contract, and does not replace the type's ordinary
+`Kind` or structured constructor signatures.
+`ApiUnionAttributeTests` gates native declarations, manually attributed types,
+unrelated same-simple-name attributes, nested display-name collisions,
+downlevel marker references, and JSON persistence of all three states.
+This is the Metadata prerequisite for
+[JSON union support #5892](https://github.com/richlander/dotnet-inspect/issues/5892); wire-contract
+discovery, TypeScript emission, and inspect-web adoption remain separate owners.
 
 #### `DotnetInspector.Queries`
 
@@ -114,6 +132,219 @@ item into one product-owned kind facet and accepts the returned opaque IDs for
 filtering. Unknown IDs and unclassified producer values fail visibly rather
 than becoming an empty inventory.
 
+### API declaration modifiers
+
+Full API extraction retains the physical MethodDef `IsReadOnly` attribute in
+`ApiMember.IsReadOnly` for all methods, not only projected accessors. Existing
+API JSON, C# declaration views, and Metadata Findings consume this fact, so
+ordinary member output can gain `is_read_only` or `readonly` independently of
+Source Diff. The Release
+`MethodSignatureModel_RetainsPhysicalReadOnlyAttribute` cases gate ordinary
+readonly and mutable methods alongside the Source Diff accessor cases.
+
+Rich accessor models also retain whether a method is a private MethodImpl
+body. Accessor projection uses that relationship-derived classification rather
+than inferring it from a qualified MethodDef name. An unknown value denotes
+older or declaration-only models that did not retain the relationship, rather
+than a negative metadata result. Only those unknown values retain the prior
+name-based projection fallback; a known negative classification is authoritative.
+
+Full extraction also retains `ApiMember.MethodSemantics` for MethodDefs as a
+typed flag set containing any property-getter, property-setter,
+property-other, event-adder, event-remover, event-raiser, or event-other roles,
+or a positive `None` result. Multiple relationships are retained together;
+enumeration order does not erase an accessor role. Null means that the
+MethodSemantics relationship was not retained or the module association scan
+did not complete successfully. Consumers that must distinguish an ordinary
+method from an accessor use this fact rather than parsing the MethodDef name or
+treating an empty declaration-accessor collection as negative evidence.
+
+### API memory-safety facts
+
+`ApiMember.MemorySafety` retains two independent facts: the caller contract
+returned by `MemorySafetyMetadataIndex`, and structural pointer evidence from
+the member's signature. The latter includes function pointers, is independent
+of the selected memory-safety rules, and is never inferred from display text.
+An unavailable signature is not pointer-free. A definite pointer remains
+positive evidence even when another part of the signature is unavailable.
+
+The caller contract and its evidence retain the resolver's `None`, `Implicit`,
+`Explicit`, and `Unavailable` distinctions without a second interpretation.
+`AccessorMemorySafety` carries the same facts for the MethodDefs reached
+through a property's or event's accessor slots, rather than substituting the
+owner's contract for an accessor's own result. Each member fact carries the
+module MVID that scopes its evidence tokens. A projected extension retains its
+declaration's facts, not facts inferred from the receiver type.
+
+`ApiType.MemorySafety` retains the module rules result and its observations,
+including unsupported versions, malformed markers, and conflicting markers.
+`ApiType.Layout` separately retains the layout-kind bits. These are inputs to
+CSharp declaration policy, not precomputed `safe` or `unsafe` spelling.
+Full extraction supplies these facts; compact summary and types-only
+extraction retain layout without acquiring member-contract facts.
+
+`ApiMember.BackingStorage` records compiler-convention matches:
+generated-name, compiler-generated marker,
+signature-type, and staticness agreement for auto-properties; and a
+compiler-generated adder plus a same-named private compiler-generated field
+with matching type and staticness for field-like events. Type agreement uses
+exact same-module signature encoding, not rendered names: scope tokens,
+generic positions, array shape, modifiers, and pointer shape remain distinct.
+Equivalent types using different encodings are outside this convention's
+positive-match scope, as are indexed properties. Existing field-folding
+policy is unchanged. The selected
+convention travels with the field tokens, matched names, and storage kind.
+This is conventional evidence, not authentication of the original source
+construct. It follows the evidence-grade distinction in
+[Metadata semantic substrates](metadata-semantic-substrates.md#admission-test);
+it does not independently admit event association as a shared substrate.
+
+One established match is `Associated`; multiple established matches are
+`Ambiguous`. A missing, unsupported, or incompletely decoded association is
+`Unknown`, not a claim that the declaration has no instance storage. An
+incomplete match retains any positive candidates without claiming uniqueness.
+Duplicate property or event names are outside this convention's unique-owner scope and
+remain unknown. Consumers must not infer storage absence from a missing name
+match or from the absence of a caller contract.
+
+All retained facts are reader-independent, JSON-capable values. Null is the
+compatibility state for older or hand-composed surfaces, not an invented
+negative fact. New retained evidence text participates in the existing
+API-surface text budget. `ApiMember.IsUnsafe` retains its existing population,
+filtering, diff, and rendering behavior in this additive slice; its consumer
+policies do not silently switch to the new caller contract.
+
+`ApiMemorySafetyFactsTests` gates the version-aware split, all member kinds,
+accessor and extension projection, conventional storage evidence, ambiguity,
+unknown/degraded cases, layout, persistence, and compatibility.
+`ApiMemorySafetyJsonTests` gates the production source-generated JSON contexts
+and command-level filtered and section-selected projections.
+The existing `ApiSurfaceUnsafeTests`, `ArrayKindIdentityTests`, and
+`ApiSurfaceExtractorBoundsTests` remain compatibility and extraction-budget
+gates. `MemorySafetyMetadataIndex` still owns contract derivation, under
+[its rules contract](assembly-inspection-query.md#4-memorysafetymetadataindex--shared-module-and-member-meaning).
+
+The focused implementation is
+[#5253](https://github.com/richlander/dotnet-inspect/issues/5253), under the
+end-to-end memory-safety tracker
+[#5226](https://github.com/richlander/dotnet-inspect/pull/5226).
+The declaration-spelling adoption path has three stages: (1) publish these
+Metadata facts, (2) adopt them in the shared CSharp declaration producer under
+[#5257](https://github.com/richlander/dotnet-inspect/issues/5257), and (3)
+exercise that producer through CLI and browser/Wasm declaration surfaces.
+Stage 2 also consumes the Decompiler's independently owned primary-constructor
+fallback from #5255. The focused
+[CSharp spelling contract](csharp-memory-safety-spelling.md) owns that consumer's
+declaration policy. This slice completes stage 1, not the host behavior.
+JS-export policy (#5258) and Research summaries (#5259) are separate adopters.
+The existing Boolean remains until its consumers explicitly migrate; no
+retirement or narrowing is performed here.
+
+### API layout facts
+
+For [#6144](https://github.com/richlander/dotnet-inspect/issues/6144),
+`ILInspector.Metadata` owns preservation of reader-independent layout
+observations through API extraction, snapshots, and JSON.
+`ApiType.LayoutDetails` retains SRM's type size and packing size with the
+module MVID and TypeDef token. The existing `ApiType.Layout` remains the
+layout-kind fact; no second kind classification is introduced.
+
+`ApiMember.FieldLayout` retains a usable explicit offset, including zero,
+with the module MVID, declaring TypeDef token, and FieldDef token. Staticness
+remains the member's existing fact. Offsets are never guessed from field
+order, type size, attribute display text, or runtime layout.
+
+These observations follow SRM's public contract rather than introducing a
+layout validator. An all-zero type layout is an observed default, not proof
+that a ClassLayout row is absent. A null field `Offset` means SRM did not
+provide a usable offset: both a missing FieldLayout row and an offset beyond
+SRM's supported signed range produce that result. It must not be interpreted
+as proof of row absence. A null outer record instead denotes unavailable or
+unprojected evidence, including older JSON and hand-composed surfaces.
+Read failures follow the extractor's existing visible failure path; they are
+not converted into available defaults.
+
+Full API extraction and handle-based `GetTypeSurface` supply these records.
+Compact summaries and types-only extraction leave them unavailable, preserving
+the existing cheap layout-kind observation. The records contain fixed-size
+values and introduce no retained metadata text.
+
+`ApiLayoutFactsTests` gates extraction, defaults, unusable offsets, scoped
+associations, and persistence; `ApiLayoutJsonTests` covers production JSON and
+selected command output. The CSharp snapshot gate verifies preservation only.
+The immediate consumer is shared CSharp declaration spelling in #6105/#5257,
+under the three-stage #5226 path: Metadata facts, shared CSharp adoption, then
+both CLI and browser/Wasm declaration/source enablement. This slice supplies
+the missing input, not C# layout attributes, ABI reconstruction, source
+legality, or host adoption.
+
+### API method implementation facts
+
+`ApiMember.MethodImplementation` retains the MethodDef's raw
+`MethodAttributes`, `MethodImplAttributes`, and whether its RVA is nonzero.
+The immutable record carries the module MVID and MethodDef token;
+`AccessorImplementations` retains one record per distinct property or event
+accessor, including non-public and other accessor slots. A projected extension
+or accessor keeps its own declaration's evidence. Flags are retained without
+normalization, including combinations not expressible in C#.
+
+This is Metadata evidence, not an `IsExtern` decision. Abstract, P/Invoke,
+runtime-provided, internal-call, and ordinary IL declarations remain
+distinguishable without parsing attribute display text. A nonzero RVA does not
+prove a usable managed implementation: it can describe a reference-assembly
+stub or a non-IL method. Reference-assembly status, body acquisition, and the
+source shape selected for reconstruction remain separate questions.
+
+Full API extraction and handle-based `GetTypeSurface` supply these facts.
+Compact summaries, older JSON, and hand-composed members can lack them;
+null is unavailable evidence, never an implicit ordinary-IL classification.
+The existing `HasMethodBody` field retains its RVA-presence meaning.
+The new records contain only fixed-size values and use the existing member
+and relationship bounds; they add no retained metadata text.
+
+The owning claim for [#5940](https://github.com/richlander/dotnet-inspect/issues/5940)
+is preservation through extraction, projection, and JSON.
+`ApiMethodImplementationFactsTests` and `ApiMethodImplementationJsonTests`
+gate extraction and persistence;
+`CSharpTypePrinterTests.SnapshotTypeForRendering_CarriesMethodImplementationEvidence`
+gates the rendering snapshot. The conventional comparison is the existing
+MethodDef table projection, which also exposes raw attributes separately from
+implementation flags. CSharp alone chooses the eventual `extern` and
+`safe`/`unsafe` spelling under its
+[declaration contract](csharp-memory-safety-spelling.md).
+This is a prerequisite within stage 2 of the existing three-stage #5257
+adoption path under #5226, not completed CLI/browser spelling adoption.
+Current rendering, filtering, diff, and JS-export policies are unchanged.
+
+### Projected Member declaring identity
+
+When an `ApiMember` is projected beneath a Type other than its metadata
+declaration, `DeclaringTypeDefinitionName` retains the declaration's exact
+`MetadataTypeDefinitionName`. It is the lookup-name currency for consumers that
+must distinguish the declaration from the containing or receiver Type;
+`DeclaringType` remains display text and `DeclaringTypeCanonicalName` remains
+the separate canonical-anchor spelling consumed by `ApiMemberIdentity`.
+
+The typed lookup name and canonical `MemberAnchor` projection originate from
+the same declaring Type, but neither substitutes for the other. A projected
+Member is emitted only when the producer retains the typed declaration name.
+The field is serialized as a structured namespace-plus-segments value and is
+charged to the bounded API-surface retained-text budget. Null remains the
+compatibility shape for a Member declared on its containing Type and for an
+older serialized projection; consumers requiring exact projected declaration
+identity must fail visibly rather than parse either declaring-Type string.
+`DeclaringTypeCanonicalName` identifies a projected row: both declaring
+currencies are absent on a declaration-side Member, while canonical text
+present with typed identity absent is an older or incomplete projection that
+cannot support exact lookup.
+
+This contract is gated by
+`ExtensionAttachmentNameBoundaryTests.AttachedExtension_PreservesTypedDeclaringTypeAndAnchor`,
+`ApiSurfaceExtractorBoundsTests.ProjectedDeclaringTypeIdentityContributesItsOwnRetainedText`,
+`ApiSurfaceRelationshipFailureTests.ExtractSummary_CyclicTypePreservesValidSiblingAndFailure`,
+and
+`ApiOutputFormatterTests.ApiTypeJson_RoundTripsProjectedMemberDeclaringTypeIdentity`.
+
 `ApiTypeShape` is also the currency for a serialized
 `[JsonSerializable(typeof(T))]` root. Its parser accepts only complete
 structural generic argument lists: leading, doubled, and trailing delimiters
@@ -127,6 +358,25 @@ remains a named shape rather than aliasing an intrinsic primitive.
 `ReadJsonSerializableRoots_RejectsMalformedGenericDelimitersAndArity` gate
 and `ReadJsonSerializableRoots_DoesNotAliasBogusPrimitiveAssembly` gate that
 contract.
+
+Metadata API signatures preserve the ECMA-335 distinction between vector
+arrays and non-SZ arrays in the identity projections owned here: `T[]` is an
+SZ array, rank-one non-SZ is `T[*]`, and higher ranks are `T[,]`, `T[,,]`, and
+so on. Canonical signature spelling composes that distinction through generic
+arguments, tuple elements, pointers, by-reference forms, and
+generic-parameter positions;
+`ApiTypeShape.Kind` distinguishes `SzArray` from `Array`; and materialized
+member anchors and direct SRM anchors each retain the distinction in their
+own projection-specific spelling. The ordinary vector display remains `T[]`.
+The `[*]` array marker is not pointer evidence and does not make an
+`ApiMember` unsafe; a separate pointer or function-pointer star still does.
+The opaque structural string used by legacy call-graph correspondence remains
+outside this exact array-kind contract and is governed by
+`call-graph-projection.md`.
+`ArrayKindIdentityTests` gates valid, CLR-resolvable synthetic metadata through
+decode, canonical identity, typed shape equality, anchor projection, unsafe
+classification, JSON persistence, exact API comparison, and the Metadata-side
+structural payload required by the adjacent Analysis contract.
 
 `ApiMember.HasMethodBody` preserves the nullable MethodDef RVA/body fact beside
 the API member, and `HasRuntimeJsExportWrapperCandidate` preserves whether
@@ -446,6 +696,7 @@ into a display string or a durable identifier.
 | `TypeResolutionCatalog` | One inspection and its progressive generations | Which acquisition, declaration, stable-policy binding, and resolution-recipe caches generations share | A frozen answer set or ownership by one context |
 | `TypeResolutionContext` | One frozen catalog generation | Which manifested bindings and type requests may execute without policy or source work | Requests absent from the manifest or answers after catalog disposal |
 | `AssemblyBindingRequest`, `AssemblyBindingSelectionSnapshot`, `AssemblyBindingSelection`, and `AssemblyBindingOutcome` | One source-relative or global binding question | Which exact policy version governed the selection and, for a miss, whether it proved no name owner, reported a name-owned mismatch, or retained an undifferentiated legacy result | Type lookup or hidden fallback probing |
+| `AssemblyBindingCandidateDomain` and `AssemblyBindingSelection.CompositionRequired` | One exact binding request under one policy version | Which complete, deterministically ordered descriptor domain an adjacent owner may arbitrate without repeating identity matching | Workspace-role precedence, acquisition, or permission to reopen terminal selections and inactive shadows |
 | `TypeResolutionRequest` | One resolution operation | Which typed start candidate/binding target and exact name to resolve | Decoded provenance or reusable identity |
 | `TypeResolutionRequestComparer` | One request manifest | Whether separately constructed requests occupy the same frozen manifest entry | Type correspondence, outcome equality, or cross-generation reuse |
 | `TypeResolutionOutcome` | One frozen catalog generation | The complete resolution verdict, non-success evidence, and ordered hops | Definition equality or a nullable success result |
@@ -491,6 +742,7 @@ Conversions are operations with an owner, not implicit casts:
 | TypeDef handle | `TypeDefinitionToken` or `MetadataTypeDefinitionAddress` | Metadata validates table, row bounds, candidate/module, and MVID before materializing |
 | ExportedType handle | `ExportedTypeToken` | Metadata validates the row and bounded relationship traversal; an exported row cannot become a TypeDef address |
 | MethodDef handle | `MetadataMethodAddress` | MetadataPrimitives captures the physical module MVID; every consumer revalidates MVID and row bounds before dereferencing |
+| MethodDef name | Conversion-operator identity classification | `ApiMemberIdentity` owns the closed `op_Implicit`, `op_Explicit`, `op_CheckedImplicit`, and `op_CheckedExplicit` set. Every Metadata selector, canonical signature, fingerprint, anchor, XML identity, and signature-shape path consumes that declaration and retains return type for those names only; `ConversionOperatorNames_AreClosedAndRecognized` and `ConversionOperatorIdentity_PreservesReturnTypeForEveryDeclaredName` are the gates. |
 | Metadata relationship chain | `MetadataTypeDefinitionName` | Metadata preserves namespace, nested segments, and arity; malformed names return typed failure |
 | Metadata name segment | Simple name plus generic arity | `MetadataNameArity` recognises only the canonical trailing `` `N `` — non-empty prefix, ASCII digits to the end, no leading zero, at most 65536, the count a zero-based ushort `GenericParam.Number` (ECMA-335 II.22.20) admits. Every other backtick belongs to the name, so distinct names are preserved instead of collapsing onto one simple name; `MetadataNameArityTests` is the gate |
 | Nested or qualified name | Per-component arity parse | Exact producers parse `MetadataTypeDefinitionName.Segments` (or equivalent reader-local segments) before flattening; display decorations such as `[]` inside one exact raw segment remain name text. The aggregate namespace and segment chain is rejected before decoding or retention when it exceeds `MetadataSafetyPolicy.MaxTypeNameCharacters` or `MetadataSafetyPolicy.MaxRelationshipNodes`; the allocation preflight allows UTF-8 expansion before enforcing that decoded UTF-16 limit. String and `TypeNode` signature decoders retain those exact parts for every TypeDef/TypeRef generic-instantiation head; the string decoder caches one retained projection per reader and metadata handle so repeated signatures do not multiply exact-name allocation. Legacy flat text rewrites only an unambiguous terminal suffix; a possible namespace/nesting boundary preserves the raw spelling rather than inventing structure. Analysis constructed nested types use exact segments for equality, hashing, and delimiter-visible display, and retain the established innermost-argument display; their one-boundary legacy fallback is accepted only when the supplied total arity distinguishes nesting from one literal metadata name. Compiler-generated terminal names with a partial argument list retain their declared total arity by showing placeholders for the remaining slots; arbitrary positive declared-arity mismatches keep their raw spelling, while a generic signature whose head declares zero canonical arity retains its supplied arguments in Metadata, Analysis, and Decompiler but is unspellable as C# because the rendered generic form could bind a different type. Decompiler lookup, canonical keys, rendering, and spellability consume retained exact segments, so a top-level literal-plus name cannot collapse onto a nested type with the same flattened text. `ApiType` persists the exact definition name as a structural namespace-plus-segments JSON object and retains each segment's introduced generic-parameter count, so JSON round trips, API diff keys, filtered projections, C# snapshots, and model member anchors preserve namespace, nesting, and malformed arity distinctions. API diff matches exact identities first and uses legacy display fallback only for remaining pairs where at least one side lacks structured identity; ambiguous legacy collisions reject visibly. Decreasing cumulative GenericParam counts and noncontiguous, duplicate, missing, or reordered GenericParam indices are rejected rather than clamped or permuted into a different ownership chain. Member anchors escape literal structural delimiters, use `+` between exact nested segments, distribute cumulative nested parameters by the parameters each segment introduces, preserve a discriminator when GenericParam rows have no canonical name suffix, and strip a declared arity only when it agrees with that introduced count; projected extension methods retain their declaring type's exact canonical anchor. C# type, constructor, finalizer, and CLI shape rendering likewise consume the exact segment chain rather than splitting display text, and a declared arity whose per-segment parameter ownership disagrees remains visible rather than aliasing another declaration. Generated-framework containing-type projection reuses Analysis's escaped exact-segment display instead of reconstructing a flat name. `StripFromNestedName`, `StripFromDottedChain`, and `StripFromFlattenedName` remain spelling-specific display/search helpers, never definition identity. `MethodClassificationScanner` formats declaring types from exact segments before materializing its rows. `ApiSurfaceExtractor` keeps extension-receiver correspondence in extraction-local `MetadataTypeDefinitionName` values, retaining generic arity and declining duplicate definitions rather than selecting the first display-key match; `SignatureDecoderSafetyTests`, `TypeRefAritySpellingTests`, `MetadataNameArityTests`, `MetadataTypeNameFormatterTests`, `MethodClassificationScannerTests`, `ExtensionAttachmentNameBoundaryTests`, `CSharpFormatterTests`, `CSharpDeclarationWriterTests`, `ForeignNestedTypeSpellingTests`, `PipelineImporterTests`, `TypeOfRenderingTests`, `CompilerGeneratedNamesTests`, and `TypeRefDecoderRecursionTests` are the gates. |
@@ -505,6 +757,7 @@ Conversions are operations with an owner, not implicit casts:
 | `ResolvedTypeDefinitionKey` | `DefinitionJoinTokenProjection` | `TypeResolutionCatalog.ProjectDefinitionJoinToken` issues a token only for a current-generation key; cross-catalog and stale keys remain typed result arms |
 | `UnresolvedBindingReference` | `UnresolvedBindingKeyProjection` | `TypeResolutionCatalog.ProjectUnresolvedBindingKey` issues a key only for a current-generation reference minted on `UnboundBinding` or genuine policy `Unavailable`; cross-catalog and stale references remain typed result arms |
 | `TypeNode` | display, canonical, XML-doc, or digest spelling | The owning projection chooses its erasure policy; no projection is recovered from another |
+| `ApiType` / `ApiMember` structural evidence | `XmlDocMemberIdentity` | Metadata emits one exact Roslyn XML-documentation ID while the decoded signature is live; `ApiMemberHandle` and `ResolvedMemberTarget` delegate to the same projection |
 | C# declaration text | `MemberSignatureShapeResult` | `CSharpText.SourceMemberSignatureShape` parses the bounded declaration header and refuses unresolved named types |
 | MethodDef signature | `MemberSignatureShapeResult` | Metadata decodes with SRM and projects positional generics, arrays, pointers, nullable/tuple shapes, and function pointers into the shared leaf model |
 | Target plus candidate signature shapes | `MemberSignatureCorrespondence<T>` | `CSharpText.MemberSignatureShapeMatcher` returns unique, ambiguous, or unavailable; one unavailable candidate prevents a false unique result |
@@ -516,44 +769,12 @@ No generic converter should turn one `TypeRef` into the other, an address into
 correspondence, a display string into identity, or a `MemberAnchor` into body
 identity without the owning resolver and scope.
 
-Only canonical `mss1:` transport participates in candidate correspondence.
-Legacy signature text is accepted solely to validate an already selected
-exact-token record; it is not candidate-selection currency.
-
-Metadata projection fails closed when a generic signature header is
-noncanonical, when a MethodDef header and its owned contiguous GenericParam rows
-disagree, or when a declaring TypeDef chain's canonical name arities and
-cumulative owned rows disagree. Positional generic references must also fit
-those validated bounds. Metadata arity suffixes accept only nonzero canonical
-ASCII decimal, and function-pointer headers carrying instance, explicit-this,
-generic, or vararg semantics are unavailable because the shared shape cannot
-represent them. Multidimensional array sizes and nonzero lower bounds are
-likewise unavailable because C# array syntax carries rank but not those
-signature facts.
-An erased custom modifier is accepted only when its modifier type was decoded
-successfully. These properties are gated by
-`MetadataAdapter_RefusesGenericHeaderWithoutOwnedRows`,
-`MetadataAdapter_RefusesNonContiguousGenericParameterRows`,
-`MetadataAdapter_RefusesZeroArityGenericHeader`,
-`MetadataAdapter_RefusesMethodGenericPositionOutsideHeaderArity`,
-`MetadataAdapter_RefusesMissingDeclaringTypeGenericRows`,
-`MetadataAdapter_AllowsCumulativeNestedTypeGenericRows`,
-`MetadataAdapter_RefusesNoncanonicalTypeReferenceArity`,
-`MetadataAdapter_RefusesUnrepresentableFunctionPointerHeaders`,
-`MetadataAdapter_RefusesMultidimensionalArrayBounds`, and
-`MetadataAdapter_RefusesUnavailableErasedModifier`.
-
-One cumulative work budget covers the full metadata projection, including
-custom-modifier subtrees erased from the final shape and generic-parameter names
-read for legacy exact-token validation.
-`MetadataAdapter_RefusesErasedModifierAmplificationBeforeLargeAllocation` and
-`LegacyCompatibility_RefusesGenericNameAmplificationBeforeLargeAllocation`
-gate those properties.
-
-Source declaration parsing computes parenthesis correspondence in one bounded
-linear pass rather than rescanning nested candidate lists.
-`SourceShape_NestedParameterListCandidatesStayWithinLinearTime` gates the
-accepted-input time ceiling.
+The [member signature shape contract](member-signature-shape.md) owns the
+source/Metadata projection policy, caller obligations, canonical `mss1`
+grammar, legacy boundary, and existing enforcement gates. This map does not
+independently redefine those rules. In particular, correspondence is not an
+identity conversion; the focused owner explains both deliberate erasure and
+visible refusal.
 
 ## Motivating scenarios
 
@@ -571,6 +792,40 @@ Find your question here; the shape census below says what to use.
 | 8 | "Look a type up in XML documentation." | Projection | XML-doc id projection — *not* the identity digest |
 | 9 | "Round-trip a declaration plus its body through compile-back." | Fidelity | Metadata/CSharp typed shell and printer for the declaration; Decompiler body production for supported body/codegen shapes |
 | 10 | "Survive a JSON round-trip." | Persistence | A persisted projection key on `ApiMember` |
+
+### Exact XML-documentation projection
+
+`XmlDocMemberIdentity` is the exact Roslyn compiler ID returned by
+`ISymbol.GetDocumentationCommentId` and used as the `name` attribute in an XML
+documentation file, not an overload-search pattern. CSharpText owns that
+grammar and the secure document reader. Metadata projects the ID from
+`MetadataTypeDefinitionName`, method generic arity, and the decoded `TypeNode`
+signature; it does not recover generic positions, array rank, or declaring type
+from display text. If those structural facts are unavailable or degraded, the
+projection is unavailable rather than approximate.
+
+The projection preserves Roslyn's own documented-ID erasures rather than
+inventing a more discriminating dialect. Custom modifiers are not encoded, and
+a function-pointer parameter contributes empty type text because Roslyn's
+documentation-comment visitor has no function-pointer projection. The latter
+can produce compiler-authored IDs such as `M:Samples.C.M()` for a method that
+does have a function-pointer parameter. An XML ID is therefore exact lookup
+currency for its compiler artifact, not proof that two metadata signatures are
+identical.
+
+The same projection is reachable from `ApiType` plus `ApiMember`,
+`ApiMemberHandle`, and `ResolvedMemberTarget`. A projected extension member uses
+its retained declaring-type definition rather than the receiver type under
+which it is displayed. A transport that outlives the live `ApiMember` carries
+the issued XML ID explicitly; it does not rebuild it after `SignatureModel` is
+discarded.
+
+`XmlDocumentationReader` and `XmlDocumentationCatalog` share exact ordinal
+matching, field parsing, limits, DTD rejection, complete-document validation,
+and duplicate handling. Hosts keep companion selection, stream acquisition,
+resource policy, and presentation. CLI and Browser/Wasm adoption and retirement
+of their local parsers are tracked by
+[#6497](https://github.com/richlander/dotnet-inspect/issues/6497).
 
 Scenarios 1 through 5 are the ones most often conflated. Selection, lookup,
 resolution, correspondence, and durable location want different shapes:
@@ -623,7 +878,7 @@ emits two spellings:
 | `Render()` | `:41` | Display, presentation-refined | `(int count, string name)`, `dynamic`, `string?` |
 | `RenderCanonical()` | `:50` | Tuple-canonical identity seam; every non-tuple facet is unchanged | `System.ValueTuple<int, string>`, `dynamic`, `string?` |
 
-**`TypeNode` is `internal`**, visible only to `dotnet-inspect.Tests` and
+**`TypeNode` is `internal`**, visible only to `DotnetInspect.Cli.Tests` and
 `ILInspector.Metadata.Tests` (`src/ILInspector.Metadata/ILInspector.Metadata.csproj:17-18`). This is the
 structural reason every other layer receives strings from Metadata rather than a
 type: the fact owner is not in their vocabulary. It is a deliberate encapsulation
@@ -864,9 +1119,9 @@ Known instances, kept here as a live list:
 - `EcosystemIntegrationScanner` — `signature.ReturnType == "…IServiceCollection"`.
 - `OpenTelemetryScanner` — `ReturnType == "bool"`.
 - `MethodClassificationScanner` — pointer return via `ReturnType.Contains('*')`.
-- `XmlDocumentationNotation.NormalizeParameterType` — a mini type-parser
-  reconstructing structure from display text; reused by the CLI
-  `XmlDocFileParser`.
+- `XmlDocumentationNotation.NormalizeParameterType` — a legacy text
+  normalizer retained for non-XML matching callers; exact XML-documentation
+  identity instead projects from `TypeNode`.
 - `FidelityCheck.Evaluate`'s `Func<string, bool> typeFilter`
   ([#3495](https://github.com/richlander/dotnet-inspect/pull/3495)) — defensible
   as *selection* rather than identity; [#3504](https://github.com/richlander/dotnet-inspect/issues/3504)

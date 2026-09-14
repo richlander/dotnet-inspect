@@ -5,8 +5,10 @@ staged correctness gauntlet. It is **not** just a catalog of today's harness
 flags. The current tools are the raw material; this document names the
 first-class correctness system we want agents and maintainers to use.
 
-[decompiler.md](decompiler.md) explains how the decompiler pipeline produces
-output. [decompiler-quality.md](decompiler-quality.md) explains the quality
+[Decompiler architecture](decompiler-architecture.md) maps the implementation,
+host consumers, and test infrastructure. [decompiler.md](decompiler.md) explains
+how the pipeline produces output.
+[decompiler-quality.md](decompiler-quality.md) explains the quality
 strategy and target selection. This page answers a more operational design
 question: **which boss did this change beat, and which boss is still ahead?**
 
@@ -46,6 +48,25 @@ observation layer. It must not use that parse to construct or rewrite the C#
 artifact it later compiles as evidence. C# spelling, declaration shape, body
 layout, and artifact replacement remain product responsibilities.
 
+Syntax and semantic validity bind the same first product projection. The
+harness may sample that immutable rendered artifact for the semantic lane, but
+must not invoke a mutating raising pipeline again and accidentally compile a
+different second projection.
+`CompilerFeatureOptionsTests.RuntimeAsyncUnsafeSpillBeforeAwait_ClosesUnsafeRunAndBindsFirstProjection`
+gates this ownership boundary with compiler-produced runtime-async IL.
+
+Semantic compilation replays the normalized memory-safety model with a compiler
+configuration that actually enforces it. Updated modules use Preview plus the
+`updated-memory-safety-rules` feature. Legacy, malformed, unsupported, and
+unmarked modules use the stable latest language version without that feature;
+Roslyn 5.9 Preview itself enables the updated behavior and therefore cannot
+serve as a legacy oracle. Runtime-async is added independently from method
+implementation metadata.
+`CompilerFeatureOptionsTests.HarnessReplayEnforcesDistinctLegacyAndUpdatedUnsafeRules`
+gates the observable distinction. Render A/B semantic comparisons select the
+same per-assembly options for both projections, so a legacy validity regression
+cannot be hidden by Preview's updated behavior.
+
 ReturnToSender authored-body controls therefore create a separate
 comparison-only `RoundTripRequest` with the independently acquired body as its
 typed replacement. After
@@ -73,7 +94,8 @@ replacement but not owner-issued derivation, so they cannot enable causal
 control attribution by themselves.
 
 ReturnToSender's earlier source-corpus lookup is a different, non-authoritative
-operation. It may use `CSharpText.MemberSignatureShape` to discriminate
+operation. It may use
+[`CSharpText.MemberSignatureShape`](design/member-signature-shape.md) to discriminate
 same-named candidates, but correspondence remains typed as unique, ambiguous,
 or unavailable and may fall back to the recorded ordinal. It cannot turn a
 shape match into fault-attribution identity; attribution still requires the
@@ -121,6 +143,12 @@ contract.
 | 10 | Changed-method boss | `--emit-corpus-delta`, `--fidelity-method-delta` | The methods a behavior PR changed are identified and attempted by compile-back fidelity. | That uncheckable changed methods are safe. |
 | 11 | Final boss | changed-method fidelity over the risky target population, improved examples, still-flat near misses, adversarial review | A risky raise/structuring PR has evidence over the methods it actually changed and its nearest false positives. | Whole-program semantic equivalence. |
 
+The real-world Corpus boss uses independently selected native ReturnToSender
+results as its baseline-gated fidelity evidence. Legacy compile-back remains
+per-row reference evidence for that sensor and cannot replace an unavailable or
+failed native result. Standalone fidelity and changed-method consumers retain
+their existing contracts until their own #6199 adoption slices land.
+
 The goal is not to make every PR fight every boss. The goal is to make the
 highest relevant boss explicit. A docs-only PR may stop at markdown lint. A
 small pass refactor may need the entry gate plus a no-movement quality card. A
@@ -147,31 +175,31 @@ entry gate invalidates every later result, so run it first and report it.
    looks green. Decompiler-relevant projects:
 
    ```bash
-   dotnet run --project src/ILInspector.Decompiler.Tests -c Release
-   dotnet run --project src/ILInspector.Analysis.Tests -c Release
+   dotnet run --project tests/ILInspector.Decompiler.Tests -c Release
+   dotnet run --project tests/DecompilerHarness.Tests -c Release
+   dotnet run --project tests/ILInspector.Analysis.Tests -c Release
    dotnet run --project tests/ILInspector.Metadata.Tests -c Release
    ```
 
    Filter to a class while iterating, e.g.
    `… -c Release -- -filter "/*/*/IteratorAcknowledgmentPassTests/*"`.
-   The decompiler test host rejects an explicit `-class`, `-method`, or
-   `-filter` selector that matches no discovered test, including one unmatched
-   selector alongside valid selectors. Every requested `-id` must resolve
-   after the other filters, even when another ID is valid. The host also
-   rejects standalone or combined direct selections that resolve to no
-   runnable test, including through explicit-test mode, and reports stale or
-   malformed `-run` serializations directly. A misspelled targeted gate
-   therefore fails instead of reporting a successful zero-test or partial run.
-   Preflight discovery runs in a short-lived child process so its serializer
-   registration and disposable theory data cannot alter the real runner process.
-   `ExplicitFilterGuardTests.TestHost_RejectsEveryUnmatchedExplicitFilter` is
-   the subprocess gate for both the rejection and isolation contracts.
-   `ExplicitFilterGuardTests.AppHostAlias_ConcurrentProcessesAreIsolated`
-   protects its renamed-apphost regression from concurrent test processes by
-   holding isolated aliases live in independent workers while another host
-   starts through the real muxer.
-   `ExplicitFilterGuardTests.AppHostAlias_CancellationCleansParentOwnedDirectories`
-   protects worker cleanup when the parent cancels those processes.
+   [The repository xUnit test host](design/xunit-test-host.md) selects
+   Microsoft Testing Platform (MTP) as the owner of aggregate non-vacuity.
+   The decompiler host owns `--gate` preset expansion and the stronger
+   `--gate pre-merge` receipt: the preset names independent correctness claims,
+   so the CI checker requires report evidence for every expected class and
+   compares independent pre-enumerated discovery identities with execution
+   identities to prove every selected case executes exactly once. MTP's
+   aggregate minimum cannot replace either property.
+
+   Until the MTP adoption tracked by #5379, the decompiler executable retains
+   its transitional `ExplicitFilterGuard` preflight. That preflight is not the
+   repository contract and is removed by adoption rather than generalized.
+   The MTP migration must preserve `--gate` expansion and the per-class receipt
+   and discovery-to-execution completeness receipt while replacing native
+   xUnit selector syntax with MTP filters. If the selected MTP version cannot
+   expose the required independent identities, this suite remains on its
+   transitional host until an equally strong MTP-backed receipt exists.
 
 3. **IR invariant checks.** Every pass must leave a structurally valid tree.
    `IrPasses.Run` calls `function.CheckInvariant()` after each pass — armed by
@@ -190,27 +218,33 @@ entry gate invalidates every later result, so run it first and report it.
 
 Notes:
 
-- The full `src/ILInspector.Decompiler.Tests` suite runs compile-back fidelity
-  checks and can be slow, especially under a contended shared machine; it is part
-  of the entry gate for behavior changes, but iterate against a class filter and
-  run the full suite before requesting review.
-- **PR CI runs only the fast unit subset.** The `test` job in `ci.yml` runs
-  `dotnet run --project src/dotnet-inspect.Tests -c Release -- -trait-
-  "Speed=Slow"`, `dotnet run --project src/ILInspector.Decompiler.Tests -c
-  Release -- -trait- "Speed=Slow"`, and the matching fast Analysis/IL
-  round-trip filters. These gate command surface, pass logic, printer, importer
-  facts, identity, and classification regressions without the broad integration
-  and sweep costs. The slow CLI integration, compile-back/recompile,
-  corpus-sweep, bind, scorecard, fidelity, and broad differential tests are
-  tagged `[Trait("Speed", "Slow")]` and run only in Deep Inspect / full local
-  runs. **Mark any new Roslyn-heavy / recompile / corpus-sweeping or
-  broad integration test `[Trait("Speed", "Slow")]`** — at the class level for a
-  wholly-slow class, or the method level for one slow case in an otherwise fast
-  class — so it stays out of the PR gate. A green PR CI run therefore does *not*
-  prove the slow suite is green; run the full suite locally before review.
+- The full `tests/ILInspector.Decompiler.Tests` suite runs compile-back fidelity
+  checks and can be slow, especially under a contended shared machine. Daily
+  Deep Inspect owns the full non-corpus selection; while iterating, run the
+  focused slow class or area affected by the change rather than treating the
+  entire slow suite as a per-PR entry gate.
+- **PR CI runs only the fast unit subset.** The `test` matrix runs
+  `dotnet run --project tests/DotnetInspect.Cli.Tests -c Release --
+  --filter-not-trait "Speed=Slow"` and the matching fast Analysis/IL round-trip
+  filters. In parallel, the path-gated `decompiler-gates` job runs
+  `dotnet run --project tests/ILInspector.Decompiler.Tests -c Release
+  --no-build -- --gate fast` and
+  `dotnet run --project tests/DecompilerHarness.Tests -c Release --no-build`
+  plus the bounded receipt below. These gate command surface, pass logic,
+  printer, importer facts, identity, and classification regressions without the
+  broad integration and sweep costs.
+  The slow CLI integration, compile-back/recompile, corpus-sweep, bind,
+  scorecard, fidelity, and broad differential tests are tagged
+  `[Trait("Speed", "Slow")]` and run only in Deep Inspect / full local runs.
+  **Mark any new Roslyn-heavy / recompile / corpus-sweeping or broad integration
+  test `[Trait("Speed", "Slow")]`** — at the class level for a wholly-slow
+  class, or the method level for one slow case in an otherwise fast class — so
+  it stays out of the PR gate. A green PR CI run therefore does *not* prove the
+  slow suite is green; do not claim broad fidelity, validity, or corpus health
+  without the corresponding focused or daily evidence.
 - The IL round-trip oracle follows the same shape: PR CI runs
   `dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release --
-  -trait- "Speed=Slow"` when IL round-trip inputs change, while the unfiltered
+  --filter-not-trait "Speed=Slow"` when IL round-trip inputs change, while the unfiltered
   `DotnetInspector.ILRoundtrip.Tests` command keeps the assembly-wide sweep in
   Deep Inspect / full local coverage. Mark new broad/corpus-style
   round-trip checks `[Trait("Speed", "Slow")]`.
@@ -229,7 +263,7 @@ the pipeline — test suite, harness, sweep, benchmark — validates after every
 pass in the same build users run.
 
 The shipped CLI is the one sanctioned opt-out
-(`IrInvariants.DisableForShippedTool()` in `src/dotnet-inspect/Program.cs`), so
+(`IrInvariants.DisableForShippedTool()` in `src/DotnetInspect.Cli/Program.cs`), so
 the tool pays nothing on the decompile hot path. Declining validation has
 exactly one form — `Enabled`'s setter is private, so the compiler rejects any
 other spelling — and `IrInvariantsHostContractTests` pins that one call site, so
@@ -279,9 +313,9 @@ narrows to X's fast tests.
 
 ```bash
 # every Fidelity test, fast and slow:
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait "Area=Fidelity"
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- -trait "Area=Fidelity"
 # fast Fidelity tests only:
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait "Area=Fidelity" -trait- "Speed=Slow"
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- -trait "Area=Fidelity" -trait- "Speed=Slow"
 ```
 
 Areas and their member classes:
@@ -328,8 +362,8 @@ Memorizing the `Speed`/`Area` trait spellings above is friction, and an
 arguments before delegating to the runner. Run `--gate list` for the table:
 
 ```bash
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate list
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate no-corpus
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- --gate list
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- --gate no-corpus
 ```
 
 | Preset | Expands to | Use |
@@ -338,7 +372,7 @@ dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate no-co
 | `fast` | `-trait- "Speed=Slow"` | the fast lane the PR CI test job runs |
 | `slow` | `-trait "Speed=Slow"` | only the slow gates |
 | `no-corpus` | `-trait- "Area=Corpus"` | everything except the multi-hour corpus sweep |
-| `pre-merge` | explicit `-class` filters | the tractable fidelity gates the PR CI `decompiler-gates` job runs |
+| `pre-merge` | explicit `-class` filters | the bounded compile-back receipt the PR CI `decompiler-gates` job runs |
 | `corpus` | `-trait "Area=Corpus"` | only the corpus sweep |
 | `roundtrip` | `-trait "Area=RoundTrip"` | the compile-back / ReturnToSender seam |
 | `fidelity` | `-trait "Area=Fidelity"` | the changed-method fidelity gates |
@@ -356,33 +390,50 @@ below.
 
 ### Pre-merge gate and the known-red pin
 
-The docket and byte-neutrality gates carry doc comments asserting they fail CI,
-but they are all `Speed=Slow` and every pre-merge lane ran `-trait-
-"Speed=Slow"`. They therefore ran only in `release.yml` and the weekly Deep
-Inspect lane — where they were exceeding the job timeout, and a *cancelled* job
-does not satisfy Deep Inspect's `if: ... && failure()` notifier, so no
-notification was ever sent. Detection latency was unbounded, not weekly
-(#3432), and five regressions (#3489–#3493) accumulated unseen.
+The PR contract is intentionally bounded. `decompiler-gates` proves the
+genuinely fast unit subset is green and that a direct compile-back receipt is
+complete: every expected class executes, independent discovery and execution
+identities agree, every selected case starts exactly once, and known-red pins
+ratchet in both directions. It does **not** claim that the broad docket,
+lowered-fidelity, cluster, or printer-precedence sweeps are green.
 
-The `decompiler-gates` CI job closes that hole. Source, test, and tool projects
-run it by default, except for measured false positives in
-`eng/decompiler-gate-skip-projects.txt`. The initial exemptions are the CLI and
-its tests, which do not feed the gate. `DecompilerProjectGraphPolicy` in the
-`eng/CiChangeDetection` gate asserts that every exemption names a project root
-and that no exempted project tree overlaps a project in MSBuild's evaluated
-Release project-reference closure rooted at `ILInspector.Decompiler.Tests`.
-New project trees therefore run the gate without a list update; neither a
-nested project nor a nested exemption can silently hide sources compiled by a
-graph project. An unreadable, invalid, or vacuous graph or skip list exempts
-nothing. Global build inputs and the gate's own scripts and pins remain
+Daily Deep Inspect owns those broad sweeps through `--gate no-corpus`, which
+selects every non-corpus test regardless of `Speed`. Its decompiler step carries
+an explicit post-build condition, so an earlier Test lane suite failure does
+not skip that evidence. The historical weekly arrangement was not sufficient:
+the slow docket and byte-neutrality gates exceeded the job timeout, a
+*cancelled* job did not satisfy the workflow's `failure()` notifier, and five
+regressions (#3489–#3493) accumulated with unbounded detection latency (#3432).
+The dedicated pre-merge job originally closed that entire hole; #6889 narrows
+the PR claim to restore the repository's approximately 10-minute entry gate
+while preserving daily ownership and a bounded direct receipt.
+
+Source, test, and tool projects run `decompiler-gates` by default, except for
+measured false positives in
+`eng/decompiler-gate-skip-projects.txt`. That manifest is generated, not
+hand-maintained: `dotnet run eng/test-ci-change-detection.cs -- \
+--refresh-decompiler-skip-projects` recomputes it from every project directory
+under `fixtures/`, `src/`, `tests/`, and `tools/` that falls outside MSBuild's
+evaluated Release project-reference closure rooted at
+`ILInspector.Decompiler.Tests`, so it stays comprehensive as the repository
+grows instead of drifting back toward a small hand-picked list. Re-run it and
+commit the result whenever a project is added, removed, or re-wired.
+`DecompilerProjectGraphPolicy` in the `eng/CiChangeDetection` gate still
+asserts that every exemption names a project root and that no exempted project
+tree overlaps that same closure — the generator and the assertion share the
+one evaluated graph, so they cannot disagree. New project trees therefore run
+the gate until the manifest is regenerated; neither a nested project nor a
+nested exemption can silently hide sources compiled by a graph project. An
+unreadable, invalid, or vacuous graph or skip list exempts nothing. Global
+build inputs and the gate's own scripts and pins remain
 explicit triggers. The job runs separately so it never serializes with the hot
 `test` lane, and executes `--gate pre-merge`.
 
 ```bash
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- \
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- \
   --gate pre-merge -preEnumerateTheories -noColor -list full/json \
   > /tmp/expected.json
-dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- \
+dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- \
   --gate pre-merge -preEnumerateTheories -noColor -noAutoReporters \
   -reporter json -xml /tmp/gates.xml | tee /tmp/events.jsonl
 dotnet run eng/check-decompiler-gate.cs -- \
@@ -528,9 +579,28 @@ truncated report.
 > gate hitting its timeout is not (#3523).
 
 `pre-merge` deliberately selects the workload classes named by its fail-closed
-inventory rather than the whole `Fidelity` area, plus
-`GateExpectedClassesTests`, the plumbing guard that rides along in the preset
-it guards.
+inventory rather than the whole `Fidelity` area. The bounded receipt covers
+byte-neutral and byte-divergent behavior, whole-module skeleton hazards around
+selected bodies, typed diff fixtures, nested target identity, authored rebuild
+and typed failure paths, plus `GateExpectedClassesTests`, the plumbing guard
+that rides along in the preset it guards.
+
+`FidelityGateTests`, `LoweredFidelityGateTests`, `ClusterCaptureTests`, and
+`PrinterPrecedenceTests` are daily-only whole-pipeline evidence. On #6835 they
+accounted for about 2,004 of the former preset's 2,066 test seconds; no one of
+them could share a four-minute solution build and still fit the 10-minute PR
+target. They remain selected by daily `--gate no-corpus`; removing them from
+`pre-merge` changes evidence timing, not the asserted product behavior.
+
+Issue #6889 reclassified 41 wholly-slow classes and 72 individually-slow
+methods.
+The measured local `--gate fast` path fell from 6,940 tests in 2,300 seconds to
+5,445 tests in 159 seconds, with no remaining case at or above the repository's
+two-second threshold. The bounded receipt runs 110 cases across eight expected
+classes in 123 seconds, and `DecompilerHarness.Tests` adds 11 seconds. The
+combined local execution core is therefore 4m54s; the prior GitHub job's
+build/setup/checker overhead was 4m28s, leaving a healthy decompiler-selected
+path within the approximately 10-minute PR budget.
 
 Those workload classes share `FidelityGateCollection` and therefore run
 serially even though this test assembly allows two parallel collections. That
@@ -562,10 +632,10 @@ shape as `NON-ENUMERATED OR REPEATED CASES`.
 Its focused `FidelityCheck.Evaluate` calls select a typed
 `(Type, Method, Overload)` identity before method import, rendering,
 disassembly, and compile-back, reducing the class from 374.25 seconds to 13.31
-seconds locally. The serialized `pre-merge` preset completed in 729.56 seconds
-locally at that point. A supplied method filter that produces no processable row
-throws rather than returning a vacuous green result; selecting by name admits
-all overloads, while the overload ordinal can select one.
+seconds locally while retaining the whole-module declaration hazard. A supplied
+method filter that produces no processable row throws rather than returning a
+vacuous green result; selecting by name admits all overloads, while the overload
+ordinal can select one.
 
 Method selection does **not** narrow reconstruction. Each selected body still
 compiles against the whole-module skeleton, preserving the class's declaration
@@ -656,7 +726,7 @@ example.
 Report:
 
 1. focused tests;
-2. `src/ILInspector.Decompiler.Tests`;
+2. `tests/ILInspector.Decompiler.Tests`;
 3. generated quality card showing no unexpected corpus movement;
 4. adversarial review summary with resolution commit links.
 
@@ -736,7 +806,7 @@ context, conversions, field/local ordering, or shift masking.
 
 Report compile-back evidence in two layers:
 
-1. **Fixture gate** — the focused `src/ILInspector.Decompiler.Tests` fixture that
+1. **Fixture gate** — the focused `tests/ILInspector.Decompiler.Tests` fixture that
    covers the changed shape. Name whether the sugared gate (`FidelityGateTests`),
    lowered gate (`LoweredFidelityGateTests`), or a pass-specific test is the
    relevant guard. If a fidelity-diff docket row is fixed, shrink `KnownDiffs` and
@@ -805,7 +875,7 @@ Decline (adversarial near miss): <synthetic/near-miss shape that must NOT raise;
 Proof level: shape proof (pass fixtures + adversarial negative)
   [+ validity if output legality changes]
 Evidence:
-- src/ILInspector.Decompiler.Tests <ClassTests>: <N> positive, <M> negative, all green
+- tests/ILInspector.Decompiler.Tests <ClassTests>: <N> positive, <M> negative, all green
 - <generated quality card, only if corpus behavior can move>
 Honesty note: invalid Full -> Partial is an honesty improvement, not a regression.
 ```

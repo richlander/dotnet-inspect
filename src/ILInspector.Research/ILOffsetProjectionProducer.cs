@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection.Metadata;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 using Analysis = ILInspector.Analysis;
@@ -140,9 +140,7 @@ public static class ILOffsetProjectionProducer
                 request.Assembly?.Path
                 ?? request.Assembly?.Identity.Name
                 ?? context.AssemblyPath;
-            // One shared, cached index acquisition for all three semantic contexts: opening the
-            // library body index is expensive, and each context is just a different filtered
-            // projection over the same Analysis evidence.
+            // One index acquisition serves all three semantic contexts in this request.
             if (!TryOpenAnalysisIndex(
                     request.Assembly,
                     context,
@@ -296,13 +294,14 @@ public static class ILOffsetProjectionProducer
     {
         try
         {
+            var indexes = new AnalysisIndexCache();
             if (assembly is null)
             {
-                index = AnalysisIndexCache.ForPath(assemblyPath);
+                index = indexes.ForPath(assemblyPath);
             }
             else
             {
-                index = AnalysisIndexCache.ForAssembly(
+                index = indexes.ForAssembly(
                     assembly,
                     out Guid analysisModuleVersionId);
                 Guid sourceModuleVersionId =

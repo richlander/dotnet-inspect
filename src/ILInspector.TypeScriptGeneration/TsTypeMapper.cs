@@ -169,7 +169,8 @@ static class TsTypeMapper
         ApiTypeShape? wireTypeShape = null,
         IReadOnlyDictionary<ApiTypeReferenceIdentity, string>?
             identityNames = null,
-        IReadOnlySet<string>? envelopeBlockedAliases = null)
+        IReadOnlySet<string>? envelopeBlockedAliases = null,
+        TsJsonUnionMappingContext? unionContext = null)
     {
         string trimmed = csharpType.Trim();
         if (IsBlockedType(trimmed, envelopeBlockedAliases))
@@ -188,7 +189,13 @@ static class TsTypeMapper
             mappedTypeNames,
             TsTypeMappingContext.JsonWire,
             wireTypeShape,
-            identityNames);
+            identityNames,
+            unionContext is null
+                ? null
+                : unionContext with
+                {
+                    ConservativeReferenceArguments = true,
+                });
 
         if (IsJsonEnvelopeReturnType(trimmed))
         {
@@ -270,7 +277,8 @@ static class TsTypeMapper
         IReadOnlyDictionary<string, string>? mappedTypeNames = null,
         ApiTypeShape? typeShape = null,
         IReadOnlyDictionary<ApiTypeReferenceIdentity, string>?
-            identityNames = null) =>
+            identityNames = null,
+        TsJsonUnionMappingContext? unionContext = null) =>
         Map(
             csharpType.Trim(),
             recordNames,
@@ -280,7 +288,8 @@ static class TsTypeMapper
             mappedTypeNames,
             TsTypeMappingContext.JsonWire,
             typeShape,
-            identityNames);
+            identityNames,
+            unionContext);
 
     static string Map(
         string csharpType,
@@ -292,9 +301,16 @@ static class TsTypeMapper
         TsTypeMappingContext mappingContext,
         ApiTypeShape? typeShape = null,
         IReadOnlyDictionary<ApiTypeReferenceIdentity, string>?
-            identityNames = null)
+            identityNames = null,
+        TsJsonUnionMappingContext? unionContext = null)
     {
         string trimmed = csharpType.Trim();
+        if (mappingContext == TsTypeMappingContext.JsonWire
+            && trimmed is "InertText.InertString" or "InertString")
+        {
+            return "string";
+        }
+
         if (typeShape is null
             && IsBlockedType(trimmed, blockedAliases))
         {
@@ -307,6 +323,11 @@ static class TsTypeMapper
         if (trimmed.EndsWith("?", StringComparison.Ordinal))
         {
             string inner = trimmed[..^1];
+            ApiTypeShape? nullableInnerShape =
+                typeShape is not null
+                && IsGenericShape(typeShape, "System.Nullable`1")
+                    ? GenericArgumentShape(typeShape, 0)
+                    : typeShape;
             return $"{Map(
                 inner,
                 recordNames,
@@ -315,8 +336,9 @@ static class TsTypeMapper
                 blockedAliases,
                 mappedTypeNames,
                 mappingContext,
-                typeShape,
-                identityNames)} | null";
+                nullableInnerShape,
+                identityNames,
+                unionContext)} | null";
         }
 
         // System.Text.Json encodes a byte[] value as one Base64 JSON string. Direct JS interop
@@ -345,7 +367,8 @@ static class TsTypeMapper
                 mappedTypeNames,
                 mappingContext,
                 ArrayElementShape(typeShape),
-                identityNames);
+                identityNames,
+                unionContext);
             if (mappingContext == TsTypeMappingContext.JsonWire)
             {
                 return $"ReadonlyArray<{mappedElement}>";
@@ -381,7 +404,8 @@ static class TsTypeMapper
                 mappedTypeNames,
                 mappingContext,
                 GenericArgumentShape(typeShape, 0),
-                identityNames)} | null";
+                identityNames,
+                unionContext)} | null";
         }
 
         if (TryMapDictionary(
@@ -394,9 +418,116 @@ static class TsTypeMapper
                 mappingContext,
                 typeShape,
                 identityNames,
+                unionContext,
                 out string? dictionaryType))
         {
             return dictionaryType!;
+        }
+
+        if (TryMapCollection(
+                trimmed,
+                recordNames,
+                diagnostics,
+                location,
+                blockedAliases,
+                mappedTypeNames,
+                mappingContext,
+                typeShape,
+                identityNames,
+                unionContext,
+                out string? collectionType))
+        {
+            return collectionType!;
+        }
+
+        if (mappingContext == TsTypeMappingContext.JsonWire
+            && typeShape is
+            {
+                Kind: ApiTypeShapeKind.GenericInstance,
+                Definition: { } closedGenericIdentity,
+            }
+            && unionContext?.GenericArities.ContainsKey(closedGenericIdentity) == true)
+        {
+            if (!unionContext.ConservativeReferenceArguments
+                && ContainsGenericParameter(typeShape)
+                && TryParseGenericType(
+                    trimmed,
+                    out _,
+                    out IReadOnlyList<string> displayArguments)
+                && displayArguments.Count == typeShape.TypeArguments.Length
+                && unionContext.Names.TryGetValue(
+                    closedGenericIdentity,
+                    out string? authenticatedName))
+            {
+                string[] mappedArguments =
+                    new string[displayArguments.Count];
+                for (int index = 0;
+                    index < mappedArguments.Length;
+                    index++)
+                {
+                    mappedArguments[index] = Map(
+                        displayArguments[index],
+                        recordNames,
+                        diagnostics,
+                        location,
+                        blockedAliases,
+                        mappedTypeNames,
+                        mappingContext,
+                        typeShape.TypeArguments[index],
+                        identityNames,
+                        unionContext);
+                }
+
+                return $"{authenticatedName}<"
+                    + $"{string.Join(", ", mappedArguments)}>";
+            }
+
+            return TsJsonUnionMapper.MapClosedShape(
+                typeShape,
+                unionContext,
+                location ?? trimmed,
+                unionContext.ConservativeReferenceArguments
+                    ? null
+                    : trimmed);
+        }
+
+        if (mappingContext == TsTypeMappingContext.JsonWire
+            && unionContext is not null
+            && TryParseGenericType(
+                trimmed,
+                out string? genericDefinition,
+                out IReadOnlyList<string> genericArguments)
+            && TryGetGenericName(
+                genericDefinition!,
+                unionContext,
+                mappedTypeNames,
+                out string? genericName,
+                out int genericArity))
+        {
+            if (genericArguments.Count != genericArity)
+            {
+                throw new UnsupportedWireContractException(
+                    location ?? trimmed,
+                    "generic JSON construction has the wrong arity");
+            }
+
+            string[] mappedArguments = new string[genericArguments.Count];
+            for (int index = 0; index < mappedArguments.Length; index++)
+            {
+                mappedArguments[index] = Map(
+                    genericArguments[index],
+                    recordNames,
+                    diagnostics,
+                    location,
+                    blockedAliases,
+                    mappedTypeNames,
+                    mappingContext,
+                    GenericArgumentShape(typeShape, index),
+                    identityNames,
+                    unionContext);
+            }
+
+            return $"{genericName}<{string.Join(", ", mappedArguments)}>";
         }
 
         if (typeShape is
@@ -419,6 +550,18 @@ static class TsTypeMapper
                 out string? exactName) == true)
         {
             return exactName;
+        }
+
+        if (typeShape is
+                {
+                    Kind: ApiTypeShapeKind.GenericParameter,
+                    IsMethodGenericParameter: false,
+                }
+            && mappedTypeNames?.TryGetValue(
+                trimmed,
+                out string? mappedParameterName) == true)
+        {
+            return mappedParameterName;
         }
 
         if (typeShape is not null)
@@ -445,6 +588,25 @@ static class TsTypeMapper
                     blockedAliases))
             {
                 return "unknown";
+            }
+            if ((typeShape is
+                    {
+                        Kind: ApiTypeShapeKind.Named,
+                        Definition: { } exactFrameworkIdentity,
+                    }
+                    && IsAuthenticFrameworkShape(
+                        exactFrameworkIdentity,
+                        "System.Guid"))
+                || (typeShape is
+                    {
+                        Kind: ApiTypeShapeKind.Named,
+                        Definition: { } exactVersionIdentity,
+                    }
+                    && IsAuthenticFrameworkShape(
+                        exactVersionIdentity,
+                        "System.Version")))
+            {
+                return "string";
             }
             if (mappingContext == TsTypeMappingContext.JsInterop
                 && typeShape is
@@ -529,7 +691,7 @@ static class TsTypeMapper
         return mapped;
     }
 
-    static string? MapPrimitive(ApiPrimitiveType primitive) =>
+    internal static string? MapPrimitive(ApiPrimitiveType primitive) =>
         primitive switch
         {
             ApiPrimitiveType.Char or ApiPrimitiveType.String => "string",
@@ -580,6 +742,7 @@ static class TsTypeMapper
         ApiTypeShape? typeShape,
         IReadOnlyDictionary<ApiTypeReferenceIdentity, string>?
             identityNames,
+        TsJsonUnionMappingContext? unionContext,
         out string? mappedType)
     {
         if (!TryUnwrapGeneric(typeName, "System.Collections.Generic.Dictionary", out string? dictionaryArgs)
@@ -597,6 +760,7 @@ static class TsTypeMapper
             mappedType = "unknown";
             return true;
         }
+
         string expectedDefinition =
             typeName.StartsWith(
                 "System.Collections.Generic.IReadOnlyDictionary<",
@@ -630,7 +794,8 @@ static class TsTypeMapper
             mappedTypeNames,
             mappingContext,
             GenericArgumentShape(typeShape, 0),
-            identityNames);
+            identityNames,
+            unionContext);
         string mappedValue = Map(
             valueType!,
             recordNames,
@@ -640,7 +805,8 @@ static class TsTypeMapper
             mappedTypeNames,
             mappingContext,
             GenericArgumentShape(typeShape, 1),
-            identityNames);
+            identityNames,
+            unionContext);
         if (mappedKey != "string")
         {
             diagnostics?.ReportUnmappedType(location ?? typeName, typeName);
@@ -653,6 +819,98 @@ static class TsTypeMapper
             ? $"Readonly<{recordType}>"
             : recordType;
         return true;
+    }
+
+    static bool TryMapCollection(
+        string typeName,
+        IReadOnlySet<string> recordNames,
+        TypeScriptGenerationDiagnostics? diagnostics,
+        string? location,
+        IReadOnlySet<string>? blockedAliases,
+        IReadOnlyDictionary<string, string>? mappedTypeNames,
+        TsTypeMappingContext mappingContext,
+        ApiTypeShape? typeShape,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, string>?
+            identityNames,
+        TsJsonUnionMappingContext? unionContext,
+        out string? mappedType)
+    {
+        if (mappingContext != TsTypeMappingContext.JsonWire
+            || !TryGetCollectionDefinition(
+                typeName,
+                out string? definition,
+                out string? arguments)
+            || !TrySplitGenericArguments(
+                arguments!,
+                out IReadOnlyList<string> collectionArguments)
+            || collectionArguments.Count != 1)
+        {
+            mappedType = null;
+            return false;
+        }
+        string elementType = collectionArguments[0];
+
+        if (typeShape is not null
+            && (!IsGenericShape(typeShape, definition!)
+                || IsBlockedType(typeName, blockedAliases)))
+        {
+            diagnostics?.ReportUnmappedType(
+                location ?? typeName,
+                typeName);
+            mappedType = "unknown";
+            return true;
+        }
+
+        string mappedElement = Map(
+            elementType,
+            recordNames,
+            diagnostics,
+            location,
+            blockedAliases,
+            mappedTypeNames,
+            mappingContext,
+            GenericArgumentShape(typeShape, 0),
+            identityNames,
+            unionContext);
+        mappedType = $"ReadonlyArray<{mappedElement}>";
+        return true;
+    }
+
+    static bool TryGetCollectionDefinition(
+        string typeName,
+        out string? definition,
+        out string? arguments)
+    {
+        foreach (string candidate in new[]
+        {
+            "System.Collections.Generic.ICollection",
+            "System.Collections.Generic.IEnumerable",
+            "System.Collections.Generic.IReadOnlyCollection",
+            "System.Collections.Generic.IReadOnlyList",
+            "System.Collections.Generic.List",
+            "System.Collections.Immutable.ImmutableArray",
+            "ICollection",
+            "IEnumerable",
+            "IReadOnlyCollection",
+            "IReadOnlyList",
+            "List",
+            "ImmutableArray",
+        })
+        {
+            if (TryUnwrapGeneric(typeName, candidate, out arguments))
+            {
+                definition = candidate.StartsWith(
+                    "System.",
+                    StringComparison.Ordinal)
+                    ? $"{candidate}`1"
+                    : $"System.Collections.Generic.{candidate}`1";
+                return true;
+            }
+        }
+
+        definition = null;
+        arguments = null;
+        return false;
     }
 
     static string MapAuthenticatedDelegate(
@@ -1200,6 +1458,8 @@ static class TsTypeMapper
                 or "Single"
                 or "Double"
                 or "Decimal"
+                or "Guid"
+                or "Version"
                 or "IntPtr"
                 or "DateTime"
                 or "DateTimeOffset"
@@ -1215,7 +1475,12 @@ static class TsTypeMapper
                 or "ValueTask`1",
             "System.Collections.Generic" => type.Name is
                 "Dictionary`2"
-                or "IReadOnlyDictionary`2",
+                or "IReadOnlyDictionary`2"
+                or "ICollection`1"
+                or "IEnumerable`1"
+                or "IReadOnlyCollection`1"
+                or "IReadOnlyList`1"
+                or "List`1",
             "System.Text.Json" => type.Name == "JsonElement",
             "System.Runtime.InteropServices.JavaScript" =>
                 type.Name == "JSObject",
@@ -1267,7 +1532,7 @@ static class TsTypeMapper
         && type.Name == expectedName
         && IsAuthenticFrameworkMapping(type);
 
-    static bool IsAuthenticFrameworkMapping(TypeRef type)
+    internal static bool IsAuthenticFrameworkMapping(TypeRef type)
     {
         if (!type.TrustedFrameworkAssembly)
             return false;
@@ -1293,6 +1558,17 @@ static class TsTypeMapper
         };
     }
 
+    static bool IsAuthenticFrameworkShape(
+        ApiTypeReferenceIdentity identity,
+        string fullName) =>
+        identity.FullName == fullName
+        && PlatformKeys.IsPlatform(identity.Assembly.PublicKeyToken)
+        && identity.Assembly.Name is
+            "System.Private.CoreLib"
+            or "System.Runtime"
+            or "mscorlib"
+            or "netstandard";
+
     static bool IsType(
         TypeRef type,
         string expectedNamespace,
@@ -1303,7 +1579,7 @@ static class TsTypeMapper
         && type.Namespace == expectedNamespace
         && type.Name == expectedName;
 
-    static TsLocalTypeKind? ClassifyAuthenticatedType(
+    internal static TsLocalTypeKind? ClassifyAuthenticatedType(
         TypeRef type,
         TsDelegateMappingContext mappingContext)
     {
@@ -1405,7 +1681,7 @@ static class TsTypeMapper
             out kind);
     }
 
-    static bool MatchesContainingAssembly(
+    internal static bool MatchesContainingAssembly(
         TypeRef type,
         ApiAssemblyIdentity? containingAssembly)
     {
@@ -1469,7 +1745,7 @@ static class TsTypeMapper
             ? typeName["global::".Length..]
             : typeName;
 
-    static bool TryParseGenericType(
+    internal static bool TryParseGenericType(
         string typeName,
         out string? definition,
         out IReadOnlyList<string> arguments)
@@ -1487,6 +1763,30 @@ static class TsTypeMapper
         return TrySplitGenericArguments(
             typeName[(genericStart + 1)..^1],
             out arguments);
+    }
+
+    static bool TryGetGenericName(
+        string definition,
+        TsJsonUnionMappingContext context,
+        IReadOnlyDictionary<string, string>? mappedTypeNames,
+        out string? name,
+        out int arity)
+    {
+        string simpleName = LastSegment(definition);
+        if (!context.GenericNameArities.TryGetValue(definition, out arity)
+            && !context.GenericNameArities.TryGetValue(simpleName, out arity))
+        {
+            name = null;
+            arity = 0;
+            return false;
+        }
+
+        if (mappedTypeNames?.TryGetValue(definition, out name) == true
+            || mappedTypeNames?.TryGetValue(simpleName, out name) == true)
+            return true;
+
+        return context.GenericNames.TryGetValue(definition, out name)
+            || context.GenericNames.TryGetValue(simpleName, out name);
     }
     static bool IsPrimitiveByteArray(
         string csharpType,
@@ -1526,6 +1826,27 @@ static class TsTypeMapper
             && typeShape.TypeArguments.Length > index
                 ? typeShape.TypeArguments[index]
                 : null;
+
+    static bool ContainsGenericParameter(ApiTypeShape shape)
+    {
+        var pending = new Stack<ApiTypeShape>();
+        pending.Push(shape);
+        while (pending.Count > 0)
+        {
+            ApiTypeShape current = pending.Pop();
+            if (current.Kind == ApiTypeShapeKind.GenericParameter)
+                return true;
+            if (current.ElementType is not null)
+                pending.Push(current.ElementType);
+            for (int index = current.TypeArguments.Length - 1;
+                index >= 0;
+                index--)
+            {
+                pending.Push(current.TypeArguments[index]);
+            }
+        }
+        return false;
+    }
 
     static bool TrySplitTopLevelGenericArguments(
         string arguments,

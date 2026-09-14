@@ -287,18 +287,25 @@ use the network only when the selected section justifies it.
 | Fetch one PDB-mapped member source body | explicit selected-member `PDB Source` / `@Source` |
 | Resolve member file/line locations | explicit member `Source Locations` section; may acquire one missing PDB but should not fetch source bodies |
 
-Every source-body fetch checks the final response URL after redirects. If the
-requested URL has an attributable SourceLink origin, the final URL must name the
-same host, repository, and revision. The response body is then used only when it
-matches the portable-PDB checksum. Availability and integrity audits apply the
-same final-origin rule before recording reachability or reading content.
-Browser/Wasm cannot report the final URL after an automatic redirect, so
-attributed SourceLink fetches fail closed on that platform; checksum-verified
-URLs outside the known provenance grammars remain available. Header-first body
-reads retain the untrusted-fetch timeout and enforce the download cap against
-decoded bytes even when the server omits `Content-Length`. Each source body is
-capped at 16 MB. Browser/Wasm fetches require streaming-response support so the
-transport cannot buffer the full body before that cap is enforced.
+Selected source-body acquisition follows redirects and uses a successful final
+response only when its bytes match the portable-PDB checksum. An unsuccessful
+response or transport failure leaves PDB source unavailable, so the shared
+source query uses decompiled source when available. The desktop transport
+continues to apply its untrusted-destination checks to every connection,
+including redirects. Browser/Wasm authorizes the initial HTTPS SourceLink host,
+omits credentials, and follows redirects; checksum verification remains the
+content-admission gate.
+
+Availability and integrity audits continue to check the final response URL
+before recording reachability or reading content. If the requested URL has an
+attributable SourceLink origin, the final URL must name the same host,
+repository, and revision. Browser/Wasm cannot report the final URL after an
+automatic redirect, so attributed audit results fail closed on that platform.
+Header-first body reads retain the untrusted-fetch timeout and enforce the
+download cap against decoded bytes even when the server omits
+`Content-Length`. Each source body is capped at 16 MB. Browser/Wasm fetches
+require streaming-response support so the transport cannot buffer the full
+body before that cap is enforced.
 
 The section pipeline lowers selected SourceLink sections to typed query demand:
 
@@ -323,10 +330,14 @@ network requests.
 - Symbol-package PDB caches are identity-keyed to avoid multi-TFM collisions.
 - Source availability and integrity queries accept an optional host cache;
   filesystem-free hosts may run without one.
-- Positive availability and integrity results are cached permanently only when
-  the provenance grammar establishes an immutable commit-pinned GitHub or Azure
-  DevOps URL. Other availability results retain a TTL; integrity results for
-  unknown hosts and moving or ambiguous selectors are not cached.
+- [Source availability audit](design/source-availability-audit.md) owns
+  availability reuse. Origin-validated positives are permanent only for
+  recognized immutable commit-pinned URLs and otherwise retain a one-day TTL.
+  Non-success results lack final-origin evidence and remain operation-local.
+- [Source integrity audit](design/source-integrity-audit.md) owns checksum
+  classification and reuse. Exact and line-ending-normalized positives are
+  permanent only when the provenance grammar establishes an immutable
+  commit-pinned URL. Mutable positives and failed operations are not cached.
 - The target bare-library effective catalog may persist successful
   package/platform section summaries under its versioned semantic key. The
   slice-5 successor keys on retained assembly content plus complete typed

@@ -469,7 +469,7 @@ public sealed record AnnotatedSourceDocument
     /// <param name="Text">The rendered interleaved C#/IL text, newline-separated, and the coordinate space every span indexes. Must be well-formed UTF-16: every high surrogate followed by a low surrogate, and no lone surrogate of either half.</param>
     /// <param name="Nodes">Text structure over <paramref name="Text"/>, ids contiguous from <c>0</c> in list order.</param>
     /// <param name="Regions">Named construct and clause regions over <paramref name="Text"/>.</param>
-    /// <param name="Facts">Every distinct observation about the member, ids contiguous from <c>0</c> in list order.</param>
+    /// <param name="Facts">Every observation about the member, ids contiguous from <c>0</c> in list order.</param>
     /// <param name="Targets">Which node each fact is about; a fact with none is unanchored.</param>
     public AnnotatedSourceDocument(
         string Text,
@@ -519,7 +519,7 @@ public sealed record AnnotatedSourceDocument
     /// <summary>Named construct and clause regions over <see cref="Text"/>.</summary>
     public IReadOnlyList<AnnotatedSourceRegion> Regions { get; }
 
-    /// <summary>Every distinct observation about the member.</summary>
+    /// <summary>Every observation about the member.</summary>
     public IReadOnlyList<AnnotatedSourceFact> Facts { get; }
 
     /// <summary>Which node each fact is about; a fact with no row here is unanchored.</summary>
@@ -593,13 +593,6 @@ public sealed record AnnotatedSourceDocument
 
     static void ValidateFacts(AnnotatedSourceFact[] facts)
     {
-        var identities = new HashSet<(
-            string Descriptor,
-            string Category,
-            AnnotationConditionality Conditionality,
-            string? Detail,
-            int SourceOffset,
-            AnnotatedSourceFactOrigin Origin)>();
         for (int index = 0; index < facts.Length; index++)
         {
             var fact = facts[index];
@@ -641,23 +634,6 @@ public sealed record AnnotatedSourceDocument
             {
                 throw new ArgumentException(
                     $"Member-header fact {fact.Descriptor} is about the member, not an instruction, so its source offset must be -1.",
-                    "Facts");
-            }
-
-            // Facts are deduplicated, so two rows that agree on everything a
-            // consumer can observe are the same observation stated twice --
-            // which would make "how many times does this happen" unanswerable
-            // from the payload.
-            if (!identities.Add((
-                    fact.Descriptor,
-                    fact.Category,
-                    fact.Conditionality,
-                    fact.Detail,
-                    fact.SourceOffset,
-                    fact.Origin)))
-            {
-                throw new ArgumentException(
-                    $"Fact {fact.Descriptor} is stated more than once; facts are deduplicated and targeted instead.",
                     "Facts");
             }
         }

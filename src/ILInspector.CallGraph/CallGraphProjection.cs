@@ -69,6 +69,12 @@ public enum CallGraphNodeKind
 /// <c>ConflictingDefinitionAndResolutionAssembliesAreWithheld</c> gates
 /// conflict withholding.
 /// </param>
+/// <param name="OccurrenceAssemblyIdentity">
+/// Exact assembly scope encoded by one physical call occurrence. Logical
+/// projection nodes leave this null; an occurrence target returned by
+/// <see cref="CallGraphProjection.FindFocusCalleeTarget"/> retains it without
+/// changing terminal-resolution semantics.
+/// </param>
 public sealed record CallGraphNode(
     int Id,
     GraphNodeIdentity Identity,
@@ -78,7 +84,8 @@ public sealed record CallGraphNode(
     CallTreePerf? Perf = null,
     ImmutableArray<GraphNodeEvidence> GraphEvidence = default,
     AssemblyReferenceIdentity? DefinitionAssemblyIdentity = null,
-    AssemblyReferenceIdentity? ResolutionAssemblyIdentity = null);
+    AssemblyReferenceIdentity? ResolutionAssemblyIdentity = null,
+    AssemblyReferenceIdentity? OccurrenceAssemblyIdentity = null);
 
 /// <summary>The traversal half that first contributed one logical edge.</summary>
 public enum CallGraphEdgeOrigin
@@ -345,6 +352,50 @@ public sealed partial class CallGraphProjection
         FindCalleeRow(Focus.Id, call, out row);
 
     /// <summary>
+    /// Resolves one physical call site in the selected member to its exact typed target.
+    /// The projected row supplies logical graph ownership, while the physical occurrence
+    /// restores decoder-retained assembly-reference identity that structural node grouping
+    /// intentionally omits.
+    /// </summary>
+    /// <remarks>
+    /// The returned occurrence view keeps the projected node's logical
+    /// <see cref="CallGraphNode.Id"/> and <see cref="CallGraphNode.Identity"/>;
+    /// it is not a replacement entry in <see cref="Nodes"/>.
+    /// </remarks>
+    public CallGraphRowMatch FindFocusCalleeTarget(
+        DirectCall call,
+        out CallGraphNode target)
+    {
+        CallGraphRowMatch match = FindFocusCalleeRow(call, out CallGraphRow row);
+        if (match != CallGraphRowMatch.Found)
+        {
+            target = null!;
+            return match;
+        }
+
+        CallGraphNode projected =
+            Nodes.Single(node => node.Id == row.Edge.To);
+        AssemblyReferenceIdentity? occurrenceAssembly =
+            DeclaringAssemblyIdentity(call.Callee.DeclaringType);
+        AssemblyReferenceIdentity? definitionAssembly =
+            projected.DefinitionAssemblyIdentity;
+        if (definitionAssembly is not null
+            && projected.ResolutionAssemblyIdentity is null
+            && occurrenceAssembly is not null
+            && !definitionAssembly.IsEquivalentTo(occurrenceAssembly))
+        {
+            definitionAssembly = null;
+        }
+        target = projected with
+        {
+            Member = call.Callee,
+            DefinitionAssemblyIdentity = definitionAssembly,
+            OccurrenceAssemblyIdentity = occurrenceAssembly,
+        };
+        return CallGraphRowMatch.Found;
+    }
+
+    /// <summary>
     /// Resolves one method definition to its projected logical node. Exact
     /// physical definition evidence wins; structural identity handles
     /// evidence-free projections.
@@ -467,6 +518,27 @@ public sealed partial class CallGraphProjection
             == second.EvidenceMethod.MetadataToken
         && first.ILOffset == second.ILOffset
         && first.OperandToken == second.OperandToken;
+
+    static AssemblyReferenceIdentity? DeclaringAssemblyIdentity(
+        TypeRef type)
+    {
+        while (type.Kind == TypeRefKind.GenericInstance
+            && type.ElementType is not null)
+        {
+            type = type.ElementType;
+        }
+        if (type.Kind != TypeRefKind.Definition)
+            return null;
+
+        return type.Resolution?.Origin switch
+        {
+            TypeReferenceOrigin.AssemblyReference reference =>
+                reference.Assembly,
+            TypeReferenceOrigin.CurrentAssembly current =>
+                current.Assembly,
+            _ => null,
+        };
+    }
 
     /// <summary>
     /// Projects the combined caller/target/callee view. Both roots are the selected

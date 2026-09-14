@@ -1,8 +1,7 @@
 using System.Text.Json;
 
-using DotnetInspector.Core;
 using DotnetInspector.Services;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Metadata;
 
 namespace ILInspector.DecompilerHarness;
@@ -83,7 +82,7 @@ static class AuthoredCorpusDrift
 
         HttpClientFactory.Initialize(new HttpClientFactoryOptions());
         using var httpClient = HttpClientFactory.CreateClient();
-        var fetcher = new SourceFetcher(HttpClientFactory.SharedUntrustedFetch);
+        var fetcher = new SourceFetch(HttpClientFactory.SharedUntrustedFetch);
 
         var results = new List<RowResult>();
         var matchedGroups = new HashSet<string>(StringComparer.Ordinal);
@@ -104,11 +103,8 @@ static class AuthoredCorpusDrift
                 foreach (var record in group)
                     results.Add(await EvaluateRowAsync(source, record, fetcher, repositoryPaths));
             }
-            catch (Exception ex) when (ex is IOException
-                or InvalidOperationException
-                or BadImageFormatException
-                or HttpRequestException
-                or TaskCanceledException)
+            catch (Exception ex) when (
+                AuthoredRebuildFidelity.IsPdbAcquisitionFailure(ex))
             {
                 // The assembly's SourceLink PDB could not be opened or acquired, so
                 // no row for it can be verified. Surface every row as Unavailable
@@ -136,7 +132,7 @@ static class AuthoredCorpusDrift
     static async Task<RowResult> EvaluateRowAsync(
         SourceLinkService source,
         AuthoredSourceHarvest.CorpusRecord record,
-        SourceFetcher fetcher,
+        SourceFetch fetcher,
         IReadOnlyList<string>? repositoryPaths)
     {
         var subject = new FindingSubject(
@@ -146,7 +142,7 @@ static class AuthoredCorpusDrift
         PdbMemberSourceInspection authored;
         try
         {
-            authored = await PdbSourceAcquisition.AcquireMemberAsync(
+            authored = await PdbSourceHouse.AcquireMemberAsync(
                 source,
                 record.MetadataToken,
                 record.Method,

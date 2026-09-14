@@ -97,12 +97,12 @@ back through a compiler. The supporting evidence:
 
 ### Expanding real-world fidelity coverage
 
-The real-world corpus card exposes compile-back fidelity coverage honestly, but
-coverage can be thin because many methods are not yet standalone-recompilable.
-Increasing the cap is only a measurement step: it characterizes how much useful
-compile-back evidence exists today and buckets why the rest fails. The first
-expansion target is therefore the **checked population inside the fixed
-corpus**, not a larger random assembly set.
+The real-world corpus card exposes native ReturnToSender fidelity coverage
+honestly, but coverage can be thin because many methods are not yet
+standalone-recompilable. Increasing the cap is only a measurement step: it
+characterizes how much useful native evidence exists today and buckets why the
+rest fails. The first expansion target is therefore the **checked population
+inside the fixed corpus**, not a larger random assembly set.
 
 Use this order for risky decompiler work:
 
@@ -461,7 +461,7 @@ These keep a review fast and the proof legible:
   Reconstruct the claim from that history before reading today's matcher.
 - **Run the pass's tests in isolation.** The full decompiler suite is slow, so
   filter to the class under review —
-  `dotnet run --project src/ILInspector.Decompiler.Tests -- -class
+  `dotnet run --project tests/ILInspector.Decompiler.Tests -- -class
   ILInspector.Decompiler.Tests.<PassTests>`. Run the full suite once for a
   baseline so you can separate pre-existing failures (for example the
   fidelity-gate docket) from regressions you introduce.
@@ -471,7 +471,7 @@ These keep a review fast and the proof legible:
   ternary in Debug. A default Debug run can therefore show every positive fixture
   failing with an empty collection and the whole suite red; that is a config
   artifact, not a regression. Match CI:
-  `dotnet run --project src/ILInspector.Decompiler.Tests -c Release`.
+  `dotnet run --project tests/ILInspector.Decompiler.Tests -c Release`.
 - **Prefer synthetic IR for near-miss negatives.** Many discriminators
   (non-local targets, field/temp receivers, user-assembly lookalikes) are awkward
   or impossible to spell in C# source but trivial to build directly as IR in the
@@ -561,7 +561,7 @@ Run the sensor with the same command documented in the harness README. The
 `--quality-diff-card` flag is what emits the PR-ready Markdown block:
 
 ```bash
-dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
+dotnet build src/DotnetInspect.Cli -c Release -p:PublishAot=false
 bash eng/prepare-decompiler-corpus.sh /tmp/corpus-assemblies.txt
 mapfile -t assemblies < /tmp/corpus-assemblies.txt
 dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
@@ -569,12 +569,13 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --quality-diff-card \
   --compile-cap 25 \
   --corpus-fidelity-cap 3 \
+  --corpus-fidelity-oracle rts-cutover \
   --max-examples 3
 ```
 
 For risky raise or structuring PRs, add `--quality-card-risky`. It keeps the
 card generated from the same snapshots, but adds a thin-coverage warning when the
-semantic validity sample is below 1.00% of methods or the compile-back fidelity
+semantic validity sample is below 1.00% of methods or the native RTS fidelity
 sample is below 0.10%. That warning means the aggregate card is not enough by
 itself; add method-level improved examples and still-flat near misses.
 
@@ -852,8 +853,9 @@ changes source legality or required spelling, use paired representative source
 that produces the same IL and differs only in mode metadata. It is small by
 construction — only mode-sensitive fixtures get thin per-flag overlay assemblies
 — so the cost is one default plus a few shrinking single-flag overlays, never the
-corpus times N. The active axes are the `runtime-async=off` overlay
-(`Fixtures.ClassicAsync`), the checked-arithmetic overlay
+corpus times N. The active async axis compiles the exact same `AsyncFixtures.cs`
+as `runtime-async=off` (`Fixtures.ClassicAsync`) and `runtime-async=on`
+(`Fixtures.RuntimeAsync`). The other active axes are the checked-arithmetic overlay
 (`Fixtures.CheckedArithmetic`), and the old/new memory-safety pair
 (`Fixtures.LegacyUnsafe` / `Fixtures.NewUnsafe`, plus `UnsafeChainA/B/C` for
 cross-assembly `RequiresUnsafeAttribute` resolution). The mechanics, axis
@@ -861,8 +863,10 @@ switches, and recipe for adding an axis live in
 [the harness README](../tools/DecompilerHarness/README.md), "Multi-mode fixture
 matrix".
 
-This is a **discovery and bring-down instrument, on-demand — not a CI gate.** It
-feeds the quality loop from the other end than the corpus does:
+Library-report measurement is a **discovery and bring-down instrument,
+on-demand — not a CI gate.** `AsyncLoweringFixtureMatrixTests` gates that the
+async pair continues to share one source and produce its two physical
+lowerings. The reports feed the quality loop from the other end than the corpus:
 
 - **Discover.** `--library-report` over an overlay surfaces unsupported-pattern
   buckets the single-mode corpus could never produce. Each bucket is a real,

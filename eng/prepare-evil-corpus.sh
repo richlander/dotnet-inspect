@@ -50,7 +50,7 @@ trap 'rm -rf "$work"' EXIT
 # 1. Broad-source NuGet sweep. The sweep extracts assemblies into
 #    <outdir>/sweep/packages/... and lists those durable paths, so it must write
 #    into the persisted output directory, never the temp dir.
-dotnet run -p:NoWarn=NU1507 -p:NuGetAudit=false \
+dotnet run \
     "$root/eng/prepare-decompiler-package-sweep.cs" -- \
     "$outdir/sweep" 1 "$PACKAGE_COUNT" >&2
 

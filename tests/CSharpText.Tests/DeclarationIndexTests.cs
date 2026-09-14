@@ -571,7 +571,7 @@ public class DeclarationIndexTests
     }
 
     [Fact]
-    public void TheBodySlicerCannotAccessLexerInternals()
+    public void MemberSlicingCannotAccessLexerInternals()
     {
         Assert.DoesNotContain(
             typeof(DeclarationIndex).Assembly.GetCustomAttributesData(),
@@ -579,7 +579,7 @@ public class DeclarationIndexTests
                 attribute.AttributeType == typeof(System.Runtime.CompilerServices.InternalsVisibleToAttribute)
                 && attribute.ConstructorArguments[0].Value is string assemblyName
                 && assemblyName.StartsWith(
-                    "DotnetInspector.CSharpBodySlicer",
+                    "CSharpText.MemberSlicing",
                     StringComparison.Ordinal));
     }
 
@@ -4540,13 +4540,21 @@ public class DeclarationIndexTests
         }
     }
 
-    private static DeclarationKind TypeKind(TypeDeclarationSyntax type) => type switch
+    private static DeclarationKind TypeKind(TypeDeclarationSyntax type)
     {
-        RecordDeclarationSyntax => DeclarationKind.Record,
-        StructDeclarationSyntax => DeclarationKind.Struct,
-        InterfaceDeclarationSyntax => DeclarationKind.Interface,
-        _ => DeclarationKind.Class,
-    };
+        // UnionDeclarationSyntax is experimental in Roslyn 5.9; the stable token
+        // text keeps this compiler oracle warning-free.
+        if (type.Keyword.ValueText == "union")
+            return DeclarationKind.Struct;
+
+        return type switch
+        {
+            RecordDeclarationSyntax => DeclarationKind.Record,
+            StructDeclarationSyntax => DeclarationKind.Struct,
+            InterfaceDeclarationSyntax => DeclarationKind.Interface,
+            _ => DeclarationKind.Class,
+        };
+    }
 
     private static Declaration Make(SyntaxNode node, DeclarationKind kind, string name)
     {

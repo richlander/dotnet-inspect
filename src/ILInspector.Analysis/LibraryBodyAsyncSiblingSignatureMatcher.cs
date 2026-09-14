@@ -503,6 +503,8 @@ internal static class LibraryBodyAsyncSiblingSignatureMatcher
             .Append(type.GenericParameterIndex)
             .Append(';')
             .Append(type.RawTypeKind)
+            .Append(';')
+            .Append(type.IsRequiredModifier ? 1 : 0)
             .Append(';');
         AppendIdentityValues(identity, type.ArraySizes);
         AppendIdentityValues(
@@ -575,6 +577,66 @@ internal static class LibraryBodyAsyncSiblingSignatureMatcher
                 type.ElementType,
                 visited);
             identity.Append(']');
+        }
+        if (type.ModifierType is not null
+            || type.UnmodifiedType is not null)
+        {
+            identity.Append("m[");
+            if (type.ModifierType is not null)
+            {
+                AppendAsyncSiblingTypeIdentity(
+                    identity,
+                    type.ModifierType,
+                    visited);
+            }
+            else
+            {
+                identity.Append('-');
+            }
+            identity.Append("][");
+            if (type.UnmodifiedType is not null)
+            {
+                AppendAsyncSiblingTypeIdentity(
+                    identity,
+                    type.UnmodifiedType,
+                    visited);
+            }
+            else
+            {
+                identity.Append('-');
+            }
+            identity.Append(']');
+        }
+        if (type.FunctionPointerSignature is { } function)
+        {
+            identity.Append("f{")
+                .Append(function.Header.RawValue)
+                .Append(';')
+                .Append(function.GenericParameterCount)
+                .Append(';')
+                .Append(function.RequiredParameterCount)
+                .Append(';');
+            AppendAsyncSiblingTypeIdentity(
+                identity,
+                function.ReturnType,
+                visited);
+            int parameterCount =
+                function.ParameterTypes.IsDefault
+                    ? -1
+                    : function.ParameterTypes.Length;
+            identity.Append('|').Append(parameterCount).Append(':');
+            if (!function.ParameterTypes.IsDefault)
+            {
+                foreach (TypeRef parameter
+                    in function.ParameterTypes)
+                {
+                    AppendAsyncSiblingTypeIdentity(
+                        identity,
+                        parameter,
+                        visited);
+                }
+            }
+            identity.Append('}');
         }
         foreach (TypeRef argument in type.TypeArguments)
         {
@@ -665,10 +727,20 @@ internal static class LibraryBodyAsyncSiblingSignatureMatcher
                     != currentRight.GenericParameterIndex
                 || currentLeft.UnsupportedReason
                     != currentRight.UnsupportedReason
+                || currentLeft.IsRequiredModifier
+                    != currentRight.IsRequiredModifier
                 || currentLeft.TypeArguments.Length
                     != currentRight.TypeArguments.Length
                 || (currentLeft.ElementType is null)
-                    != (currentRight.ElementType is null))
+                    != (currentRight.ElementType is null)
+                || (currentLeft.ModifierType is null)
+                    != (currentRight.ModifierType is null)
+                || (currentLeft.UnmodifiedType is null)
+                    != (currentRight.UnmodifiedType is null)
+                || !AsyncSiblingFunctionPointersMatch(
+                    currentLeft.FunctionPointerSignature,
+                    currentRight.FunctionPointerSignature,
+                    pending))
             {
                 return false;
             }
@@ -715,6 +787,18 @@ internal static class LibraryBodyAsyncSiblingSignatureMatcher
                     currentLeft.ElementType,
                     currentRight.ElementType!));
             }
+            if (currentLeft.ModifierType is not null)
+            {
+                pending.Push((
+                    currentLeft.ModifierType,
+                    currentRight.ModifierType!));
+            }
+            if (currentLeft.UnmodifiedType is not null)
+            {
+                pending.Push((
+                    currentLeft.UnmodifiedType,
+                    currentRight.UnmodifiedType!));
+            }
             for (int i = 0;
                 i < currentLeft.TypeArguments.Length;
                 i++)
@@ -723,6 +807,44 @@ internal static class LibraryBodyAsyncSiblingSignatureMatcher
                     currentLeft.TypeArguments[i],
                     currentRight.TypeArguments[i]));
             }
+        }
+        return true;
+    }
+
+    static bool AsyncSiblingFunctionPointersMatch(
+        MethodSignature<TypeRef>? left,
+        MethodSignature<TypeRef>? right,
+        Stack<(TypeRef Left, TypeRef Right)> pending)
+    {
+        if (left is null || right is null)
+            return left is null && right is null;
+
+        MethodSignature<TypeRef> leftSignature = left.Value;
+        MethodSignature<TypeRef> rightSignature = right.Value;
+        if (leftSignature.Header.RawValue
+                != rightSignature.Header.RawValue
+            || leftSignature.GenericParameterCount
+                != rightSignature.GenericParameterCount
+            || leftSignature.RequiredParameterCount
+                != rightSignature.RequiredParameterCount
+            || leftSignature.ParameterTypes.IsDefault
+                != rightSignature.ParameterTypes.IsDefault
+            || leftSignature.ParameterTypes.Length
+                != rightSignature.ParameterTypes.Length)
+        {
+            return false;
+        }
+
+        pending.Push((
+            leftSignature.ReturnType,
+            rightSignature.ReturnType));
+        for (int i = 0;
+            i < leftSignature.ParameterTypes.Length;
+            i++)
+        {
+            pending.Push((
+                leftSignature.ParameterTypes[i],
+                rightSignature.ParameterTypes[i]));
         }
         return true;
     }

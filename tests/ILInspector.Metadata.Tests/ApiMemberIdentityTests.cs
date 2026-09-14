@@ -3,6 +3,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
+using CSharpText;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 
@@ -38,6 +39,193 @@ public class ApiMemberIdentityTests
         Assert.Equal("M<U>", anchor.MemberName);
         Assert.StartsWith("M~", anchor.StableSelector, StringComparison.Ordinal);
         Assert.Equal(MemberAnchor.ComputeFingerprint(anchor.CanonicalSignature), anchor.Fingerprint);
+    }
+
+    /// <summary>
+    /// A logical property or event anchor, and a field anchor, read directly
+    /// from metadata must be the same anchor the surface producer issues,
+    /// because both are the exact identity a caller binds a member selection
+    /// to.
+    /// </summary>
+    [Fact]
+    public void CreateNonMethodAnchors_MatchTheSurfaceIssuedAnchors()
+    {
+        using var stream =
+            File.OpenRead(typeof(ApiMemberIdentityTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        var apiType = Assert.Single(
+            surface.Types,
+            candidate => candidate.Name == "AssociationAnchorFixture");
+        var typeHandle = FindFixtureType(reader, "AssociationAnchorFixture");
+        var typeDefinition = reader.GetTypeDefinition(typeHandle);
+
+        int propertyWork = MetadataSafetyPolicy.MaxClassificationScanWorkChars;
+        var propertyAnchor = ApiMemberIdentity.CreatePropertyAnchor(
+            reader,
+            typeHandle,
+            reader.GetPropertyDefinition(
+                Assert.Single(typeDefinition.GetProperties())),
+            ref propertyWork);
+        int eventWork = MetadataSafetyPolicy.MaxClassificationScanWorkChars;
+        var eventAnchor = ApiMemberIdentity.CreateEventAnchor(
+            reader,
+            typeHandle,
+            reader.GetEventDefinition(
+                Assert.Single(typeDefinition.GetEvents())),
+            ref eventWork);
+        int fieldWork = MetadataSafetyPolicy.MaxClassificationScanWorkChars;
+        var fieldAnchor = ApiMemberIdentity.CreateFieldAnchor(
+            reader,
+            typeHandle,
+            reader.GetFieldDefinition(
+                Assert.Single(
+                    typeDefinition.GetFields(),
+                    handle => reader.GetString(
+                        reader.GetFieldDefinition(handle).Name) == "Tag")),
+            ref fieldWork);
+
+        Assert.Equal(
+            "P:ILInspector.Metadata.Tests.AssociationAnchorFixture.Value",
+            propertyAnchor.CanonicalSignature);
+        Assert.Equal(
+            "E:ILInspector.Metadata.Tests.AssociationAnchorFixture.Changed",
+            eventAnchor.CanonicalSignature);
+        Assert.Equal(
+            "F:ILInspector.Metadata.Tests.AssociationAnchorFixture.Tag",
+            fieldAnchor.CanonicalSignature);
+        Assert.Equal(
+            ApiMemberIdentity.GetMemberAnchor(
+                apiType,
+                Assert.Single(
+                    apiType.Members,
+                    member => member.Kind == "property")),
+            propertyAnchor);
+        Assert.Equal(
+            ApiMemberIdentity.GetMemberAnchor(
+                apiType,
+                Assert.Single(
+                    apiType.Members,
+                    member => member.Kind == "event")),
+            eventAnchor);
+        Assert.Equal(
+            ApiMemberIdentity.GetMemberAnchor(
+                apiType,
+                Assert.Single(
+                    apiType.Members,
+                    member => member.Kind == "field"
+                        && member.Name == "Tag")),
+            fieldAnchor);
+        Assert.True(
+            propertyWork < MetadataSafetyPolicy.MaxClassificationScanWorkChars,
+            "The anchor must charge the caller-owned work counter.");
+        Assert.True(
+            eventWork < MetadataSafetyPolicy.MaxClassificationScanWorkChars,
+            "The anchor must charge the caller-owned work counter.");
+        Assert.True(
+            fieldWork < MetadataSafetyPolicy.MaxClassificationScanWorkChars,
+            "The anchor must charge the caller-owned work counter.");
+    }
+
+    /// <summary>
+    /// An indexer is a property that overloads on its index parameters, so the
+    /// SRM-direct producer must include them exactly as the surface producer
+    /// does. Without them, two overloads collide on <c>P:Type.Item</c> and a
+    /// caller selecting one either gets the other or an ambiguous outcome.
+    /// </summary>
+    /// <remarks>
+    /// The SRM-direct producer must emit the same exact anchor as the API
+    /// surface because that surface anchor is what a selected Member carries
+    /// into a consumer query.
+    /// </remarks>
+    [Fact]
+    public void CreatePropertyAnchor_DistinguishesOverloadedIndexers()
+    {
+        using var stream =
+            File.OpenRead(typeof(ApiMemberIdentityTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var typeHandle = FindFixtureType(reader, nameof(IndexerFixture));
+        var typeDefinition = reader.GetTypeDefinition(typeHandle);
+
+        int work = MetadataSafetyPolicy.MaxClassificationScanWorkChars;
+        List<MemberAnchor> anchors = [];
+        foreach (var handle in typeDefinition.GetProperties())
+        {
+            anchors.Add(
+                ApiMemberIdentity.CreatePropertyAnchor(
+                    reader,
+                    typeHandle,
+                    reader.GetPropertyDefinition(handle),
+                    ref work));
+        }
+
+        Assert.Equal(2, anchors.Count);
+        string declaringType =
+            "ILInspector.Metadata.Tests.ApiMemberIdentityTests+IndexerFixture";
+        Assert.Equal(
+            [
+                $"P:{declaringType}.Item(int)",
+                $"P:{declaringType}.Item(string)",
+            ],
+            anchors
+                .Select(anchor => anchor.CanonicalSignature)
+                .Order(StringComparer.Ordinal));
+        Assert.Equal(
+            2,
+            anchors
+                .Select(anchor => anchor.Fingerprint)
+                .Distinct(StringComparer.Ordinal)
+                .Count());
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        var apiType = Assert.Single(
+            surface.Types,
+            candidate => candidate.Name.EndsWith(
+                nameof(IndexerFixture),
+                StringComparison.Ordinal));
+        Assert.Equal(
+            anchors.OrderBy(
+                anchor => anchor.CanonicalSignature,
+                StringComparer.Ordinal),
+            apiType.Members
+                .Where(member => member.Kind == "property")
+                .Select(member =>
+                    ApiMemberIdentity.GetMemberAnchor(apiType, member))
+                .OrderBy(
+                    anchor => anchor.CanonicalSignature,
+                    StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    /// An ordinary property keeps the bare canonical spelling it has always
+    /// had. Only an indexer grows a parameter list, so no parameterless
+    /// property's identity moves.
+    /// </summary>
+    [Fact]
+    public void CreatePropertyAnchor_OrdinaryPropertyHasNoParameterList()
+    {
+        using var stream =
+            File.OpenRead(typeof(ApiMemberIdentityTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var typeHandle = FindFixtureType(reader, "AssociationAnchorFixture");
+
+        int work = MetadataSafetyPolicy.MaxClassificationScanWorkChars;
+        var anchor = ApiMemberIdentity.CreatePropertyAnchor(
+            reader,
+            typeHandle,
+            reader.GetPropertyDefinition(
+                Assert.Single(
+                    reader.GetTypeDefinition(typeHandle).GetProperties())),
+            ref work);
+
+        Assert.DoesNotContain('(', anchor.CanonicalSignature);
+        Assert.EndsWith(
+            ".Value",
+            anchor.CanonicalSignature,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -224,6 +412,170 @@ public class ApiMemberIdentityTests
     }
 
     [Fact]
+    public void ConversionOperatorNames_AreClosedAndRecognized()
+    {
+        string[] expected =
+        [
+            "op_Implicit",
+            "op_Explicit",
+            "op_CheckedImplicit",
+            "op_CheckedExplicit",
+        ];
+
+        Assert.Equal(expected, ApiMemberIdentity.ConversionOperatorNames);
+        Assert.All(
+            ApiMemberIdentity.ConversionOperatorNames,
+            name => Assert.True(ApiMemberIdentity.IsConversionOperator(name)));
+        Assert.False(ApiMemberIdentity.IsConversionOperator("op_Addition"));
+        Assert.False(ApiMemberIdentity.IsConversionOperator("op_CheckedAddition"));
+    }
+
+    [Fact]
+    public void ConversionOperatorIdentity_PreservesReturnTypeForEveryDeclaredName()
+    {
+        byte[] image = BuildConversionOperatorIdentityImage();
+        using var peReader = new PEReader(new MemoryStream(image));
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition metadataType = reader.GetTypeDefinition(
+            Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(
+                    reader.GetTypeDefinition(handle).Name) == "C"));
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType type = Assert.Single(
+            surface.Types,
+            candidate => candidate.Name == "C");
+
+        foreach (string name in ApiMemberIdentity.ConversionOperatorNames)
+        {
+            List<MemberSignatureShape> shapes = [];
+            foreach (MethodDefinitionHandle handle in
+                metadataType.GetMethods().Where(
+                    handle => reader.GetString(
+                        reader.GetMethodDefinition(handle).Name) == name))
+            {
+                MemberSignatureShapeResult result =
+                    MetadataMemberSignatureShape.Create(reader, handle);
+                Assert.True(result.IsAvailable, result.UnavailableReason);
+                Assert.NotNull(result.Shape!.ConversionReturnType);
+                shapes.Add(result.Shape);
+            }
+            Assert.Equal(2, shapes.Distinct().Count());
+
+            List<ApiMember> conversions =
+            [
+                .. type.Members.Where(member => member.Name == name),
+            ];
+            Assert.Equal(2, conversions.Count);
+            Assert.All(conversions, member => Assert.NotNull(member.ReturnType));
+
+            List<MemberAnchor> anchors =
+            [
+                .. conversions.Select(
+                    member => ApiMemberIdentity.GetMemberAnchor(type, member)),
+            ];
+            Assert.Equal(
+                2,
+                anchors
+                    .Select(anchor => anchor.CanonicalSignature)
+                    .Distinct(StringComparer.Ordinal)
+                    .Count());
+            Assert.Equal(
+                2,
+                anchors
+                    .Select(anchor => anchor.Fingerprint)
+                    .Distinct(StringComparer.Ordinal)
+                    .Count());
+            Assert.Equal(
+                2,
+                anchors
+                    .Select(anchor => anchor.StableSelector)
+                    .Distinct(StringComparer.Ordinal)
+                    .Count());
+            Assert.Contains(
+                anchors,
+                anchor => anchor.CanonicalSignature.EndsWith(
+                    "~int",
+                    StringComparison.Ordinal));
+            Assert.Contains(
+                anchors,
+                anchor => anchor.CanonicalSignature.EndsWith(
+                    "~long",
+                    StringComparison.Ordinal));
+
+            foreach (MemberAnchor anchor in anchors)
+            {
+                MemberTargetResolution resolution =
+                    MemberTargetResolver.Resolve(
+                        type,
+                        MemberTargetSelector.Parse(anchor.StableSelector));
+                Assert.True(resolution.Found);
+                Assert.Equal(anchor, resolution.Target!.Anchor);
+            }
+
+            List<CSharpText.XmlDocMemberIdentity> xmlIdentities = [];
+            foreach (ApiMember conversion in conversions)
+            {
+                Assert.True(
+                    ApiMemberIdentity.TryGetXmlDocMemberIdentity(
+                        type,
+                        conversion,
+                        out CSharpText.XmlDocMemberIdentity identity));
+                xmlIdentities.Add(identity);
+            }
+            Assert.Equal(
+                2,
+                xmlIdentities
+                    .Select(identity => identity.Value)
+                    .Distinct(StringComparer.Ordinal)
+                    .Count());
+        }
+
+        List<ApiMember> additions =
+        [
+            .. type.Members.Where(member => member.Name == "op_Addition"),
+        ];
+        Assert.Equal(2, additions.Count);
+        Assert.All(additions, member => Assert.Null(member.ReturnType));
+        Assert.Single(
+            additions
+                .Select(member =>
+                    ApiMemberIdentity
+                        .GetMemberAnchor(type, member)
+                        .CanonicalSignature)
+                .Distinct(StringComparer.Ordinal));
+
+        string json = JsonSerializer.Serialize(surface);
+        ApiSurface roundTripped =
+            JsonSerializer.Deserialize<ApiSurface>(json)!;
+        ApiType roundTrippedType = Assert.Single(
+            roundTripped.Types,
+            candidate => candidate.Name == "C");
+        foreach (string name in ApiMemberIdentity.ConversionOperatorNames)
+        {
+            List<ApiMember> conversions =
+            [
+                .. roundTrippedType.Members.Where(
+                    member => member.Name == name),
+            ];
+            Assert.Equal(2, conversions.Count);
+            Assert.All(conversions, member => Assert.Null(member.SignatureModel));
+            Assert.All(conversions, member => Assert.NotNull(member.ReturnType));
+            Assert.Equal(
+                2,
+                conversions
+                    .Select(member =>
+                        ApiMemberIdentity.GetCanonicalSignature(
+                            roundTrippedType,
+                            member))
+                    .Distinct(StringComparer.Ordinal)
+                    .Count());
+        }
+    }
+
+    [Fact]
     public void GetMemberAnchor_DisambiguatesOverloadedIndexersByParameterType()
     {
         using var stream = File.OpenRead(typeof(ApiMemberIdentityTests).Assembly.Location);
@@ -249,6 +601,50 @@ public class ApiMemberIdentityTests
         Assert.Equal(2, anchors.Select(anchor => anchor.Fingerprint).Distinct(StringComparer.Ordinal).Count());
         Assert.Contains(anchors, anchor => anchor.CanonicalSignature.Contains("(int)", StringComparison.Ordinal));
         Assert.Contains(anchors, anchor => anchor.CanonicalSignature.Contains("(string)", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CreatePropertyAnchor_MatchesSurfaceForOrdinaryParameterForms()
+    {
+        using var stream =
+            File.OpenRead(typeof(ApiMemberIdentityTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        ApiSurface surface =
+            ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        TypeDefinitionHandle typeHandle =
+            FindFixtureType(reader, nameof(IndexerParameterShapeFixture));
+        TypeDefinition typeDefinition =
+            reader.GetTypeDefinition(typeHandle);
+        ApiType apiType = Assert.Single(
+            surface.Types,
+            candidate => candidate.Name.EndsWith(
+                nameof(IndexerParameterShapeFixture),
+                StringComparison.Ordinal));
+
+        int work = MetadataSafetyPolicy.MaxClassificationScanWorkChars;
+        foreach (PropertyDefinitionHandle propertyHandle
+            in typeDefinition.GetProperties())
+        {
+            ApiMember surfaceProperty = Assert.Single(
+                apiType.Members,
+                member => member.DeclarationMetadataToken
+                    == MetadataTokens.GetToken(propertyHandle));
+            MemberAnchor metadataAnchor =
+                ApiMemberIdentity.CreatePropertyAnchor(
+                    reader,
+                    typeHandle,
+                    reader.GetPropertyDefinition(propertyHandle),
+                    ref work);
+
+            Assert.Equal(
+                ApiMemberIdentity.GetMemberAnchor(
+                    apiType,
+                    surfaceProperty),
+                metadataAnchor);
+        }
+
+        Assert.Equal(5, typeDefinition.GetProperties().Count);
     }
 
     [Fact]
@@ -643,6 +1039,22 @@ public class ApiMemberIdentityTests
         throw new InvalidOperationException("Fixture method not found.");
     }
 
+    static TypeDefinitionHandle FindFixtureType(
+        MetadataReader reader,
+        string name)
+    {
+        foreach (var typeHandle in reader.TypeDefinitions)
+        {
+            if (reader.GetString(
+                    reader.GetTypeDefinition(typeHandle).Name) == name)
+            {
+                return typeHandle;
+            }
+        }
+
+        throw new InvalidOperationException("Fixture type not found.");
+    }
+
     static byte[] BuildRepeatedLongMethodNameImage(
         int methodCount,
         int methodNameLength,
@@ -714,6 +1126,115 @@ public class ApiMemberIdentityTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
+    }
+
+    static byte[] BuildConversionOperatorIdentityImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("ConversionOperators.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("ConversionOperators"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("C"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var intInstructions = new BlobBuilder();
+        var intEncoder = new InstructionEncoder(
+            intInstructions,
+            new ControlFlowBuilder());
+        intEncoder.OpCode(ILOpCode.Ldc_i4_0);
+        intEncoder.OpCode(ILOpCode.Ret);
+        var longInstructions = new BlobBuilder();
+        var longEncoder = new InstructionEncoder(
+            longInstructions,
+            new ControlFlowBuilder());
+        longEncoder.OpCode(ILOpCode.Ldc_i4_0);
+        longEncoder.OpCode(ILOpCode.Conv_i8);
+        longEncoder.OpCode(ILOpCode.Ret);
+        var methodBodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(methodBodies);
+        int intBodyOffset = bodyEncoder.AddMethodBody(
+            intEncoder,
+            maxStack: 1);
+        int longBodyOffset = bodyEncoder.AddMethodBody(
+            longEncoder,
+            maxStack: 1);
+
+        BlobHandle intSignature = AddConversionSignature(
+            metadata,
+            returnElementType: 0x08);
+        BlobHandle longSignature = AddConversionSignature(
+            metadata,
+            returnElementType: 0x0A);
+        foreach (string name in
+            ApiMemberIdentity.ConversionOperatorNames.Add("op_Addition"))
+        {
+            StringHandle methodName = metadata.GetOrAddString(name);
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.HideBySig,
+                MethodImplAttributes.IL,
+                methodName,
+                intSignature,
+                intBodyOffset,
+                MetadataTokens.ParameterHandle(1));
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.HideBySig,
+                MethodImplAttributes.IL,
+                methodName,
+                longSignature,
+                longBodyOffset,
+                MetadataTokens.ParameterHandle(1));
+        }
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            methodBodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static BlobHandle AddConversionSignature(
+        MetadataBuilder metadata,
+        byte returnElementType)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteByte(0x01);
+        signature.WriteByte(returnElementType);
+        signature.WriteByte(0x12);
+        // TypeDef row 2 encoded as a TypeDefOrRef coded index.
+        signature.WriteByte(0x08);
+        return metadata.GetOrAddBlob(signature);
     }
 
     static void AssertProjectionStageExhaustion(
@@ -788,6 +1309,20 @@ public class ApiMemberIdentityTests
         public int this[string key] => key.Length;
     }
 
+    sealed class IndexerParameterShapeFixture
+    {
+        public int this[string? key] => key?.Length ?? 0;
+
+        public int this[Dictionary<int, string> key] => key.Count;
+
+        public int this[(int Count, string Name) key] =>
+            key.Count + key.Name.Length;
+
+        public int this[params long[] values] => values.Length;
+
+        public int this[dynamic key] => key.GetHashCode();
+    }
+
     sealed class AttributedParameterFixture
     {
         public void M(
@@ -802,5 +1337,29 @@ public class ApiMemberIdentityTests
             [System.Runtime.InteropServices.Optional]
             [System.Runtime.CompilerServices.DateTimeConstant(630822816000000000L)]
             DateTime when] => when.Year;
+    }
+}
+
+/// <summary>
+/// An ordinary compiled property, event, and field whose anchors must agree
+/// between the surface producer and the SRM-direct producer.
+/// </summary>
+internal sealed class AssociationAnchorFixture
+{
+    int _value;
+    EventHandler? _changed;
+
+    public int Tag = 1;
+
+    public int Value
+    {
+        get { return _value; }
+        set { _value = value; }
+    }
+
+    public event EventHandler? Changed
+    {
+        add { _changed += value; }
+        remove { _changed -= value; }
     }
 }

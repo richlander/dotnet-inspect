@@ -1,10 +1,14 @@
-# Workspace Definitions complete restoration model
+# Historical Workspace Definitions in-place restoration model
 
-This directory model-checks the complete-restoration coordinator defined by
-[`workspace-definitions.md`](../../workspace-definitions.md#complete-restoration).
-It supplements that readable specification; it does not define packet bytes,
-query payloads, Navigation behavior, or browser-history effects and does not
-prove an implementation.
+> **Historical model:** this directory checks the retired in-place participant
+> protocol. The current
+> [complete-restoration contract](../../workspace-definitions.md#complete-restoration)
+> constructs a fresh Workspace and does not use these participant or candidate
+> transitions. These files remain design history and are not evidence for the
+> current target.
+
+The model does not define packet bytes, query payloads, Navigation behavior, or
+browser-history effects and does not prove an implementation.
 
 ## Scope
 

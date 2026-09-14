@@ -253,44 +253,30 @@ public sealed partial class CSharpPrinter
 
     string? PointerRefExtensionReceiver(MethodRef method, IrExpression? instance)
     {
-        if (instance?.ResultType is not { Kind: TypeRefKind.Pointer, ElementType: { } pointee })
+        if (instance is null || !IsPointerByRefArgument(method.ParameterTypes, 0, instance))
             return null;
-        return method.ParameterTypes is [{ Kind: TypeRefKind.ByRef, ElementType: { } byRefTarget }, ..]
-            && pointee.Equals(byRefTarget)
-            ? PointerReceiverText(instance)
-            : null;
+        return PointerReceiverText(instance);
     }
 
-    string? PointerRefExtensionStaticArguments(
-        MethodRef method,
-        IReadOnlyList<IrExpression> arguments)
-    {
-        if (arguments.Count == 0
-            || PointerRefExtensionReceiver(
-                method,
-                arguments[0]) is not { } receiver)
-        {
-            return null;
-        }
+    static bool IsPointerByRefArgument(
+        IReadOnlyList<TypeRef> parameterTypes,
+        int parameterIndex,
+        IrExpression argument)
+        => parameterIndex < parameterTypes.Count
+            && IsPointerByRefArgument(parameterTypes[parameterIndex], argument);
 
-        var restTypes = method.ParameterTypes.Skip(1).ToArray();
-        var restRefKinds = method.ParameterRefKinds.IsDefaultOrEmpty
-            ? method.ParameterRefKinds
-            : [.. method.ParameterRefKinds.Skip(1)];
-        string rest = Arguments(
-            arguments.Skip(1),
-            restTypes,
-            restRefKinds);
-        string refKeyword =
-            method.ParameterRefKinds is
-            [ArgumentRefKind.In, ..]
-                ? "in"
-                : "ref";
-        string first = $"{refKeyword} *{receiver}";
-        return rest.Length == 0
-            ? first
-            : $"{first}, {rest}";
-    }
+    static bool IsPointerByRefArgument(TypeRef? parameterType, IrExpression argument)
+        => argument.ResultType is
+            {
+                Kind: TypeRefKind.Pointer,
+                ElementType: { } pointee,
+            }
+            && parameterType is
+            {
+                Kind: TypeRefKind.ByRef,
+                ElementType: { } byRefTarget,
+            }
+            && pointee.Equals(byRefTarget);
 
     string PropertyTarget(MethodRef accessor, IrExpression? instance, IReadOnlyList<IrExpression> indexArguments, string name, bool isVirtual = true, bool isEvent = false)
     {
@@ -776,14 +762,10 @@ public sealed partial class CSharpPrinter
             // `this.`), so an unqualified call would bind to the local.
             string sourceName = CSharpNaming.SourceMethodName(call.Callee);
             string staticName = $"{sourceName}{typeArguments}";
-            string staticArgs =
-                PointerRefExtensionStaticArguments(
-                    call.Callee,
-                    arguments)
-                ?? Arguments(
-                    arguments,
-                    call.Callee.ParameterTypes,
-                    call.Callee.ParameterRefKinds);
+            string staticArgs = Arguments(
+                arguments,
+                call.Callee.ParameterTypes,
+                call.Callee.ParameterRefKinds);
             if (IsEnclosingTypeAtOwnInstantiation(call.Callee.DeclaringType)
                 && !IsStaticCallNameShadowed(sourceName))
             {
@@ -1209,24 +1191,75 @@ public sealed partial class CSharpPrinter
         ImmutableArray<ArgumentRefKind> refKinds,
         bool explicitIn = false,
         bool chainFidelityCasts = false,
-        bool coerceValues = true)
+        bool coerceValues = true,
+        bool unsafeExpressions = false)
     {
         var parts = new List<string>();
         int i = 0;
         foreach (var argument in arguments)
         {
             var parameter = i < parameterTypes.Count ? parameterTypes[i] : null;
-            var refKind = i < refKinds.Length ? refKinds[i] : ArgumentRefKind.Value;
+            var refKind = i < refKinds.Length
+                ? refKinds[i]
+                : parameter is { Kind: TypeRefKind.ByRef }
+                    ? ArgumentRefKind.Ref
+                    : ArgumentRefKind.Value;
+            string text;
             if (RefArgument(argument, parameter, refKind, explicitIn) is { } refSpelling)
-                parts.Add(refSpelling);
+                text = refSpelling;
             else if (chainFidelityCasts && parameter is not null && refKind == ArgumentRefKind.Value
                 && ChainFidelityCast(argument, parameter) is { } fidelityCast)
-                parts.Add(fidelityCast);
+                text = fidelityCast;
             else
-                parts.Add(coerceValues && parameter is not null ? CoerceText(argument, parameter) : Expression(argument));
+                text = coerceValues && parameter is not null
+                    ? CoerceText(argument, parameter)
+                    : Expression(argument);
+            parts.Add(unsafeExpressions
+                ? ConstructorInitializerArgumentText(argument, text, parameter, refKind)
+                : text);
             i++;
         }
         return string.Join(", ", parts);
+    }
+
+    string ConstructorInitializerArgumentText(
+        IrExpression argument,
+        string text,
+        TypeRef? parameter,
+        ArgumentRefKind refKind)
+    {
+        if (!_newMemorySafetyRules
+            || _unsafeDepth != 0
+            || _function.RequiresUnsafeContract
+            || !HasRequiredUnsafeOperation(argument))
+        {
+            return text;
+        }
+
+        foreach (string prefix in new[] { "ref ", "out ", "in " })
+        {
+            if (text.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                return prefix + UnsafeExpressionText(
+                    argument,
+                    text[prefix.Length..],
+                    force: true);
+            }
+        }
+
+        TypeRef? valueParameter = parameter is { Kind: TypeRefKind.ByRef }
+            && refKind == ArgumentRefKind.In
+            ? parameter.ElementType
+            : parameter;
+        if (!UnsafeExpressionCompilerSupports(argument)
+            && valueParameter is { Kind: not TypeRefKind.ByRef }
+            && refKind is ArgumentRefKind.Value or ArgumentRefKind.In
+            && argument is AddressOfMethod or LoadProperty)
+        {
+            text = $"({TypeText(valueParameter)}){Operand(argument)}";
+        }
+
+        return UnsafeExpressionText(argument, text, force: true);
     }
 
     /// <summary>
@@ -1273,8 +1306,9 @@ public sealed partial class CSharpPrinter
 
     /// <summary>
     /// Spells a by-ref argument with the keyword its parameter demands:
-    /// <c>out</c>, <c>in</c> (no keyword — the readonly ref is implicit), or
-    /// <c>ref</c>. A managed pointer forwarded to a <c>ref</c>/<c>out</c>
+    /// <c>out</c>, <c>in</c>, or <c>ref</c>. A managed pointer forwarded to a
+    /// by-ref parameter is dereferenced and keeps its explicit call-site keyword.
+    /// A managed pointer forwarded to a <c>ref</c>/<c>out</c>
     /// parameter needs the keyword at the call site (CS1620); spelling it on an
     /// <c>in</c> parameter is the inverse error (CS1615), so the address-of
     /// node's own <c>ref</c> is dropped there. Null when the kind is unknown (a
@@ -1285,17 +1319,26 @@ public sealed partial class CSharpPrinter
     {
         if (parameter is not { Kind: TypeRefKind.ByRef } || refKind == ArgumentRefKind.Value)
             return null;
+        bool pointerAsAddress = IsPointerByRefArgument(parameter, argument);
         // `in` accepts a value argument (the compiler introduces a temporary), so
-        // any place- or value-spelling works and the keyword stays implicit.
+        // an rvalue keeps the keyword implicit. A genuine lvalue uses the explicit
+        // keyword when requested to preserve overload identity. A pointer must be
+        // dereferenced as a place and always keeps the explicit keyword.
         if (refKind == ArgumentRefKind.In)
-            return (explicitIn ? ArgumentLvalue(argument) : ArgumentPlace(argument)) is { } inPlace
-                ? explicitIn ? $"in {inPlace}" : inPlace
-                : null;
+        {
+            if ((explicitIn || pointerAsAddress)
+                && ArgumentLvalue(argument, pointerAsAddress) is { } inLvalue)
+            {
+                return $"in {inLvalue}";
+            }
+            return ArgumentPlace(argument, pointerAsAddress)
+                ?? Expression(argument);
+        }
         // `out`/`ref` require a genuine assignable lvalue. ArgumentLvalue spells
         // every assignable form (including an unbox, as `Unsafe.Unbox<T>(o)`);
         // anything else is a bare value with no ref-place spelling, so leave it
         // to the default value spelling.
-        if (ArgumentLvalue(argument) is not { } place)
+        if (ArgumentLvalue(argument, pointerAsAddress) is not { } place)
             return null;
         return refKind == ArgumentRefKind.Out ? $"out {place}" : $"ref {place}";
     }
@@ -1307,11 +1350,13 @@ public sealed partial class CSharpPrinter
     /// place. Null for forms that are not a single place (a ref ternary binds
     /// <c>ref</c> per arm), leaving them to the default spelling.
     /// </summary>
-    string? ArgumentPlace(IrExpression argument) => argument switch
+    string? ArgumentPlace(IrExpression argument, bool dereferencePointer = true) => argument switch
     {
         LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or FixedBufferElementAddress or LoadElementAddress => Deref(argument),
         Unbox u => $"({TypeText(u.Type)}){Operand(u.Operand)}",
-        LoadLocal or LoadArgument or LoadStackSlot or LoadIndirect or Call or CallIndirect => Expression(argument),
+        { ResultType.Kind: TypeRefKind.Pointer } when dereferencePointer => Deref(argument),
+        LoadLocal or LoadArgument or LoadStackSlot or LoadIndirect or Call or CallIndirect
+            or LoadProperty { ResultType.Kind: TypeRefKind.ByRef } => Expression(argument),
         _ => null,
     };
 
@@ -1325,7 +1370,7 @@ public sealed partial class CSharpPrinter
     /// is CS0206, <c>ref (T)x</c> is CS0445), so it stays only in
     /// <see cref="ArgumentPlace"/> for the value-accepting <c>in</c> convention.
     /// </summary>
-    string? ArgumentLvalue(IrExpression argument) => argument switch
+    string? ArgumentLvalue(IrExpression argument, bool dereferencePointer = true) => argument switch
     {
         LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress or FixedBufferElementAddress or LoadElementAddress => Deref(argument),
         // `unbox T` is a managed pointer into the box; the `Unsafe.Unbox<T>(o)`
@@ -1333,11 +1378,15 @@ public sealed partial class CSharpPrinter
         // and as a ref-return (a bare `(T)x` cast is an unbox.any value, so
         // `ref (T)x` is CS0445 and `out (T)x` is CS0206).
         Unbox u => UnsafeUnboxText(u),
+        { ResultType.Kind: TypeRefKind.Pointer } when dereferencePointer => Deref(argument),
         // A ref-typed value already names a place: a ref local/parameter, a
         // ref-returning call, or a ref slot the importer spilled the managed
         // pointer into (a ref argument evaluated before a later side-effecting
         // argument). Each renders as a bare name the ref/out keyword prefixes.
-        LoadLocal or LoadArgument or LoadStackSlot or LoadIndirect or Call or CallIndirect => Expression(argument),
+        LoadLocal or LoadArgument or LoadStackSlot or LoadIndirect => Expression(argument),
+        Call { ResultType.Kind: TypeRefKind.ByRef }
+            or CallIndirect { ResultType.Kind: TypeRefKind.ByRef }
+            or LoadProperty { ResultType.Kind: TypeRefKind.ByRef } => Expression(argument),
         _ => null,
     };
 }

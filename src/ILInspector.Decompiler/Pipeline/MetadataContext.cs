@@ -253,6 +253,7 @@ internal sealed class OpenedAssembly : IDisposable
 {
     readonly Stream _stream;
     readonly PEReader _pe;
+    readonly Lazy<MemorySafetyMetadataIndex> _memorySafety;
     volatile Dictionary<string, TypeDefinitionHandle>? _byFullName;
     readonly object _indexLock = new();
 
@@ -261,9 +262,13 @@ internal sealed class OpenedAssembly : IDisposable
         _stream = stream;
         _pe = pe;
         Reader = reader;
+        _memorySafety = new(
+            () => MemorySafetyMetadataIndex.Create(reader),
+            LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
     public MetadataReader Reader { get; }
+    internal MemorySafetyMetadataIndex MemorySafety => _memorySafety.Value;
 
     /// <summary>
     /// Opens an assembly for reading, or returns null when the file is missing,

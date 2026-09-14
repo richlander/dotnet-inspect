@@ -1,5 +1,4 @@
 using System.Net.Http.Headers;
-using DotnetInspector.Core;
 using InertText;
 using NuGetFetch;
 
@@ -50,6 +49,24 @@ public sealed class AcquiredPackagePayload
     public string ProducerKey { get; }
 
     public PackagePayloadOrigin Origin { get; }
+
+    /// <summary>
+    /// Gets a durable digest for this exact admitted retained-content
+    /// generation, or <c>null</c> when the content cannot establish one.
+    /// </summary>
+    /// <param name="chargeWork">
+    /// Charges the requesting operation for the retained archive byte length
+    /// before its first hash pass. A successful warm request does not charge.
+    /// The callback must not re-enter this operation for the same generation.
+    /// It must not wait for work that may request that generation.
+    /// </param>
+    public PackageContentDigest? GetContentDigest(
+        Action<long> chargeWork,
+        CancellationToken cancellationToken = default) =>
+        PackageContentDigestAcquisition.GetContentDigest(
+            Content,
+            chargeWork,
+            cancellationToken);
 }
 
 /// <summary>The result of acquiring one exact package payload.</summary>
@@ -115,6 +132,24 @@ public sealed class AcquiredPackageSourcePayload
     public string ProducerKey { get; }
 
     public PackagePayloadOrigin Origin { get; }
+
+    /// <summary>
+    /// Gets a durable digest for this exact admitted retained-content
+    /// generation, or <c>null</c> when the content cannot establish one.
+    /// </summary>
+    /// <param name="chargeWork">
+    /// Charges the requesting operation for the retained archive byte length
+    /// before its first hash pass. A successful warm request does not charge.
+    /// The callback must not re-enter this operation for the same generation.
+    /// It must not wait for work that may request that generation.
+    /// </param>
+    public PackageContentDigest? GetContentDigest(
+        Action<long> chargeWork,
+        CancellationToken cancellationToken = default) =>
+        PackageContentDigestAcquisition.GetContentDigest(
+            Content,
+            chargeWork,
+            cancellationToken);
 }
 
 /// <summary>The result of acquiring one exact typed-source package payload.</summary>
@@ -127,7 +162,7 @@ public abstract record PackageSourcePayloadResult
     public sealed record Acquired(AcquiredPackageSourcePayload Payload)
         : PackageSourcePayloadResult;
 
-    public sealed record Unavailable(string Message)
+    public sealed record Unavailable(string Message, bool IsNotFound = false)
         : PackageSourcePayloadResult;
 
     public sealed record Failed(PackageSourceFailure Failure)
@@ -208,8 +243,9 @@ public static class PackagePayloadAcquisition
     /// the same cache authorization, archive admission, and publication policy
     /// as the legacy source path.
     /// </summary>
-    public static async Task<PackageSourcePayloadResult> AcquireAsync(
+    public static Task<PackageSourcePayloadResult> AcquireAsync(
         IPackageSourceClient source,
+        PackageSourceIdentity configuredSourceIdentity,
         PackageSourceCoordinate coordinate,
         IPackageStore store,
         Action<string>? log = null,
@@ -218,16 +254,49 @@ public static class PackagePayloadAcquisition
         IPackagePayloadTransferPolicy? transferPolicy = null,
         NuGetOperationContext? operationContext = null)
     {
-        ArgumentNullException.ThrowIfNull(source);
-        ArgumentNullException.ThrowIfNull(coordinate);
-        ArgumentNullException.ThrowIfNull(store);
-        cancellationToken = operationContext?.ResolveInvocationToken(
-            cancellationToken) ?? cancellationToken;
-        operationContext?.ThrowIfExpired();
-        limits = ValidateLimits(limits);
-        cancellationToken.ThrowIfCancellationRequested();
+        ArgumentNullException.ThrowIfNull(configuredSourceIdentity);
+        return AcquireTypedAsync(
+            source,
+            NuGetCache.GetSourceKey(configuredSourceIdentity.Value),
+            coordinate,
+            store,
+            log,
+            limits,
+            cancellationToken,
+            transferPolicy,
+            operationContext);
+    }
 
-        string producerKey = NuGetCache.GetSourceKey(source.Identity.Value);
+    internal static Task<PackageSourcePayloadResult> AcquireAuthorizedAsync(
+        IPackageSourceClient source,
+        PackageSourceCoordinate coordinate,
+        IPackageStore authorityStore,
+        NuGetOperationContext operation,
+        Action<string>? log = null,
+        PackagePayloadLimits? limits = null,
+        IPackagePayloadTransferPolicy? transferPolicy = null) =>
+        AcquireTypedAsync(
+            source,
+            source.Source.Producer.Key,
+            coordinate,
+            authorityStore,
+            log,
+            limits,
+            operation.CancellationToken,
+            transferPolicy,
+            operation,
+            probeCache: false,
+            admissionCancellationToken: operation.OperationToken);
+
+    internal static async ValueTask<AcquiredPackageSourcePayload?> TryGetCachedAsync(
+        PackageSourceCoordinate coordinate,
+        string producerKey,
+        IPackageStore store,
+        PackagePayloadLimits? limits,
+        Action<string>? log,
+        CancellationToken cancellationToken)
+    {
+        limits = ValidateLimits(limits);
         foreach (IPackageContent cached in store.EnumerateCached(
                      coordinate.PackageId,
                      coordinate.Version,
@@ -239,16 +308,53 @@ public static class PackagePayloadAcquisition
                     cached,
                     limits,
                     cancellationToken).ConfigureAwait(false);
-            if (admission != PackageContentAdmission.Outcome.Admissible)
+            if (admission != PackageContentAdmission.Outcome.Admissible
+                || !cached.ProducerKey.Equals(producerKey, StringComparison.Ordinal))
             {
                 log?.Invoke(
                     $"Cached content for package '{coordinate.PackageId}' version "
                     + $"'{coordinate.Version}' from the selected producer does "
-                    + "not satisfy the current payload limits.");
+                    + "not satisfy the current payload policy.");
                 continue;
             }
 
-            return Result(cached, PackagePayloadOrigin.Cache);
+            return new AcquiredPackageSourcePayload(
+                coordinate, cached, producerKey, PackagePayloadOrigin.Cache);
+        }
+
+        return null;
+    }
+
+    private static async Task<PackageSourcePayloadResult> AcquireTypedAsync(
+        IPackageSourceClient source,
+        string producerKey,
+        PackageSourceCoordinate coordinate,
+        IPackageStore store,
+        Action<string>? log,
+        PackagePayloadLimits? limits,
+        CancellationToken cancellationToken,
+        IPackagePayloadTransferPolicy? transferPolicy,
+        NuGetOperationContext? operationContext,
+        bool probeCache = true,
+        CancellationToken admissionCancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(coordinate);
+        ArgumentNullException.ThrowIfNull(store);
+        cancellationToken = operationContext?.ResolveInvocationToken(
+            cancellationToken) ?? cancellationToken;
+        operationContext?.ThrowIfExpired();
+        limits = ValidateLimits(limits);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (probeCache)
+        {
+            AcquiredPackageSourcePayload? cached = await TryGetCachedAsync(
+                coordinate, producerKey, store, limits, log, cancellationToken)
+                .ConfigureAwait(false);
+            operationContext?.ThrowIfExpired();
+            if (cached is not null)
+                return new PackageSourcePayloadResult.Acquired(cached);
         }
 
         PackageSourceOperationResult<PackageSourcePayload> operation =
@@ -257,22 +363,23 @@ public static class PackagePayloadAcquisition
                 coordinate.Version,
                 cancellationToken,
                 operationContext).ConfigureAwait(false);
-        if (operation
-            is PackageSourceOperationResult<PackageSourcePayload>.Failed failed)
+        if (operation.Failure is { } failure)
         {
-            return failed.Failure.Kind == PackageSourceFailureKind.NotFound
+            return failure.Kind == PackageSourceFailureKind.NotFound
                 ? new PackageSourcePayloadResult.Unavailable(
                     $"Package '{coordinate.PackageId}' version "
-                    + $"'{coordinate.Version}' was not supplied by the selected source.")
-                : new PackageSourcePayloadResult.Failed(failed.Failure);
+                    + $"'{coordinate.Version}' was not supplied by the selected source.",
+                    IsNotFound: true)
+                : new PackageSourcePayloadResult.Failed(failure);
         }
 
         PackageSourcePayload payload =
-            ((PackageSourceOperationResult<PackageSourcePayload>.Succeeded)operation)
-            .Value;
+            operation.Value
+            ?? throw new InvalidOperationException(
+                "The package source payload operation completed without a value or failure.");
         if (payload.Kind != PackageSourcePayloadKind.Package
             || payload.Coordinate != coordinate
-            || payload.Producer != source.Identity)
+            || !ReferenceEquals(payload.Source, source.Source))
         {
             await payload.Content.DisposeAsync().ConfigureAwait(false);
             return new PackageSourcePayloadResult.Unavailable(
@@ -284,13 +391,15 @@ public static class PackagePayloadAcquisition
             payload.AdvertisedLength,
             coordinate,
             producerKey,
-            $"source '{source.Kind}'",
+            $"source '{source.Source.TransportKind}'",
             store,
             log,
             limits,
             transferPolicy,
-            cancellationToken,
-            cancellationToken).ConfigureAwait(false);
+            admissionCancellationToken == default ? cancellationToken : admissionCancellationToken,
+            admissionCancellationToken == default ? cancellationToken : admissionCancellationToken)
+            .ConfigureAwait(false);
+        operationContext?.ThrowIfExpired();
         return content is null
             ? new PackageSourcePayloadResult.Unavailable(
                 $"Package '{coordinate.PackageId}' version "
@@ -571,13 +680,18 @@ public static class PackagePayloadAcquisition
             }
 
             using IPackagePayloadReservation? reservation =
-                transferPolicy?.Reserve(
-                    new PackagePayloadTransfer(
-                        coordinate,
-                        producerKey,
-                        advertisedLength));
+                transferPolicy is null
+                    ? null
+                    : await transferPolicy.ReserveAsync(
+                            new PackagePayloadTransfer(
+                                coordinate,
+                                producerKey,
+                                advertisedLength),
+                            bodyCancellationToken)
+                        .ConfigureAwait(false);
             try
             {
+                bodyCancellationToken.ThrowIfCancellationRequested();
                 byte[]? archive = advertisedLength is { } declared
                     && declared >= 0
                     && declared <= int.MaxValue

@@ -25,6 +25,8 @@ namespace ILInspector.Analysis;
 /// <c>CallGraphMemberResolverTests.Selector_DistinguishesNestedGenericInsideAnotherGenericArgument</c>
 /// gates a nested suffix inside another generic argument so
 /// <c>List&lt;Outer&lt;int&gt;.Inner&lt;string&gt;&gt;</c> does not alias <c>List&lt;Outer&lt;int&gt;&gt;</c>.
+/// <c>CallGraphArrayKindIdentityTests.Resolve_PreservesArrayKindAcrossExtractedApiAndMemberRefSelectors</c>
+/// gates vector versus rank-one non-SZ array identity across both selector producers.
 /// </remarks>
 public static class CallGraphMemberResolver
 {
@@ -360,7 +362,7 @@ public static class CallGraphMemberResolver
         TypeRefKind.SzArray when type.ElementType is { } element =>
             $"{TypeIdentity(element, structural)}[]",
         TypeRefKind.Array when type.ElementType is { } element =>
-            $"{TypeIdentity(element, structural)}[{ArrayShapeText.FormatDimensions(type.Rank)}]",
+            $"{TypeIdentity(element, structural)}[{ArrayIdentityDimensions(type.Rank, structural)}]",
         TypeRefKind.ByRef when type.ElementType is { } element =>
             $"{TypeIdentity(element, structural)}@",
         TypeRefKind.Pointer when type.ElementType is { } element =>
@@ -381,6 +383,11 @@ public static class CallGraphMemberResolver
         TypeRefKind.Definition => NamedTypeIdentity(type, structural),
         _ => XmlDocumentationNotation.NormalizeParameterType(type.ToQualifiedDisplayString()),
     };
+
+    static string ArrayIdentityDimensions(int rank, bool structural) =>
+        structural && rank == 1
+            ? "*"
+            : ArrayShapeText.FormatDimensions(rank);
 
     static string FunctionPointerIdentity(
         MethodSignature<TypeRef> signature,

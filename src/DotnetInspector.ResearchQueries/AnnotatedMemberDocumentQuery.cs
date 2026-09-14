@@ -5,7 +5,7 @@ using ILInspector.CallGraph;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Research;
 
 namespace DotnetInspector.Queries;

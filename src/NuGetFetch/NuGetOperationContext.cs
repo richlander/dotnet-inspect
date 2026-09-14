@@ -18,6 +18,13 @@ public sealed class NuGetOperationContext : IDisposable
     private int _disposeState;
 
     /// <summary>
+    /// Gets the largest timeout representable by the operation cancellation
+    /// mechanism.
+    /// </summary>
+    public static TimeSpan MaximumTimeout { get; } =
+        TimeSpan.FromMilliseconds(uint.MaxValue - 1d);
+
+    /// <summary>
     /// Creates a context with default request and operation deadlines.
     /// </summary>
     public NuGetOperationContext(
@@ -132,8 +139,7 @@ public sealed class NuGetOperationContext : IDisposable
     internal NuGetOperationDeadline CreateDeadline(
         TimeSpan clientTimeout,
         CancellationToken invocationToken,
-        PackageSourceIdentity? producer = null,
-        PackageSourceKind transportKind = default)
+        PackageSourceResultIdentity? source = null)
     {
         ObjectDisposedException.ThrowIf(
             Volatile.Read(ref _disposeState) != 0,
@@ -142,8 +148,7 @@ public sealed class NuGetOperationContext : IDisposable
         return new NuGetOperationDeadline(
             this,
             clientTimeout,
-            producer,
-            transportKind);
+            source);
     }
 
     internal CancellationToken ResolveInvocationToken(

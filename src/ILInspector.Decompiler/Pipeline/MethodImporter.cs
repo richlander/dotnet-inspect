@@ -8,7 +8,9 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <summary>
 /// Imports one method from a live <see cref="MetadataSource"/> into fully
 /// materialized data (docs/decompiler-ir.md): symbolic types throughout, no
-/// metadata handles in the output, valid after the source is disposed.
+/// reader-owned blobs or bare metadata handles in the output, and valid after
+/// the source is disposed. Exact identities survive only as MVID-scoped
+/// metadata addresses paired with an opaque acquisition guard.
 /// </summary>
 public static class MethodImporter
 {
@@ -61,7 +63,12 @@ public static class MethodImporter
         var decoded = GuardedDecode.MethodSignature(reader, method, scope);
 
         var parameters = ImmutableArray.CreateBuilder<Parameter>(decoded.ParameterTypes.Length);
-        var namesByIndex = new Dictionary<int, string>();
+        MetadataParameterNames.ResolvedName[] parameterNames =
+            MetadataParameterNames.ResolveWithProvenance(
+            reader,
+            method.GetParameters(),
+            decoded.ParameterTypes.Length,
+            methodGenericParameterNames);
         var hasDefaultByIndex = new Dictionary<int, bool>();
         var dynamicByIndex = new Dictionary<int, bool>();
         var arrayElementDynamicByIndex = new Dictionary<int, MetadataFactState>();
@@ -71,7 +78,6 @@ public static class MethodImporter
             if (parameter.SequenceNumber > 0)
             {
                 int index = parameter.SequenceNumber - 1;
-                namesByIndex[index] = reader.GetString(parameter.Name);
                 hasDefaultByIndex[index] = HasDefault(reader, parameter);
                 // A by-ref parameter (`ref`/`in`/`out`) carries the ByRef modifier
                 // at DynamicAttribute flag index 0, so the element dynamic-ness sits
@@ -95,10 +101,11 @@ public static class MethodImporter
         }
         for (int i = 0; i < decoded.ParameterTypes.Length; i++)
             parameters.Add(new Parameter(
-                namesByIndex.GetValueOrDefault(i, $"arg{i}"),
+                parameterNames[i].Name,
                 decoded.ParameterTypes[i],
                 hasDefaultByIndex.GetValueOrDefault(i),
-                dynamicByIndex.GetValueOrDefault(i))
+                dynamicByIndex.GetValueOrDefault(i),
+                parameterNames[i].IsSynthesized)
             {
                 ArrayElementIsDynamic = arrayElementDynamicByIndex.GetValueOrDefault(
                     i,
@@ -112,6 +119,7 @@ public static class MethodImporter
             decoded.GenericParameterCount)
         {
             GenericParameterNames = methodGenericParameterNames,
+            GenericParameters = ParameterConstraints(reader, method.GetGenericParameters(), scope),
         };
 
         var body = source.Pe.GetMethodBody(method.RelativeVirtualAddress);
@@ -154,6 +162,10 @@ public static class MethodImporter
         {
             LocalDeclaredInNestedScope = NestedScopeFlags(declarations.Scopes, il.Length),
         };
+        MethodClassification? asyncClassification =
+            MethodClassificationScanner.ClassifyAsyncMethod(
+                reader,
+                method);
 
         return new ImportedMethod(
             declaringType,
@@ -162,9 +174,24 @@ public static class MethodImporter
             methodBody,
             CompilerGenerated: FactState(MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, method.GetCustomAttributes())),
             DeclaringTypeCompilerGenerated: FactState(MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, typeDef.GetCustomAttributes())),
-            IsRuntimeAsync: FactState(MethodDefinitionFacts.IsRuntimeAsync(method)),
+            IsRuntimeAsync: FactState(
+                asyncClassification == MethodClassification.RuntimeAsync),
             MetadataToken: MetadataTokens.GetToken(methodHandle),
-            DeclaringTypeGenericParameterNames: typeGenericParameterNames);
+            DeclaringTypeGenericParameterNames: typeGenericParameterNames)
+        {
+            DeclaringTypeParameters = ParameterConstraints(reader, typeDef.GetGenericParameters(), scope),
+            ClassicAsyncRequest =
+                asyncClassification is not null
+                    ? source.AdaptClassicAsyncRequest(
+                        methodHandle,
+                        asyncClassification)
+                    : null,
+            RequiresUnsafeContract =
+                MethodDefinitionFacts.RequiresUnsafeContract(
+                    source.MemorySafety,
+                    methodHandle),
+            IsMetadataBacked = true,
+        };
     }
 
     static MetadataFactState FactState(bool value) => value ? MetadataFactState.Yes : MetadataFactState.No;
@@ -253,5 +280,21 @@ public static class MethodImporter
         foreach (var handle in handles)
             names.Add(reader.GetString(reader.GetGenericParameter(handle).Name));
         return names.MoveToImmutable();
+    }
+
+    static ImmutableArray<GenericParameterConstraintInfo> ParameterConstraints(
+        MetadataReader reader, GenericParameterHandleCollection handles, GenericScope scope)
+    {
+        var result = ImmutableArray.CreateBuilder<GenericParameterConstraintInfo>(handles.Count);
+        foreach (GenericParameterHandle handle in handles)
+        {
+            var parameter = reader.GetGenericParameter(handle);
+            var types = ImmutableArray.CreateBuilder<TypeRef>();
+            foreach (GenericParameterConstraintHandle constraint in parameter.GetConstraints())
+                types.Add(CatchType(reader, reader.GetGenericParameterConstraint(constraint).Type, scope)
+                    ?? throw new BadImageFormatException("A generic constraint has no type."));
+            result.Add(new(parameter.Index, parameter.Attributes, types.ToImmutable()));
+        }
+        return result.ToImmutable();
     }
 }

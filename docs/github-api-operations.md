@@ -30,3 +30,35 @@ operation-specific REST endpoint through `gh api` instead:
 
 Do not replace complete label or assignee arrays to perform an add or remove.
 Verify the resulting metadata after the REST update.
+
+## Bind merge mutations to the head
+
+Every direct or asynchronous merge request must name the exact reviewed or
+approved-waiver head SHA as an atomic precondition. A prior read is not enough:
+without the precondition, a concurrent write-access push can transfer the
+mutation to an unreviewed head.
+
+Keep GitHub auto-merge unarmed while required gates are pending. After green
+preflight, perform the authorized direct merge with `--match-head-commit`:
+
+```bash
+gh pr merge "$pr_number" --squash \
+  --match-head-commit "$head_sha"
+```
+
+The authorization also names the base ref. Verify that name in the final PR
+snapshot; GitHub exposes no expected-base-ref parameter, so this is the same
+point-in-time boundary as base-tip carry-forward rather than an atomic lock.
+
+The stacked-PR asynchronous merge endpoint uses its `sha` field:
+
+```bash
+gh api -X PUT "repos/{owner}/{repo}/pulls/$pr_number/merge-async" \
+  -f merge_method=squash \
+  -f sha="$head_sha"
+```
+
+When using GraphQL directly, set `expectedHeadOid` on `MergePullRequestInput`;
+never omit it. Treat a mismatch as head movement and return to candidate
+formation. If an auto-merge request exists from earlier workflow state, disable
+it before a recovery mutation or head-moving push.

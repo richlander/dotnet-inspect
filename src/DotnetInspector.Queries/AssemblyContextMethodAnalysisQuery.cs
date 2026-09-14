@@ -62,11 +62,14 @@ public static class AssemblyContextMethodAnalysisQuery
         LibraryBodyIndex? index = null;
         try
         {
+            var resolver = AssemblyContextAnalysisSource.Resolver(
+                group,
+                subject);
             index = LibraryBodyIndex.OpenFromPrefetchedImage(
                 AssemblyContextAnalysisSource.Name(subject),
                 snapshot.Content,
                 LibraryBodyAnalysisFeatures.OptimizationOpportunities,
-                AssemblyContextAnalysisSource.Resolver(group, subject),
+                resolver,
                 bodyScope: new HashSet<int> { methodToken });
 
             MethodIdentity? declaration = index.DeclaredMethods.FirstOrDefault(
@@ -117,7 +120,7 @@ public static class AssemblyContextMethodAnalysisQuery
                 methodToken,
                 out ImmutableArray<UnsafeEvidence> unsafeEvidence);
 
-            return new AssemblyMethodAnalysis(
+            var result = new AssemblyMethodAnalysis(
                 methodToken,
                 method,
                 signals ?? MethodSignals.None,
@@ -138,6 +141,8 @@ public static class AssemblyContextMethodAnalysisQuery
                         diagnostic =>
                             diagnostic.MethodToken == methodToken),
                 ]);
+            resolver.ValidateForPublication();
+            return result;
         }
         finally
         {

@@ -70,16 +70,21 @@ by the package id's winning package-source-mapping pattern when mapping is
 enabled, and, for a discovered coordinate, reported the selected version. See the
 [package source model](package-source-model.md) for the end-to-end contract.
 
-A source is identified by a digest of its canonical URL, and canonicalization is
-shared with the credential scope's `IsSameEndpoint` rather than reimplemented, so
-one URL cannot mean two things in one tool. Scheme, host, default port,
-percent-escape casing, and an empty root path versus `/` fold because the URI
-grammar defines them as equivalent. Path and query case do not fold:
-`/FeedA` and `/feeda` can name different resources. Exactly one optional trailing
-path slash folds, while repeated trailing slashes and fragments remain distinct.
-The digest keeps source URLs out of cache paths and makes every identity a
-valid path segment. It is a path-safe identifier, not a security boundary;
-source authorization comes from the source policy, not from hiding cache keys.
+An HTTP source is identified by a digest of the canonical endpoint shared with
+the credential scope's `IsSameEndpoint`. Scheme, host, default port,
+percent-escape casing, and one optional trailing path slash fold; path and query
+case, repeated trailing slashes, and fragments remain distinct.
+
+A local source instead consumes the canonical path from
+[Local package source identity](local-package-source-identity.md). Path and
+`file://` spellings share one key, Windows path case folds, Unix path case does
+not, roots remain intact, and symbolic links are not resolved. The cache never
+reimplements those rules.
+
+The digest keeps endpoint and path text out of cache paths and makes every
+identity a valid path segment. It is a path-safe identifier, not a security
+boundary; source authorization comes from the source policy, not from hiding
+cache keys.
 
 ## Guarantees
 
@@ -147,6 +152,11 @@ work, but it permits duplicate download and extraction.
 
 ## Process-local single-flight
 
+The implementation helper is the internal
+`src/DotnetInspector.Packages/AsyncCache.cs`. `PackageExtractor` is its sole
+production consumer; the helper is package-owned coordination rather than
+shared persistent-cache infrastructure.
+
 The process-wide in-flight registry is keyed by one exact package coordinate
 together with the canonical authorized-producer set, cache root, and the
 acquisition policy that affects whether a result is legal, including
@@ -197,6 +207,15 @@ transactions from older direct-copy writers, earlier layouts that did not
 scope entries by source, and payloads previously misattributed by a
 noncanonical NuGet.org URL shortcut.
 
+Configured-authority acquisition reuses this publication mechanism with a
+separate `package-authority-content-v1` slot family. Its authority key and
+producer evidence are distinct; HTTP authorities without durable identity
+instead publish into caller-owned temporary storage. The
+[package source model](package-source-model.md#caller-pinned-payload-acquisition)
+owns authorization and adoption. The legacy `package-content-v5` family
+remains active for unmigrated callers rather than being relabeled or retired
+by this additive namespace.
+
 ## Versioned cache retirement
 
 Each versioned cache family registers its prefix and current numeric contract.
@@ -245,10 +264,12 @@ cache-coherency guarantees.
 ## Overlapping dependency work
 
 Two in-process dependency graphs that overlap on a package either await the
-same task for that exact coordinate or perform independent manifest reads.
-Tasks for different coordinates do not wait on one another, so they cannot form
-a wait cycle. Dependency traversal fetches only dependency nuspecs and uses a
-traversal-local seen set to terminate dependency cycles.
+same task under the full process-local acquisition key or perform independent
+manifest reads. Tasks under different acquisition keys do not wait on one
+another, so they cannot form a wait cycle. The target
+[package dependency traversal](package-dependency-traversal.md) uses
+root-relative source-projection identity to terminate dependency cycles; it
+must not introduce a coordinate-only single-flight key above this registry.
 
 Across processes there is no coordination wait. Publishers use unique staging
 directories, and the final rename succeeds or reports a conflict without

@@ -81,6 +81,7 @@ public abstract record MetadataImageFormatResult
 public static class MetadataImageFormatClassifier
 {
     internal const int FixedPrefixLength = 16;
+    internal const int MaximumVersionStringLength = 255;
     internal const int MaximumPaddedVersionLength = 256;
 
     const uint MetadataRootSignature = 0x424A5342;
@@ -126,16 +127,25 @@ public static class MetadataImageFormatClassifier
                 MetadataRootMalformedReason.UnmappableMetadataDirectory);
         }
 
-        if (metadata.Length < FixedPrefixLength)
+        int boundedLength = Math.Min(
+            metadata.Length,
+            FixedPrefixLength + MaximumPaddedVersionLength);
+        return Classify(metadata.GetReader(0, boundedLength));
+    }
+
+    /// <summary>
+    /// Classifies a bounded metadata root supplied by its containing-image
+    /// owner. The root starts at the reader's current position; the reader is
+    /// borrowed for this call and neither retained nor advanced in the caller.
+    /// Uses the same fixed-prefix and version-field rules as the CLI-root path.
+    /// </summary>
+    public static MetadataImageFormatResult Classify(BlobReader reader)
+    {
+        if (reader.RemainingBytes < FixedPrefixLength)
         {
             return Malformed(
                 MetadataRootMalformedReason.TruncatedFixedPrefix);
         }
-
-        int boundedLength = Math.Min(
-            metadata.Length,
-            FixedPrefixLength + MaximumPaddedVersionLength);
-        BlobReader reader = metadata.GetReader(0, boundedLength);
 
         if (reader.ReadUInt32() != MetadataRootSignature)
             return Malformed(MetadataRootMalformedReason.InvalidSignature);
@@ -163,7 +173,10 @@ public static class MetadataImageFormatClassifier
         bool foundTerminator = false;
         int markerOffset = 0;
         ReadOnlySpan<byte> marker = "WindowsRuntime"u8;
-        for (int i = 0; i < versionLength; i++)
+        int versionStringLength = Math.Min(
+            versionLength,
+            MaximumVersionStringLength);
+        for (int i = 0; i < versionStringLength; i++)
         {
             byte value = reader.ReadByte();
             if (value == 0)

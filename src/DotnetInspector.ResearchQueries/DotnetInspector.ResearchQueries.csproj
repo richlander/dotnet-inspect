@@ -16,8 +16,13 @@
     <ProjectReference Include="..\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
     <ProjectReference Include="..\ILInspector.Analysis\ILInspector.Analysis.csproj" />
     <ProjectReference Include="..\ILInspector.CallGraph\ILInspector.CallGraph.csproj" />
-    <ProjectReference Include="..\ILInspector.Findings\ILInspector.Findings.csproj" />
+    <ProjectReference Include="..\Inspector.Findings\Inspector.Findings.csproj" />
     <ProjectReference Include="..\ILInspector.Metadata\ILInspector.Metadata.csproj" />
     <ProjectReference Include="..\ILInspector.Research\ILInspector.Research.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="DotnetInspector.Queries.Tests" />
+    <InternalsVisibleTo Include="DotnetInspect.Cli.Tests" />
   </ItemGroup>
 </Project>

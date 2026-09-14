@@ -1,0 +1,196 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using DotnetInspect.Cli.Models;
+
+namespace DotnetInspect.Cli.Output;
+
+public sealed record PrintableDocument(
+    int Row,
+    string Section,
+    string Label,
+    string? Path,
+    string? Url,
+    string Content)
+{
+    [JsonIgnore]
+    public ContainmentSelectedText? SelectedContent { get; init; }
+}
+
+/// <summary>
+/// A printable row before its payload is acquired. Cardinality and <c>--row</c> are decided from
+/// row identity alone, so a caller whose payload costs something can resolve the selection first
+/// and read only the document it is about to emit.
+/// </summary>
+public sealed record PrintableRow(
+    int Row,
+    string Section,
+    string Label,
+    string? Path,
+    string? Url);
+
+public sealed record PrintProjectionOptions(
+    RowSelector? Row,
+    bool JsonOutput,
+    bool Jsonl,
+    bool JsonArray,
+    bool Bare,
+    ProjectionDestination Destination);
+
+public sealed record PrintableContent(
+    string Content,
+    byte[]? ExactBytes = null,
+    ContainmentSelectedText? SelectedContent = null)
+{
+    public static PrintableContent FromContainmentSelection(
+        ContainmentSelectedText content)
+        => new(
+            content.ToString(),
+            ExactBytes: null,
+            SelectedContent: content);
+}
+
+public static class PrintProjectionOutput
+{
+    public static int Write(IReadOnlyList<PrintableDocument> documents, PrintProjectionOptions options)
+    {
+        // Callers whose payloads are already in hand keep passing documents. Identity is by
+        // reference so two rows with equal fields still resolve to their own content.
+        var content = new Dictionary<PrintableRow, PrintableContent>(ReferenceEqualityComparer.Instance);
+        var rows = new List<PrintableRow>(documents.Count);
+        foreach (var document in documents)
+        {
+            var row = new PrintableRow(document.Row, document.Section, document.Label, document.Path, document.Url);
+            content[row] = document.SelectedContent is { } selected
+                ? PrintableContent.FromContainmentSelection(selected)
+                : new PrintableContent(document.Content);
+            rows.Add(row);
+        }
+
+        return Write(rows, row => content[row], options);
+    }
+
+    /// <summary>
+    /// Answers a print request over <paramref name="rows"/>, calling <paramref name="readContent"/>
+    /// exactly once, for the single row that is emitted, and not at all when the request is
+    /// refused. Only one document is ever written -- the JSON shapes serialize the selected row
+    /// too -- so acquiring the others would be work the request never authorized.
+    /// </summary>
+    public static int Write(
+        IReadOnlyList<PrintableRow> rows,
+        Func<PrintableRow, string> readContent,
+        PrintProjectionOptions options)
+        => Write(
+            rows,
+            row => new PrintableContent(readContent(row)),
+            options);
+
+    public static int Write(
+        IReadOnlyList<PrintableRow> rows,
+        Func<PrintableRow, PrintableContent> readContent,
+        PrintProjectionOptions options)
+    {
+        ProjectionAudit.MarkHonored(ProjectionAudit.Print);
+
+        if (rows.Count == 0)
+        {
+            CommandError.Write("selected section has no printable rows.");
+            return 1;
+        }
+
+        PrintableRow selectedRow;
+        if (options.Row is { } selector)
+        {
+            // Same rule as the shape projections: the ordinal names the row the
+            // reader saw, and every row already carries that number.
+            var rowNumbers = rows.Select(row => row.Row).ToList();
+            var row = selector.Resolve(rowNumbers);
+            var position = RowNumbering.IndexOf(rowNumbers, row);
+            if (position < 0)
+            {
+                CommandError.Write(
+                    $"row {row} is not in this section. Use --row {RowNumbering.Describe(rowNumbers)}, first, or last.");
+                return 1;
+            }
+
+            selectedRow = rows[position];
+        }
+        else
+        {
+            if (rows.Count != 1)
+            {
+                CommandError.Write($"selected section has {rows.Count} printable rows; use --row N|first|last to choose one row.");
+                return 1;
+            }
+
+            selectedRow = rows[0];
+        }
+
+        if (!ProjectionDestinationWriter.ValidateBeforeAcquisition(options.Destination))
+            return 1;
+
+        PrintableContent payload = readContent(selectedRow);
+        var selected = new PrintableDocument(
+            selectedRow.Row,
+            selectedRow.Section,
+            selectedRow.Label,
+            selectedRow.Path,
+            selectedRow.Url,
+            payload.SelectedContent?.ToString()
+                ?? payload.Content)
+        {
+            SelectedContent = payload.SelectedContent
+        };
+
+        if (options.Jsonl)
+        {
+            ProjectionDestinationWriter.WriteText(
+                options.Destination,
+                JsonSerializer.Serialize(selected, PrintProjectionJsonContext.Default.PrintableDocument) + '\n');
+            return 0;
+        }
+
+        if (options.JsonArray)
+        {
+            ProjectionDestinationWriter.WriteText(
+                options.Destination,
+                JsonSerializer.Serialize(new[] { selected }, PrintProjectionJsonContext.Default.PrintableDocumentArray));
+            return 0;
+        }
+
+        if (options.JsonOutput)
+        {
+            ProjectionDestinationWriter.WriteText(
+                options.Destination,
+                JsonSerializer.Serialize(selected, PrintProjectionJsonContext.Default.PrintableDocument));
+            return 0;
+        }
+
+        WriteContentOutput(payload, options.Destination);
+        return 0;
+    }
+
+    private static void WriteContentOutput(PrintableContent output, ProjectionDestination destination)
+    {
+        if (destination.ExactTransfer
+            && output.ExactBytes is { } bytes
+            && ProjectionDestinationWriter.IsFile(destination))
+        {
+            ProjectionDestinationWriter.WriteExactBytes(destination, bytes);
+            return;
+        }
+
+        if (output.SelectedContent is { } selected)
+            ProjectionDestinationWriter.WriteSelectedText(destination, selected);
+        else
+            ProjectionDestinationWriter.WriteRenderedText(destination, output.Content);
+    }
+}
+
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(PrintableDocument))]
+[JsonSerializable(typeof(PrintableDocument[]))]
+internal partial class PrintProjectionJsonContext : JsonSerializerContext
+{
+}

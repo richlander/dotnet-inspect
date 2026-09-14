@@ -1,5 +1,6 @@
-using DotnetInspector.Options;
-using DotnetInspector.Output;
+using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Sections;
 using DotnetInspector.Sections;
 using SectionRegistrySpike.Capabilities;
 using SectionRegistrySpike.CurrentBaseline;

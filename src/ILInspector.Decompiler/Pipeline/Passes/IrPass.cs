@@ -450,7 +450,16 @@ public static class IrPasses
         // (stack slot or hidden local); before coercion insertion so the tuple
         // elements are coerced at their sinks like any load (issue #3166).
         new SwapIdiomPass(),
+        // Earlier inlining or await recovery can erase the boundary between an
+        // unsafe operation and an await before the final statement shape exists.
+        // Decline any surviving unsafe-await statement rather than emit await
+        // inside unsafe.
+        new UnsafeAwaitBoundaryPass(),
         new CoercionInsertionPass(),
+        // Parameter metadata is imported before nested bodies are known. Allocate
+        // missing-name fallbacks only after every raise has exposed the final
+        // lexical binder tree, so exact nested names reserve before synthesis.
+        new ParameterNameAllocationPass(),
     ];
 
     /// <summary>
@@ -496,7 +505,11 @@ public static class IrPasses
         {
             pass.Run(function, context);
             if (IrInvariants.Enabled)
+            {
                 function.CheckInvariant(IrInvariants.CheckSemantics);
+                if (IrInvariants.CheckSemantics && function.IsMetadataBacked)
+                    function.ValidateArgumentBindings();
+            }
         }
     }
 
@@ -582,9 +595,20 @@ public static class IrPasses
     /// </summary>
     public static Stepper RunWithSteps(
         IrFunction function, int stepLimit, Func<MethodRef, IrFunction?>? importMethodBody)
+        => RunWithSteps(function, stepLimit, importMethodBody, typesProvablyDisjoint: null);
+
+    /// <summary>
+    /// Runs the stepped pipeline with optional cross-method import and
+    /// type-disjointness evidence, as in the metadata-backed staged runner.
+    /// A null oracle preserves the existing conservative declines.
+    /// </summary>
+    public static Stepper RunWithSteps(
+        IrFunction function, int stepLimit, Func<MethodRef, IrFunction?>? importMethodBody,
+        Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint)
     {
         var stepper = new Stepper(enabled: true) { StepLimit = stepLimit };
-        var context = new PassContext(stepper, importMethodBody: importMethodBody);
+        var context = new PassContext(stepper, importMethodBody: importMethodBody,
+            typesProvablyDisjoint: typesProvablyDisjoint);
         try
         {
             foreach (var pass in Default)

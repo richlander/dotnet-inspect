@@ -1,0 +1,453 @@
+{
+  "schemaVersion": 2,
+  "snapshots": [
+    {
+      "id": "dotnet-inspect.any",
+      "version": "0.14.0",
+      "sha256": "ac59da1c68e403ab03a9ebf95f331fc2c5b8f1472a469a5a6cf6363185fb2dea",
+      "producer": {
+        "sdk": "11.0.100-preview.5.26302.115",
+        "sourceCommit": "8681f6eac3ff44b231925913c3e2b17c8be0ddd4",
+        "buildUrl": "https://github.com/richlander/dotnet-inspect/actions/runs/28294556178/job/83832135926",
+        "buildArtifactId": 7926053949,
+        "buildArtifactSha256": "be5a1f6fb2ba338c8e1e56c4b64c0582756380c114bc79c856d6765ae45c83ec",
+        "unsignedPackageSha256": "ef64b613df2d759489d40f119a127390cc99258caa9667e2e6f33eb33671cf1f"
+      },
+      "assemblies": [
+        {
+          "path": "tools/net10.0/any/DotnetInspector.Core.dll",
+          "sha256": "c8c85cb4e12f83213d98ffd7b6d4dec76f00af0328af003d5e74a6680c7c29b5"
+        },
+        {
+          "path": "tools/net10.0/any/DotnetInspector.Packages.dll",
+          "sha256": "27a1cf3446b352f45dd160f03b12bb553511c0f25045f578ff5ca7cfeac4151e"
+        },
+        {
+          "path": "tools/net10.0/any/DotnetInspector.Services.dll",
+          "sha256": "d123f6eb73e283e279072ba146e82c4b4e488cf6f5290c6e453e376b9eaf0812"
+        },
+        {
+          "path": "tools/net10.0/any/ILInspector.Metadata.dll",
+          "sha256": "1ce51028cdb569574ee55b99179c80756746559130014b947f7cf5158493146e"
+        },
+        {
+          "path": "tools/net10.0/any/ILInspector.MetadataPrimitives.dll",
+          "sha256": "58712d4a268e2e92936897e379b6dee97e32ce8bfd94eabb1a2552a298899c01"
+        },
+        {
+          "path": "tools/net10.0/any/dotnet-inspect.dll",
+          "sha256": "ba25a787b75c15db094a703f1ab3a00399fca60b1e77f1fc2e9ae7d934eae717"
+        },
+        {
+          "path": "tools/net10.0/any/ILInspector.Analysis.dll",
+          "sha256": "934113234cdedd4cff3f51cc858594adffa8161beff9b5b02eb76a77dea4a4cf"
+        },
+        {
+          "path": "tools/net10.0/any/ILInspector.Decompiler.dll",
+          "sha256": "e9fc3688d55f3b53a2fb8b476ca444cfd2d4ffaedfe6c380ef8c4071152f652e"
+        }
+      ],
+      "retainedDependencies": [
+        {
+          "path": "tools/net10.0/any/Markout.dll",
+          "sha256": "4ef55b1d633f5dcb1debb068cd44d119f617024c603fc8d3a0853adcebfcc06e"
+        }
+      ],
+      "enums": [
+        {
+          "name": "ILInspector.Decompiler.Pipeline.CompletenessLevel",
+          "definition": "ILInspector.Decompiler.Pipeline.CompletenessLevel, ILInspector.Decompiler",
+          "serializedNames": [],
+          "underlyingType": "Int32",
+          "source": "https://github.com/richlander/dotnet-inspect/blob/8681f6eac3ff44b231925913c3e2b17c8be0ddd4/src/ILInspector.Decompiler/Pipeline/Passes/LoweringCoverage.cs#L127-L128"
+        },
+        {
+          "name": "ILInspector.Decompiler.Pipeline.NativeCategory",
+          "definition": "ILInspector.Decompiler.Pipeline.NativeCategory, ILInspector.Decompiler",
+          "serializedNames": [],
+          "underlyingType": "Int32",
+          "source": "https://github.com/richlander/dotnet-inspect/blob/8681f6eac3ff44b231925913c3e2b17c8be0ddd4/src/ILInspector.Decompiler/Pipeline/Passes/NativePasses.cs#L102-L103"
+        },
+        {
+          "name": "Markout.DocumentLayout",
+          "definition": "Markout.DocumentLayout, Markout",
+          "serializedNames": [
+            "Markout.DocumentLayout, Markout, Version=0.14.0.0, Culture=neutral, PublicKeyToken=null"
+          ],
+          "underlyingType": "Int32",
+          "source": "https://github.com/richlander/markout/blob/2d0f2c4bbdb2539b2ddd3d79e966da117ab93773/src/Markout/DocumentLayout.cs#L6-L19"
+        },
+        {
+          "name": "Markout.FieldLayout",
+          "definition": "Markout.FieldLayout, Markout",
+          "serializedNames": [
+            "Markout.FieldLayout, Markout, Version=0.14.0.0, Culture=neutral, PublicKeyToken=null"
+          ],
+          "underlyingType": "Int32",
+          "source": "https://github.com/richlander/markout/blob/2d0f2c4bbdb2539b2ddd3d79e966da117ab93773/src/Markout/FieldLayout.cs#L6-L44"
+        },
+        {
+          "name": "Markout.MarkoutFieldOrder",
+          "definition": "Markout.MarkoutFieldOrder, Markout",
+          "serializedNames": [
+            "Markout.MarkoutFieldOrder, Markout, Version=0.14.0.0, Culture=neutral, PublicKeyToken=null"
+          ],
+          "underlyingType": "Int32",
+          "source": "https://github.com/richlander/markout/blob/2d0f2c4bbdb2539b2ddd3d79e966da117ab93773/src/Markout/MarkoutFieldOrder.cs#L6-L13"
+        },
+        {
+          "name": "Markout.NamingPolicy",
+          "definition": "Markout.NamingPolicy, Markout",
+          "serializedNames": [
+            "Markout.NamingPolicy, Markout, Version=0.14.0.0, Culture=neutral, PublicKeyToken=null"
+          ],
+          "underlyingType": "Int32",
+          "source": "https://github.com/richlander/markout/blob/2d0f2c4bbdb2539b2ddd3d79e966da117ab93773/src/Markout/NamingPolicy.cs#L6-L19"
+        },
+        {
+          "name": "System.AttributeTargets",
+          "definition": "System.AttributeTargets, System.Private.CoreLib",
+          "serializedNames": [],
+          "underlyingType": "Int32",
+          "source": "https://github.com/dotnet/runtime/blob/60629d14374c56f1cb51819049ad1fa529307f8d/src/libraries/System.Private.CoreLib/src/System/AttributeTargets.cs#L11-L33"
+        },
+        {
+          "name": "System.Diagnostics.DebuggableAttribute.DebuggingModes",
+          "definition": "System.Diagnostics.DebuggableAttribute+DebuggingModes, System.Private.CoreLib",
+          "serializedNames": [],
+          "underlyingType": "Int32",
+          "source": "https://github.com/dotnet/runtime/blob/60629d14374c56f1cb51819049ad1fa529307f8d/src/libraries/System.Private.CoreLib/src/System/Diagnostics/DebuggableAttribute.cs#L17-L25"
+        },
+        {
+          "name": "System.Diagnostics.DebuggerBrowsableState",
+          "definition": "System.Diagnostics.DebuggerBrowsableState, System.Private.CoreLib",
+          "serializedNames": [],
+          "underlyingType": "Int32",
+          "source": "https://github.com/dotnet/runtime/blob/60629d14374c56f1cb51819049ad1fa529307f8d/src/libraries/System.Private.CoreLib/src/System/Diagnostics/DebuggerBrowsableAttribute.cs#L16-L23"
+        },
+        {
+          "name": "System.Text.Json.Serialization.JsonIgnoreCondition",
+          "definition": "System.Text.Json.Serialization.JsonIgnoreCondition, System.Text.Json",
+          "serializedNames": [
+            "System.Text.Json.Serialization.JsonIgnoreCondition, System.Text.Json, Version=10.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51"
+          ],
+          "underlyingType": "Int32",
+          "source": "https://github.com/dotnet/runtime/blob/60629d14374c56f1cb51819049ad1fa529307f8d/src/libraries/System.Text.Json/Common/JsonIgnoreCondition.cs#L13-L41"
+        },
+        {
+          "name": "System.Text.Json.Serialization.JsonKnownNamingPolicy",
+          "definition": "System.Text.Json.Serialization.JsonKnownNamingPolicy, System.Text.Json",
+          "serializedNames": [
+            "System.Text.Json.Serialization.JsonKnownNamingPolicy, System.Text.Json, Version=10.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51"
+          ],
+          "underlyingType": "Int32",
+          "source": "https://github.com/dotnet/runtime/blob/60629d14374c56f1cb51819049ad1fa529307f8d/src/libraries/System.Text.Json/Common/JsonKnownNamingPolicy.cs#L9-L40"
+        },
+        {
+          "name": "System.Text.RegularExpressions.RegexOptions",
+          "definition": "System.Text.RegularExpressions.RegexOptions, System.Text.RegularExpressions",
+          "serializedNames": [],
+          "underlyingType": "Int32",
+          "source": "https://github.com/dotnet/runtime/blob/60629d14374c56f1cb51819049ad1fa529307f8d/src/libraries/System.Text.RegularExpressions/src/System/Text/RegularExpressions/RegexOptions.cs#L6-L63"
+        }
+      ]
+    },
+    {
+      "id": "dotnet-inspect.any",
+      "version": "0.25.0",
+      "sha256": "a1d0f8e6b5ec9903904f31349d4e871e8ee683f4dbf8c9408b5aadccbb96d00c",
+      "producer": {
+        "sdk": "11.0.100-preview.7.26381.103",
+        "sourceCommit": "473d56a68e26338fc27aca9808c1e98dbf30b259",
+        "buildUrl": "https://github.com/richlander/dotnet-inspect/actions/runs/34143458645/job/101812529378",
+        "buildArtifactId": 10026874093,
+        "buildArtifactSha256": "0524bb6515edcad9d03489824bf2a2225bce66296eb27a8e972e73b41a01c728",
+        "unsignedPackageSha256": "fe760810b4efaeb1d6e7c497cf7c0b2157b7f1594479093d0c4d13b8e2e806ba"
+      },
+      "assemblies": [
+        {
+          "path": "tools/net10.0/any/CSharpText.dll",
+          "sha256": "36a9c63cbd53a35cb3bc01ea6bfb53805950e4ccf41c49c1f39ef56d41496dea"
+        },
+        {
+          "path": "tools/net10.0/any/DotnetInspector.Artifacts.Workspaces.dll",
+          "sha256": "95793bbe6c9b606fcf841784b66470dba964411c0310ad1456a97f0a7a0ba82d"
+        },
+        {
+          "path": "tools/net10.0/any/DotnetInspector.Artifacts.dll",
+          "sha256": "b395b1793329a30d42c5241aece0621ef841b6c865b5fe184d26adac27ea4063"
+        },
+        {
+          "path": "tools/net10.0/any/DotnetInspector.CSharpBodySlicer.dll",
+          "sha256": "2dd0d4a485ab33e18c3c4b813ea7555cffa2d0e92015695e39c9aa089067a67b"
+        },
+        {
+          "path": "tools/net10.0/any/DotnetInspector.Core.dll",
+          "sha256": "793cc5139b703d2709e753f3f738f9883f4f7db442b274daa088f93a8dc1dec6"
+        },
+        {
+          "path": "tools/net10.0/any/DotnetInspector.Ecosystems.dll",
+          "sha256": "a2c3d56e4ef458e02cb0c06fb4d4bb9d8b9c5ee9b5058e2cfcafbaee7e587644"
+        },
+        {
+          "path": "tools/net10.0/any/DotnetInspector.MetadataRendering.dll",
+          "sha256": "0a9abf35ddcf1b1656506471cf5101148f929882f23bc0e8159294ed722fd6d3"
+        },
+        {
+          "path": "tools/net10.0/any/DotnetInspector.Packages.dll",
+          "sha256": "99113b797a328405afc5a3ed24beb672c9fe3bd46f06f628842c928c28f698b7"
+        },
+        {
+          "path": "tools/net10.0/any/DotnetInspector.Presentation.dll",
+          "sha256": "f8e94e8a9ed06a090f244b864399cceeb1868609232d2d6f0753dd4fa2d83b01"
+        },
+        {
+          "path": "tools/net10.0/any/DotnetInspector.Queries.dll",
+          "sha256": "d05e8e8e1c646a6ab92bcefd5489cc0a36e128b24c604d1d84f1358bf31ee651"
+        },
+        {
+          "path": "tools/net10.0/any/DotnetInspector.ResearchQueries.dll",
+          "sha256": "90f36d8c9d36a991ab4d9b5ef07a6231d6fbceb63250429e09f88c2a02132001"
+        },
+        {
+          "path": "tools/net10.0/any/DotnetInspector.RowSelection.dll",
+          "sha256": "553354155556966a5af86756397a6506c2269b5f7a0cb672abfa91149f34bf22"
+        },
+        {
+          "path": "tools/net10.0/any/DotnetInspector.Sections.dll",
+          "sha256": "826520d33020a54c398a46bfcb429bed8659d14b08549fb09def3f932e4c0029"
+        },
+        {
+          "path": "tools/net10.0/any/DotnetInspector.Services.dll",
+          "sha256": "12aac202a58ce6f6e084e1a5e23e7b35b8f53e778cdef2c501fbefddee685846"
+        },
+        {
+          "path": "tools/net10.0/any/DotnetInspector.SourceSelection.dll",
+          "sha256": "1da534817be6210fdf83b674698543f832589e80dc677a8379cb013830f38eb2"
+        },
+        {
+          "path": "tools/net10.0/any/DotnetInspector.Vocabulary.dll",
+          "sha256": "994b2a0e3734fb12dceaf35a192f3d7f0f4189ab9bbd80a6eaeef3aaabdbe3b8"
+        },
+        {
+          "path": "tools/net10.0/any/ILInspector.Analysis.dll",
+          "sha256": "2739c0d37968544cfb068af2b2de5de31cedb5da84ca4e9a8d439fdeeda36421"
+        },
+        {
+          "path": "tools/net10.0/any/ILInspector.CSharp.dll",
+          "sha256": "1d0743c6f5cea00929dd40929cce175e7a43f7d511b3d7e1f551d20d1462be55"
+        },
+        {
+          "path": "tools/net10.0/any/ILInspector.CallGraph.dll",
+          "sha256": "8abae76586abf933f3624b976fe7fbd8cb893a23f77b6ac5b60c646ccb2293bb"
+        },
+        {
+          "path": "tools/net10.0/any/ILInspector.ControlFlow.dll",
+          "sha256": "2f0f078dd03fa4b2b8f75563cb8af10a3b3c9ce7c199bfc9d4140028bc71b7df"
+        },
+        {
+          "path": "tools/net10.0/any/ILInspector.Decompiler.dll",
+          "sha256": "d2bc1f2876840daeebd122804df9d20ab117f75148313114a63018192fa4692d"
+        },
+        {
+          "path": "tools/net10.0/any/ILInspector.Findings.dll",
+          "sha256": "68a9aa3e9a668e750bfdcc1b9afa0b9a7965ffb9aa709a228adca11f8d865b08"
+        },
+        {
+          "path": "tools/net10.0/any/ILInspector.ILDiff.dll",
+          "sha256": "3a7b26732b0fab6adda2ff3758214a1ca0de2c88bfda94aa8f7278709a2fee4e"
+        },
+        {
+          "path": "tools/net10.0/any/ILInspector.Instructions.dll",
+          "sha256": "c889bef56055f5ca7ab39dbfb297cc3ff924bad3763814deb65c531c13cab025"
+        },
+        {
+          "path": "tools/net10.0/any/ILInspector.Metadata.dll",
+          "sha256": "5d8a1ccbaff871f196681c8be68e2fc23d6007a271ca9c8cd6deb2d3dea3c39d"
+        },
+        {
+          "path": "tools/net10.0/any/ILInspector.MetadataPrimitives.dll",
+          "sha256": "db0da2d1bddc81af83b27b78f4799fafb57bfec60e70f5a02dfd53ab7d11d006"
+        },
+        {
+          "path": "tools/net10.0/any/ILInspector.Research.dll",
+          "sha256": "c8e1faa38b345e9b627685e30538e69b470d600ee032467226594b315757ed80"
+        },
+        {
+          "path": "tools/net10.0/any/ILInspector.SourceLink.dll",
+          "sha256": "0a348e79d9973cd4c6a93885de58b302932a1896cf5e5585bc88108885939784"
+        },
+        {
+          "path": "tools/net10.0/any/ILInspector.Text.dll",
+          "sha256": "32c508134094c5526fb8f7152d3e722bc5d5c901c11b0189a404eb5349b41ffd"
+        },
+        {
+          "path": "tools/net10.0/any/InertText.dll",
+          "sha256": "f600784a916d974c5183894269c3b00f99df2179e73fa85ba4e4361413bb19b0"
+        },
+        {
+          "path": "tools/net10.0/any/NuGetFetch.dll",
+          "sha256": "205ebb7ff215329301c35db5fb60d477de8186f2e0ee714325286499568a65e2"
+        },
+        {
+          "path": "tools/net10.0/any/SourceLinkFetch.dll",
+          "sha256": "1c1a115865ff978ccfbf3d491733226d4c648b9e082d30a006b25e26d6994bf2"
+        },
+        {
+          "path": "tools/net10.0/any/dotnet-inspect.dll",
+          "sha256": "2dbd989f0e9742223ceaa6f25e29bd1b6be261271096e0e7ab82c67c602c01e8"
+        }
+      ],
+      "retainedDependencies": [
+        {
+          "path": "tools/net10.0/any/Markout.dll",
+          "sha256": "81c28ec7db5c6ab6e36c24320255712c7ff6017d1255eb58f57e4cacafb1d64f"
+        }
+      ],
+      "enums": [
+        {
+          "name": "ILInspector.Decompiler.Pipeline.CompletenessLevel",
+          "definition": "ILInspector.Decompiler.Pipeline.CompletenessLevel, ILInspector.Decompiler",
+          "serializedNames": [],
+          "underlyingType": "Int32",
+          "source": "https://github.com/richlander/dotnet-inspect/blob/473d56a68e26338fc27aca9808c1e98dbf30b259/src/ILInspector.Decompiler/Pipeline/Passes/LoweringCoverage.cs#L129"
+        },
+        {
+          "name": "ILInspector.Decompiler.Pipeline.InverseArchitecture.Forward",
+          "definition": "ILInspector.Decompiler.Pipeline.InverseArchitecture.Forward, ILInspector.Decompiler",
+          "serializedNames": [],
+          "underlyingType": "Int32",
+          "source": "https://github.com/richlander/dotnet-inspect/blob/473d56a68e26338fc27aca9808c1e98dbf30b259/src/ILInspector.Decompiler/Pipeline/InverseArchitecture/InverseArchitecture.cs#L18-L139"
+        },
+        {
+          "name": "ILInspector.Decompiler.Pipeline.InverseArchitecture.NameProvenance",
+          "definition": "ILInspector.Decompiler.Pipeline.InverseArchitecture.NameProvenance, ILInspector.Decompiler",
+          "serializedNames": [],
+          "underlyingType": "Int32",
+          "source": "https://github.com/richlander/dotnet-inspect/blob/473d56a68e26338fc27aca9808c1e98dbf30b259/src/ILInspector.Decompiler/Pipeline/InverseArchitecture/InverseArchitecture.cs#L163-L173"
+        },
+        {
+          "name": "ILInspector.Decompiler.Pipeline.InverseArchitecture.Oracle",
+          "definition": "ILInspector.Decompiler.Pipeline.InverseArchitecture.Oracle, ILInspector.Decompiler",
+          "serializedNames": [],
+          "underlyingType": "Int32",
+          "source": "https://github.com/richlander/dotnet-inspect/blob/473d56a68e26338fc27aca9808c1e98dbf30b259/src/ILInspector.Decompiler/Pipeline/InverseArchitecture/InverseArchitecture.cs#L146-L156"
+        },
+        {
+          "name": "ILInspector.Decompiler.Pipeline.NativeCategory",
+          "definition": "ILInspector.Decompiler.Pipeline.NativeCategory, ILInspector.Decompiler",
+          "serializedNames": [],
+          "underlyingType": "Int32",
+          "source": "https://github.com/richlander/dotnet-inspect/blob/473d56a68e26338fc27aca9808c1e98dbf30b259/src/ILInspector.Decompiler/Pipeline/Passes/NativePasses.cs#L151"
+        },
+        {
+          "name": "Markout.DocumentLayout",
+          "definition": "Markout.DocumentLayout, Markout",
+          "serializedNames": [
+            "Markout.DocumentLayout, Markout, Version=0.36.0.0, Culture=neutral, PublicKeyToken=null"
+          ],
+          "underlyingType": "Int32",
+          "source": "https://github.com/richlander/markout/blob/1cf1a84ebbfb5bf46b600695fe856031ff575a79/src/Markout/DocumentLayout.cs#L6-L19"
+        },
+        {
+          "name": "Markout.FieldLayout",
+          "definition": "Markout.FieldLayout, Markout",
+          "serializedNames": [
+            "Markout.FieldLayout, Markout, Version=0.36.0.0, Culture=neutral, PublicKeyToken=null"
+          ],
+          "underlyingType": "Int32",
+          "source": "https://github.com/richlander/markout/blob/1cf1a84ebbfb5bf46b600695fe856031ff575a79/src/Markout/FieldLayout.cs#L6-L44"
+        },
+        {
+          "name": "Markout.MarkoutFieldOrder",
+          "definition": "Markout.MarkoutFieldOrder, Markout",
+          "serializedNames": [
+            "Markout.MarkoutFieldOrder, Markout, Version=0.36.0.0, Culture=neutral, PublicKeyToken=null"
+          ],
+          "underlyingType": "Int32",
+          "source": "https://github.com/richlander/markout/blob/1cf1a84ebbfb5bf46b600695fe856031ff575a79/src/Markout/MarkoutFieldOrder.cs#L6-L13"
+        },
+        {
+          "name": "Markout.NamingPolicy",
+          "definition": "Markout.NamingPolicy, Markout",
+          "serializedNames": [
+            "Markout.NamingPolicy, Markout, Version=0.36.0.0, Culture=neutral, PublicKeyToken=null"
+          ],
+          "underlyingType": "Int32",
+          "source": "https://github.com/richlander/markout/blob/1cf1a84ebbfb5bf46b600695fe856031ff575a79/src/Markout/NamingPolicy.cs#L6-L19"
+        },
+        {
+          "name": "System.AttributeTargets",
+          "definition": "System.AttributeTargets, System.Private.CoreLib",
+          "serializedNames": [],
+          "underlyingType": "Int32",
+          "source": "https://github.com/dotnet/runtime/blob/60629d14374c56f1cb51819049ad1fa529307f8d/src/libraries/System.Private.CoreLib/src/System/AttributeTargets.cs#L11-L33"
+        },
+        {
+          "name": "System.Diagnostics.DebuggableAttribute.DebuggingModes",
+          "definition": "System.Diagnostics.DebuggableAttribute+DebuggingModes, System.Private.CoreLib",
+          "serializedNames": [],
+          "underlyingType": "Int32",
+          "source": "https://github.com/dotnet/runtime/blob/60629d14374c56f1cb51819049ad1fa529307f8d/src/libraries/System.Private.CoreLib/src/System/Diagnostics/DebuggableAttribute.cs#L17-L25"
+        },
+        {
+          "name": "System.Diagnostics.DebuggerBrowsableState",
+          "definition": "System.Diagnostics.DebuggerBrowsableState, System.Private.CoreLib",
+          "serializedNames": [],
+          "underlyingType": "Int32",
+          "source": "https://github.com/dotnet/runtime/blob/60629d14374c56f1cb51819049ad1fa529307f8d/src/libraries/System.Private.CoreLib/src/System/Diagnostics/DebuggerBrowsableAttribute.cs#L16-L23"
+        },
+        {
+          "name": "System.Runtime.InteropServices.DllImportSearchPath",
+          "definition": "System.Runtime.InteropServices.DllImportSearchPath, System.Private.CoreLib",
+          "serializedNames": [],
+          "underlyingType": "Int32",
+          "source": "https://github.com/dotnet/runtime/blob/60629d14374c56f1cb51819049ad1fa529307f8d/src/libraries/System.Private.CoreLib/src/System/Runtime/InteropServices/DllImportSearchPath.cs#L7-L16"
+        },
+        {
+          "name": "System.Text.Json.Serialization.JsonIgnoreCondition",
+          "definition": "System.Text.Json.Serialization.JsonIgnoreCondition, System.Text.Json",
+          "serializedNames": [
+            "System.Text.Json.Serialization.JsonIgnoreCondition, System.Text.Json, Version=10.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51"
+          ],
+          "underlyingType": "Int32",
+          "source": "https://github.com/dotnet/runtime/blob/60629d14374c56f1cb51819049ad1fa529307f8d/src/libraries/System.Text.Json/Common/JsonIgnoreCondition.cs#L13-L41"
+        },
+        {
+          "name": "System.Text.Json.Serialization.JsonKnownNamingPolicy",
+          "definition": "System.Text.Json.Serialization.JsonKnownNamingPolicy, System.Text.Json",
+          "serializedNames": [
+            "System.Text.Json.Serialization.JsonKnownNamingPolicy, System.Text.Json, Version=10.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51"
+          ],
+          "underlyingType": "Int32",
+          "source": "https://github.com/dotnet/runtime/blob/60629d14374c56f1cb51819049ad1fa529307f8d/src/libraries/System.Text.Json/Common/JsonKnownNamingPolicy.cs#L9-L40"
+        },
+        {
+          "name": "System.Text.Json.Serialization.JsonNumberHandling",
+          "definition": "System.Text.Json.Serialization.JsonNumberHandling, System.Text.Json",
+          "serializedNames": [
+            "System.Text.Json.Serialization.JsonNumberHandling, System.Text.Json, Version=10.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51"
+          ],
+          "underlyingType": "Int32",
+          "source": "https://github.com/dotnet/runtime/blob/60629d14374c56f1cb51819049ad1fa529307f8d/src/libraries/System.Text.Json/Common/JsonNumberHandling.cs#L12-L48"
+        },
+        {
+          "name": "System.Text.Json.Serialization.JsonUnmappedMemberHandling",
+          "definition": "System.Text.Json.Serialization.JsonUnmappedMemberHandling, System.Text.Json",
+          "serializedNames": [
+            "System.Text.Json.Serialization.JsonUnmappedMemberHandling, System.Text.Json, Version=10.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51"
+          ],
+          "underlyingType": "Int32",
+          "source": "https://github.com/dotnet/runtime/blob/60629d14374c56f1cb51819049ad1fa529307f8d/src/libraries/System.Text.Json/Common/JsonUnmappedMemberHandling.cs#L10-L21"
+        },
+        {
+          "name": "System.Text.RegularExpressions.RegexOptions",
+          "definition": "System.Text.RegularExpressions.RegexOptions, System.Text.RegularExpressions",
+          "serializedNames": [],
+          "underlyingType": "Int32",
+          "source": "https://github.com/dotnet/runtime/blob/60629d14374c56f1cb51819049ad1fa529307f8d/src/libraries/System.Text.RegularExpressions/src/System/Text/RegularExpressions/RegexOptions.cs#L6-L63"
+        }
+      ]
+    }
+  ]
+}

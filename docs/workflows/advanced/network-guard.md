@@ -20,7 +20,7 @@ The network guard is automatically enabled in DEBUG builds and will throw if any
 Build the tool in DEBUG mode:
 
 ```bash
-dotnet build src/dotnet-inspect/dotnet-inspect.csproj -c Debug \
+dotnet build src/DotnetInspect.Cli/DotnetInspect.Cli.csproj -c Debug \
   -p:PublishAot=false -t:Rebuild
 ```
 
@@ -98,7 +98,7 @@ Network guard violation
 > Goal: Same guard behavior works through `dotnet run`.
 
 ```bash
-dotnet run --project src/dotnet-inspect/dotnet-inspect.csproj -- library System.Text.Json -v:q
+dotnet run --project src/DotnetInspect.Cli/DotnetInspect.Cli.csproj -- library System.Text.Json -v:q
 ```
 
 ```expect

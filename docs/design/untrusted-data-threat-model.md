@@ -115,16 +115,16 @@ rather than an argument. A rule enforced by *calling a function* is a rule a
 new path can forget, and `string` is the type of both a checked and an
 unchecked value.
 
-`HardenedJson` is the repository's closest existing move in this direction, and
-it is worth being precise about how far it actually goes: it is a `static
-class` whose `Parse` returns an ordinary `JsonDocument`, so it is a single
-named entry point that centralizes the policy — not a type whose construction
-enforces it. Choosing it grants the capability; nothing stops a new call site
-from reaching for `JsonDocument.Parse` instead, and some already do (see open
-work). A centralized entry point is a real improvement over per-call-site
-options and is cheap to audit by grep, but it is the weaker of the two shapes,
-and new hardening should prefer the stronger one where the value crosses a
-layer boundary.
+`UntrustedDocuments.HardenedJson` is the repository's closest existing move in
+this direction, and it is worth being precise about how far it actually goes:
+it is a `static class` whose `Parse` returns an ordinary `JsonDocument`, so it
+is a single named entry point that centralizes the policy — not a type whose
+construction enforces it. Choosing it grants the capability; nothing stops a
+new call site from reaching for `JsonDocument.Parse` instead, and some already
+do (see open work). A centralized entry point is a real improvement over
+per-call-site options and is cheap to audit by grep, but it is the weaker of
+the two shapes, and new hardening should prefer the stronger one where the
+value crosses a layer boundary.
 
 The stronger shape now exists. `InertText.InertString` (#3636) is a type whose
 construction *is* the encoding, so treated text has a different type from
@@ -292,10 +292,36 @@ code is an attacker.
 ### Assemblies are parsed, never loaded
 
 Assembly, metadata, and method-body paths use
-`System.Reflection.PortableExecutable` and `System.Reflection.Metadata`. Product
-inspection must not introduce `Assembly.Load`, `AssemblyLoadContext`, reflection
-over inspected binaries, module initializers, or dependency resolution that
-executes target code.
+`System.Reflection.PortableExecutable` and `System.Reflection.Metadata`.
+Product inspection contains no `Assembly.Load` call for inspected assemblies.
+
+This is a user-approved partial-gate absence claim. Product projects set
+`IsAotCompatible`, so Release builds run NativeAOT compatibility analysis and
+fail on the dynamic-loading uses that its diagnostics cover. Measured
+2026-09-02 against `IsAotCompatible=true`, those diagnostics are:
+
+- `IL2026` — `Assembly.Load(byte[])`, `Assembly.LoadFrom`, `Assembly.LoadFile`,
+  and `AssemblyLoadContext.LoadFromAssemblyPath`
+- `IL2067` — `Activator.CreateInstance(Type)`
+- `IL2057` — `Type.GetType(string)`
+- `IL3050` — `System.Reflection.Emit`
+
+`src/Directory.Build.props` sets `TreatWarningsAsErrors`, so each is a build
+error rather than a warning. That is a partial gate, not a syntactic scan of
+every `Assembly.Load` overload.
+
+When packaging-affecting changes select it, the CI
+[`pack` job](../../.github/workflows/ci.yml) builds and installs the
+RID-specific NativeAOT tool, then executes canonical package, type, member, and
+platform-library inspections. Those runs are supporting execution evidence,
+not an ordinary product-source-change gate. Unannotated overloads, changes for
+which the smoke is skipped, and inspection paths the smoke does not execute are
+the declared residual.
+
+`Assembly.Load`, `AssemblyLoadContext`, reflection over inspected binaries,
+module initializers, and dependency resolution that executes target code remain
+prohibited design directions. Their absence beyond the partial claim above is
+not asserted as verified here.
 
 Reader-backed values remain inside their owning session. Values that cross a
 session boundary are copied or reduced to immutable tokens and shapes. This
@@ -322,7 +348,7 @@ identity rather than deriving a path from the requested name. The
 `AssemblyReferenceTreeResolutionTests.TraversingAssemblyRefName_IsIdentityAndCannotEscapeTheAssemblyDirectory`
 and the sibling/platform/culture/failure-state tests in that class,
 `AssemblyDependencyResolverTests.Select_UnreadableSiblingDoesNotFallThroughToTpa`,
-`AssemblyDependencyResolverTests.Select_ReadableMismatchingSiblingShadowsInstalledPlatformFallback`,
+`AssemblyDependencyResolverTests.AssemblyDependencyResolver_PreservesOwnerIssuedNameDisposition`,
 `AssemblyDependencyResolverTests.Select_CaseDistinctSameTierCandidateIsMatchedAfterUnavailableCandidate`,
 `AssemblyReferenceTreeResolutionTests.MismatchingPlatformNamedSibling_ShadowsInstalledPlatformFallback`,
 `AssemblyReferenceResolverTests.SiblingResolver_BareOwnerPathUsesCurrentDirectory`,
@@ -659,7 +685,7 @@ vector where `Path.Combine(root, "C:..", ...)` would discard the root, while
 still permitting the interior dots of a real PDB or assembly file name. A PDB
 file name recovered from untrusted PE debug metadata that is not a usable single
 segment yields a graceful "no symbols" miss rather than an output path. General
-cache entries use SHA-256-derived keys through `CoreCache`.
+cache entries use SHA-256-derived keys through `PersistentCache`.
 
 The Browser-Wasm package path is filesystem-free but uses the shared
 `PackageCoordinateResolver`, `PackagePayloadAcquisition`,
@@ -737,66 +763,21 @@ preservation, and the display/structured split are gated by
 transform arrays charge their encoded blob before allocating arrays, and one
 type generic context is reused across all of that type's members.
 Visibility probes use bounded blob readers rather than copying skipped
-attribute values. Declared custom-attribute SZArray and named-argument counts
-are checked against remaining value-blob bytes before SRM allocates builders
-from those counts, and each declared slot is charged as decode work so a
-hostile four-byte count cannot become a gigabyte-scale argument array or a
-swallowed OOM. The same walk covers each named argument's
-`FieldOrPropType`, name, and value — a named SZArray count or a nested
-named array type is not left for `DecodeValue` to allocate or recurse
-on. Boxed and nested SZArray encodings are walked on a heap work-stack
-and depth-bounded before decode, so a chain of tags cannot overflow the
-native stack even if the policy cap moves. Signature-type skips reuse
-one work-stack per decode (`Clear` at entry) so a wide `int[][]` cannot
-allocate a stack per inner array. That reuse is structural; the path
-gate is `CustomAttributeValueGuardTests.NestedEmptySzArray_IsSafe`. The
-small-stack gate is the 128 KiB
-`CustomAttributeValueGuardTests.BoxedNestingAtLimit_OnSmallNativeStack_IsSafe`. Enum-typed
-fixed and named arguments use one shared underlying-width oracle, so a
-TypeRef that resolves to a local non-`int32` enum, a TypeDef whose
-full name collides with an earlier row, an over-deep
-`value__` field signature, or a non-fixed-width `value__` primitive
-such as `string`, cannot desynchronize later count reads.
-A serialized enum name that is not a TypeDef in the current image
-stays `int32` unless a caller-supplied resolver found the defining
-image; local TypeDefs still win over that resolver. Guard and SRM
-invoke that resolver with the same normalized name (assembly suffix
-stripped), so a resolver keyed on the simple name cannot skip four
-bytes in the guard and eight in SRM. Absent a defining image, decode
-returns null rather than emitting values from a four-byte skip of an
-eight-byte argument. A defining image does not make a later hostile
-count legal.
-`CLASS`/`VALUETYPE` `System.Type` uses the same rendered-name oracle as
-SRM (`type == "System.Type"`), so a TypeRef whose namespace is empty
-and whose name is `System.Type`, or a nested `System`+`Type` TypeRef,
-consumes a SerString rather than four enum bytes.
-A truncated value walk returns `Truncated` and stops remaining work,
-so leftover named-count bytes after a short SZArray cannot be charged
-as 65,535 named arguments. A boxed SZArray of `ENUM` consumes the
-enum-name SerString before the `Int32` count, matching SRM's
-`DecodeNamedArgumentType(isElementType: true)`, so an empty name
-cannot hide a gigabyte-scale builder behind a 9-byte blob and a
-legal boxed enum array is not dropped.
-Declared SZArray leftovers stop once the value blob is exhausted, so a
-jagged constructor signature cannot re-walk the element type once per
-unreadable slot.
-Serialized enum names are normalized the same way SRM's provider sees
-them (assembly suffix stripped, nested `+` matched to the metadata
-index). `CLASS`/`VALUETYPE` constructor parameters special-case only
-`System.Type`; other tokens use the enum-width oracle so a
-`class System.String` argument cannot shift later counts. Generic
-attribute constructors whose parameter is a `VAR` resolve that
-argument through the owning TypeSpec. Earlier generic arguments
-that cannot be skipped, including `FNPTR` and `PTR`+`FNPTR`, fail
-closed instead of leaving the substituted value unconsumed. Earlier
-`CLASS`/`VALUETYPE` arguments are skipped the same way SRM
-`CustomAttributeDecoder.SkipType` does — including treating a
-TypeDefOrRef coded index as another type code — so a TypeDef row 4
-or TypeRef row 4 cannot hide a later SZArray count. A
-substituted type is not itself re-substituted, so a self-referential
-`GENERICINST` `!0` cannot recurse the guard. A budget observer failure
-raised while the guard consults the enum index unwraps to the same
-typed truncation `DecodeValue` already propagated. Every bounded member-name decode and every namespace/name
+attribute values. Custom-attribute value decoding follows the
+[owned decoder contract](custom-attribute-value-decoding.md#the-containment-invariants),
+not a guard followed by SRM decoding. Declared fixed, named, and array slot
+counts are checked against remaining value bytes before count-derived charging
+and materialization. The value tree is walked iteratively; the 128 KiB
+small-stack gate is
+`CustomAttributeValueDecoderTests.DeeplyNestedObjectArray_OnSmallNativeStack_Decodes`.
+Malformed or unsupported structure is refused, while caller-observer and
+resolver failures preserve their origin. Enum resolution and its final
+defaulted-width signal are governed by the decoder's
+[D2 contract](custom-attribute-value-decoding.md#d2--fail-closed-visibly).
+The focused cases below do not establish full D1/D3 certification or the
+dedicated internal-OOM gate; the decoder design owns those remaining gaps.
+
+Every bounded member-name decode and every namespace/name
 segment used to resolve an attribute type is also charged before SRM
 materializes it, including names inspected only to skip an accessor,
 compiler-generated field, or hidden member. Property-accessor nullable-context
@@ -852,49 +833,49 @@ pre-decoding rejection.
 `DeepNamedNestedArrayCustomAttribute_StopsBeforeStackOverflow`,
 `TypeRefEnumWidthDesync_StopsBeforeLargeAllocationAmplification`,
 `OverDeepEnumFieldModifiers_StopsBeforeLargeAllocationAmplification`,
-`CustomAttributeValueGuardTests.HugeNamedArgumentArrayCount_IsUnsafe`,
-`CustomAttributeValueGuardTests.BoxedNestingAtLimit_OnSmallNativeStack_IsSafe`,
-`CustomAttributeValueGuardTests.NestedEmptySzArray_IsSafe`,
-`CustomAttributeValueGuardTests.WideInt32Array_IsSafe`,
-`CustomAttributeValueGuardTests.NamedArrayNestingJustOverLimit_IsUnsafe`,
-`CustomAttributeValueGuardTests.TypeRefEnumMatchingLocalInt64_SeesFollowingArrayCount`,
-`CustomAttributeValueGuardTests.DuplicateTypeDefEnumName_SeesFollowingArrayCount`,
-`CustomAttributeValueGuardTests.ExhaustedJaggedSzArray_IsSafe`,
-`CustomAttributeValueGuardTests.OverDeepEnumFieldModifiers_UseInt32WidthAndSeeFollowingArrayCount`,
-`CustomAttributeValueGuardTests.AssemblyQualifiedNamedEnum_SeesFollowingArrayCount`,
-`CustomAttributeValueGuardTests.CrossAssemblyInt64NamedEnum_WithoutDefiningImage_DoesNotDecode`,
-`CustomAttributeValueGuardTests.CrossAssemblyInt64NamedEnum_WithDefiningImage_Decodes`,
-`CustomAttributeValueGuardTests.CrossAssemblyInt64NamedEnum_WithDefiningImage_StillRefusesHostileCount`,
+`CustomAttributeValueDecoderTests.HugeNamedArgumentArrayCount_IsRefused`,
+`CustomAttributeValueDecoderTests.DeeplyNestedObjectArray_OnSmallNativeStack_Decodes`,
+`CustomAttributeValueDecoderTests.NestedEmptySzArray_IsRefused`,
+`CustomAttributeValueDecoderTests.WideInt32Array_Decodes`,
+`CustomAttributeValueDecoderTests.NamedArrayNestingJustOverLimit_IsRefused`,
+`CustomAttributeValueDecoderTests.TypeRefEnumMatchingLocalInt64_SeesFollowingArrayCount`,
+`CustomAttributeValueDecoderTests.DuplicateTypeDefEnumName_ResolvesTheDeclaredDefinition`,
+`CustomAttributeValueDecoderTests.ExhaustedJaggedSzArray_IsRefused`,
+`CustomAttributeValueDecoderTests.OverDeepEnumFieldModifiers_UseInt32WidthAndSeeFollowingArrayCount`,
+`CustomAttributeValueDecoderTests.AssemblyQualifiedNamedEnum_SeesFollowingArrayCount`,
+`CustomAttributeValueDecoderTests.CrossAssemblyInt64NamedEnum_WithoutDefiningImage_DoesNotDecode`,
+`CustomAttributeValueDecoderTests.CrossAssemblyInt64NamedEnum_WithDefiningImage_Decodes`,
+`CustomAttributeValueDecoderTests.CrossAssemblyInt64NamedEnum_WithDefiningImage_StillRefusesHostileCount`,
 `TypeResolutionEnumWidthTests.PlannedQualifiedName_DecodesInt64FromRetainedDefiningImage`,
 `TypeResolutionEnumWidthTests.UnplannedRequest_StaysInt32`,
 `TypeResolutionEnumWidthTests.MissingDefiningImage_StaysInt32`,
 `TypeResolutionEnumWidthTests.FacadeForwarder_DecodesInt64`,
-`TypeResolutionEnumWidthTests.HostileLeftoverCount_IsUnsafe`,
-`CustomAttributeValueGuardTests.CrossAssemblyInt64NamedEnum_ExactSimpleNameResolver_Decodes`,
-`CustomAttributeValueGuardTests.CrossAssemblyInt64NamedEnum_ExactSimpleNameResolver_SeesOverlappingHostileCount`,
-`CustomAttributeValueGuardTests.LocalInt64EnumFixedArgument_IgnoresConflictingExternalResolver`,
-`CustomAttributeValueGuardTests.DirectGuard_LocalInt64NamedEnum_IgnoresInt32Resolver_SeesOverlappingHostileCount`,
-`CustomAttributeValueGuardTests.DirectGuard_NormalizesNonFixedWidthResolver_SeesHostileCount`,
-`CustomAttributeValueGuardTests.DirectGuard_MalformedTypeDefIndex_DoesNotBypassHostileCount`,
-`CustomAttributeValueGuardTests.ClassSystemStringFixedArgument_SeesFollowingArrayCount`,
-`CustomAttributeValueGuardTests.DottedSystemTypeTypeRef_SeesFollowingArrayCount`,
-`CustomAttributeValueGuardTests.NestedSystemTypeTypeRef_SeesFollowingArrayCount`,
-`CustomAttributeValueGuardTests.LegalSystemTypeArgument_IsSafe`,
-`CustomAttributeValueGuardTests.StringTypedEnumValue_SeesFollowingArrayCount`,
-`CustomAttributeValueGuardTests.TruncatedInt32ArrayThenHugeNamedCount_IsSafe`,
-`CustomAttributeValueGuardTests.LegalBoxedEnumArray_IsSafe`,
-`CustomAttributeValueGuardTests.LegalBoxedInt32Array_IsSafe`,
-`CustomAttributeValueGuardTests.BoxedEnumArrayEmptyName_SeesFollowingArrayCount`,
-`CustomAttributeValueGuardTests.NamedBoxedEnumArrayEmptyName_SeesFollowingArrayCount`,
-`CustomAttributeValueGuardTests.GenericAttributeTypeParameterInt32_IsSafe`,
-`CustomAttributeValueGuardTests.FnPtrEarlierGenericArgumentThenArray_SeesFollowingArrayCount`,
-`CustomAttributeValueGuardTests.PtrFnPtrEarlierGenericArgumentThenArray_SeesFollowingArrayCount`,
-`CustomAttributeValueGuardTests.ClassTypeDefRow4EarlierArgument_SeesFollowingArrayCount`,
-`CustomAttributeValueGuardTests.ValueTypeTypeRefRow4EarlierArgument_SeesFollowingArrayCount`,
-`CustomAttributeValueGuardTests.SelfReferentialGenericVar_IsUnsafe`,
+`TypeResolutionEnumWidthTests.HostileLeftoverCount_IsRefused`,
+`CustomAttributeValueDecoderTests.CrossAssemblyInt64NamedEnum_ExactSimpleNameResolver_Decodes`,
+`CustomAttributeValueDecoderTests.CrossAssemblyInt64NamedEnum_ExactSimpleNameResolver_SeesOverlappingHostileCount`,
+`CustomAttributeValueDecoderTests.LocalInt64EnumFixedArgument_IgnoresConflictingExternalResolver`,
+`CustomAttributeValueDecoderTests.Decode_LocalInt64NamedEnum_IgnoresInt32Resolver_SeesOverlappingHostileCount`,
+`CustomAttributeValueDecoderTests.Decode_NormalizesNonFixedWidthResolver_SeesHostileCount`,
+`CustomAttributeValueDecoderTests.Decode_MalformedTypeDefIndex_DoesNotBypassHostileCount`,
+`CustomAttributeValueDecoderTests.ClassSystemStringFixedArgument_SeesFollowingArrayCount`,
+`CustomAttributeValueDecoderTests.DottedSystemTypeTypeRef_SeesFollowingArrayCount`,
+`CustomAttributeValueDecoderTests.NestedSystemTypeTypeRef_SeesFollowingArrayCount`,
+`CustomAttributeValueDecoderTests.LegalSystemTypeArgument_Decodes`,
+`CustomAttributeValueDecoderTests.StringTypedEnumValue_SeesFollowingArrayCount`,
+`CustomAttributeValueDecoderTests.TruncatedInt32ArrayThenHugeNamedCount_IsRefused`,
+`CustomAttributeValueDecoderTests.LegalBoxedEnumArray_Decodes`,
+`CustomAttributeValueDecoderTests.LegalBoxedInt32Array_Decodes`,
+`CustomAttributeValueDecoderTests.BoxedEnumArrayEmptyName_SeesFollowingArrayCount`,
+`CustomAttributeValueDecoderTests.NamedBoxedEnumArrayEmptyName_SeesFollowingArrayCount`,
+`CustomAttributeValueDecoderTests.GenericAttributeTypeParameterInt32_Decodes`,
+`CustomAttributeValueDecoderTests.FnPtrEarlierGenericArgumentThenArray_SeesFollowingArrayCount`,
+`CustomAttributeValueDecoderTests.PtrFnPtrEarlierGenericArgumentThenArray_SeesFollowingArrayCount`,
+`CustomAttributeValueDecoderTests.ClassTypeDefRow4EarlierArgument_SeesFollowingArrayCount`,
+`CustomAttributeValueDecoderTests.ValueTypeTypeRefRow4EarlierArgument_SeesFollowingArrayCount`,
+`CustomAttributeValueDecoderTests.SelfReferentialGenericVar_IsRefused`,
 `ClassTypeDefRow4EarlierArgument_StopsBeforeLargeAllocationAmplification`,
 `ValueTypeTypeRefRow4EarlierArgument_StopsBeforeLargeAllocationAmplification`,
-`CustomAttributeValueGuardTests.ObserverFailureDuringNamedEnumLookup_EscapesTryDecode`,
+`CustomAttributeValueDecoderTests.ObserverFailureDuringNamedEnumLookup_EscapesTryDecode`,
 `FnPtrEarlierGenericArgumentThenArray_StopsBeforeLargeAllocationAmplification`,
 `PtrFnPtrEarlierGenericArgumentThenArray_StopsBeforeLargeAllocationAmplification`,
 `SelfReferentialGenericVar_StopsBeforeStackOverflow`,
@@ -1020,11 +1001,12 @@ gates reservation ownership.
 
 ### Untrusted JSON rejects duplicate properties
 
-JSON does not define how duplicate object keys resolve, so two readers of one payload can
-disagree. `DotnetInspector.Core.HardenedJson` and SourceLinkFetch's map parser reject duplicate
-properties, while `ILInspector.SourceLink.SourceLinkJsonContext` applies the same rule to its
-persistent type-index cache. Such payloads fail visibly instead of binding one of
-several possible readings.
+JSON does not define how duplicate object keys resolve, so two readers of one
+payload can disagree. `UntrustedDocuments.HardenedJson` and
+`ILInspector.SourceLink.SourceLinkDocumentMap` rejects duplicate properties, while
+`ILInspector.SourceLink.SourceLinkJsonContext` applies the same rule to its
+persistent type-index cache. Such payloads fail visibly instead of binding one
+of several possible readings.
 
 This is generic hardening, not a fix for a known divergence. The SourceLink
 provenance divergence it does **not** address is closed separately, by the
@@ -1118,9 +1100,9 @@ Reported provenance must describe the origin that source content is actually
 fetched from, for every document the assembly resolves. When that cannot be
 established for all of them, report no repository.
 
-`SourceLinkFetch.SourceLinkProvenance` is the single owner of this rule. It
-resolves every document the assembly declares through
-`SourceLinkFetch.SourceLinkResolver` — the single owner of the mapping rule —
+`ILInspector.SourceLink.SourceLinkProvenance` is the single owner of this rule.
+It resolves every document the assembly declares through
+`ILInspector.SourceLink.SourceLinkDocumentMap` — the single owner of the mapping rule —
 and reads the origin off each **final resolved URL, after wildcard substitution,
 percent-encoding, and `System.Uri` canonicalization**. Never off the mapping
 text, and never off the mapping prefix alone. Agreement is required on the whole
@@ -1376,14 +1358,12 @@ that changing them is visible:
   repository segment ends. Gated by
   `SourceLinkProvenanceTests.AnEncodedSeparatorInTheAzureRepositorySegment_IsNotAttributable`.
 
-Attribution is decided from the URL's text, offline; the fetch that follows is
-a separate step. That fetch must compare where it *landed* with what was
-attributed.
+Attribution is decided from the URL's text, offline; selected-source
+acquisition does not turn the response destination into new provenance.
 `CreateUntrustedFetchClient` follows redirects (five hops, SSRF-guarded per hop)
 and an HTTP client otherwise accepts any 2xx, so a syntactically valid but
-nonexistent, private, or
-unauthenticated Azure route redirects to a sign-in page on another host and
-answers 203:
+nonexistent, private, or unauthenticated Azure route can redirect to a sign-in
+page on another host and answer 203:
 
 ```text
 final=https://spsprodeus27.vssps.visualstudio.com/_signin?realm=dev.azure.com&...
@@ -1391,15 +1371,20 @@ code=203
 type=text/html; charset=utf-8
 ```
 
-`SourceLinkProvenance.ValidateFetchOrigin` now compares the complete attributed
-origin tuple from the requested URL with the tuple read from
+Selected-source acquisition admits that response only if its body matches the
+portable-PDB document checksum; the sign-in body therefore cannot become
+source. An unsuccessful final response, transport failure, or checksum mismatch
+leaves PDB source unavailable and permits the shared query's decompiler
+fallback. Browser/Wasm authorizes the initial HTTPS SourceLink host and omits
+credentials before allowing ordinary Fetch redirect handling.
+
+Availability and integrity audits make the different claim that the attributed
+endpoint itself remains reachable. They compare the complete attributed origin
+tuple from the requested URL with the tuple read from
 `HttpResponseMessage.RequestMessage.RequestUri`. A final URL with no
-attributable origin, or one naming another repository or revision, is rejected
-before its body is read or cached. Browser/Wasm's HTTP transport does not expose
-the final URL after an automatic redirect, so attributed SourceLink fetches fail
-closed there; unattributed URLs remain fetchable because no repository is
-reported for them, and checksum verification remains their
-content-authenticity boundary.
+attributable origin, or one naming another repository or revision, is rejected.
+Browser/Wasm's HTTP transport does not expose the final URL after an automatic
+redirect, so attributed audit results fail closed there.
 
 Header-first source fetches keep the untrusted-fetch timeout active through the
 body read, retry transient mid-body failures, and count decoded bytes against
@@ -1417,20 +1402,25 @@ and
 `HttpRetryHelperTests.HeaderFirstBodyRead_FailureLogsCarryNoUrlOrExceptionText`.
 
 Every product consumer that renders or derives output from fetched source now
-uses `PdbSourceAcquisition.FetchVerifiedSourceTextAsync`. PDB Source,
+uses `PdbSourceHouse.FetchVerifiedSourceTextAsync`. PDB Source,
 printed Source Files and Source Locations, IL-offset source lines, and
 documentation/sample enrichment all require the portable-PDB checksum before
 using network content. `SourceAvailabilityService` and
-`SourceIntegrityService` apply the same final-origin check before recording
+`SourceIntegrityService` retain the final-origin check before recording
 reachability or reading bytes. The source-byte, availability, and integrity
-cache categories were versioned when this rule landed, so entries created
-without final-origin evidence cannot satisfy the new path.
+cache categories were versioned when the stricter audit rule landed;
+source-byte reuse remains checksum-gated, while entries without final-origin
+evidence cannot satisfy the audit paths.
+[SourceFetch evidence admission](source-fetch.md) owns candidate ordering,
+validation-before-use, and source-byte publication. Its exact-URL cache stores
+candidate bytes rather than a provenance verdict, so every use is validated
+again by the current PDB checksum predicate.
 
 Checksum evidence follows the portable-PDB document row rather than a display
 or canonical path. Direct member, type, and IL-offset projections join on row
 identity and verify the PDB document path; path-only heuristic projections
 attach a checksum only when that path names one document row. This is gated by
-`PdbSourceAcquisitionTests.SelectMappedDocument_UsesDocumentRowWhenPathsAreDuplicated`,
+`PdbSourceHouseTests.SelectMappedDocument_UsesDocumentRowWhenPathsAreDuplicated`,
 `...SelectMappedDocument_RejectsAMismatchedRowPathPair`, and
 `MetadataSourceFindingsTests.DocumentChecksumIndexes_PreserveRowsAndRejectAmbiguousPathFallback`.
 
@@ -1438,16 +1428,16 @@ The fetch-origin grammar is gated by
 `SourceLinkProvenanceTests.FetchOrigin_AttributedResponseMustPreserveTheCompleteOrigin`,
 `...FetchOrigin_AzureSignInRedirectIsNotTheAttributedRepository`, and
 `...FetchOrigin_UnknownSourceLinkHostCarriesNoOriginClaim`. The Services gate
-exercises the response boundary, pre-fix cache invalidation, and the
-availability/integrity projections in
-`PdbSourceAcquisitionTests.FetchSourceBytes_RejectsRedirectOutsideAttributedOrigin`,
+exercises selected-source redirect admission, pre-fix cache invalidation, and
+the availability/integrity projections in
+`PdbSourceHouseTests.FetchSourceBytes_AcceptsChecksumVerifiedBodyAfterRedirect`,
 `...FetchSourceBytes_IgnoresPreOriginValidationCache`,
 `HttpRetryHelperTests.HeaderFirstBodyRead_TimesOutAndRetriesAStalledBody`,
 `...HeaderFirstBodyRead_CapsAChunkedBodyByDecodedBytes`,
 `...HeaderFirstBodyRead_RetriesAMidBodyIoFailure`,
 `...HeaderFirstBodyRead_RequiresBrowserStreamingResponse`,
 `SourceLinkQueryServiceTests.Availability_DoesNotCountCrossOriginRedirectAsReachable`,
-`...BrowserTransport_FailsClosedOnlyForAttributedSourceUrls`,
+`...UnreliableFinalUrl_FailsClosedOnlyForAttributedSourceAudits`,
 and
 `...Integrity_DoesNotAcceptMatchingBytesFromCrossOriginRedirect`.
 
@@ -1477,13 +1467,17 @@ replace it with the general shared client.
 Browser-Wasm cannot perform the DNS-level checks that
 `SharedUntrustedFetch` performs. Its source host instead supplies an
 `ISourceFetchPolicy` that authorizes a narrow set of HTTPS source hosts before
-dispatch, omits credentials, and configures Fetch to reject redirects. A
-destination outside that set is a PDB-source acquisition limitation and may
-fall back to decompilation; it is never probed. The shared `SourceFetcher`
-applies that host policy before its memory or content-store caches and before
-creating the request. `PdbSourceAcquisitionTests.FetchSourceBytes_PolicyRejectsDestinationBeforeDispatch`
+dispatch and omits credentials. Selected source acquisition follows redirects
+under the browser's ordinary Fetch behavior; the allow-listed source service
+controls that redirect, and the response is admitted only when it matches the
+portable-PDB checksum. A requested destination outside the initial host set is
+a PDB-source acquisition limitation and may fall back to decompilation; it is
+never probed directly. The shared `SourceFetch` applies that host policy before
+its memory or content-store caches and before creating the request.
+`PdbSourceHouseTests.FetchSourceBytes_PolicyRejectsDestinationBeforeDispatch`,
+`PdbSourceHouseTests.FetchSourceBytes_AcceptsChecksumVerifiedBodyAfterRedirect`,
 and
-`BrowserEngineBoundaryTests.SourceFetchPolicy_OmitsCredentialsAndRefusesRedirects`
+`BrowserEngineBoundaryTests.SourceFetchPolicy_OmitsCredentialsAndFollowsRedirects`
 gate those rules.
 
 Checksums from portable PDB documents authenticate source content when the
@@ -1505,7 +1499,9 @@ configured-origin exception is applied.
 Browser-Wasm cannot perform that connection-time DNS check. Its v3 client
 therefore accepts only same-origin feed resources and sets Fetch
 `redirect: error`; the built-in Gallery remains a separate fixed-host
-transport. `PackageSourceClientTests.DefaultV3TransportBlocksPrivateCrossOriginSearchEndpoint`
+transport. `NetworkDestinationPolicyTests.AddressClassification_MatchesNonPublicContract`
+gates the shared `NetworkAccess` address classification.
+`PackageSourceClientTests.DefaultV3TransportBlocksPrivateCrossOriginSearchEndpoint`
 and
 `PackageSourceClientTests.DefaultV3TransportBlocksPrivateCrossOriginVersionAndPackageResources`
 gate the desktop source-client wiring for search, version, and package
@@ -1531,12 +1527,12 @@ materialize one retained line entry per byte before tokenization begins.
 the source. CR, LF, CRLF, NEL, line separator, and paragraph separator each
 follow the same physical-line accounting.
 `DeclarationIndex` carries the declaration's starting column so
-`BodySlicer` consumes that bounded token stream once rather than tokenizing the
-same untrusted file again.
+`MemberTextSlicer` consumes that bounded token stream once rather than
+tokenizing the same untrusted file again.
 
 Conditional branch projection remains within those bounds. Metadata partitions
 visible sequence-point start lines by PDB document and sorts and deduplicates
-each set. `BodySlicer` accepts only a positive, ordered PDB range within the
+each set. `MemberTextSlicer` accepts only a positive, ordered PDB range within the
 verified source and positive, strictly increasing point lines within that
 range's physical file, uses binary range queries rather than a group-by-point
 cross product, and refuses PDB correlation when a recognized `#line` directive
@@ -1552,11 +1548,11 @@ could expose unmatched directives or an unrelated dead-branch member. These
 boundaries are gated by
 `DeclarationIndexTests.ConditionalProjection_RejectsABranchFromAnotherIndex`,
 `DeclarationIndexTests.ConditionalProjection_ManySelectionsAllocateLinearly`,
-`ExtractMethodBodyTests.InvalidSequencePointCoordinates_FailVisibly`,
-`ExtractMethodBodyTests.InvalidSequencePointRange_FailsVisibly`,
-`ExtractMethodBodyTests.UnbalancedConditionalGroupInsideProjectedDeclaration_DoesNotLeakADeadSibling`,
-`ExtractMethodBodyTests.TerminatorConditionalGroupInsideProjectedDeclaration_DoesNotLeakDeadSiblings`,
-`ExtractMethodBodyTests.LineDirective_RefusesPhysicalLineCorrelationWhenPointEvidenceIsProvided`,
+`ExtractMemberTextTests.InvalidActiveLineCoordinates_FailVisibly`,
+`ExtractMemberTextTests.InvalidMemberTextRange_FailsVisibly`,
+`ExtractMemberTextTests.UnbalancedConditionalGroupInsideProjectedDeclaration_DoesNotLeakADeadSibling`,
+`ExtractMemberTextTests.TerminatorConditionalGroupInsideProjectedDeclaration_DoesNotLeakDeadSiblings`,
+`ExtractMemberTextTests.LineDirective_RefusesPhysicalLineCorrelationWhenPointEvidenceIsProvided`,
 and
 `AuthoredSourceValidityTests.RealPortablePdb_RefusesAConditionalGroupThatMakesTheOriginalSliceUnsafe`.
 The binary-search complexity itself is unverified by a dedicated performance
@@ -1590,11 +1586,11 @@ Limit exhaustion is a visible extraction failure, not an absent declaration.
 token emission boundary, while
 `DeclarationIndexTests.LineLimit_StopsLineDenseInputBeforeSplitting` gates the
 pre-allocation line boundary, and
-`PdbSourceAcquisitionTests.FromContent_TokenDenseSourceProducesVisibleFailedEvidence`
+`PdbSourceHouseTests.FromContent_TokenDenseSourceProducesVisibleFailedEvidence`
 gates the Findings-facing result, while
 `CommandExecutionTests.PdbSource_TokenDenseInputCarriesAVisibleFailureState`
 gates the member-command result.
-`DeclarationIndexTests.TheBodySlicerCannotAccessLexerInternals` gates the
+`DeclarationIndexTests.TheMemberTextSlicerCannotAccessLexerInternals` gates the
 one-pass ownership boundary.
 
 ## Resource extraction contract
@@ -1693,7 +1689,7 @@ land in temporary files and become visible atomically after validation.
 
 A cache entry created before a content-validation gate existed is not evidence
 that the gate passed. Persistent cache cutovers follow the
-[`CoreCache` contract](../inspection-space.md#corecache): either revalidate on
+[`PersistentCache` contract](../inspection-space.md#persistentcache): either revalidate on
 every hit or select a successor contract version before lookup, and pair the
 newly rejected case with a still-valid recomputation case. Dynamic network,
 capability, and liveness policy is always rechecked and cannot be replaced by a
@@ -2066,7 +2062,7 @@ only ordinary compiler output.
 | Resource extraction | Traversal and rooted names rejected before writes; valid nested and empty resources retained; malformed ranges rejected; separator/case aliases collide; existing file preserved; device/control names rejected |
 | Archive extraction | Zip-slip fixture; Browser-Wasm declared/observed expanded-size rejection; bounded symbol-response, central-directory entry-count, expanded-PDB, and retained-store rejection; product-wide default expanded-size and entry-count policy tests once those budgets exist |
 | Metadata and signatures | Malformed table/blob fixtures, depth/size limits, no process crash |
-| SourceLink | Private/loopback targets rejected per hop; attributed redirects must preserve the complete repository/revision origin; rendered network source requires the portable-PDB checksum; pre-origin-validation caches are ignored; allowed public targets and checksum paths retained; a duplicate `documents` key fails the parse rather than binding one of its values; the mapping rule is pinned against the specification's worked example, and the set of product files reading the map is pinned by set equality |
+| SourceLink | Desktop private/loopback targets rejected per hop; Browser/Wasm initial source hosts allow-listed with credentials omitted; selected-source redirects admitted only through the portable-PDB checksum; availability/integrity audits require attributed redirects to preserve the complete repository/revision origin; allowed public targets and checksum paths retained; a duplicate `documents` key fails the parse rather than binding one of its values; the mapping rule is pinned against the specification's worked example, and the set of product files reading the map is pinned by set equality |
 | Untrusted JSON | Duplicate properties rejected at top level, nested, and from UTF-8 bytes; case-distinct and sibling-repeated names still parse |
 | Cache paths | Traversal/separator components rejected; content-addressed keys deterministic |
 | Structured output | Untrusted non-graphic scalars cannot escape the selected format. `MdiContainmentTests` splices a payload reaching past any single predicate's notion of "control" (a live `ESC [ 3 1 m` sequence, `BEL`, `DEL`, a C1 control, the bidi override `U+202E`, the line separator `U+2028`, the zero-width space `U+200B`, and the supplementary tag character `U+E0074`) into both a real `#Strings` entry and the metadata version stamp, then renders that assembly in every format through the three views that carry artifact text — table, heap, and overview — asserting no raw non-graphic scalar survives and every contained form is present. The `--references` view carries no artifact text, so it is asserted only against raw scalars, as a regression net. Mutation-checked by restoring the pre-#3628 range predicate (dies naming `U+202E`) and by a category-correct but `char`-based predicate (dies naming `U+E0074`). Until #3628 this row named a payload that was `Cc` only, so a bidi override would not have been noticed; the payload and the assertion helper had both been scoped to the projector's own predicate, which is why the gate stayed green while `U+202E` reached the terminal. Both now classify by Unicode general category over scalars. Two limits remain: the assertion deliberately permits raw `CR`/`LF`/`TAB`, and format *delimiters* are not covered by this gate at all |

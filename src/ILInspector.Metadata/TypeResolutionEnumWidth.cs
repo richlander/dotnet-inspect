@@ -10,11 +10,9 @@ namespace ILInspector.Metadata;
 /// retained the defining images.
 ///
 /// This is a definition locator adapter, not a width oracle: local TypeDefs
-/// still win inside <see cref="AttributeDecoder"/> /
-/// <see cref="CustomAttributeValueGuard"/>. A missing, unplanned, or
-/// unopened definition stays
-/// <see cref="PrimitiveTypeCode.Int32"/> so guard skip and SRM consume the
-/// same four bytes.
+/// still win inside <see cref="AttributeDecoder"/>. A missing, unplanned, or
+/// unopened definition leaves the adapter's default width at
+/// <see cref="PrimitiveTypeCode.Int32"/>.
 /// Gated by <c>TypeResolutionEnumWidthTests</c>.
 /// </summary>
 public static class TypeResolutionEnumWidth

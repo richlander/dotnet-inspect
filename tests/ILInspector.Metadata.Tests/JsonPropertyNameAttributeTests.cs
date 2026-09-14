@@ -677,7 +677,7 @@ public sealed class JsonPropertyNameAttributeTests
         Assert.False(evidence.HasMalformedRow);
     }
 
-    static byte[] BuildImage(
+    internal static byte[] BuildImage(
         string attributeTypeName = "JsonPropertyNameAttribute",
         bool duplicateValidRows = false,
         bool trustedAssembly = true,

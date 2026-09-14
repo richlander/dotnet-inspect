@@ -24,9 +24,9 @@ dotnet-inspect cache clear
 Build the repository's deterministic implementation-diff pair:
 
 ```bash
-dotnet build src/DiffFixtures.V1/DiffFixtures.V1.csproj \
+dotnet build fixtures/diff/DiffFixtures.V1/DiffFixtures.V1.csproj \
   -c Release --nologo --verbosity quiet
-dotnet build src/DiffFixtures.V2/DiffFixtures.V2.csproj \
+dotnet build fixtures/diff/DiffFixtures.V2/DiffFixtures.V2.csproj \
   -c Release --nologo --verbosity quiet
 ```
 

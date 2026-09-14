@@ -1,9 +1,11 @@
+using CiChangeDetection.Planning;
+
 namespace CiChangeDetection;
 
 internal static class DecompilerProjectGraphPolicy
 {
     private const string RootProjectDirectory =
-        "src/ILInspector.Decompiler.Tests";
+        "tests/ILInspector.Decompiler.Tests";
 
     internal static void Validate(string repository)
     {
@@ -16,30 +18,36 @@ internal static class DecompilerProjectGraphPolicy
             || IsAtOrBelowProject(right, left);
 
         if (!ProjectTreesOverlap(
-                "src/dotnet-inspect/Nested",
-                "src/dotnet-inspect")
+                "src/DotnetInspect.Cli/Nested",
+                "src/DotnetInspect.Cli")
             || ProjectTreesOverlap(
-                "src/dotnet-inspect.TestsExtra",
-                "src/dotnet-inspect.Tests"))
+                "tests/DotnetInspect.Cli.TestsExtra",
+                "tests/DotnetInspect.Cli.Tests"))
         {
             throw new InvalidOperationException(
                 "Decompiler skip-list project boundary check is not non-vacuous.");
         }
 
-        string manifestPath = Path.Combine(
-            repository,
-            "eng",
-            "decompiler-gate-skip-projects.txt");
-        string[] manifestLines = File.ReadAllLines(manifestPath);
+        // The planner's typed inventory is the single reader for this
+        // manifest, so the routing policy and this graph self-test cannot
+        // disagree about which lines are admissible.
+        if (!ProjectInventory.TryLoad(
+                repository,
+                "eng/decompiler-gate-skip-projects.txt",
+                ["fixtures/", "src/", "tests/", "tools/"],
+                requireNonEmpty: false,
+                out ProjectInventory inventory))
+        {
+            throw new InvalidOperationException(
+                "eng/decompiler-gate-skip-projects.txt must contain unique, " +
+                "existing, canonical repository-relative project roots.");
+        }
+
+        IReadOnlyList<string> manifestLines = inventory.Roots;
         var actual = manifestLines.ToHashSet(StringComparer.Ordinal);
-        if (actual.Count != manifestLines.Length
+        if (actual.Count != manifestLines.Count
             || manifestLines.Any(line =>
-                string.IsNullOrWhiteSpace(line)
-                || line != line.Trim()
-                || Path.IsPathRooted(line)
-                || line.EndsWith('/')
-                || line.Split('/').Any(part => part is "" or "." or "..")
-                || !EvaluatedProjectGraph.IsProjectDirectory(
+                !EvaluatedProjectGraph.IsProjectDirectory(
                     repository,
                     line)))
         {

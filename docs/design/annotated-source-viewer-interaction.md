@@ -10,8 +10,10 @@ This document owns the viewer's disclosure, action vocabulary, selection,
 annotation, media, detail, Escape, and focus behavior. It consumes rather than
 redefines:
 
-- the modal lifecycle, shell composition, browser history, and destination
-  focus rules in [Inspect Web UI](inspect-web-ui.md);
+- the modal lifecycle and shell composition in
+  [Inspect Web Shell Interaction](inspect-web-shell-interaction.md), and
+  browser history and destination-focus rules in
+  [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md);
 - the annotated document, supported-media set, Finding, target, node, and
   coordinate contracts produced by the product;
 - canonical view and packet state from
@@ -19,18 +21,23 @@ redefines:
 - complete C# declaration text from the CSharp layer;
 - a future producer-issued Finding census identity from
   [#4986](https://github.com/richlander/dotnet-inspect/issues/4986); and
-- future Facts/member projection and destination capabilities from
-  [#4717](https://github.com/richlander/dotnet-inspect/issues/4717).
+- future Facts/member projection from
+  [#4717](https://github.com/richlander/dotnet-inspect/issues/4717); and
+- product-issued invocation destinations from
+  [Annotated Source invocation destinations](annotated-source-invocation-destinations.md).
 
 The modal's open state, local selection, annotation choices, presentation
 choices, and detail are transient viewer state. This document does not add
 them to browser history, workspace definitions, or share packets.
 
-This effort makes one bounded responsibility transfer from Inspect Web UI:
+This effort makes one bounded responsibility transfer from
+[Inspect Web Shell Interaction](inspect-web-shell-interaction.md):
 viewer-local transient layers get the first opportunity to consume Escape in
-the Annotated Source modal. The viewer reports whether it consumed the gesture;
-the shell retains modal dismissal, history composition, and destination focus.
-No other modal receives this exception from this design.
+the Annotated Source modal. The viewer reports whether it consumed the
+gesture; Shell Interaction retains modal dismissal, while
+[Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) retains
+history composition and destination focus. No other modal receives this
+exception from this design.
 
 ## Experience
 
@@ -42,8 +49,9 @@ of disclosure:
    entering the modal. **Explore** opens the modal viewer.
 2. The **modal viewer** adds IL, offsets, annotation controls, source-node
    selection, a persistent inspector, and explicit destination actions. It is
-   the full-bleed modal defined by Inspect Web UI, not a durable workspace
-   lens.
+   the full-bleed modal defined by
+   [Inspect Web Shell Interaction](inspect-web-shell-interaction.md), not a
+   durable workspace lens.
 
 Every gesture belongs to one stage:
 
@@ -162,10 +170,13 @@ detail, and leaves the embedded reader at its fixed presentation. A later
 **Explore** starts fresh; it does not resurrect the dismissed modal's
 annotation, media, coordinate, node, or detail state.
 
-The modal is opened and dismissed through the Inspect Web UI owner. Those
+The modal is opened and dismissed through
+[Inspect Web Shell Interaction](inspect-web-shell-interaction.md). Those
 operations do not push or replace browser-history entries. Ordinary dismissal
 returns focus to the stable **Explore** control. Browser Back or Forward first
-dismisses the modal and then lets the shell perform history navigation.
+dismisses the modal and then
+[Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) performs
+the history navigation.
 
 ## Annotation sets
 
@@ -178,6 +189,11 @@ Unanchored and member-header Findings remain available through persistent
 inspector actions but are not annotation instances. The browser must not
 invent coordinates to include them in **Default**, **All**, **Clear**, or
 **Custom**.
+
+The modal inspector presents **Selection** and **Findings** as peer sections.
+It does not add a second heading that renames the Findings section. With no
+primary selection, **Selection** renders a non-action **Nothing selected** tile
+in the same content position that selected-node tiles occupy.
 
 Targets on a medium unsupported by the current document do not make a Finding
 annotatable and do not produce a toggle. The default set is the
@@ -229,7 +245,9 @@ medium as visible.
 C#/IL visibility changes presentation, not annotation membership. Revealing
 supported IL may render an already-active IL-only Finding; hiding IL hides that
 target without removing the Finding from the active set or changing the
-reported annotation state.
+reported annotation state. On a mixed line, spans belonging only to a hidden
+medium remain as invisible layout geometry but are neither focusable nor
+actionable; visible sibling spans keep their product-issued coordinates.
 
 At least one supported source medium is always visible. Activating the control
 for the last visible medium leaves media, annotations, selection, detail, and
@@ -243,12 +261,13 @@ persistent inspector action. A sibling chip on another medium is not a
 semantically equivalent opener and must not receive focus.
 
 Coordinates are off by default. A modal toggle reveals offsets and source
-ranges wherever the product supplies them and retains focus when activated.
-It changes no annotation, medium, primary, or detail state. Annotation-set and
-medium controls preserve coordinate visibility. Dismissal destroys the
-preference, so a later modal session starts with coordinates hidden. The
-toggle's label names the coordinate system; unexplained hexadecimal values do
-not appear in the embedded reader.
+ranges wherever the product supplies them, including Finding-detail source
+offsets, and retains focus when activated. It changes no annotation, medium,
+primary, or detail state. Annotation-set and medium controls preserve
+coordinate visibility. Dismissal destroys the preference, so a later modal
+session starts with coordinates hidden. The toggle's label names the
+coordinate system; unexplained hexadecimal values do not appear in the
+embedded reader.
 
 ## Finding detail and focus
 
@@ -263,6 +282,10 @@ hidden medium. An annotation chip is an additional spatial opener, never the
 only way to inspect a Finding. The inspector-action identity set is exactly the
 consumed Finding census; annotation eligibility must not filter it.
 
+Opening detail moves focus to the detail heading without changing the current
+source, control, or inspector scroll positions. Focus placement must not scroll
+the source away from the annotation chip that opened the detail.
+
 Closing detail leaves the current surface, primary selection, active
 annotations, media, and coordinate visibility unchanged. It clears only the
 transient detail and restores focus to the exact opener if it still exists:
@@ -272,6 +295,10 @@ transient detail and restores focus to the exact opener if it still exists:
   chip is still rendered; and
 - if that exact chip disappeared, focus returns to the Finding's persistent
   inspector action, even if a same- or different-medium sibling chip remains.
+
+Detail-close and source-selection focus may scroll the focus target's own
+container only as needed to reveal that target. The opening-detail scroll
+preservation rule does not apply to those reveal transitions.
 
 Removing the primary annotation closes detail indirectly and leaves focus on
 the annotation toggle that performed the removal. **Default** and **Clear**
@@ -289,15 +316,24 @@ Escape is layered inside the viewer:
 3. In the embedded reader with no transient layer, leave viewer state and
    focus unchanged and return Escape unhandled to the workspace.
 
+Embedded viewer-local Escape is eligible only while the embedded reader is the
+active workspace surface and no shell overlay owns focus. Opening Spotlight or
+another shell overlay leaves embedded detail state intact, but that hidden
+detail cannot consume Escape or receive restored focus through the overlay.
+
 Pointer activation of **Close** may dismiss the whole modal even while detail
 is open. It is not the keyboard Escape transition. The shell then restores
 focus to **Explore**.
 
-Focus is trapped inside the open modal by Inspect Web UI. Successful
-destination navigation closes the modal and lets the destination/history
-owner focus the destination. Presentation, synchronization, announcements, and
-focus for every non-applied navigation outcome remain governed by Inspect Web
-UI. Superseded work produces no viewer effect.
+Focus is trapped inside the open modal by
+[Inspect Web Shell Interaction](inspect-web-shell-interaction.md). Successful
+destination navigation closes the modal and lets
+[Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md) focus
+the destination. Presentation, synchronization, announcements, and focus for
+every non-applied navigation outcome remain governed by Navigation Consumer.
+Superseded work produces no viewer effect. Addressable source spans carry
+stable DOM identities so a shell rerender that preserves the current member
+also preserves source focus rather than leaving focus outside the modal.
 
 ## Source presentation
 
@@ -308,15 +344,30 @@ captures use distinct non-underline treatments such as tint, gutter marks,
 weight, or explicit annotation rows. Hover and focus cannot introduce a
 different action from activation.
 
+An explicit chip-style annotation row appears immediately before its targeted
+source line and begins at its product-issued source-span start, not at a shared
+left edge. It provides CodeLens-like context for the source that follows. The
+browser preserves the exact source prefix as layout geometry so annotation
+placement follows the language's visible indentation without reconstructing or
+changing source text. Annotations with the same start may share a row; distinct
+starts remain separately aligned.
+
 Caret rows connecting an annotation label to an exact extent are annotation
-geometry, not text-decoration underlines. They appear only for rendered active
-annotations.
+geometry, not text-decoration underlines. Unlike chip-style context, they
+appear after the extent they annotate and only for rendered active annotations.
 
 The complete declaration preceding the body is product-issued C# text. Work
 tracked by [#4852](https://github.com/richlander/dotnet-inspect/issues/4852)
 owns making all declarations, including constructor initializers,
 representable. The browser transports that text unchanged and does not
 reconstruct C# from an API signature, identity, or body.
+
+The portable document is validated before rendering. A rejected document
+remains a visible failure at the shell boundary; it does not abort the global
+render or become an empty success. A rejected modal remains dismissible and
+inside the shell-owned modal focus contract. Dismissal does not require
+revalidating the rejected document; when the embedded **Explore** control is
+unavailable, focus moves to the embedded rejection heading instead.
 
 ## Adjacent integrations
 
@@ -327,10 +378,13 @@ construction:
   producer-issued census receipt and Finding instance key needed for
   identity-preserving Facts integration.
 - [#4717](https://github.com/richlander/dotnet-inspect/issues/4717) owns
-  Research composition of member/Facts projections and destination
-  capabilities.
-- [#4787](https://github.com/richlander/dotnet-inspect/issues/4787) owns
-  canonical workspace restoration and any future portable view fields.
+  Research composition of member/Facts projections.
+- [Annotated Source invocation destinations](annotated-source-invocation-destinations.md)
+  owns the Research join from physical calls and C# provenance to typed member
+  targets.
+- [Workspace Definitions](workspace-definitions.md) owns canonical workspace
+  restoration and any future portable view fields, with implementation tracked
+  by [#4787](https://github.com/richlander/dotnet-inspect/issues/4787).
 - [#4852](https://github.com/richlander/dotnet-inspect/issues/4852) owns
   complete declaration representability.
 
@@ -405,10 +459,11 @@ Conformance requires:
   unsupported media cannot satisfy the non-empty guard, membership is
   orthogonal, a hidden opener falls back to the exact Finding's inspector
   action, a same- or different-medium sibling chip is not substituted, toggles
-  retain focus, and the final visible medium cannot be disabled;
+  retain focus, mixed-line hidden segments remain as inert layout geometry,
+  and the final visible medium cannot be disabled;
 - coordinate tests proving hidden fresh state, exact toggling and focus,
   annotation-set and media preservation, dismissal destruction, and hidden
-  state on reopening;
+  state on reopening, including Finding-detail source offsets;
 - primary tests proving Finding and node transitions are explicit and toggles
   do not select;
 - detail-open and close tests proving exact opener identity, including two
@@ -433,6 +488,13 @@ Conformance requires:
   precedence, discontinuous spans, deterministic tightest-node selection, and
   drag-selection non-activation;
 - source-copy tests proving annotations and chrome are excluded;
+- replacement-render tests proving stable addressable-source focus, plus shell
+  containment tests proving rejected documents remain visible, dismissible
+  without revalidation, and focused at the embedded rejection after dismissal;
+- real-browser tests proving embedded and modal Finding annotation chips open
+  focused detail without changing the current source scroll position;
+- real-browser tests proving source-node selection and detail-close focus
+  reveal their exact targets within the relevant source or inspector viewport;
 - a style gate rejecting persistent source-text underlines; and
 - a CI-integrated real-browser gate for pointer hit testing, focus, Escape,
   modal trapping, backdrop dismissal, and drag selection.

@@ -1,0 +1,87 @@
+namespace DotnetInspect.Cli.Output;
+
+/// <summary>
+/// CLI-layer helpers for printing SelectResolver results to Console.
+/// Keeps Console usage in the CLI layer, not in the service.
+/// </summary>
+public static class SelectOutput
+{
+    /// <summary>
+    /// Prints unresolved select values with "Did you mean:" suggestions to Console.Error.
+    /// Returns true if any errors were printed.
+    /// </summary>
+    public static bool WriteErrors(IReadOnlyList<SelectMiss> unresolved)
+    {
+        if (unresolved.Count == 0) return false;
+
+        foreach (var miss in unresolved)
+        {
+            CommandError.Write($"Select value '{miss.Value}' not found.");
+            if (miss.Suggestions.Count > 0)
+            {
+                CommandError.WriteBlankLine();
+                CommandError.WriteLine("Did you mean:");
+                foreach (var s in miss.Suggestions)
+                    CommandError.WriteLine($"  {s}");
+            }
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Writes unresolved select values to stderr.
+    /// Returns true only for total failure (nothing matched — command should exit).
+    /// Partial matches (some resolved, some not) write warnings and return false.
+    /// </summary>
+    public static bool WriteUnresolved(SelectResult result)
+    {
+        if (result.Unresolved.Count == 0) return false;
+
+        bool totalFailure = result.Sections is null or { Count: 0 };
+
+        void WriteDiagnostic(string message)
+        {
+            if (totalFailure)
+            {
+                CommandError.Write(message);
+            }
+            else
+            {
+                CommandError.WriteWarning(message);
+            }
+        }
+
+        foreach (var miss in result.Unresolved)
+        {
+            if (miss.IsGlob)
+            {
+                WriteDiagnostic($"No sections match '{miss.Value}'.");
+                if (totalFailure && miss.Suggestions.Count > 0)
+                {
+                    CommandError.WriteBlankLine();
+                    CommandError.WriteLine("Available sections:");
+                    foreach (var s in miss.Suggestions)
+                        CommandError.WriteLine($"  {s}");
+                }
+            }
+            else
+            {
+                WriteDiagnostic($"Select value '{miss.Value}' not found.");
+                if (miss.Suggestions.Count > 0)
+                {
+                    CommandError.WriteBlankLine();
+                    CommandError.WriteLine(miss.ListsAllSections ? "Available sections:" : "Did you mean:");
+                    foreach (var s in miss.Suggestions)
+                        CommandError.WriteLine($"  {s}");
+                    if (miss.ListsAllSections)
+                    {
+                        CommandError.WriteBlankLine();
+                        CommandError.WriteLine("Run with -D to discover sections for this target.");
+                    }
+                }
+            }
+        }
+
+        return totalFailure;
+    }
+}

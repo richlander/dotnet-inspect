@@ -72,6 +72,7 @@ public interface IPackageSourceClient : IDisposable
 
     Task<PackageSourceOperationResult<PackageSearchResult>> SearchAsync(...);
     Task<PackageSourceOperationResult<PackageSearchResult>> SearchByPrefixAsync(...);
+    IAsyncEnumerable<PackageSourceOperationResult<PackageSearchResult>> SearchByPrefixPagesAsync(...);
     Task<PackageSourceOperationResult<PackageVersionResult>> GetVersionsAsync(...);
     Task<PackageSourceOperationResult<PackageSourceManifest>> GetManifestAsync(...);
     Task<PackageSourceOperationResult<PackageSourcePayload>> GetPackageAsync(...);
@@ -88,6 +89,11 @@ The boundary preserves these properties:
 - absence, unsupported capability, timeout, authentication failure, and
   transport failure are distinct results; and
 - no consumer above NuGetFetch constructs protocol URLs.
+
+[Incremental package-prefix candidates](package-prefix-candidate-stream.md)
+owns the pull-driven page sequence, including its remaining active-work budget
+and first adoption by the shared package-profile query. It consumes this
+owner's unchanged result identities, immutable snapshots, and request bounds.
 
 `PackageSource` must not mean only "NuGet v3 service-index URL." A registered
 source descriptor identifies the source kind and its non-secret configuration:
@@ -430,9 +436,11 @@ rather than accepting independent identity or issuer arguments.
 callback from the external client assembly. Its admitted kinds are
 `NuGetGallery` and `NuGetV3`. Gallery uses the canonical owner-issued NuGet.org
 producer; v3 uses the descriptor's admitted normalized endpoint projection.
-`LocalFolder` remains unsupported until #3759. Null arguments and unsupported
-descriptor kinds are rejected before any caller callback runs or any bound
-factory is made available.
+`LocalFolder` is not an external `CreateCustom` descriptor kind; the
+[local folder package source](local-folder-package-source.md) constructs its
+owner-issued client directly from canonical local identity.
+Null arguments and unsupported descriptor kinds are rejected before any caller
+callback runs or any bound factory is made available.
 
 For an admitted descriptor, NuGetFetch constructs the complete source identity,
 private issuer, and bound public result factory before invoking the callback
@@ -722,10 +730,16 @@ migration is a dependency, not authority for those consumers to reinterpret
 reference to the legacy type from the source tree, including implicit
 formatting and equality call sites rather than only reads of selected members.
 Its temporary file inventory groups NuGetFetch compatibility and tests under
-issue #4795, package authority and acquisition readers under #4797, and query
-and CLI projection readers under #4806. Browser pending-acquisition readers,
-including the direct `BrowserPackageWorkspace` read, are grouped under #4805.
-It fails for both an unlisted reference and a stale entry.
+issue #4795, package authority and acquisition readers under #4797, and Browser
+pending-acquisition readers, including the direct `BrowserPackageWorkspace`
+read, under #4805. Query and CLI projection readers completed their #4806
+migration in this slice; the empty set must remain empty. The inventory uses
+C# syntax and property-symbol binding across every non-generated top-level C#
+source root to exclude comments and literals while following ordinary
+descriptor aliases and syntax forms. It records explicit type-reference and
+implicit descriptor-identity-reference counts per file, so it fails for an
+unlisted file, a stale entry, or reference-count drift within an enrolled file.
+A synthetic mutation gate proves all three comparisons are non-vacuous.
 
 Issue #4805 is both a direct legacy-type migration and a cache dependency
 through package-owned endpoint canonicalization. Its browser cache slots
@@ -909,6 +923,18 @@ Implementation is not complete until Release gates establish:
 - `LegacyPackageSourceIdentitySurfaceMatchesMigrationSet` prevents the
   additive compatibility window from acquiring any new legacy type,
   formatting, equality, or factory consumer;
+- `LegacyMigrationSetComparisonRejectsInventoryMutations` proves the
+  source-derived migration inventory rejects unlisted files, stale entries,
+  and reference-count drift;
+- `LegacyReferenceDiscoveryIncludesImplicitFormattingAndEquality` proves the
+  inventory observes descriptor identity consumers that do not spell the
+  legacy type at their use site;
+- `LegacyReferenceDiscoveryIncludesAliasesAndInactiveBranches` proves the
+  inventory semantically attributes local and global legacy type aliases and
+  descriptor identity readers across every bounded conditional-compilation
+  configuration, including cross-file aliases and inferred receiver bindings,
+  then conservatively unions executable legacy-type, alias, and descriptor
+  identity name spans from normally inactive branches;
 - `LegacyPackageSourceIdentityBehaviorRemainsStable` pins exact vectors for
   legacy factories, `NuGetOrg`, `Value`, endpoint-shaped formatting, equality,
   and equal-value hash consistency, plus Gallery and NuGetV3
@@ -1037,9 +1063,12 @@ Their shared NuGet.org producer label alone does not authorize cache sharing.
 
 ### Local-folder source
 
-Local-folder support remains a separate implementation because its candidate
-enumeration, payload access, identity, and platform availability differ from
-HTTP sources. It is not required for the initial browser registry.
+Canonical path and `file://` equivalence are owned by
+[Local package source identity](local-package-source-identity.md).
+[Local-folder client support](https://github.com/richlander/dotnet-inspect/issues/5399)
+remains a separate implementation because its candidate enumeration, payload
+access, and platform availability differ from HTTP sources. It is not required
+for the initial browser registry.
 
 ## Registration, selection, and eligibility
 
@@ -1051,7 +1080,8 @@ Registration and selection are different:
 - an **eligible source** is active and authorized for the package ID after
   package source mapping or an equivalent host policy.
 
-Inspect Web UI owns where package-source operations appear. The package-source
+[Inspect Web Surface Composition](inspect-web-surface-composition.md#package-source-presentation)
+owns where package-source operations appear. The package-source
 owner supplies descriptors and typed actions for:
 
 - viewing the built-in NuGet Gallery source;
@@ -1296,6 +1326,32 @@ and its migration:
 - changing the selected source set never reinterprets bytes from an
   unauthorized configured authority.
 
+### Browser pending-acquisition association
+
+The Browser workspace coalesces one in-flight payload transfer by exact package
+coordinate and the reference identity of the selected `IPackageSourceClient`
+handle. The key is session-local and non-persistent. Repeating a coordinate
+through the same handle shares work; a distinct handle remains distinct even
+when it reports the same producer or uses another transport for that producer.
+If package composition proves that Gallery and v3 transports implement one
+configured authority, it supplies one composed client handle rather than asking
+the Browser to infer equivalence.
+
+Producer identity remains provenance and is not pending-work authority. The
+Browser does not place its legacy `Value` or target `Key` or `Display` into the
+pending key, pass any of them to `NuGetCache.GetSourceKey`, parse them as a URL
+or local path, or consult the process working directory. The key's lifetime is
+bounded by the exact in-flight task, and completion removes only that task's
+entry.
+
+`PendingAcquisitionAssociation_UsesCoordinateAndExactClientReference` gates the
+closed key shape, same-handle equivalence, and distinct Gallery/v3 handles with
+one producer.
+`PackageAcquisition_SharedStallIsAVisibleTimeoutForEveryCaller` proves that
+equivalent callers share one transfer, while
+`PackageAcquisition_DistinctSameProducerClientsDoNotSharePendingTransfer`
+proves that producer equality alone cannot merge pending work.
+
 Search metadata does not authorize payload bytes from every active source.
 Candidate authority and provenance together determine which source may fulfill
 a discovered coordinate.
@@ -1303,6 +1359,41 @@ a discovered coordinate.
 Symbol packages have independent provenance. NuGet Gallery's known symbol CDN
 is a Gallery capability. A custom v3 feed does not acquire symbols from
 NuGet.org merely because the same package ID exists there.
+
+### Browser retained-acquisition association
+
+The selected runtime-client association survives completion of a Browser
+acquisition. Payload-cache entries, download reservations, archive leases, and
+workspace reuse retain that association alongside the exact coordinate.
+Repeating an acquisition through the same client may reuse its retained
+content; a distinct client cannot answer from, overwrite, or join that content
+merely because the coordinate or producer matches.
+
+This consumes the same exact client-reference currency as pending acquisition.
+Any Browser-issued namespace needed by internal scope keys is session-local,
+not producer identity, a configured endpoint, or portable configuration.
+Package composition may supply one composed client when it establishes
+authority equivalence; Browser does not establish that equivalence itself.
+Package, byte, and scope limits remain aggregate session limits rather than
+separate allowances for each client.
+
+The Release `BrowserEngineBoundaryTests` gates are
+`PackageAcquisition_SameClientReusesCompletedPayload`,
+`PackageAcquisition_DistinctSameProducerClientsRetainTheirOwnPayloads`, and
+`PackageQueryContent_UsesTheSelectedClientsCompletedCache` for completed-cache
+reuse and separation;
+`PackageAcquisition_DistinctClientReservationsShareGlobalBudget` for
+independent reservations under the global package and byte limits; and
+`BrowserWorkspace_DistinctClientsKeepScopesAndArchiveLeasesSeparate` for
+workspace reuse, retirement, and archive leases across those acquisitions.
+The coordinate-only method-body exports resolve retained scopes through the
+production Gallery client association, not through a source-agnostic key.
+`BrowserMethodBodyOperationTests` gates that retained lookup, including missing
+contexts, removal-requested scopes, and ambiguous content generations.
+Configured-authority retirement and result admission remain separate
+obligations of the live registry adoption in [#5637][browser-adoption].
+
+[browser-adoption]: https://github.com/richlander/dotnet-inspect/issues/5637
 
 ## Timeout ownership
 
@@ -1386,7 +1477,9 @@ request deadline inside the remaining shared ceiling; it does not create
 another operation ceiling. Retries, authentication exchanges, and retry delays
 reuse that request's deadline adapter. Gallery pagination and manifest
 acquisition likewise reuse one adapter for their complete public source
-operation.
+operation. The incremental prefix-page API's source-work budget is described
+by its [focused owner](package-prefix-candidate-stream.md#work-and-deadline-ownership);
+a caller-supplied context still has this section's unchanged wall-clock meaning.
 
 A caller-supplied context is caller-owned and must outlive every payload stream
 returned through it. Disposing it cancels outstanding work. The invocation
@@ -1645,12 +1738,20 @@ never rendered.
 
 The website renders the owner-issued compact producer label on every
 source-bearing surface designated by
-[Inspect Web UI](inspect-web-ui.md#package-source-presentation), including
+[Inspect Web Surface Composition](inspect-web-surface-composition.md#package-source-presentation),
+including
 search results and version choices. A version advertised upstream but
 unavailable from a selected mirror is shown as a source-specific availability
 fact, not as a contradictory global package state.
 
 ## Implementation direction
+
+Production Browser adoption is tracked in [#5637][browser-adoption] in three
+steps: client-associated retained acquisition, live configured-authority and
+engine-operation adoption, and Settings integration with Browser/Wasm
+end-to-end coverage. The retained-acquisition step keeps Gallery as the
+production source; it does not expose configured feeds or session PATs before
+their complete configuration and operation paths are available.
 
 The existing NuGetFetch shape is a useful base:
 
@@ -1742,8 +1843,15 @@ authorization, and
 `RedirectLimitIsResponseRejected` gate the redirect safety bound.
 `MalformedRedirectTargetIsInvalidResponse` gates redirect-target admission.
 The `NuGetFetch` `browser-wasm` build is the browser-target compilation gate.
-Candidate projection remains inside the same operation deadline as the metadata
-request.
+`CandidateProjectionRemainsInsideOperationDeadline` and
+`NestedSearchSnapshotRemainsInsideOperationDeadline` gate that outer
+projection and nested immutable snapshotting remain inside the same operation
+deadline as the metadata request.
+`VersionResultSnapshotRemainsInsideOperationDeadline` gates the second
+immutable version-result snapshot and publication at that same deadline.
+`SuccessPublicationRemainsInsideOperationDeadline` gates that final
+search/version validation and success-outcome construction retain that
+deadline and classify expiration as a typed timeout rather than success.
 
 Source operations already return typed outcome shells, but current result
 shapes still carry the legacy `PackageSourceIdentity` and separate transport
@@ -1969,6 +2077,12 @@ Implementation is not complete until gates prove:
   authorities, including two authorities with the same producer label; this
   end-to-end property remains unverified pending owner gates from #4797 and
   #4805;
+- Browser pending acquisition coalesces the same coordinate only through the
+  exact selected client handle and remains distinct for separate Gallery and v3
+  handles with one producer, gated by
+  `PendingAcquisitionAssociation_UsesCoordinateAndExactClientReference`,
+  `PackageAcquisition_SharedStallIsAVisibleTimeoutForEveryCaller`, and
+  `PackageAcquisition_DistinctSameProducerClientsDoNotSharePendingTransfer`;
 - a keyword-search/latest cache entry cannot answer complete listing-aware
   enumeration, and incomplete listing metadata cannot populate that cache;
 - source-relative listing states cover `listed`, `unlisted`, `unknown`, and

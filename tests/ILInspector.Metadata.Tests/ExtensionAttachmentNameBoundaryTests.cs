@@ -80,7 +80,7 @@ public sealed class ExtensionAttachmentNameBoundaryTests
     }
 
     [Fact]
-    public void AttachedExtension_PreservesItsExactDeclaringTypeAnchor()
+    public void AttachedExtension_PreservesTypedDeclaringTypeAndAnchor()
     {
         using var peReader = new PEReader(ImmutableArray.Create(BuildImage()));
         ApiSurface surface = ApiSurfaceExtractor.Extract(
@@ -101,6 +101,25 @@ public sealed class ExtensionAttachmentNameBoundaryTests
             member => member.Kind == "extension-method"
                 && member.Name == "Extend");
 
+        MetadataTypeDefinitionName attachedDeclaringType = Assert.IsType<
+            MetadataTypeDefinitionName>(
+                attached.DeclaringTypeDefinitionName);
+        Assert.Equal(
+            extensions.DefinitionName,
+            attachedDeclaringType);
+        Assert.Null(original.DeclaringTypeDefinitionName);
+        Assert.NotNull(attached.DeclaringTypeCanonicalName);
+        Assert.Null(original.DeclaringTypeCanonicalName);
+        Assert.NotEqual(
+            widget.DefinitionName,
+            attachedDeclaringType);
+        Assert.Equal("", attachedDeclaringType.Namespace);
+        Assert.Equal(
+            ["Extensions.WithDot"],
+            attachedDeclaringType.Segments);
+        Assert.Equal(
+            ApiMemberIdentity.FormatTypeAnchorName(extensions),
+            attached.DeclaringTypeCanonicalName);
         Assert.Equal(
             ApiMemberIdentity.GetMemberAnchor(
                 extensions,

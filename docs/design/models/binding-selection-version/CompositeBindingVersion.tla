@@ -17,7 +17,8 @@ CONSTANTS
     NoAnswer,
     SuccessTokenMode,
     MismatchMode,
-    RouteMode
+    RouteMode,
+    EnforceBindingVersionLifecycle
 
 DelegateVersions == {DelegateVersionOne, DelegateVersionTwo}
 CompositeVersions == {CompositeVersionOne, CompositeVersionTwo}
@@ -35,6 +36,7 @@ ASSUME
     /\ MismatchMode \in
         {"RefreshAndForward", "Relabel", "ForwardWithoutRefresh"}
     /\ RouteMode \in {"FreshVersion", "SameVersion"}
+    /\ EnforceBindingVersionLifecycle \in BOOLEAN
 
 VARIABLES
     phase,
@@ -49,6 +51,13 @@ VARIABLES
     refreshed,
     completed
 
+BindingVersion ==
+    INSTANCE AssemblyBindingPolicyVersionLifecycle WITH
+        InitialVersion <- CompositeVersionOne,
+        ReplacementVersion <- CompositeVersionTwo,
+        version <- compositeVersion,
+        advanced <- refreshed
+
 vars ==
     <<phase, scenario, delegateVersion, compositeVersion,
       capturedDelegateVersion, routeGeneration, returnedVersion,
@@ -58,13 +67,12 @@ Init ==
     /\ phase = "Ready"
     /\ scenario \in Scenarios
     /\ delegateVersion = DelegateVersionOne
-    /\ compositeVersion = CompositeVersionOne
+    /\ BindingVersion!Init
     /\ capturedDelegateVersion = DelegateVersionOne
     /\ routeGeneration = 1
     /\ returnedVersion = NoVersion
     /\ returnedAnswer = NoAnswer
     /\ interpreted = FALSE
-    /\ refreshed = FALSE
     /\ completed = FALSE
 
 Begin ==
@@ -117,9 +125,12 @@ EvaluateDelegateDrift ==
             /\ completed' = FALSE
             /\ IF MismatchMode = "RefreshAndForward"
                THEN
-                    /\ compositeVersion' = CompositeVersionTwo
+                    /\ IF EnforceBindingVersionLifecycle
+                       THEN BindingVersion!Advance
+                       ELSE
+                            /\ compositeVersion' = compositeVersion
+                            /\ refreshed' = TRUE
                     /\ capturedDelegateVersion' = DelegateVersionTwo
-                    /\ refreshed' = TRUE
                ELSE
                     /\ UNCHANGED
                         <<compositeVersion, capturedDelegateVersion, refreshed>>
@@ -133,9 +144,12 @@ EvaluateRouteChange ==
     /\ IF RouteMode = "FreshVersion"
        THEN
             /\ phase' = "Retry"
-            /\ compositeVersion' = CompositeVersionTwo
+            /\ IF EnforceBindingVersionLifecycle
+               THEN BindingVersion!Advance
+               ELSE
+                    /\ compositeVersion' = compositeVersion
+                    /\ refreshed' = TRUE
             /\ returnedVersion' = CompositeVersionTwo
-            /\ refreshed' = TRUE
             /\ completed' = FALSE
        ELSE
             /\ phase' = "Done"
@@ -177,15 +191,20 @@ TypeOK ==
     /\ phase \in Phases
     /\ scenario \in Scenarios
     /\ delegateVersion \in DelegateVersions
-    /\ compositeVersion \in CompositeVersions
+    /\ BindingVersion!TypeOK
     /\ capturedDelegateVersion \in DelegateVersions
     /\ routeGeneration \in 1..2
     /\ returnedVersion \in
         DelegateVersions \union CompositeVersions \union {NoVersion}
     /\ returnedAnswer \in Answers \union {NoAnswer}
     /\ interpreted \in BOOLEAN
-    /\ refreshed \in BOOLEAN
     /\ completed \in BOOLEAN
+
+BindingVersionAdvanceIsFresh ==
+    BindingVersion!AdvancedVersionIsFresh
+
+BindingVersionBehaviorRefinesOwner ==
+    BindingVersion!SafetySpec
 
 StableMatchUsesCompositeVersion ==
     /\ phase = "Done"

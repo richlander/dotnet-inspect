@@ -16,7 +16,6 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="ILInspector.ILDiff" />
-    <InternalsVisibleTo Include="ILInspector.Instructions" />
     <InternalsVisibleTo Include="ILInspector.Metadata" />
     <InternalsVisibleTo Include="ILInspector.Metadata.Tests" />
   </ItemGroup>

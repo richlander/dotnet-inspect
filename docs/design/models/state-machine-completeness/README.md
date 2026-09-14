@@ -47,9 +47,9 @@ The completeness model's `result` domain corresponds only to structural async
 `GetByStateMachine` queries. It does not model kickoff or implementation keys,
 so `C2_FailureIsTyped` checks the async-state-machine-query fragment of C2
 rather than all three keyed surfaces. It also does not model the public
-`Relationships` enumeration. That surface is empty after whole-module failure
-with no accompanying status, so it remains success-shaped rather than
-idealized here. Issue #4833 tracks that missing contract.
+`Relationships` enumeration. The implementation exposes that surface as a
+closed `Available`/`Rejected` result, but its collection-level status and
+payload remain implementation-gated rather than idealized here.
 
 ## Structure
 

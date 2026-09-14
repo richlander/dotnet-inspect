@@ -6,19 +6,34 @@ This document defines the target managed boundary for long-running inspect-web
 operations. It is the normative owner for issue
 [#5094](https://github.com/richlander/dotnet-inspect/issues/5094).
 
-The design is not yet implemented. Its abstract lifecycle is checked by the
+The dynamic operation lifecycle through quiescent release is implemented by
+`BrowserManagedOperationBridge` and gated by
+`BrowserManagedOperationBridgeTests` in the Release browser-engine suite. The
+generated `[JSExport]` boundary is implemented by the
+`inspect-web-managed-operation-bridge-browser-boundary` Release canary under
+Mono and CoreCLR Browser/Wasm. Its abstract lifecycle is checked by the
 companion
 [managed operation bridge model](models/inspect-web-managed-operation-bridge/README.md).
-Concrete browser and managed gates named below remain required before an
-implementation may claim the corresponding behavior.
+The generated multi-facade Browser/Wasm canary also gates authenticated
+nonterminal callback shape, ordered progress and durable event delivery,
+terminal-after-events settlement, callback-failure rejection, and callback
+closure after release. Terminal-bounded shared-producer attachment is implemented
+by `BrowserManagedSharedProducer` and `BrowserManagedOperationBridge.RunSharedAsync`,
+gated by `BrowserManagedSharedProducerTests` in the Release browser-engine suite.
+The managed-operation Browser/Wasm canary also gates the
+[generated shared-waiter cases](#generated-shared-waiter-evidence) below.
+Explicit epoch-work handoff is implemented by `BrowserManagedEpochWorkReporter`
+and the shared producer, gated by `BrowserManagedEpochWorkTests` and the same
+generated canary. Production Worker reporter registration, liveness integration,
+and feature migration remain outside this implemented slice.
 
 ## Decision
 
 Inspect-web uses a dynamic `ActiveOperationTable` at the managed browser-host
 boundary. Each worker-invoked long-running export registers one operation ID,
 one `CancellationTokenSource`, one immutable first cancellation reason, and
-one scoped progress callback before the exported method can reach its first
-incomplete wait.
+one scoped nonterminal event callback before the exported method can reach its
+first incomplete wait.
 
 The table is not a static catalog of operations. Its container may be held by
 static `[JSExport]` entry points, but an entry exists only from synchronous
@@ -27,9 +42,9 @@ admission until that invocation closes its callback and removes its resources.
 The bridge:
 
 - receives an owner-issued opaque operation ID and a feature-specific
-  synchronous progress callback from worker TypeScript;
+  synchronous nonterminal event callback from worker TypeScript;
 - provides the feature operation with a cancellation token and a scoped
-  progress reporter;
+  event sink;
 - accepts cancellation by operation ID and preserves the first normalized
   reason separately from `CancellationToken`;
 - fulfills ordinary operation calls with a closed succeeded, failed, or
@@ -60,17 +75,21 @@ The worker placement, not `Task` or `Promise`, provides DOM responsiveness.
 This bridge makes no claim that a managed await yields to the DOM thread or
 that CPU-only work processes worker messages promptly.
 
-### Progress reporting
+### Nonterminal event reporting
 
 A feature export accepts a bounded synchronous `Action` callback supported by
-the authenticated `ts-jsexport` facade. Managed code reports a semantic phase
-or aggregate checkpoint. The callback runs worker JavaScript, validates its
-primitive fields, and immediately calls `postMessage`; it never performs DOM
-work.
+the authenticated `ts-jsexport` facade. Managed code reports the
+feature-owned nonterminal union through one scoped event sink. That union can
+contain advisory progress plus durable Item and ItemFailure variants; the
+semantic distinction remains owned by the
+[engine-to-browser async event stream](engine-browser-async-event-stream.md).
+The callback runs worker JavaScript, validates its primitive fields, and
+immediately calls `postMessage`; it never performs DOM work.
 
 The main thread applies its own current-operation authority before rendering.
 The managed bridge guarantees only operation-scoped callback lifetime and
-release, not DOM publication.
+release plus producer-order callback invocation. It does not coalesce progress,
+discard durable events, batch messages, or grant DOM publication authority.
 
 ### User cancellation and supersession
 
@@ -92,7 +111,7 @@ browser latency gate required by the relevant feature owner.
 ### Shared physical work
 
 Two operations can await one package acquisition or another feature-owned
-producer. Canceling one operation stops that waiter, removes its progress
+producer. Canceling one operation stops that waiter, removes its event
 subscription, and lets its wrapper return `Canceled` without canceling the
 producer while another waiter remains.
 
@@ -117,7 +136,7 @@ This document owns:
 - dynamic active-entry identity and duplicate-active rejection;
 - `CancellationTokenSource` lifetime;
 - first-reason storage and cancellation-result classification;
-- operation-scoped progress reporter and callback lifetime;
+- operation-scoped nonterminal event sink and callback lifetime;
 - managed result-envelope classification;
 - settlement, callback close, table removal, and managed quiescence ordering;
 - shared-producer waiter attachment and detachment at the managed bridge;
@@ -130,6 +149,8 @@ It consumes:
   [inspect-web operation authority](inspect-web-operation-authority.md);
 - authenticated synchronous callback and result types from
   [`ts-jsexport`](ts-jsexport.md);
+- progress, durable Item and ItemFailure meaning, and terminal ordering from
+  [engine-to-browser async event streams](engine-browser-async-event-stream.md);
 - worker placement and the epoch-work allowance type from #5093;
 - concrete work, error payloads, progress phases, cancellation checkpoints,
   producer sharing keys, and last-waiter policy from feature owners; and
@@ -145,7 +166,8 @@ It does not own:
   response, restart, realm destruction, or hard cancellation;
 - generic `[JSExport]` discovery, facade generation, runtime bootstrap, or
   TypeScript compilation;
-- feature-specific progress unions or payload budgets;
+- feature-specific event unions, progress coalescing, batching, or payload
+  budgets;
 - feature cancellation checkpoints, timeout duration, retry, cache, or
   producer-sharing policy; or
 - package-source identity, transport, reservation, or publication semantics.
@@ -176,6 +198,13 @@ public enum ManagedOperationFailureKind
     Unexpected,
 }
 
+public interface ManagedOperationEvents<in TEvent>
+{
+    bool IsClosed { get; }
+
+    void Report(TEvent operationEvent);
+}
+
 public abstract record ManagedOperationResult<TValue, TError, TDiagnostic>
 {
     public sealed record Succeeded(TValue Value)
@@ -203,6 +232,11 @@ public abstract record ManagedCancellationRequestResult
 }
 ```
 
+`IsClosed` means no later report can reach the JavaScript callback. It is also
+true when an active operation was admitted without a callback or after a
+callback failure; it does not mean the feature body or operation has settled
+and must not control whether feature work is performed.
+
 The wire envelope is closed and versioned. `Succeeded` always carries its
 value, `Failed` always carries its feature-owned safe error and diagnostic
 payloads, and `Canceled` always carries the exact stored reason. A discriminator
@@ -217,9 +251,9 @@ suppression cannot hide it.
 
 Promise rejection is reserved for runtime, interop, serialization, or
 bridge-contract failure, including an invalid boundary value, duplicate active
-ID, or throwing progress callback. The worker runtime owner narrows an unknown
-rejection into its boundary-failure path; it never infers expected cancellation
-from error text.
+ID, or throwing nonterminal event callback. The worker runtime owner narrows
+an unknown rejection into its boundary-failure path; it never infers expected
+cancellation from error text.
 
 `ManagedCancellationRequestResult.Requested` means the reason was installed
 and token signaling was attempted. `AlreadyRequested` returns the immutable
@@ -244,7 +278,7 @@ active / settling state
 CancellationTokenSource
 first normalized cancellation reason, initially absent
 token-callback failure, initially absent
-operation-scoped progress gate and callback reference
+operation-scoped event gate and callback reference
 in-flight bridge-callout count
 zero or one shared-producer subscription
 terminal classification state
@@ -261,9 +295,9 @@ Admission is a synchronous, non-awaiting transition:
 
 1. validate the required boundary values without parsing meaning from the
    opaque operation ID;
-2. construct the cancellation source and closed progress gate;
+2. construct the cancellation source and closed event gate;
 3. atomically add the complete entry if the ID is not already active;
-4. expose the entry's token and scoped reporter to the feature adapter; and
+4. expose the entry's token and scoped event sink to the feature adapter; and
 5. invoke the feature body.
 
 The add completes before the feature body can reach an incomplete wait or make
@@ -277,8 +311,9 @@ on the bridge retaining an unbounded set of completed IDs.
 
 This ordering is checked abstractly by
 `RegistrationPrecedesManagedWork` and `OneActiveEntryPerId` in the companion
-model. The concrete ordering remains unverified until the
-`inspect-web-managed-operation-bridge` Release gate exists.
+model. `BrowserManagedOperationBridgeTests` checks the concrete managed
+ordering. The browser-boundary canary additionally observes the synchronous
+event callout before the generated operation function returns its Promise.
 
 ### Cancellation
 
@@ -314,57 +349,76 @@ applied.
 The companion model checks `FirstCancellationReasonWins`,
 `CancellationSignalsAtMostOnce`, and
 `SettlingOperationRejectsCancellation`. It also requires settlement to drain
-the cancellation callout before classification and release. Concrete reentrancy
-and throwing-token callback behavior remain unverified until the required
-Release gate exists.
+the cancellation callout before classification and release.
+`BrowserManagedOperationBridgeTests` checks the concrete reentrancy,
+throwing-token callback, race, and drain behavior.
 
-### Progress
+### Nonterminal events
 
-The bridge gives feature code a scoped managed reporter rather than the raw
-JavaScript delegate. The reporter owns the only path to that delegate.
+The bridge gives feature code a scoped managed event sink rather than the raw
+JavaScript delegate. The sink owns the only path to that delegate. Its
+`TEvent` is the feature-owned complete nonterminal union; the bridge does not
+reinterpret a durable Item or ItemFailure as progress.
 
 Each report:
 
 1. validates the feature-owned bounded payload before crossing interop;
-2. enters the operation's progress gate and acquires one entry-scoped callout
+2. enters the operation's event gate and acquires one entry-scoped callout
    lease only while the entry is active and the callback lease is open;
 3. invokes the synchronous callback without holding the active-table guard;
 4. records callback failure as a bridge-contract failure;
-5. leaves the progress gate; and
+5. leaves the event gate; and
 6. releases the callout lease.
 
 Settlement seals the gate against new callouts, then asynchronously waits for
-every existing cancellation and progress callout lease to drain. It never
+every existing cancellation and event callout lease to drain. It never
 blocks a synchronous reentrant callback stack. Closing the gate then drops the
 callback reference. Reports racing with or following the seal do not invoke
-JavaScript. Feature code must not retain the scoped reporter beyond the
+JavaScript. Feature code must not report through a retained sink beyond the
 operation or call another managed export from the callback.
+
+The callback observes every event admitted while the gate is open
+synchronously in producer order. Among admitted events, the bridge neither
+coalesces progress nor drops or batches durable events. Reports racing with or
+following the seal are not admitted and cannot invoke JavaScript; an adapter
+must finish its legitimate nonterminal handoff before returning the terminal
+body result. The adapter retains semantic `Completed` and returns it through
+the terminal result envelope; it never reports `Completed` through this
+callback.
 
 The callback performs bounded validation and `postMessage` in worker
 JavaScript. It returns `undefined`, never a Promise, and never accesses the DOM.
-The main-thread owner independently rejects progress from operations that no
+The main-thread owner independently rejects events from operations that no
 longer hold publication authority.
 
-A callback exception closes further progress, requests cooperative operation
+A callback exception closes further events, requests cooperative operation
 cancellation, and is rethrown by the outer bridge only after its `finally`
 releases the entry. It is a Promise-rejecting boundary failure, not a
 feature-owned `Failed` envelope.
 
+That cooperative request uses the same reason-and-signal claim as keyed
+cancellation. When no earlier reason exists, it stores
+`FeatureObserverFailed` before signaling the token. A concurrent or reentrant
+keyed request therefore observes `AlreadyRequested(FeatureObserverFailed)`
+rather than signaling the token again. An earlier accepted reason remains
+unchanged and its signal is not repeated.
+
 The bridge still classifies the feature body's observation once after callout
 drain so failure precedence and diagnostics remain deterministic. That
-classification is inert bookkeeping when a progress boundary failure exists:
-it does not replace the rejection, and the worker must not publish it as the
+classification is inert bookkeeping when an event boundary failure exists: it
+does not replace the rejection, and the worker must not publish it as the
 managed terminal result. #5093 maps the rejection to its boundary-failure path.
 
 `NoCallbackAfterClose` in the companion model checks the abstract release
-invariant. Authenticated callback shape is already gated by `ts-jsexport`;
-same-operation routing, callback exceptions, in-flight close, and no callback
-after return remain unverified until the browser bridge gate exists.
+invariant. Authenticated callback shape is gated by `ts-jsexport`. The managed
+sub-gate checks in-flight close. The compiled Browser/Wasm canaries check
+same-operation routing, ordered nonterminal delivery, JavaScript callback
+rejection, and no callback after the generated Promise settles.
 
 ### Settlement and terminal classification
 
 Settlement begins with one atomic transition from active to settling. That
-transition closes cancellation and progress admission. The wrapper then awaits
+transition closes cancellation and event admission. The wrapper then awaits
 the entry's callout drain. Every callout records its failure before releasing
 its lease, so only the post-drain state supplies the first reason and failures
 used for classification.
@@ -373,12 +427,12 @@ The wrapper classifies its physical result by the first matching row:
 
 | Observation at settlement | Recorded bridge failure | Stored reason | Bridge result |
 | --- | --- | --- | --- |
-| Progress callback failure | present | either | Promise rejection after release |
+| Nonterminal event callback failure | present | either | Promise rejection after release |
 | Token-callback failure | present | either | `Failed(Unexpected, error, diagnostic)` |
 | Unexpected feature failure | absent | either | `Failed(Unexpected, error, diagnostic)` |
 | Expected feature failure | absent | either | `Failed(Expected, error, diagnostic)` |
 | Value returned | absent | present | `Canceled(reason)` |
-| Matching operation-token cancellation | absent | present | `Canceled(reason)` |
+| `OperationCanceledException` after the operation token was signaled | absent | present | `Canceled(reason)` |
 | `OperationCanceledException` | absent | absent | `Failed(Unexpected, error, diagnostic)` |
 | Value returned | absent | absent | `Succeeded(value)` |
 
@@ -386,6 +440,12 @@ An accepted cancellation therefore wins over an ordinary late value and
 preserves its exact reason. An unexpected failure is never hidden as expected
 cancellation merely because cancellation was also requested. Feature adapters
 return expected failures explicitly; an escaping exception is unexpected.
+A cancellation exception is matched by the accepted reason and the operation
+token's signaled state, not by comparing
+`OperationCanceledException.CancellationToken`: linked feature tokens may
+surface a different token identity after the bridge's operation token is
+signaled. Without an accepted reason and a signaled operation token, a
+`TaskCanceledException` or `OperationCanceledException` remains unexpected.
 A recorded token-callback failure outranks an otherwise expected feature
 failure and forces `Failed(Unexpected, ...)`. Feature adapters own the safe
 error and diagnostic projection; the bridge owns the failure class, closed
@@ -404,16 +464,17 @@ owner supplies the discriminator that prevents stale unexpected failures from
 becoming silent.
 
 The companion model checks `OneTerminalClassification` and
-`CancellationReasonIsFaithful`. Concrete exception and envelope projection
-remain unverified until the required Release gate exists.
+`CancellationReasonIsFaithful`. The managed sub-gate checks concrete exception
+precedence, and the browser-boundary canary checks the generated succeeded,
+expected-failed, unexpected-failed, and canceled envelope projection.
 
 ### Release and quiescence
 
 Every admitted wrapper executes one release sequence in `finally`:
 
-1. seal the entry against new cancellation and progress callouts;
+1. seal the entry against new cancellation and event callouts;
 2. asynchronously drain every existing callout lease;
-3. close the progress gate and drop the JavaScript callback reference;
+3. close the event gate and drop the JavaScript callback reference;
 4. detach any shared-producer subscription through the final-detach handoff;
 5. remove the exact entry instance from `ActiveOperationTable`;
 6. dispose the operation `CancellationTokenSource`; and
@@ -440,8 +501,10 @@ that unrelated or shared physical work has stopped.
 
 `CalloutsDrainBeforeClassification`, `CallbackClosesBeforeRemoval`, and
 `QuiescenceRequiresRelease` in the companion model check the abstract ordering.
-Concrete resource disposal, cleanup-failure precedence, and Task-to-Promise
-ordering remain unverified until the Release gate exists.
+The managed sub-gate checks locally owned resource disposal and cleanup-failure
+precedence. The browser-boundary canary checks that Task-to-Promise settlement
+occurs only after the callback has closed and the operation is no longer
+addressable.
 
 ## Shared producer attachment
 
@@ -450,7 +513,7 @@ formed, what it caches, and whether last-waiter cancellation is legal. The
 bridge consumes a feature-owned broker through a narrow attachment contract:
 
 ```text
-Attach(operation, scoped progress reporter) -> waiter subscription
+Attach(operation, scoped event sink) -> waiter subscription
 Await(subscription, operation token) -> feature result
 Detach(subscription) -> producer disposition
 ```
@@ -467,13 +530,15 @@ The disposition is one of:
 The operation token cancels only `Await` and the waiter subscription. It is not
 the shared producer token. A producer may be canceled after the last waiter
 leaves only when its feature-owned policy permits that transition. Existing
-`BrowserPackageWorkspace.WaitForSharedAcquisitionAsync` behavior is migration
-evidence: `Task.WaitAsync(cancellationToken)` releases a canceled waiter while
-the shared acquisition task continues.
+`BrowserPackageWorkspace` formerly used a bare
+`Task.WaitAsync(cancellationToken)` that released a canceled waiter while the
+shared acquisition task continued. Its
+[package-acquisition adoption](#shared-package-acquisition-adoption) now
+supplies the required producer disposition.
 
-Detachment closes operation progress before the broker can acknowledge release
+Detachment closes operation events before the broker can acknowledge release
 of the subscription. A broker never retains the raw JavaScript callback. It
-may retain only the scoped reporter, which stops all JavaScript invocation when
+may retain only the scoped sink, which stops all JavaScript invocation when
 the bridge closes it.
 
 Final detachment is a two-phase transition under the broker's producer guard:
@@ -499,6 +564,84 @@ The companion model checks `OneWaiterDoesNotStopSharedProducer` and
 `OutlivingProducerHasEpochWorkLease`. Concrete broker keys, network behavior,
 cache publication, and last-waiter policy remain gated by their feature
 owners.
+
+### Terminal-bounded implementation slice
+
+The first shared-waiter slice supports only `another waiter remains` and
+`producer terminal`. A canceled non-final waiter releases independently.
+The final waiter closes its callback but remains represented until physical
+producer completion, including asynchronous finalization. This is an intentional
+restriction: cancellation does not promise prompt final-wrapper quiescence.
+The slice cannot leave detached background work without a lease.
+
+The feature supplies a producer factory and may supply a last-detach stop callback.
+The first attachment starts the factory once, after operation admission and
+subscription installation, so even its synchronous events use a scoped sink.
+Without a stop policy, the final waiter waits for natural completion. Cooperative
+producer cancellation is recognized only after this policy requests stop and the
+failure carries the supplied, canceled **producer** token. Operation tokens
+never become producer tokens. An unexplained producer cancellation or late fault
+missed by a canceled waiter remains a visible release failure; stop-policy failure
+cannot skip physical drain or later operation cleanup. A failure already observed
+by the operation remains its feature outcome rather than a duplicate cleanup error.
+A producer-originated cancellation is not a canceled subscription wait: if the
+operation observes it, it remains an unexpected feature failure even when the
+operation also received cancellation. Classification preserves the original
+producer exception for feature diagnostics.
+
+Final detach seals this producer's waiter admission before invoking feature code.
+A feature broker must choose an accepting producer for a new attachment. It
+may instead observe an already-retained sealed producer's completion without
+reopening its waiter admission; sharing and result reuse stay feature-owned.
+Events are scoped to current
+attachments, with no bridge-owned replay of events emitted before attachment.
+`BrowserManagedSharedProducerTests` gates this restricted contract through the
+real managed bridge in Release, alongside the existing lifecycle tests.
+
+The named immediate consumers are the inspect-web managed bridge, its Release
+engine harness, and the generated managed-operation Browser/Wasm canary. The
+four-step production-host adoption path tracked in
+[#5419](https://github.com/richlander/dotnet-inspect/issues/5419), under the overall
+[#4937](https://github.com/richlander/dotnet-inspect/issues/4937) and
+[#5095](https://github.com/richlander/dotnet-inspect/issues/5095) composition, are:
+
+1. terminal-bounded managed waiter attachment and release (implemented);
+2. shared-waiter exercise through the generated Browser/Wasm boundary (implemented);
+3. epoch-work sender and final-waiter lease handoff (implemented); and
+4. first production feature adoption through #5420 with the #5418 Worker host.
+
+The existing six-step [migration plan](#migration) owns feature-coordinator
+retirement. This browser-host-only slice does not change production features,
+Worker placement, or worker-owned liveness types.
+
+### Generated shared-waiter evidence
+
+`eng/test-inspect-web-managed-operation-bridge-canary.sh` exercises the actual
+`RunSharedAsync` and `BrowserManagedSharedProducer` through generated exports
+under Mono and CoreCLR. Six controlled producers and eight operation calls cover:
+
+- canceling one waiter while its neighbor continues receiving events and succeeds;
+- rejecting a throwing JavaScript observer without stopping its healthy neighbor;
+- canceling the final waiter while awaiting natural producer completion;
+- feature-approved producer stop with asynchronous finalization still pending;
+- rejecting a late producer fault during canceled-waiter release; and
+- preserving unexpected producer cancellation when its synchronous event first
+  reenters the cancellation export with a valid waiter cancellation.
+
+The harness supplies physical work and holds its asynchronous `finally` open.
+Generated snapshot calls observe the actual producer task, bridge-returned tasks,
+active entries, and represented waiters. JavaScript also observes the returned
+Promises and callback sequences. Phase polling has a failure deadline; elapsed
+time does not establish quiescence. Each settled scenario probes event closure
+and requires physical completion and empty waiter/operation state before removing
+its fixture. Typed managed receipts account for the original lifecycle scenarios
+first, then the shared scenarios, so both phases remain independently enforced.
+
+Negative controls split the supposedly shared neighbor onto another producer,
+release physical finalization before observing its pending state, or omit the
+final-waiter natural-completion scenario. Each must fail for its expected reason.
+This is Node-hosted Browser/Wasm boundary evidence, not a real-browser, Worker,
+DOM-responsiveness, prompt-final-cancellation, or epoch-work lease claim.
 
 ## Epoch-work lease handoff
 
@@ -541,6 +684,69 @@ The companion model checks `WorkSequenceNeverReused`,
 bounded receiver replay detection and duplicate or unmatched notification
 handling.
 
+### Implemented sender and handoff
+
+`BrowserManagedEpochWorkReporter<TAllowance>` owns one registration's callback
+pair, work high-water, active leases, pending callouts, and fault records.
+`TAllowance` is opaque to the sender. `ForProducer` binds the feature's allowance
+to a source without defining Worker policy or allocating an epoch token.
+Allocation and synchronous start delivery are ordered together; callbacks run
+outside the producer and ledger guards.
+
+Supplying that source to `BrowserManagedSharedProducer` explicitly enables
+outliving work. Omitting it preserves terminal-bounded behavior. A non-final
+waiter needs no new lease. Final handoff retains the closed subscription until
+the handle is installed, then releases the operation without awaiting physical
+completion. Later attachments reuse that exact lease and receive only subsequent
+events. Physical completion seals admission; the terminal observer finishes the
+handle after the source task, including its asynchronous `finally`, completes.
+Completion during the start callback waits for handoff commitment before finish.
+
+Failed starts, including sequence exhaustion, stop reporter admission and retain
+a fault record until physical completion. The handoff rejects visibly, attempts
+feature-permitted stop, and does not send a finish for the failed start. A
+reentrant neighbor shares that same retained ownership; last-detach stop waits
+until that neighbor also leaves. If the registration has
+already stopped or unregistered and cannot issue a record, the final waiter stays
+represented through terminal drain before rejection instead of releasing
+unaccounted work.
+
+The feature broker must consume `ObserveCompletionAsync` even after its waiters
+release. It observes late physical failures and lease-finish failures separately
+from operation results; a finish failure is not an ordinary `Failed` feature
+envelope. Producer cancellation retains the same origin wrapper used by shared
+subscriptions, rather than canceling the observation Task. This also keeps its
+generated Promise rejection observable. Reporter `DrainAsync` independently
+reports retained lifecycle failures after all records and callouts finish.
+Stop admission before draining; unregister only after drainage, including when
+drain reports failure. Unregister drops both callbacks. Finish is terminal even
+when its callback throws and is never retried.
+
+`BrowserManagedEpochWorkTests` is the Release gate for the concrete sender,
+handoff, reentrancy, failure records, and terminal observation. A smaller
+configurable sequence ceiling exercises exhaustion with the same allocator;
+the production ceiling is JavaScript's maximum safe integer. The existing TLA+
+model supplies abstract handoff, reuse, and exhaustion evidence, not a proof of
+this implementation; its documented start-callback fault-record exclusion remains.
+
+The generated canary adds five physical producers, seven waiters, and three
+reporter registrations under both Mono and CoreCLR. It observes start before final
+waiter release, reuse after later attachment, non-reused sequences, held physical
+finalization, late failure, failed-start fault ownership with permitted stop,
+failed finish, and stop/drain/unregister. The verifier passes actual callback
+values through the Worker-owned envelope decoder with a harness-supplied epoch
+token and allowance. It does not simulate receiver liveness or replay policy.
+Negative controls omit the later waiter or release finalization before the
+pending-lease observation.
+
+The sender's first consumers were the managed bridge and its existing generated
+canary, step 3 of the four-step #5419 adoption path. The Worker now binds this
+sender through its
+[production registration adapter](inspect-web-worker-runtime.md#managed-reporter-registration).
+Idle-compatible optimization and migration of the #5420 source feature remain
+production composition work, not hidden
+requirements for using the explicit sender in its current harness.
+
 ## Target boundary sequence
 
 This mockup begins only after #5093 has validated and admitted a worker `Start`.
@@ -554,8 +760,8 @@ const result = await facade.inspectPackage(
   start.operationId,
   start.packageId,
   start.version,
-  (phase, completed, total) => {
-    forwardManagedProgress(start.operationId, { phase, completed, total });
+  (kind, payload) => {
+    forwardManagedEvent(start.operationId, { kind, payload });
     return undefined;
   },
 );
@@ -570,11 +776,15 @@ reportManagedTerminal(start.operationId, result);
 After managed invocation begins, a separate admitted cancellation path calls:
 
 ```ts
-const status = await facade.requestOperationCancellation(
+const status = facade.requestOperationCancellation(
   cancellation.operationId,
   cancellation.reason,
 );
 ```
+
+The synchronous status observes the cancellation linearization point without
+adding a Promise turn. It acknowledges only the managed cancellation request,
+not feature-work completion.
 
 Issue #5093 owns cancellation queued before invocation, worker message
 ordering, boundary rejection, and the point at which managed Task settlement
@@ -587,8 +797,8 @@ main thread            worker TypeScript         managed bridge
 -----------            -----------------         --------------
 start op-41        ->  invoke facade         ->  register op-41
                                              ->  attach waiter A
-                    <- progress callback     <-  bounded phase
-progress op-41     <-
+                    <- event callback        <-  progress/item/item failure
+event op-41        <-
 cancel(user)       ->  cancel op-41          ->  store "user", signal token
                                              ->  detach waiter A
                                              ->  producer continues for B
@@ -602,25 +812,175 @@ quiescence and `EpochWorkFinished` comes from producer finalization.
 
 ## Migration
 
-Current inspect-web source and package-query coordinators serialize one current
-operation behind a static slot and expose parameterless `CancelCurrent()`.
-Those coordinators are evidence for token propagation and cooperative
-cancellation, not the target identity contract.
+At migration start, inspect-web Source and Package Query coordinators serialized
+one current operation behind a static slot and exposed parameterless
+`CancelCurrent()`. Those coordinators were evidence for token propagation and
+cooperative cancellation, not the target identity contract. Package Query
+retires its singleton in #6390; the remaining Source callers retain theirs
+until the second Source adoption slice.
 
-Implementation should:
+Implementation proceeds in independently coherent slices:
 
-1. introduce the bridge and its focused Release gate without changing feature
-   progress semantics;
-2. adapt one current export to pass an operation ID, concrete result envelope,
-   and authenticated synchronous progress callback;
-3. replace parameterless cancellation with keyed cancellation for that export;
-4. migrate shared acquisition waits through broker subscriptions and epoch-work
-   leases where needed; and
-5. remove singleton coordinators only after every caller uses keyed operation
-   identity.
+1. introduce the dynamic lifecycle core and
+   `BrowserManagedOperationBridgeTests` Release sub-gate without changing
+   feature event semantics;
+2. add the generated `[JSExport]`
+   `inspect-web-managed-operation-bridge-browser-boundary` Release lifecycle
+   sub-gate and extend the multi-facade Browser/Wasm canary for the complete
+   nonterminal union and callback lifetime;
+3. adapt one current export to pass an operation ID, concrete result envelope,
+   and authenticated synchronous nonterminal event callback;
+4. replace parameterless cancellation with keyed cancellation for that export;
+5. migrate shared acquisition waits through broker subscriptions and
+   epoch-work leases where needed, then complete the aggregate
+   `inspect-web-managed-operation-bridge` gate; and
+6. remove each singleton coordinator after every caller in that feature uses
+   keyed operation identity.
 
 The migration must not thread browser operation IDs into host-neutral
 inspection models. IDs terminate at the browser host adapter.
+
+### Source-host adoption and retirement
+
+The first production consumer is the existing Type Source view, tracked by
+[#5419](https://github.com/richlander/dotnet-inspect/issues/5419). Its
+operation-authority adapter passes the page-owned ID and normalized cancellation
+reason through the generated source facade. The managed wrapper participates
+in the existing aggregate source-acquisition budget; keyed admission does not
+authorize concurrent source acquisition. Its scope and budget leases are
+released before the managed terminal result settles.
+
+Type Source has no nonterminal payload in this slice. It uses the bridge's
+existing admission-without-callback contract rather than manufacturing progress
+events. Its concrete result and cancellation-status DTOs use supported
+source-generated JSON contracts; native C# JSON union projection is not a
+prerequisite. Source rendering, provenance, and acquisition policy remain
+feature-owned.
+
+`BrowserTypeSourceOperationTests` gates keyed cancellation, shared-budget
+accounting, result classification, and lease release in the Release engine
+suite. `test/type-source-managed-operation.test.ts` gates browser-adapter
+publication, late-failure diagnostics, cancellation, and quiescence;
+`scripts/verify-engine-facade-runtime.ts` gates the generated DTO projection
+and argument forwarding.
+
+Source singleton retirement has **two ordered adoption slices**:
+
+1. migrate the Type Source export and its production caller together to keyed
+   admission, cancellation, and terminal results;
+2. migrate the remaining member-source and graph-source callers and their
+   exports to the same operation-keyed boundary, then remove parameterless
+   source cancellation and the singleton cancellation slot in that slice,
+   retaining the feature's aggregate acquisition-budget enforcement.
+
+Only the first slice is included here. The legacy source coordinator remains
+necessary for the other callers. Shared-producer subscriptions and epoch-work
+leases remain separate bridge work, not a replacement for this source budget.
+The end-to-end Worker adoption scenario is
+[#5420](https://github.com/richlander/dotnet-inspect/issues/5420), composed through
+[#5095](https://github.com/richlander/dotnet-inspect/issues/5095). This direct
+facade adoption does not move work off the DOM thread or establish a
+responsiveness or prompt physical-cancellation claim.
+
+### Package Query adoption and singleton retirement
+
+Package Query is the next production consumer, tracked by
+[#6390](https://github.com/richlander/dotnet-inspect/issues/6390). Its direct
+page adapter issues one opaque operation ID per run and passes that same ID to
+the generated Package facade for run, cancellation, and match-credit control.
+The ID terminates at the browser-host adapter and does not enter package-query
+plans, events, rows, or other host-neutral product models.
+
+The managed bridge owns operation-keyed admission, first-reason cancellation,
+callback close, terminal classification, and active-entry release. The Package
+Query adapter owns a separate operation-keyed match-credit table because credit
+amounts and checkpoints are feature policy rather than generic lifecycle.
+Credit acknowledgment is `Granted` only when the addressed active operation's
+credit semaphore accepted the exact positive amount. An unknown, settling, or
+released ID returns `NotActive`; finding an operation ID or posting a future
+Worker message is not a grant.
+
+The Package facade returns three concrete source-generated contracts:
+
+- a versioned run result containing succeeded completion, failed error and
+  diagnostic, or the normalized cancellation reason;
+- cancellation status containing requested, already requested, or not active,
+  with the first reason when one exists; and
+- match-credit status containing granted plus the exact amount, or not active.
+
+The page retains one current Package Query as feature policy. Starting a new
+run aborts the old adapter with `superseded`, and explicit cancellation uses
+`user`; each abort listener captures its own ID, so a late old-run action cannot
+target the replacement. Managed admission nevertheless supports multiple IDs
+at once so exact targeting does not depend on page serialization. Duplicate
+active IDs fail visibly without replacement. Release removes both bridge and
+credit entries, after which controls report inactive and the same ID may be
+admitted again.
+
+An unexpected managed failure is reported through the page diagnostic path
+before current-generation suppression. Superseding a run may prevent its stale
+failure from replacing the new view, but it does not make that managed boundary
+failure silent.
+
+Package Query's durable match, item-failure, assessment, progress, completion,
+credit amount, replenishment threshold, batching, and rendering semantics
+remain feature-owned. This slice preserves the direct synchronous callback and
+does not move Package Query to a Worker. Worker control identity and
+acknowledgment are separately owned by
+[#6376](https://github.com/richlander/dotnet-inspect/issues/6376); the later
+Package Query Worker adapter must combine that protocol with this keyed managed
+boundary and the existing durable-event contract before
+[#5987](https://github.com/richlander/dotnet-inspect/issues/5987) can activate
+the production runtime.
+
+`BrowserPackageQueryOperationsTests` gates concurrent IDs, exact cancellation
+and credit targeting, first-reason preservation, duplicate rejection, release,
+and readmission in the Release engine suite.
+`test/package-query-source.test.ts` gates exact ID forwarding, acknowledged
+credit, old-run cancellation isolation, concrete terminal decoding, and the
+unchanged event projection. Generated-facade verification gates the published
+DTOs and signatures. These gates do not claim Worker placement,
+responsiveness, or durable transport.
+
+### Shared package acquisition adoption
+
+When a managed epoch reporter is registered, `BrowserPackageWorkspace`
+consumes `BrowserManagedSharedProducer` for its existing shared payload
+acquisition. The key remains exact coordinate plus source-client reference;
+deadlines, cache publication, and natural producer completion remain
+acquisition-owner policy. This producer has no nonterminal events and no
+last-waiter stop policy. Operation IDs do not enter the cache.
+
+Without a registered epoch reporter, the workspace preserves its existing
+page-host contract: each caller waits independently over the one shared
+physical acquisition task, so cancellation settles that logical wait and
+releases the Source gate without awaiting physical completion. The pending
+registry continues to retain and observe the task through physical completion,
+including late failure, and a later caller reuses it rather than starting a
+duplicate download. The late physical outcome does not replace the canceled
+operation's authoritative terminal result.
+
+Only with the registered reporter does the acquisition use
+`BrowserManagedSharedProducer`. Final detachment consumes the reporter's opaque
+source and the existing lease/fault-record handoff. Later waiters reuse that
+same producer and lease. The registry independently observes completion,
+including producer finalization and lease release, before removing the pending
+entry. Registration is single-use: after unregister, acquisition cannot
+silently revert to the page-host mode.
+
+`BrowserEngineBoundaryTests.AcquisitionLifetime.cs` gates the actual shared
+package path, page-host Source-gate release and late observation, canceled and
+healthy registered neighbors, final-detach reporting, later waiters, and
+reporting failures. The terminal-bounded cases and existing
+`BrowserManagedEpochWorkTests` cover registered retained completion and
+asynchronous finalization. These are Release engine cases; they do not claim
+Source Worker placement or DOM responsiveness.
+
+This supplies the shared-payload portion of step 4 of the shared-waiter
+adoption above and a prerequisite to #5420's typed Worker adapter. It serves
+all browser callers of the same acquisition registry. The five-milestone
+consumer plan in #5987 still requires typed bindings and one atomic production
+cutover; this slice changes neither runtime placement nor source rendering.
 
 ## Checked abstract model
 
@@ -650,64 +1010,67 @@ The model proves only the finite abstract transition system. It does not prove
 C#, JavaScript, interop, browser scheduling, worker protocol, or feature
 implementation behavior.
 
+The model's abstract progress action represents any nonterminal callback
+callout. Event-category semantics and producer order are enforced by the
+concrete Release gates rather than added as another bridge state machine.
+
 ## Required implementation gate
 
-`inspect-web-managed-operation-bridge` is a Release browser-host gate. It does
-not yet exist and must include:
+`BrowserManagedOperationBridgeTests` is the Release managed-core sub-gate. It
+covers synchronous admission; duplicate rejection; keyed, first-reason
+cancellation; reentrancy; token- and progress-callback failures; counted
+non-blocking callout drain; ordered advisory and durable nonterminal events;
+event callback closure; terminal precedence; exact-entry removal;
+failure-complete local cleanup; and quiescent Task settlement. It does not
+stand in for Browser/Wasm interop evidence.
 
-- two concurrent feature operations with distinct IDs and keyed cancellation
-  reaching only the selected token;
-- duplicate active-ID rejection with no second body, token, or callback;
-- synchronous registration before a body reaches its first incomplete wait;
-- exact `user`, `superseded`, `disposed`, `feature-observer-failed`, `timeout`,
-  and `worker-restarted` reason fidelity across cancel/settle races;
-- repeated same- and different-reason cancellation preserving the first reason
-  and signaling the token once;
-- cancellation reentrancy and a throwing token callback after reason commit,
-  including settlement racing the in-flight cancellation callout and an
-  otherwise expected feature failure;
-- cancellation losing to an already-started settlement and returning
-  `NotActive`;
-- late ordinary success after accepted cancellation becoming canceled;
-- unexpected failure after accepted cancellation remaining failed;
-- `OperationCanceledException` without an accepted operation reason remaining
-  failed;
-- concrete succeeded, failed, and canceled envelope serialization, including
-  malformed required-payload negatives;
-- expected terminal variants fulfilling the Promise and bridge/runtime,
-  malformed-contract, serialization, and progress-callback failures rejecting
-  it;
-- synchronous progress before cancellation and suppression during close,
-  after close, after table removal, and after Task settlement;
-- callback close racing an in-flight report without deadlock or a later
-  JavaScript invocation, with callback failure recorded before settlement
-  classification;
-- no callback reference retained after settlement, including failed and
-  canceled bodies;
-- exact-entry removal preventing an old `finally` from removing another entry;
-- one terminal classification and one managed quiescence barrier per admitted
-  operation;
-- injected failure at every locally owned cleanup stage, proving later cleanup
-  still runs and primary/secondary failures remain visible;
-- two waiters sharing one controlled producer, with either waiter canceling and
-  quiescing independently while the other continues;
-- last-waiter policy remaining feature-owned and no waiter token becoming the
-  producer token;
-- epoch-work start before final waiter quiescence when a controlled producer
-  outlives its wrappers;
-- atomic lease installation into the exact producer before final waiter
-  removal, plus start failure transferring to a callback-free epoch-fault
-  record;
-- a later waiter attaching to an already leased producer and detaching without
-  allocating, exhausting, or replacing that lease;
-- producer-finally work finish, at-most-once finish, start/finish callback
-  failure, and normal reporter unregister only after all leases finish;
-- monotonic work sequences at the JavaScript safe-integer boundary, visible
-  exhaustion, and no wrap or reuse;
-- a compiled browser `[JSExport]` canary using the generated facade's
-  authenticated callback and result shapes; and
-- a neighboring operation without progress or shared work, proving the bridge
-  does not require those optional capabilities.
+The multi-facade Browser/Wasm canary covers authenticated callback and result
+shapes, ordered Progress, Item, and ItemFailure delivery before the terminal
+result, callback-failure rejection, and no invocation through a retained sink
+after release. It runs through
+`eng/test-inspect-web-multi-facade-canary.sh`.
+
+`inspect-web-managed-operation-bridge-browser-boundary` is the Release
+Browser/Wasm sub-gate. It runs a purpose-built host through the generated
+TypeScript facade under both Mono and CoreCLR. It covers:
+
+- a compiled `[JSExport]` method invoking the authenticated synchronous
+  progress callback before its returned Promise reaches an incomplete wait;
+- two concurrent IDs with JavaScript-requested keyed cancellation reaching
+  only the selected operation;
+- all six normalized reasons and repeated different-reason cancellation
+  preserving the first reason through generated DTOs;
+- duplicate active-ID Promise rejection without a second body or callback,
+  followed by readmission after release to prove no completed-ID tombstone;
+- concrete succeeded, expected-failed, unexpected-failed, and canceled
+  envelopes fulfilling the Promise, including exact safe error and diagnostic
+  payload projection for both failure kinds;
+- duplicate-admission and event-callback boundary failures rejecting the
+  Promise without inferring their kind from exception text;
+- callback closure after fulfilled, canceled, failed, and rejected settlement,
+  witnessed by retained managed reporters that can no longer call JavaScript;
+- strict rejection of an empty ID, unknown operation mode, and unknown
+  cancellation reason; and
+- a standalone operation without a progress callback or shared producer.
+
+The browser-boundary gate is Node-hosted Browser/Wasm evidence. It makes no
+real-browser, DOM, Worker placement, Worker protocol, or responsiveness claim.
+Generated DTO projection authenticates the producer serializer and static
+TypeScript shape; runtime validation of malformed Worker messages belongs to
+the #5093 adapter and protocol gate rather than `ts-jsexport`.
+
+The same Browser/Wasm sub-gate also covers the
+[shared-waiter cases](#generated-shared-waiter-evidence) and the
+[epoch-work sender cases](#implemented-sender-and-handoff).
+`BrowserManagedEpochWorkTests` adds concrete native evidence for finite sequence
+exhaustion, completion during start, reentrant admission, and in-flight callout
+drain.
+
+`inspect-web-managed-operation-bridge` remains the complete Release
+browser-host gate. Its remaining composition evidence must join the implemented
+managed-core and generated-boundary gates to production Worker registration,
+epoch failure/drain, and feature adoption. The sender cases alone do not establish
+that aggregate.
 
 The #5093 Release protocol gate separately proves high-water replay validation,
 active work-lease matching, malformed allowance handling, worker quiescence
@@ -728,6 +1091,6 @@ This owner does not claim:
 - package acquisition, cache, reservation, or publication correctness; or
 - that an epoch-work allowance is bounded.
 
-Those claims require their adjacent owner and named gate. Until the concrete
-bridge and browser gates exist, implementation behavior described by this
-target design is unverified.
+Those claims require their adjacent owner and named gate. Production Worker and
+feature composition remains unverified by the managed and generated-boundary
+gates described here.

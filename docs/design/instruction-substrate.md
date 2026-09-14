@@ -335,7 +335,7 @@ region modeling were deleted.
 
 Proven safe by: full block **and edge** parity vs the old builder over all of
 CoreLib (edges matter because the dataflow depends on them), and the entire
-`ILInspector.Analysis.Tests` (261) plus `dotnet-inspect.Tests` (1,415) suites
+`ILInspector.Analysis.Tests` (261) plus `DotnetInspect.Cli.Tests` (1,415) suites
 passing unchanged.
 
 ## The decompiler granularity finding

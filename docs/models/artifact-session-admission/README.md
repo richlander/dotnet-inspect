@@ -44,6 +44,15 @@ The one-retained-group bound keeps the state space finite; it is not a product
 restriction. All-or-nothing publication across several source acquisitions is
 owned by an implementation gate, not inferred from this model.
 
+Exact multi-group lifetime orchestration now ships in
+`InspectionWorkspace`, which retains a transferred artifact session until
+every stored exact dependent-group receipt completes. The focused
+[`ArtifactSessionGroupRelease.tla`](../artifact-session-group-release/ArtifactSessionGroupRelease.tla)
+model checks that adjacent handoff. This admission model deliberately retains
+its one-group abstraction and continues to describe future single-flight,
+generation, and cancellation behavior rather than duplicating the shipped
+workspace-close model.
+
 ## Checked properties
 
 | Property | Claim |

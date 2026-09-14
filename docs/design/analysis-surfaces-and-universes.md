@@ -9,6 +9,9 @@ This document owns that separation, targeted versus census question mode, and
 host-neutral capability introspection. It stops at a validated pre-execution
 request plan. Producer execution, result semantics, and presentation remain
 with their existing owners.
+[Analysis universe realization](analysis-universe-realization.md) owns the
+separate operation-scoped handoff from that plan to executable provider
+capabilities and lifetimes.
 
 Tracking: [#4967](https://github.com/richlander/dotnet-inspect/issues/4967).
 
@@ -18,7 +21,7 @@ The host-neutral request model, structural capability catalog, planner, typed
 rejections, and retained validated plan are implemented in
 `src/DotnetInspector.Queries/AnalysisRequest.cs`. The properties in
 [Verification](#verification) are enforced by the named gates in
-`src/DotnetInspector.Queries.Tests/AnalysisRequestTests.cs`.
+`tests/DotnetInspector.Queries.Tests/AnalysisRequestTests.cs`.
 
 The word *analysis* is generic here: it means a producer-backed inspection
 question such as Integrations, calls, metadata, API shape, or body analysis.
@@ -50,7 +53,7 @@ This owner references rather than restates adjacent contracts.
 
 | Owner | Imported contract |
 | --- | --- |
-| [Inspection Subject Navigation](inspection-subject-navigation.md) | Root, Library, Type, and Member structural identity and activation. |
+| [Inspection Subject Navigation](inspection-subject-navigation.md) | Workspace, Package, Library, Type, and Member structural identity and activation. |
 | [Type, member, and API representation](type-member-api-representation.md) | Type and Member lookup, definition, and anchor currencies. |
 | [Artifact acquisition and workspace composition](artifact-acquisition-and-workspaces.md) | Realized coordinates, admitted participants, binding contexts, provenance, failures, and lifetime. |
 | [Inspection layers](inspection-layers.md) | Query-owned profile binding, population sealing, and typed producer handoffs accepted in PR #4713. |

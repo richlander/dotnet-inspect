@@ -13,6 +13,10 @@ CONSTANTS
     AllowPreReservationFailureCaching,
     AllowExceptionalFailureCaching
 
+GroupIdentity == "AssemblyContextGroup"
+NoGroupIdentity == "NoGroup"
+NoReleaseResult == "NoReleaseResult"
+
 ASSUME /\ ParticipantCount \in Nat \ {0}
        /\ CallbackCount \in Nat \ {0}
        /\ MaxRetainedImages \in 0..ParticipantCount
@@ -23,6 +27,9 @@ ASSUME /\ ParticipantCount \in Nat \ {0}
        /\ AllowReleasedAsRejected \in BOOLEAN
        /\ AllowPreReservationFailureCaching \in BOOLEAN
        /\ AllowExceptionalFailureCaching \in BOOLEAN
+       /\ GroupIdentity # NoGroupIdentity
+       /\ {"Succeeded"} # {}
+       /\ NoReleaseResult \notin {"Succeeded"}
 
 Participants == 1..ParticipantCount
 Callbacks == 1..CallbackCount
@@ -54,6 +61,9 @@ VARIABLES
     releasePhase,
     resourceState,
     releaseCount,
+    requestedGroup,
+    completedGroup,
+    completionResult,
     admissionWitness,
     quiescenceWitness,
     resourceOrderWitness,
@@ -66,13 +76,29 @@ vars ==
     <<callbackState, callbackHasView, callbackOutcome, releaseOnExit,
       participantState, openingCallback, retainedImages, groupState,
       releasePhase, resourceState,
-      releaseCount, admissionWitness, quiescenceWitness,
+      releaseCount, requestedGroup, completedGroup, completionResult,
+      admissionWitness, quiescenceWitness,
       resourceOrderWitness, activeViewWitness, completionPolicyWitness,
       releasedAccessWitness, exceptionalRollbackWitness>>
+
+releaseVars == <<requestedGroup, completedGroup, completionResult>>
+
+PreserveRelease(action) ==
+    action /\ UNCHANGED releaseVars
 
 LiveCallbacks ==
     {callback \in Callbacks:
         callbackState[callback] \in {"Admitted", "Active", "Finalizing"}}
+
+GroupRelease ==
+    INSTANCE AssemblyContextGroupReleaseLifecycle
+        WITH Group <- GroupIdentity,
+             NoGroup <- NoGroupIdentity,
+             ReleaseResults <- {"Succeeded"},
+             NoReleaseResult <- NoReleaseResult,
+             requestedGroup <- requestedGroup,
+             completedGroup <- completedGroup,
+             completionResult <- completionResult
 
 RetainedParticipants ==
     {participant \in Participants:
@@ -95,6 +121,9 @@ Init ==
     /\ releasePhase = "NotStarted"
     /\ resourceState = "Owned"
     /\ releaseCount = 0
+    /\ requestedGroup = NoGroupIdentity
+    /\ completedGroup = NoGroupIdentity
+    /\ completionResult = NoReleaseResult
     /\ admissionWitness = TRUE
     /\ quiescenceWitness = TRUE
     /\ resourceOrderWitness = TRUE
@@ -102,6 +131,7 @@ Init ==
     /\ completionPolicyWitness = TRUE
     /\ releasedAccessWitness = TRUE
     /\ exceptionalRollbackWitness = TRUE
+    /\ GroupRelease!Init
 
 AdmitCallback(callback) ==
     /\ callbackState[callback] = "Unused"
@@ -401,10 +431,12 @@ CompleteCallback(callback) ==
 DisposeGroup ==
     /\ groupState = "Open"
     /\ groupState' = "Disposed"
+    /\ GroupRelease!RequestRelease
     /\ UNCHANGED
         <<callbackState, callbackHasView, callbackOutcome, releaseOnExit,
           participantState, openingCallback, retainedImages, releasePhase,
-          resourceState, releaseCount, admissionWitness,
+          resourceState, releaseCount, completedGroup, completionResult,
+          admissionWitness,
           quiescenceWitness, resourceOrderWitness, activeViewWitness,
           completionPolicyWitness, releasedAccessWitness,
           exceptionalRollbackWitness>>
@@ -503,72 +535,75 @@ CompleteGroupRelease ==
         participantState[participant] = "Released"
     /\ releasePhase' = "Complete"
     /\ groupState' = "Released"
+    /\ GroupRelease!CompleteRelease(
+        "Succeeded",
+        LiveCallbacks = {} \/ AllowEarlyRelease)
     /\ UNCHANGED
         <<callbackState, callbackHasView, callbackOutcome, releaseOnExit,
           participantState, openingCallback, retainedImages,
-          resourceState, releaseCount, admissionWitness,
+          resourceState, releaseCount, requestedGroup, admissionWitness,
           quiescenceWitness, resourceOrderWitness, activeViewWitness,
           completionPolicyWitness, releasedAccessWitness,
           exceptionalRollbackWitness>>
 
 Next ==
     \/ \E callback \in Callbacks:
-        AdmitCallback(callback)
+        PreserveRelease(AdmitCallback(callback))
     \/ \E callback \in Callbacks:
-        StartOpen(callback)
+        PreserveRelease(StartOpen(callback))
     \/ \E participant \in Participants:
-        ReserveImage(participant)
+        PreserveRelease(ReserveImage(participant))
     \/ \E participant \in Participants:
-        RejectForBudget(participant)
+        PreserveRelease(RejectForBudget(participant))
     \/ \E participant \in Participants:
-        FailBeforeReservation(participant)
+        PreserveRelease(FailBeforeReservation(participant))
     \/ \E participant \in Participants:
-        PublishImage(participant)
+        PreserveRelease(PublishImage(participant))
     \/ \E participant \in Participants:
-        RejectReservedImage(participant)
+        PreserveRelease(RejectReservedImage(participant))
     \/ \E participant \in Participants:
-        FailReservedOpen(participant)
+        PreserveRelease(FailReservedOpen(participant))
     \/ \E callback \in Callbacks:
-        EnterCallback(callback)
+        PreserveRelease(EnterCallback(callback))
     \/ \E callback \in Callbacks:
-        ObserveRejectedCallback(callback)
+        PreserveRelease(ObserveRejectedCallback(callback))
     \/ \E callback \in Callbacks:
-        ObserveReleasedCallback(callback)
+        PreserveRelease(ObserveReleasedCallback(callback))
     \/ \E callback \in Callbacks:
-        CompleteFinalizingCallback(callback)
+        PreserveRelease(CompleteFinalizingCallback(callback))
     \/ \E callback \in Callbacks:
-        CompleteCallback(callback)
+        PreserveRelease(CompleteCallback(callback))
     \/ DisposeGroup
-    \/ BeginGroupRelease
-    \/ BeginEarlyGroupRelease
-    \/ ReleaseOwnedResource
-    \/ BeginSnapshotRelease
-    \/ BeginEarlySnapshotRelease
+    \/ PreserveRelease(BeginGroupRelease)
+    \/ PreserveRelease(BeginEarlyGroupRelease)
+    \/ PreserveRelease(ReleaseOwnedResource)
+    \/ PreserveRelease(BeginSnapshotRelease)
+    \/ PreserveRelease(BeginEarlySnapshotRelease)
     \/ \E participant \in Participants:
-        ReleaseParticipant(participant)
+        PreserveRelease(ReleaseParticipant(participant))
     \/ CompleteGroupRelease
 
 Fairness ==
     /\ \A callback \in Callbacks:
-        /\ WF_vars(StartOpen(callback))
-        /\ WF_vars(EnterCallback(callback))
-        /\ WF_vars(ObserveRejectedCallback(callback))
-        /\ WF_vars(ObserveReleasedCallback(callback))
-        /\ WF_vars(CompleteFinalizingCallback(callback))
-        /\ WF_vars(CompleteCallback(callback))
+        /\ WF_vars(PreserveRelease(StartOpen(callback)))
+        /\ WF_vars(PreserveRelease(EnterCallback(callback)))
+        /\ WF_vars(PreserveRelease(ObserveRejectedCallback(callback)))
+        /\ WF_vars(PreserveRelease(ObserveReleasedCallback(callback)))
+        /\ WF_vars(PreserveRelease(CompleteFinalizingCallback(callback)))
+        /\ WF_vars(PreserveRelease(CompleteCallback(callback)))
     /\ \A participant \in Participants:
-        /\ WF_vars(ReserveImage(participant))
-        /\ WF_vars(RejectForBudget(participant))
-        /\ WF_vars(FailBeforeReservation(participant))
-        /\ WF_vars(PublishImage(participant))
-        /\ WF_vars(RejectReservedImage(participant))
-        /\ WF_vars(FailReservedOpen(participant))
-        /\ WF_vars(ReleaseParticipant(participant))
-    /\ WF_vars(BeginGroupRelease)
-    /\ WF_vars(BeginEarlyGroupRelease)
-    /\ WF_vars(ReleaseOwnedResource)
-    /\ WF_vars(BeginSnapshotRelease)
-    /\ WF_vars(BeginEarlySnapshotRelease)
+        /\ WF_vars(PreserveRelease(ReserveImage(participant)))
+        /\ WF_vars(PreserveRelease(RejectForBudget(participant)))
+        /\ WF_vars(PreserveRelease(FailBeforeReservation(participant)))
+        /\ WF_vars(PreserveRelease(PublishImage(participant)))
+        /\ WF_vars(PreserveRelease(RejectReservedImage(participant)))
+        /\ WF_vars(PreserveRelease(FailReservedOpen(participant)))
+        /\ WF_vars(PreserveRelease(ReleaseParticipant(participant)))
+    /\ WF_vars(PreserveRelease(BeginGroupRelease))
+    /\ WF_vars(PreserveRelease(BeginEarlyGroupRelease))
+    /\ WF_vars(PreserveRelease(ReleaseOwnedResource))
+    /\ WF_vars(PreserveRelease(BeginSnapshotRelease))
+    /\ WF_vars(PreserveRelease(BeginEarlySnapshotRelease))
     /\ WF_vars(CompleteGroupRelease)
 
 Spec ==
@@ -586,6 +621,9 @@ TypeOK ==
     /\ releasePhase \in ReleasePhases
     /\ resourceState \in ResourceStates
     /\ releaseCount \in Nat
+    /\ requestedGroup \in {NoGroupIdentity, GroupIdentity}
+    /\ completedGroup \in {NoGroupIdentity, GroupIdentity}
+    /\ completionResult \in {NoReleaseResult, "Succeeded"}
     /\ admissionWitness \in BOOLEAN
     /\ quiescenceWitness \in BOOLEAN
     /\ resourceOrderWitness \in BOOLEAN
@@ -623,6 +661,15 @@ NoAdmissionAfterDisposal ==
 
 GroupReleaseWaitsForQuiescence ==
     quiescenceWitness
+
+GroupReleaseBehaviorRefinesOwner ==
+    GroupRelease!SafetySpec(LiveCallbacks = {})
+
+GroupReleaseCompletionMatchesRequest ==
+    GroupRelease!CompletionMatchesRequest
+
+GroupReleaseCompletionCarriesResult ==
+    GroupRelease!CompletionCarriesResult
 
 OwnedResourcesPrecedeGroupSnapshots ==
     /\ resourceOrderWitness
@@ -667,7 +714,7 @@ ParticipantLocalOpening ==
     \A callback \in Callbacks:
         /\ callbackState[callback] = "Admitted"
         /\ participantState[Target(callback)] = "Cold"
-        => ENABLED StartOpen(callback)
+        => ENABLED PreserveRelease(StartOpen(callback))
 
 EveryAdmittedCallbackSettles ==
     \A callback \in Callbacks:
@@ -682,5 +729,8 @@ EveryStartedOpenSettlesOrRollsBack ==
 
 DisposedGroupEventuallyReleases ==
     groupState = "Disposed" ~> groupState = "Released"
+
+RequestedGroupEventuallyCompletes ==
+    GroupRelease!RequestedGroupEventuallyCompletes
 
 =============================================================================

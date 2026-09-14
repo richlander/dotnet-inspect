@@ -1,15 +1,16 @@
-# CoreCache maintenance progress model
+# PersistentCache maintenance progress model
 
-`CoreCacheMaintenanceProgress.tla` models `CoreCache.CacheMaintenanceProgress`
-(`src/DotnetInspector.Core/CoreCache.cs`), the counter object that background
-maintenance tasks update and that `CancelAndWaitForMaintenance` reads and
-resets on a timed-out wait, described by
+`CoreCacheMaintenanceProgress.tla` models
+`DotnetInspector.Cache.PersistentCache.CacheMaintenanceProgress`
+(`src/DotnetInspector.Cache/PersistentCache.cs`), the counter object that
+background maintenance tasks update and that `CancelAndWaitForMaintenance`
+reads and resets on a timed-out wait, described by
 [`../../design/corecache-maintenance-lifecycle.md`](../../design/corecache-maintenance-lifecycle.md#maintenance-progress-accounting).
 
 ## Scope
 
-`CoreCache.cs` serializes every control operation (`RegisterVersionedCategory`,
-`Initialize`, `Clear`, `CancelAndWaitForMaintenance`,
+`PersistentCache.cs` serializes every control operation
+(`RegisterVersionedCategory`, `Initialize`, `Clear`, `CancelAndWaitForMaintenance`,
 `RequestVersionedCategoryCleanupAsync`) under one process-wide lock, so those
 operations never interleave with each other. The genuine concurrency this
 model isolates is between that single lock-holding control thread and the
@@ -44,13 +45,19 @@ The modeled interactions are:
   unsynchronized reader. Only the configuration where both sides are toggled
   (`Safety.cfg`) corresponds to an actual shared lock guarding both operations.
 
-`AllowTornWrite = TRUE` and `AllowTornRead = TRUE` together describe
-`CacheMaintenanceProgress` as implemented today. The model does not cover
-registration, scheduling, or generation transitions (`Initialize`,
-`StartNewMaintenanceGenerationIfCanceled`): those already fully drain
-outstanding tasks with an unbounded `Task.WaitAll` in
-`WaitForMaintenanceTasksBestEffort` before touching the progress object, so
-they cannot tear by construction.
+`AllowTornWrite = TRUE` and `AllowTornRead = TRUE` together described
+`CacheMaintenanceProgress` as implemented before the fix recorded in the
+design doc. `CacheMaintenanceProgress` now guards all four methods with a
+single lock, matching the `Safety.cfg`/`Liveness.cfg` configuration
+(`AllowTornWrite = FALSE`, `AllowTornRead = FALSE`) exactly. The
+`Broken*.cfg` configurations no longer describe shipped behavior; they
+remain as negative controls proving the lock is load-bearing, not
+incidental -- each shows that a partial or absent fix still lets
+`NoTornAccounting` fail. The model does not cover registration, scheduling,
+or generation transitions (`Initialize`, `StartNewMaintenanceGenerationIfCanceled`):
+those already fully drain outstanding tasks with an unbounded `Task.WaitAll`
+in `WaitForMaintenanceTasksBestEffort` before touching the progress object,
+so they cannot tear by construction.
 
 ## Non-claims
 
@@ -66,8 +73,8 @@ The model does not cover:
 - a generation transition's `TakeSnapshot()` racing an already-outstanding
   aggregate task's `Snapshot()` (a third, distinct, self-correcting exposure
   for the same reason -- see the design doc);
-- `CoreCache`'s non-maintenance read/write cache paths;
-- `CacheTelemetry`; or
+- `PersistentCache`'s non-maintenance read/write cache paths;
+- `DotnetInspector.Cache.CacheTelemetry`; or
 - thread scheduling beyond the writer/reader interleaving above.
 
 ## Checked properties
@@ -81,9 +88,9 @@ The model does not cover:
 
 | Configuration | Purpose |
 | --- | --- |
-| `Safety.cfg` | Checks `NoTornAccounting` with both writer and reader fixed (lock-guarded). |
-| `Liveness.cfg` | Checks `EventuallyConsumed` with both writer and reader fixed, under weak fairness. |
-| `BrokenTornWriteAndRead.cfg` | Matches `CacheMaintenanceProgress` as implemented today; TLC must violate `NoTornAccounting`. |
+| `Safety.cfg` | Checks `NoTornAccounting` with both writer and reader fixed (lock-guarded); matches shipped `CacheMaintenanceProgress`. |
+| `Liveness.cfg` | Checks `EventuallyConsumed` with both writer and reader fixed, under weak fairness; matches shipped `CacheMaintenanceProgress`. |
+| `BrokenTornWriteAndRead.cfg` | Matched `CacheMaintenanceProgress` before the fix; no longer describes shipped behavior. TLC must violate `NoTornAccounting`. |
 | `BrokenTornReadOnly.cfg` | Fixes the writer only; TLC must still violate `NoTornAccounting`, showing a partial fix is insufficient. |
 | `BrokenTornWriteOnly.cfg` | Fixes the reader only; TLC must still violate `NoTornAccounting`, showing a partial fix is insufficient. |
 

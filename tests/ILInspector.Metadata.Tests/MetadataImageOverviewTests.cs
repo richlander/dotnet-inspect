@@ -331,6 +331,9 @@ public class MetadataImageOverviewTests
         Assert.Equal(
             headers.CorHeader.EntryPointTokenOrRelativeVirtualAddress,
             actual.Cor.EntryPointTokenOrRelativeVirtualAddress);
+        Assert.Equal(
+            headers.CorHeader.ManagedNativeHeaderDirectory,
+            actual.Cor.ManagedNativeHeaderDirectory);
     }
 
     [Fact]

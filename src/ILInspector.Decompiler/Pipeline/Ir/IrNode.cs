@@ -216,9 +216,9 @@ public abstract class IrNode
 
     /// <summary>
     /// A detached deep copy of this subtree. The node's payload is shared
-    /// (the model types it references — <see cref="TypeRef"/>, method/field
-    /// handles, constants — are immutable), its children are cloned
-    /// recursively, and the copy has no parent. This is the duplication
+    /// (immutable model values remain immutable, while parameter binders remain
+    /// the same shared identity), its children are cloned recursively, and the
+    /// copy has no parent. This is the duplication
     /// primitive for passes that must materialize one node at more than one
     /// site (e.g. inlining a shared terminator block into each guard).
     /// </summary>
@@ -267,7 +267,7 @@ public abstract class IrNode
     /// empty-<c>Locals</c> capturing body <em>shares</em> the host's scope and
     /// references the outer function's locals by their outer index, matching how
     /// the C# printer scopes it
-    /// (<c>NeedsNestedLambdaScope</c>/<c>NeedsNestedLocalFunctionScope</c>). A
+    /// (the IR-owned <c>NeedsIsolatedLocalScope</c> discriminator). A
     /// pass that drops a local without repointing its readers, or fabricates a
     /// dangling slot, trips this instead of surfacing as a downstream
     /// miscompile.</item>

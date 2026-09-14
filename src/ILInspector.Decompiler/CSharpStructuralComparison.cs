@@ -749,7 +749,13 @@ public static partial class CSharpBodyDiff
         }
 
         var rows = ImmutableArray.CreateBuilder<CSharpStructuralDiffRow>();
-        rows.AddRange(SuppressSubsumedAncestorRows(matchedRows, input.Before, input.After));
+        rows.AddRange(RefineInvocationQualifierArgumentRows(
+            RefineUsingResourceDeclarationRows(
+                SuppressSubsumedAncestorRows(matchedRows, input.Before, input.After),
+                input.Before,
+                input.After),
+            input.Before,
+            input.After));
 
         foreach (int nodeId in beforeSelection)
         {
@@ -952,7 +958,20 @@ public static partial class CSharpBodyDiff
         AnnotatedSourceDocument document, AnnotatedSourceNode node, out ReadOnlySpan<char> calleeText)
     {
         var span = node.Spans[0];
-        var text = document.Text.AsSpan(span.Start, span.Length).TrimEnd();
+        return TryGetInvocationCalleeText(document.Text.AsSpan(span.Start, span.Length), out calleeText);
+    }
+
+    /// <summary>
+    /// Text-only core of <see cref="TryGetInvocationCalleeText(AnnotatedSourceDocument, AnnotatedSourceNode, out ReadOnlySpan{char})"/>,
+    /// reused by <see cref="CSharpStructuralDiffPrinter"/> to describe a
+    /// call-site rewrite's callee purely from a row's already-selected
+    /// before/after text (issue #5022 item 9), without needing a document or
+    /// node to re-derive the same span.
+    /// </summary>
+    internal static bool TryGetInvocationCalleeText(
+        ReadOnlySpan<char> invocationText, out ReadOnlySpan<char> calleeText)
+    {
+        var text = invocationText.TrimEnd();
         calleeText = default;
         if (text.Length == 0 || text[^1] != ')')
             return false;
@@ -1141,21 +1160,406 @@ public static partial class CSharpBodyDiff
         return ([beforeHeaderSpan], [afterHeaderSpan]);
     }
 
+    // Item 10 (issue #5022): applies `NarrowUsingResourceDeclaration` to
+    // surviving matched rows, after `SuppressSubsumedAncestorRows` (item 1)
+    // has already run against the coarser, items-2/7 header-level spans --
+    // see that method's own comment for why the ordering matters. Recomputes
+    // each refined row's region role, since a further-narrowed span could in
+    // principle no longer resolve to the same recorded region (in practice
+    // it stays Header here, as the narrowed span remains a subset of it).
+    static IEnumerable<CSharpStructuralDiffRow> RefineUsingResourceDeclarationRows(
+        IEnumerable<CSharpStructuralDiffRow> rows,
+        AnnotatedSourceDocument before,
+        AnnotatedSourceDocument after)
+    {
+        foreach (var row in rows)
+        {
+            if (row.Change != CSharpStructuralChangeKind.Changed
+                || row.BeforeNodeId is not int beforeNodeId
+                || row.AfterNodeId is not int afterNodeId
+                || !string.Equals(row.BeforeKind, "UsingStatement", StringComparison.Ordinal)
+                || !string.Equals(row.AfterKind, "UsingStatement", StringComparison.Ordinal)
+                || row.BeforeSpans.Length != 1
+                || row.AfterSpans.Length != 1
+                // Only refine a row whose span is actually the printer's
+                // Header region (items 2/7's successful narrowing). When
+                // that narrowing instead fell back to the full node span --
+                // e.g. because the body also changed -- the span still
+                // starts with `using (`, but its closing paren is not the
+                // header's; scanning for one via `UsingHeaderInnerSpan`
+                // would then reach into the body and narrow to a bogus,
+                // mid-token substring. Requiring Header here keeps this pass
+                // strictly a refinement of items 2/7's own result.
+                || row.BeforeRegion != PrintedRegionRole.Header
+                || row.AfterRegion != PrintedRegionRole.Header)
+            {
+                yield return row;
+                continue;
+            }
+
+            var beforeNode = before.Nodes[beforeNodeId];
+            var afterNode = after.Nodes[afterNodeId];
+            if (beforeNode.Spans.Count != 1 || afterNode.Spans.Count != 1
+                || NarrowUsingResourceDeclaration(
+                    before, beforeNode.Spans[0], row.BeforeSpans[0],
+                    after, afterNode.Spans[0], row.AfterSpans[0]) is not { } narrowed)
+            {
+                yield return row;
+                continue;
+            }
+
+            yield return row with
+            {
+                BeforeSpans = narrowed.BeforeSpans,
+                AfterSpans = narrowed.AfterSpans,
+                BeforeRegion = EnclosingRegion(before, narrowed.BeforeSpans),
+                AfterRegion = EnclosingRegion(after, narrowed.AfterSpans),
+            };
+        }
+    }
+
+    // Issue #5486 (corpus follow-up to #5022's item 2): item 2's
+    // `NarrowToChangedHeader` only narrows a closed set of statement kinds
+    // with their own printer `Header` region (see `KindsWithOwnHeaderRegion`
+    // above); `InvocationExpression` was never in that set, so a matched
+    // invocation pair's row always carries the entire call's span as its
+    // caret -- even for the #4942 corpus example item 3's own
+    // `TryDescribeQualifierArgumentRoleTransition` caption already
+    // recognizes: a receiver identifier moving between call-qualifier
+    // position (`receiver.Values(...)`) and first-argument position
+    // (`Values(receiver, ...)`). This pass narrows exactly that one
+    // well-evidenced shape's caret to the `receiver` token itself, on each
+    // side, reusing the printer's own shape recognizer
+    // (`CSharpStructuralDiffPrinter.TryParseQualifiedCall`/
+    // `TryFindInsertedArgumentIndex`) so the caret and the caption can never
+    // disagree about what shape they are describing. It does not attempt
+    // any other expression-level narrowing; an unrecognized shape keeps the
+    // full-node-span caret as before.
+    //
+    // Runs after `RefineUsingResourceDeclarationRows` (order does not matter
+    // in practice, since the two passes target disjoint node kinds) and only
+    // touches rows still carrying their original, unnarrowed full-node
+    // spans -- nothing else narrows an `InvocationExpression` row today, but
+    // the guard keeps this pass honestly scoped to its own precondition
+    // rather than assuming it.
+    static IEnumerable<CSharpStructuralDiffRow> RefineInvocationQualifierArgumentRows(
+        IEnumerable<CSharpStructuralDiffRow> rows,
+        AnnotatedSourceDocument before,
+        AnnotatedSourceDocument after)
+    {
+        foreach (var row in rows)
+        {
+            if (row.Change != CSharpStructuralChangeKind.Changed
+                || row.BeforeNodeId is not int beforeNodeId
+                || row.AfterNodeId is not int afterNodeId
+                || !string.Equals(row.BeforeKind, "InvocationExpression", StringComparison.Ordinal)
+                || !string.Equals(row.AfterKind, "InvocationExpression", StringComparison.Ordinal)
+                || row.BeforeSpans.Length != 1
+                || row.AfterSpans.Length != 1)
+            {
+                yield return row;
+                continue;
+            }
+
+            var beforeNode = before.Nodes[beforeNodeId];
+            var afterNode = after.Nodes[afterNodeId];
+
+            // Only narrow when the printer's own caption/detail derivation
+            // will later be able to recognize and render the full call
+            // shape (same length/inline-renderability gate as
+            // CSharpStructuralDiffPrinter.FullNodeText). Otherwise the
+            // caption logic falls back to comparing the narrowed, now
+            // textually-identical-on-both-sides caret spans and produces a
+            // misleading self-transition such as "changed to receiver".
+            if (beforeNode.Spans.Count != 1 || afterNode.Spans.Count != 1
+                || row.BeforeSpans[0] != beforeNode.Spans[0]
+                || row.AfterSpans[0] != afterNode.Spans[0]
+                || CSharpStructuralDiffPrinter.FullNodeText(before, beforeNodeId) is null
+                || CSharpStructuralDiffPrinter.FullNodeText(after, afterNodeId) is null
+                || NarrowInvocationQualifierArgumentSpan(
+                    before, beforeNode.Spans[0],
+                    after, afterNode.Spans[0]) is not { } narrowed)
+            {
+                yield return row;
+                continue;
+            }
+
+            yield return row with
+            {
+                BeforeSpans = narrowed.BeforeSpans,
+                AfterSpans = narrowed.AfterSpans,
+                BeforeRegion = EnclosingRegion(before, narrowed.BeforeSpans),
+                AfterRegion = EnclosingRegion(after, narrowed.AfterSpans),
+            };
+        }
+    }
+
+    static (ImmutableArray<AnnotatedSourceSpan> BeforeSpans, ImmutableArray<AnnotatedSourceSpan> AfterSpans)?
+        NarrowInvocationQualifierArgumentSpan(
+            AnnotatedSourceDocument beforeDocument,
+            AnnotatedSourceSpan beforeNodeSpan,
+            AnnotatedSourceDocument afterDocument,
+            AnnotatedSourceSpan afterNodeSpan)
+    {
+        string beforeText = beforeDocument.Text.Substring(beforeNodeSpan.Start, beforeNodeSpan.Length);
+        string afterText = afterDocument.Text.Substring(afterNodeSpan.Start, afterNodeSpan.Length);
+
+        if (!CSharpStructuralDiffPrinter.TryParseQualifiedCall(
+                beforeText, out string? beforeQualifier, out string beforeCallee, out var beforeArgs)
+            || !CSharpStructuralDiffPrinter.TryParseQualifiedCall(
+                afterText, out string? afterQualifier, out string afterCallee, out var afterArgs))
+        {
+            return null;
+        }
+
+        if (beforeCallee.Length == 0
+            || !string.Equals(beforeCallee, afterCallee, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        // The qualifier candidate is always parsed as an exact prefix of its
+        // own side's text (`text[..dotIndex]`), so its absolute span is
+        // simply the node's own start, spanning the qualifier's length.
+        if (beforeQualifier is { } qualifier && afterQualifier is null)
+        {
+            if (!CSharpStructuralDiffPrinter.TryFindInsertedArgumentIndex(
+                    beforeArgs, afterArgs, qualifier, out int argIndex)
+                || !CSharpStructuralDiffPrinter.TryFindArgumentSpan(afterText, argIndex, out int argStart, out int argLength))
+            {
+                return null;
+            }
+
+            AnnotatedSourceSpan beforeQualifierSpan = new(beforeNodeSpan.Start, qualifier.Length);
+            AnnotatedSourceSpan afterArgumentSpan = new(afterNodeSpan.Start + argStart, argLength);
+            return ([beforeQualifierSpan], [afterArgumentSpan]);
+        }
+
+        if (afterQualifier is { } movedQualifier && beforeQualifier is null)
+        {
+            if (!CSharpStructuralDiffPrinter.TryFindInsertedArgumentIndex(
+                    afterArgs, beforeArgs, movedQualifier, out int argIndex)
+                || !CSharpStructuralDiffPrinter.TryFindArgumentSpan(beforeText, argIndex, out int argStart, out int argLength))
+            {
+                return null;
+            }
+
+            AnnotatedSourceSpan beforeArgumentSpan = new(beforeNodeSpan.Start + argStart, argLength);
+            AnnotatedSourceSpan afterQualifierSpan = new(afterNodeSpan.Start, movedQualifier.Length);
+            return ([beforeArgumentSpan], [afterQualifierSpan]);
+        }
+
+        return null;
+    }
+
+    // Item 10 (issue #5022): the header-narrowing above (items 2/7) still
+    // over-attributes the caret to the entire `using (...)` clause even when
+    // only the optional resource-variable declaration was added or dropped,
+    // e.g. `using (IDisposable iDisposable = Expr())` raised to the
+    // variable-less `using (Expr())`. Per the exact "agreed-better mockup" in
+    // #4952 (#4113), the caret should narrow further: to just `Type
+    // identifier =` on the side that declares a variable, and to the bare
+    // resource expression on the side that does not. This is licensed only
+    // when (a) the header's inner content (between `using (`/`await using (`
+    // and the closing `)`) differs by exactly that declaration-prefix shape,
+    // and (b) the declared identifier is never referenced elsewhere in the
+    // statement's own body -- confirmed here, not assumed, via a narrow
+    // single-identifier scan of the printer's own recorded Body region.
+    // Dropping a variable that *is* read elsewhere would be a materially
+    // different, non-equivalent rewrite, so this must not narrow (or
+    // caption) in that case; the coarser header-only narrowing above remains
+    // the honest fallback.
+    //
+    // This runs as a distinct pass over surviving rows (see
+    // `RefineUsingResourceDeclarationRows`), strictly after
+    // `SuppressSubsumedAncestorRows` (item 1) rather than inline in
+    // `NarrowToChangedHeader`. Item 1's ancestor-suppression compares the
+    // text immediately outside a descendant row's own span on both sides,
+    // which relies on that span identifying the *same* header boundary on
+    // both sides; this narrowing's before/after spans intentionally cover
+    // different-length, differently-positioned substrings of the header
+    // (the declaration prefix vs. the bare expression), which would make an
+    // enclosing ancestor's "outside text" spuriously differ and wrongly
+    // block item 1's suppression if applied any earlier.
+    static (ImmutableArray<AnnotatedSourceSpan> BeforeSpans, ImmutableArray<AnnotatedSourceSpan> AfterSpans)?
+        NarrowUsingResourceDeclaration(
+            AnnotatedSourceDocument beforeDocument,
+            AnnotatedSourceSpan beforeNodeSpan,
+            AnnotatedSourceSpan beforeHeaderSpan,
+            AnnotatedSourceDocument afterDocument,
+            AnnotatedSourceSpan afterNodeSpan,
+            AnnotatedSourceSpan afterHeaderSpan)
+    {
+        var beforeInner = UsingHeaderInnerSpan(beforeDocument, beforeHeaderSpan);
+        var afterInner = UsingHeaderInnerSpan(afterDocument, afterHeaderSpan);
+        if (beforeInner is not { } beforeInnerSpan || afterInner is not { } afterInnerSpan)
+            return null;
+
+        string beforeInnerText = beforeDocument.Text.Substring(beforeInnerSpan.Start, beforeInnerSpan.Length);
+        string afterInnerText = afterDocument.Text.Substring(afterInnerSpan.Start, afterInnerSpan.Length);
+
+        if (TryParseDeclarationPrefix(beforeInnerText, beforeInnerSpan, afterInnerText, out var declSpan, out string droppedIdentifier)
+            && IdentifierNeverReferencedInBody(beforeDocument, beforeNodeSpan, droppedIdentifier))
+        {
+            return ([declSpan], [afterInnerSpan]);
+        }
+
+        if (TryParseDeclarationPrefix(afterInnerText, afterInnerSpan, beforeInnerText, out var addedDeclSpan, out string addedIdentifier)
+            && IdentifierNeverReferencedInBody(afterDocument, afterNodeSpan, addedIdentifier))
+        {
+            return ([beforeInnerSpan], [addedDeclSpan]);
+        }
+
+        return null;
+    }
+
+    // The header always begins with `using (` or `await using (` and ends at
+    // the matching closing parenthesis (see CSharpPrinter.cs), so locating
+    // the last `)` in the header text -- rather than trusting the header
+    // span's own end, which may or may not include a trailing newline --
+    // gives the exact inner content regardless of that formatting detail.
+    static AnnotatedSourceSpan? UsingHeaderInnerSpan(
+        AnnotatedSourceDocument document,
+        AnnotatedSourceSpan headerSpan)
+    {
+        string headerText = document.Text.Substring(headerSpan.Start, headerSpan.Length);
+        const string AwaitPrefix = "await using (";
+        const string Prefix = "using (";
+        int prefixLength = headerText.StartsWith(AwaitPrefix, StringComparison.Ordinal)
+            ? AwaitPrefix.Length
+            : headerText.StartsWith(Prefix, StringComparison.Ordinal)
+                ? Prefix.Length
+                : -1;
+        if (prefixLength < 0)
+            return null;
+
+        int closeParen = headerText.LastIndexOf(')');
+        if (closeParen < prefixLength)
+            return null;
+
+        int innerLength = closeParen - prefixLength;
+        return innerLength <= 0 ? null : new AnnotatedSourceSpan(headerSpan.Start + prefixLength, innerLength);
+    }
+
+    /// <summary>
+    /// Determines whether <paramref name="declText"/> is exactly a
+    /// `Type identifier =` prefix (the C# grammar for a using-resource
+    /// declarator, which allows no modifiers) followed by
+    /// <paramref name="exprText"/> verbatim, and returns the exact span of
+    /// that prefix (through the `=`, excluding trailing whitespace) plus the
+    /// declared identifier. Requires exactly two whitespace-separated tokens
+    /// before the `=` -- a generic type containing its own internal space
+    /// (e.g. `Dictionary&lt;string, int&gt;`) does not match and correctly
+    /// falls back to the coarser header-only narrowing rather than risk a
+    /// wrong split. Also rejects a compound/relational operator ending in
+    /// `=` (`==`, `!=`, `&lt;=`, `&gt;=`, `+=`, ...), which is never valid in
+    /// this position but would otherwise misparse as a plain assignment.
+    /// </summary>
+    static bool TryParseDeclarationPrefix(
+        string declText,
+        AnnotatedSourceSpan declSpan,
+        string exprText,
+        out AnnotatedSourceSpan declarationSpan,
+        out string identifier)
+    {
+        declarationSpan = default;
+        identifier = "";
+
+        if (exprText.Length == 0
+            || declText.Length <= exprText.Length
+            || !declText.EndsWith(exprText, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        string prefix = declText[..(declText.Length - exprText.Length)];
+        string trimmedPrefix = prefix.TrimEnd();
+        if (trimmedPrefix.Length < 2 || trimmedPrefix[^1] != '='
+            || IsCompoundEqualsPrefixChar(trimmedPrefix[^2]))
+        {
+            return false;
+        }
+
+        string beforeEquals = trimmedPrefix[..^1].TrimEnd();
+        string[] tokens = beforeEquals.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        if (tokens.Length != 2 || !IsSimpleIdentifier(tokens[1]))
+            return false;
+
+        declarationSpan = new AnnotatedSourceSpan(declSpan.Start, trimmedPrefix.Length);
+        identifier = tokens[1];
+        return true;
+    }
+
+    static bool IsCompoundEqualsPrefixChar(char character)
+        => character is '=' or '!' or '<' or '>' or '+' or '-' or '*' or '/' or '%' or '&' or '|' or '^';
+
+    static bool IsSimpleIdentifier(string text)
+    {
+        if (text.Length == 0)
+            return false;
+        char first = text[0];
+        if (!char.IsLetter(first) && first != '_' && first != '@')
+            return false;
+        for (int index = 1; index < text.Length; index++)
+        {
+            char character = text[index];
+            if (!char.IsLetterOrDigit(character) && character != '_')
+                return false;
+        }
+        return true;
+    }
+
+    static bool IdentifierNeverReferencedInBody(
+        AnnotatedSourceDocument document,
+        AnnotatedSourceSpan nodeSpan,
+        string identifier)
+    {
+        var body = FindSoleContainedRegion(document, [nodeSpan], PrintedRegionRole.Body);
+        if (body is not { } bodySpan)
+            return false; // Unknown body shape: never assert an unverifiable claim.
+
+        string bodyText = document.Text.Substring(bodySpan.Start, bodySpan.Length);
+        return !ContainsWholeWord(bodyText, identifier);
+    }
+
+    static bool ContainsWholeWord(string text, string word)
+    {
+        int index = 0;
+        while ((index = text.IndexOf(word, index, StringComparison.Ordinal)) >= 0)
+        {
+            bool leftBoundary = index == 0 || !IsIdentifierChar(text[index - 1]);
+            int endIndex = index + word.Length;
+            bool rightBoundary = endIndex == text.Length || !IsIdentifierChar(text[endIndex]);
+            if (leftBoundary && rightBoundary)
+                return true;
+            index++;
+        }
+        return false;
+    }
+
+    static bool IsIdentifierChar(char character) => char.IsLetterOrDigit(character) || character == '_';
+
     static AnnotatedSourceSpan? FindSoleContainedHeaderRegion(
         AnnotatedSourceDocument document,
         AnnotatedSourceNode node)
+        => FindSoleContainedRegion(document, node.Spans, PrintedRegionRole.Header);
+
+    static AnnotatedSourceSpan? FindSoleContainedRegion(
+        AnnotatedSourceDocument document,
+        IReadOnlyList<AnnotatedSourceSpan> containerSpans,
+        PrintedRegionRole role)
     {
         AnnotatedSourceSpan? found = null;
         foreach (var region in document.Regions)
         {
-            if (region.Role != PrintedRegionRole.Header
+            if (region.Role != role
                 || region.Spans.Count != 1
-                || !ContainsAll(node.Spans, region.Spans))
+                || !ContainsAll(containerSpans, region.Spans))
             {
                 continue;
             }
             if (found is not null)
-                return null; // Ambiguous: more than one contained header region.
+                return null; // Ambiguous: more than one contained region of this role.
             found = region.Spans[0];
         }
         return found;

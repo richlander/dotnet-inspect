@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics.CodeAnalysis;
+using InertText;
 using NuGetFetch;
 
 namespace DotnetInspector.Packages;
@@ -17,16 +19,60 @@ namespace DotnetInspector.Packages;
 /// </remarks>
 public sealed record PackageSourceAuthorization
 {
+    private readonly IReadOnlyDictionary<
+        PackageSourceAssociation,
+        ConfiguredPackageAuthority> _authoritiesByAssociation;
+
     PackageSourceAuthorization(
-        IReadOnlyList<PackageSource> sources,
+        IReadOnlyList<ConfiguredPackageAuthority> authorities,
+        IReadOnlyList<PackageAuthorityFailure> failures,
         string? denialReason)
     {
-        Sources = sources;
+        ConfiguredPackageAuthority[] authoritySnapshot = [.. authorities];
+        PackageAuthorityFailure[] failureSnapshot = [.. failures];
+        if (authoritySnapshot.Any(static authority => authority is null))
+            throw new ArgumentException(
+                "Package source authorization cannot contain a null authority.",
+                nameof(authorities));
+        if (failureSnapshot.Any(static failure => failure is null))
+            throw new ArgumentException(
+                "Package source authorization cannot contain a null failure.",
+                nameof(failures));
+        if (authoritySnapshot.Length > 0 && denialReason is not null)
+        {
+            throw new ArgumentException(
+                "An authorization with eligible authorities cannot also be denied.",
+                nameof(denialReason));
+        }
+
+        Authorities = new ReadOnlyCollection<ConfiguredPackageAuthority>(
+            authoritySnapshot);
+        Sources = new ReadOnlyCollection<PackageSource>(
+            [.. authoritySnapshot.Select(authority => authority.Source)]);
+        Failures = new ReadOnlyCollection<PackageAuthorityFailure>(
+            failureSnapshot);
+        IEqualityComparer<PackageSourceAssociation> associationComparer =
+            ReferenceEqualityComparer.Instance;
+        _authoritiesByAssociation =
+            authoritySnapshot.ToDictionary(
+                authority => authority.Association,
+                associationComparer);
         DenialReason = denialReason;
     }
 
-    /// <summary>The authorized producers, in consultation order.</summary>
+    /// <summary>The configured package authorities for one package ID.</summary>
+    public IReadOnlyList<ConfiguredPackageAuthority> Authorities { get; }
+
+    /// <summary>
+    /// The selected source representations, in consultation order.
+    /// </summary>
     public IReadOnlyList<PackageSource> Sources { get; }
+
+    /// <summary>
+    /// Typed configuration failures observed while producing this
+    /// authorization. Healthy authorities and failures may coexist.
+    /// </summary>
+    public IReadOnlyList<PackageAuthorityFailure> Failures { get; }
 
     /// <summary>
     /// Why no producer is authorized, when the host stated one. It is always
@@ -35,21 +81,74 @@ public sealed record PackageSourceAuthorization
     /// </summary>
     public string? DenialReason { get; }
 
-    /// <summary>Authorizes <paramref name="sources"/> in consultation order.</summary>
+    /// <summary>
+    /// Authorizes each independently selected source as one authority, in
+    /// consultation order.
+    /// </summary>
+    /// <remarks>
+    /// A policy that owns configured aliases must select and collapse them
+    /// before calling this method; endpoint resemblance alone does not grant
+    /// this method enough policy evidence to combine authorities.
+    /// </remarks>
     public static PackageSourceAuthorization Authorize(
         IEnumerable<PackageSource> sources)
     {
         ArgumentNullException.ThrowIfNull(sources);
         return new PackageSourceAuthorization(
-            new ReadOnlyCollection<PackageSource>([.. sources]),
+            new ReadOnlyCollection<ConfiguredPackageAuthority>(
+                [
+                    .. sources.Select(source =>
+                        new ConfiguredPackageAuthority(source)),
+                ]),
+            failures: [],
             denialReason: null);
+    }
+
+    internal static PackageSourceAuthorization ObserveSources(
+        IEnumerable<PackageSource> sources,
+        IEnumerable<PackageAuthorityFailure> failures)
+    {
+        ArgumentNullException.ThrowIfNull(sources);
+        return ObserveAuthorities(
+            sources.Select(source => new ConfiguredPackageAuthority(source)),
+            failures);
+    }
+
+    internal static PackageSourceAuthorization ObserveAuthorities(
+        IEnumerable<ConfiguredPackageAuthority> authorities,
+        IEnumerable<PackageAuthorityFailure> failures)
+    {
+        ArgumentNullException.ThrowIfNull(authorities);
+        ArgumentNullException.ThrowIfNull(failures);
+        ConfiguredPackageAuthority[] authoritySnapshot = [.. authorities];
+        PackageAuthorityFailure[] failureSnapshot = [.. failures];
+        return new PackageSourceAuthorization(
+            authoritySnapshot,
+            failureSnapshot,
+            authoritySnapshot.Length == 0
+                ? failureSnapshot.FirstOrDefault()?.Message
+                : null);
     }
 
     /// <summary>Authorizes nothing, for the stated reason.</summary>
     public static PackageSourceAuthorization Deny(string reason)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(reason);
-        return new PackageSourceAuthorization([], reason);
+        return new PackageSourceAuthorization([], [], reason);
+    }
+
+    /// <summary>
+    /// Recovers the exact configured authority for an owner-issued source
+    /// association.
+    /// </summary>
+    public bool TryGetAuthority(
+        PackageSourceAssociation association,
+        [NotNullWhen(true)] out ConfiguredPackageAuthority? authority)
+    {
+        ArgumentNullException.ThrowIfNull(association);
+        return _authoritiesByAssociation.TryGetValue(
+            association,
+            out authority);
     }
 }
 
@@ -126,8 +225,9 @@ public sealed class UniformPackageSourceAuthorization : IPackageSourceAuthorizat
 /// This is the adapter that keeps the browser-neutral loader free of ambient
 /// configuration discovery while the desktop still gets exactly the sources
 /// <c>nuget.config</c> and package source mapping select. Mapping and config
-/// failures stay typed denials carrying their own message rather than becoming
-/// an empty set with no explanation.
+/// failures stay typed observations carrying their own message, including
+/// when healthy authorities remain, rather than becoming an empty set with no
+/// explanation.
 /// </para>
 /// <para>
 /// The interface takes a canonical package id, and the mapping vocabulary is
@@ -151,32 +251,38 @@ public sealed class SourcePolicyPackageSourceAuthorization(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
 
-        // An explicitly selected config that cannot be read is a denial, not an
-        // exception escaping the seam: a caller holding this adapter is asking
-        // a question that must have a typed answer.
         if (sourceOptions?.ConfigFile is { } configFile
             && NuGetSourceResolver.DescribeConfigProblem(configFile)
                 is string configProblem)
         {
-            return PackageSourceAuthorization.Deny(configProblem);
+            return PackageSourceAuthorization.ObserveSources(
+                [],
+                [ConfigurationFailure(InertString.Empty, configProblem)]);
         }
 
         try
         {
-            List<PackageSource> mapped =
-                NuGetSourceResolver.ResolveSourcesForPackage(
+            PackageSourceResolution resolution =
+                NuGetSourceResolver.ResolveSourcesForPackageWithFailures(
                     sourceOptions,
                     packageId,
                     workingDirectory);
-            return PackageSourceAuthorization.Authorize(
+            IReadOnlyList<PackageSource> sources =
                 NuGetSourceResolver.ResolveAuthorizedSources(
                     sourceOptions,
-                    mapped));
+                    resolution.Sources);
+            return PackageSourceAuthorization.ObserveSources(
+                sources,
+                resolution.Failures.Select(failure =>
+                    ConfigurationFailure(
+                        failure.Authority,
+                        failure.Message)));
         }
-        catch (Exception ex) when (
-            ex is PackageSourceMappingException or UnsupportedSourceException)
+        catch (PackageSourceMappingException ex)
         {
-            return PackageSourceAuthorization.Deny(ex.Message);
+            return PackageSourceAuthorization.ObserveSources(
+                [],
+                [ConfigurationFailure(InertString.Empty, ex.Message)]);
         }
         catch (InvalidDataException)
         {
@@ -191,8 +297,21 @@ public sealed class SourcePolicyPackageSourceAuthorization(
             // That text is not reproduced: a rule-based denial keeps the
             // failure attributable to the configuration the user selected
             // without carrying its contents into a message sink.
-            return PackageSourceAuthorization.Deny(
-                "The NuGet package source mapping configuration is malformed, so no source can be authorized.");
+            return PackageSourceAuthorization.ObserveSources(
+                [],
+                [
+                    ConfigurationFailure(
+                        InertString.Empty,
+                        "The NuGet package source mapping configuration is malformed, so no source can be authorized."),
+                ]);
         }
     }
+
+    static PackageAuthorityFailure ConfigurationFailure(
+        InertString authority,
+        string message) =>
+        new(
+            authority,
+            PackageAuthorityFailureKind.Configuration,
+            message);
 }

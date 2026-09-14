@@ -310,6 +310,49 @@ public sealed class MethodSemanticsRowReaderTests
     }
 
     [Fact]
+    public void Mdp016_MetadataStreamCountOverflowIsTypedReaderRejection()
+    {
+        byte[] image = BuildImage();
+        using (var intact = Open(image))
+        {
+            int metadataStart =
+                intact.PEHeaders.MetadataStartOffset;
+            int versionLength =
+                BinaryPrimitives.ReadInt32LittleEndian(
+                    image.AsSpan(
+                        metadataStart + 12,
+                        sizeof(int)));
+            int streamCountOffset =
+                metadataStart
+                + 16
+                + versionLength
+                + sizeof(ushort);
+            BinaryPrimitives.WriteUInt16LittleEndian(
+                image.AsSpan(
+                    streamCountOffset,
+                    sizeof(ushort)),
+                ushort.MaxValue);
+        }
+        using var peReader = Open(image);
+        var budget = MethodSemanticsReadBudget.Default;
+
+        Assert.IsType<MetadataImageFormatResult.SupportedEcma335>(
+            MetadataImageFormatClassifier.Classify(peReader));
+        Assert.Throws<OverflowException>(
+            () => peReader.GetMetadataReader());
+        var result =
+            Assert.IsType<MethodSemanticsReadResult.MalformedInput>(
+                MethodSemanticsRowReader.Read(peReader, budget));
+        Assert.Equal(
+            MethodSemanticsMalformedReason.MetadataReaderRejected,
+            result.Reason);
+        Assert.Equal(0, result.RowsVisited);
+        Assert.Null(result.RowNumber);
+        Assert.Null(result.MetadataRootReason);
+        Assert.Equal(0, budget.RetainedAssociations);
+    }
+
+    [Fact]
     public void Mdp016_BudgetStopsBeforeOversizedRetention()
     {
         const int RowCount = 10_000;

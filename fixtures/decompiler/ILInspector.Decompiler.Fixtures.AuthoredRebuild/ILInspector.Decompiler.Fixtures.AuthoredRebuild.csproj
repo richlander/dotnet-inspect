@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <Optimize>false</Optimize>
+    <CheckForOverflowUnderflow>true</CheckForOverflowUnderflow>
+    <DebugType>portable</DebugType>
+    <Deterministic>true</Deterministic>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="RebuildSamples.cs" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

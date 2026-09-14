@@ -10,7 +10,7 @@ namespace ILInspector.Metadata.Tests;
 /// binding one of its readings.
 /// </summary>
 /// <remarks>
-/// This is fail-visible hardening at the single SourceLinkFetch parser used by
+/// This is fail-visible hardening at the single SourceLink map parser used by
 /// <see cref="SourceDocumentPathResolver"/> and provenance processing.
 /// </remarks>
 public class SourceLinkDuplicateDocumentTests

@@ -406,9 +406,11 @@ public static class MemberTargetResolver
     }
 
     /// <summary>
-    /// The number of body-backed accessors a member exposes: get/set for a property or
-    /// indexer, add/remove for an event. Zero for methods, fields, and any member with no
-    /// accessor tokens. Used to address accessors through the overload-index path (#3265).
+    /// The number of addressable accessors a member exposes: get/set for a property or
+    /// indexer, add/remove for an event. This counts MethodDef tokens, not managed body
+    /// RVAs; body-requiring consumers must evaluate the selected accessor separately.
+    /// Zero for methods, fields, and any member with no accessor tokens. Used to address
+    /// accessors through the overload-index path (#3265).
     /// </summary>
     static int AccessorCount(ApiMember member)
         => member.Kind switch

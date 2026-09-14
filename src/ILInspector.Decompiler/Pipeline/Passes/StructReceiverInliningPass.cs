@@ -28,6 +28,9 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <see cref="LoadProperty"/> with a non-<c>ByRef</c> result), never an
 /// address/ref/place — a byref temp aliases real storage, so folding could
 /// change defensive-copy or write semantics.</item>
+/// <item>The slot has no exact PDB local name. A named slot carries artifact
+/// identity that the names contract preserves rather than treating as
+/// compiler spill scratch.</item>
 /// <item>The slot is <em>fold-safe</em> method-wide: every read of it is a
 /// member-receiver address load whose enclosing statement immediately follows a
 /// store to that same slot in the same block. Then each read's reaching
@@ -94,6 +97,11 @@ public sealed class StructReceiverInliningPass : IIrPass
         {
             if (node is not StoreLocal store || store.Parent is not Block block)
                 continue;
+            if (store.Index < function.LocalNames.Length
+                && function.LocalNames[store.Index] is not null)
+            {
+                continue;
+            }
             if (!IsRvalueDefinition(store.Value))
                 continue;
             if (!reads.TryGetValue(store.Index, out var slotReads))

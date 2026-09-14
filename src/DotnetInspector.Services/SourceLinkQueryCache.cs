@@ -1,4 +1,4 @@
-using DotnetInspector.Core;
+using DotnetInspector.Cache;
 
 namespace DotnetInspector.Services;
 
@@ -36,13 +36,13 @@ public sealed class CoreSourceLinkQueryCache : ISourceLinkQueryCache
         TimeSpan? maxAge,
         string extension)
         => maxAge is { } age
-            ? CoreCache.TryGet(category, key, age, extension)
-            : CoreCache.TryGet(category, key, extension);
+            ? PersistentCache.TryGet(category, key, age, extension)
+            : PersistentCache.TryGet(category, key, extension);
 
     public void Set(
         string category,
         string key,
         string content,
         string extension)
-        => CoreCache.Set(category, key, content, extension);
+        => PersistentCache.Set(category, key, content, extension);
 }

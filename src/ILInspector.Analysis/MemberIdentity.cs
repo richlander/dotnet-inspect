@@ -32,28 +32,29 @@ internal enum ParameterDirection
 
 /// <summary>
 /// A member's safety under the updated memory-safety rules, mirroring Roslyn's
-/// <c>CallerUnsafeMode</c> (see <c>PEMethodSymbol.CallerUnsafeMode</c>). A member
-/// "requires unsafe" when it carries <c>RequiresUnsafeAttribute</c> or has a
-/// pointer / function pointer in its signature; the distinction below is then
-/// gated on whether the containing module opted into the updated rules via
-/// <c>MemorySafetyRulesAttribute</c>.
+/// <c>CallerUnsafeMode</c> (see <c>PEMethodSymbol.CallerUnsafeMode</c>), as
+/// normalized by Metadata for the member's defining module.
 /// </summary>
 public enum CallerUnsafeMode
 {
-    /// <summary>Not considered unsafe under the updated rules.</summary>
+    /// <summary>The member does not propagate an unsafe requirement.</summary>
     None,
 
     /// <summary>
-    /// Requires unsafe, but the module has not opted into the updated rules — the
-    /// legacy implicit notion (e.g. an existing pointer-signature API).
+    /// The legacy compatibility contract from a pointer-bearing signature.
     /// </summary>
     Implicit,
 
     /// <summary>
-    /// Requires unsafe in a module that opted into the updated rules — the
-    /// authoritative mark (the <c>unsafe</c>/<c>extern</c> modifier).
+    /// The updated explicit contract represented by
+    /// <c>RequiresUnsafeAttribute</c>.
     /// </summary>
     Explicit,
+
+    /// <summary>
+    /// Metadata could not establish a unique supported caller contract.
+    /// </summary>
+    Unavailable,
 }
 
 /// <summary>
@@ -61,12 +62,22 @@ public enum CallerUnsafeMode
 /// counted across every method (including bodiless extern/abstract members), not
 /// just those with an IL body.
 /// </summary>
-public sealed record UnsafeModeBreakdown(int None, int Implicit, int Explicit)
+public sealed record UnsafeModeBreakdown(
+    int None,
+    int Implicit,
+    int Explicit,
+    int Unavailable)
 {
-    public int Total => None + Implicit + Explicit;
+    public int Total => None + Implicit + Explicit + Unavailable;
 
     /// <summary>Methods that require unsafe (implicitly or explicitly).</summary>
     public int Unsafe => Implicit + Explicit;
+}
+
+internal static class CallerUnsafeModeFacts
+{
+    internal static bool RequiresUnsafe(CallerUnsafeMode mode)
+        => mode is CallerUnsafeMode.Implicit or CallerUnsafeMode.Explicit;
 }
 
 public sealed record MethodIdentity(

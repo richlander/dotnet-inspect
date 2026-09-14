@@ -1,17 +1,20 @@
 # `ts-jsexport` TypeScript facade generation
 
-Status: **implemented at the generator boundary**. The repository contains the
-`ts-jsexport` tool, typed facade emitter, canonical compiled fixture, and the
-compiler/runtime gates under [Acceptance](#acceptance). Inspect-web adoption
-and browser deployment canaries remain separate work under #5003, #4792, and
-issue #4842.
+Status: **single-assembly generation is implemented at the generator
+boundary**. The repository contains the `ts-jsexport` tool, typed facade
+emitter, canonical compiled fixture, and the compiler/runtime gates under
+[Acceptance](#acceptance). Metadata-rooted facade contexts are implemented
+under [#5466](https://github.com/richlander/dotnet-inspect/issues/5466).
+Inspect-web adoption and browser deployment canaries remain separate work
+under #5003, #4792, issue #4842, and #4497.
 
 This is the owning document for the `ts-jsexport` TypeScript facade. It defines
 how one
 [`JsExportSurface`](../../src/ILInspector.JsExportSurface/README.md) becomes one
-TypeScript source module. It does not own .NET JavaScript interop thunk
-generation, `JsExportSurface` authentication, TypeScript compiler behavior, or
-browser hosting.
+TypeScript source module and how one metadata-declared facade context selects a
+closed set of those independent modules. It does not own .NET JavaScript
+interop thunk generation, `JsExportSurface` authentication, TypeScript compiler
+behavior, public module specifiers, startup order, or browser hosting.
 
 ## Decision
 
@@ -34,6 +37,11 @@ The consumer's TypeScript compiler turns that source into executable
 JavaScript. A consumer may also emit `.d.ts` declarations when it maintains a
 compiled module or package boundary. Within one TypeScript source environment,
 the generated `.ts` file supplies both implementation and types.
+
+A consumer that needs several facades may declare their managed root types on
+one context class. The context is a compiler-checked input inventory, not a
+generated aggregate API: each root resolves to a different assembly and still
+produces one assembly-specific TypeScript module.
 
 `ts-jsexport` does not generate derived JavaScript or declarations itself:
 
@@ -58,16 +66,21 @@ consumer-owned tsc
 
 ## Roles and execution phases
 
-This repository contains three similarly named but operationally separate
+This repository contains four similarly named but operationally separate
 parts:
 
-1. **`ts-jsexport` is a build-time tool.** It reads a compiled assembly as
+1. **`TsJsExport.Contracts` is a producer contract.** It contains the
+   repeatable `JsExportRootAttribute` used by a compiled context. It has no
+   inspection, generation, runtime, or consumer policy.
+2. **`ts-jsexport` is a build-time tool.** It reads a compiled assembly as
    metadata and IL data and generates a TypeScript facade for the type paths and
-   static methods represented by its `[JSExport]` surface.
-2. **Inspect-web is a consumer of the tool.** Its managed
-   `InspectWeb.Engine.dll` exposes dotnet-inspect functionality through one
+   static methods represented by its `[JSExport]` surface. In context mode it
+   first resolves the complete root set, then generates the same independent
+   facade for each resolved assembly.
+3. **Inspect-web is a consumer of the tool.** Its managed
+   `DotnetInspect.Web.dll` exposes dotnet-inspect functionality through one
    `InspectionEngine` type containing static `[JSExport]` methods.
-3. **`ILInspector.JsExportSurface` is part of the tool's implementation.** It
+4. **`ILInspector.JsExportSurface` is part of the tool's implementation.** It
    is a host-side library over Metadata- and Analysis-owned facts. It constructs
    the target-language-neutral export and wire-evidence model consumed by
    `ts-jsexport`.
@@ -78,38 +91,44 @@ inspected engine assembly does not execute it. The tool uses it while generating
 source, before the resulting JavaScript and managed application meet in the
 browser.
 
+`TsJsExport.Contracts` is intentionally different. Producers reference its
+small, dependency-free attribute contract so the C# compiler can bind every
+root type. The assembly contains no product behavior; applications do not call
+it and generated JavaScript does not import it. No host-side Metadata, Analysis,
+surface, or emitter library crosses through that reference.
+
 The phases compose as follows:
 
 ```text
 ts-jsexport process on a developer or CI host
 
-InspectWeb.Engine.dll --read as PE/IL data--> Metadata and Analysis facts
+DotnetInspect.Web.dll --compiled context--> seven rooted export assemblies
                                                     |
                                                     v
-                                          JsExportSurface model
+                                          JsExportSurface models
                                                     |
                                                     v
                                            TypeScript emitter
                                                     |
                                                     v
-                                        inspect-web-engine.ts
+                                      seven inspect-web facades
 
 
 browser execution
 
-inspect-web-engine.js --> dotnet.js / dotnet.runtime.js
+seven facade modules --> dotnet.js / dotnet.runtime.js
                                       |
                                       v
-                             InspectWeb.Engine.dll
+                         seven managed export assemblies
                                       |
                                       v
                          dotnet-inspect product libraries
 ```
 
-The compiler step between the diagrams derives
-`inspect-web-engine.js` from `inspect-web-engine.ts`. Neither the
-`ts-jsexport` executable nor its `ILInspector.JsExportSurface` implementation
-library crosses into the browser execution phase.
+The compiler step between the diagrams derives one JavaScript module from each
+generated TypeScript facade. Neither the `ts-jsexport` executable nor its
+`ILInspector.JsExportSurface` implementation library crosses into the browser
+execution phase.
 
 ## Why this layer generates TypeScript
 
@@ -125,7 +144,7 @@ That raw object is usable without `ts-jsexport`:
 ```js
 const runtime = await dotnet.create();
 const exports =
-  await runtime.getAssemblyExports("InspectWeb.Engine");
+  await runtime.getAssemblyExports("DotnetInspect.Web");
 const json =
   await exports.InspectionEngine.QueryPackage(
     packageId,
@@ -147,8 +166,8 @@ adds application-facing policy:
 - public wrapper signatures distinct from raw interop signatures;
 - authenticated JSON parsing and exact wire-result types;
 - readonly producer-owned JSON snapshots;
-- initialization and one-runtime reuse; and
-- consumer-facing DTO and enum declarations.
+- initialization and explicit one-runtime composition; and
+- consumer-facing DTO, enum, and JSON union declarations.
 
 Generating JavaScript plus JSDoc would express those TypeScript decisions
 indirectly and require the generator to own comment containment, JSDoc import
@@ -162,8 +181,9 @@ the consumer's compiler own JavaScript and optional declaration emission.
 | --- | --- | --- |
 | .NET JavaScript interop | `[JSExport]` selection, generated managed thunks, marshalling descriptors, registration, generic runtime support, and the SDK-owned `dotnet.d.ts` description of `dotnet.js` | application JSON meaning, assembly-specific export shape, TypeScript facade policy |
 | `ILInspector.JsExportSurface` | C#-faithful export facts, exact runtime-publication identity, authenticated JSON wire evidence | TypeScript names, syntax, wrappers, compiler configuration |
-| `ts-jsexport` | deterministic TypeScript facade source and assembly-specific export shape from one `JsExportSurface` | thunk generation, generic runtime declarations, runtime implementation, TypeScript compilation, browser publication |
-| Consumer | TypeScript compiler configuration, availability of the SDK-owned runtime declaration, derived artifacts, module resolution, and hosting | reinterpreting or weakening the `JsExportSurface` input |
+| `TsJsExport.Contracts` | producer-side context root declaration | export discovery, facade grouping, generation, runtime behavior |
+| `ts-jsexport` | deterministic TypeScript facade source and assembly-specific export shape from one `JsExportSurface`; exact context-root resolution into a closed set of independent surfaces; canonical context artifact filenames from assembly simple names | thunk generation, generic runtime declarations, runtime implementation, TypeScript compilation, browser publication, public module specifiers or startup order |
+| Consumer | context membership, fresh context output-directory location, TypeScript compiler configuration, public module specifiers, availability of the SDK-owned runtime declaration, derived artifacts, module resolution, composition, and hosting | placing pre-existing files in the context output directory; reinterpreting or weakening the context or `JsExportSurface` inputs |
 
 These boundaries are intentionally asymmetric. `ts-jsexport` may reject an input
 surface it cannot faithfully represent in TypeScript. It must not broaden
@@ -214,6 +234,132 @@ Wire DTOs are producer-owned snapshots. Their properties are readonly, arrays
 use `ReadonlyArray<T>`, and string-keyed dictionaries use
 `Readonly<Record<string, T>>`. Direct JS-interop arrays remain mutable because
 they are runtime values, not serialized snapshots.
+
+### Translating unions and nullability
+
+C# and TypeScript can both describe alternative and nullable values, but they
+do not use the same type-system representation. On the C# side, this design
+receives union alternatives from the generated `union` declaration model.
+Nullability is separate: nullable-reference annotations such as `string?` are
+compiler metadata over the same CLR reference type, while `int?` is
+`System.Nullable<int>`. On the TypeScript side, a native union represents both
+case alternatives and nullability; with strict null checking, nullable `T` is
+spelled `T | null`.
+
+The generator therefore translates meaning rather than preserving source
+syntax:
+
+- `string?` becomes `string | null`.
+- `int?` becomes `number | null`.
+- `GenericNested<string?>` becomes `GenericNested<string | null>`.
+- `GenericNested<string?>?` becomes
+  `GenericNested<string | null> | null`.
+- Union cases `TValue` and `int`, plus a default-null case, become
+  `TValue | number | null`.
+
+These rows remain distinct before translation. Union case evidence determines
+the alternatives; nullable metadata and authenticated serializer evidence
+determine where `null` is possible. Their TypeScript forms then compose and
+normalize as unions. In particular, `property?: T` is not another spelling of
+`property: T | null`: the former permits an absent property and introduces
+`undefined`, while the latter describes a present JSON property whose value
+may be `null`.
+
+This document uses *lowering* for the broader conversion into the public
+TypeScript facade, but union and nullable projection does not materially lower
+the abstraction level. It is closer to type-level transpilation: one
+source-language wire-type vocabulary is translated into another at roughly the
+same semantic altitude. The representation changes because TypeScript uses
+union syntax for both concepts, while the distinctions established by C# and
+System.Text.Json evidence must remain observable in the translated type.
+
+### JSON union lowering
+
+Slice 3 of [#5892](https://github.com/richlander/dotnet-inspect/issues/5892),
+tracked by [#6106](https://github.com/richlander/dotnet-inspect/issues/6106),
+consumes the union evidence owned by
+[`JsExportSurface`](../../src/ILInspector.JsExportSurface/README.md#json-union-alternatives).
+It does not infer another serializer contract from the union's `Value` member.
+
+A serialize-reached supported union becomes a TypeScript type alias containing
+its mapped case alternatives and the producer's default-null alternative.
+Case types retain their existing JSON mappings, including readonly snapshots,
+byte-array Base64 strings, and local enum/DTO declarations. Aliases and every
+reference participate in the same identity-based module-name allocation as
+other wire declarations. The raw export remains string-valued; the public
+facade parses that JSON and returns the generated alias.
+Case signature trees supply identities rather than nested nullable-reference
+annotations. Reference-valued entries in case arrays and dictionaries therefore
+remain nullable conservatively; null must not disappear from supported JSON.
+
+Generic unions with direct type-parameter cases use generic aliases whose
+arguments are JSON wire types. Closed uses retain their structured argument
+identities. A parameter embedded inside a case signature remains unsupported:
+substituting a wire type into a CLR container is not generally faithful
+(`T[]` writes an array for `T = int`, but a Base64 string for `T = byte`).
+Generic JSON records with direct, recursively parametric members use generic
+TypeScript interfaces. Closed constructions are discovered only from
+authenticated source-generated JSON roots, and their arguments are substituted
+through supported records, arrays, dictionaries, nullable values, and unions.
+A direct serializer root does not retain nullable-reference annotations for
+its generic arguments, so reference-shaped arguments remain conservatively
+nullable. Union case signatures have the same nested-annotation erasure and
+apply the same rule to generic-record alternatives. Ordinary record member
+signatures retain their nested nullable annotations and project those precise
+generic arguments instead, including when a supported generic union wraps a
+generic record directly, through a nullable value wrapper, or through supported
+array and dictionary containers.
+Metadata nullability traversal follows the compiler transform encoding:
+`System.Nullable<T>` and non-generic value types contribute no independent
+transform slots, so following reference annotations remain aligned. Generic
+value types and generic parameters retain their compiler-issued placeholder
+slots.
+
+Recursive composition remains parametric only when substituting a wire type
+preserves the surrounding wire shape. `GenericNested<T>[]` is an array of
+records for every supported `T`; direct `T[]` is not parametric because
+`T = byte` closes to `byte[]`, whose JSON form is a Base64 string rather than
+an array. A generic parameter directly wrapped in an array therefore fails
+visibly before publication, including when that array is nested in another
+supported container. Nullable-reference annotation on an unconstrained
+parameter does not change that CLR array shape, while a value-constrained
+`T?[]` remains a genuine array of `System.Nullable<T>` and stays supported.
+Open, other embedded non-parametric, or unauthenticated constructions also fail
+visibly; the boundary does not infer arbitrary CLR generic shapes. Parameter
+arrays are identified from decoded generic-parameter positions rather than
+display names, so a qualified concrete array remains distinct even when its
+type name matches a parameter name.
+
+Deserialize-reached unions, unavailable case/null evidence, unsupported
+converters, unmapped alternatives, and recursive union-case alias components
+fail visibly before publication. Recursive DTO interfaces are not union-case
+alias components and retain their existing behavior.
+Unused union registrations remain inert. No discriminator, replacement
+transport, or runtime schema validator is introduced.
+
+The envelope pilot has one deliberate converter exception: the shared
+`InertText.InertString` field converter is authenticated as the JSON `string`
+wire shape and preserves nullable fields as `string | null`. Polymorphic
+`System.Text.Json` base records remain structural in this generation slice;
+their runtime discriminator and derived members are preserved by the managed
+serializer, while a later union-lowering slice may expose them as a
+discriminated TypeScript union.
+
+`JsonUnionWireTests` and the compiler/runtime consumer harness
+`eng/test-ts-jsexport-typescript.sh` gate the generated contract against actual
+source-generated serializer results and compiled TypeScript consumers,
+including an annotation-erased null reference root, a generic-record union
+alternative with null content, a precise nullable generic argument in an
+ordinary record member both directly and through generic-union collection
+arguments, a nullable generic record struct, and mixed nullable value/reference
+generic arguments, rejected direct and container-nested `T[]` and
+unconstrained `T?[]` constructions whose `byte[]` payloads are Base64 text, a
+supported value-constrained `T?[]` neighboring case, and a concrete array whose
+name collides with a generic parameter.
+The four-step adoption path remains Metadata evidence, JsExportSurface
+evidence, this CLI generation/harness slice, and inspect-web browser/Wasm
+adoption. The existing TypeScript emitter owns this format lowering; no new
+human-readable rendering path or architecture retirement is needed.
 
 ### Public facade view
 
@@ -275,16 +421,21 @@ For one input assembly, `ts-jsexport` emits one self-contained TypeScript module
 containing:
 
 1. public enum and DTO declarations for reached wire contracts;
-2. one private structural type for the raw `getAssemblyExports()` object;
-3. private runtime and narrowed managed-export storage plus accessors;
-4. `initializeRuntime()`, which single-flight creates one runtime, captures the
-   inspected assembly's exports, publishes both private values only after
-   acquisition succeeds, and returns no raw runtime or export object;
-5. `runEntryPoint(mainAssemblyName?, args?)`, which forwards to
+2. one public `JsExportRuntime` structural handle limited to
+   `getAssemblyExports()` and `runMain()`;
+3. one private structural type for the raw `getAssemblyExports()` object;
+4. private runtime and narrowed managed-export storage plus accessors;
+5. `createRuntime()`, which invokes the configured SDK builder and returns the
+   narrow handle rather than the SDK's full `RuntimeAPI`;
+6. `initializeRuntime(runtime?)`, which single-flight acquires the inspected
+   assembly's exports through a supplied handle or, when omitted, through one
+   locally created handle, and publishes both private values only after
+   acquisition succeeds;
+7. `runEntryPoint(mainAssemblyName?, args?)`, which forwards to
    `runtime.runMain()` on that same private runtime and returns its
    `Promise<number>`;
-6. one exported facade function per supported `[JSExport]` method; and
-7. the exact JSON parse operation for each authenticated envelope.
+8. one exported facade function per supported `[JSExport]` method; and
+9. the exact JSON parse operation for each authenticated envelope.
 
 Runtime creation and managed entry-point execution are separate operations.
 `initializeRuntime()` never invokes `runMain()` implicitly. The consumer
@@ -301,24 +452,27 @@ the runtime hosts a different main assembly. Promise fulfillment, rejection,
 and nonzero exit codes pass through unchanged.
 
 Initialization has one terminal state machine per generated module instance.
-The first `initializeRuntime()` call records the in-flight work before calling
-`dotnet.create()`. Concurrent calls join that work, and calls after success are
-fulfilled without creating or acquiring again. Any creation, acquisition, or
-validation failure is terminal for that module in the current JavaScript realm:
-later initialization calls preserve the same rejection, and retry requires a
-page reload or worker-realm restart. Runtime and export storage remain
-unpublished unless the whole operation succeeds.
+The first `initializeRuntime()` call records the in-flight work before it
+awaits either the supplied handle or `createRuntime()`. Concurrent calls join
+that work, and calls after success are fulfilled without creating or acquiring
+again. Any creation, acquisition, or validation failure is terminal for that
+module in the current JavaScript realm: later initialization calls preserve
+the same rejection, and retry requires a page reload or worker-realm restart.
+Runtime and export storage remain unpublished unless the whole operation
+succeeds.
 
 That single-flight guarantee is deliberately module-local. A consumer using
-several separately generated facade modules configures the SDK's shared
-module-scoped `dotnet` builder before invoking any facade initializer, then
-serializes their first initialization unless its runtime owner guarantees
-shared in-flight acquisition. Generated facades import that same builder but
-never change its configuration; after the first serialized initializer
-completes, later `dotnet.create()` calls reuse the SDK's completed runtime
-instance. A facade whose local acquisition or validation fails never exits or
-disposes the potentially shared runtime. Cross-module coordination,
-configuration, and runtime lifetime remain consumer and runtime policy.
+several separately generated facade modules chooses one runtime owner, calls
+that module's `createRuntime()` exactly once, and passes the same returned
+promise or completed `JsExportRuntime` handle to every module's
+`initializeRuntime(runtime)` call. The consumer serializes those first
+initializations unless its runtime owner deliberately permits concurrent
+attachment. This contract does not rely on repeated `dotnet.create()` calls
+being idempotent: the Mono SDK memoizes a completed runtime while the CoreCLR
+SDK rejects a second creation. Generated facades import the configured builder
+but never change it. A facade whose local acquisition or validation fails never
+exits or disposes the shared runtime. Cross-module coordination, configuration,
+and runtime lifetime remain consumer and runtime policy.
 
 The focused
 [lifecycle model](models/ts-jsexport-lifecycle/README.md) model-checks those
@@ -463,6 +617,159 @@ facade function and does not call it implicitly. Any required invocation,
 argument, or ordering belongs to the consumer. No exported method name carries
 hidden bootstrap semantics.
 
+## Metadata-rooted facade contexts
+
+### Producer declaration
+
+A producer may define an otherwise empty context class with one repeatable root
+attribute per intended facade:
+
+```csharp
+using TsJsExport;
+
+[JsExportRoot(typeof(BrowserHostExports))]
+[JsExportRoot(typeof(BrowserPackageExports))]
+[JsExportRoot(typeof(BrowserMetadataExports))]
+internal sealed class InspectWebJsExportContext;
+```
+
+This follows the established context-root shape used by
+[`JsonSerializableAttribute`][json-serializable] and by this repository's
+[`MarkoutContextAttribute`][markout-context]: a repeatable class attribute
+carries a compiler-bound `System.Type`, and one context gathers the finite root
+set. The analogy ends at generation shape. `ts-jsexport` reads already-compiled
+metadata rather than participating in the producer's C# compilation, and it
+emits one independent facade per root assembly rather than one combined
+serializer implementation.
+
+`JsExportRootAttribute` is sealed, non-inherited, valid only on classes,
+repeatable, and has one constructor taking `System.Type`. The context does not
+derive from a generator base class and need not be partial because no C# source
+is added to it. The tool receives the context assembly and exact context type;
+several unrelated contexts may therefore coexist in one assembly without
+discovery ambiguity.
+
+The attribute is defined by the dependency-free `TsJsExport.Contracts`
+producer-contract assembly. Context loading accepts only a constructor whose
+declaring type and defining assembly identity match that contract's exact
+metadata name, version, culture, and public-key token, when present. A
+same-named attribute from another assembly identity is not a root declaration.
+The context assembly is a trusted build input; this check catches ordinary
+configuration drift and does not distinguish a malicious unsigned replacement
+with the same metadata identity.
+
+This implementation consumes the contract through an in-repository project
+reference. It does not make the contract a separately distributed package;
+external producer acquisition and versioning require coordinated package and
+release scope.
+
+### Root meaning
+
+Each attribute's `System.Type` is the compiler-bound assembly anchor for one
+facade. Its own members have no special selection role. A valid context
+satisfies all of these invariants:
+
+1. Every root resolves through metadata to one exact managed assembly and one
+   non-generic type definition.
+2. Every rooted assembly is distinct, so the context contains exactly one root
+   per facade assembly.
+3. The rooted assembly exposes at least one supported `[JSExport]` method.
+
+The assembly-wide meaning is what keeps context mode from becoming
+generator-side filtering. A root entitles its assembly's complete authenticated
+export surface, including exports declared by types other than the anchor. It
+does not select a subset from a larger surface or split one assembly into
+several modules. A producer that wants another facade first gives that facade
+its own managed assembly.
+
+The context's custom-attribute table is not an ordering or naming channel.
+`ts-jsexport` canonicalizes roots by exact assembly and type identity before
+generation. In context command mode, the exact assembly simple name determines
+the canonical `<assembly-name>.ts` artifact filename. Assembly simple names
+must be distinct after Unicode Form C normalization under ordinal,
+case-insensitive comparison and valid as a single portable file stem.
+Normalization is comparison-only; the exact assembly simple name remains the
+artifact spelling. Including the `.ts` suffix, an artifact name may use at most
+255 UTF-16 code units and 255 UTF-8 bytes. The tool does not repair or
+disambiguate an invalid set. The consumer chooses the output directory and
+continues to own public module specifiers, initialization order, entry-point
+selection, and any authored coordinator. In particular, the assembly
+containing the context is not implicitly the browser host, and attribute order
+does not make one root the host.
+
+### Resolution and closed-set failure
+
+Context mode resolves roots from metadata and producer-supplied assembly search
+locations without loading or executing the context or rooted assemblies. It
+uses the same SRM-only, NativeAOT-friendly inspection path as single-assembly
+generation. A serialized `System.Type` name without an assembly qualification
+resolves against the context's defining assembly; an assembly-qualified name
+resolves against the supplied search locations. The referenced simple name,
+version, culture, and public-key token, when present, must equal the resolved
+`AssemblyDef`, and the serialized metadata type name must resolve to exactly one
+type definition in that assembly. Display names and filenames are not identity.
+These checks detect ordinary build and resolution drift; unsigned metadata
+identity does not authenticate an assembly against a malicious replacement.
+The context assembly's directory is not an implicit search location; producers
+name every candidate file or directory explicitly.
+
+The context is authoritative even when the available file set is incomplete.
+An unresolved root, absent assembly, identity mismatch, duplicate assembly,
+duplicate type, empty rooted surface, unsupported surface, or ambiguous
+resolution fails the whole context before any facade source is returned.
+Scanning whatever assemblies happen to be present is not a substitute: it
+cannot distinguish an intentionally smaller set from an omitted facade.
+
+Context generation produces a complete in-memory set of
+root-identity/assembly-identity/artifact-name/source tuples only after every
+root has resolved and every assembly has produced a supported
+`JsExportSurface`. It reuses the single-assembly emitter without a
+context-specific TypeScript branch.
+
+The context command accepts one context assembly, one exact context type, one
+or more assembly search locations, one runtime-module option shared by the
+set, and one output directory that must not already exist. It validates and
+generates the complete set before creating that directory or writing its first
+canonical artifact. It never merges a context set into an existing directory,
+deletes stale files, or treats pre-existing contents as part of the current
+set. Every successful output directory therefore contains exactly the
+canonical artifacts generated from that invocation's context.
+
+The command does not promise a filesystem-wide transaction if its process or
+host fails during publication; an interrupted invocation may leave its newly
+created output directory incomplete and the non-existing-directory precondition
+makes that state visible on retry. Consumers generate into a fresh scratch
+path for every attempt and own cleanup plus the final directory or deployment
+swap.
+
+`JsExportContextLoaderTests.ContextRootsResolveExactCompiledAssemblySet` gates
+successful cross-assembly resolution from a real compiled context.
+`ContextMissingRootAssemblyFailsClosed` gates the non-vacuous missing-file
+case. `ContextRejectsDuplicateAssemblyRoots`,
+`ContextIncludesEveryExportAcrossRootedAssembly`,
+`ContextRejectsRootAttributeFromWrongContractIdentity`, and
+`ContextFailureReturnsNoFacadeSources` gate the close negatives above.
+`TsJsExportCommandTests.ContextModeWritesCanonicalCompleteSet` gates exact
+set materialization. `JsExportContextLoaderTests` gates non-portable artifact
+name rejection and ordinal case-insensitive collision detection.
+`ContextModeRejectsExistingOutputDirectory` gates the fresh-directory
+precondition, including an older successful directory whose context set was
+larger.
+`TsJsExportContractsTests.RootAttributeHasExactMetadataContract` and
+`ContractsProjectHasNoProjectOrPackageReferences` gate the producer
+contract's shape and dependency boundary. The existing NativeAOT publish lane
+includes context-mode command execution.
+
+### Single-assembly compatibility
+
+The existing assembly-input command remains the direct form for one facade. A
+context containing one root and direct generation of that rooted assembly must
+produce byte-identical TypeScript for the same runtime-module option. Context
+membership changes orchestration evidence, not facade semantics.
+
+`TsJsExportCommandTests.ContextAndDirectModesProduceIdenticalSingleFacade`
+gates this correspondence.
+
 ## Compiler handoff
 
 `ts-jsexport` does not embed, acquire, or configure TypeScript. Its output is one
@@ -598,6 +905,10 @@ evidence.
 - generate or replace .NET's `[JSExport]` ABI thunks;
 - teach `dotnet.js` or `dotnet.runtime.js` new marshalling types;
 - depend on inspect-web names, DTOs, or startup policy;
+- discover facade membership by scanning available assemblies;
+- split one assembly's exports into several facade modules;
+- infer module names, output paths, host identity, or startup order from
+  context attribute order;
 - generate bindings for arbitrary public C# APIs;
 - translate C# or IL implementations into TypeScript;
 - synthesize a richer object-oriented or workflow API from exported methods;
@@ -709,23 +1020,48 @@ issue references below.
   prove that inspect-web's runtime dependency closure contains none of
   `ts-jsexport`, `ILInspector.JsExportSurface`, or
   `ILInspector.TypeScriptGeneration`;
-- `eng/generate-inspect-web-engine-facade.sh --check` regenerates inspect-web's
-  checked-in TypeScript source, compiles its `.js` and `.d.ts` artifacts against
-  the SDK-owned `dotnet.d.ts` from the engine's MSBuild-resolved Browser/Wasm
-  runtime pack with host-independent LF output, and proves all three files are
-  current;
+- `eng/generate-inspect-web-engine-facade.sh --check` executes inspect-web's
+  compiled context once, requires the exact seven rooted artifacts and consumer
+  mappings, compiles all seven `.js` and `.d.ts` outputs against the SDK-owned
+  `dotnet.d.ts` from the engine's MSBuild-resolved Browser/Wasm runtime pack
+  with host-independent LF output, and proves all 21 files are current;
+- the deployment and promotion verifiers pin the exact rooted-assembly set (the
+  seven names above) and structural invariants such as exactly one SDK
+  `create()` call, one runtime, and zero entry-point invocations, but assert
+  only `js_export_method_count > 0` rather than an exact total: the total
+  drifts with ordinary per-method feature work across seven independently
+  owned export classes, while the byte-for-byte source, declaration, and
+  published-JavaScript comparisons already in the same verifiers catch any
+  change to the exported surface. An exact-count assertion here would
+  duplicate that coverage while adding a value contributors must remember to
+  bump in lockstep across every workflow copy — see
+  [#6051](https://github.com/richlander/dotnet-inspect/issues/6051);
 - `verify-engine-facade-runtime.ts` executes the compiler-derived JavaScript
   without a `window` global, proves initialization performs no managed
   operation or entry-point call, and then exercises explicit host
   configuration, synchronous and asynchronous managed operations, and
   `runEntryPoint()`;
-- `verify-published-engine-facade.ts` runs the published Browser/Wasm runtime
-  without a `window` global and proves the production facade carries a
-  synchronous build identity and a genuinely awaited package-version query;
+- `verify-published-engine-facades.ts` runs the published Browser/Wasm runtime
+  without a `window` global and proves all seven production facades initialize
+  over one runtime, dispatch through their own assemblies, invoke the host
+  entry point once, and carry a synchronous build identity plus a genuinely
+  awaited host canary;
 - a set-equality gate proves that supported `[JSExport]` methods and generated
   managed-operation facade functions have exact one-to-one correspondence,
   excluding separately identified `initializeRuntime` and `runEntryPoint`
   infrastructure;
+- compiled context fixtures prove that repeatable `JsExportRootAttribute`
+  metadata resolves the exact root type and assembly set without loading
+  inspected code, rejects omitted or mismatched root assemblies instead of
+  treating the available files as complete, rejects two roots in one assembly,
+  includes every export across all declaring types in a rooted assembly, and
+  returns no generated source when any root fails;
+- context command fixtures prove a successful fresh output directory contains
+  exactly the canonical artifacts for its context and that an existing
+  directory, including one generated from a formerly larger context, is
+  rejected rather than merged or cleaned;
+- direct generation and a one-root context produce byte-identical TypeScript
+  for the same assembly and runtime-module option;
 - a generator test proves one TypeScript source contains both the runtime
   wrapper implementation and its public TypeScript types;
 - a close-negative fixture changes a managed implementation without changing
@@ -822,10 +1158,16 @@ issue references below.
   explicit facade call invokes `ConfigureHost` with the caller's argument;
 - the separately owned #4792 gate demonstrates the same facade contract across
   its chosen paired lowerings without adding consumer policy to this generator;
-  and
+- the separately owned #4497 work may adopt the context contract for the
+  production inspect-web facade set; that owner decides the adoption and
+  continues to own public module names, coordinator policy, exact deployed
+  inventory, and browser evidence; and
 - a command test proves failed generation does not publish partial TypeScript
   output.
 
 No individual syntax assertion establishes this architecture. The gates must
 exercise the generated TypeScript through the real compiler and the emitted
 JavaScript through the real runtime seam.
+
+[json-serializable]: https://learn.microsoft.com/dotnet/api/system.text.json.serialization.jsonserializableattribute
+[markout-context]: https://github.com/richlander/markout/blob/main/src/Markout/Attributes/MarkoutContextAttribute.cs

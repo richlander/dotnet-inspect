@@ -17,7 +17,7 @@
 ; and each suppresses this rule at the call site with a justification. Grep for
 ; RS0030 to enumerate them.
 
-P:System.Console.Error;Write through DotnetInspector.Output.CommandError, which contains what it writes.
+P:System.Console.Error;Write through DotnetInspect.Cli.Output.CommandError, which contains what it writes.
 M:System.Console.SetError(System.IO.TextWriter);Redirecting stderr moves the stream out from under CommandError's containment.
 M:System.Console.OpenStandardError();Opening the stream directly bypasses CommandError's containment.
 M:System.Console.OpenStandardError(System.Int32);Opening the stream directly bypasses CommandError's containment.

@@ -488,11 +488,13 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    coercion insertion, which discharges the minted loads' sink obligations
    like any local's. What stays on the print-time unifier is the counted
    residual: ambiguous testimony, cross-family (true disjoint ranges),
-   element-store identity recovery (the #1751 char class — the printer
-   re-types those slots, which a materialized local would foreclose), incomplete
+   unproven element-store identity recovery, incomplete
    slot-copy components, and nested `Lambda`/`LocalFunctionStatement` scopes.
-   The nested-name prerequisite #2275 landed in #2356; recursively materializing
-   each nested body's own locals table remains. Direct slot-copy components now
+   The nested-name prerequisite #2275 landed in #2356. Lambda and local-function
+   raising already run the default pipeline, including materialization, on
+   imported bodies before embedding them. Late re-materialization of residual
+   nested webs remains deferred; it is not a missing first materialization
+   step. Direct slot-copy components now
    materialize atomically when every member clears the same type, scope, and
    rendering gates; otherwise every member stays printer-owned.
    `MaterializesCompleteDirectCopyComponent` and
@@ -506,23 +508,89 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    its sole consumer, while the remaining post-F2 stores render as standalone
    assignments rather than through a printer-owned consumer fold. Decided
    in-domain webs in that residual therefore materialize normally; their
-   declaration ordering may change, but no expression moves. One narrower
-   residual remains printer-owned: when integer storage testimony feeds a
-   typed boolean sink, the printer recovers boolean identity for the slot;
-   materializing the integer testimony would produce an invalid assignment.
-   `BooleanSinkIdentityRecovery` makes that boundary explicit until semantic
-   sink identity moves into product-owned testimony. The C2 deletion and the
-   invariant extension follow once the residual census reaches the
-   printer-owned floor. When a direct slot-copy component separates the
-   conditional producer from the boolean sink, the sink-end veto keeps the
-   whole component printer-owned through the existing atomic component gate.
+   declaration ordering may change, but no expression moves.
+
+   At materialization, a slot whose stores are all Boolean-valued may recover
+   the Boolean identity of an integer-typed load consumed by a Boolean sink
+   or condition. Every load still testifies: a numeric use conflicts, and an
+   underivable use vetoes recovery. This is identity recovery, not an
+   integer-to-Boolean conversion; mixed Boolean/integer stores retain the
+   existing `BooleanSinkIdentityRecovery` boundary. Earlier raising passes
+   retain their original testimony so materialization does not preempt their
+   constant or control-flow decisions. The printer uses the same Boolean-sink
+   rule for lowered and still-deferred slots instead of maintaining a second
+   sink vocabulary.
+
+   The motivating real witness is Newtonsoft.Json 13.0.4,
+   `DefaultContractResolver.InitializeContract`: the Boolean conditional
+   assigned to `DefaultCreatorNonPublic` retains an integer-typed stack load.
+   `CompilerProducedPropertyConditionalMaterializesBooleanIdentity` preserves
+   that compiler-produced shape, and
+   `CompilerProducedPropertyConditionalRecompilesWithRetainedTemporary`
+   gates binding and the existing retained-temporary compile-back difference;
+   it does not claim exact IL fidelity.
+   `ConflictingBooleanAndNumericUsesRemainPrinterOwned`,
+   `BooleanSinkDoesNotRetypeMixedBooleanAndIntegerStores`, and
+   `IntegerConditionKeepsItsNumericIdentity` gate the nearby decline and
+   non-action boundaries. Direct-copy components remain atomic:
+   `MaterializesBooleanSinkIdentityAcrossDirectCopyComponent` gates the
+   decided case; an undecided member still retains the entire component.
+   The C2 deletion and invariant extension follow once the residual census
+   reaches the printer-owned floor.
+
+   Element-store identity also recovers late: integer-typed loads used as the
+   value of a char or metadata-resolved enum array store may testify to that
+   element type when every producer is a conditional with two representable
+   constant arms. Char recovery shares
+   `CoercionRendering.TryCharConstantValue` with the printer; enum recovery
+   requires resolved backing data and constants within its signed/unsigned
+   range. Stack-family compatibility alone is not a value-preservation proof.
+   The existing slot-coercion gate still rejects unsupported widths. Every
+   observer contributes testimony, and all existing scope, control-flow, and
+   atomic copy-component gates remain. No expression or condition moves.
+   Nonconditional producers, nonconstant arms, out-of-range values, and missing
+   enum backing remain printer-owned. Earlier testimony is unchanged; the
+   general element-target printer fallback remains necessary for lowered and
+   deferred trees.
+
+   Real witnesses are Newtonsoft.Json 13.0.4
+   `DateTimeUtils.WriteDateTimeOffset` (`'+'`/`'-'`),
+   Microsoft.CodeAnalysis 5.0.0 `BitVector.GetDebuggerDisplay` (`'1'`/`'0'`),
+   and the two `ReadParameterRefKinds` implementations in
+   dotnet-inspect.any 0.14.0 (`ArgumentRefKind.Ref`/`Value`).
+   `ElementSlotIdentityTests` gates compiler-produced activation, constant
+   boundaries, competing and underivable observations, all-store agreement,
+   and incomplete copies. Its compile-back gate preserves the existing
+   retained-temporary `OpcodeDiff`, not an exact-IL claim. The existing
+   `CharElementStorePrinterTests` binding gate remains in force.
+
+   Slot identity is the owning body plus its number, not the number alone.
+   A nested web therefore cannot veto an otherwise decided outer web merely
+   by reusing its number. Outer materialization preserves nested node identity,
+   local tables, and residual slots. The shared-versus-isolated local-scope
+   discriminator is an IR fact consumed by local-reference tracking and the
+   printer; its existing behavior is unchanged.
+
+   The measured witnesses are Microsoft.CodeAnalysis 5.0.0
+   `SyntaxDiffer.RecordChange` (`int S_256`) and
+   Microsoft.CodeAnalysis.CSharp 5.0.0
+   `OverloadResolution.BetterConversionTargetCore` (`bool S_256`).
+   `NestedSlotMaterializationTests` preserves the corresponding overloads from
+   the repository's compiler dependency and gates outer activation, retained
+   nested nodes, coercion obligations, and local-slot invariants.
+   `NestedScopeNameCollisionTests` gates binding with and without outer
+   materialization for lambda, local-function, already-materialized nested,
+   and deeply nested naming cases. This slice does not expand the coercion
+   domain or allocate more nested locals: all 140 nested residual webs in the
+   14-assembly investigation still failed the existing type-domain gate.
+
    `MaterializesSingleStoreConditionalWithSingleRead` and
-   `DefersIntegerTestimonyWhenConditionalFeedsBooleanLocal` gate both sides of
-   the general boundary;
-   `DefersIntegerTestimonyWhenConditionalFeedsBooleanProperty` gates property
-   setter identity recovery specifically; and
-   `DefersBooleanSinkIdentityAcrossDirectCopyComponent` gates composition with
-   copy-component closure.
+   `MaterializesBooleanIdentityWhenConditionalFeedsBooleanLocal` gate
+   conditional materialization;
+   `MaterializesBooleanIdentityWhenConditionalFeedsBooleanProperty` gates the
+   property setter case. Production adoption is through the shared default
+   raising pipeline used by CLI and Browser/Wasm consumers; no host-specific
+   conversion or naming path is introduced.
 
 Each slice reports the standard decompiler-affecting-PR evidence: focused tests,
 the corpus quality-diff card, and improved/still-flat examples. As ReturnToSender

@@ -83,6 +83,7 @@ public sealed class InspectionDefinitionRegistry
         }
 
         WorkspaceDefinition? workspace = null;
+        WorkspacePlan? workspacePlan = null;
         WorkspaceContextDefinition? selectedContext = null;
         IReadOnlyList<ResolvedWorkspaceContext> contexts = Array.Empty<ResolvedWorkspaceContext>();
 
@@ -94,10 +95,22 @@ public sealed class InspectionDefinitionRegistry
                     $"Scenario '{scenario.Id}' references unknown workspace '{scenario.Workspace}'.");
             }
 
-            contexts = new ReadOnlyCollection<ResolvedWorkspaceContext>(
+            workspacePlan = new WorkspacePlan(
+                [],
                 workspace.Contexts
-                    .Select(context => ResolveContext(workspace, context))
+                    .Select(context => ResolveContextInput(workspace, context))
                     .ToArray());
+            contexts = new ReadOnlyCollection<ResolvedWorkspaceContext>(
+                workspace.Contexts.Select((context, index) =>
+                {
+                    WorkspaceContextInput input = workspacePlan.Contexts[index];
+                    return new ResolvedWorkspaceContext(
+                        new WorkspaceContextDescriptor(
+                            new WorkspaceContextAddress(workspace.Id, context.Name),
+                            input.Framework,
+                            input.RuntimeIdentifier),
+                        input);
+                }).ToArray());
 
             if (!string.IsNullOrWhiteSpace(scenario.Context))
             {
@@ -160,6 +173,7 @@ public sealed class InspectionDefinitionRegistry
         return new ResolvedScenario(
             scenario,
             workspace,
+            workspacePlan,
             selectedContext?.Name,
             contexts,
             query,
@@ -167,7 +181,7 @@ public sealed class InspectionDefinitionRegistry
             navigation);
     }
 
-    private ResolvedWorkspaceContext ResolveContext(
+    private static WorkspaceContextInput ResolveContextInput(
         WorkspaceDefinition workspace,
         WorkspaceContextDefinition context)
     {
@@ -177,15 +191,14 @@ public sealed class InspectionDefinitionRegistry
                 $"Workspace '{workspace.Id}' context '{context.Name}' uses subscribe '{context.Subscribe}', which is not lowered in this slice. Inline members are supported.");
         }
 
-        var members = context.Members
-            .Select(DefinitionCoordinateLowering.ToWorkspaceMember)
-            .ToArray();
-
-        return new ResolvedWorkspaceContext(
-            context.Name,
-            context.Framework,
-            context.RuntimeIdentifier,
-            new ReadOnlyCollection<WorkspaceMemberCoordinate>(members));
+        return new WorkspaceContextInput
+        {
+            Framework = context.Framework,
+            RuntimeIdentifier = context.RuntimeIdentifier,
+            Members = context.Members
+                .Select(DefinitionCoordinateLowering.ToWorkspaceMember)
+                .ToArray(),
+        };
     }
 
     private static ResolvedNavigation ResolveNavigation(NavigationDefinition navigation)
@@ -234,6 +247,7 @@ public sealed class ResolvedScenario
     internal ResolvedScenario(
         ScenarioDefinition scenario,
         WorkspaceDefinition? workspace,
+        WorkspacePlan? workspacePlan,
         string? selectedContextName,
         IReadOnlyList<ResolvedWorkspaceContext> contexts,
         QueryDefinition? query,
@@ -242,6 +256,7 @@ public sealed class ResolvedScenario
     {
         Scenario = scenario;
         Workspace = workspace;
+        WorkspacePlan = workspacePlan;
         SelectedContextName = selectedContextName;
         Contexts = contexts;
         Query = query;
@@ -258,6 +273,12 @@ public sealed class ResolvedScenario
     public string? Description => Scenario.Description;
 
     public WorkspaceDefinition? Workspace { get; }
+
+    /// <summary>
+    /// The exact resource-free construction plan lowered from
+    /// <see cref="Workspace"/>, or null for a workspace-free scenario.
+    /// </summary>
+    public WorkspacePlan? WorkspacePlan { get; }
 
     /// <summary>
     /// Null when the scenario is workspace-free (input-only).
@@ -284,24 +305,27 @@ public sealed class ResolvedScenario
 public sealed class ResolvedWorkspaceContext
 {
     internal ResolvedWorkspaceContext(
-        string name,
-        string? framework,
-        string? runtimeIdentifier,
-        IReadOnlyList<WorkspaceMemberCoordinate> members)
+        WorkspaceContextDescriptor descriptor,
+        WorkspaceContextInput input)
     {
-        Name = name;
-        Framework = framework;
-        RuntimeIdentifier = runtimeIdentifier;
-        Members = members;
+        Descriptor = descriptor;
+        Input = input;
     }
 
-    public string Name { get; }
+    public WorkspaceContextDescriptor Descriptor { get; }
 
-    public string? Framework { get; }
+    public WorkspaceContextAddress Address => Descriptor.Address;
 
-    public string? RuntimeIdentifier { get; }
+    public string Name => Descriptor.Name;
 
-    public IReadOnlyList<WorkspaceMemberCoordinate> Members { get; }
+    public string? Framework => Descriptor.Framework;
+
+    public string? RuntimeIdentifier => Descriptor.RuntimeIdentifier;
+
+    /// <summary>The exact context input retained by the scenario's Workspace plan.</summary>
+    public WorkspaceContextInput Input { get; }
+
+    public IReadOnlyList<WorkspaceMemberCoordinate> Members => Input.Members;
 }
 
 /// <summary>Lowered navigation tabs and focus.</summary>
