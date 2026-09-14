@@ -67,16 +67,24 @@ public partial class DependsCommand
             return DiscoverOutput.Execute(
                 discover,
                 DependsAssetSections.CreateSchema(),
-                tree: options.Tree,
-                json: options.JsonOutput,
-                tsv: options.Tsv,
-                jsonl: options.Jsonl,
+                DiscoveryOutputRequest.Create(
+                    OutputFormatResolver.ResolveStored(
+                        options.Format,
+                        options.JsonOutput,
+                        plainText: false,
+                        options.Tabular,
+                        options.Tsv,
+                        options.Jsonl),
+                    options.Tree,
+                    options.Tabular,
+                    options.NoHeader,
+                    (int)options.Verbosity,
+                    options),
                 sectionCostAnnotations:
                     catalog.Pipeline.GetCostAnnotations(),
                 sectionCategories: catalog.SelectionCategoryMap,
                 listedCategoryDoors:
-                    catalog.Pipeline.GetListedCategoryDoors(),
-                projection: options);
+                    catalog.Pipeline.GetListedCategoryDoors());
         }
 
         if (options.Schema)
@@ -129,19 +137,25 @@ public partial class DependsCommand
                     options.Discover,
                     effective,
                     DependsAssetSections.CreateSchema(),
-                    tree: options.Tree,
-                    markdown: !options.Tabular && !options.JsonOutput,
-                    json: options.JsonOutput,
-                    tsv: options.Tsv,
-                    jsonl: options.Jsonl,
-                    verbosity: (int)options.Verbosity,
+                    DiscoveryOutputRequest.Create(
+                        OutputFormatResolver.ResolveStored(
+                            options.Format,
+                            options.JsonOutput,
+                            plainText: false,
+                            options.Tabular,
+                            options.Tsv,
+                            options.Jsonl),
+                        options.Tree,
+                        options.Tabular,
+                        options.NoHeader,
+                        (int)options.Verbosity,
+                        options),
                     fullSchema: DependsAssetSections.CreateSchema(),
                     sectionCostAnnotations:
                         catalog.Pipeline.GetCostAnnotations(),
                     sectionCategories: catalog.SelectionCategoryMap,
                     listedCategoryDoors:
-                        catalog.Pipeline.GetListedCategoryDoors(),
-                    projection: options);
+                        catalog.Pipeline.GetListedCategoryDoors());
                 WriteAssetDiagnostics(projection);
                 return Math.Max(
                     discoveryExitCode,

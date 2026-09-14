@@ -1,9 +1,12 @@
 import type {
+  BrowserInspectionDiagnostic,
+  BrowserInspectionShare,
   BrowserPackageAssemblyAssessment,
   BrowserPackageQueryCompletion,
   BrowserPackageQueryEvidence,
   BrowserPackageQueryEvidenceSummary,
   BrowserPackageQueryFailure,
+  BrowserPackageQueryManifest,
   BrowserPackageQueryProgress,
   BrowserPackageQueryResult,
   BrowserPackageQueryRow,
@@ -37,7 +40,32 @@ const engineWorkerPackageQueryKind = "package-query";
 const maximumRequestCharacters = 1_048_576;
 const maximumEventCharacters = 1_048_576;
 const maximumCollectionItems = 4_096;
+const maximumOwnerItems = 4_096;
+// Match the PackageManifestFactsQuery owner limits while retaining the
+// pre-existing event budget for evidence and evidence previews.
+const maximumManifestPackageTypes = 128;
+const maximumManifestDependencyGroups = 1_024;
+const maximumManifestDependencies = 4_096;
+const maximumEventCollectionItems =
+  maximumCollectionItems
+  + maximumOwnerItems
+  + maximumManifestPackageTypes
+  + maximumManifestDependencyGroups
+  + maximumManifestDependencies;
+// System.Text.Json can encode one UTF-16 code unit as six JSON characters.
+// Repeated contract structure is bounded separately by the maximum collection
+// shape, while fixed event structure fits within the final allowance.
+const maximumJsonCharactersPerTextCharacter = 6;
+const maximumEventWireCharactersPerCollectionItem = 128;
+const maximumEventWireFixedCharacters = 64 * 1_024;
+const maximumEventWireCharacters =
+  maximumEventCharacters * maximumJsonCharactersPerTextCharacter
+  + maximumEventCollectionItems * maximumEventWireCharactersPerCollectionItem
+  + maximumEventWireFixedCharacters;
 const maximumDiagnosticCharacters = 64 * 1024;
+// A 10,000-candidate query can emit one progress and one match/failure event
+// per candidate, plus search progress and terminal completion.
+const maximumInspectionEvents = 20_004;
 
 type PackageQueryFacetTier =
   Extract<BrowserPackageQueryRow["tier"], string>;
@@ -45,6 +73,10 @@ type PackageQueryEvidenceScope =
   Extract<BrowserPackageQueryEvidence["scope"], string>;
 type PackageQueryFailureKind =
   Extract<BrowserPackageQueryFailure["kind"], string>;
+type PackageQueryManifestFailureReason =
+  Extract<BrowserPackageQueryFailure["manifestFailureReason"], string>;
+type PackageQueryManifestIdentityProvenance =
+  Extract<BrowserPackageQueryManifest["identityProvenance"], string>;
 type PackageQueryProgressPhase =
   Extract<BrowserPackageQueryProgress["phase"], string>;
 type PackageQueryCompletionKind =
@@ -70,8 +102,12 @@ interface EngineWorkerPackageQueryRow
 }
 
 interface EngineWorkerPackageQueryFailure
-  extends Omit<BrowserPackageQueryFailure, "kind"> {
+  extends Omit<
+    BrowserPackageQueryFailure,
+    "kind" | "manifestFailureReason"
+  > {
   readonly kind: PackageQueryFailureKind;
+  readonly manifestFailureReason: PackageQueryManifestFailureReason | null;
 }
 
 interface EngineWorkerPackageQueryProgress
@@ -121,6 +157,20 @@ export type EngineWorkerPackageQueryCompletionEvent =
     readonly completion: EngineWorkerPackageQueryCompletion;
   };
 
+interface EngineWorkerPackageQueryInspection {
+  readonly content: readonly (
+    EngineWorkerPackageQueryDurableEvent
+    | EngineWorkerPackageQueryCompletionEvent
+  )[];
+  readonly share: BrowserInspectionShare;
+  readonly diagnostics: readonly BrowserInspectionDiagnostic[];
+}
+
+export interface EngineWorkerPackageQueryTerminal {
+  readonly event: EngineWorkerPackageQueryCompletionEvent;
+  readonly inspection: EngineWorkerPackageQueryInspection | null;
+}
+
 export type EngineWorkerPackageQueryInput =
   | {
       readonly kind: "query";
@@ -147,7 +197,7 @@ export interface EngineWorkerPackageQueryTerminalFailure {
 }
 
 type PackageQuerySettlement = ManagedOperationSettlement<
-  EngineWorkerPackageQueryCompletionEvent,
+  EngineWorkerPackageQueryTerminal,
   EngineWorkerPackageQueryTerminalFailure,
   string
 >;
@@ -232,15 +282,22 @@ function arrayItems(
   value: unknown,
   description: string,
   budget: PayloadBudget,
+  maximumItems = maximumCollectionItems,
 ): readonly unknown[] {
   if (!Array.isArray(value)) {
     throw new PackageQueryPayloadError(
       `Expected ${description} array.`);
   }
+  if (value.length > maximumItems) {
+    throw new PackageQueryPayloadError(
+      `Package Query payload exceeds ${maximumItems} collection items.`,
+      "oversized",
+    );
+  }
   budget.remainingItems -= value.length;
   if (budget.remainingItems < 0) {
     throw new PackageQueryPayloadError(
-      `Package Query payload exceeds ${maximumCollectionItems} collection items.`,
+      "Package Query payload exceeds its aggregate collection-item budget.",
       "oversized",
     );
   }
@@ -343,8 +400,9 @@ function stringArray(
   value: unknown,
   description: string,
   budget: PayloadBudget,
+  maximumItems = maximumCollectionItems,
 ): readonly string[] {
-  return arrayItems(value, description, budget).map((item, index) =>
+  return arrayItems(value, description, budget, maximumItems).map((item, index) =>
     text(item, `${description}[${index}]`, budget));
 }
 
@@ -487,6 +545,149 @@ function parseEvidence(
   };
 }
 
+function parseManifestDependency(
+  value: unknown,
+  budget: PayloadBudget,
+): BrowserPackageQueryManifest["dependencyGroups"][number]["dependencies"][number] {
+  const dependency = dataRecord(
+    value,
+    ["id", "versionRange"],
+    "Package Query manifest dependency",
+  );
+  return {
+    id: text(dependency.id, "Package Query dependency ID", budget),
+    versionRange: text(
+      dependency.versionRange,
+      "Package Query dependency version range",
+      budget),
+  };
+}
+
+function parseManifestDependencyGroup(
+  value: unknown,
+  budget: PayloadBudget,
+): BrowserPackageQueryManifest["dependencyGroups"][number] {
+  const group = dataRecord(
+    value,
+    ["targetFramework", "dependencies", "isImplicitManifestGroup"],
+    "Package Query manifest dependency group",
+  );
+  return {
+    targetFramework: text(
+      group.targetFramework,
+      "Package Query dependency target framework",
+      budget),
+    dependencies: arrayItems(
+      group.dependencies,
+      "Package Query manifest dependencies",
+      budget,
+      maximumManifestDependencies)
+      .map(item => parseManifestDependency(item, budget)),
+    isImplicitManifestGroup: booleanValue(
+      group.isImplicitManifestGroup,
+      "Package Query implicit manifest group"),
+  };
+}
+
+function parseManifest(
+  value: unknown,
+  budget: PayloadBudget,
+): BrowserPackageQueryManifest | null {
+  if (value === null) return null;
+  const manifest = dataRecord(value, [
+    "packageId",
+    "version",
+    "manifestVersion",
+    "description",
+    "authors",
+    "repository",
+    "repositoryType",
+    "repositoryCommit",
+    "license",
+    "licenseUrl",
+    "packageTypes",
+    "isToolPackage",
+    "readmeFile",
+    "dependencyGroups",
+    "iconFile",
+    "iconUrl",
+    "identityProvenance",
+  ], "Package Query manifest");
+  const identityProvenance: PackageQueryManifestIdentityProvenance = literal(
+    manifest.identityProvenance,
+    ["ExpectedCoordinate", "SelfAttested"] as const,
+    "Package Query manifest identity provenance");
+  return {
+    packageId: text(
+      manifest.packageId,
+      "Package Query manifest package ID",
+      budget),
+    version: text(
+      manifest.version,
+      "Package Query manifest version",
+      budget),
+    manifestVersion: text(
+      manifest.manifestVersion,
+      "Package Query manifest schema version",
+      budget),
+    description: nullableText(
+      manifest.description,
+      "Package Query manifest description",
+      budget),
+    authors: nullableText(
+      manifest.authors,
+      "Package Query manifest authors",
+      budget),
+    repository: nullableText(
+      manifest.repository,
+      "Package Query manifest repository",
+      budget),
+    repositoryType: nullableText(
+      manifest.repositoryType,
+      "Package Query manifest repository type",
+      budget),
+    repositoryCommit: nullableText(
+      manifest.repositoryCommit,
+      "Package Query manifest repository commit",
+      budget),
+    license: nullableText(
+      manifest.license,
+      "Package Query manifest license",
+      budget),
+    licenseUrl: nullableText(
+      manifest.licenseUrl,
+      "Package Query manifest license URL",
+      budget),
+    packageTypes: stringArray(
+      manifest.packageTypes,
+      "Package Query manifest package types",
+      budget,
+      maximumManifestPackageTypes),
+    isToolPackage: booleanValue(
+      manifest.isToolPackage,
+      "Package Query tool package value"),
+    readmeFile: nullableText(
+      manifest.readmeFile,
+      "Package Query manifest README file",
+      budget),
+    dependencyGroups: arrayItems(
+      manifest.dependencyGroups,
+      "Package Query manifest dependency groups",
+      budget,
+      maximumManifestDependencyGroups)
+      .map(item => parseManifestDependencyGroup(item, budget)),
+    iconFile: nullableText(
+      manifest.iconFile,
+      "Package Query manifest icon file",
+      budget),
+    iconUrl: nullableText(
+      manifest.iconUrl,
+      "Package Query manifest icon URL",
+      budget),
+    identityProvenance,
+  };
+}
+
 function parseRow(
   value: unknown,
   budget: PayloadBudget,
@@ -501,6 +702,8 @@ function parseRow(
     "producer",
     "description",
     "rootRequest",
+    "owners",
+    "manifest",
   ], "Package Query row");
   const verified = row.verified === null
     ? null
@@ -530,6 +733,12 @@ function parseRow(
       row.rootRequest,
       "Package Query Root request",
       budget),
+    owners: stringArray(
+      row.owners,
+      "Package Query owners",
+      budget,
+      maximumOwnerItems),
+    manifest: parseManifest(row.manifest, budget),
   };
 }
 
@@ -543,7 +752,21 @@ function parseFailure(
     "producer",
     "kind",
     "message",
+    "manifestFailureReason",
   ], "Package Query failure");
+  const manifestFailureReason = failure.manifestFailureReason === null
+    ? null
+    : literal(
+      failure.manifestFailureReason,
+      [
+        "MalformedXml",
+        "UnsupportedDocumentShape",
+        "IdentityMismatch",
+        "InvalidDependencyContract",
+        "ConfiguredLimitExceeded",
+        "InvalidIdentityContract",
+      ] as const,
+      "Package Query manifest failure reason");
   return {
     packageId: nullableText(
       failure.packageId,
@@ -575,6 +798,7 @@ function parseFailure(
       failure.message,
       "Package Query failure message",
       budget),
+    manifestFailureReason,
   };
 }
 
@@ -725,7 +949,7 @@ function parseEvent(
   ], "Package Query event");
   const budget = {
     remainingCharacters: maximumEventCharacters,
-    remainingItems: maximumCollectionItems,
+    remainingItems: maximumEventCollectionItems,
   };
   switch (event.kind) {
     case "Progress":
@@ -845,6 +1069,187 @@ export const engineWorkerPackageQueryCompletionEvent =
     }
     return event;
   });
+
+function parseInspection(
+  value: unknown,
+): EngineWorkerPackageQueryInspection {
+  const inspection = dataRecord(value, [
+    "content",
+    "share",
+    "diagnostics",
+  ], "Package Query inspection");
+  const contentBudget = {
+    remainingCharacters: maximumEventCharacters,
+    remainingItems: maximumInspectionEvents,
+  };
+  const content = arrayItems(
+    inspection.content,
+    "Package Query inspection content",
+    contentBudget,
+    maximumInspectionEvents).map(parseEvent);
+  const completed = content.filter(
+    (event): event is EngineWorkerPackageQueryCompletionEvent =>
+      event.kind === "Completed");
+  if (completed.length !== 1
+      || content.at(-1)?.kind !== "Completed") {
+    throw new PackageQueryPayloadError(
+      "Package Query inspection content must end with one completion event.");
+  }
+
+  const metadataBudget = {
+    remainingCharacters: maximumEventCharacters,
+    remainingItems: maximumCollectionItems,
+  };
+  const share = dataRecord(
+    inspection.share,
+    ["kind", "fullUrl", "packet", "path", "reason"],
+    "Package Query inspection Share");
+  const kind = literal(
+    share.kind,
+    ["Available", "NonProjectable"] as const,
+    "Package Query inspection Share kind");
+  const projectedShare: BrowserInspectionShare = {
+    kind,
+    fullUrl: nullableText(
+      share.fullUrl,
+      "Package Query inspection Share URL",
+      metadataBudget),
+    packet: nullableText(
+      share.packet,
+      "Package Query inspection Share packet",
+      metadataBudget),
+    path: nullableText(
+      share.path,
+      "Package Query inspection Share path",
+      metadataBudget),
+    reason: nullableText(
+      share.reason,
+      "Package Query inspection Share reason",
+      metadataBudget),
+  };
+  if (kind === "Available") {
+    if (projectedShare.fullUrl === null
+        || projectedShare.packet === null
+        || projectedShare.path !== null
+        || projectedShare.reason !== null) {
+      throw new PackageQueryPayloadError(
+        "Available Package Query Share data is malformed.");
+    }
+  } else if (projectedShare.fullUrl !== null
+      || projectedShare.packet !== null
+      || projectedShare.path === null
+      || projectedShare.reason === null) {
+    throw new PackageQueryPayloadError(
+      "Non-projectable Package Query Share data is malformed.");
+  }
+
+  const diagnostics = arrayItems(
+    inspection.diagnostics,
+    "Package Query inspection diagnostics",
+    metadataBudget).map(item => {
+      const diagnostic = dataRecord(item, [
+        "code",
+        "severity",
+        "summary",
+        "correspondence",
+      ], "Package Query inspection diagnostic");
+      return {
+        code: text(
+          diagnostic.code,
+          "Package Query diagnostic code",
+          metadataBudget),
+        severity: text(
+          diagnostic.severity,
+          "Package Query diagnostic severity",
+          metadataBudget),
+        summary: text(
+          diagnostic.summary,
+          "Package Query diagnostic summary",
+          metadataBudget),
+        correspondence: nullableText(
+          diagnostic.correspondence,
+          "Package Query diagnostic correspondence",
+          metadataBudget),
+      };
+    });
+
+  return {
+    content,
+    share: projectedShare,
+    diagnostics,
+  };
+}
+
+function completedInspectionEvent(
+  inspection: EngineWorkerPackageQueryInspection,
+): EngineWorkerPackageQueryCompletionEvent {
+  const event = inspection.content.at(-1);
+  if (event?.kind !== "Completed") {
+    throw new PackageQueryPayloadError(
+      "Package Query inspection content has no terminal completion.");
+  }
+  return event;
+}
+
+function completionEventsEqual(
+  left: EngineWorkerPackageQueryCompletionEvent,
+  right: EngineWorkerPackageQueryCompletionEvent,
+): boolean {
+  const a = left.completion;
+  const b = right.completion;
+  return a.prefix === b.prefix
+    && a.producer === b.producer
+    && a.candidateLimit === b.candidateLimit
+    && a.matchLimit === b.matchLimit
+    && a.candidates === b.candidates
+    && a.matches === b.matches
+    && a.failures === b.failures
+    && a.kind === b.kind
+    && a.sourceCandidates === b.sourceCandidates
+    && a.semanticMisses === b.semanticMisses
+    && a.notApplicable === b.notApplicable
+    && a.scope === b.scope;
+}
+
+export const engineWorkerPackageQueryTerminal:
+BoundedPayloadDecoder<EngineWorkerPackageQueryTerminal> = {
+  decode(value) {
+    try {
+      const terminal = dataRecord(
+        value,
+        ["event", "inspection"],
+        "Package Query terminal result");
+      const decoded =
+        engineWorkerPackageQueryCompletionEvent.decode(terminal.event);
+      if (decoded.kind === "rejected") {
+        throw new PackageQueryPayloadError(
+          decoded.message,
+          decoded.reason);
+      }
+      if (terminal.inspection === null) {
+        return {
+          kind: "decoded",
+          value: { event: decoded.value, inspection: null },
+        };
+      }
+      const inspection = parseInspection(terminal.inspection);
+      const completed = completedInspectionEvent(inspection);
+      if (!completionEventsEqual(decoded.value, completed)) {
+        throw new PackageQueryPayloadError(
+          "Package Query terminal completion differs from inspection content.");
+      }
+      return {
+        kind: "decoded",
+        value: {
+          event: completed,
+          inspection,
+        },
+      };
+    } catch (error: unknown) {
+      return rejected(error);
+    }
+  },
+};
 
 const packageQueryText: BoundedPayloadDecoder<string> = {
   decode(value) {
@@ -979,30 +1384,47 @@ export function mapEngineWorkerPackageQueryResult(
       "version",
       "kind",
       "value",
+      "inspection",
       "failureKind",
       "error",
       "diagnostic",
       "reason",
     ], "Package Query result");
-    if (result.version !== 1) {
+    if (result.version !== 2) {
       throw new PackageQueryPayloadError(
-        "Expected a version 1 Package Query result.");
+        "Expected a version 2 Package Query result.");
     }
     if (result.kind === "Succeeded") {
       nullValue(result.failureKind, "Package Query success failure kind");
       nullValue(result.error, "Package Query success error");
       nullValue(result.diagnostic, "Package Query success diagnostic");
       nullValue(result.reason, "Package Query success reason");
+      if (result.inspection !== null) {
+        nullValue(result.value, "Package Query inspection success value");
+        const inspection = parseInspection(result.inspection);
+        return {
+          kind: "succeeded",
+          value: {
+            event: completedInspectionEvent(inspection),
+            inspection,
+          },
+        };
+      }
       const decoded =
         engineWorkerPackageQueryCompletionEvent.decode(result.value);
-      if (decoded.kind === "rejected")
+      if (decoded.kind === "rejected") {
         throw new PackageQueryPayloadError(
           decoded.message,
           decoded.reason);
-      return { kind: "succeeded", value: decoded.value };
+      }
+      return {
+        kind: "succeeded",
+        value: { event: decoded.value, inspection: null },
+      };
     }
     if (result.kind === "Failed") {
       nullValue(result.value, "Package Query failure value");
+      nullValue(result.inspection, "Package Query failure inspection");
       nullValue(result.reason, "Package Query failure reason");
       const failureKind = literal(
         result.failureKind,
@@ -1025,6 +1447,7 @@ export function mapEngineWorkerPackageQueryResult(
     }
     if (result.kind === "Canceled") {
       nullValue(result.value, "Package Query cancellation value");
+      nullValue(result.inspection, "Package Query cancellation inspection");
       nullValue(
         result.failureKind,
         "Package Query cancellation failure kind");
@@ -1137,7 +1560,7 @@ function mapControlRequestError(
     Parameters<
       WorkerRuntimeControlledOperationRegistration<
         QueryRequest,
-        EngineWorkerPackageQueryCompletionEvent,
+        EngineWorkerPackageQueryTerminal,
         EngineWorkerPackageQueryTerminalFailure,
         string,
         never,
@@ -1167,7 +1590,7 @@ function mapControlRequestError(
 export function createEngineWorkerPackageQueryHostRegistration():
 WorkerRuntimeControlledOperationRegistration<
   QueryRequest,
-  EngineWorkerPackageQueryCompletionEvent,
+  EngineWorkerPackageQueryTerminal,
   EngineWorkerPackageQueryTerminalFailure,
   string,
   never,
@@ -1181,7 +1604,7 @@ WorkerRuntimeControlledOperationRegistration<
     kind: engineWorkerPackageQueryKind,
     allowance: { kind: "unbounded" },
     encodeInput: encodeQueryRequest,
-    value: engineWorkerPackageQueryCompletionEvent,
+    value: engineWorkerPackageQueryTerminal,
     error: engineWorkerPackageQueryFailure,
     diagnostic: packageQueryText,
     progress: packageQueryNoProgress,
@@ -1204,9 +1627,9 @@ function parseManagedDurableEvent(
     throw new PackageQueryPayloadError(
       "Package Query callback payload was not JSON text.");
   }
-  if (value.length > maximumEventCharacters) {
+  if (value.length > maximumEventWireCharacters) {
     throw new PackageQueryPayloadError(
-      `Package Query callback exceeds ${maximumEventCharacters} characters.`,
+      `Package Query callback exceeds ${maximumEventWireCharacters} characters.`,
       "oversized",
     );
   }

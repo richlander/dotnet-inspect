@@ -71,12 +71,13 @@ internal static class QueryDiscoverOutput
             return DiscoverOutput.Execute(
                 [.. selected.Select(section => section.QuerySection)],
                 companionSchema,
-                json: format == OutputFormat.Json,
-                markdown: format == OutputFormat.Markdown,
-                tsv: format == OutputFormat.Tsv,
-                jsonl: format == OutputFormat.Jsonl,
-                plainText: format == OutputFormat.PlainText,
-                projection: projection,
+                DiscoveryOutputRequest.Create(
+                    format,
+                    tableExplicitlySet:
+                        options.IsTableExplicitlySet(result),
+                    noHeader:
+                        result.GetValue(options.NoHeaders),
+                    projection: projection),
                 semanticRowSelection: semanticRowSelection,
                 semanticSelectionName:
                     semanticSelectionName ?? "Discovery");
