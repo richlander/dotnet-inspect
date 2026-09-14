@@ -97,4 +97,33 @@ public static class FinallyReturnTimingSample
     Done:
         return result;
     }
+
+    public static int RunAliasedLocal(bool loop, bool setValue, bool exit)
+    {
+        int result = 0;
+        ref int alias = ref result;
+        try
+        {
+            while (loop)
+            {
+                if (setValue)
+                {
+                    result = 10;
+                    goto Done;
+                }
+
+                if (exit)
+                    goto Done;
+
+                loop = false;
+            }
+        }
+        finally
+        {
+            alias += 100;
+        }
+
+    Done:
+        return result;
+    }
 }

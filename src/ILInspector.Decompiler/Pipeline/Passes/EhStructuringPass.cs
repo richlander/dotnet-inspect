@@ -621,7 +621,7 @@ public sealed partial class EhStructuringPass : IIrPass
         if (place is not { } returned)
             return false;
 
-        bool addressTaken = AddressTaken(root, returned.Index, returned.IsArgument);
+        var aliases = ByRefAliases(root, returned.Index, returned.IsArgument);
         for (IrNode? ancestor = leave.Parent;
              ancestor is not null;
              ancestor = ancestor.Parent)
@@ -632,8 +632,8 @@ public sealed partial class EhStructuringPass : IIrPass
                 && (MayWritePlace(
                         tryFinally.FinallyBody,
                         returned.Index,
-                        returned.IsArgument)
-                    || addressTaken))
+                        returned.IsArgument,
+                        aliases)))
             {
                 return true;
             }
@@ -642,40 +642,65 @@ public sealed partial class EhStructuringPass : IIrPass
         return false;
     }
 
-    static bool MayWritePlace(BlockContainer body, int index, bool isArgument)
+    static bool MayWritePlace(
+        BlockContainer body,
+        int index,
+        bool isArgument,
+        IReadOnlySet<int> aliases)
     {
         foreach (var node in body.Descendants)
         {
-            int? writtenIndex = node switch
+            if (ReferenceOwnership.IsInsideNestedFunctionBody(node))
+                continue;
+
+            bool mayWrite = node switch
             {
-                StoreLocal store when !isArgument => store.Index,
-                LoadLocalAddress address when !isArgument => address.Index,
-                StoreArgument store when isArgument => store.Index,
-                LoadArgumentAddress address when isArgument => address.Index,
-                _ => null,
+                StoreLocal store when !isArgument => store.Index == index,
+                LoadLocalAddress address when !isArgument => address.Index == index,
+                StoreArgument store when isArgument => store.Index == index,
+                LoadArgumentAddress address when isArgument => address.Index == index,
+                LoadLocal load => aliases.Contains(load.Index),
+                _ => false,
             };
-            if (writtenIndex == index
-                && !ReferenceOwnership.IsInsideNestedFunctionBody(node))
-            {
+            if (mayWrite)
                 return true;
-            }
         }
 
         return false;
     }
 
-    static bool AddressTaken(BlockContainer root, int index, bool isArgument)
-        => root.Descendants.Any(node =>
-            node switch
+    static HashSet<int> ByRefAliases(
+        BlockContainer root,
+        int index,
+        bool isArgument)
+    {
+        var aliases = new HashSet<int>();
+        bool changed;
+        do
+        {
+            changed = false;
+            foreach (var store in root.Descendants.OfType<StoreLocal>())
             {
-                LoadLocalAddress address when !isArgument =>
-                    address.Index == index
-                    && !ReferenceOwnership.IsInsideNestedFunctionBody(address),
-                LoadArgumentAddress address when isArgument =>
-                    address.Index == index
-                    && !ReferenceOwnership.IsInsideNestedFunctionBody(address),
-                _ => false,
-            });
+                if (ReferenceOwnership.IsInsideNestedFunctionBody(store))
+                    continue;
+
+                bool aliasesPlace = store.Value switch
+                {
+                    LoadLocalAddress address when !isArgument =>
+                        address.Index == index,
+                    LoadArgumentAddress address when isArgument =>
+                        address.Index == index,
+                    LoadLocal load => aliases.Contains(load.Index),
+                    _ => false,
+                };
+                if (aliasesPlace)
+                    changed |= aliases.Add(store.Index);
+            }
+        }
+        while (changed);
+
+        return aliases;
+    }
 
     static bool IsDescendantOf(IrNode node, IrNode ancestor)
     {

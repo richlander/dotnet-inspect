@@ -65,6 +65,24 @@ public class FinallyReturnTimingTests
     }
 
     [Fact]
+    public void AliasedLocalReturnStaysAfterFinally()
+    {
+        Assert.Equal(110, FinallyReturnTimingSample.RunAliasedLocal(
+            loop: true,
+            setValue: true,
+            exit: true));
+        Assert.Equal(100, FinallyReturnTimingSample.RunAliasedLocal(
+            loop: true,
+            setValue: false,
+            exit: true));
+
+        var (fidelity, output) = Render(nameof(FinallyReturnTimingSample.RunAliasedLocal));
+        Assert.Equal(DecompilationFidelity.Full, fidelity);
+        Assert.Equal(1, CountOccurrences(output, "return result;"));
+        Assert.EndsWith("return result;\n", output);
+    }
+
+    [Fact]
     [Trait("Speed", "Slow")]
     public void FinallyReturnTimingMethodsCompileBackExactly()
     {
@@ -72,9 +90,10 @@ public class FinallyReturnTimingTests
             SampleType.Assembly.Location,
             type => type == SampleType.FullName,
             method => method.Method is nameof(FinallyReturnTimingSample.Run)
-                or nameof(FinallyReturnTimingSample.RunArgument));
+                or nameof(FinallyReturnTimingSample.RunArgument)
+                or nameof(FinallyReturnTimingSample.RunAliasedLocal));
 
-        Assert.Equal(2, results.Count);
+        Assert.Equal(3, results.Count);
         Assert.All(results, result =>
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status));
     }
