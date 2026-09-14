@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Accepted; implementation is in progress.
 
 This document is the normative owner for how Inspect Web retains selectable
 Workspace definitions, selects one definition, realizes it, and composes that
@@ -337,6 +337,13 @@ visibly with that cleanup evidence and leaves the incumbent selected.
 No lock or blocked thread spans this wait. Retained-definition count is a
 separate presentation policy and cannot be used as memory backpressure.
 
+`BrowserWorkspaceRealizationHost` owns this aggregate admission. It consumes
+the Queries-owned `WorkspaceRealizationSettlement.Succeeded` classification
+rather than interpreting owner-specific cleanup reports. A newer Browser
+attempt explicitly retires an unpublished coordinator candidate before
+reserving its replacement charge, so failed cleanup cannot cause transient
+over-admission.
+
 ## Entry points
 
 All entry points that can replace the Browser Workspace use the same selection
@@ -617,6 +624,24 @@ construction and operation paths. Tests must demonstrate:
 - saved Open and history traversal using the same activation transaction,
 - package and Platform paths admitting only the exact active realization, and
 - complete removal of retained-scope compatibility search at final retirement.
+
+The first-slice Release gates are:
+
+- `CapacityWait_LatestAttemptStartsAfterPredecessorSettlement`;
+- `FullCapacity_NewAttemptSupersedesCandidateBeforeReplacement`;
+- `Close_SettlesCapacityWaitBeforePredecessorsDrain`;
+- `CleanupFailuresStayChargedAndRejectLaterCandidate`;
+- `CandidateRuntimeFailurePreservesActiveAdmissionAndCharge`;
+- `CandidateBarrierWait_RemainsCancellableAndSupersedable`;
+- `PreCancelledStart_DoesNotSupersedeCurrentCandidate`;
+- `StaleCandidateHandle_CannotCutOverCurrentCandidate`;
+- `FailedCandidateSupersession_DoesNotOverAdmitReplacement`; and
+- `Close_SettlesCandidateBarrierWaitBeforeConstructionDrain`.
+
+These gates exercise `BrowserWorkspaceRealizationHost` directly. Existing
+package, Platform, Navigation, and analysis entry points remain on their
+current paths until their counted adoption slices; the host seam alone does not
+claim whole-product one-realization enforcement.
 
 Cross-platform support remains inherited from the coordinator and Browser
 hosts. No new platform exception is introduced by this design.
