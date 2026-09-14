@@ -123,3 +123,57 @@ test("shared theme roles use the modern .NET and C# palette", async ({
     );
   }
 });
+
+test("Annotated Source uses shared roles for persistent selection", async ({
+  page,
+}) => {
+  await page.goto("/browser/annotated-source.html");
+  await page.locator("#explore-annotated").click();
+  const invocation = page.locator(
+    '#annotated-source-modal .annotated-source-segment.invocation:has-text("object")',
+  ).first();
+  await invocation.click({ position: { x: 8, y: 8 } });
+  const selected = page.locator(
+    "#annotated-source-modal .annotated-source-segment.selected",
+  );
+  const pressedControls = page.locator(
+    [
+      '.annotated-set-control[aria-pressed="true"]',
+      '.annotated-medium-toggle[aria-pressed="true"]',
+      '.annotated-coordinate-toggle[aria-pressed="true"]',
+    ].join(","),
+  );
+  expect(await selected.count()).toBeGreaterThan(0);
+  expect(await pressedControls.count()).toBeGreaterThan(0);
+
+  const expected = {
+    dark: {
+      accent: "rgb(185, 170, 238)",
+      selectedSurface: "rgb(43, 32, 84)",
+    },
+    light: {
+      accent: "rgb(81, 43, 212)",
+      selectedSurface: "rgb(238, 234, 251)",
+    },
+  };
+
+  for (const theme of ["dark", "light"] as const) {
+    await page.evaluate(value => {
+      document.documentElement.dataset.theme = value;
+    }, theme);
+    for (const segment of await selected.all()) {
+      await expect(segment).toHaveCSS(
+        "background-color",
+        expected[theme].selectedSurface,
+      );
+    }
+    for (const control of await pressedControls.all()) {
+      await expect(control).toHaveCSS(
+        "background-color",
+        expected[theme].selectedSurface,
+      );
+      await expect(control).toHaveCSS("border-color", expected[theme].accent);
+      await expect(control).toHaveCSS("color", expected[theme].accent);
+    }
+  }
+});

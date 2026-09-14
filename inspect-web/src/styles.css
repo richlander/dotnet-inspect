@@ -3714,7 +3714,13 @@ kbd {
 .annotated-source-segment.addressable:focus-visible { background: color-mix(in srgb, var(--blue) 17%, transparent); }
 .annotated-source-segment.invocation:hover,
 .annotated-source-segment.invocation:focus-visible { background: color-mix(in srgb, var(--accent) 20%, transparent); }
-.annotated-source-segment.selected { background: color-mix(in srgb, var(--accent) 24%, transparent); color: var(--text); font-weight: 650; }
+.annotated-source-segment.selected,
+.annotated-source-segment.selected:hover,
+.annotated-source-segment.selected:focus-visible {
+  background: var(--accent-soft);
+  color: var(--text);
+  font-weight: 650;
+}
 .annotated-source-segment.medium-hidden { visibility: hidden; pointer-events: none; }
 .annotated-line-coordinate { padding-left: 20px; color: var(--dim); font-size: 10px; user-select: none; }
 
@@ -3748,7 +3754,11 @@ kbd {
 .annotated-control-group button { padding: 4px 8px; border-radius: 3px; font: 11px var(--mono); }
 .annotated-set-control[aria-pressed="true"],
 .annotated-medium-toggle[aria-pressed="true"],
-.annotated-coordinate-toggle[aria-pressed="true"] { background: var(--panel-active); color: var(--green); }
+.annotated-coordinate-toggle[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
 .annotated-modal-workspace { min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(290px, 360px); overflow: hidden; }
 .annotated-modal-source { min-width: 0; min-height: 0; overflow: auto; border-right: 1px solid var(--line); }
 .annotated-modal-source .annotated-source-code { min-height: 100%; }
@@ -3799,7 +3809,6 @@ kbd {
   .annotated-modal-source { border-right: 0; }
 }
 
-:root[data-theme="light"] .annotated-source-segment.selected { background: #f6e2d8; }
 :root[data-theme="light"] .annotated-source-code .token.comment { color: #6a7268; }
 :root[data-theme="light"] .annotated-source-code .token.keyword { color: #b04a2c; }
 :root[data-theme="light"] .annotated-source-code .token.class-name,
