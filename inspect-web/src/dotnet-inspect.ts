@@ -9260,14 +9260,6 @@ function executeCommand(
   result: CommandPaletteResult | null = null,
 ) {
   const [verb, ...rest] = value.split(/\s+/);
-  if (verb === "diagnostics" && rest.length === 0) {
-    state.history = [
-      value,
-      ...state.history.filter(item => item !== value),
-    ].slice(0, 5);
-    openDiagnosticsRoute();
-    return undefined;
-  }
   const pkg = currentPackage();
   beginSpotlightNavigation();
   const argument = rest.join(" ");
