@@ -415,7 +415,16 @@ invalidates success according to the one-candidate evaluator contract.
 
 ## Rendering and production hosts
 
-The query returns typed results and contains no Markout, console, DOM,
+`DotnetInspector.PackageQueries` owns the request, typed content result,
+progressive candidate observer, and serial executor. The public completed
+host-neutral boundary is
+`DotnetInspector.Sections.PackageAssemblySemanticFindInspection`, which returns
+`InspectionEnvelope<PackageAssemblySemanticFindResult>`. `Content` is the
+owner-issued result, Share remains explicitly non-projectable until a canonical
+Workspace projection exists, and supplemental diagnostics remain distinct from
+candidate outcomes.
+
+The query and envelope composition contain no Markout, console, DOM,
 JavaScript, worker, or output-format dependency.
 
 Every production adapter consumes the distinct typed occurrence sequence,

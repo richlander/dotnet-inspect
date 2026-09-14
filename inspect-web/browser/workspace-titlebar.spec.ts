@@ -1229,10 +1229,10 @@ test("Member Facts Findings preserve fields, actions, and exact selected state",
   );
   expect(await second.evaluate(element =>
     getComputedStyle(element.closest(".finding-row")!, "::before")
-      .backgroundColor)).toBe("rgb(157, 140, 255)");
+      .backgroundColor)).toBe("rgb(185, 170, 238)");
   expect(await second.evaluate(element =>
     getComputedStyle(element).backgroundImage))
-    .toContain("rgb(40, 32, 68)");
+    .toContain("rgb(43, 32, 84)");
 });
 
 test("Member Facts Findings reflow without hiding long values", async ({
@@ -1800,7 +1800,7 @@ test("the inspected target occupies the second row and package selectors stay in
   await expect(page.locator(".targetbar .lensbar")).toHaveCount(0);
   await expect(page.locator(".subject-path-segment.root.current")).toHaveCSS(
     "color",
-    "rgb(232, 233, 228)",
+    "rgb(240, 237, 247)",
   );
   await expect(page.locator(".titlebar #package-version")).toHaveCount(0);
   await expect(page.locator(".titlebar #framework")).toHaveCount(0);
@@ -2048,7 +2048,7 @@ test("the target row advertises the typed Package, Library, Type, and Member pat
   await expect(page.locator(".titlebar .lens")).toHaveCount(5);
   await expect(page.locator(".subject-path-segment.current")).toHaveCSS(
     "color",
-    "rgb(157, 140, 255)");
+    "rgb(185, 170, 238)");
   const packageText = await page.locator(".subject-path-segment").nth(0)
     .evaluate(element => getComputedStyle(element).fontSize);
   const typeText = await page.locator(".subject-path-segment").nth(1)
