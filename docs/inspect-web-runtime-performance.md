@@ -221,6 +221,52 @@ artifacts exist only long enough to reach the measurement job; evidence is
 retained for 90 days. The longitudinal aggregation slice must preserve accepted
 and rejected receipts before the first controlled artifacts expire.
 
+### Daily runtime-pin advancement
+
+[`inspect-web/runtime-cohort-pin.json`](../inspect-web/runtime-cohort-pin.json)
+is the sole checked-in owner of the .NET 12 SDK, runtime/workload, feed, target
+framework, and VMR identity consumed by both the controlled cohort and the
+CoreCLR deployment. A daily version change edits that file only; workflow
+structure and admission policy are separate changes.
+
+[`.github/workflows/inspect-web-runtime-pin-proposal.yml`](../.github/workflows/inspect-web-runtime-pin-proposal.yml)
+runs daily at 05:17 UTC and is manually dispatchable from `main`. It rejects
+any other source ref before discovery. The workflow fetches
+`productCommit-linux-x64.json` once from the pin's authoritative .NET 12 daily
+URL and treats that immutable response as the candidate snapshot. Resolution
+requires all published components to name one VMR commit, the SDK and runtime
+daily suffixes to match, and both versions to advance monotonically. A current
+or older coherent snapshot is a successful no-op. Invalid, split, or partially
+advanced metadata fails the run.
+
+For a newer snapshot, the workflow installs the exact SDK into an isolated
+directory and installs `wasm-tools` without refreshing manifests. The installed
+manifest version must equal the SDK version, its direct pack inventory must
+equal the checked-in policy, and every selected pack must use the candidate
+runtime version. The installed `Microsoft.NET.Sdk.WebAssembly.Pack` nuspec must
+name the expected dotnet/dotnet repository and the candidate VMR commit. The
+installed runtime list must then expose exactly the candidate runtime version.
+Human-readable installer output is not an identity source.
+
+The validated identity is passed as a complete override set to the reusable
+controlled cohort. That run builds and admits Mono, CoreCLR IL, and CoreCLR
+ReadyToRun from one product commit and performs the same sequential loopback
+measurement as the scheduled cohort. Required-runtime failure, unknown
+ReadyToRun failure, publication failure, or rejected comparative measurement
+blocks advancement. The already-defined, explicitly evidenced ReadyToRun
+correctness rejection remains non-blocking, so a daily runtime fix can change
+the cohort automatically from two admitted variants to three.
+
+Only an accepted candidate cohort may create a version-specific
+`automation/inspect-web-runtime-pin-*` branch. The proposal job asserts that
+the branch changes only the shared pin, then comments on #6077 with the exact
+identity, run evidence, and normal PR creation link. Repository Actions
+credentials cannot create pull requests, so the workflow intentionally stops
+at that branch-and-tracker boundary. The main ruleset still requires the usual
+PR, CI, and review. One outstanding proposal branch blocks later discovery;
+merge-time branch deletion or explicit rejection and deletion reopens the
+lane. Automation never updates `main` directly.
+
 ## Public production synthetic
 
 [`.github/workflows/inspect-web-performance-nightly.yml`](../.github/workflows/inspect-web-performance-nightly.yml)
@@ -289,14 +335,10 @@ Each .NET 12 deployment must use one exact, coherent SDK and workload cohort.
 A floating daily or a stable SDK combined with separately overridden runtime
 packages is not comparable evidence.
 
-The CoreCLR deployment pins the runtime-main cohort:
-
-- SDK `12.0.100-alpha.1.26459.112`;
-- runtime and browser workload packs `12.0.0-alpha.1.26459.112`;
-- dotnet/dotnet VMR source commit
-  `7792b064d8573a30d8527944de8184b7e108837e`; and
-- workload feed
-  `https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet12/nuget/v3/index.json`.
+The shared runtime pin records the exact SDK, runtime and browser workload
+version, dotnet/dotnet VMR source commit, and workload feeds. Workflows load
+those values only after checking out the exact product source commit they will
+build.
 
 This cohort's browser workload describes `wasm-tools` for `net11.0`, so the
 Inspect Web project graph retains that target framework while executing on the
@@ -319,9 +361,9 @@ the async-lowering canary are not sufficient deployment evidence by
 themselves.
 
 The earlier `12.0.100-alpha.1.26454.116` non-ReadyToRun cohort produced the
-accepted baseline run `34439612493`. The later cohort remains pinned after the
-ReadyToRun trial so the rejected optimization is the only configuration
-removed.
+accepted baseline run `34439612493`. Daily advancement preserves the
+non-ReadyToRun production configuration until ReadyToRun itself passes the
+same product-operation admission.
 
 ### Rejected ReadyToRun trial
 
