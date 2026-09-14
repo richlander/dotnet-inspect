@@ -4477,7 +4477,13 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     && navigationSequence.isCurrent(packageContentLoadingSequence);
   const packageLoadingHadFocus =
     focusedElement?.id === "package-content-loading";
-  const frameworkHadFocus = focusedElement?.id === "framework";
+  const packageLoadingControl = packageLoadingHadFocus
+    ? focusedElement?.dataset.packageLoadingControl
+    : focusedElement?.id;
+  const packageControlHadFocus = packageLoadingControl === "framework"
+    || packageLoadingControl === "package-version";
+  const packageRetryHadFocus = loadingPackageContent
+    && focusedElement?.id === "retry-notice";
   const homeFocus =
     pendingHomeFocusTarget ?? captureHomeFocus(focusedElement);
   contentFrameFocusOwner = null;
@@ -4799,7 +4805,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
             : ""}
           <article id="inspector-panel" ${loadingPackageContent ? 'aria-busy="true"' : ""} class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryIntegrationsWorkingSurface ? " library-integrations-working-surface" : ""}${libraryOpportunitiesWorkingSurface ? " library-opportunities-working-surface" : ""}${libraryAnalysisWorkingSurface ? " library-analysis-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}">
             ${loadingPackageContent
-              ? `<div id="package-content-loading" class="package-content-loading" role="status" tabindex="-1"><span class="loader" aria-hidden="true"></span><span>Loading ${escapeHtml(state.requestedFramework)} content…</span></div>`
+              ? `<div id="package-content-loading" class="package-content-loading" role="status" tabindex="-1" data-package-loading-control="${state.requestedVersion !== pkg.version ? "package-version" : "framework"}"><span class="loader" aria-hidden="true"></span><span>Loading ${state.requestedVersion !== pkg.version ? `version ${escapeHtml(state.requestedVersion)}` : escapeHtml(state.requestedFramework)} content…</span></div>`
               : renderLens(current)}
           </article>
         </section>
@@ -4854,9 +4860,10 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     focusLevelOneHeading();
   } else if (isIntegrationMode(integrationTabFocus)) {
     restoreIntegrationTabFocus(document, integrationTabFocus);
-  } else if (packageLoadingHadFocus || (loadingPackageContent && frameworkHadFocus)) {
+  } else if (packageRetryHadFocus
+    || (packageControlHadFocus && (packageLoadingHadFocus || loadingPackageContent))) {
     document.querySelector<HTMLElement>(
-      loadingPackageContent ? "#package-content-loading" : "#framework")
+      loadingPackageContent ? "#package-content-loading" : `#${packageLoadingControl}`)
       ?.focus({ preventScroll: true });
   }
   if (scopeBarOwnsFocus) {
@@ -8817,6 +8824,7 @@ async function switchPackageVersion(newVersion: string) {
   await loadPackage(id, newVersion, framework, {
     replacePackage: pkg,
     invalidateWorkspaceShareBasis: true,
+    loadingPresentation: "content",
   });
 }
 
