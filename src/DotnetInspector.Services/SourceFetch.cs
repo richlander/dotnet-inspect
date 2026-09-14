@@ -1,6 +1,5 @@
 using DotnetInspector.Cache;
 using System.Collections.Concurrent;
-
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.Services;
@@ -20,7 +19,7 @@ internal readonly record struct SourceFetchBytesResult(
     SourceFetchFailureKind? Failure = null);
 
 /// <summary>
-/// Fetches checksum-gated source bytes through a host-selected content store.
+/// Fetches caller-validated source bytes through a host-selected content store.
 /// The compatibility constructor uses the process-wide disk cache; content-only
 /// hosts can supply <see cref="InMemorySourceContentStore"/>.
 /// </summary>
@@ -82,23 +81,30 @@ public class SourceFetch
         CancellationToken cancellationToken)
     {
         using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.SourceFetch);
+        cancellationToken.ThrowIfCancellationRequested();
         if (!Uri.TryCreate(url, UriKind.Absolute, out var parsed)
             || (parsed.Scheme != Uri.UriSchemeHttps
                 && parsed.Scheme != Uri.UriSchemeHttp))
         {
             return new SourceFetchBytesResult(null, SourceFetchFailureKind.InvalidUrl);
         }
-        if (_fetchPolicy is not null
-            && !_fetchPolicy.IsRequestAllowed(parsed))
+        if (_fetchPolicy is not null)
         {
-            return new SourceFetchBytesResult(
-                null,
-                SourceFetchFailureKind.RequestNotAuthorized);
+            bool allowed = _fetchPolicy.IsRequestAllowed(parsed);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!allowed)
+            {
+                return new SourceFetchBytesResult(
+                    null,
+                    SourceFetchFailureKind.RequestNotAuthorized);
+            }
         }
 
         if (_byteMemoryCache.TryGetValue(url, out var memoryBytes))
         {
-            if (validator(memoryBytes))
+            bool valid = validator(memoryBytes);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (valid)
                 return new SourceFetchBytesResult(memoryBytes);
 
             _byteMemoryCache.TryRemove(url, out _);
@@ -122,21 +128,21 @@ public class SourceFetch
 
         if (cachedBytes is not null)
         {
-            if (validator(cachedBytes))
+            bool valid = validator(cachedBytes);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (valid)
             {
                 _byteMemoryCache[url] = cachedBytes;
                 return new SourceFetchBytesResult(cachedBytes);
             }
         }
 
-        try
-        {
-            Action<HttpRequestMessage>? configureRequest =
-                _fetchPolicy is null
-                    ? null
-                    : request => _fetchPolicy.ConfigureRequest(request);
-            HttpRetryHelper.HttpBodyFetchResult fetch =
-                await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
+        Action<HttpRequestMessage>? configureRequest =
+            _fetchPolicy is null
+                ? null
+                : request => _fetchPolicy.ConfigureRequest(request);
+        HttpRetryHelper.HttpBodyFetchResult fetch =
+            await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
                 _httpClient,
                 url,
                 static _ => true,
@@ -144,41 +150,35 @@ public class SourceFetch
                 trafficKind: NetworkTrafficKind.SourceFetch,
                 maxDownloadSize: MaxSourceDownloadSize,
                 configureRequest: configureRequest)
-                .ConfigureAwait(false);
-            if (fetch.StatusCode == System.Net.HttpStatusCode.NotFound)
-                return new SourceFetchBytesResult(null, SourceFetchFailureKind.NotFound);
-            if (fetch.Bytes is not { } bytes)
-                return new SourceFetchBytesResult(null, SourceFetchFailureKind.Unavailable);
-
-            if (!validator(bytes))
-                return new SourceFetchBytesResult(null, SourceFetchFailureKind.ValidationFailed);
-
-            try
-            {
-                await _contentStore.StoreAsync(
-                    url,
-                    bytes,
-                    cancellationToken).ConfigureAwait(false);
-                cancellationToken.ThrowIfCancellationRequested();
-            }
-            catch (Exception ex) when (IsContentStoreFailure(ex))
-            {
-                return new SourceFetchBytesResult(
-                    null,
-                    SourceFetchFailureKind.StorageFailed);
-            }
-
-            _byteMemoryCache[url] = bytes;
-            return new SourceFetchBytesResult(bytes);
-        }
-        catch (HttpRequestException)
-        {
+            .ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (fetch.StatusCode == System.Net.HttpStatusCode.NotFound)
+            return new SourceFetchBytesResult(null, SourceFetchFailureKind.NotFound);
+        if (fetch.Bytes is not { } bytes)
             return new SourceFetchBytesResult(null, SourceFetchFailureKind.Unavailable);
-        }
-        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+
+        bool networkBytesValid = validator(bytes);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!networkBytesValid)
+            return new SourceFetchBytesResult(null, SourceFetchFailureKind.ValidationFailed);
+
+        try
         {
-            return new SourceFetchBytesResult(null, SourceFetchFailureKind.Unavailable);
+            await _contentStore.StoreAsync(
+                url,
+                bytes,
+                cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
         }
+        catch (Exception ex) when (IsContentStoreFailure(ex))
+        {
+            return new SourceFetchBytesResult(
+                null,
+                SourceFetchFailureKind.StorageFailed);
+        }
+
+        _byteMemoryCache[url] = bytes;
+        return new SourceFetchBytesResult(bytes);
     }
 
     static bool IsContentStoreFailure(Exception exception)
@@ -186,97 +186,6 @@ public class SourceFetch
             or OutOfMemoryException
             or StackOverflowException
             or AccessViolationException);
-
-    /// <summary>
-    /// Extracts a named region from source content.
-    /// Returns the content between #region Name and #endregion markers.
-    /// </summary>
-    public static string? ExtractRegion(string content, string regionName)
-    {
-        var lines = content.Split('\n');
-        List<string> regionLines = [];
-        bool inRegion = false;
-        int regionDepth = 0;
-
-        foreach (var line in lines)
-        {
-            var trimmed = line.TrimStart();
-            
-            if (trimmed.StartsWith("#region", StringComparison.Ordinal))
-            {
-                if (inRegion)
-                {
-                    // Nested region
-                    regionDepth++;
-                    regionLines.Add(line);
-                }
-                else
-                {
-                    // Check if this is the region we want
-                    var name = trimmed.Length > 7 ? trimmed[7..].Trim() : "";
-                    if (name.Equals(regionName, StringComparison.OrdinalIgnoreCase))
-                    {
-                        inRegion = true;
-                        regionDepth = 0;
-                    }
-                }
-            }
-            else if (trimmed.StartsWith("#endregion", StringComparison.Ordinal))
-            {
-                if (inRegion)
-                {
-                    if (regionDepth > 0)
-                    {
-                        regionDepth--;
-                        regionLines.Add(line);
-                    }
-                    else
-                    {
-                        // End of our region
-                        break;
-                    }
-                }
-            }
-            else if (inRegion)
-            {
-                regionLines.Add(line);
-            }
-        }
-
-        if (regionLines.Count == 0)
-            return null;
-
-        // Trim common leading whitespace
-        return TrimCommonIndentation(regionLines);
-    }
-
-    private static string TrimCommonIndentation(List<string> lines)
-    {
-        // Find minimum indentation (ignoring empty lines)
-        int minIndent = int.MaxValue;
-        foreach (var line in lines)
-        {
-            if (string.IsNullOrWhiteSpace(line))
-                continue;
-            int indent = line.TakeWhile(char.IsWhiteSpace).Count();
-            minIndent = Math.Min(minIndent, indent);
-        }
-
-        if (minIndent == int.MaxValue || minIndent == 0)
-            return string.Join('\n', lines).TrimEnd();
-
-        // Remove common indentation
-        List<string> result = [];
-        foreach (var line in lines)
-        {
-            if (string.IsNullOrWhiteSpace(line))
-                result.Add("");
-            else
-                result.Add(line[minIndent..]);
-        }
-
-        return string.Join('\n', result).TrimEnd();
-    }
 
     sealed class PersistentCacheSourceContentStore
         : ISourceContentStore

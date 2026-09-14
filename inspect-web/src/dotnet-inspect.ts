@@ -488,6 +488,7 @@ import {
   createBrowserPackageQueryDataSource,
   packageQueryAssemblyPatterns,
   packageQueryFacets,
+  type BrowserPackageQueryInspection,
 } from "./package-query-source.ts";
 import {
   bindPackageQueryView,
@@ -903,6 +904,7 @@ const initialState = {
   packageQueryReturnFocus: null,
   packageQueryReturnFocusPending: false,
   packageQueryState: initialQueryState(),
+  packageQueryInspection: null,
   packageQueryFacets: [],
   packageQueryAssemblyPatterns: [],
   platformIndex: null,
@@ -1108,6 +1110,7 @@ interface StateOverrides {
   packageCacheStatsStatus: "idle" | "loading" | "ready" | "failed";
   diagnosticsCapturedAtUtc: string | null;
   packageQueryState: PackageQueryState;
+  packageQueryInspection: BrowserPackageQueryInspection | null;
   packageQueryFacets: QueryFacetTerm[];
   packageQueryAssemblyPatterns: QueryAssemblyPatternDescriptor[];
   packageQueryPredecessorEntryId: string | null;
@@ -1430,6 +1433,7 @@ function captureRetainedHostState() {
     packageQueryReturnFocus: state.packageQueryReturnFocus,
     packageQueryReturnFocusPending: state.packageQueryReturnFocusPending,
     packageQueryState: state.packageQueryState,
+    packageQueryInspection: state.packageQueryInspection,
     packageQueryFacets: state.packageQueryFacets,
     packageQueryAssemblyPatterns: state.packageQueryAssemblyPatterns,
     platformIndex: state.platformIndex,
@@ -1891,6 +1895,9 @@ const packageQueryController = createPackageQueryController(
       initialMatchCredit,
       eventSink),
   }, {
+    onInspection: inspection => {
+      state.packageQueryInspection = inspection;
+    },
     reportUnexpectedFailure: (operationId, error, diagnostic) => {
       console.error(
         `Package Query managed operation '${operationId}' failed unexpectedly.`,
@@ -1898,12 +1905,14 @@ const packageQueryController = createPackageQueryController(
     },
   }),
   updateKind => {
-    if (!state.packageQueryOpen) return;
     if (updateKind === "reset") {
+      state.packageQueryInspection = null;
+      if (!state.packageQueryOpen) return;
       packageQueryViewport = null;
       render();
       return;
     }
+    if (!state.packageQueryOpen) return;
     schedulePackageQueryStreamRender();
   },
 );
@@ -2363,8 +2372,14 @@ const navigationHistory = createNavigationHistory({
   onExhausted: render,
 });
 const innerNavigationSequence = createNavigationSequence();
+let packageContentLoadingSequence: number | null = null;
 const navigationSequence = {
   begin(): number {
+    if (packageContentLoadingSequence !== null
+      && innerNavigationSequence.isCurrent(packageContentLoadingSequence)) {
+      state.loading = false;
+    }
+    packageContentLoadingSequence = null;
     cancelPendingWorkspaceConstruction();
     settleInterruptedPlatformStatus(state);
     return innerNavigationSequence.begin();
@@ -4463,6 +4478,13 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   const focusedElement = document.activeElement instanceof HTMLElement
     ? document.activeElement
     : null;
+  const loadingPackageContent = state.loading && !state.error
+    && state.package !== null
+    && packageContentLoadingSequence !== null
+    && navigationSequence.isCurrent(packageContentLoadingSequence);
+  const packageLoadingHadFocus =
+    focusedElement?.id === "package-content-loading";
+  const frameworkHadFocus = focusedElement?.id === "framework";
   const homeFocus =
     pendingHomeFocusTarget ?? captureHomeFocus(focusedElement);
   contentFrameFocusOwner = null;
@@ -4520,11 +4542,11 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     && (isProductHomeDemosPath(location.pathname) || state.platformSelection !== null)
     && state.engineReady;
   const showingInterstitial =
-    state.loading
+    (state.loading && !loadingPackageContent)
     || state.error
     || (!state.home && !state.package && !workspaceCatalogVisible);
   if (!showingInterstitial) loadingBotSrc = null;
-  if (state.loading || state.error) {
+  if ((state.loading && !loadingPackageContent) || state.error) {
     renderLoading();
     return;
   }
@@ -4718,7 +4740,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           activeScope === "workspace" ? "workspace" : null,
           true,
           escapeHtml),
-        contextualActionsHtml: annotatedPageContext || sourcePageKind || callGraphPageContext || packageDependenciesWorkingSurface || metadataWorkingSurface
+        contextualActionsHtml: !loadingPackageContent && (annotatedPageContext || sourcePageKind || callGraphPageContext || packageDependenciesWorkingSurface || metadataWorkingSurface)
           ? `<div class="working-surface-actions" role="group" aria-label="${metadataWorkingSurface ? "Type graph actions" : packageDependenciesWorkingSurface ? "Dependency graph actions" : callGraphPageContext ? "Call graph actions" : annotatedPageContext ? "Annotated Source actions" : sourcePageKind ? "Source actions" : "Member actions"}">
               ${metadataWorkingSurface
                 ? `<button type="button" id="type-graph-explore" data-graph-explore${typeGraphAvailable() ? "" : " disabled"}>Explore</button>`
@@ -4782,8 +4804,10 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           ${contentFrameEnabled
             ? renderContentNavigationBar(contentNavigationLabel)
             : ""}
-          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryIntegrationsWorkingSurface ? " library-integrations-working-surface" : ""}${libraryOpportunitiesWorkingSurface ? " library-opportunities-working-surface" : ""}${libraryAnalysisWorkingSurface ? " library-analysis-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}">
-            ${renderLens(current)}
+          <article id="inspector-panel" ${loadingPackageContent ? 'aria-busy="true"' : ""} class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryIntegrationsWorkingSurface ? " library-integrations-working-surface" : ""}${libraryOpportunitiesWorkingSurface ? " library-opportunities-working-surface" : ""}${libraryAnalysisWorkingSurface ? " library-analysis-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}">
+            ${loadingPackageContent
+              ? `<div id="package-content-loading" class="package-content-loading" role="status" tabindex="-1"><span class="loader" aria-hidden="true"></span><span>Loading ${escapeHtml(state.requestedFramework)} content…</span></div>`
+              : renderLens(current)}
           </article>
         </section>
       </main>
@@ -4813,6 +4837,12 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     };
   }
   bindEvents();
+  if (loadingPackageContent) {
+    for (const region of document.querySelectorAll(
+      ".subject-inspector-region, #subject-panel > aside, .content-navigation-bar")) {
+      region.setAttribute("inert", "");
+    }
+  }
   if (state.settings) {
     document.querySelector<HTMLElement>("#settings-title")
       ?.focus({ preventScroll: true });
@@ -4831,6 +4861,10 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     focusLevelOneHeading();
   } else if (isIntegrationMode(integrationTabFocus)) {
     restoreIntegrationTabFocus(document, integrationTabFocus);
+  } else if (packageLoadingHadFocus || (loadingPackageContent && frameworkHadFocus)) {
+    document.querySelector<HTMLElement>(
+      loadingPackageContent ? "#package-content-loading" : "#framework")
+      ?.focus({ preventScroll: true });
   }
   if (scopeBarOwnsFocus) {
     let restored = false;
@@ -4847,6 +4881,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   restorePackageQueryReturnFocus();
   restorePackageQueryWorkspaceFocus();
   graphExplorer.afterRender(graphExplorerTarget());
+  if (loadingPackageContent) return;
   recordNav();
   const productDemosRouteVisible =
     scope() === "workspace"
@@ -8804,6 +8839,7 @@ async function switchPackageFramework(newFramework: string) {
     {
       replacePackage: pkg,
       invalidateWorkspaceShareBasis: true,
+      loadingPresentation: "content",
     });
 }
 
@@ -11180,6 +11216,7 @@ function resetPackageQueryState() {
   const fresh = initialQueryState();
   state.packageQueryState.request = fresh.request;
   state.packageQueryState.outcome = fresh.outcome;
+  state.packageQueryInspection = null;
   packageQueryViewport = null;
 }
 
@@ -14004,6 +14041,7 @@ async function loadSelectedMemberFactsSurface() {
 interface LoadPackageOptions {
   rootRequest?: string;
   background?: boolean;
+  loadingPresentation?: "content";
   navigationSeq?: number;
   queryNotice?: string;
   replacePackage?: AppPackage | null;
@@ -14037,6 +14075,10 @@ async function loadPackage(
     framework: state.requestedFramework
   };
   if (!background) {
+    packageContentLoadingSequence =
+      options.loadingPresentation === "content" && prevPackage
+        ? navigationSeq
+        : null;
     state.loading = true;
     state.error = "";
     state.retryAction = null;
@@ -14102,6 +14144,7 @@ async function loadPackage(
       state.memberSection = "overview";
     }
     state.loading = false;
+    packageContentLoadingSequence = null;
     if (!options.deferWorkspacePublication)
       ensureCurrentWorkspacePublished();
     const selectionData = loadSelectionData();
@@ -14121,6 +14164,7 @@ async function loadPackage(
       return null;
     }
     state.loading = false;
+    packageContentLoadingSequence = null;
     const retryOptions: LoadPackageOptions = { ...options };
     delete retryOptions.navigationSeq;
     if (options.failureHandler) {

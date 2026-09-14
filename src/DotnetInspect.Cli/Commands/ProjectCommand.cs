@@ -70,13 +70,12 @@ public class ProjectCommand
             return DiscoverOutput.Execute(
                 options.Discover,
                 schema,
-                projection: options,
-                tree: options.Tree,
-                json: options.Format == OutputFormat.Json,
-                tsv: options.Format == OutputFormat.Tsv,
-                jsonl: options.Format == OutputFormat.Jsonl,
-                markdown: options.Format == OutputFormat.Markdown,
-                plainText: options.Format == OutputFormat.PlainText,
+                DiscoveryOutputRequest.Create(
+                    options.Format,
+                    options.Tree,
+                    options.Format == OutputFormat.Table,
+                    options.NoHeader,
+                    projection: options),
                 sectionCategories: NoCategories,
                 rootLabel: ProjectTitle);
         }

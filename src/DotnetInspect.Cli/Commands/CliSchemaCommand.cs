@@ -36,7 +36,10 @@ public class CliSchemaCommand
         {
             var schema = rootCommand.ToDocumentSchema();
             var discover = !string.IsNullOrEmpty(commandFilter) ? new[] { commandFilter } : null;
-            return DiscoverOutput.Execute(discover, schema);
+            return DiscoverOutput.Execute(
+                discover,
+                schema,
+                new DiscoveryOutputRequest());
         }
 
         var nodes = commands.Select(c => BuildCommandNode(c, verbosity)).ToList();

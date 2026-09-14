@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
 
@@ -27,7 +28,7 @@ internal sealed record MethodBodyAnalysisResult(
 internal sealed record SafetyAnalysisResult(
     ImmutableArray<UnsafeEvidence> Evidence,
     ImmutableArray<MethodIdentity> LeverageMethods,
-    bool UpdatedRulesEnabled,
+    MemorySafetyRulesResult Rules,
     UnsafeModeBreakdown Modes,
     IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> Occurrences);
 

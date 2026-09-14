@@ -53,8 +53,8 @@ development model and rationale. The binding summary:
 - **Bias toward progress and low carrying cost.** Land independently coherent
   slices; never present unfinished behavior as supported or preserve CLI flags
   solely for compatibility. Shipped product skills must match current behavior.
-- **Lead with a demo.** Every PR demonstrates the scenario (a mockup for
-  docs-only PRs) without fitting the implementation only to that example.
+- **Lead with a demo.** Every PR demonstrates the real production-host scenario;
+  shared CLI and Browser/Wasm work shows both C# and TypeScript call sites.
 - **Treat critical review feedback as a design question first.** Ask whether
   the owning design addresses it before repairing code; keep paired design
   work moving quickly when the contract needs clarification.
@@ -255,6 +255,8 @@ over-broad-design recovery procedure live in
   owns command and presentation concerns.
 - Reuse existing typed models, Finding contracts, section schemas, serializers,
   and resolution services before adding parallel abstractions.
+  Completed host-neutral APIs that hand results to hosts expose
+  `InspectionEnvelope<TContent>`; projections preserve Content, Share, and diagnostics.
 - Preserve behavior-safe defaults and progressive disclosure. Network,
   source-content, exhaustive, or otherwise expensive work must remain explicit
   or capability-gated.

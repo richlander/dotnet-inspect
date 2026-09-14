@@ -12343,6 +12343,7 @@ public partial class CommandExecutionTests
                 "ecosystem",
                 "extensions",
                 "find",
+                "graph libraries",
                 "implements",
                 "library",
                 "member",
@@ -14721,7 +14722,7 @@ public partial class CommandExecutionTests
             "--count", "-v", "q", "--tips", "q");
         var quietWindowed = await RunAppAsync(
             "extensions", "IEnumerable<T>", "--platform", "System.Linq",
-            "--count", "-v", "q", "--rows", "1", "--tips", "q");
+            "--count", "-v", "q", "--rows", "1..1", "--tips", "q");
 
         Assert.Equal(0, normal.Exit);
         Assert.Equal(normal.Output, quiet.Output);
@@ -14740,10 +14741,10 @@ public partial class CommandExecutionTests
             "--count", "--rows", "1..1", "--tips", "q");
         var implements = await RunAppAsync(
             "implements", "IDisposable", "--platform", "System.Private.CoreLib",
-            "--count", "--rows", "1", "--tips", "q");
+            "--count", "--rows", "1..1", "--tips", "q");
         var extensions = await RunAppAsync(
             "extensions", "IEnumerable<T>", "--platform", "System.Linq",
-            "--count", "--rows", "1", "--tips", "q");
+            "--count", "--rows", "1..1", "--tips", "q");
         var invalid = await RunAppAsync(
             "find", "*", "--platform", "System.Private.CoreLib",
             "--count", "--columns", "NoSuchColumn", "--tips", "q");
@@ -19400,7 +19401,8 @@ public partial class CommandExecutionTests
     public async Task Extensions_JsonlAfterPackage_RendersJsonlAndDoesNotWarnAboutPackageFlag()
     {
         var (exit, output, error) = await RunAppAsync(
-            "extensions", "IEnumerable<T>", "--platform", "System.Linq", "--jsonl", "--rows", "2", "--tips", "q");
+            "extensions", "IEnumerable<T>", "--platform", "System.Linq",
+            "--jsonl", "--rows", "1..2", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -34248,6 +34250,65 @@ public partial class CommandExecutionTests
         Assert.Equal(1, all.Exit);
         Assert.Empty(all.Output);
         Assert.Contains("Select value '@All' not found", all.Error);
+    }
+
+    [Fact]
+    public async Task Project_Discover_ExplicitTableDoesNotPromoteToTree()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "project",
+            "-D", "Skills,Package README file",
+            "--table");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Package      column", output);
+        Assert.Contains("Description  column", output);
+        Assert.DoesNotContain("├─", output);
+        Assert.DoesNotContain("└─", output);
+    }
+
+    [Fact]
+    public async Task Project_Discover_TsvNoHeaderOmitsHeader()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "project",
+            "-D", "Skills",
+            "--tsv",
+            "--no-header",
+            "--rows", "1");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal("Package\tcolumn\n", output.ReplaceLineEndings("\n"));
+    }
+
+    [Fact]
+    public async Task Project_Discover_JsonOutWritesOnlyToFile()
+    {
+        var tempDirectory = Directory.CreateTempSubdirectory("project-discovery-out-");
+        try
+        {
+            string path = Path.Combine(tempDirectory.FullName, "discovery.json");
+
+            var (exit, output, error) = await RunAppAsync(
+                "project",
+                "-D", "Skills",
+                "--json",
+                "--out", path);
+
+            Assert.Equal(0, exit);
+            Assert.Empty(output);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            var first = document.RootElement.EnumerateArray().First();
+            Assert.Equal("Package", first.GetProperty("name").GetString());
+            Assert.Equal("column", first.GetProperty("kind").GetString());
+        }
+        finally
+        {
+            tempDirectory.Delete(recursive: true);
+        }
     }
 
     [Fact]

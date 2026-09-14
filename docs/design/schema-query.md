@@ -109,6 +109,14 @@ var result = schema.Discover("Package Info");
 
 The result is a list of `(Name, Kind)` pairs. The consumer renders them however it wants — table, TSV, markdown, tree, JSON.
 
+The CLI must honor the resolved discovery presentation request without replacing
+an explicit output shape. Explicit `--tree` selects the tree; eligible implicit
+table or Markdown discovery may still promote to a tree, while explicit
+`--table`, TSV, JSONL, JSON, and plaintext retain their requested shapes.
+`--no-header` suppresses a tabular header when that format has one, and `--out`
+routes the complete discovery artifact to the requested destination instead of
+also writing it to stdout.
+
 ### Selection
 
 Selection resolves a user query to a section:

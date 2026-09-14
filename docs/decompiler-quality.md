@@ -97,12 +97,12 @@ back through a compiler. The supporting evidence:
 
 ### Expanding real-world fidelity coverage
 
-The real-world corpus card exposes compile-back fidelity coverage honestly, but
-coverage can be thin because many methods are not yet standalone-recompilable.
-Increasing the cap is only a measurement step: it characterizes how much useful
-compile-back evidence exists today and buckets why the rest fails. The first
-expansion target is therefore the **checked population inside the fixed
-corpus**, not a larger random assembly set.
+The real-world corpus card exposes native ReturnToSender fidelity coverage
+honestly, but coverage can be thin because many methods are not yet
+standalone-recompilable. Increasing the cap is only a measurement step: it
+characterizes how much useful native evidence exists today and buckets why the
+rest fails. The first expansion target is therefore the **checked population
+inside the fixed corpus**, not a larger random assembly set.
 
 Use this order for risky decompiler work:
 
@@ -569,12 +569,13 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --quality-diff-card \
   --compile-cap 25 \
   --corpus-fidelity-cap 3 \
+  --corpus-fidelity-oracle rts-cutover \
   --max-examples 3
 ```
 
 For risky raise or structuring PRs, add `--quality-card-risky`. It keeps the
 card generated from the same snapshots, but adds a thin-coverage warning when the
-semantic validity sample is below 1.00% of methods or the compile-back fidelity
+semantic validity sample is below 1.00% of methods or the native RTS fidelity
 sample is below 0.10%. That warning means the aggregate card is not enough by
 itself; add method-level improved examples and still-flat near misses.
 
