@@ -38,6 +38,7 @@ internal static class BrowserPlatformCallGraph
             memberName,
             selectorKey,
             metadataToken,
+            initial: null,
             acquisition: null,
             cancellationToken);
 
@@ -69,6 +70,73 @@ internal static class BrowserPlatformCallGraph
             memberName,
             selectorKey,
             metadataToken,
+            initial: null,
+            acquisition: new AcquisitionHost(
+                client,
+                sourceAuthorization,
+                operationTimeout),
+            cancellationToken);
+
+    internal static Task<BrowserCallGraphInfo> QueryAsync(
+        BrowserPlatformScopeResolution initial,
+        string targetFramework,
+        string platformVersion,
+        string assembly,
+        string pack,
+        string assemblyVersion,
+        string? assemblyCulture,
+        string? assemblyPublicKeyToken,
+        string typeFullName,
+        string memberName,
+        string selectorKey,
+        int metadataToken,
+        CancellationToken cancellationToken = default) =>
+        QueryAsync(
+            targetFramework,
+            platformVersion,
+            assembly,
+            pack,
+            assemblyVersion,
+            assemblyCulture,
+            assemblyPublicKeyToken,
+            typeFullName,
+            memberName,
+            selectorKey,
+            metadataToken,
+            initial,
+            acquisition: null,
+            cancellationToken);
+
+    internal static Task<BrowserCallGraphInfo> QueryAsync(
+        BrowserPlatformScopeResolution initial,
+        string targetFramework,
+        string platformVersion,
+        string assembly,
+        string pack,
+        string assemblyVersion,
+        string? assemblyCulture,
+        string? assemblyPublicKeyToken,
+        string typeFullName,
+        string memberName,
+        string selectorKey,
+        int metadataToken,
+        HttpClient client,
+        IPackageSourceAuthorization sourceAuthorization,
+        TimeSpan operationTimeout,
+        CancellationToken cancellationToken = default) =>
+        QueryAsync(
+            targetFramework,
+            platformVersion,
+            assembly,
+            pack,
+            assemblyVersion,
+            assemblyCulture,
+            assemblyPublicKeyToken,
+            typeFullName,
+            memberName,
+            selectorKey,
+            metadataToken,
+            initial,
             new AcquisitionHost(
                 client,
                 sourceAuthorization,
@@ -87,6 +155,7 @@ internal static class BrowserPlatformCallGraph
         string memberName,
         string selectorKey,
         int metadataToken,
+        BrowserPlatformScopeResolution? initial,
         AcquisitionHost? acquisition,
         CancellationToken cancellationToken)
     {
@@ -104,6 +173,7 @@ internal static class BrowserPlatformCallGraph
                 memberName,
                 selectorKey,
                 metadataToken,
+                initial,
                 acquisition,
                 cancellationToken);
 
@@ -150,6 +220,7 @@ internal static class BrowserPlatformCallGraph
         string memberName,
         string selectorKey,
         int metadataToken,
+        BrowserPlatformScopeResolution? initial,
         AcquisitionHost? acquisition,
         CancellationToken cancellationToken)
     {
@@ -162,14 +233,21 @@ internal static class BrowserPlatformCallGraph
         }
 
         string assemblyFileName = BrowserPlatformIdentity.AssemblyFileName(assembly);
+        bool exactContext = initial is not null;
         await using var owner = new PlatformScopeOwner(
-            await OpenAssemblyAsync(
-                targetFramework,
-                platformVersion,
-                assemblyFileName,
-                pack,
-                acquisition,
-                cancellationToken));
+            initial is null
+                ? await OpenAssemblyAsync(
+                    targetFramework,
+                    platformVersion,
+                    assemblyFileName,
+                    pack,
+                    acquisition,
+                    cancellationToken)
+                : new BrowserPlatformScopeResolution(
+                    initial.Scope,
+                    initial.Participant,
+                    initial.Coordinate,
+                    BrowserPackageWorkspace.LeaseScope(initial.Scope)));
         string rootFamily = owner.Current.Coordinate.Family;
         string rootAssembly =
             owner.Current.Participant.Participant.Assembly.Identity.Name;
@@ -202,6 +280,7 @@ internal static class BrowserPlatformCallGraph
                     memberName,
                     selectorKey,
                     metadataToken,
+                    exactContext,
                     acquisition,
                     cancellationToken);
             BrowserPlatformScopeResolution current = owner.Current;
@@ -248,12 +327,18 @@ internal static class BrowserPlatformCallGraph
                 }),
             ];
             await owner.ReplaceAsync(
-                await OpenAssembliesAsync(
-                    targetFramework,
-                    platformVersion,
-                    requests,
-                    acquisition,
-                    cancellationToken));
+                exactContext
+                    ? await ExpandContextAsync(
+                        owner.Current,
+                        requests,
+                        acquisition,
+                        cancellationToken)
+                    : await OpenAssembliesAsync(
+                        targetFramework,
+                        platformVersion,
+                        requests,
+                        acquisition,
+                        cancellationToken));
         }
 
         throw new InvalidOperationException(
@@ -271,6 +356,7 @@ internal static class BrowserPlatformCallGraph
         string memberName,
         string selectorKey,
         int metadataToken,
+        bool exactContext,
         AcquisitionHost? acquisition,
         CancellationToken cancellationToken)
     {
@@ -407,13 +493,23 @@ internal static class BrowserPlatformCallGraph
                     + $"resolve '{typeFullName}', but no authorized "
                     + "platform pack supplies it.");
             await owner.ReplaceAsync(
-                await OpenAssemblyAsync(
-                    targetFramework,
-                    platformVersion,
-                    $"{target.Name}.dll",
-                    targetPack,
-                    acquisition,
-                    cancellationToken));
+                exactContext
+                    ? await ExpandContextAsync(
+                        owner.Current,
+                        [
+                            new BrowserPlatformAssemblyRequest(
+                                $"{target.Name}.dll",
+                                targetPack),
+                        ],
+                        acquisition,
+                        cancellationToken)
+                    : await OpenAssemblyAsync(
+                        targetFramework,
+                        platformVersion,
+                        $"{target.Name}.dll",
+                        targetPack,
+                        acquisition,
+                        cancellationToken));
         }
 
         throw new InvalidOperationException(
@@ -579,6 +675,24 @@ internal static class BrowserPlatformCallGraph
             : BrowserPlatformWorkspace.OpenAssembliesAsync(
                 targetFramework,
                 platformVersion,
+                assemblies,
+                acquisition.Client,
+                acquisition.SourceAuthorization,
+                acquisition.OperationTimeout,
+                cancellationToken);
+
+    static Task<BrowserPlatformScopeResolution> ExpandContextAsync(
+        BrowserPlatformScopeResolution current,
+        IReadOnlyList<BrowserPlatformAssemblyRequest> assemblies,
+        AcquisitionHost? acquisition,
+        CancellationToken cancellationToken) =>
+        acquisition is null
+            ? BrowserPlatformWorkspace.ExpandContextAsync(
+                current,
+                assemblies,
+                cancellationToken)
+            : BrowserPlatformWorkspace.ExpandContextAsync(
+                current,
                 assemblies,
                 acquisition.Client,
                 acquisition.SourceAuthorization,

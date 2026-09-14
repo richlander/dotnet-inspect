@@ -90,6 +90,25 @@ internal sealed class BrowserPlatformScope(
     internal string? PlatformPackForAssembly(string assembly) =>
         _platformPacks.GetValueOrDefault(assembly);
 
+    internal RealizedMemberCoordinate.Platform PlatformCoordinate(
+        string family,
+        string assembly)
+    {
+        RealizedMemberCoordinate.Platform[] coordinates =
+        [
+            .. Context.AvailablePlatformAssemblies.Where(candidate =>
+                candidate.Family.Equals(family, StringComparison.Ordinal)
+                && string.Equals(
+                    candidate.Assembly,
+                    assembly,
+                    StringComparison.OrdinalIgnoreCase)),
+        ];
+        return coordinates.Length == 1
+            ? coordinates[0]
+            : throw new InvalidOperationException(
+                $"Platform family '{family}' assembly '{assembly}' has no unique available coordinate.");
+    }
+
     public ValueTask DisposeAsync()
     {
         _context = null;
@@ -143,17 +162,28 @@ internal static class BrowserPlatformWorkspace
 
     static readonly Dictionary<string, TargetState> Targets =
         new(StringComparer.Ordinal);
+    static readonly Dictionary<string, BrowserPlatformScope> DemoTargets =
+        new(StringComparer.Ordinal);
     static readonly Dictionary<string, Task> TargetTails =
         new(StringComparer.Ordinal);
     static long _targetClock;
+    static long _demoScopeClock;
 
     internal static BrowserPlatformScopeResolution LeaseRetainedAssembly(
         string framework, string version, string assembly)
     {
         string name = AssemblySimpleName(assembly);
-        BrowserPlatformScope[] scopes = Targets.Values
-            .Select(state => state.Scope)
-            .OfType<BrowserPlatformScope>()
+        BrowserPlatformScope[] demoScopes = DemoTargets.Values
+            .Distinct()
+            .Where(scope => BrowserPackageWorkspace.IsScopeRetained(scope)
+                && scope.Framework.Equals(framework, StringComparison.OrdinalIgnoreCase)
+                && scope.Coordinates.Any(coordinate =>
+                    coordinate.Version.Equals(version, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(coordinate.Assembly, name, StringComparison.OrdinalIgnoreCase)))
+            .ToArray();
+        BrowserPlatformScope[] scopes = (demoScopes.Length != 0
+                ? demoScopes
+                : Targets.Values.Select(state => state.Scope).OfType<BrowserPlatformScope>())
             .Distinct()
             .Where(scope => BrowserPackageWorkspace.IsScopeRetained(scope)
                 && scope.Framework.Equals(framework, StringComparison.OrdinalIgnoreCase)
@@ -362,6 +392,135 @@ internal static class BrowserPlatformWorkspace
             operationTimeout,
             cancellationToken);
 
+    internal static Task<BrowserPlatformScopeResolution> OpenContextAsync(
+        WorkspacePlan plan,
+        WorkspaceContextInput context,
+        string focusFamily,
+        string focusAssembly,
+        CancellationToken cancellationToken = default) =>
+        OpenContextAsync(
+            plan,
+            context,
+            focusFamily,
+            focusAssembly,
+            ProductionHost,
+            BrowserPackageWorkspace.PackageOperationTimeout,
+            cancellationToken);
+
+    internal static Task<BrowserPlatformScopeResolution> OpenContextAsync(
+        WorkspacePlan plan,
+        WorkspaceContextInput context,
+        string focusFamily,
+        string focusAssembly,
+        HttpClient client,
+        IPackageSourceAuthorization sourceAuthorization,
+        TimeSpan operationTimeout,
+        CancellationToken cancellationToken = default) =>
+        OpenContextAsync(
+            plan,
+            context,
+            focusFamily,
+            focusAssembly,
+            new Host(client, sourceAuthorization),
+            operationTimeout,
+            cancellationToken);
+
+    internal static Task<BrowserPlatformScopeResolution> ExpandContextAsync(
+        BrowserPlatformScopeResolution current,
+        IReadOnlyList<BrowserPlatformAssemblyRequest> assemblies,
+        CancellationToken cancellationToken = default) =>
+        ExpandContextAsync(
+            current,
+            assemblies,
+            ProductionHost,
+            BrowserPackageWorkspace.PackageOperationTimeout,
+            cancellationToken);
+
+    internal static Task<BrowserPlatformScopeResolution> ExpandContextAsync(
+        BrowserPlatformScopeResolution current,
+        IReadOnlyList<BrowserPlatformAssemblyRequest> assemblies,
+        HttpClient client,
+        IPackageSourceAuthorization sourceAuthorization,
+        TimeSpan operationTimeout,
+        CancellationToken cancellationToken = default) =>
+        ExpandContextAsync(
+            current,
+            assemblies,
+            new Host(client, sourceAuthorization),
+            operationTimeout,
+            cancellationToken);
+
+    static Task<BrowserPlatformScopeResolution> OpenContextAsync(
+        WorkspacePlan plan,
+        WorkspaceContextInput context,
+        string focusFamily,
+        string focusAssembly,
+        Host host,
+        TimeSpan operationTimeout,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentException.ThrowIfNullOrWhiteSpace(focusFamily);
+        ArgumentException.ThrowIfNullOrWhiteSpace(focusAssembly);
+        if (!plan.Contexts.Any(candidate => ReferenceEquals(candidate, context)))
+        {
+            throw new ArgumentException(
+                "The selected context must be the exact input retained by the Workspace plan.",
+                nameof(context));
+        }
+
+        PlatformPlanContext platform =
+            PlatformPlanContext.Create(context, focusFamily, focusAssembly);
+        string targetKey = TargetKey(platform.Framework, platform.Version);
+        return BrowserPackageWorkspace.RunPackageOperationAsync(
+            deadline => EnqueueAsync(
+                targetKey,
+                () => OpenContextCoreAsync(
+                    targetKey,
+                    plan,
+                    context,
+                    platform,
+                    host,
+                    deadline),
+                deadline.Token),
+            operationTimeout,
+            cancellationToken);
+    }
+
+    static Task<BrowserPlatformScopeResolution> ExpandContextAsync(
+        BrowserPlatformScopeResolution current,
+        IReadOnlyList<BrowserPlatformAssemblyRequest> assemblies,
+        Host host,
+        TimeSpan operationTimeout,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(current);
+        ArgumentNullException.ThrowIfNull(assemblies);
+        if (assemblies.Count == 0)
+        {
+            throw new ArgumentException(
+                "A Platform demo scope expansion requires at least one assembly.",
+                nameof(assemblies));
+        }
+
+        string targetFramework = current.Scope.Framework;
+        string platformVersion = current.Coordinate.Version;
+        string targetKey = TargetKey(targetFramework, platformVersion);
+        return BrowserPackageWorkspace.RunPackageOperationAsync(
+            deadline => EnqueueAsync(
+                targetKey,
+                () => ExpandContextCoreAsync(
+                    targetKey,
+                    current,
+                    assemblies,
+                    host,
+                    deadline),
+                deadline.Token),
+            operationTimeout,
+            cancellationToken);
+    }
+
     static Task<BrowserPlatformScopeResolution> OpenAsync(
         string targetFramework,
         string? platformVersion,
@@ -439,6 +598,187 @@ internal static class BrowserPlatformWorkspace
             host,
             operationTimeout,
             cancellationToken);
+    }
+
+    static async Task<BrowserPlatformScopeResolution> OpenContextCoreAsync(
+        string targetKey,
+        WorkspacePlan plan,
+        WorkspaceContextInput context,
+        PlatformPlanContext platform,
+        Host host,
+        BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline)
+    {
+        deadline.Token.ThrowIfCancellationRequested();
+        using var packageLeases =
+            new BrowserPackageWorkspace.PackageLeaseSet();
+        if (ReferenceEquals(host, ProductionHost))
+        {
+            foreach (string family in platform.Families)
+            {
+                BrowserPackage package =
+                    await BrowserPlatformCatalog.AcquireRuntimeAsync(
+                        platform.Framework,
+                        family,
+                        platform.Version,
+                        deadline.Remaining,
+                        deadline.Token).ConfigureAwait(false);
+                packageLeases.Lease(package.CacheKey);
+            }
+        }
+
+        DemoTargets.TryGetValue(
+            targetKey,
+            out BrowserPlatformScope? previous);
+        await using BrowserScopeLease<BrowserPlatformScope>? retainedLease =
+            previous is not null
+            && BrowserPackageWorkspace.IsScopeRetained(previous)
+                ? BrowserPackageWorkspace.LeaseScope(previous)
+                : null;
+        await using ScopeReservation reservation =
+            await BrowserPackageWorkspace.ReserveScopeAsync(deadline.Token)
+                .ConfigureAwait(false);
+        await using PlatformLoadAttempt attempt =
+            await LoadContextAttemptAsync(
+                plan,
+                context,
+                host,
+                deadline,
+                packageLeases).ConfigureAwait(false);
+        if (attempt.Failure is not null)
+            throw Failure(attempt.Failure);
+
+        return await PublishDemoScopeAsync(
+            targetKey,
+            attempt.ReleaseScope(),
+            attempt.PackageKeys,
+            reservation,
+            platform.FocusFamily,
+            platform.FocusAssembly).ConfigureAwait(false);
+    }
+
+    static async Task<BrowserPlatformScopeResolution> ExpandContextCoreAsync(
+        string targetKey,
+        BrowserPlatformScopeResolution current,
+        IReadOnlyList<BrowserPlatformAssemblyRequest> assemblies,
+        Host host,
+        BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline)
+    {
+        deadline.Token.ThrowIfCancellationRequested();
+        using var packageLeases =
+            new BrowserPackageWorkspace.PackageLeaseSet();
+        var selections = ImmutableArray.CreateBuilder<PlatformSelection>();
+        foreach (BrowserPlatformAssemblyRequest request in assemblies)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            selections.Add(
+                new PlatformSelection(
+                    Family(request.Pack),
+                    AssemblySimpleName(request.AssemblyFileName)));
+        }
+        if (ReferenceEquals(host, ProductionHost))
+        {
+            foreach (string family in selections
+                .Select(selection => selection.Family)
+                .Distinct(StringComparer.Ordinal))
+            {
+                BrowserPackage package =
+                    await BrowserPlatformCatalog.AcquireRuntimeAsync(
+                        current.Scope.Framework,
+                        family,
+                        current.Coordinate.Version,
+                        deadline.Remaining,
+                        deadline.Token).ConfigureAwait(false);
+                packageLeases.Lease(package.CacheKey);
+            }
+        }
+
+        await using ScopeReservation reservation =
+            await BrowserPackageWorkspace.ReserveScopeAsync(deadline.Token)
+                .ConfigureAwait(false);
+        ImmutableArray<RealizedMemberCoordinate.Platform> coordinates =
+            current.Scope.Coordinates;
+        foreach (PlatformSelection selection in selections)
+        {
+            if (coordinates.Any(candidate =>
+                    candidate.Family.Equals(
+                        selection.Family,
+                        StringComparison.Ordinal)
+                    && string.Equals(
+                        candidate.Assembly,
+                        selection.Assembly,
+                        StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            EnsureAssemblyCapacity(coordinates.Length + 1);
+            coordinates = coordinates.Add(
+                current.Scope.PlatformCoordinate(
+                    selection.Family,
+                    selection.Assembly));
+        }
+
+        (BrowserPlatformScope candidate, ImmutableHashSet<string> packageKeys) =
+            await LoadRealizedAsync(
+                coordinates,
+                host,
+                deadline,
+                packageLeases).ConfigureAwait(false);
+        RealizedMemberCoordinate.Platform focus =
+            current.Coordinate;
+        return await PublishDemoScopeAsync(
+            targetKey,
+            candidate,
+            packageKeys,
+            reservation,
+            focus.Family,
+            current.Participant.Participant.Assembly.Identity.Name)
+            .ConfigureAwait(false);
+    }
+
+    static async Task<BrowserPlatformScopeResolution> PublishDemoScopeAsync(
+        string targetKey,
+        BrowserPlatformScope candidate,
+        ImmutableHashSet<string> packageKeys,
+        ScopeReservation reservation,
+        string focusFamily,
+        string focusAssembly)
+    {
+        RealizedMemberCoordinate.Platform selected =
+            AssertSingleCoordinate(
+                candidate,
+                focusFamily,
+                focusAssembly);
+        string scopeKey = ScopeKey(candidate.Coordinates);
+        BrowserScopeLease<BrowserPlatformScope> lease =
+            await BrowserPackageWorkspace.RegisterScopeAsync(
+                    reservation,
+                    $"{scopeKey}|demo:{Interlocked.Increment(ref _demoScopeClock)}",
+                    candidate,
+                    packageKeys,
+                    ForgetDemoScope)
+                .ConfigureAwait(false);
+        BrowserPlatformScope registered = lease.Scope;
+        WorkspaceContextMember participant =
+            registered.Participant(
+                focusFamily,
+                focusAssembly);
+        DemoTargets.TryGetValue(
+            targetKey,
+            out BrowserPlatformScope? previous);
+        DemoTargets[targetKey] = registered;
+        if (previous is not null
+            && !ReferenceEquals(previous, registered))
+        {
+            await BrowserPackageWorkspace.RemoveScopeAsync(previous)
+                .ConfigureAwait(false);
+        }
+
+        return new BrowserPlatformScopeResolution(
+            registered,
+            participant,
+            selected,
+            lease);
     }
 
     static Task<BrowserPlatformScopeResolution> OpenAsync(
@@ -978,6 +1318,36 @@ internal static class BrowserPlatformWorkspace
         }
     }
 
+    static async Task<PlatformLoadAttempt> LoadContextAttemptAsync(
+        WorkspacePlan plan,
+        WorkspaceContextInput context,
+        Host host,
+        BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline,
+        BrowserPackageWorkspace.PackageLeaseSet packageLeases)
+    {
+        var workspace = new InspectionWorkspace(plan);
+        var store = new TrackingPackageStore(packageLeases);
+        try
+        {
+            WorkspaceContextLoadOutcome outcome =
+                await WorkspaceContextLoader.LoadAsync(
+                    workspace,
+                    context,
+                    Options(store, host, deadline),
+                    deadline.Token).ConfigureAwait(false);
+            return await AttemptAsync(
+                workspace,
+                outcome,
+                store.PackageKeys).ConfigureAwait(false);
+        }
+        catch (Exception failure)
+        {
+            await CloseAfterFailureAsync(workspace, failure)
+                .ConfigureAwait(false);
+            throw;
+        }
+    }
+
     static async Task<PlatformLoadAttempt> LoadRealizedAttemptAsync(
         ImmutableArray<RealizedMemberCoordinate.Platform> coordinates,
         Host host,
@@ -1365,6 +1735,16 @@ internal static class BrowserPlatformWorkspace
             state.Scope = null;
     }
 
+    static void ForgetDemoScope(BrowserPlatformScope scope)
+    {
+        string? key = DemoTargets
+            .Where(candidate => ReferenceEquals(candidate.Value, scope))
+            .Select(candidate => candidate.Key)
+            .FirstOrDefault();
+        if (key is not null)
+            DemoTargets.Remove(key);
+    }
+
     static void TrimTargetStates()
     {
         while (Targets.Count > MaxRetainedTargets)
@@ -1442,6 +1822,85 @@ internal static class BrowserPlatformWorkspace
     readonly record struct PlatformSelection(
         string Family,
         string Assembly);
+
+    readonly record struct PlatformPlanContext(
+        string Framework,
+        string Version,
+        ImmutableArray<string> Families,
+        string FocusFamily,
+        string FocusAssembly)
+    {
+        internal static PlatformPlanContext Create(
+            WorkspaceContextInput context,
+            string focusFamily,
+            string focusAssembly)
+        {
+            WorkspaceMemberCoordinate.PlatformMember[] members =
+            [
+                .. context.Members
+                    .OfType<WorkspaceMemberCoordinate.PlatformMember>(),
+            ];
+            if (members.Length != context.Members.Count)
+            {
+                throw new InvalidOperationException(
+                    "A Browser Platform home demo context cannot contain non-Platform members.");
+            }
+            if (members.Length == 0)
+            {
+                throw new InvalidOperationException(
+                    "A Browser Platform home demo context has no members.");
+            }
+
+            WorkspaceMemberCoordinate.PlatformMember? focus =
+                members.FirstOrDefault(member =>
+                    member.Family.Equals(
+                        focusFamily,
+                        StringComparison.Ordinal)
+                    && string.Equals(
+                        member.Assembly,
+                        focusAssembly,
+                        StringComparison.OrdinalIgnoreCase));
+            if (focus is null)
+            {
+                throw new InvalidOperationException(
+                    "The Browser Platform home demo focus is not a member of its selected context.");
+            }
+
+            string framework = focus.Framework
+                ?? context.Framework
+                ?? throw new InvalidOperationException(
+                    "A Browser Platform home demo requires an exact target framework.");
+            string version = focus.Version
+                ?? throw new InvalidOperationException(
+                    "A Browser Platform home demo requires an exact Platform version.");
+            bool prefetchable = members.All(member =>
+                IsSupportedFamily(member.Family)
+                && member.Assembly is { Length: > 0 }
+                && member.Version is { Length: > 0 }
+                && !member.Version.Equals(
+                    "latest",
+                    StringComparison.OrdinalIgnoreCase)
+                && member.Version.Equals(
+                    version,
+                    StringComparison.OrdinalIgnoreCase)
+                && string.Equals(
+                    member.Framework ?? context.Framework,
+                    framework,
+                    StringComparison.OrdinalIgnoreCase));
+
+            return new PlatformPlanContext(
+                framework,
+                version,
+                prefetchable
+                    ? [
+                        .. members.Select(member => member.Family)
+                            .Distinct(StringComparer.Ordinal),
+                    ]
+                    : [],
+                focusFamily,
+                focusAssembly);
+        }
+    }
 
     sealed class TrackingPackageStore(
         BrowserPackageWorkspace.PackageLeaseSet packageLeases)

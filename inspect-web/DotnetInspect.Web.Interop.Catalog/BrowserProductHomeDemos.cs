@@ -116,6 +116,10 @@ internal static class BrowserProductHomeDemos
         }
 
         return new BrowserHomeDemoRunPlan(
+            productPlan.Scenario.WorkspacePlan
+                ?? throw new InspectionDefinitionException(
+                    $"Home demo '{scenario.ScenarioId}' has no Workspace plan."),
+            productPlan.Context.Input,
             requests,
             focusIndex,
             productPlan.TypeName,
@@ -320,6 +324,8 @@ internal static class BrowserProductHomeDemos
 }
 
 internal sealed record BrowserHomeDemoRunPlan(
+    WorkspacePlan WorkspacePlan,
+    WorkspaceContextInput ContextInput,
     BrowserHomeDemoRunRequest[] Requests,
     int FocusRequestIndex,
     string TypeId,

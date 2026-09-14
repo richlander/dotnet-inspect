@@ -43,6 +43,7 @@ using BrowserCallGraphDiagnostics = DotnetInspect.Web.Interop.CallGraph.BrowserC
 using BrowserHomeDemoRunResult = DotnetInspect.Web.Interop.Catalog.BrowserHomeDemoRunResult;
 using BrowserHomeDemoRunActivation = DotnetInspect.Web.Interop.Catalog.BrowserHomeDemoRunActivation;
 using BrowserHomeDemoRunPlan = DotnetInspect.Web.Interop.Catalog.BrowserHomeDemoRunPlan;
+using BrowserProductHomeDemos = DotnetInspect.Web.Interop.Catalog.BrowserProductHomeDemos;
 using BrowserHomeDemoRunMember = DotnetInspect.Web.Interop.Catalog.BrowserHomeDemoRunMember;
 using BrowserHomeDemoRunRequest = DotnetInspect.Web.Interop.Catalog.BrowserHomeDemoRunRequest;
 
@@ -3014,6 +3015,212 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PlatformHomeDemo_DefinitionAndProgrammaticPlansReturnSameMethods()
+    {
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                "microsoft.netcore.app.runtime.linux-x64",
+                "10.0.12",
+                PlatformPackage(
+                    "net10.0",
+                    ("System.Text.Json.dll",
+                        File.ReadAllBytes(
+                            typeof(JsonSerializer).Assembly.Location))),
+                fromCache: false));
+        ResolvedScenario scenario =
+            Assert.IsType<EcosystemDemoSelectionResult.Known>(
+                EcosystemPackCatalog.SelectDemo(
+                    ProductDemoIds.StjSerializer))
+                .Selection.Scenario;
+        BrowserHomeDemoRunPlan documentPlan =
+            BrowserProductHomeDemos.ToRunPlan(scenario);
+        WorkspacePlan programmaticWorkspacePlan = CreateStjPlan();
+        BrowserHomeDemoRunPlan programmaticPlan = documentPlan with
+        {
+            WorkspacePlan = programmaticWorkspacePlan,
+            ContextInput = programmaticWorkspacePlan.Contexts[1],
+        };
+
+        BrowserHomeDemoRunResult document =
+            await DotnetInspect.Web.Interop.Catalog.CatalogExports
+                .RunPlatformHomeDemoAsync(documentPlan);
+        BrowserHomeDemoRunResult programmatic =
+            await DotnetInspect.Web.Interop.Catalog.CatalogExports
+                .RunPlatformHomeDemoAsync(programmaticPlan);
+
+        string documentJson = JsonSerializer.Serialize(
+            document,
+            BrowserCatalogJsonContext.Default.BrowserHomeDemoRunResult);
+        string programmaticJson = JsonSerializer.Serialize(
+            programmatic,
+            BrowserCatalogJsonContext.Default.BrowserHomeDemoRunResult);
+        Assert.Contains(
+            "System.Text.Json.JsonSerializer",
+            documentJson,
+            StringComparison.Ordinal);
+        Assert.Equal(documentJson, programmaticJson);
+    }
+
+    [Fact]
+    public async Task PlatformHomeDemo_RequiresPlanRetainedContextInput()
+    {
+        WorkspacePlan plan = CreateStjPlan();
+        WorkspaceContextInput detachedCopy = plan.Contexts[1] with { };
+
+        ArgumentException error = await Assert.ThrowsAsync<ArgumentException>(
+            () => BrowserPlatformWorkspace.OpenContextAsync(
+                plan,
+                detachedCopy,
+                "runtime",
+                "System.Text.Json",
+                TestContext.Current.CancellationToken));
+
+        Assert.Contains(
+            "exact input retained by the Workspace plan",
+            error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(
+        "net9.0",
+        null,
+        WorkspaceContextLoadFailureKind.ConflictingAcquisitionTarget)]
+    [InlineData(
+        "net10.0",
+        "LINUX-X64",
+        WorkspaceContextLoadFailureKind.InvalidCoordinate)]
+    public async Task PlatformHomeDemo_PreservesPlanTargetFailures(
+        string framework,
+        string? runtimeIdentifier,
+        WorkspaceContextLoadFailureKind failureKind)
+    {
+        WorkspacePlan workspacePlan =
+            CreateStjPlan(framework, runtimeIdentifier);
+        var handler = new PlatformVersionHandler(
+            "microsoft.netcore.app.runtime.linux-x64",
+            "10.0.12");
+        using var client = new HttpClient(handler);
+        var authorization =
+            new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]);
+
+        InvalidOperationException error =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => BrowserPlatformWorkspace.OpenContextAsync(
+                    workspacePlan,
+                    workspacePlan.Contexts[1],
+                    "runtime",
+                    "System.Text.Json",
+                    client,
+                    authorization,
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Contains(
+            failureKind.ToString(),
+            error.Message,
+            StringComparison.Ordinal);
+        Assert.Equal(0, handler.Requests);
+    }
+
+    [Fact]
+    public async Task PlatformHomeDemo_PreservesCumulativeStateAndIndependentPlanRealizations()
+    {
+        const string packageId =
+            "microsoft.netcore.app.runtime.linux-x64";
+        const string version = "11.0.107";
+        const string framework = "net11.0-platform-home-demo-independent";
+        byte[] nupkg = PlatformPackage(
+            ("DotnetInspect.Web.Tests.dll",
+                File.ReadAllBytes(
+                    typeof(BrowserEngineBoundaryTests).Assembly.Location)),
+            ("System.Private.CoreLib.dll",
+                File.ReadAllBytes(typeof(object).Assembly.Location)));
+        var handler = new PlatformVersionHandler(
+            packageId,
+            version,
+            nupkg);
+        using var client = new HttpClient(handler);
+        var authorization =
+            new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]);
+        WorkspacePlan firstPlan = PlatformTestPlan();
+        WorkspacePlan secondPlan = PlatformTestPlan();
+        BrowserPlatformScope secondScope;
+        BrowserPlatformScope cumulativeScope;
+        await using (BrowserPlatformScopeResolution cumulative =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                framework,
+                version,
+                "System.Private.CoreLib.dll",
+                "netcore.app",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken))
+        {
+            cumulativeScope = cumulative.Scope;
+        }
+        await using BrowserScopeLease<BrowserPlatformScope> cumulativePin =
+            BrowserPackageWorkspace.LeaseScope(cumulativeScope);
+
+        await using (BrowserPlatformScopeResolution first =
+            await BrowserPlatformWorkspace.OpenContextAsync(
+                firstPlan,
+                firstPlan.Contexts[0],
+                "runtime",
+                "DotnetInspect.Web.Tests",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken))
+        await using (BrowserPlatformScopeResolution second =
+            await BrowserPlatformWorkspace.OpenContextAsync(
+                secondPlan,
+                secondPlan.Contexts[0],
+                "runtime",
+                "DotnetInspect.Web.Tests",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken))
+        {
+            Assert.NotSame(first.Scope, second.Scope);
+            Assert.NotSame(firstPlan, secondPlan);
+            Assert.Single(first.Scope.Members);
+            Assert.Single(second.Scope.Members);
+            secondScope = second.Scope;
+        }
+
+        await using BrowserPlatformScopeResolution retainedCumulative =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                framework,
+                version,
+                "System.Private.CoreLib.dll",
+                "netcore.app",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        Assert.Same(cumulativeScope, retainedCumulative.Scope);
+        await BrowserPackageWorkspace.RemoveScopeAsync(secondScope);
+
+        WorkspacePlan PlatformTestPlan() =>
+            new(
+                [],
+                [
+                    new WorkspaceContextInput
+                    {
+                        Framework = framework,
+                        Members = [WorkspaceMemberCoordinate.Platform(
+                            "runtime",
+                            "DotnetInspect.Web.Tests",
+                            version,
+                            framework)],
+                    },
+                ]);
+    }
+
+    [Fact]
     public void PackageArchiveEntryFlood_IsRejectedBeforeArchiveEnumeration()
     {
         const int maxEntries = 4_096;
@@ -4251,6 +4458,33 @@ public sealed partial class BrowserEngineBoundaryTests
         pe.Serialize(image);
         return image.ToArray();
     }
+
+    static WorkspacePlan CreateStjPlan(
+        string framework = "net10.0",
+        string? runtimeIdentifier = null) =>
+        new(
+            [],
+            [
+                new WorkspaceContextInput
+                {
+                    Framework = "net8.0",
+                    Members = [WorkspaceMemberCoordinate.Platform(
+                        "runtime",
+                        "System.Text.Json",
+                        "10.0.12",
+                        "net10.0")],
+                },
+                new WorkspaceContextInput
+                {
+                    Framework = framework,
+                    RuntimeIdentifier = runtimeIdentifier,
+                    Members = [WorkspaceMemberCoordinate.Platform(
+                        "runtime",
+                        "System.Text.Json",
+                        "10.0.12",
+                        "net10.0")],
+                },
+            ]);
 
     static byte[] BuildIntegrationImage(
         string assemblyName,
@@ -5655,6 +5889,8 @@ public sealed partial class BrowserEngineBoundaryTests
         try
         {
             var plan = new BrowserHomeDemoRunPlan(
+                WorkspacePlan.Empty,
+                new WorkspaceContextInput(),
                 [
                     new BrowserHomeDemoRunRequest.Package(
                         new BrowserPackageRequest(
@@ -5750,6 +5986,8 @@ public sealed partial class BrowserEngineBoundaryTests
             Assert.Equal(2, members.Length);
             BrowserMemberSurfaceInfo member = members[1];
             var plan = new BrowserHomeDemoRunPlan(
+                WorkspacePlan.Empty,
+                new WorkspaceContextInput(),
                 [
                     new BrowserHomeDemoRunRequest.Package(
                         new BrowserPackageRequest(
@@ -5841,6 +6079,8 @@ public sealed partial class BrowserEngineBoundaryTests
                 TimeSpan.FromSeconds(5),
                 TestContext.Current.CancellationToken);
         var plan = new BrowserHomeDemoRunPlan(
+            WorkspacePlan.Empty,
+            new WorkspaceContextInput(),
             [
                 new BrowserHomeDemoRunRequest.Platform(
                     "runtime",
@@ -5918,20 +6158,51 @@ public sealed partial class BrowserEngineBoundaryTests
         using var client = new HttpClient(handler);
         var authorization =
             new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]);
-        BrowserMemberSurfaceInfo member;
-        DotnetInspect.Web.Interop.Catalog.CatalogExports.BrowserPlatformHomeDemoPreparation preparation;
-        await using (BrowserPlatformScopeResolution resolution =
-            await BrowserPlatformWorkspace.OpenAssembliesAsync(
+        BrowserPlatformScope retainedOrdinaryScope;
+        await using (BrowserPlatformScopeResolution ordinary =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 framework,
                 requestedVersion,
-                [
-                    new(
-                        "DotnetInspect.Web.Tests.dll",
-                        "netcore.app"),
-                    new(
-                        "System.Private.CoreLib.dll",
-                        "netcore.app"),
-                ],
+                "System.Private.CoreLib.dll",
+                "netcore.app",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken))
+        {
+            retainedOrdinaryScope = ordinary.Scope;
+        }
+        await using BrowserScopeLease<BrowserPlatformScope> ordinaryPin =
+            BrowserPackageWorkspace.LeaseScope(retainedOrdinaryScope);
+        var workspacePlan = new WorkspacePlan(
+            [],
+            [
+                new WorkspaceContextInput
+                {
+                    Framework = framework,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Platform(
+                            "runtime",
+                            "System.Private.CoreLib",
+                            requestedVersion,
+                            framework),
+                        WorkspaceMemberCoordinate.Platform(
+                            "runtime",
+                            "DotnetInspect.Web.Tests",
+                            requestedVersion,
+                            framework),
+                    ],
+                },
+            ]);
+        BrowserMemberSurfaceInfo member;
+        BrowserHomeDemoRunResult result;
+        await using (BrowserPlatformScopeResolution resolution =
+            await BrowserPlatformWorkspace.OpenContextAsync(
+                workspacePlan,
+                workspacePlan.Contexts[0],
+                "runtime",
+                "DotnetInspect.Web.Tests",
                 client,
                 authorization,
                 TimeSpan.FromSeconds(5),
@@ -5953,6 +6224,8 @@ public sealed partial class BrowserEngineBoundaryTests
                 type.Api,
                 candidate => candidate.Name == nameof(HomeDemoRunLocalFixture));
             var plan = new BrowserHomeDemoRunPlan(
+                workspacePlan,
+                workspacePlan.Contexts[0],
                 [
                     new BrowserHomeDemoRunRequest.Platform(
                         "runtime",
@@ -5973,18 +6246,21 @@ public sealed partial class BrowserEngineBoundaryTests
                     member.Kind,
                     member.AnchorDigest,
                     MemberSection: "call-graph"));
-            preparation = DotnetInspect.Web.Interop.Catalog.CatalogExports.PreparePlatformHomeDemo(
-                plan,
-                resolution);
+            var preparation =
+                DotnetInspect.Web.Interop.Catalog.CatalogExports
+                    .PreparePlatformHomeDemo(
+                        plan,
+                        resolution);
+            result =
+                await DotnetInspect.Web.Interop.Catalog.CatalogExports
+                    .CompletePlatformHomeDemoAsync(
+                        preparation,
+                        client,
+                        authorization,
+                        TimeSpan.FromSeconds(5),
+                        TestContext.Current.CancellationToken,
+                        resolution);
         }
-
-        BrowserHomeDemoRunResult result =
-            await DotnetInspect.Web.Interop.Catalog.CatalogExports.CompletePlatformHomeDemoAsync(
-                preparation,
-                client,
-                authorization,
-                TimeSpan.FromSeconds(5),
-                TestContext.Current.CancellationToken);
 
         Assert.True(result.Found);
         BrowserHomeDemoRunActivation activation =
@@ -6005,6 +6281,19 @@ public sealed partial class BrowserEngineBoundaryTests
             nameof(HomeDemoRunLocalFixture),
             graph.Mermaid,
             StringComparison.Ordinal);
+        await using BrowserPlatformScopeResolution retainedOrdinary =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                framework,
+                requestedVersion,
+                "System.Private.CoreLib.dll",
+                "netcore.app",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        Assert.Equal(
+            "System.Private.CoreLib",
+            retainedOrdinary.Participant.Participant.Assembly.Identity.Name);
     }
 
     public static int HomeDemoRunFixture(int value) =>
@@ -6327,6 +6616,54 @@ public sealed partial class BrowserEngineBoundaryTests
             target => target.Assembly == "System.Runtime");
 
         BrowserCallGraphTarget destination = forwarded[0];
+        var exactPlan = new WorkspacePlan(
+            [],
+            [
+                new WorkspaceContextInput
+                {
+                    Framework = framework,
+                    Members = [WorkspaceMemberCoordinate.Platform(
+                        "runtime",
+                        "System.Runtime",
+                        version,
+                        framework)],
+                },
+            ]);
+        await using BrowserPlatformScopeResolution exact =
+            await BrowserPlatformWorkspace.OpenContextAsync(
+                exactPlan,
+                exactPlan.Contexts[0],
+                "runtime",
+                "System.Runtime",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        AssemblyReferenceIdentity exactIdentity =
+            exact.Participant.Participant.Assembly.Identity;
+        BrowserCallGraphInfo exactGraph =
+            await BrowserPlatformCallGraph.QueryAsync(
+                exact,
+                framework,
+                version,
+                "System.Runtime",
+                "netcore.app",
+                (exactIdentity.Version
+                    ?? throw new InvalidOperationException(
+                        "The System.Runtime facade has no assembly version."))
+                    .ToString(),
+                exactIdentity.Culture,
+                exactIdentity.PublicKeyToken,
+                destination.TypeDefinitionId!,
+                destination.MemberName,
+                destination.SelectorKey,
+                0,
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        Assert.Equal(2, exactGraph.Scope.Assemblies);
+
         BrowserPackageSurface terminalSurface =
             Assert.IsType<BrowserPackageSurface>(
                 JsonSerializer.Deserialize(
