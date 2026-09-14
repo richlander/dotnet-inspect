@@ -34,9 +34,9 @@ public sealed class NavigationDetachmentTests
     }
 
     [Fact]
-    public async Task ArtifactBackedStateTicketsAndExactResults_DoNotRetainAcquisitionAuthority()
+    public void ArtifactBackedStateTicketsAndExactResults_DoNotRetainAcquisitionAuthority()
     {
-        ArtifactSpecimen specimen = await CreateArtifactSpecimenAsync();
+        ArtifactSpecimen specimen = CreateArtifactSpecimen();
         Collect();
 
         Assert.False(specimen.Registration.IsAlive);
@@ -107,6 +107,11 @@ public sealed class NavigationDetachmentTests
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
+    static ArtifactSpecimen CreateArtifactSpecimen()
+        // Keep the completed async operation and its state machine outside the
+        // lifetime examined by the weak references.
+        => Task.Run(CreateArtifactSpecimenAsync).GetAwaiter().GetResult();
+
     static async Task<ArtifactSpecimen> CreateArtifactSpecimenAsync()
     {
         byte[] image = await File.ReadAllBytesAsync(
