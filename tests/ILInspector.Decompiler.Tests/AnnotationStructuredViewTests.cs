@@ -5,6 +5,7 @@ using ILInspector.Research;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Speed", "Slow")]
 public class AnnotationStructuredViewTests
 {
     static IrFunction Import(string methodName)

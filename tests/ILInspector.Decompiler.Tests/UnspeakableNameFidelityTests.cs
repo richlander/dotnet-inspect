@@ -10,6 +10,7 @@ namespace ILInspector.Decompiler.Tests;
 /// <c>&lt;M&gt;b__0_0</c> are not valid C# identifiers. When raising leaves them
 /// in the final IR, the output must degrade honestly instead of claiming Full.
 /// </summary>
+[Trait("Speed", "Slow")]
 public class UnspeakableNameFidelityTests
 {
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");

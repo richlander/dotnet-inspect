@@ -76,6 +76,7 @@ public class LadderRung1CombinedFrontierGateTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Rung1CombinedSwitch_HasNoMalformedFull()
     {
         var results = ValidityCheck.Evaluate(FixturePath)

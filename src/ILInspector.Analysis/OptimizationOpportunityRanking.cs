@@ -27,6 +27,11 @@ public sealed record OptimizationOpportunityMemberRanking(
 /// </summary>
 public static class OptimizationOpportunityRanking
 {
+    public static IComparer<OptimizationOpportunity>
+        OpportunityComparer { get; } =
+        Comparer<OptimizationOpportunity>.Create(
+            CompareOpportunities);
+
     public static IComparer<OptimizationOpportunityMemberRanking>
         MemberComparer { get; } =
         Comparer<OptimizationOpportunityMemberRanking>.Create(
@@ -36,25 +41,9 @@ public static class OptimizationOpportunityRanking
         IEnumerable<OptimizationOpportunity> opportunities)
     {
         ArgumentNullException.ThrowIfNull(opportunities);
-        return opportunities
-            .OrderByDescending(Priority)
-            .ThenByDescending(
-                opportunity => ConfidenceRank(opportunity.Confidence))
-            .ThenByDescending(
-                opportunity => WeightRank(opportunity.Weight))
-            .ThenByDescending(opportunity => opportunity.RootReach)
-            .ThenBy(
-                opportunity =>
-                    opportunity.Method.DeclaringType
-                        .ToQualifiedDisplayString(),
-                StringComparer.Ordinal)
-            .ThenBy(
-                opportunity => opportunity.Method.Name,
-                StringComparer.Ordinal)
-            .ThenBy(opportunity => opportunity.ILOffset ?? -1)
-            .ThenBy(
-                opportunity => opportunity.Shape,
-                StringComparer.Ordinal);
+        return opportunities.OrderBy(
+            opportunity => opportunity,
+            OpportunityComparer);
     }
 
     public static ImmutableArray<OptimizationOpportunityMemberRanking>
@@ -253,6 +242,31 @@ public static class OptimizationOpportunityRanking
             return comparison;
         return left.Method.MetadataToken.CompareTo(
             right.Method.MetadataToken);
+    }
+
+    static int CompareOpportunities(
+        OptimizationOpportunity? left,
+        OptimizationOpportunity? right)
+    {
+        if (ReferenceEquals(left, right))
+            return 0;
+        if (left is null)
+            return 1;
+        if (right is null)
+            return -1;
+
+        int comparison = Priority(right).CompareTo(Priority(left));
+        if (comparison != 0)
+            return comparison;
+        comparison = ConfidenceRank(right.Confidence)
+            .CompareTo(ConfidenceRank(left.Confidence));
+        if (comparison != 0)
+            return comparison;
+        comparison = WeightRank(right.Weight)
+            .CompareTo(WeightRank(left.Weight));
+        if (comparison != 0)
+            return comparison;
+        return right.RootReach.CompareTo(left.RootReach);
     }
 
     static int ConfidenceRank(string confidence)

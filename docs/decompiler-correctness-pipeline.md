@@ -219,24 +219,29 @@ entry gate invalidates every later result, so run it first and report it.
 Notes:
 
 - The full `tests/ILInspector.Decompiler.Tests` suite runs compile-back fidelity
-  checks and can be slow, especially under a contended shared machine; it is part
-  of the entry gate for behavior changes, but iterate against a class filter and
-  run the full suite before requesting review.
-- **PR CI runs only the fast unit subset.** The `test` job in `ci.yml` runs
+  checks and can be slow, especially under a contended shared machine. Daily
+  Deep Inspect owns the full non-corpus selection; while iterating, run the
+  focused slow class or area affected by the change rather than treating the
+  entire slow suite as a per-PR entry gate.
+- **PR CI runs only the fast unit subset.** The `test` matrix runs
   `dotnet run --project tests/DotnetInspect.Cli.Tests -c Release --
-  --filter-not-trait
-  "Speed=Slow"`, `dotnet run --project tests/ILInspector.Decompiler.Tests -c
-  Release -- -trait- "Speed=Slow"`, and the matching fast Analysis/IL
-  round-trip filters. These gate command surface, pass logic, printer, importer
-  facts, identity, and classification regressions without the broad integration
-  and sweep costs. The slow CLI integration, compile-back/recompile,
-  corpus-sweep, bind, scorecard, fidelity, and broad differential tests are
-  tagged `[Trait("Speed", "Slow")]` and run only in Deep Inspect / full local
-  runs. **Mark any new Roslyn-heavy / recompile / corpus-sweeping or
-  broad integration test `[Trait("Speed", "Slow")]`** — at the class level for a
-  wholly-slow class, or the method level for one slow case in an otherwise fast
-  class — so it stays out of the PR gate. A green PR CI run therefore does *not*
-  prove the slow suite is green; run the full suite locally before review.
+  --filter-not-trait "Speed=Slow"` and the matching fast Analysis/IL round-trip
+  filters. In parallel, the path-gated `decompiler-gates` job runs
+  `dotnet run --project tests/ILInspector.Decompiler.Tests -c Release
+  --no-build -- --gate fast` and
+  `dotnet run --project tests/DecompilerHarness.Tests -c Release --no-build`
+  plus the bounded receipt below. These gate command surface, pass logic,
+  printer, importer facts, identity, and classification regressions without the
+  broad integration and sweep costs.
+  The slow CLI integration, compile-back/recompile, corpus-sweep, bind,
+  scorecard, fidelity, and broad differential tests are tagged
+  `[Trait("Speed", "Slow")]` and run only in Deep Inspect / full local runs.
+  **Mark any new Roslyn-heavy / recompile / corpus-sweeping or broad integration
+  test `[Trait("Speed", "Slow")]`** — at the class level for a wholly-slow
+  class, or the method level for one slow case in an otherwise fast class — so
+  it stays out of the PR gate. A green PR CI run therefore does *not* prove the
+  slow suite is green; do not claim broad fidelity, validity, or corpus health
+  without the corresponding focused or daily evidence.
 - The IL round-trip oracle follows the same shape: PR CI runs
   `dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release --
   --filter-not-trait "Speed=Slow"` when IL round-trip inputs change, while the unfiltered
@@ -367,7 +372,7 @@ dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- --gate no-
 | `fast` | `-trait- "Speed=Slow"` | the fast lane the PR CI test job runs |
 | `slow` | `-trait "Speed=Slow"` | only the slow gates |
 | `no-corpus` | `-trait- "Area=Corpus"` | everything except the multi-hour corpus sweep |
-| `pre-merge` | explicit `-class` filters | the tractable fidelity gates the PR CI `decompiler-gates` job runs |
+| `pre-merge` | explicit `-class` filters | the bounded compile-back receipt the PR CI `decompiler-gates` job runs |
 | `corpus` | `-trait "Area=Corpus"` | only the corpus sweep |
 | `roundtrip` | `-trait "Area=RoundTrip"` | the compile-back / ReturnToSender seam |
 | `fidelity` | `-trait "Area=Fidelity"` | the changed-method fidelity gates |
@@ -385,16 +390,26 @@ below.
 
 ### Pre-merge gate and the known-red pin
 
-The docket and byte-neutrality gates carry doc comments asserting they fail CI,
-but they are all `Speed=Slow` and every pre-merge lane ran `-trait-
-"Speed=Slow"`. They therefore ran only in `release.yml` and the weekly Deep
-Inspect lane — where they were exceeding the job timeout, and a *cancelled* job
-does not satisfy Deep Inspect's `if: ... && failure()` notifier, so no
-notification was ever sent. Detection latency was unbounded, not weekly
-(#3432), and five regressions (#3489–#3493) accumulated unseen.
+The PR contract is intentionally bounded. `decompiler-gates` proves the
+genuinely fast unit subset is green and that a direct compile-back receipt is
+complete: every expected class executes, independent discovery and execution
+identities agree, every selected case starts exactly once, and known-red pins
+ratchet in both directions. It does **not** claim that the broad docket,
+lowered-fidelity, cluster, or printer-precedence sweeps are green.
 
-The `decompiler-gates` CI job closes that hole. Source, test, and tool projects
-run it by default, except for measured false positives in
+Daily Deep Inspect owns those broad sweeps through `--gate no-corpus`, which
+selects every non-corpus test regardless of `Speed`. Its decompiler step carries
+an explicit post-build condition, so an earlier Test lane suite failure does
+not skip that evidence. The historical weekly arrangement was not sufficient:
+the slow docket and byte-neutrality gates exceeded the job timeout, a
+*cancelled* job did not satisfy the workflow's `failure()` notifier, and five
+regressions (#3489–#3493) accumulated with unbounded detection latency (#3432).
+The dedicated pre-merge job originally closed that entire hole; #6889 narrows
+the PR claim to restore the repository's approximately 10-minute entry gate
+while preserving daily ownership and a bounded direct receipt.
+
+Source, test, and tool projects run `decompiler-gates` by default, except for
+measured false positives in
 `eng/decompiler-gate-skip-projects.txt`. That manifest is generated, not
 hand-maintained: `dotnet run eng/test-ci-change-detection.cs -- \
 --refresh-decompiler-skip-projects` recomputes it from every project directory
@@ -564,9 +579,28 @@ truncated report.
 > gate hitting its timeout is not (#3523).
 
 `pre-merge` deliberately selects the workload classes named by its fail-closed
-inventory rather than the whole `Fidelity` area, plus
-`GateExpectedClassesTests`, the plumbing guard that rides along in the preset
-it guards.
+inventory rather than the whole `Fidelity` area. The bounded receipt covers
+byte-neutral and byte-divergent behavior, whole-module skeleton hazards around
+selected bodies, typed diff fixtures, nested target identity, authored rebuild
+and typed failure paths, plus `GateExpectedClassesTests`, the plumbing guard
+that rides along in the preset it guards.
+
+`FidelityGateTests`, `LoweredFidelityGateTests`, `ClusterCaptureTests`, and
+`PrinterPrecedenceTests` are daily-only whole-pipeline evidence. On #6835 they
+accounted for about 2,004 of the former preset's 2,066 test seconds; no one of
+them could share a four-minute solution build and still fit the 10-minute PR
+target. They remain selected by daily `--gate no-corpus`; removing them from
+`pre-merge` changes evidence timing, not the asserted product behavior.
+
+Issue #6889 reclassified 41 wholly-slow classes and 72 individually-slow
+methods.
+The measured local `--gate fast` path fell from 6,940 tests in 2,300 seconds to
+5,445 tests in 159 seconds, with no remaining case at or above the repository's
+two-second threshold. The bounded receipt runs 110 cases across eight expected
+classes in 123 seconds, and `DecompilerHarness.Tests` adds 11 seconds. The
+combined local execution core is therefore 4m54s; the prior GitHub job's
+build/setup/checker overhead was 4m28s, leaving a healthy decompiler-selected
+path within the approximately 10-minute PR budget.
 
 Those workload classes share `FidelityGateCollection` and therefore run
 serially even though this test assembly allows two parallel collections. That
@@ -598,10 +632,10 @@ shape as `NON-ENUMERATED OR REPEATED CASES`.
 Its focused `FidelityCheck.Evaluate` calls select a typed
 `(Type, Method, Overload)` identity before method import, rendering,
 disassembly, and compile-back, reducing the class from 374.25 seconds to 13.31
-seconds locally. The serialized `pre-merge` preset completed in 729.56 seconds
-locally at that point. A supplied method filter that produces no processable row
-throws rather than returning a vacuous green result; selecting by name admits
-all overloads, while the overload ordinal can select one.
+seconds locally while retaining the whole-module declaration hazard. A supplied
+method filter that produces no processable row throws rather than returning a
+vacuous green result; selecting by name admits all overloads, while the overload
+ordinal can select one.
 
 Method selection does **not** narrow reconstruction. Each selected body still
 compiles against the whole-module skeleton, preserving the class's declaration

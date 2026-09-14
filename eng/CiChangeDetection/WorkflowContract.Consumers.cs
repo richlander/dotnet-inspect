@@ -23,14 +23,6 @@ internal static partial class WorkflowContract
                 "matrix.shard == 'host-policy' && " +
                 "steps.decompiler_pr_corpus.outcome == 'failure'",
                 "host-policy"),
-            ["Run decompiler unit tests (fast)"] = (
-                "matrix.shard == 'analysis' && " +
-                "fromJSON(needs.changes.outputs.plan).validations.decompilerGates",
-                "analysis"),
-            ["Run DecompilerHarness tests"] = (
-                "matrix.shard == 'analysis' && " +
-                "fromJSON(needs.changes.outputs.plan).validations.decompilerGates",
-                "analysis"),
             ["Restore vendored ILAssembler"] = (
                 "matrix.shard == 'analysis' && matrix.rid == 'linux-x64' && " +
                 "fromJSON(needs.changes.outputs.plan).validations.ilRoundTrip",
@@ -43,10 +35,6 @@ internal static partial class WorkflowContract
                 "matrix.shard == 'contracts' && " +
                 "steps.iltools_contracts.outcome == 'failure'",
                 "contracts"),
-            ["Check analysis test ilasm/ildasm result"] = (
-                "matrix.shard == 'analysis' && " +
-                "steps.iltools_analysis.outcome == 'failure'",
-                "analysis"),
             ["Check GitHub Packages fixture result"] = (
                 "matrix.shard == 'host-policy' && " +
                 "steps.package_fixture.outcome == 'failure'",
@@ -87,32 +75,45 @@ internal static partial class WorkflowContract
         ValidateConsumerStepGuards(jobs, jobNames);
         ValidateRepositoryGuardsJob(jobs);
         ValidateDependencyPolicyJob(jobs);
-        ValidateRequiredTestStep(
+        ValidateRequiredRunStep(
             jobs,
+            "test",
             "Run IL diff tests",
             "dotnet run --project tests/ILInspector.ILDiff.Tests -c Release");
-        ValidateRequiredTestStep(
+        ValidateRequiredRunStep(
             jobs,
+            "test",
             "Run NetworkAccess tests",
             "dotnet run --project tests/NetworkAccess.Tests -c Release");
-        ValidateRequiredTestStep(
+        ValidateRequiredRunStep(
             jobs,
+            "test",
             "Run UntrustedDocuments tests",
             "dotnet run --project tests/UntrustedDocuments.Tests -c Release");
-        ValidateRequiredTestStep(
+        ValidateRequiredRunStep(
             jobs,
+            "test",
             "Run DotnetInspector.Networking tests",
             "dotnet run --project tests/DotnetInspector.Networking.Tests -c Release");
-        ValidateRequiredTestStep(
+        ValidateRequiredRunStep(
             jobs,
+            "decompiler-gates",
+            "Run decompiler unit tests (fast)",
+            "dotnet run --project tests/ILInspector.Decompiler.Tests -c Release " +
+                "--no-build -- --gate fast");
+        ValidateRequiredRunStep(
+            jobs,
+            "decompiler-gates",
             "Run DecompilerHarness tests",
-            "dotnet run --project tests/DecompilerHarness.Tests -c Release");
-        ValidateRequiredTestStep(
+            "dotnet run --project tests/DecompilerHarness.Tests -c Release --no-build");
+        ValidateRequiredRunStep(
             jobs,
+            "test",
             "Run DotnetInspector.Cache tests",
             "dotnet run --project tests/DotnetInspector.Cache.Tests -c Release");
-        ValidateRequiredTestStep(
+        ValidateRequiredRunStep(
             jobs,
+            "test",
             "Run DotnetInspector.Packages tests",
             "dotnet run --project tests/DotnetInspector.Packages.Tests -c Release");
     }
@@ -324,44 +325,45 @@ internal static partial class WorkflowContract
             "jobs.dependency-policy Validate dependency policy step");
     }
 
-    private static void ValidateRequiredTestStep(
+    private static void ValidateRequiredRunStep(
         YamlMappingNode jobs,
+        string jobName,
         string stepName,
         string command)
     {
-        YamlSequenceNode testSteps = GetRequiredSequence(
-            GetRequiredMapping(jobs, "test", "jobs"),
+        YamlSequenceNode steps = GetRequiredSequence(
+            GetRequiredMapping(jobs, jobName, "jobs"),
             "steps",
-            "jobs.test");
-        YamlMappingNode? requiredTestStep = null;
-        foreach (YamlNode stepNode in testSteps.Children)
+            $"jobs.{jobName}");
+        YamlMappingNode? requiredStep = null;
+        foreach (YamlNode stepNode in steps.Children)
         {
             YamlMappingNode step = RequireMapping(
                 stepNode,
-                "jobs.test step");
+                $"jobs.{jobName} step");
             if (GetOptionalScalar(step, "name") != stepName)
             {
                 continue;
             }
 
-            if (requiredTestStep is not null)
+            if (requiredStep is not null)
             {
                 throw new InvalidOperationException(
-                    $"jobs.test contains duplicate step: {stepName}.");
+                    $"jobs.{jobName} contains duplicate step: {stepName}.");
             }
-            requiredTestStep = step;
+            requiredStep = step;
         }
 
-        if (requiredTestStep is null)
+        if (requiredStep is null)
         {
             throw new InvalidOperationException(
-                $"jobs.test is missing step: {stepName}.");
+                $"jobs.{jobName} is missing step: {stepName}.");
         }
         RequireScalarValue(
-            requiredTestStep,
+            requiredStep,
             "run",
             command,
-            $"jobs.test {stepName}");
+            $"jobs.{jobName} {stepName}");
     }
 
     private static void ValidateConsumerStepGuards(
@@ -372,6 +374,8 @@ internal static partial class WorkflowContract
             StringComparer.Ordinal)
         {
             ["decompiler-gates/Upload gate report"] = "always()",
+            ["decompiler-gates/Check decompiler test ilasm/ildasm result"] =
+                "always() && steps.iltools_decompiler.outcome == 'failure'",
             ["csharp-diff-smoke/Upload C# Diff smoke artifact"] = "always()",
             ["il-diff-smoke/Upload IL Diff smoke artifact"] = "always()",
         };
@@ -381,7 +385,7 @@ internal static partial class WorkflowContract
             "test/Run GitHub Packages fixture test",
             "test/Run PR decompiler corpus sensor",
             "test/Install ilasm/ildasm/mdv for contract tests",
-            "test/Install ilasm/ildasm for analysis tests",
+            "decompiler-gates/Install ilasm/ildasm for decompiler tests",
             "decompiler-gates/Run decompiler gates",
         };
         var allowedShell = new Dictionary<string, string>(
@@ -390,7 +394,8 @@ internal static partial class WorkflowContract
             ["test/Run GitHub Packages fixture test"] = "bash",
             ["test/Run PR decompiler corpus sensor"] = "bash",
             ["test/Install ilasm/ildasm/mdv for contract tests"] = "bash",
-            ["test/Install ilasm/ildasm for analysis tests"] = "bash",
+            ["decompiler-gates/Install ilasm/ildasm for decompiler tests"] =
+                "bash",
             ["csharp-diff-smoke/Run C# Diff baseline smoke"] = "bash",
             ["il-diff-smoke/Run IL Diff baseline smoke"] = "bash",
             ["skill-gate/Run embedded skill tests"] = "bash",
@@ -404,14 +409,14 @@ internal static partial class WorkflowContract
                 "decompiler_pr_corpus",
             ["test/Install ilasm/ildasm/mdv for contract tests"] =
                 "iltools_contracts",
-            ["test/Install ilasm/ildasm for analysis tests"] =
-                "iltools_analysis",
+            ["decompiler-gates/Install ilasm/ildasm for decompiler tests"] =
+                "iltools_decompiler",
             ["decompiler-gates/Run decompiler gates"] = "gates",
         };
         var allowedTimeoutMinutes = new Dictionary<string, string>(
             StringComparer.Ordinal)
         {
-            ["decompiler-gates/Run decompiler gates"] = "45",
+            ["decompiler-gates/Run decompiler gates"] = "5",
         };
         var seenIf = new HashSet<string>(StringComparer.Ordinal);
         var seenContinueOnError =

@@ -264,7 +264,7 @@ public class PlatformHouseContractTests
     }
 
     [Fact]
-    public void Contributions_RetainOnlyResourceFreeRequestAndEvidence()
+    public void Contributions_RetainExactRequestAndOwnerFacts()
     {
         PlatformSourceCapabilityIdentity capability =
             PlatformSourceCapabilityIdentity.Create("installed");
@@ -275,37 +275,36 @@ public class PlatformHouseContractTests
                 (PlatformSourceFacet.TargetDiscovery, capability),
                 (PlatformSourceFacet.Reference, capability)));
         PlatformFamilyTarget target = Target();
-        PlatformSourceEvidenceIdentity discoveryEvidence =
-            PlatformSourceEvidenceIdentity.Create("discovery-1");
+        PlatformSourceGeneration generation =
+            PlatformSourceGeneration.Create("installed-9");
+        PlatformSourceCoordinateIdentity coordinate =
+            PlatformSourceCoordinateIdentity.Create("pack-11.0.0");
         var discovery = new PlatformSourceContribution.TargetDiscovery(
             capability,
             request.Snapshot,
-            PlatformSourceGeneration.Create("installed-9"),
-            [target],
-            discoveryEvidence);
+            generation,
+            [target]);
         var population =
             ((PlatformHouseOperation.Realize)request.Operation).Population;
         var realization = new PlatformSourceContribution.Realization(
             PlatformSourceFacet.Reference,
             capability,
             request.Snapshot,
-            PlatformSourceGeneration.Create("installed-9"),
+            generation,
             target,
-            PlatformSourceCoordinateIdentity.Create("pack-11.0.0"),
-            PlatformTargetCorrespondenceIdentity.Create("target-1"),
+            coordinate,
             population,
-            PlatformSourceContributionCompleteness.Authoritative,
-            PlatformSourceEvidenceIdentity.Create("realization-1"));
+            PlatformSourceContributionCompleteness.Authoritative);
         var failed = new PlatformSourceContribution.Failed(
             PlatformSourceFacet.Reference,
             capability,
             request.Snapshot,
-            PlatformSourceGeneration.Create("installed-9"),
-            target,
-            PlatformSourceEvidenceIdentity.Create("failure-1"));
+            generation,
+            target);
 
         Assert.Same(request.Snapshot, discovery.Request);
-        Assert.Same(discoveryEvidence, discovery.Evidence);
+        Assert.Same(generation, realization.Generation);
+        Assert.Same(coordinate, realization.Coordinate);
         Assert.Equal(PlatformViewDemand.Reference, realization.View);
         Assert.Same(population, realization.Population);
         Assert.Same(target, failed.ExactTarget);
@@ -316,8 +315,7 @@ public class PlatformHouseContractTests
                 request.Snapshot,
                 PlatformSourceGeneration.Create("installed-9"),
                 exactTarget: null,
-                PlatformSourceUnavailabilityKind.Unavailable,
-                PlatformSourceEvidenceIdentity.Create("missing-target")));
+                PlatformSourceUnavailabilityKind.Unavailable));
     }
 
     [Fact]
@@ -334,14 +332,12 @@ public class PlatformHouseContractTests
             capability,
             request.Snapshot,
             PlatformSourceGeneration.Create("installed-9"),
-            [offered],
-            PlatformSourceEvidenceIdentity.Create("discovery-1"));
+            [offered]);
 
         var selected = new PlatformTargetSettlement.Selected(
             demand,
             offered,
-            [discovery],
-            PlatformSourceEvidenceIdentity.Create("selection-1"));
+            [discovery]);
 
         Assert.Same(discovery, Assert.Single(selected.Discoveries));
         Assert.Throws<ArgumentException>(
@@ -351,8 +347,7 @@ public class PlatformHouseContractTests
                     PlatformFamily.DotNetRuntime,
                     Framework(),
                     PlatformVersion.Parse("11.0.1")),
-                [discovery],
-                PlatformSourceEvidenceIdentity.Create("selection-2")));
+                [discovery]));
     }
 
     [Fact]
@@ -367,13 +362,11 @@ public class PlatformHouseContractTests
             capability,
             unauthorized.Snapshot,
             PlatformSourceGeneration.Create("installed-9"),
-            [target],
-            PlatformSourceEvidenceIdentity.Create("discovery-1"));
+            [target]);
         var unauthorizedSettlement = new PlatformTargetSettlement.Selected(
             demand,
             target,
-            [unauthorizedDiscovery],
-            PlatformSourceEvidenceIdentity.Create("selection-1"));
+            [unauthorizedDiscovery]);
 
         Assert.Throws<ArgumentException>(
             () => TerminalReceipt(
@@ -390,13 +383,11 @@ public class PlatformHouseContractTests
             capability,
             authorized.Snapshot,
             PlatformSourceGeneration.Create("installed-9"),
-            [target],
-            PlatformSourceEvidenceIdentity.Create("discovery-2"));
+            [target]);
         var authorizedSettlement = new PlatformTargetSettlement.Selected(
             demand,
             target,
-            [authorizedDiscovery],
-            PlatformSourceEvidenceIdentity.Create("selection-2"));
+            [authorizedDiscovery]);
         Assert.Throws<ArgumentException>(
             () => TerminalReceipt(
                 authorized,
@@ -476,10 +467,8 @@ public class PlatformHouseContractTests
                     PlatformSourceGeneration.Create($"{facet}-1"),
                     target,
                     PlatformSourceCoordinateIdentity.Create($"{facet}-coordinate"),
-                    PlatformTargetCorrespondenceIdentity.Create($"{facet}-target"),
                     population,
-                    PlatformSourceContributionCompleteness.Authoritative,
-                    PlatformSourceEvidenceIdentity.Create($"{facet}-evidence")),
+                    PlatformSourceContributionCompleteness.Authoritative),
                 PlatformSourceSettlementDisposition.Selected);
     }
 
@@ -528,8 +517,7 @@ public class PlatformHouseContractTests
                 xmlCapability,
                 request.Snapshot,
                 PlatformSourceGeneration.Create("xml-generation"),
-                target,
-                PlatformSourceEvidenceIdentity.Create("xml-contribution")),
+                target),
             PlatformSourceSettlementDisposition.Selected);
         var sourceSettlement = new PlatformSourceSettlement(
             new PlatformSourceContribution.Failed(
@@ -537,19 +525,16 @@ public class PlatformHouseContractTests
                 sourceCapability,
                 request.Snapshot,
                 PlatformSourceGeneration.Create("source-generation"),
-                target,
-                PlatformSourceEvidenceIdentity.Create("source-contribution")),
+                target),
             PlatformSourceSettlementDisposition.OutcomeRelevant);
         var xml = new PlatformDocumentationAttempt(
             PlatformSourceFacet.CompiledXml,
             PlatformDocumentationAttemptKind.Available,
-            [xmlSettlement],
-            PlatformSourceEvidenceIdentity.Create("xml-1"));
+            [xmlSettlement]);
         var source = new PlatformDocumentationAttempt(
             PlatformSourceFacet.SourceDerivedDocumentation,
             PlatformDocumentationAttemptKind.Failed,
-            [sourceSettlement],
-            PlatformSourceEvidenceIdentity.Create("source-1"));
+            [sourceSettlement]);
 
         Assert.Throws<ArgumentException>(
             () => new PlatformHouseCompletion.Documentation(
@@ -581,9 +566,7 @@ public class PlatformHouseContractTests
                 xmlCapability,
                 xmlOnlyRequest.Snapshot,
                 PlatformSourceGeneration.Create("xml-only-generation"),
-                target,
-                PlatformSourceEvidenceIdentity.Create(
-                    "xml-only-contribution")),
+                target),
             PlatformSourceSettlementDisposition.Selected);
         var xmlOnlyCompletion = new PlatformHouseCompletion.Documentation(
             (PlatformHouseOperationSnapshot.ResolveDocumentationEvidence)
@@ -592,15 +575,11 @@ public class PlatformHouseContractTests
                 new PlatformDocumentationAttempt(
                     PlatformSourceFacet.CompiledXml,
                     PlatformDocumentationAttemptKind.Available,
-                    [xmlOnlySettlement],
-                    PlatformSourceEvidenceIdentity.Create(
-                        "xml-only-attempt")),
+                    [xmlOnlySettlement]),
                 new PlatformDocumentationAttempt(
                     PlatformSourceFacet.SourceDerivedDocumentation,
                     PlatformDocumentationAttemptKind.Unavailable,
-                    [],
-                    PlatformSourceEvidenceIdentity.Create(
-                        "source-not-authorized")),
+                    []),
             ]);
         var xmlOnlyReceipt = new PlatformHouseReceipt(
             xmlOnlyRequest.Snapshot,
@@ -686,8 +665,7 @@ public class PlatformHouseContractTests
                 aggregatingRequest.Snapshot,
                 PlatformSourceGeneration.Create("first"),
                 Target(),
-                PlatformSourceUnavailabilityKind.Absent,
-                PlatformSourceEvidenceIdentity.Create("first-absent")),
+                PlatformSourceUnavailabilityKind.Absent),
             PlatformSourceSettlementDisposition.OutcomeRelevant);
         var secondIncomplete = new PlatformSourceSettlement(
             new PlatformSourceContribution.Incomplete(
@@ -695,8 +673,7 @@ public class PlatformHouseContractTests
                 second,
                 aggregatingRequest.Snapshot,
                 PlatformSourceGeneration.Create("second"),
-                Target(),
-                PlatformSourceEvidenceIdentity.Create("second-incomplete")),
+                Target()),
             PlatformSourceSettlementDisposition.OutcomeRelevant);
         var invalidCompletion = new PlatformHouseCompletion.AssemblyReference(
             (PlatformHouseOperationSnapshot.ResolveAssemblyReference)
@@ -748,14 +725,11 @@ public class PlatformHouseContractTests
                 PlatformSourceGeneration.Create("realized"),
                 Target(),
                 PlatformSourceCoordinateIdentity.Create("coordinate"),
-                PlatformTargetCorrespondenceIdentity.Create(
-                    "target-correspondence"),
                 new PlatformPopulationDemand.Library(
                     new PlatformLibraryDemand.PlatformLibrary(
                         PlatformLibraryIdentityAuthority.Create("catalog")
                             .Issue("System.Runtime"))),
-                PlatformSourceContributionCompleteness.Authoritative,
-                PlatformSourceEvidenceIdentity.Create("realized-evidence")),
+                PlatformSourceContributionCompleteness.Authoritative),
             PlatformSourceSettlementDisposition.Selected);
         var secondAbsent = new PlatformSourceSettlement(
             new PlatformSourceContribution.Unavailable(
@@ -764,8 +738,7 @@ public class PlatformHouseContractTests
                 aggregatingRequest.Snapshot,
                 PlatformSourceGeneration.Create("second-absent"),
                 Target(),
-                PlatformSourceUnavailabilityKind.Absent,
-                PlatformSourceEvidenceIdentity.Create("second-absent")),
+                PlatformSourceUnavailabilityKind.Absent),
             PlatformSourceSettlementDisposition.OutcomeRelevant);
         var mixedCompletion =
             new PlatformHouseCompletion.AssemblyReference(
@@ -819,15 +792,11 @@ public class PlatformHouseContractTests
                 Target(),
                 PlatformSourceCoordinateIdentity.Create(
                     "second-coordinate"),
-                PlatformTargetCorrespondenceIdentity.Create(
-                    "second-target-correspondence"),
                 new PlatformPopulationDemand.Library(
                     new PlatformLibraryDemand.PlatformLibrary(
                         PlatformLibraryIdentityAuthority.Create("catalog")
                             .Issue("System.Private.CoreLib"))),
-                PlatformSourceContributionCompleteness.Authoritative,
-                PlatformSourceEvidenceIdentity.Create(
-                    "second-realized-evidence")),
+                PlatformSourceContributionCompleteness.Authoritative),
             PlatformSourceSettlementDisposition.Selected);
         var partialRealized = new PlatformSourceSettlement(
             new PlatformSourceContribution.Realization(
@@ -838,12 +807,8 @@ public class PlatformHouseContractTests
                 Target(),
                 PlatformSourceCoordinateIdentity.Create(
                     "partial-coordinate"),
-                PlatformTargetCorrespondenceIdentity.Create(
-                    "partial-target-correspondence"),
                 new PlatformPopulationDemand.CompletePopulation(),
-                PlatformSourceContributionCompleteness.Partial,
-                PlatformSourceEvidenceIdentity.Create(
-                    "partial-realized-evidence")),
+                PlatformSourceContributionCompleteness.Partial),
             PlatformSourceSettlementDisposition.Selected);
         var partialCompletion =
             new PlatformHouseCompletion.AssemblyReference(
@@ -946,12 +911,8 @@ public class PlatformHouseContractTests
                 target,
                 PlatformSourceCoordinateIdentity.Create(
                     "implementation-coordinate"),
-                PlatformTargetCorrespondenceIdentity.Create(
-                    "implementation-target"),
                 population,
-                PlatformSourceContributionCompleteness.Authoritative,
-                PlatformSourceEvidenceIdentity.Create(
-                    "implementation-evidence")),
+                PlatformSourceContributionCompleteness.Authoritative),
             PlatformSourceSettlementDisposition.Selected);
         var referenceOutcome =
             new PlatformMetadataOutcomeEvidence<TestMetadataOutcome>(
@@ -995,12 +956,8 @@ public class PlatformHouseContractTests
                 target,
                 PlatformSourceCoordinateIdentity.Create(
                     "reference-coordinate"),
-                PlatformTargetCorrespondenceIdentity.Create(
-                    "reference-target"),
                 population,
-                PlatformSourceContributionCompleteness.Authoritative,
-                PlatformSourceEvidenceIdentity.Create(
-                    "reference-evidence")),
+                PlatformSourceContributionCompleteness.Authoritative),
             PlatformSourceSettlementDisposition.Selected);
         Assert.Throws<ArgumentException>(
             () => new PlatformHouseCompletion.TypeDefinition(
@@ -1072,8 +1029,7 @@ public class PlatformHouseContractTests
                 fallbackRequest.Snapshot,
                 PlatformSourceGeneration.Create("first-1"),
                 target,
-                PlatformSourceUnavailabilityKind.Unavailable,
-                PlatformSourceEvidenceIdentity.Create("first-unavailable")),
+                PlatformSourceUnavailabilityKind.Unavailable),
             PlatformSourceSettlementDisposition.OutcomeRelevant);
         PlatformSourceSettlement laterSelected = RealizationSettlement(
             fallbackRequest,
@@ -1123,8 +1079,7 @@ public class PlatformHouseContractTests
                 second,
                 aggregationRequest.Snapshot,
                 PlatformSourceGeneration.Create("second-1"),
-                target,
-                PlatformSourceEvidenceIdentity.Create("second-incomplete")),
+                target),
             PlatformSourceSettlementDisposition.OutcomeRelevant);
         var aggregationCompletion = new PlatformHouseCompletion.Realization(
             (PlatformHouseOperationSnapshot.Realize)
@@ -1177,8 +1132,7 @@ public class PlatformHouseContractTests
             firstDiscovery,
             discoveryRequest.Snapshot,
             PlatformSourceGeneration.Create("discovery-1"),
-            [target],
-            PlatformSourceEvidenceIdentity.Create("discovery-evidence"));
+            [target]);
         var selectedDiscovery = new PlatformSourceSettlement(
             discovery,
             PlatformSourceSettlementDisposition.Selected);
@@ -1188,9 +1142,7 @@ public class PlatformHouseContractTests
                 secondDiscovery,
                 discoveryRequest.Snapshot,
                 PlatformSourceGeneration.Create("discovery-2"),
-                exactTarget: null,
-                PlatformSourceEvidenceIdentity.Create(
-                    "incomplete-discovery")),
+                exactTarget: null),
             PlatformSourceSettlementDisposition.OutcomeRelevant);
         PlatformSourceSettlement selectedReference = RealizationSettlement(
             discoveryRequest,
@@ -1208,8 +1160,7 @@ public class PlatformHouseContractTests
                 new PlatformTargetSettlement.Selected(
                     selecting,
                     target,
-                    [discovery],
-                    PlatformSourceEvidenceIdentity.Create("selection")),
+                    [discovery]),
                 [
                     selectedDiscovery,
                     incompleteDiscovery,
@@ -1238,14 +1189,12 @@ public class PlatformHouseContractTests
             firstDiscovery,
             fallbackDiscoveryRequest.Snapshot,
             PlatformSourceGeneration.Create("empty-discovery"),
-            [],
-            PlatformSourceEvidenceIdentity.Create("empty-discovery"));
+            []);
         var offeredDiscovery = new PlatformSourceContribution.TargetDiscovery(
             secondDiscovery,
             fallbackDiscoveryRequest.Snapshot,
             PlatformSourceGeneration.Create("offered-discovery"),
-            [target],
-            PlatformSourceEvidenceIdentity.Create("offered-discovery"));
+            [target]);
         var retainedEmptyDiscovery = new PlatformSourceSettlement(
             emptyDiscovery,
             PlatformSourceSettlementDisposition.OutcomeRelevant);
@@ -1267,8 +1216,7 @@ public class PlatformHouseContractTests
             new PlatformTargetSettlement.Selected(
                 selecting,
                 target,
-                [offeredDiscovery],
-                PlatformSourceEvidenceIdentity.Create("fallback-selection")),
+                [offeredDiscovery]),
             [
                 retainedEmptyDiscovery,
                 retainedOfferedDiscovery,
@@ -1315,14 +1263,12 @@ public class PlatformHouseContractTests
                 secondXml,
                 documentationRequest.Snapshot,
                 PlatformSourceGeneration.Create("xml-2"),
-                target,
-                PlatformSourceEvidenceIdentity.Create("xml-contribution")),
+                target),
             PlatformSourceSettlementDisposition.Selected);
         var xmlAttempt = new PlatformDocumentationAttempt(
             PlatformSourceFacet.CompiledXml,
             PlatformDocumentationAttemptKind.Available,
-            [laterXml],
-            PlatformSourceEvidenceIdentity.Create("xml-attempt"));
+            [laterXml]);
         var documentationCompletion =
             new PlatformHouseCompletion.Documentation(
                 (PlatformHouseOperationSnapshot.ResolveDocumentationEvidence)
@@ -1343,14 +1289,12 @@ public class PlatformHouseContractTests
                 firstXml,
                 documentationRequest.Snapshot,
                 PlatformSourceGeneration.Create("xml-1"),
-                target,
-                PlatformSourceEvidenceIdentity.Create("xml-failure")),
+                target),
             PlatformSourceSettlementDisposition.OutcomeRelevant);
         var mislabeledAttempt = new PlatformDocumentationAttempt(
             PlatformSourceFacet.CompiledXml,
             PlatformDocumentationAttemptKind.Failed,
-            [earlierXmlFailure, laterXml],
-            PlatformSourceEvidenceIdentity.Create("mislabeled-attempt"));
+            [earlierXmlFailure, laterXml]);
         var mislabeledCompletion =
             new PlatformHouseCompletion.Documentation(
                 (PlatformHouseOperationSnapshot.ResolveDocumentationEvidence)
@@ -1371,8 +1315,7 @@ public class PlatformHouseContractTests
                 firstXml,
                 documentationRequest.Snapshot,
                 PlatformSourceGeneration.Create("xml-incomplete"),
-                target,
-                PlatformSourceEvidenceIdentity.Create("xml-incomplete")),
+                target),
             PlatformSourceSettlementDisposition.OutcomeRelevant);
         var fallbackAbsentXml = new PlatformSourceSettlement(
             new PlatformSourceContribution.Unavailable(
@@ -1381,14 +1324,12 @@ public class PlatformHouseContractTests
                 documentationRequest.Snapshot,
                 PlatformSourceGeneration.Create("xml-absent"),
                 target,
-                PlatformSourceUnavailabilityKind.Absent,
-                PlatformSourceEvidenceIdentity.Create("xml-absent")),
+                PlatformSourceUnavailabilityKind.Absent),
             PlatformSourceSettlementDisposition.OutcomeRelevant);
         var incompleteAttempt = new PlatformDocumentationAttempt(
             PlatformSourceFacet.CompiledXml,
             PlatformDocumentationAttemptKind.Incomplete,
-            [fallbackIncompleteXml, fallbackAbsentXml],
-            PlatformSourceEvidenceIdentity.Create("incomplete-attempt"));
+            [fallbackIncompleteXml, fallbackAbsentXml]);
         var incompleteCompletion =
             new PlatformHouseCompletion.Documentation(
                 (PlatformHouseOperationSnapshot.ResolveDocumentationEvidence)
@@ -1416,9 +1357,7 @@ public class PlatformHouseContractTests
                         new PlatformDocumentationAttempt(
                             PlatformSourceFacet.CompiledXml,
                             PlatformDocumentationAttemptKind.Absent,
-                            [fallbackIncompleteXml, fallbackAbsentXml],
-                            PlatformSourceEvidenceIdentity.Create(
-                                "incorrect-fallback-absence")),
+                            [fallbackIncompleteXml, fallbackAbsentXml]),
                     ])));
 
         var aggregationDocumentationRequest = new PlatformHouseRequest(
@@ -1444,8 +1383,7 @@ public class PlatformHouseContractTests
                 aggregationDocumentationRequest.Snapshot,
                 PlatformSourceGeneration.Create("xml-unavailable"),
                 target,
-                PlatformSourceUnavailabilityKind.Unavailable,
-                PlatformSourceEvidenceIdentity.Create("xml-unavailable")),
+                PlatformSourceUnavailabilityKind.Unavailable),
             PlatformSourceSettlementDisposition.OutcomeRelevant);
         var failedXml = new PlatformSourceSettlement(
             new PlatformSourceContribution.Failed(
@@ -1453,14 +1391,12 @@ public class PlatformHouseContractTests
                 secondXml,
                 aggregationDocumentationRequest.Snapshot,
                 PlatformSourceGeneration.Create("xml-failed"),
-                target,
-                PlatformSourceEvidenceIdentity.Create("xml-failed")),
+                target),
             PlatformSourceSettlementDisposition.OutcomeRelevant);
         var aggregateAttempt = new PlatformDocumentationAttempt(
             PlatformSourceFacet.CompiledXml,
             PlatformDocumentationAttemptKind.Failed,
-            [unavailableXml, failedXml],
-            PlatformSourceEvidenceIdentity.Create("aggregate-attempt"));
+            [unavailableXml, failedXml]);
         var aggregateCompletion =
             new PlatformHouseCompletion.Documentation(
                 (PlatformHouseOperationSnapshot.ResolveDocumentationEvidence)
@@ -1482,8 +1418,7 @@ public class PlatformHouseContractTests
                 aggregationDocumentationRequest.Snapshot,
                 PlatformSourceGeneration.Create("xml-absent-1"),
                 target,
-                PlatformSourceUnavailabilityKind.Absent,
-                PlatformSourceEvidenceIdentity.Create("xml-absent-1")),
+                PlatformSourceUnavailabilityKind.Absent),
             PlatformSourceSettlementDisposition.OutcomeRelevant);
         var secondAbsent = new PlatformSourceSettlement(
             new PlatformSourceContribution.Unavailable(
@@ -1492,14 +1427,12 @@ public class PlatformHouseContractTests
                 aggregationDocumentationRequest.Snapshot,
                 PlatformSourceGeneration.Create("xml-absent-2"),
                 target,
-                PlatformSourceUnavailabilityKind.Absent,
-                PlatformSourceEvidenceIdentity.Create("xml-absent-2")),
+                PlatformSourceUnavailabilityKind.Absent),
             PlatformSourceSettlementDisposition.OutcomeRelevant);
         var absentAttempt = new PlatformDocumentationAttempt(
             PlatformSourceFacet.CompiledXml,
             PlatformDocumentationAttemptKind.Absent,
-            [firstAbsent, secondAbsent],
-            PlatformSourceEvidenceIdentity.Create("absent-attempt"));
+            [firstAbsent, secondAbsent]);
         var absentCompletion = new PlatformHouseCompletion.Documentation(
             (PlatformHouseOperationSnapshot.ResolveDocumentationEvidence)
                 aggregationDocumentationRequest.Snapshot.Operation,
@@ -1527,9 +1460,7 @@ public class PlatformHouseContractTests
                         new PlatformDocumentationAttempt(
                             PlatformSourceFacet.CompiledXml,
                             PlatformDocumentationAttemptKind.Unavailable,
-                            [firstAbsent, secondAbsent],
-                            PlatformSourceEvidenceIdentity.Create(
-                                "wrong-absence")),
+                            [firstAbsent, secondAbsent]),
                     ])));
     }
 
@@ -1582,10 +1513,8 @@ public class PlatformHouseContractTests
                 PlatformSourceGeneration.Create("reference-1"),
                 target,
                 PlatformSourceCoordinateIdentity.Create("reference-coordinate"),
-                PlatformTargetCorrespondenceIdentity.Create("reference-target"),
                 population,
-                PlatformSourceContributionCompleteness.Authoritative,
-                PlatformSourceEvidenceIdentity.Create("reference-evidence")),
+                PlatformSourceContributionCompleteness.Authoritative),
             PlatformSourceSettlementDisposition.Selected);
         var completion = new PlatformHouseCompletion.Realization(
             (PlatformHouseOperationSnapshot.Realize)request.Snapshot.Operation,
@@ -1679,10 +1608,8 @@ public class PlatformHouseContractTests
             PlatformSourceGeneration.Create("reference-1"),
             target,
             PlatformSourceCoordinateIdentity.Create("reference-coordinate"),
-            PlatformTargetCorrespondenceIdentity.Create("reference-target"),
             ((PlatformHouseOperation.Realize)request.Operation).Population,
-            PlatformSourceContributionCompleteness.Authoritative,
-            PlatformSourceEvidenceIdentity.Create("reference-evidence"));
+            PlatformSourceContributionCompleteness.Authoritative);
 
         Assert.Throws<ArgumentException>(
             () => new PlatformHouseReceipt(
@@ -1831,10 +1758,8 @@ public class PlatformHouseContractTests
                 PlatformSourceGeneration.Create($"{name}-generation"),
                 target,
                 PlatformSourceCoordinateIdentity.Create($"{name}-coordinate"),
-                PlatformTargetCorrespondenceIdentity.Create($"{name}-target"),
                 ((PlatformHouseOperation.Realize)request.Operation).Population,
-                PlatformSourceContributionCompleteness.Authoritative,
-                PlatformSourceEvidenceIdentity.Create($"{name}-evidence")),
+                PlatformSourceContributionCompleteness.Authoritative),
             PlatformSourceSettlementDisposition.Selected);
 
     static PlatformFamilyTarget Target() =>

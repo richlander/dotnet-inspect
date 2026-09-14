@@ -1439,7 +1439,6 @@ public class CompilerFeatureOptionsTests
 
             var validity = ValidityCheck.Evaluate(
                     path,
-                    importSiblingBodies: true,
                     sequential: true)
                 .Single(result =>
                     result.TypeName == "C"
