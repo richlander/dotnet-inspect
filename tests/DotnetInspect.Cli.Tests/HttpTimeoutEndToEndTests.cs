@@ -74,7 +74,7 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
 
         string error = RunPackageRequest(args, environmentValue: null);
 
-        Assert.Contains(3, TimeoutSeconds(error));
+        Assert.Contains(3, PayloadTimeoutSeconds(error));
     }
 
     /// <summary>
@@ -86,7 +86,7 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
     {
         string error = RunPackageRequest([], environmentValue: "4");
 
-        Assert.Contains(4, TimeoutSeconds(error));
+        Assert.Contains(4, PayloadTimeoutSeconds(error));
     }
 
     /// <summary>
@@ -100,8 +100,8 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
             ["--http-timeout", "31"],
             environmentValue: null);
 
-        Assert.Contains(31, TimeoutSeconds(error));
-        Assert.DoesNotContain(30, TimeoutSeconds(error));
+        Assert.Contains(31, PayloadTimeoutSeconds(error));
+        Assert.DoesNotContain(30, PayloadTimeoutSeconds(error));
     }
 
     /// <summary>
@@ -112,7 +112,7 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
     [Trait("Speed", "Slow")]
     public void HttpTimeout_FlagOutranksTheEnvironmentVariable()
     {
-        IReadOnlyList<int> seconds = TimeoutSeconds(
+        IReadOnlyList<int> seconds = PayloadTimeoutSeconds(
             RunPackageRequest(["--http-timeout", "2"], environmentValue: "9"));
 
         Assert.Contains(2, seconds);
@@ -169,6 +169,14 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
 
         Assert.NotEmpty(numbers);
         return numbers;
+    }
+
+    private static IReadOnlyList<int> PayloadTimeoutSeconds(string error)
+    {
+        const string marker = "NuGet payload request did not complete within";
+        int start = error.IndexOf(marker, StringComparison.Ordinal);
+        Assert.True(start >= 0, $"Expected a payload timeout in the error, got: {error}");
+        return TimeoutSeconds(error[start..]);
     }
 
     private string RunPackageRequest(
