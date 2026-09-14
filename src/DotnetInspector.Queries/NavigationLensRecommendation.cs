@@ -251,6 +251,28 @@ public abstract record NavigationLensOutcome
 
         public NavigationLensFailure Failure { get; }
     }
+
+    /// <summary>
+    /// Retains the last evaluated basis while its exact Package has no current
+    /// realization. It is not a fresh Registry evaluation or an effective lens.
+    /// </summary>
+    public sealed record Suspended : NavigationLensOutcome
+    {
+        internal Suspended(
+            NavigationLensEvaluationBasis basis,
+            ArtifactRootRealizationStatus realization)
+            : base(basis, effectiveLens: null)
+        {
+            if (realization is not ArtifactRootRealizationStatus.Pending
+                and not ArtifactRootRealizationStatus.Failed)
+            {
+                throw new ArgumentException("Suspension requires a non-ready realization.", nameof(realization));
+            }
+            Realization = realization;
+        }
+
+        public ArtifactRootRealizationStatus Realization { get; }
+    }
 }
 
 /// <summary>Pure product policy for choosing one lens for one exact subject.</summary>

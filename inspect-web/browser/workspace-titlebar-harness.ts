@@ -42,9 +42,13 @@ import {
 } from "../src/type-panel.ts";
 import { renderMemberContractSections } from "../src/member-overview.ts";
 import { renderMemberFacts } from "../src/member-facts.ts";
-import { renderOverviewSurface } from "../src/overview-surface.ts";
+import {
+  renderOverviewSurface,
+  renderPackageOverviewContent,
+} from "../src/overview-surface.ts";
 import { renderPackageNav } from "../src/package-view.ts";
 import { renderPackageDocuments } from "../src/doc-viewer.ts";
+import { renderPackageComparisonTargets } from "../src/package-comparison-targets.ts";
 import { allocationFactsFixture, analysisDiagnosticsFixture, callFactsFixture, exceptionRegionsFixture, memberFactsFixture, performanceOpportunitiesFixture, safetyFactsFixture } from "../test/member-facts-fixture.ts";
 import {
   memberFindingInteractionFixture,
@@ -417,6 +421,41 @@ function detailHtml() {
         <span class="library-asset">lib/net10.0/${name}${index}.dll</span>
       </button>`,
     ).join("");
+    const inventoryHtml = `
+      <section class="document-section">
+        <div class="section-title"><h2>Libraries</h2><span>${emptyMode ? 0 : longMode ? 30 : 2} admitted</span></div>
+        <div class="library-list">${libraries}</div>
+      </section>`;
+    const comparisonPackage = {
+      id: "System.Text.Json",
+      version: "10.0.0",
+      activeFramework: "net10.0",
+      source: { kind: "nuget.org" },
+    };
+    const comparisonHtml = `
+      <section id="package-comparison-targets" class="document-section">
+        ${renderPackageComparisonTargets({
+          package: comparisonPackage,
+          packages: [comparisonPackage],
+          diff: { kind: "previous" },
+          clone: { kind: "workspace" },
+          versions: {
+            status: "available",
+            inventory: {
+              versions: ["10.0.0", "9.0.0"],
+              currentVersionInsertionIndex: 0,
+              previousVersion: "9.0.0",
+              previousVersionUnavailableReason: null,
+            },
+          },
+        }, escapeHtml)}
+      </section>`;
+    const documentsHtml = renderPackageDocuments([{
+      kind: "readme",
+      name: longMode ? `${name}.README.md` : "README.md",
+      path: "README.md",
+      size: 1024,
+    }], escapeHtml);
     return renderOverviewSurface({
       subject: packageOverviewMode ? "package" : "library",
       subjectLabel: packageOverviewMode ? "Package" : "Library",
@@ -433,17 +472,13 @@ function detailHtml() {
       coordinateFieldsHtml: packageOverviewMode ? `
         <label class="version-select"><span>Version</span><select id="package-version"><option>10.0.0</option><option>9.0.0</option></select></label>
         <label class="framework-select"><span>Framework</span><select id="framework"><option>net10.0</option><option>net10.0-windows10.0.19041.0</option></select></label>` : "",
-      contentHtml: packageOverviewMode ? `
-        <section class="document-section">
-          <div class="section-title"><h2>Libraries</h2><span>${emptyMode ? 0 : longMode ? 30 : 2} admitted</span></div>
-          <div class="library-list">${libraries}</div>
-        </section>
-        ${renderPackageDocuments([{
-          kind: "readme",
-          name: longMode ? `${name}.README.md` : "README.md",
-          path: "README.md",
-          size: 1024,
-        }], escapeHtml)}` : `
+      contentHtml: packageOverviewMode
+        ? renderPackageOverviewContent({
+            inventoryHtml,
+            comparisonHtml,
+            documentsHtml,
+          })
+        : `
         <section class="document-section">
           <div class="section-title"><h2>Public surface</h2></div>
           <div class="type-chip-list"><button class="type-chip" data-kind-jump="class">32 classes</button></div>

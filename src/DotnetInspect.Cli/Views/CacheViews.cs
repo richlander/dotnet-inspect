@@ -20,13 +20,22 @@ public class CacheInfoView
 [MarkoutSerializable]
 public record CacheCategoryRow(string Name, string Size, string Items);
 
+[MarkoutSerializable(DescriptionProperty = nameof(Message))]
+public sealed class EmptyCacheInfoView
+{
+    [MarkoutIgnore]
+    public string Message { get; } =
+        LibraryViewText.Contain("Cache is empty.") ?? "";
+}
+
 [MarkoutContext(typeof(CacheInfoView))]
+[MarkoutContext(typeof(EmptyCacheInfoView))]
 public partial class CacheInfoContext : MarkoutSerializerContext
 {
 }
 
 /// <summary>
-/// JSON projection for cache info output (used by <c>cache --json</c>).
+/// Compatibility projection for <c>cache --json</c> and <c>cache --jsonl</c>.
 /// </summary>
 public record CacheInfoJson(
     [property: JsonPropertyName("location")] string Location,

@@ -86,6 +86,9 @@ internal sealed class PackageSourceSettlementGeneration
             authorities);
     }
 
+    internal bool OwnsCandidate(PackageAcquisitionCandidate candidate) =>
+        _candidateIssuer.OwnsCandidate(candidate);
+
     /// <summary>
     /// Settles one caller-pinned coordinate against an already-authorized
     /// source set.
