@@ -1,0 +1,780 @@
+{
+  "$comment": "Normative vectors for docs/design/portable-query-payload.md. Checked by eng/check-portable-query-payload-vectors.cs. Every encode vector must canonicalize from its intent to exactly its canonical bytes, and those bytes must decode and re-emit unchanged. Every reject vector must be refused with exactly the named reason. Keys, dimensions, and named orders are illustrative; the vocabulary owner defines the real ones.",
+  "encode": [
+    {
+      "name": "package-query",
+      "description": "A package query: three terms including the typed prefix, one execution bound, no stages, no order. The scope travels as a term; the value is the typed prefix, not the host spelling with its terminal star.",
+      "intent": {
+        "t": [
+          [
+            "depends",
+            "eq",
+            "Serilog"
+          ],
+          [
+            "prefix",
+            "eq",
+            "Microsoft.Extensions."
+          ],
+          [
+            "prerelease",
+            "eq",
+            "include"
+          ]
+        ],
+        "b": [
+          [
+            "candidates",
+            200
+          ]
+        ]
+      },
+      "canonical": "{\"t\":[[\"depends\",\"eq\",\"Serilog\"],[\"prefix\",\"eq\",\"Microsoft.Extensions.\"],[\"prerelease\",\"eq\",\"include\"]],\"b\":[[\"candidates\",200]]}"
+    },
+    {
+      "name": "package-query-entered-in-another-order",
+      "description": "The same query with terms supplied in a different sequence and properties in a different order. Canonical bytes are identical to package-query, so both share one link and one packet state.",
+      "intent": {
+        "b": [
+          [
+            "candidates",
+            200
+          ]
+        ],
+        "t": [
+          [
+            "prerelease",
+            "eq",
+            "include"
+          ],
+          [
+            "prefix",
+            "eq",
+            "Microsoft.Extensions."
+          ],
+          [
+            "depends",
+            "eq",
+            "Serilog"
+          ]
+        ]
+      },
+      "canonical": "{\"t\":[[\"depends\",\"eq\",\"Serilog\"],[\"prefix\",\"eq\",\"Microsoft.Extensions.\"],[\"prerelease\",\"eq\",\"include\"]],\"b\":[[\"candidates\",200]]}"
+    },
+    {
+      "name": "package-query-with-exact-duplicate",
+      "description": "An exact duplicate term collapses; conjunction is idempotent. The canonical bytes equal package-query. The 4 parsed terms are still charged against the term limit before collapse.",
+      "intent": {
+        "t": [
+          [
+            "depends",
+            "eq",
+            "Serilog"
+          ],
+          [
+            "prefix",
+            "eq",
+            "Microsoft.Extensions."
+          ],
+          [
+            "depends",
+            "eq",
+            "Serilog"
+          ],
+          [
+            "prerelease",
+            "eq",
+            "include"
+          ]
+        ],
+        "b": [
+          [
+            "candidates",
+            200
+          ]
+        ]
+      },
+      "canonical": "{\"t\":[[\"depends\",\"eq\",\"Serilog\"],[\"prefix\",\"eq\",\"Microsoft.Extensions.\"],[\"prerelease\",\"eq\",\"include\"]],\"b\":[[\"candidates\",200]]}"
+    },
+    {
+      "name": "all-four-parts",
+      "description": "Every part present once, illustrating property order t, b, s, o and a field-list baseline order.",
+      "intent": {
+        "t": [
+          [
+            "depends",
+            "eq",
+            "Serilog"
+          ]
+        ],
+        "b": [
+          [
+            "candidates",
+            200
+          ]
+        ],
+        "s": [
+          [
+            "head",
+            20
+          ]
+        ],
+        "o": [
+          [
+            "base",
+            "fields",
+            "downloads",
+            "desc"
+          ]
+        ]
+      },
+      "canonical": "{\"t\":[[\"depends\",\"eq\",\"Serilog\"]],\"b\":[[\"candidates\",200]],\"s\":[[\"head\",20]],\"o\":[[\"base\",\"fields\",\"downloads\",\"desc\"]]}"
+    },
+    {
+      "name": "row-query-baseline-and-ranking",
+      "description": "A row query: rows of at least medium confidence, baseline order by name, first twenty, then the five worst by triage. The ranking operation names stage index 1, the top.",
+      "intent": {
+        "t": [
+          [
+            "confidence",
+            "gte",
+            "medium"
+          ]
+        ],
+        "s": [
+          [
+            "head",
+            20
+          ],
+          [
+            "top",
+            5
+          ]
+        ],
+        "o": [
+          [
+            "base",
+            "fields",
+            "name",
+            "asc"
+          ],
+          [
+            1,
+            "named",
+            "triage",
+            "desc"
+          ]
+        ]
+      },
+      "canonical": "{\"t\":[[\"confidence\",\"gte\",\"medium\"]],\"s\":[[\"head\",20],[\"top\",5]],\"o\":[[\"base\",\"fields\",\"name\",\"asc\"],[1,\"named\",\"triage\",\"desc\"]]}"
+    },
+    {
+      "name": "row-query-reversed-pipeline",
+      "description": "The same parts with the stage pipeline reversed. A different question: bytes differ from row-query-baseline-and-ranking whether or not a given input distinguishes the results.",
+      "intent": {
+        "t": [
+          [
+            "confidence",
+            "gte",
+            "medium"
+          ]
+        ],
+        "s": [
+          [
+            "top",
+            5
+          ],
+          [
+            "head",
+            20
+          ]
+        ],
+        "o": [
+          [
+            "base",
+            "fields",
+            "name",
+            "asc"
+          ],
+          [
+            0,
+            "named",
+            "triage",
+            "desc"
+          ]
+        ]
+      },
+      "canonical": "{\"t\":[[\"confidence\",\"gte\",\"medium\"]],\"s\":[[\"top\",5],[\"head\",20]],\"o\":[[\"base\",\"fields\",\"name\",\"asc\"],[0,\"named\",\"triage\",\"desc\"]]}"
+    },
+    {
+      "name": "order-operations-supplied-out-of-role-order",
+      "description": "Operations supplied ranking-first canonicalize to base first, then ascending stage index. Outer operation order carries no meaning once each operation names its role.",
+      "intent": {
+        "s": [
+          [
+            "top",
+            1
+          ]
+        ],
+        "o": [
+          [
+            0,
+            "fields",
+            "b",
+            "desc",
+            "c",
+            "asc"
+          ],
+          [
+            "base",
+            "fields",
+            "a",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"s\":[[\"top\",1]],\"o\":[[\"base\",\"fields\",\"a\",\"asc\"],[0,\"fields\",\"b\",\"desc\",\"c\",\"asc\"]]}"
+    },
+    {
+      "name": "split-a-baseline-a-ranking-bc",
+      "description": "Baseline [a asc], ranking [b desc, c asc]. Must not share bytes with split-b; each operation array is its own boundary.",
+      "intent": {
+        "s": [
+          [
+            "top",
+            1
+          ]
+        ],
+        "o": [
+          [
+            "base",
+            "fields",
+            "a",
+            "asc"
+          ],
+          [
+            0,
+            "fields",
+            "b",
+            "desc",
+            "c",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"s\":[[\"top\",1]],\"o\":[[\"base\",\"fields\",\"a\",\"asc\"],[0,\"fields\",\"b\",\"desc\",\"c\",\"asc\"]]}"
+    },
+    {
+      "name": "split-b-baseline-ab-ranking-c",
+      "description": "Baseline [a asc, b desc], ranking [c asc]. Same field terms as split-a divided differently; different bytes.",
+      "intent": {
+        "s": [
+          [
+            "top",
+            1
+          ]
+        ],
+        "o": [
+          [
+            "base",
+            "fields",
+            "a",
+            "asc",
+            "b",
+            "desc"
+          ],
+          [
+            0,
+            "fields",
+            "c",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"s\":[[\"top\",1]],\"o\":[[\"base\",\"fields\",\"a\",\"asc\",\"b\",\"desc\"],[0,\"fields\",\"c\",\"asc\"]]}"
+    },
+    {
+      "name": "window-with-open-bounds",
+      "description": "Window keeps arity 3 with positional null for an omitted bound; the only slot anywhere permitted to carry null.",
+      "intent": {
+        "s": [
+          [
+            "window",
+            null,
+            50
+          ],
+          [
+            "window",
+            10,
+            null
+          ],
+          [
+            "window",
+            null,
+            null
+          ]
+        ]
+      },
+      "canonical": "{\"s\":[[\"window\",null,50],[\"window\",10,null],[\"window\",null,null]]}"
+    },
+    {
+      "name": "quotes-and-backslash-in-value",
+      "description": "A value carrying a quote and a backslash round-trips with standard escapes and stays contained as text.",
+      "intent": {
+        "t": [
+          [
+            "depends",
+            "eq",
+            "a\"b\\c"
+          ]
+        ]
+      },
+      "canonical": "{\"t\":[[\"depends\",\"eq\",\"a\\\"b\\\\c\"]]}"
+    },
+    {
+      "name": "joint-maximum",
+      "description": "The admissible payload with the most JSON values: 24 terms, 8 bounds, seven top stages plus one window, and one eight-field baseline operation plus seven named rankings. 204 values, well under 3 KiB, so for this shape the value count binds before the byte count.",
+      "intent": {
+        "t": [
+          [
+            "k00",
+            "eq",
+            "v"
+          ],
+          [
+            "k01",
+            "eq",
+            "v"
+          ],
+          [
+            "k02",
+            "eq",
+            "v"
+          ],
+          [
+            "k03",
+            "eq",
+            "v"
+          ],
+          [
+            "k04",
+            "eq",
+            "v"
+          ],
+          [
+            "k05",
+            "eq",
+            "v"
+          ],
+          [
+            "k06",
+            "eq",
+            "v"
+          ],
+          [
+            "k07",
+            "eq",
+            "v"
+          ],
+          [
+            "k08",
+            "eq",
+            "v"
+          ],
+          [
+            "k09",
+            "eq",
+            "v"
+          ],
+          [
+            "k10",
+            "eq",
+            "v"
+          ],
+          [
+            "k11",
+            "eq",
+            "v"
+          ],
+          [
+            "k12",
+            "eq",
+            "v"
+          ],
+          [
+            "k13",
+            "eq",
+            "v"
+          ],
+          [
+            "k14",
+            "eq",
+            "v"
+          ],
+          [
+            "k15",
+            "eq",
+            "v"
+          ],
+          [
+            "k16",
+            "eq",
+            "v"
+          ],
+          [
+            "k17",
+            "eq",
+            "v"
+          ],
+          [
+            "k18",
+            "eq",
+            "v"
+          ],
+          [
+            "k19",
+            "eq",
+            "v"
+          ],
+          [
+            "k20",
+            "eq",
+            "v"
+          ],
+          [
+            "k21",
+            "eq",
+            "v"
+          ],
+          [
+            "k22",
+            "eq",
+            "v"
+          ],
+          [
+            "k23",
+            "eq",
+            "v"
+          ]
+        ],
+        "b": [
+          [
+            "d0",
+            200
+          ],
+          [
+            "d1",
+            200
+          ],
+          [
+            "d2",
+            200
+          ],
+          [
+            "d3",
+            200
+          ],
+          [
+            "d4",
+            200
+          ],
+          [
+            "d5",
+            200
+          ],
+          [
+            "d6",
+            200
+          ],
+          [
+            "d7",
+            200
+          ]
+        ],
+        "s": [
+          [
+            "top",
+            5
+          ],
+          [
+            "top",
+            5
+          ],
+          [
+            "top",
+            5
+          ],
+          [
+            "top",
+            5
+          ],
+          [
+            "top",
+            5
+          ],
+          [
+            "top",
+            5
+          ],
+          [
+            "top",
+            5
+          ],
+          [
+            "window",
+            1,
+            9
+          ]
+        ],
+        "o": [
+          [
+            "base",
+            "fields",
+            "f0",
+            "asc",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "f6",
+            "asc",
+            "f7",
+            "asc"
+          ],
+          [
+            0,
+            "named",
+            "triage",
+            "desc"
+          ],
+          [
+            1,
+            "named",
+            "triage",
+            "desc"
+          ],
+          [
+            2,
+            "named",
+            "triage",
+            "desc"
+          ],
+          [
+            3,
+            "named",
+            "triage",
+            "desc"
+          ],
+          [
+            4,
+            "named",
+            "triage",
+            "desc"
+          ],
+          [
+            5,
+            "named",
+            "triage",
+            "desc"
+          ],
+          [
+            6,
+            "named",
+            "triage",
+            "desc"
+          ]
+        ]
+      },
+      "canonical": "{\"t\":[[\"k00\",\"eq\",\"v\"],[\"k01\",\"eq\",\"v\"],[\"k02\",\"eq\",\"v\"],[\"k03\",\"eq\",\"v\"],[\"k04\",\"eq\",\"v\"],[\"k05\",\"eq\",\"v\"],[\"k06\",\"eq\",\"v\"],[\"k07\",\"eq\",\"v\"],[\"k08\",\"eq\",\"v\"],[\"k09\",\"eq\",\"v\"],[\"k10\",\"eq\",\"v\"],[\"k11\",\"eq\",\"v\"],[\"k12\",\"eq\",\"v\"],[\"k13\",\"eq\",\"v\"],[\"k14\",\"eq\",\"v\"],[\"k15\",\"eq\",\"v\"],[\"k16\",\"eq\",\"v\"],[\"k17\",\"eq\",\"v\"],[\"k18\",\"eq\",\"v\"],[\"k19\",\"eq\",\"v\"],[\"k20\",\"eq\",\"v\"],[\"k21\",\"eq\",\"v\"],[\"k22\",\"eq\",\"v\"],[\"k23\",\"eq\",\"v\"]],\"b\":[[\"d0\",200],[\"d1\",200],[\"d2\",200],[\"d3\",200],[\"d4\",200],[\"d5\",200],[\"d6\",200],[\"d7\",200]],\"s\":[[\"top\",5],[\"top\",5],[\"top\",5],[\"top\",5],[\"top\",5],[\"top\",5],[\"top\",5],[\"window\",1,9]],\"o\":[[\"base\",\"fields\",\"f0\",\"asc\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"f7\",\"asc\"],[0,\"named\",\"triage\",\"desc\"],[1,\"named\",\"triage\",\"desc\"],[2,\"named\",\"triage\",\"desc\"],[3,\"named\",\"triage\",\"desc\"],[4,\"named\",\"triage\",\"desc\"],[5,\"named\",\"triage\",\"desc\"],[6,\"named\",\"triage\",\"desc\"]]}",
+      "expectValues": 204
+    }
+  ],
+  "reject": [
+    {
+      "name": "pretty-printed",
+      "description": "Whitespace between tokens is not canonical. The packet rejects insignificant whitespace; so does this payload.",
+      "bytes": "{\"t\": [[\"depends\", \"eq\", \"Serilog\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "terms-unsorted",
+      "description": "Terms out of ordinal order are not canonical bytes.",
+      "bytes": "{\"t\":[[\"prefix\",\"eq\",\"x\"],[\"depends\",\"eq\",\"Serilog\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "properties-out-of-order",
+      "description": "Property order is exactly t, b, s, o.",
+      "bytes": "{\"b\":[[\"candidates\",200]],\"t\":[[\"depends\",\"eq\",\"Serilog\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "exact-duplicate-terms-on-the-wire",
+      "description": "Canonical form has already collapsed exact duplicates; bytes still carrying one are not canonical.",
+      "bytes": "{\"t\":[[\"depends\",\"eq\",\"Serilog\"],[\"depends\",\"eq\",\"Serilog\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "order-operations-out-of-role-order-on-the-wire",
+      "description": "Operations must be emitted base first, then ascending stage index.",
+      "bytes": "{\"s\":[[\"top\",1]],\"o\":[[0,\"named\",\"x\",\"asc\"],[\"base\",\"named\",\"y\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "empty-part-emitted",
+      "description": "An absent or empty part is omitted, never emitted as an empty array.",
+      "bytes": "{\"t\":[[\"depends\",\"eq\",\"Serilog\"]],\"s\":[]}",
+      "reject": "empty-part"
+    },
+    {
+      "name": "unknown-property",
+      "description": "The object is closed.",
+      "bytes": "{\"t\":[[\"depends\",\"eq\",\"Serilog\"]],\"x\":1}",
+      "reject": "unknown-property"
+    },
+    {
+      "name": "duplicate-property",
+      "description": "A repeated property is invalid.",
+      "bytes": "{\"t\":[[\"a\",\"eq\",\"b\"]],\"t\":[[\"a\",\"eq\",\"b\"]]}",
+      "reject": "duplicate-property"
+    },
+    {
+      "name": "repeated-bound-dimension-different-maxima",
+      "description": "One dimension may carry at most one bound; two maxima are a contradiction, not a narrower request.",
+      "bytes": "{\"b\":[[\"candidates\",100],[\"candidates\",200]]}",
+      "reject": "repeated-bound-dimension"
+    },
+    {
+      "name": "repeated-bound-dimension-identical",
+      "description": "Even identical duplicates are refused rather than collapsed; a second bound has no meaning to preserve.",
+      "bytes": "{\"b\":[[\"candidates\",200],[\"candidates\",200]]}",
+      "reject": "repeated-bound-dimension"
+    },
+    {
+      "name": "unknown-operator",
+      "description": "Only eq, ne, gte, lte. There is no strict lt or gt.",
+      "bytes": "{\"t\":[[\"downloads\",\"lt\",\"1000\"]]}",
+      "reject": "unknown-token"
+    },
+    {
+      "name": "unknown-stage",
+      "description": "Stage tokens are fixed.",
+      "bytes": "{\"s\":[[\"take\",5]]}",
+      "reject": "unknown-token"
+    },
+    {
+      "name": "unknown-direction",
+      "description": "Direction tokens are fixed.",
+      "bytes": "{\"s\":[[\"top\",1]],\"o\":[[\"base\",\"named\",\"x\",\"up\"]]}",
+      "reject": "unknown-token"
+    },
+    {
+      "name": "unknown-order-kind",
+      "description": "Order kinds are named or fields.",
+      "bytes": "{\"s\":[[\"top\",1]],\"o\":[[\"base\",\"list\",\"x\",\"asc\"]]}",
+      "reject": "unknown-token"
+    },
+    {
+      "name": "head-with-null",
+      "description": "Positional null is permitted only in the two window endpoint slots.",
+      "bytes": "{\"s\":[[\"head\",null]]}",
+      "reject": "null-outside-window"
+    },
+    {
+      "name": "window-wrong-arity",
+      "description": "Window is always three slots; an omitted bound is null, not a shorter tuple.",
+      "bytes": "{\"s\":[[\"window\",1]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "term-wrong-arity",
+      "description": "A term is exactly three strings.",
+      "bytes": "{\"t\":[[\"depends\",\"eq\"]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "named-order-wrong-arity",
+      "description": "A named operation is role, kind, identity, direction.",
+      "bytes": "{\"s\":[[\"top\",1]],\"o\":[[\"base\",\"named\",\"x\"]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "fields-order-odd-terms",
+      "description": "A field-list operation pairs every key with a direction.",
+      "bytes": "{\"s\":[[\"top\",1]],\"o\":[[\"base\",\"fields\",\"a\",\"asc\",\"b\"]]}",
+      "reject": "bad-arity"
+    },
+    {
+      "name": "role-names-a-non-top-stage",
+      "description": "A ranking role must name a top stage.",
+      "bytes": "{\"s\":[[\"head\",5]],\"o\":[[0,\"named\",\"x\",\"asc\"]]}",
+      "reject": "role-not-top"
+    },
+    {
+      "name": "role-out-of-range",
+      "description": "A ranking role must index an existing stage.",
+      "bytes": "{\"s\":[[\"top\",5]],\"o\":[[3,\"named\",\"x\",\"asc\"]]}",
+      "reject": "role-not-top"
+    },
+    {
+      "name": "duplicate-base",
+      "description": "At most one operation carries base.",
+      "bytes": "{\"o\":[[\"base\",\"named\",\"x\",\"asc\"],[\"base\",\"named\",\"y\",\"asc\"]]}",
+      "reject": "duplicate-role"
+    },
+    {
+      "name": "duplicate-stage-role",
+      "description": "At most one operation per ranking stage.",
+      "bytes": "{\"s\":[[\"top\",1]],\"o\":[[0,\"named\",\"x\",\"asc\"],[0,\"named\",\"y\",\"asc\"]]}",
+      "reject": "duplicate-role"
+    },
+    {
+      "name": "bound-maximum-not-integer",
+      "description": "Maxima are JSON integers.",
+      "bytes": "{\"b\":[[\"candidates\",200.0]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "bound-maximum-negative",
+      "description": "Maxima are positive and unsigned.",
+      "bytes": "{\"b\":[[\"candidates\",-1]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-with-leading-zero",
+      "description": "No leading zeros.",
+      "bytes": "{\"s\":[[\"head\",007]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "too-many-terms",
+      "description": "Twenty-five terms exceed the limit of 24, charged as parsed, before any collapse.",
+      "bytes": "{\"t\":[[\"k00\",\"eq\",\"v\"],[\"k01\",\"eq\",\"v\"],[\"k02\",\"eq\",\"v\"],[\"k03\",\"eq\",\"v\"],[\"k04\",\"eq\",\"v\"],[\"k05\",\"eq\",\"v\"],[\"k06\",\"eq\",\"v\"],[\"k07\",\"eq\",\"v\"],[\"k08\",\"eq\",\"v\"],[\"k09\",\"eq\",\"v\"],[\"k10\",\"eq\",\"v\"],[\"k11\",\"eq\",\"v\"],[\"k12\",\"eq\",\"v\"],[\"k13\",\"eq\",\"v\"],[\"k14\",\"eq\",\"v\"],[\"k15\",\"eq\",\"v\"],[\"k16\",\"eq\",\"v\"],[\"k17\",\"eq\",\"v\"],[\"k18\",\"eq\",\"v\"],[\"k19\",\"eq\",\"v\"],[\"k20\",\"eq\",\"v\"],[\"k21\",\"eq\",\"v\"],[\"k22\",\"eq\",\"v\"],[\"k23\",\"eq\",\"v\"],[\"k24\",\"eq\",\"v\"]]}",
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "too-many-order-field-terms",
+      "description": "Nine field terms across operations exceed the eight-term budget.",
+      "bytes": "{\"o\":[[\"base\",\"fields\",\"f0\",\"asc\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"f7\",\"asc\",\"f8\",\"asc\"]]}",
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "value-too-long",
+      "description": "A 257-byte value exceeds the 256-byte limit, counted in UTF-8 bytes.",
+      "bytes": "{\"t\":[[\"k\",\"eq\",\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"]]}",
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "unpaired-surrogate",
+      "description": "Inherited from the packet's canonical escaping: an unpaired surrogate is refused, never repaired to U+FFFD.",
+      "bytes": "{\"t\":[[\"k\",\"eq\",\"\\ud800\"]]}",
+      "reject": "unpaired-surrogate"
+    }
+  ]
+}
