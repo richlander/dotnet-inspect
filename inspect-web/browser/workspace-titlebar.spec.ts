@@ -513,6 +513,22 @@ for (const [subject, width] of [
         `lib/net10.0/${name}.dll`,
         `${name}, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null`,
       ]);
+      await expect(page.locator(
+        ".library-overview-content .section-title h2")).toHaveText([
+          "Namespaces",
+          "Type kinds",
+        ]);
+      const namespaces = await box(page, ".library-overview-namespaces");
+      const kinds = await box(page, ".library-overview-kinds");
+      if (width === 1440) {
+        expect(kinds.x).toBeGreaterThanOrEqual(
+          namespaces.x + namespaces.width);
+        expect(kinds.y).toBeCloseTo(namespaces.y, 0);
+      } else {
+        expect(kinds.x).toBeCloseTo(namespaces.x, 0);
+        expect(kinds.y).toBeGreaterThanOrEqual(
+          namespaces.y + namespaces.height);
+      }
     }
 
     const header = await box(page, ".overview-surface-head");
@@ -554,6 +570,43 @@ test("Package Overview keeps empty totals and available documents", async ({ pag
   await expect(page.locator(".library-row")).toHaveCount(0);
   await expect(page.locator("[data-doc-path='README.md']")).toBeVisible();
   await expect(page.locator(".overview-surface-footer")).toBeVisible();
+});
+
+test("Library Overview keeps explicit empty namespace and type-kind states", async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 700 });
+  await page.goto("/browser/workspace-titlebar.html?library-overview=1&empty=1");
+  await expect(page.locator(".overview-surface-head p")).toHaveText("0 types · 0 members");
+  await expect(page.locator(".library-overview-namespaces"))
+    .toContainText("No public namespaces.");
+  await expect(page.locator(".library-overview-kinds"))
+    .toContainText("No public types.");
+  await expect(page.locator("[data-namespace-jump], [data-kind-jump]")).toHaveCount(0);
+  await expect(page.locator(".overview-surface-footer")).toBeVisible();
+});
+
+test("Library Overview controls retain focus across allocation changes", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?library-overview=1");
+
+  const namespace = page.locator("[data-namespace-jump]").first();
+  await namespace.focus();
+  await page.setViewportSize({ width: 800, height: 900 });
+  await expect(namespace).toBeFocused();
+  const stackedNamespaces = await box(page, ".library-overview-namespaces");
+  const stackedKinds = await box(page, ".library-overview-kinds");
+  expect(stackedKinds.y).toBeGreaterThanOrEqual(
+    stackedNamespaces.y + stackedNamespaces.height);
+
+  const kind = page.locator("[data-kind-jump]").first();
+  await kind.focus();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(kind).toBeFocused();
+  const wideNamespaces = await box(page, ".library-overview-namespaces");
+  const wideKinds = await box(page, ".library-overview-kinds");
+  expect(wideKinds.x).toBeGreaterThanOrEqual(
+    wideNamespaces.x + wideNamespaces.width);
 });
 
 test("Package Overview resources retain focus across allocation changes", async ({
