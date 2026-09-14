@@ -20,13 +20,64 @@ public sealed partial class DesktopPackageSourceComposition
         NuGetOperationContext? operationContext = null,
         PackagePayloadLimits? limits = null,
         IPackagePayloadTransferPolicy? transferPolicy = null,
-        string? requiredProducerKey = null) =>
-        PackageSourceSettlementCompatibility.RunAsync(
-            _sourceLease, cancellationToken, operationContext,
-            (generation, operation) => AcquirePinnedCoreAsync(
-                generation, packageId, version, createStore, sourceOptions, log,
-                operation, limits, transferPolicy, requiredProducerKey),
-            _options.RequestTimeout, _options.OperationTimeout);
+        string? requiredProducerKey = null)
+    {
+        ArgumentNullException.ThrowIfNull(createStore);
+        if (operationContext is not null)
+        {
+            return PackageSourceSettlementCompatibility.RunAsync(
+                _sourceLease,
+                cancellationToken,
+                operationContext,
+                (generation, operation) => AcquirePinnedCoreAsync(
+                    generation,
+                    packageId,
+                    version,
+                    createStore,
+                    sourceOptions,
+                    log,
+                    operation,
+                    limits,
+                    transferPolicy,
+                    requiredProducerKey),
+                _options.RequestTimeout,
+                _options.OperationTimeout);
+        }
+
+        PackageSourceOperationLease? sourceOperation =
+            IssueHouseOperation(cancellationToken);
+        try
+        {
+            if (!PackageExtractor.IsValidPackageId(packageId)
+                || !PackageExtractor.TryNormalizePackageVersion(
+                    version,
+                    out string normalizedVersion))
+            {
+                return Task.FromResult(
+                    InvalidSelection(
+                        "Payload acquisition requires a valid package ID and an exact version."));
+            }
+
+            Task<ConfiguredPackagePayloadResult> execution =
+                AcquirePinnedThroughHouseAsync(
+                    PackageSourceCoordinate.Create(
+                        packageId,
+                        normalizedVersion),
+                    createStore,
+                    sourceOptions,
+                    log,
+                    sourceOperation,
+                    limits,
+                    transferPolicy,
+                    requiredProducerKey);
+            sourceOperation = null;
+            return execution;
+        }
+        finally
+        {
+            sourceOperation?.Dispose();
+        }
+    }
 
     private async Task<ConfiguredPackagePayloadResult> AcquirePinnedCoreAsync(
         PackageSourceSettlementGeneration generation,

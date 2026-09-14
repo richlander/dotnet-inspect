@@ -148,6 +148,10 @@ public sealed class PackageHouseExecutionTests
             acquisition.Generation);
         Assert.Equal(payload.Origin, acquisition.Origin);
         Assert.Equal(payload.ProducerKey, acquisition.Producer.Key);
+        Assert.Same(
+            environment.Clients[0].Source,
+            acquired.SourcePayloadResult!.Source);
+        Assert.True(acquired.SelectionUsesOriginalSources);
         Assert.Equal(1, environment.Clients[0].PayloadRequests);
         await environment.AssertRootSettledAsync();
     }
@@ -495,6 +499,10 @@ public sealed class PackageHouseExecutionTests
         Assert.Same(
             acquired.Payload.Content.GenerationIdentity,
             realization.Receipt.Generation);
+        Assert.Same(
+            acquired.Payload,
+            acquired.SourcePayloadResult!.Payload);
+        Assert.True(acquired.SelectionUsesOriginalSources);
         Assert.Contains(
             failed.Evidence.Failures,
             failure => failure is PackageHouseFailure.Timeout
@@ -546,6 +554,10 @@ public sealed class PackageHouseExecutionTests
             "exact target framework",
             rejected.Reason.ToString(),
             StringComparison.Ordinal);
+        Assert.Same(
+            acquired.Payload,
+            acquired.SourcePayloadResult!.Payload);
+        Assert.True(acquired.SelectionUsesOriginalSources);
         await environment.AssertRootSettledAsync();
     }
 
@@ -607,6 +619,8 @@ public sealed class PackageHouseExecutionTests
             Assert.IsType<PackageVersionResolutionReceipt.Resolved>(
                 settlement.Result.Decision.VersionResolution);
         Assert.Single(resolution.Candidate.Authorities);
+        Assert.Single(settlement.SourcePayloadResult!.ReportingAuthorities!);
+        Assert.False(settlement.SelectionUsesOriginalSources);
     }
 
     [Fact]
@@ -988,6 +1002,84 @@ public sealed class PackageHouseExecutionTests
             "another Package Source root generation",
             exception.Message,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CandidateManifestReleasesTransferredOperationWhenSourceThrows()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior([Version]));
+        PackageAcquisitionCandidate candidate =
+            ResolveCandidate(environment);
+
+        await Assert.ThrowsAsync<NotSupportedException>(
+            () => PackageHouse.AcquireCandidateManifestAsync(
+                candidate,
+                environment.Root.IssueOperationLease(
+                    TestContext.Current.CancellationToken)));
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task CandidateManifestRejectsForeignGenerationAndReleasesOperation()
+    {
+        await using HouseEnvironment first = HouseEnvironment.Create(
+            new SourceBehavior([Version]));
+        await using HouseEnvironment second = HouseEnvironment.Create(
+            new SourceBehavior([Version]));
+        PackageAcquisitionCandidate candidate =
+            ResolveCandidate(first);
+
+        InvalidOperationException exception =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => PackageHouse.AcquireCandidateManifestAsync(
+                    candidate,
+                    second.Root.IssueOperationLease(
+                        TestContext.Current.CancellationToken)));
+
+        Assert.Contains(
+            "another Package Source root generation",
+            exception.Message,
+            StringComparison.Ordinal);
+        await first.AssertRootSettledAsync();
+        await second.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task CandidateManifestExpiredOperationReturnsTypedTimeout()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior([Version]));
+        PackageAcquisitionCandidate candidate =
+            ResolveCandidate(environment);
+        using PackageSourceOperationLease operation =
+            environment.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken,
+                requestTimeout: TimeSpan.FromSeconds(1),
+                operationTimeout: TimeSpan.FromTicks(1));
+        await Task.Delay(
+            TimeSpan.FromMilliseconds(20),
+            TestContext.Current.CancellationToken);
+
+        ConfiguredPackageManifestResult result =
+            await PackageHouse.AcquireCandidateManifestAsync(
+                candidate,
+                operation);
+
+        Assert.Null(result.Manifest);
+        Assert.Null(result.Authority);
+        PackageAuthorityFailure failure =
+            Assert.Single(result.Failures);
+        Assert.Equal(
+            PackageAuthorityFailureKind.Timeout,
+            failure.Kind);
+        Assert.Equal(
+            PackageSourceTimeoutKind.Operation,
+            failure.Timeout?.Kind);
+        Assert.Equal(
+            TimeSpan.FromTicks(1),
+            failure.Timeout?.Duration);
+        await environment.AssertRootSettledAsync();
     }
 
     [Fact]
