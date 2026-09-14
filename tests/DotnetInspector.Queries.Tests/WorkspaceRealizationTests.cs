@@ -14,6 +14,12 @@ public sealed class WorkspaceRealizationTests
             await WorkspaceRealizationConsumer.BeginAsync(
                 coordinator,
                 WorkspacePlan.Empty);
+        _ = await ReplaceScopeAsync(
+            firstCandidate.ConstructionWorkspace,
+            PackageAssemblyContextCompletionTests.SharedBinding(
+                "Predecessor.First"),
+            PackageAssemblyContextCompletionTests.SharedBinding(
+                "Predecessor.Second"));
         WorkspaceRealization first =
             await WorkspaceRealizationConsumer.ActivateAsync(
                 coordinator,
@@ -25,6 +31,10 @@ public sealed class WorkspaceRealizationTests
             await WorkspaceRealizationConsumer.BeginAsync(
                 coordinator,
                 WorkspacePlan.Empty);
+        _ = await ReplaceScopeAsync(
+            secondCandidate.ConstructionWorkspace,
+            PackageAssemblyContextCompletionTests.SharedBinding(
+                "Successor.Only"));
         _ = await coordinator.CompleteCandidateAsync(
             secondCandidate,
             TestContext.Current.CancellationToken);
@@ -33,6 +43,7 @@ public sealed class WorkspaceRealizationTests
                 coordinator.CutOver(secondCandidate));
 
         Assert.Same(first.Identity, predecessor.Realization);
+        Assert.Equal(2, predecessor.Scope.Packages.Length);
         Assert.NotSame(first.Identity, cutover.Realization.Identity);
         Assert.NotNull(cutover.Predecessor);
         Assert.False(cutover.Predecessor.Completion.IsCompleted);
@@ -40,6 +51,8 @@ public sealed class WorkspaceRealizationTests
         using WorkspaceRealizationOperationLease successor =
             await WorkspaceRealizationConsumer.EnterAsync(coordinator);
         Assert.Same(cutover.Realization.Identity, successor.Realization);
+        Assert.Single(successor.Scope.Packages);
+        Assert.Equal(2, predecessor.Scope.Packages.Length);
 
         predecessor.Dispose();
         WorkspaceRealizationSettlement settlement =
@@ -447,5 +460,20 @@ public sealed class WorkspaceRealizationTests
         PackageAssemblyContextCompletionOperation operation =
             workspace.PreparePackageAssemblyContextCompletion([binding]);
         return await operation.ExecuteAsync(operation.Identity);
+    }
+
+    static async Task<WorkspaceScopeSnapshot> ReplaceScopeAsync(
+        InspectionWorkspace workspace,
+        params PackageRootBinding[] bindings)
+    {
+        WorkspaceScopeSnapshot current =
+            Assert.IsType<WorkspaceScopeReadResult.Available>(
+                await workspace.GetScopeSnapshotAsync()).Snapshot;
+        return Assert.IsType<WorkspaceScopeOperationResult.Committed>(
+            await workspace.ReplaceScopeAsync(
+                current.Revision,
+                [.. bindings],
+                DateTimeOffset.UtcNow.AddMinutes(1),
+                TestContext.Current.CancellationToken)).Snapshot;
     }
 }
