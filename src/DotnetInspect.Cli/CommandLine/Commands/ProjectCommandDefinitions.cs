@@ -35,18 +35,14 @@ public static class ProjectCommandDefinitions
         {
             Description = "With --print or --bare, print only content after YAML frontmatter"
         };
-        var outOption = new Option<string?>("--out")
-        {
-            Description = "Write output to file instead of stdout"
-        };
-        outOption.Aliases.Add("--output");
-        outOption.Aliases.Add("-o");
+        var outOption = SharedOptions.CreateOutputPathOption();
 
         projectCommand.Arguments.Add(pathArg);
         projectCommand.Options.Add(tfmOption);
         projectCommand.Options.Add(frontmatterOption);
         projectCommand.Options.Add(bodyOption);
         projectCommand.Options.Add(outOption);
+        SharedOptions.AddOutputPathValidator(projectCommand, outOption);
         opts.AddJsonOptionTo(projectCommand);
         projectCommand.Options.Add(opts.Bare);
         projectCommand.Options.Add(opts.Markdown);

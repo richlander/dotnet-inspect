@@ -108,7 +108,7 @@ public static class AssemblyContextApiComparisonQuery
         ApiSurfaceProjectionLimits limits)
         => new(
             new AssemblyContextSubject(participant.Assembly),
-            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+            AssemblyContextApiSurfaceQuery.ExecuteBoundedResolved(
                 group,
                 scope,
                 limits,

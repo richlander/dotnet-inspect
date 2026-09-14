@@ -135,7 +135,7 @@ internal sealed class AssemblySetInspectionWorkspace : IAsyncDisposable
         }
     }
 
-    private static ResolvedAssemblyReference? TryCreateManagedAssembly(
+    internal static ResolvedAssemblyReference? TryCreateManagedAssembly(
         AssemblySetEntry entry,
         out CandidateOpenFailure? failure)
     {

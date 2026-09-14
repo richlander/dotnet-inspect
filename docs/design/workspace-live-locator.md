@@ -6,8 +6,10 @@ Focused design under
 [#6845](https://github.com/richlander/dotnet-inspect/issues/6845), following
 the merged [reverse locator contract](reverse-type-declaration-locator.md)
 in [#6853](https://github.com/richlander/dotnet-inspect/pull/6853).
-The live facade, population observation seam, and implementation gates below
-are **not implemented**. The interaction model is design evidence only.
+The [explicit context projection](#implemented-explicit-context-projection)
+is implemented. The live facade, snapshot/subscription handoff, and resident
+implementation gates below are **not implemented**. The interaction model is
+design evidence only.
 
 **Workspace Live Locator**, within Workspace composition in
 `DotnetInspector.Queries`, owns this claim:
@@ -102,6 +104,82 @@ only later owner-issued completion evidence can settle it, in a new receipt.
 The observation seam is new Workspace work in #6845. If current admission
 APIs cannot supply its coherent committed receipt, that producer handoff is a
 prerequisite, not something the locator can reconstruct from paths or events.
+
+### Implemented explicit context projection
+
+The first #6845 implementation supplies the cold query's population input,
+not Workspace-wide observation. `LoadDeclarationContextAsync` uses the
+existing `WorkspaceContextLoader` acquisition path and issues a
+`WorkspaceDeclarationContext`: one frozen request associated with either its
+committed group and source correspondence or its upstream realization failure.
+The request's order is reserved before acquisition awaits; completion timing
+does not choose population order.
+
+`InspectionWorkspace.CaptureDeclarationPopulation` captures exactly the supplied
+loader-issued contexts, ordered by that request order and then by the loader's
+member order. It does not discover other Workspace groups, acquire content,
+or read declarations. Repeated captures preserve occurrence identity; each
+capture issues a new opaque association identity, even for an unchanged roster.
+Equal logical coordinates in separate contexts remain separate observations.
+An earlier capture is unchanged when a later context is loaded or selected.
+
+`WorkspaceDeclarationPopulationReceipt` and its context/member receipts are
+detached evidence. They retain the original request, realization gaps, Metadata
+assembly identity, logical Library coordinate when available, and source-issued
+realized coordinate and selection provenance. The latter retain the producer
+and target/view information separately from the logical coordinate. Live group
+access belongs to `WorkspaceDeclarationContext` and
+`WorkspaceDeclarationPopulation`, not to their receipts.
+
+Package and Platform loader members project their existing exact coordinates.
+NuGet implementation-pack transport does not turn a Platform into a Package.
+Only selected participants enter the roster, not the broader available-platform
+catalog. Embedded members remain visible with `CoordinateUnavailable`; they
+are not reclassified as local files. Raw groups, Artifact Root publication,
+local/project producers, and other Library producers are not yet adapters into
+this explicit projection. Their future adoption must preserve their own
+source-issued correspondence.
+
+`IsRealizationComplete` describes only the selected contexts' acquisition
+outcomes. A failed context preserves its entire request and typed failures,
+not an invented partial assembly roster or a complete empty population.
+An explicit empty selection is realization-complete. Coordinate availability
+and declaration inventory success are separate coverage dimensions for #6849.
+
+`ReadDeclarations` reads one selected occurrence through the existing group's
+scoped session borrow over retained immutable images. Each call returns
+Metadata's detached inventory or rejection, or an explicit unavailable/access
+failure. It does not retain the inventory or reacquire the source. Cancellation
+is checked before and after the synchronous inspection and remains cancellation.
+Closed/released ownership prevents new reads; returned inventories and receipts
+remain usable. If acquisition commits a group before cancellation is observed
+by the loader wrapper, that group remains under the existing Workspace owner.
+
+Release gates are in `WorkspaceContextLoaderTests`, with the
+`DeclarationPopulation_` prefix:
+
+| Claim | Gate suffix |
+| --- | --- |
+| Stable occurrence/order and unchanged earlier receipts | `PreservesOriginsOccurrencesAndEarlierReceipts`, `RequestOrderAndSnapshotPrecedeAsyncRealization` |
+| Source-domain and selected-participant preservation | `PlatformKeepsSourceDomainAndOnlySelectedAssemblies` |
+| Upstream failures versus explicit empty selection | `PreservesWholeFailedRequestAlongsideHealthyMembers` |
+| Unsupported coordinates, retained reads and detached post-close evidence | `EmbeddedOriginIsNotInventedAndReadsUseRetainedContent` |
+| Selection/lifetime rejection and cancellation | `RejectsForeignDuplicateAndReleasedContexts` |
+| Declaration rejection remains attributed after successful realization | `MetadataRejectionRemainsAttributedAfterRealization` |
+| Real Package and Platform declaration choices | `RealJsonPackageAndPlatformKeepDistinctChoices` |
+
+The real-asset gate uses `System.Text.Json@10.0.0` (`net10.0`) and
+`Microsoft.NETCore.App.Runtime.linux-x64@10.0.10` through the actual loader,
+selecting `System.Text.Json` in a separate Platform group. Both inventories
+declare `System.Text.Json.JsonSerializer`. This is implementation-view evidence;
+it does not substitute for the reference-view and resident-maintenance gates
+below. The real-asset gate is `Speed=Slow`, retained in daily Deep Inspect's
+unfiltered Queries suite; the small-fixture boundary cases remain PR-fast.
+
+Global population observation, first-demand caching, append maintenance, the
+cold matcher, and CLI/Browser adoption remain pending along the
+[delivery map](reverse-type-locator-adoption.md). This slice does not complete
+issue #6845 or expose a new Find command.
 
 ## Resident inventories and shared work
 

@@ -747,7 +747,7 @@ public class IlToolsActivationTests
         Assert.Contains("- os: windows-latest\n            rid: win-x64", jobHeader);
         Assert.Contains("- os: macos-latest\n            rid: osx-arm64", jobHeader);
         Assert.Contains("- os: ubuntu-26.04\n            rid: linux-x64", jobHeader);
-        Assert.Contains("timeout-minutes: 90", jobHeader);
+        Assert.Contains("timeout-minutes: 120", jobHeader);
 
         int install = job.IndexOf(
             "- name: Install ilasm/ildasm/mdv",
