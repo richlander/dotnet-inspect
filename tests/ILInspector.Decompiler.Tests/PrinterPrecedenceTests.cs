@@ -596,6 +596,34 @@ public class PrinterPrecedenceTests
     }
 
     [Fact]
+    public void ConvertNativeUInt_Unbox_UpdatedRulesUsesUnsafeExpression()
+    {
+        var conversion = new ILInspector.Decompiler.Pipeline.Convert(
+            s_nuint,
+            isChecked: false,
+            isUnsigned: false,
+            new Unbox(s_int, new LoadArgument(0, "o", s_object)));
+        var result = PrintReturnResult(
+            conversion,
+            s_nuint,
+            [new Parameter("o", s_object)],
+            usesUpdatedMemorySafetyRules: true);
+        string output = result.Output!;
+
+        Assert.True(UnsafeAwaitOperand.RequiresUnsafeContext(
+            conversion,
+            usesUpdatedMemorySafetyRules: true));
+        Assert.Contains(
+            "return unsafe((nuint)System.Runtime.CompilerServices.Unsafe.AsPointer(ref System.Runtime.CompilerServices.Unsafe.Unbox<int>(o)));",
+            output);
+        Assert.False(result.RequiresUnsafeBodyModifier);
+        AssertCompiles(
+            "public static nuint M(object o)",
+            output,
+            usesUpdatedMemorySafetyRules: true);
+    }
+
+    [Fact]
     public void ConvertNativeUInt_Value_RemainsOrdinarySafeCast()
     {
         var result = PrintReturnResult(
@@ -617,16 +645,22 @@ public class PrinterPrecedenceTests
     // AssertCompiles/Recompile shape already used by DataflowFactsTests,
     // EnumCastPrinterTests, and MixedSignComparisonTests; reused here rather
     // than reimplemented.
-    static void AssertCompiles(string methodHeader, string body)
+    static void AssertCompiles(
+        string methodHeader,
+        string body,
+        bool usesUpdatedMemorySafetyRules = false)
     {
-        var errors = Recompile(methodHeader, body)
+        var errors = Recompile(methodHeader, body, usesUpdatedMemorySafetyRules)
             .Where(d => d.Severity == DiagnosticSeverity.Error)
             .Select(d => $"{d.Id}: {d.GetMessage()}")
             .ToArray();
         Assert.True(errors.Length == 0, "Rendered method must compile, got:\n  " + string.Join("\n  ", errors) + "\n--- body ---\n" + body);
     }
 
-    static ImmutableArray<Diagnostic> Recompile(string methodHeader, string body)
+    static ImmutableArray<Diagnostic> Recompile(
+        string methodHeader,
+        string body,
+        bool usesUpdatedMemorySafetyRules = false)
     {
         string source = $$"""
             static class __Gate
@@ -637,7 +671,16 @@ public class PrinterPrecedenceTests
                 }
             }
             """;
-        var tree = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview));
+        var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
+        if (usesUpdatedMemorySafetyRules)
+        {
+            parseOptions = parseOptions.WithFeatures([
+                new KeyValuePair<string, string>(
+                    "updated-memory-safety-rules",
+                    "true"),
+            ]);
+        }
+        var tree = CSharpSyntaxTree.ParseText(source, parseOptions);
         var compilation = CSharpCompilation.Create(
             "__gate",
             [tree],
@@ -652,7 +695,8 @@ public class PrinterPrecedenceTests
     static DecompilerResult PrintReturnResult(
         IrExpression value,
         TypeRef returnType,
-        ImmutableArray<Parameter> parameters)
+        ImmutableArray<Parameter> parameters,
+        bool usesUpdatedMemorySafetyRules = false)
     {
         var block = new Block();
         block.Add(new Return(value));
@@ -663,7 +707,10 @@ public class PrinterPrecedenceTests
             TypeRef.CoreLib("Synthetic", "T"),
             new MethodSignature(returnType, parameters, HasThis: false, GenericParameterCount: 0),
             [],
-            body);
+            body)
+        {
+            UsesUpdatedMemorySafetyRules = usesUpdatedMemorySafetyRules,
+        };
         return CSharpPrinter.Print(function);
     }
 }

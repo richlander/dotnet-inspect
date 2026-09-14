@@ -114,6 +114,14 @@ substrates, and inspection producers that will extend that space.
   locator with CLI/browser subject capabilities; lower owners retain
   acquisition, Workspace, metadata, Analysis, graph and sharing contracts.
   The proposed
+  [Reverse Type-Declaration Locator](design/reverse-type-declaration-locator.md)
+  owns finite-population declaration discovery as vectors of detached exact
+  Library coordinates with origin, structured Metadata names, declaration
+  kinds, observation contexts and coverage. Consumers choose candidates;
+  it does not select a type binding. Its
+  [delivery map](design/reverse-type-locator-adoption.md) stages producer and
+  CLI/browser adoption separately.
+  The proposed
   [structural clone search scope](design/structural-clone-search-scope.md)
   owner defines Library, Type, and Member seed populations plus the shared
   `Self`, `SelfAndRegisteredEcosystems`, and `Everything` candidate breadth
@@ -393,10 +401,9 @@ substrates, and inspection producers that will extend that space.
   vocabulary, and keeps unanchored facts visible without inventing coordinates.
 - `inspect-web/` is the browser/Wasm product host. Its
   [UI design](design/inspect-web-ui.md) composes the website's shared
-  presentation language, reusable
-  [SlideStrip](design/inspect-web-slide-strip.md), navigation rendering,
-  navigation-result consumer, shell interaction, and page-level composition
-  across six focused owners while individual components retain rendering,
+  presentation language, navigation rendering, navigation-result consumer,
+  shell interaction, and page-level composition across five focused owners
+  while individual components retain rendering,
   binding, and state-transition responsibilities.
   [Inspect Web Finding census transport](design/inspect-web-finding-census-transport.md)
   owns the managed Source-facade envelope that carries one Research-issued
@@ -696,7 +703,6 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Inspect Web UI](design/inspect-web-ui.md): composition map for the website
   redesign, linking
   [presentation language](design/inspect-web-presentation-language.md),
-  [SlideStrip](design/inspect-web-slide-strip.md),
   [navigation presentation](design/inspect-web-navigation-presentation.md),
   [navigation consumer](design/inspect-web-navigation-consumer.md),
   [shell interaction](design/inspect-web-shell-interaction.md), and

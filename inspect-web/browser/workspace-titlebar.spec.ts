@@ -1,5 +1,4 @@
 import { expect, test, type Page } from "@playwright/test";
-import type { SlideStripPolicy } from "../src/slide-strip.ts";
 import { analysisDiagnosticsFixture, callFactsFixture, exceptionRegionsFixture, performanceOpportunitiesFixture, safetyFactsFixture } from "../test/member-facts-fixture.ts";
 import { memberFindingCensusFixture } from "../test/member-finding-census-fixture.ts";
 
@@ -513,6 +512,22 @@ for (const [subject, width] of [
         `lib/net10.0/${name}.dll`,
         `${name}, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null`,
       ]);
+      await expect(page.locator(
+        ".library-overview-content .section-title h2")).toHaveText([
+          "Namespaces",
+          "Type kinds",
+        ]);
+      const namespaces = await box(page, ".library-overview-namespaces");
+      const kinds = await box(page, ".library-overview-kinds");
+      if (width === 1440) {
+        expect(kinds.x).toBeGreaterThanOrEqual(
+          namespaces.x + namespaces.width);
+        expect(kinds.y).toBeCloseTo(namespaces.y, 0);
+      } else {
+        expect(kinds.x).toBeCloseTo(namespaces.x, 0);
+        expect(kinds.y).toBeGreaterThanOrEqual(
+          namespaces.y + namespaces.height);
+      }
     }
 
     const header = await box(page, ".overview-surface-head");
@@ -554,6 +569,43 @@ test("Package Overview keeps empty totals and available documents", async ({ pag
   await expect(page.locator(".library-row")).toHaveCount(0);
   await expect(page.locator("[data-doc-path='README.md']")).toBeVisible();
   await expect(page.locator(".overview-surface-footer")).toBeVisible();
+});
+
+test("Library Overview keeps explicit empty namespace and type-kind states", async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 700 });
+  await page.goto("/browser/workspace-titlebar.html?library-overview=1&empty=1");
+  await expect(page.locator(".overview-surface-head p")).toHaveText("0 types · 0 members");
+  await expect(page.locator(".library-overview-namespaces"))
+    .toContainText("No public namespaces.");
+  await expect(page.locator(".library-overview-kinds"))
+    .toContainText("No public types.");
+  await expect(page.locator("[data-namespace-jump], [data-kind-jump]")).toHaveCount(0);
+  await expect(page.locator(".overview-surface-footer")).toBeVisible();
+});
+
+test("Library Overview controls retain focus across allocation changes", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?library-overview=1");
+
+  const namespace = page.locator("[data-namespace-jump]").first();
+  await namespace.focus();
+  await page.setViewportSize({ width: 800, height: 900 });
+  await expect(namespace).toBeFocused();
+  const stackedNamespaces = await box(page, ".library-overview-namespaces");
+  const stackedKinds = await box(page, ".library-overview-kinds");
+  expect(stackedKinds.y).toBeGreaterThanOrEqual(
+    stackedNamespaces.y + stackedNamespaces.height);
+
+  const kind = page.locator("[data-kind-jump]").first();
+  await kind.focus();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(kind).toBeFocused();
+  const wideNamespaces = await box(page, ".library-overview-namespaces");
+  const wideKinds = await box(page, ".library-overview-kinds");
+  expect(wideKinds.x).toBeGreaterThanOrEqual(
+    wideNamespaces.x + wideNamespaces.width);
 });
 
 test("Package Overview resources retain focus across allocation changes", async ({
@@ -1636,7 +1688,7 @@ test("Keyboard help reflects current command availability and surface", async ({
     .toBeVisible();
 });
 
-test("application menu keeps a fixed trailing slot outside SlideStrip overflow", async ({
+test("application menu keeps a fixed trailing slot outside adaptive navigation", async ({
   page,
 }) => {
   for (const width of [1440, 400, 220]) {
@@ -1829,260 +1881,7 @@ test("Spotlight keeps its Search shortcut guidance visible when narrow", async (
   }
 });
 
-async function windowContinuityProbe(
-  page: Page,
-  windowContinuity?: SlideStripPolicy["windowContinuity"],
-) {
-  await page.goto("/browser/workspace-titlebar.html");
-
-  return page.evaluate(async continuityPolicy => {
-    const { SlideStripDomController } = await import(
-      "../src/slide-strip-dom.ts");
-    document.head.insertAdjacentHTML(
-      "beforeend",
-      `<style>
-        .resize-continuity-probe .slide-strip-items {
-          display: flex;
-          gap: 0;
-        }
-        .resize-continuity-probe button {
-          padding: 0;
-          border: 0;
-        }
-        .resize-continuity-probe [data-slide-strip-id="a"] {
-          width: 60px;
-        }
-        .resize-continuity-probe [data-slide-strip-id="b"] {
-          width: 40px;
-        }
-        .resize-continuity-probe [data-slide-strip-id="c"] {
-          width: 70px;
-        }
-      </style>`);
-    const element = document.createElement("div");
-    element.className = "slide-strip resize-continuity-probe";
-    element.innerHTML = `
-      <div class="slide-strip-items">
-        <button data-slide-strip-id="a">
-          <span data-slide-strip-representation="label">A</span>
-        </button>
-        <button data-slide-strip-id="b">
-          <span data-slide-strip-representation="label">B</span>
-        </button>
-        <button data-slide-strip-id="c">
-          <span data-slide-strip-representation="label">C</span>
-        </button>
-      </div>
-      <span data-slide-strip-before></span>
-      <span data-slide-strip-after></span>`;
-    document.body.append(element);
-    const continuity: { key: string; leadingId?: string } = {
-      key: "resize-continuity",
-    };
-    const createController = (continuityKey: string) => new SlideStripDomController(
-      element,
-      [
-        { id: "a", label: "A" },
-        { id: "b", label: "B" },
-        { id: "c", label: "C" },
-      ],
-      {
-        modes: [{ kind: "label", minimumVisible: 1, gap: 0 }],
-        initialAnchor: "b",
-        preferredDirection: "after",
-        continuityKey,
-        ...(continuityPolicy ? { windowContinuity: continuityPolicy } : {}),
-        fallbackVisibilityFloor: 20,
-        oversizedAlignment: "start",
-      },
-      continuity);
-    const controller = createController("resize-continuity");
-    const snapshot = () => ({
-      visible: [...element.querySelectorAll<HTMLElement>(
-        "[data-slide-strip-id]:not([hidden])")]
-        .map(item => item.dataset.slideStripId),
-      leading: continuity.leadingId,
-    });
-
-    controller.apply(controller.resolve(100));
-    const initial = snapshot();
-    controller.apply(controller.resolve(110));
-    const wider = snapshot();
-    controller.apply(controller.resolve(170));
-    const complete = snapshot();
-    const edgeNoOp = controller.slide("after");
-    controller.apply(controller.resolve(60));
-    const narrowed = snapshot();
-    let focusBeforeSlide = null;
-    const focusOutside = () => {
-      const button = document.querySelector<HTMLElement>(
-        "#application-menu-button");
-      if (!button) throw new Error("The external focus target is missing.");
-      button.focus();
-    };
-    if (continuityPolicy === "anchor-until-slide") {
-      controller.revealForFocus("c");
-      const focused = snapshot();
-      const focusedId = document.activeElement instanceof HTMLElement
-        ? document.activeElement.dataset.slideStripId
-        : undefined;
-      focusOutside();
-      controller.apply(controller.resolve(60));
-      focusBeforeSlide = { focused, focusedId, afterFocus: snapshot() };
-    }
-    controller.apply(controller.resolve(100));
-    const moved = controller.slide("after");
-    const slid = snapshot();
-    controller.apply(controller.resolve(170));
-    const expandedAfterSlide = snapshot();
-    controller.apply(controller.resolve(110));
-    const narrowedAfterSlide = snapshot();
-    controller.revealForFocus("a");
-    const focusedAfterSlide = snapshot();
-    focusOutside();
-    controller.apply(controller.resolve(70));
-    const afterFocus = snapshot();
-    const resetController = createController("reset-continuity");
-    resetController.apply(resetController.resolve(60));
-    const reset = snapshot();
-
-    return {
-      initial,
-      wider,
-      complete,
-      edgeNoOp,
-      narrowed,
-      focusBeforeSlide,
-      moved,
-      slid,
-      expandedAfterSlide,
-      narrowedAfterSlide,
-      focusedAfterSlide,
-      afterFocus,
-      reset,
-    };
-  }, windowContinuity);
-}
-
-test("default window continuity retains the initially applied window", async ({
-  page,
-}) => {
-  const state = await windowContinuityProbe(page);
-
-  expect(state).toEqual({
-    initial: { visible: ["a", "b"], leading: "a" },
-    wider: { visible: ["a", "b"], leading: "a" },
-    complete: { visible: ["a", "b", "c"], leading: "a" },
-    edgeNoOp: false,
-    narrowed: { visible: ["a"], leading: "a" },
-    focusBeforeSlide: null,
-    moved: true,
-    slid: { visible: ["c"], leading: "c" },
-    expandedAfterSlide: {
-      visible: ["a", "b", "c"],
-      leading: "c",
-    },
-    narrowedAfterSlide: { visible: ["b", "c"], leading: "c" },
-    focusedAfterSlide: { visible: ["a", "b"], leading: "a" },
-    afterFocus: { visible: ["a"], leading: "a" },
-    reset: { visible: ["b"], leading: "b" },
-  });
-});
-
-test("anchor-following window continuity retains only explicit slides", async ({
-  page,
-}) => {
-  const state = await windowContinuityProbe(page, "anchor-until-slide");
-
-  expect(state).toEqual({
-    initial: { visible: ["a", "b"], leading: undefined },
-    wider: { visible: ["b", "c"], leading: undefined },
-    complete: { visible: ["a", "b", "c"], leading: undefined },
-    edgeNoOp: false,
-    narrowed: { visible: ["b"], leading: undefined },
-    focusBeforeSlide: {
-      focused: { visible: ["c"], leading: undefined },
-      focusedId: "c",
-      afterFocus: { visible: ["b"], leading: undefined },
-    },
-    moved: true,
-    slid: { visible: ["c"], leading: "c" },
-    expandedAfterSlide: {
-      visible: ["a", "b", "c"],
-      leading: "c",
-    },
-    narrowedAfterSlide: { visible: ["b", "c"], leading: "c" },
-    focusedAfterSlide: { visible: ["a", "b"], leading: "c" },
-    afterFocus: { visible: ["c"], leading: "c" },
-    reset: { visible: ["b"], leading: undefined },
-  });
-});
-
-test("a mounted empty SlideStrip applies its empty state", async ({ page }) => {
-  await page.goto("/browser/workspace-titlebar.html");
-
-  const state = await page.evaluate(async () => {
-    const { SlideStripDomController } = await import(
-      "../src/slide-strip-dom.ts");
-    const outside = document.createElement("button");
-    outside.textContent = "Outside";
-    document.body.append(outside);
-    outside.focus();
-
-    const element = document.createElement("div");
-    element.className = "slide-strip";
-    element.innerHTML = `
-      <div class="slide-strip-items"></div>
-      <span data-slide-strip-before></span>
-      <span data-slide-strip-after></span>`;
-    document.body.append(element);
-    const controller = new SlideStripDomController(
-      element,
-      [],
-      {
-        modes: [{ kind: "label", minimumVisible: 1, gap: 0 }],
-        initialAnchor: "empty",
-        preferredDirection: "after",
-        continuityKey: "empty",
-        fallbackVisibilityFloor: 28,
-        oversizedAlignment: "start",
-      },
-      { key: "empty" });
-    const resolved = controller.resolve(100);
-    controller.apply(resolved);
-    return {
-      result: resolved.result,
-      current: controller.current,
-      width: element.style.width,
-      mode: element.dataset.mode,
-      minimumWidth: controller.minimumOuterWidth,
-      preferredWidth: controller.preferredOuterWidth,
-      fallbackWidth: controller.fallbackOuterWidth,
-      beforeHidden: element.querySelector<HTMLElement>(
-        "[data-slide-strip-before]")?.hidden,
-      afterHidden: element.querySelector<HTMLElement>(
-        "[data-slide-strip-after]")?.hidden,
-      slide: controller.slide("after"),
-      outsideFocused: document.activeElement === outside,
-    };
-  });
-
-  expect(state).toEqual({
-    result: null,
-    current: null,
-    width: "100px",
-    mode: undefined,
-    minimumWidth: 0,
-    preferredWidth: 0,
-    fallbackWidth: 0,
-    beforeHidden: true,
-    afterHidden: true,
-    slide: false,
-    outsideFocused: true,
-  });
-});
-
-test("subject-only layout reserves the empty-strip context label", async ({
+test("subject-only layout reserves the empty inspector context label", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 800, height: 900 });

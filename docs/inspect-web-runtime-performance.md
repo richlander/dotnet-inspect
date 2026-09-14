@@ -1,23 +1,42 @@
 # Inspect Web runtime performance evidence
 
-This document owns the method used to compare deployed Inspect Web runtime
+This document owns the method used to compare Inspect Web runtime
 configurations. The claim is deliberately narrow: the harness produces
 reproducible, semantically validated latency and throughput observations for
 one pinned browser workload. It does not define a performance threshold or
 select a runtime by itself.
 
 [#6077](https://github.com/richlander/dotnet-inspect/issues/6077) is the
-end-to-end tracker. It sequences five production-host slices: establish this
-harness, establish a nightly evidence lane, move the isolated CoreCLR
-deployment to a pinned .NET 12 runtime-main cohort without ReadyToRun, enable
-application ReadyToRun, and compare all three configurations before choosing
-the lasting deployment shape. The public Mono .NET 11 deployment remains the
-control throughout.
+end-to-end tracker. The original five production-host slices established the
+harness, nightly public evidence, the .NET 12 CoreCLR deployment, the rejected
+ReadyToRun trial, and the accepted post-recovery comparison. The remaining
+three-slice adoption path is:
 
-The deployed Inspect Web sites are the product consumers. The benchmark script
-is the production host for this test infrastructure. Browser-only scope is
-intentional and explicitly user-approved; this harness does not create a
-shared CLI performance substrate.
+1. establish a controlled nightly cohort and classify the existing public
+   comparison as a production synthetic;
+2. advance the checked-in .NET 12 cohort deliberately as new daily builds are
+   selected; and
+3. aggregate accepted receipts before artifact expiry and define the runtime
+   decision policy from the resulting longitudinal evidence.
+
+The controlled workflow is the production host for the primary test
+infrastructure. The deployed Inspect Web sites remain the product consumers
+for the secondary production synthetic. Browser-only scope is intentional and
+explicitly user-approved; this harness does not create a shared CLI performance
+substrate.
+
+## Evidence lanes
+
+The controlled cohort is the primary runtime comparison. One workflow run
+builds all variants from one source commit and one frontend artifact, admits
+them through a deterministic production-Worker package operation, and measures
+the admitted artifacts over loopback on one fresh runner. It excludes TLS,
+CDN, deployment skew, and permanent-site lifecycle from the runtime result.
+
+The public nightly is a production synthetic. It measures promoted Mono and
+CoreCLR sites through their real deployment, TLS, and CDN paths. It remains
+valuable operational evidence, but host and network effects mean it is not the
+primary runtime dataset. A permanent public ReadyToRun site is not required.
 
 ## Comparison contract
 
@@ -29,6 +48,16 @@ A comparative report requires all of the following:
 - every measured operation returned the same semantic fingerprint; and
 - the report records the harness revision, host, browser, scenario, individual
   samples, host load before and after the run, and summary statistics.
+
+A controlled report additionally requires:
+
+- every variant was built from the receipt's source commit and shared frontend
+  manifest;
+- CoreCLR IL and ReadyToRun used one exact SDK, runtime, workload, and VMR
+  cohort;
+- each measured variant passed the focused production-Worker package
+  operation; and
+- the report and trend point are hash-bound to the accepted cohort receipt.
 
 The harness refuses a non-comparable result by default. The
 `--allow-mismatched-commits` option exists only for diagnostic runs that prove
@@ -151,7 +180,48 @@ machine does not turn a partial run into comparative evidence.
 comparative. Before each run the harness removes any existing file at that
 path, so a rejected run cannot leave a stale trend point.
 
-## Nightly evidence lane
+## Controlled nightly cohort
+
+[`.github/workflows/inspect-web-runtime-cohort-nightly.yml`](../.github/workflows/inspect-web-runtime-cohort-nightly.yml)
+runs daily at 00:47 UTC and is manually dispatchable. It builds these variants
+from one exact source commit:
+
+| Variant | Runtime configuration | Admission role |
+| --- | --- | --- |
+| `mono` | .NET 11 Mono, compiler async, no ReadyToRun | Required control |
+| `coreclr-il` | Pinned .NET 12 CoreCLR, runtime async, IL | Required comparison |
+| `coreclr-r2r` | Same .NET 12 cohort, runtime async, non-composite per-assembly ReadyToRun | Experimental candidate |
+
+The frontend is built once and its manifest digest must match every variant
+receipt. Build jobs may run in parallel because the receipts bind source,
+frontend, runtime, workload, configuration, async-lowering evidence, and the
+published-site file manifest. Timing still occurs sequentially on one fresh
+runner after all artifacts are downloaded.
+
+Admission uses the same focused package-adoption scenario as CoreCLR
+deployment. Mono or CoreCLR IL rejection fails the cohort. A ReadyToRun
+candidate may be recorded as a correctness rejection only when the browser
+reached the product operation and emitted the retained
+`INSPECT_WEB_PRODUCT_OPERATION_FAILURE:` marker.
+The current fatal thunk text additionally links the rejection to
+dotnet/runtime#129622 and dotnet/runtime#129857. Missing artifacts, fixture
+failures, browser startup failures, or any other unevaluated candidate state
+fail the cohort rather than being mislabeled as product evidence.
+
+Only admitted variants are served on loopback and passed to the existing
+benchmark. The current expected outcome is therefore a valid two-way
+Mono/CoreCLR IL trend plus an explicit ReadyToRun correctness rejection. If a
+future cohort admits ReadyToRun, the same run automatically becomes a
+three-way comparison. No trend point claims timing for a rejected candidate.
+
+The retained evidence includes the three publication receipts and file
+manifests, admission logs and browser traces, the cohort receipt, raw benchmark
+report, trend point, and a final receipt binding their SHA-256 digests. Build
+artifacts exist only long enough to reach the measurement job; evidence is
+retained for 90 days. The longitudinal aggregation slice must preserve accepted
+and rejected receipts before the first controlled artifacts expire.
+
+## Public production synthetic
 
 [`.github/workflows/inspect-web-performance-nightly.yml`](../.github/workflows/inspect-web-performance-nightly.yml)
 runs daily at 02:17 UTC and is also manually dispatchable. It measures Mono
@@ -175,8 +245,8 @@ Every run uploads the benchmark log and any raw report for 90 days. An accepted
 run additionally uploads a compact trend point containing the product commit,
 harness revision, environment, configuration, medians, and the raw report's
 SHA-256. The workflow summary presents the same medians for quick comparison.
-The retained trend-point artifacts are the longitudinal input; they are not a
-threshold or regression verdict.
+The retained trend-point artifacts are production-synthetic input; they are
+not a threshold or regression verdict.
 
 A failed operation, missing or changing product identity, cross-site commit
 mismatch, or semantic divergence produces no trend point and fails the
