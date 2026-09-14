@@ -14,6 +14,24 @@ export interface OverviewSurfaceOptions {
   escapeHtml: (value: unknown) => string;
 }
 
+export interface PackageOverviewContentOptions {
+  inventoryHtml: string;
+  comparisonHtml: string;
+  documentsHtml: string;
+}
+
+export function renderPackageOverviewContent(
+  options: PackageOverviewContentOptions,
+): string {
+  return `<div class="package-overview-content">
+    <div class="package-overview-inventory">${options.inventoryHtml}</div>
+    <aside class="package-overview-resources" aria-label="Package resources">
+      ${options.documentsHtml}
+      ${options.comparisonHtml}
+    </aside>
+  </div>`;
+}
+
 export function renderOverviewSurface(
   options: OverviewSurfaceOptions,
 ): string {

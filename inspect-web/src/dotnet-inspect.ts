@@ -227,7 +227,10 @@ import {
   normalizeDocumentViewerSnapshot,
   type DocumentViewerState,
 } from "./document-inspection.ts";
-import { renderOverviewSurface } from "./overview-surface.ts";
+import {
+  renderOverviewSurface,
+  renderPackageOverviewContent,
+} from "./overview-surface.ts";
 import { renderLibraryReferencesSurface } from "./library-references.ts";
 import { renderLibraryIntegrationsSurface } from "./library-integrations.ts";
 import {
@@ -6276,15 +6279,21 @@ function renderPackageOverview() {
   const documentsSection =
     renderPackageDocuments(pkg.documents || [], escapeHtml);
 
-  const contentHtml = `
+  const inventoryHtml = `
     <section class="document-section">
       <div class="section-title"><h2>Libraries</h2><span>${libraries.length} admitted</span></div>
       ${pkg.isRuntimePack ? `<div class="library-picker platform-library-picker overview-library-picker">${platformLibrarySelectHtml()}</div>` : ""}
       <div class="library-list">${libraryRows || '<div class="empty-list">No managed libraries were admitted for this package coordinate.</div>'}</div>
-    </section>
+    </section>`;
+  const comparisonHtml = `
     <section id="package-comparison-targets" class="document-section">
       ${packageComparisonControlsHtml(pkg)}
-    </section>${documentsSection}`;
+    </section>`;
+  const contentHtml = renderPackageOverviewContent({
+    inventoryHtml,
+    comparisonHtml,
+    documentsHtml: documentsSection,
+  });
 
   return renderOverviewSurface({
     subject: "package",
