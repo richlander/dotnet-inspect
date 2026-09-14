@@ -451,6 +451,113 @@ carries query intent with no coordinate table. **That arm is owned by
 [workspace definitions](workspace-definitions.md)**; this design supplies only
 the payload it would carry.
 
+## Worked examples
+
+Keys, dimension identities, and named orders below are illustrative. The
+vocabulary owner defines the real ones; these show the encoding, not a
+vocabulary.
+
+### A package query, end to end
+
+Someone narrows a package query to packages depending on Serilog, including
+prereleases, over the first 200 candidates. Three spellings, one intent:
+
+```text
+rail      Microsoft.Extensions.*   [depends: Serilog]  [+ prerelease]
+CLI       package query "Microsoft.Extensions.*" \
+            --where "depends=Serilog" --where "prerelease=include" --take 200
+intent    terms  (depends, eq, Serilog), (prerelease, eq, include)
+          bounds (candidates, 200)
+```
+
+Terms sort ordinally, `depends` before `prerelease`. There is no stage pipeline
+and no order, so `s` and `o` are omitted rather than emitted empty:
+
+```json
+{"t":[["depends","eq","Serilog"],["prerelease","eq","include"]],"b":[["candidates",200]]}
+```
+
+The packet tuple pairs those bytes with the vocabulary, and the share link
+carries that same pair:
+
+```json
+["package.query",{"t":[["depends","eq","Serilog"],["prerelease","eq","include"]],"b":[["candidates",200]]}]
+```
+
+Opening the link re-runs the request. It restores no rows, no counts, and no
+completion state, because it never carried any.
+
+### The same query, typed the other way round
+
+Someone else selects prerelease first, then the dependency. Their intent reaches
+the codec in the opposite order and produces identical bytes, so both people
+share one link and the packet deduplicates the two states into one:
+
+```json
+{"t":[["depends","eq","Serilog"],["prerelease","eq","include"]],"b":[["candidates",200]]}
+```
+
+Term sequence carries no meaning, so canonicalization removes it. Contrast the
+next example, where sequence is the question.
+
+### A row query with a baseline order and a ranking
+
+Rows of at least medium confidence, ordered by name, first twenty, then the five
+worst by triage severity:
+
+```text
+intent    terms  (confidence, gte, medium)
+          stages head 20, then top 5
+          order  base: fields name asc
+                 stage 1: named triage desc
+```
+
+```json
+{"t":[["confidence","gte","medium"]],"s":[["head",20],["top",5]],"o":[["base","fields","name","asc"],[1,"named","triage","desc"]]}
+```
+
+`s` keeps declaration sequence, because each stage consumes the previous stage's
+output. The ranking operation names stage index `1` — the `top` — so it cannot
+drift onto the `head`. Operations emit `base` first, then by ascending stage
+index, so this assignment has exactly one spelling.
+
+Reversing the pipeline is a different question, not a different rendering —
+ranking the whole set and then taking a prefix selects different rows from
+taking a prefix and then ranking it, as [the intent
+contract](#the-intent-contract) works through. The bytes differ accordingly:
+
+```json
+{"t":[["confidence","gte","medium"]],"s":[["top",5],["head",20]],"o":[["base","fields","name","asc"],[0,"named","triage","desc"]]}
+```
+
+### Two orders that must not collapse
+
+One `top` stage, the same three field terms, split differently between the
+baseline and the ranking. These are different questions and must have different
+bytes:
+
+```json
+{"s":[["top",1]],"o":[["base","fields","a","asc"],[0,"fields","b","desc","c","asc"]]}
+{"s":[["top",1]],"o":[["base","fields","a","asc","b","desc"],[0,"fields","c","asc"]]}
+```
+
+Each operation is its own array, so the boundary between baseline and ranking
+survives. Flattening them into one sequence of `[reference, direction]` pairs
+would make both spellings identical.
+
+### A link that can no longer be answered
+
+A link shared last year names a key this build does not offer. It is refused,
+naming the term:
+
+```text
+Cannot restore query: vocabulary "package.query" does not offer key "depends".
+```
+
+The alternative — dropping the term and running the rest — would answer a
+narrower question while looking like the shared one, and would report its own
+completion state honestly about a request nobody made.
+
 ## Required gates
 
 | Gate | Contract |
@@ -468,6 +575,7 @@ the payload it would carry.
 | `DuplicateAfterBindingIsReachableAndVocabularyOwned` | Two syntactically distinct terms that a vocabulary binds to one predicate reach the vocabulary stage and take that owner's declared collapse-or-fail outcome; no duplicate reaches resolution as canonical bytes. |
 | `DeclaredLimitsPrecedeVocabularyBinding` | Every limit in the declared-limits table is enforced against the payload as parsed, before duplicate collapse and before any vocabulary binder runs, with cancellation observed. |
 | `DeclaredLimitsAreBuildInvariant` | The pinned maxima are identical across vocabularies and builds; a payload at each exact maximum is admissible and one byte past each is refused. |
+| `DocumentedExamplesAreCanonical` | Every JSON payload example in this document parses, validates, and canonically re-emits to exactly its own bytes through the production codec, so an example cannot drift from the contract it illustrates. |
 | `HostileIntentTextRemainsContained` | Adversarial value tokens that are valid Unicode scalar sequences — quotes, backslashes, lowercase C0 escapes, raw U+007F/U+0085/U+2028/U+2029, and a supplementary-plane scalar — round-trip through `InertText` construction and canonical escaping without escaping containment or reaching a diagnostic. |
 | `NonCanonicalTextIsRefusedBeforeBinding` | Unpaired surrogates and every other non-canonical scalar form are refused at decode, before any vocabulary binder runs, and are never accepted, repaired, or substituted with U+FFFD. |
 
