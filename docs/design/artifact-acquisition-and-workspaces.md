@@ -3792,98 +3792,162 @@ membership or order, expansion policy, closure, Navigation focus, browser
 effects, portable schema, arbitrary transaction participants, durable recovery,
 or a second query-access protocol.
 
-#### Fresh Workspace construction and switching
+#### Active Workspace realization cutover
 
-##### Problem and strategy
+##### Owner and exact claim
 
-A saved definition describes one Workspace with `Newtonsoft.Json` and
-`Humanizer.Core` as explicit package Roots and a member from `Humanizer.dll`
-selected. Opening that definition constructs exactly that Workspace. The
-new Workspace is constructed solely from that definition; no other Workspace
-or Workspace definition participates. Once construction succeeds, the host
-makes the new Workspace active and Navigation makes `Humanizer.Core` active in
-the subject strip for the selected member. If another Workspace was active,
-the host has switched from it; otherwise this is initial activation. Failure
-retains the prior host state, including the absence of an active Workspace.
+Artifact Acquisition owns one host-local active-realization authority. It
+associates zero or one active `InspectionWorkspace` with the exact
+resource-free `WorkspacePlan` that constructed it, admits operations to that
+realization, cuts over to one ready replacement, and drains predecessor
+authority through ordinary awaited Workspace close.
 
-Restoration constructs the new Workspace with a fresh
-`InspectionWorkspaceIdentity` and uses the ordinary Artifact, Scope,
-Navigation, and query paths inside it:
+Definitions still owns portable requests and lowering. Workspace Scope still
+owns logical membership and its revisions. Retained hosts still own definition
+selection, history, navigation effects, and replacement policy. This owner
+does not search for a compatible Workspace, retain a selectable live-Workspace
+registry, or transfer resources between realizations.
 
-1. create one fresh Workspace under the restoration attempt's cancellation and
-   deadline;
-2. resolve and publish the complete requested multi-package Root set into that
-   Workspace through ordinary Scope and Artifact publication;
-3. establish the requested subject focus and validate any saved view or query
-   state using ordinary operations in the new Workspace;
-4. return the complete new Workspace for one current-authority switch; or
-5. close it on every failure, refusal, cancellation, expiry, or supersession
-   path.
+##### Association currencies
 
-The retained host owns a collection of published Workspaces and one nullable
-active-Workspace pointer. Successful activation is a VIP-style switch: publish
-the new Workspace into that collection and point the active identity to it in
-one non-yielding action. Any previously active Workspace remains published,
-open, viewable through the Workspace subject, and available for a later switch
-back. Construction completes before this publication and does not consult the
-retained collection.
+One realization uses the existing `InspectionWorkspaceIdentity`; no second
+realization identity is introduced. Its immutable origin association retains
+the exact `WorkspacePlan` supplied at construction. Equal plans create fresh
+Workspace identities and do not transfer authority.
 
-##### Ordinary Workspace construction
+One admitted operation retains this resource-free definition snapshot:
 
-The new Workspace is ordinary. It owns its Roots, occurrence identities,
-artifact sessions, context groups, query leases, budget reservations,
-Navigation session, and mutable owner state under the existing Workspace
-contract. Its published Roots use the ordinary current-query path. Artifact
-Acquisition needs no candidate identity, candidate-specific query admission,
-retained-current Root borrowing, `CandidateOwned` receipt state, or
-complete-restoration publication adapter. Ordinary Root
-preparation/publication and Workspace close remain sufficient. Shared immutable
-storage and package caches remain ordinary implementation details.
+```text
+WorkspaceDefinitionSnapshot
+  Workspace               exact InspectionWorkspaceIdentity
+  Identity                fresh opaque snapshot identity
+  Registrations           exact WorkspaceRegistrationRevision
+  Scope                   exact WorkspaceScopeRevision
+```
 
-Platform/package pruning runs before exact package Root construction. For
-example, `NETStandard.Library@2.0.3` contributes no package Root when the
-registered Platform target subsumes it; its selected API resolves through the
-Platform reference surface and type forwarders. `Humanizer.Core` survives
-pruning and becomes one ordinary Root in the fresh multi-package Workspace.
+The snapshot identity is stable while those exact owner-issued revisions
+remain current and advances when either revision advances. Capturing the pair
+occurs under the Workspace runtime gate. The adjacent Scope snapshot separately
+supplies its exact physical-composition observation; neither definition
+identity nor plan equality authorizes Artifact access.
 
-##### Ownership and bounded coexistence
+The live `WorkspaceRealizationOperationLease` joins the selected realization,
+that definition snapshot, and the corresponding Scope observation. The lease
+itself is authority. Retained identity or snapshot values remain diagnostic
+evidence after release and cannot enter another operation. An adopter holds the
+lease through production of its detached result and does not place the lease,
+Workspace, reader, content, callback, or another resource-bearing value in
+that result.
 
-Definitions owns the complete new-Workspace value and restoration result.
-Artifact Acquisition owns construction, ordinary operation, close, and
-resource drainage for each Workspace. The retained host owns the published
-Workspace collection and nullable active identity, and changes them only under
-current owner-issued effect authority. The CLI creates one ephemeral Workspace
-for one invocation and needs no retained collection.
+The current registration and Scope owners supply the two revision currencies.
+Append-only Add and its definition-snapshot publication remain owned by
+[Workspace Scope and Expansion](workspace-scope-and-expansion.md); that owner
+must compose its future publication with this capture boundary rather than
+introduce another operation generation.
 
-A retained host admits at most one unpublished new Workspace at a time. A newer
-restoration supersedes and closes the older attempt's Workspace before
-beginning another. The product exposes at most one active Workspace; the
-published collection may contain multiple inactive Workspaces. An unpublished
-Workspace is not selectable, rendered, placed in history, or available to
-ordinary host actions.
+##### Candidate, cutover, and drainage
 
-Browser/Wasm adoption must define and gate a host-level construction admission
-and retained-Workspace capacity policy. Published Workspaces remain live until
-the user deletes them; deleting a Workspace removes it from the host collection
-and closes it under the ordinary Artifact lifecycle. Per-Workspace budgets do
-not bound the aggregate retained set. This document makes no process-wide
-peak-memory safety claim.
+At most one unpublished candidate accepts construction work. A candidate has a
+fresh Workspace identity and ordinary private Workspace resources, but no
+active-operation authority. It becomes eligible for publication only after its
+construction capability closes and one complete definition snapshot can be
+captured.
 
-The required integration evidence is limited to:
+A newer replacement attempt supersedes the older unpublished candidate,
+closes its construction admission, and observes its terminal settlement before
+publishing another candidate. Candidate failure, cancellation, expiry, or
+supersession closes only that candidate and leaves the current active
+realization unchanged. Cancellation remains a cancellation outcome for the
+caller while the candidate's typed settlement records cancellation as its
+retirement reason.
 
-- a failed or superseded restoration closes the new Workspace and leaves the
-  published collection and active pointer unchanged;
-- a successful restoration publishes the exact prepared Workspace once and
-  points the active identity to it;
-- switching back selects an already-published Workspace without reconstructing
-  it;
-- deleting a published Workspace is the operation that removes and closes it;
-- at most one unpublished new Workspace is admitted; and
-- the adopting host enforces its declared retained-Workspace resource policy.
+Successful cutover is one non-yielding transition:
 
-These claims remain **unverified**. They require the Definitions and retained
-host designs before implementation; they do not extend the ordinary Artifact
-Root publication model or require a restoration-candidate TLA+ model.
+1. revalidate the exact current candidate and its ready state;
+2. close predecessor active-operation admission;
+3. select the candidate as the sole active realization; and
+4. consume the candidate's publication authority.
+
+An operation racing this transition is admitted either to the predecessor
+before its admission closes or to the successor after selection. It is never
+admitted to the predecessor afterward. Cutover does not wait for predecessor
+operations, lower query leases, streams, or cleanup.
+
+The predecessor becomes a non-selectable drainage record. Its already-admitted
+operation leases continue against their captured realization and definition
+snapshot. After the final such lease releases, Artifact Acquisition invokes
+ordinary `InspectionWorkspace.CloseAsync()`, which stops lower-level admission
+and awaits group, session, Root, stream, and resource settlement under their
+existing contracts. A later replacement may prepare while earlier
+predecessors drain, but only the selected realization admits new operations.
+The drainage records are settlement evidence, not a live-Workspace registry.
+
+There is no rollback or switch-back authority. Reusing an earlier retained
+definition constructs a fresh realization.
+
+##### Shared immutable resources
+
+Candidate, active, and draining realizations may hold independently releasable
+lower-owner references to the same immutable package payload, content
+generation, source cache entry, or validated derivation. Each realization
+still owns distinct Roots, occurrence identities, binding contexts, query
+leases, reservations, and operation authority.
+
+Closing a predecessor releases only its ownership. It cannot invalidate a
+successor's reference, relabel one content generation as another, or transfer a
+Root or live lease to the successor. Coordinates and equal definitions never
+prove shared content identity. Deduplication, cache validity, aggregate
+reference counting, and final reclamation remain with their existing lower
+owners.
+
+##### Settlement and host progress
+
+Every retired candidate or realization exposes one terminal settlement with
+its exact Workspace identity, retirement reason, complete close report when
+available, and any fault from awaited close. A cleanup failure remains visible
+and does not reactivate a predecessor or prevent a later candidate from
+becoming current. After terminal settlement, the coordinator retains only
+resource-free settlement evidence and no reference to the closed Workspace.
+
+No lock spans construction, snapshot capture, Workspace close, or settlement
+awaits. The cutover region performs bounded validation and pointer/authority
+changes only. Last-lease release invokes `CloseAsync()` after leaving the gate;
+it requires no worker thread or blocking wait and is valid for single-threaded
+Browser/Wasm. Eventual drainage assumes admitted operations release their
+leases and lower-owner close reaches a terminal outcome.
+
+Repeated cutover can temporarily retain several draining predecessors.
+Aggregate replacement admission and memory backpressure are host policy; the
+Browser owner must define a bound before production adoption. The CLI normally
+constructs one realization, admits its operation, and closes the coordinator at
+invocation completion.
+
+The implementation is `WorkspaceRealizationCoordinator`,
+`WorkspaceRealizationOperationLease`, and
+`WorkspaceDefinitionSnapshot`. Existing direct Workspace operations remain
+compatibility and construction surfaces; only adopters that enter through the
+coordinator satisfy the active-realization authority claim.
+
+The focused model under
+[`docs/design/models/workspace-realization-cutover/`](models/workspace-realization-cutover/)
+checks candidate failure and supersession, atomic cutover, post-cutover
+admission refusal, exact operation association, predecessor drainage, visible
+settlement failure, and conditional single-thread progress.
+
+The corresponding Release gates are:
+
+- `Cutover_StopsPredecessorAdmissionAndDrainsAdmittedOperation`;
+- `CandidateFailure_PreservesActiveRealization`;
+- `CancelledCompletion_ReleasesCaptureAndSettlesCandidate`;
+- `NewCandidate_SupersedesAndSettlesPriorCandidate`;
+- `OperationAuthority_RetainsExactDefinitionSnapshot`;
+- `EqualOriginPlan_SharesIntentButNotRealizationAuthority`;
+- `SharedPackageContent_PredecessorSettlementKeepsSuccessorUsable`;
+- `Cutover_RejectsCandidateUntilConstructionCompletes`;
+- `ConcurrentReplacement_NewestIntentCreatesTheCandidate`;
+- `OperationLease_DoubleDisposeDoesNotEndAnotherLease`;
+- `Settlement_PreservesWorkspaceCloseFailure`; and
+- `Close_WaitsForAdmittedOperationsAndReportsEverySettlement`.
 
 ### Workspace identity
 

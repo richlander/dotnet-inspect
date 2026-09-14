@@ -1,0 +1,107 @@
+# Workspace realization cutover
+
+## Owner and claim
+
+[Artifact acquisition and workspace
+composition](../../artifact-acquisition-and-workspaces.md#active-workspace-realization-cutover)
+owns this model for issue
+[#6752](https://github.com/richlander/dotnet-inspect/issues/6752).
+It checks one active Workspace realization, one unpublished replacement
+candidate, exact operation admission, predecessor drainage, and visible
+terminal settlement.
+
+The model uses the product's join currencies:
+
+- one fresh realization identity per Workspace;
+- one immutable definition identity per realization; and
+- one operation lease associated with that exact realization and definition.
+
+The fixed definition value abstracts the operation's captured
+`WorkspaceDefinitionSnapshot`. Dynamic append-only definition publication is
+owned by issue
+[#6751](https://github.com/richlander/dotnet-inspect/issues/6751) and is not
+copied into this model.
+
+## Boundaries and assumptions
+
+Three realizations permit first activation, candidate failure or
+supersession, one successful replacement, and another candidate while the
+predecessor drains. Two operations permit overlapping predecessor and
+successor use. These are bounded checks, not an unbounded proof.
+
+Candidate construction is abstracted as `Preparing -> Ready`. Artifact Roots,
+binding contexts, package bytes, caches, and cleanup internals remain with
+their existing owners. `Settle` represents the terminal result of ordinary
+awaited Workspace close. A failed result remains recorded; the model does not
+classify the lower owner's report. A superseding replacement remains pending
+until the displaced candidate settles; only then can the replacement enter
+`Preparing`.
+
+`CutOver` is one atomic action. It closes predecessor admission and selects the
+successor without waiting. A lease admitted before cutover remains associated
+with the predecessor. Close is requested only after its final lease releases.
+No action transfers an existing operation to the successor.
+
+`FairSpec` assumes each admitted operation eventually releases and each
+enabled close request and settlement eventually runs. It does not assume
+candidate success, guarantee admission, or prove recovery from a caller that
+abandons a lease. The actions require no blocking wait or worker thread, so the
+same progress argument applies to single-threaded Browser/Wasm.
+
+## Checked properties
+
+`Safety` checks:
+
+- exactly the selected active realization admits operations;
+- a candidate is unpublished and has no active-operation authority;
+- replacement construction begins only after its candidate-settlement barrier;
+- every lease retains its exact realization and definition;
+- no operation is newly admitted to a draining predecessor;
+- close begins only after operation drainage;
+- settled realizations are detached; and
+- failed settlement remains visible.
+
+`DrainageTerminates` checks conditional eventual settlement for every draining
+realization.
+
+## Gates and adversarial controls
+
+Every configuration is pinned in `eng/tla-expected-exit-codes.txt`.
+
+| Configuration | Exit | Evidence |
+| --- | --- | --- |
+| `Safety.cfg` | 0 | Complete bounded safety state space |
+| `Liveness.cfg` | 0 | Conditional drainage progress |
+| `BrokenCandidateSettlementBarrier.cfg` | 12 | Replacement construction waits for superseded-candidate settlement |
+| `BrokenPostCutoverAdmission.cfg` | 12 | Draining predecessors cannot admit new operations |
+| `BrokenEarlyClose.cfg` | 12 | Close cannot begin while a lease remains |
+| `BrokenStaleCandidatePublish.cfg` | 12 | A superseded candidate cannot become active |
+| `BrokenTransferAuthority.cfg` | 12 | Cutover cannot move predecessor operations to the successor |
+| `BrokenForgetFailure.cfg` | 12 | Failed settlement remains visible |
+| `BrokenNeverSettle.cfg` | 13 | Omitting terminal settlement defeats liveness |
+| `ReachabilityCandidateFailure.cfg` | 12 | Candidate failure leaves an observable drainage path |
+| `ReachabilityCandidateSupersession.cfg` | 12 | A newer candidate supersedes the old candidate |
+| `ReachabilityPredecessorDrainage.cfg` | 12 | A predecessor lease survives successful cutover |
+| `ReachabilitySettlementFailure.cfg` | 12 | Terminal cleanup failure is reachable and recorded |
+
+Exit 12 is an expected invariant counterexample for a broken policy or a
+negated reachability witness. Exit 13 is the expected temporal-property
+counterexample for omitted settlement.
+
+## Run
+
+From the repository root, with the pinned tools:
+
+```bash
+model=docs/design/models/workspace-realization-cutover
+mkdir -p "$model/.scratch"
+TMPDIR="$PWD/$model/.scratch" \
+  JAVA_TOOL_OPTIONS="-XX:ActiveProcessorCount=2 -Djava.io.tmpdir=$PWD/$model/.scratch" \
+  bash eng/run-tla-checks.sh "$model"
+npx --no-install markdownlint-cli "$model/README.md"
+```
+
+The focused run on 2026-09-13 used TLA Tools
+`2026.08.11.125311` with OpenJDK `25.0.4.1`. Both complete configurations
+explored 10,456 generated states and 3,268 distinct states to depth 17. All
+thirteen configured semantic verdicts matched the manifest.
