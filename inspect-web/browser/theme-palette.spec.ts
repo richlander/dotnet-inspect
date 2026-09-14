@@ -184,6 +184,7 @@ test("Annotated Source uses shared roles for selection and Findings", async ({
     await page.evaluate(value => {
       document.documentElement.dataset.theme = value;
     }, theme);
+    await page.mouse.move(0, 0);
     for (const segment of await selected.all()) {
       await expect(segment).toHaveCSS(
         "background-color",
@@ -203,9 +204,11 @@ test("Annotated Source uses shared roles for selection and Findings", async ({
     )) {
       for (const treatment of findingTreatments) {
         const finding = page.locator(
-          `${treatment}.category-${category}`,
+          `#annotated-source-modal ${treatment}.category-${category}`,
         ).first();
         await expect(finding).toBeVisible();
+        await expect(finding).toHaveCSS("border-left-color", borderColor);
+        await finding.hover();
         await expect(finding).toHaveCSS("border-left-color", borderColor);
       }
     }

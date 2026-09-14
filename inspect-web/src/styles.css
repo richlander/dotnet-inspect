@@ -3789,11 +3789,11 @@ kbd {
 .annotated-destinations button:first-child { border-color: var(--accent); }
 .annotated-inspector-action > span:first-child { display: grid; gap: 3px; }
 .annotated-inspector-action { border-left: 3px solid var(--line-strong); }
-:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspector-action).category-allocation { border-left-color: var(--finding-allocation); }
-:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspector-action).category-cost { border-left-color: var(--yellow); }
-:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspector-action).category-unsafety { border-left-color: var(--red, #d97070); }
-:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspector-action).category-semantics { border-left-color: var(--blue); }
-:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspector-action).category-lifetime { border-left-color: var(--purple); }
+button:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspector-action).category-allocation { border-left-color: var(--finding-allocation); }
+button:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspector-action).category-cost { border-left-color: var(--yellow); }
+button:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspector-action).category-unsafety { border-left-color: var(--red, #d97070); }
+button:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspector-action).category-semantics { border-left-color: var(--blue); }
+button:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspector-action).category-lifetime { border-left-color: var(--purple); }
 
 .annotated-detail { z-index: 2; padding: 14px; overflow: auto; border-top: 1px solid var(--line); background: var(--panel-raised); box-shadow: 0 -12px 36px rgba(0, 0, 0, 0.28); }
 .annotated-modal > .annotated-detail { position: absolute; top: 58px; right: 0; bottom: 0; width: min(480px, 100%); border-top: 0; border-left: 1px solid var(--line-strong); box-shadow: -16px 0 40px rgba(0, 0, 0, 0.38); }
