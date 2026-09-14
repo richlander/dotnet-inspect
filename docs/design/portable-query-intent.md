@@ -11,7 +11,8 @@ Its claim is that a query has exactly three layers, and only the first one
 crosses a persistence, host, or version boundary:
 
 ```text
-canonical intent   vocabulary + (key, operator, inert value) terms + bounds
+canonical intent   vocabulary + conjoined terms + execution bounds
+                   + ordered selection stages + order references
       |                          <- serializes; a compatibility surface
       v            resolve exactly once, atomically, against one vocabulary
 typed bindings     owner-issued identities, accessors, comparers
@@ -75,8 +76,9 @@ One query intent is:
 | --- | --- |
 | `vocabulary` | Owner-issued identity of the vocabulary the terms resolve against. It is the packet's `queryId`. |
 | `terms` | A canonical set of `(key, operator, value)` triples, conjoined. |
-| `bounds` | Declared execution bounds and selection stages, each typed by kind. |
-| `order` | Optional unresolved order references: one baseline, plus one per ranking selection stage. |
+| `bounds` | Declared execution bounds, each carrying an owner-issued dimension identity. Unordered. |
+| `stages` | The ordered selection-stage pipeline. Position-significant. |
+| `order` | Optional unresolved order references: one baseline, plus one per ranking stage. |
 
 A **key** is a canonical query key from the named vocabulary's declared key
 namespace: a bounded ordinal token. It is not a display label, heading, column
@@ -94,21 +96,27 @@ supplied, constructed through the existing `InertText` containment shapes. This
 layer does not parse, normalize, case-fold, or interpret it. Interpretation
 belongs to the vocabulary's binder at resolution.
 
-**Bounds** carry two kinds, and the kinds never merge:
+**Bounds** and **stages** are different kinds and never merge.
 
-- an **execution bound**, the `ExecutionBoundIntent(Dimension, RequestedMaximum)`
-  shape owned by [CLI execution bounds](cli-execution-bounds.md), limiting one
-  owner-named dimension of upstream work; reaching it produces a completion
-  state and proves nothing about exhaustion;
-- a **selection stage**, owned by
-  [semantic row selection](semantic-row-selection.md), choosing rows from a
-  sequence already produced.
+An **execution bound** is the `ExecutionBoundIntent(Dimension, RequestedMaximum)`
+shape owned by [CLI execution bounds](cli-execution-bounds.md), limiting one
+owner-named dimension of upstream work; reaching it produces a completion state
+and proves nothing about exhaustion. Bounds in different dimensions are
+independent, so the set is unordered and emits in a fixed declared slot order.
 
-Both are part of a query's identity, because changing an execution bound
-changes the work a restored query performs and therefore what its completion
-state can honestly claim. Keeping them in distinct typed slots prevents the
-error this separation exists to prevent: reading an acquisition budget as a
-view window, or the reverse.
+A **selection stage** is owned by
+[semantic row selection](semantic-row-selection.md), which defines an ordered
+pipeline in which each stage consumes the preceding stage's output. The sequence
+is therefore part of the question, not a presentation detail: over `[4,1,3,2]`,
+`Top(10, ascending)` then `Head(2)` yields `[1,2]`, while `Head(2)` then
+`Top(10, ascending)` yields `[1,4]`. Stages serialize as a sequence and are
+never sorted, deduplicated, or merged into the bound set.
+
+Both parts are part of a query's identity. Changing an execution bound changes
+the work a restored query performs and therefore what its completion state can
+honestly claim; changing stage sequence changes the answer. Keeping them in
+distinct typed slots prevents the error this separation exists to prevent:
+reading an acquisition budget as a view window, or the reverse.
 
 **Order** is an unresolved order reference: either one named-order identity
 plus a direction, or an ordered list of key-and-direction terms composing
@@ -136,11 +144,15 @@ the same query; equality is decided on those bytes and nowhere else.
 - Exactly duplicated terms collapse. A repeated key bearing a different
   operator or value is preserved: terms conjoin, and whether the conjunction is
   satisfiable is the vocabulary's question, not the codec's.
-- Bounds emit in a fixed declared slot order.
-- Order is **position-significant and never reordered**. Terms conjoin, so
-  their sequence carries no meaning and they sort; an order operand's
-  sequence is its meaning, so it emits exactly as declared. A ranking order
-  emits with the selection stage it binds to.
+- Execution bounds emit in a fixed declared slot order. They are independent
+  across dimensions, so their declaration sequence carries no meaning.
+- Selection stages and order operands are **position-significant and never
+  reordered**. Sequence is their meaning, so each emits exactly as declared,
+  and a ranking order emits with the stage it binds to.
+
+Three canonicalization classes therefore exist, and no rule may move a part
+between them: conjoined terms sort, independent execution bounds occupy fixed
+slots, and ordered stages and order operands retain their declared sequence.
 - Scalar escaping follows the packet's pinned canonical rules rather than a
   second escaping convention.
 - Values are never normalized here. Package identifiers, framework names, and
@@ -154,6 +166,39 @@ and therefore share as different links. Share identity is syntactic. A
 vocabulary that wants spelling-independent identity must normalize **before**
 constructing intent, where the normalization is visible to the user who typed
 it, rather than inside a codec where it would silently rewrite what was shared.
+
+## Declared limits
+
+`workspace-definitions.md` delegates concrete payload limits to the query
+owner's codec, so this design pins them rather than saying only "bounded". They
+are a compatibility surface with the same standing as keys and operators: a link
+one build emits must be admissible on another, so these maxima cannot vary by
+build or by vocabulary.
+
+| Limit | Maximum |
+| --- | --- |
+| Canonical payload | 3 KiB of UTF-8 |
+| Nesting depth | 6 |
+| Terms | 32 |
+| Execution bounds | 8 |
+| Selection stages | 8 |
+| Order operands | 8, counting the baseline and every ranking reference |
+| Key or dimension identity | 64 bytes of UTF-8 |
+| Value token | 256 bytes of UTF-8 |
+
+Every text maximum counts UTF-8 bytes, not scalars or grapheme clusters, so the
+count is unambiguous for non-ASCII values. Each sits beneath the packet's
+per-payload allowance of 4 KiB, depth 12, and 256 JSON values, so a payload
+admitted here cannot breach the outer bound.
+
+Limits are charged **as parsed, before duplicate collapse**. A payload declaring
+forty terms that would collapse to three is rejected on the fortieth rather than
+accepted on the third, so collapse can never be used to force unbounded parse
+work. The canonical form must independently satisfy every limit.
+
+A vocabulary may declare stricter limits for its own keys; it may not relax
+these, because relaxation would make a link admissible on one build and not
+another.
 
 ## Resolution boundary
 
@@ -217,9 +262,9 @@ is the canonical intent object.
 
 - Parse and canonical write round-trip byte-for-byte, satisfying the packet's
   owner-codec requirement.
-- This design's own value, term-count, and byte limits sit **beneath** the
-  packet's declared per-payload bounds, and are enforced before any vocabulary
-  binder runs.
+- The pinned maxima in [Declared limits](#declared-limits) sit beneath the
+  packet's per-payload allowance and are enforced before any vocabulary binder
+  runs.
 - Semantically identical query states deduplicate on canonical bytes, matching
   the packet's stated table ordering and dedup rule.
 
@@ -234,8 +279,9 @@ the payload it would carry.
 
 | Gate | Contract |
 | --- | --- |
-| `IntentCanonicalFormRoundTripsByteForByte` | Parse then canonical write reproduces exact bytes for every supported term, operator, bound kind, and escaping vector. |
-| `IntentCanonicalFormIsIndependentOfTermOrder` | Term sequence, duplicate terms, and bound declaration order do not change canonical bytes; semantically identical states deduplicate. |
+| `IntentCanonicalFormRoundTripsByteForByte` | Parse then canonical write reproduces exact bytes for every supported term, operator, execution bound, selection stage, order operand, and escaping vector. |
+| `IntentCanonicalFormIsIndependentOfTermOrder` | Term sequence, duplicate terms, and execution-bound declaration sequence do not change canonical bytes; semantically identical states deduplicate. |
+| `SelectionStageSequenceSurvivesRoundTrip` | Stage sequence survives byte-for-byte and is never sorted, deduplicated, or merged into the bound set; two intents differing only in stage sequence have different canonical bytes, witnessed by the `Head`/`Top` commutation case. |
 | `OrderOperandsRetainDeclaredSequence` | An order operand's sequence and direction survive round-trip exactly, are never sorted or deduplicated, and a ranking order stays bound to its selection stage; two intents differing only in baseline order have different canonical bytes. |
 | `IntentResolutionIsAtomic` | An invalid vocabulary, key, operator, value, or bound returns the deterministic first structured failure with no plan and no partial binding. |
 | `IntentResolutionStartsNoWork` | A rejected intent issues no acquisition, source request, or payload fetch; gated with a source capability that fails the test if invoked. |
@@ -244,7 +290,8 @@ the payload it would carry.
 | `BoundKindsRemainDistinct` | An execution bound never resolves as a selection stage or the reverse, and each retains its owner-issued dimension identity. |
 | `IntentFailureShapeIsPresentationFree` | Failures carry only position, vocabulary identity, offending identity, and typed reason. |
 | `DuplicateAfterBindingIsReachableAndVocabularyOwned` | Two syntactically distinct terms that a vocabulary binds to one predicate reach the vocabulary stage and take that owner's declared collapse-or-fail outcome; no duplicate reaches resolution as canonical bytes. |
-| `IntentBoundsPrecedeVocabularyBinding` | Declared value, term-count, and byte limits are enforced, with cancellation observed, before any vocabulary binder runs. |
+| `DeclaredLimitsPrecedeVocabularyBinding` | Every limit in the declared-limits table is enforced against the payload as parsed, before duplicate collapse and before any vocabulary binder runs, with cancellation observed. |
+| `DeclaredLimitsAreBuildInvariant` | The pinned maxima are identical across vocabularies and builds; a payload at each exact maximum is admissible and one byte past each is refused. |
 | `HostileIntentTextRemainsContained` | Adversarial value tokens round-trip through `InertText` construction and canonical escaping without escaping containment or reaching a diagnostic. |
 
 ## Decisions
