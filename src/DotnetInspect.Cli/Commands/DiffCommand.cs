@@ -206,6 +206,19 @@ public class DiffCommand
 
             try
             {
+                if (UsesSharedLibraryApiDiff(inputs, options))
+                {
+                    var comparison = await LibraryApiDiffRunner.ExecuteAsync(
+                        inputs.From.AssemblySet.Assemblies[0],
+                        inputs.To.AssemblySet.Assemblies[0],
+                        options.IncludeAll);
+                    return LibraryApiDiffOutput.Write(
+                        comparison,
+                        inputs.Name,
+                        inputs.FromVersion,
+                        inputs.ToVersion,
+                        options);
+                }
                 WorkspaceImplementationTarget? workspaceTarget =
                     TryCreateWorkspaceImplementationTarget(
                         inputs,
@@ -566,6 +579,16 @@ public class DiffCommand
         }
     }
 
+    static bool UsesSharedLibraryApiDiff(DiffInputs inputs, DiffOptions options)
+        => inputs.From.AssemblySet.Assemblies.Count == 1
+            && inputs.To.AssemblySet.Assemblies.Count == 1
+            && options.MemberFilter.Count == 0
+            && !SelectsAnalysisDiff(options)
+            && !SelectsImplementationDiff(options)
+            && !SelectsFindingTransitions(options)
+            && (options.IncludeSections is null
+                || options.IncludeSections.SetEquals([DiffSections.Changes.Name]));
+
     private static async Task<(DiffInputs? inputs, string? error)>
         ExecutePackageDiffAsync(DiffOptions options, VerboseLogger logger, HttpClient httpClient)
     {
@@ -744,7 +767,8 @@ public class DiffCommand
             httpClient,
             request,
             includeAll,
-            logger);
+            logger,
+            deferSurfaceProjection: true);
 
     internal static string AsEndpointError(string error)
     {
@@ -1789,7 +1813,7 @@ public class DiffCommand
             ? typeDiffs
             : typeDiffs.Where(td => MatchesAnyDiffTypeFilter(td.TypeFullName, typeFilters)).ToList();
 
-    private static bool MatchesAnyDiffTypeFilter(string typeFullName, IEnumerable<string> filters)
+    internal static bool MatchesAnyDiffTypeFilter(string typeFullName, IEnumerable<string> filters)
     {
         foreach (var filter in filters)
         {

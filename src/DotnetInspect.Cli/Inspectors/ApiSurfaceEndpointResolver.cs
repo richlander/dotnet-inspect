@@ -6,10 +6,31 @@ using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.Inspectors;
 
-internal sealed record ApiSurfaceEndpoint(
-    AssemblySet AssemblySet,
-    ApiSurface Surface) : IDisposable
+internal sealed class ApiSurfaceEndpoint : IDisposable
 {
+    readonly Lazy<ApiSurface> _surface;
+
+    internal ApiSurfaceEndpoint(AssemblySet assemblySet, ApiSurface surface)
+    {
+        AssemblySet = assemblySet;
+        _surface = new(() => surface);
+    }
+
+    internal ApiSurfaceEndpoint(
+        AssemblySet assemblySet,
+        bool includeAll,
+        VerboseLogger logger)
+    {
+        AssemblySet = assemblySet;
+        _surface = new(() =>
+            AssemblySetSurfaceBuilder.Build(assemblySet, includeAll, logger.Log)
+                ?? throw new InvalidOperationException(
+                    "Failed to extract API surface."));
+    }
+
+    public AssemblySet AssemblySet { get; }
+    public ApiSurface Surface => _surface.Value;
+
     public IReadOnlyList<string> Paths =>
         AssemblySet.Assemblies.Select(static entry => entry.Path).ToList();
 
@@ -22,12 +43,14 @@ internal static class ApiSurfaceEndpointResolver
         HttpClient httpClient,
         AssemblySetRequest request,
         bool includeAll,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        bool deferSurfaceProjection = false)
     {
         var assemblySet = await AssemblySetResolver
             .CollectAsync(httpClient, request, logger.Log)
             .ConfigureAwait(false);
-        return Resolve(assemblySet, includeAll, logger);
+        return Resolve(
+            assemblySet, includeAll, logger, deferSurfaceProjection);
     }
 
     public static (ApiSurfaceEndpoint? Endpoint, string? Error, bool AssembliesResolved) Resolve(
@@ -41,7 +64,10 @@ internal static class ApiSurfaceEndpointResolver
             includeAll, logger);
 
     private static (ApiSurfaceEndpoint? Endpoint, string? Error, bool AssembliesResolved) Resolve(
-        AssemblySet assemblySet, bool includeAll, VerboseLogger logger)
+        AssemblySet assemblySet,
+        bool includeAll,
+        VerboseLogger logger,
+        bool deferSurfaceProjection = false)
     {
         try
         {
@@ -55,6 +81,13 @@ internal static class ApiSurfaceEndpointResolver
             }
 
             AssemblySetDiagnosticWriter.Write(assemblySet);
+            if (deferSurfaceProjection)
+            {
+                return (
+                    new ApiSurfaceEndpoint(assemblySet, includeAll, logger),
+                    null,
+                    true);
+            }
             var surface = AssemblySetSurfaceBuilder.Build(assemblySet, includeAll, logger.Log);
             if (surface is null)
             {

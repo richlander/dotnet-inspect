@@ -46,7 +46,7 @@ public sealed class ReturnSinkingPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
-        if (function.Descendants.OfType<SwitchBranch>().Any())
+        if (function.DescendantsOutsideNestedFunctions.OfType<SwitchBranch>().Any())
             return;
 
         while (SinkOnce(function, context.Stepper))
@@ -61,8 +61,9 @@ public sealed class ReturnSinkingPass : IIrPass
         var addressTaken = new HashSet<int>();
         var escapingLoad = new HashSet<int>();
         var branchTargets = BranchTargets(function);
+        var scopeNodes = function.DescendantsOutsideNestedFunctions.ToHashSet();
 
-        foreach (var node in function.Descendants)
+        foreach (var node in scopeNodes)
         {
             switch (node)
             {
@@ -92,6 +93,9 @@ public sealed class ReturnSinkingPass : IIrPass
                 continue;
             if (TryPlan(index, indexStores, returns) is { } plan)
             {
+                if (IrFunction.LocalSlotReferencesInScope(function, index)
+                    .Any(reference => !scopeNodes.Contains(reference)))
+                    continue;
                 if (plan.Folds.Any(f => f.Store.Parent is Block block && branchTargets.Contains(block.StartOffset)))
                     continue;
                 Apply(plan, stepper);
@@ -104,7 +108,7 @@ public sealed class ReturnSinkingPass : IIrPass
     static HashSet<int> BranchTargets(IrFunction function)
     {
         var targets = new HashSet<int>();
-        foreach (var node in function.Descendants)
+        foreach (var node in function.DescendantsOutsideNestedFunctions)
         {
             switch (node)
             {

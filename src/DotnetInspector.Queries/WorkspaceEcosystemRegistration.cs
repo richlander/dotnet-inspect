@@ -90,6 +90,14 @@ public abstract record WorkspaceEcosystemPopulationDeclaration
         public ExactLibrary(ExactLibrarySourceCoordinate coordinate)
         {
             ArgumentNullException.ThrowIfNull(coordinate);
+            if (coordinate is not ExactLibrarySourceCoordinate.Package
+                and not ExactLibrarySourceCoordinate.Platform)
+            {
+                throw new ArgumentException(
+                    "An ecosystem exact Library must have a package or Platform source.",
+                    nameof(coordinate));
+            }
+
             Coordinate = coordinate;
         }
 

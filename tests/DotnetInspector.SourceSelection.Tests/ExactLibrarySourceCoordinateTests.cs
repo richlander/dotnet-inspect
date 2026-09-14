@@ -12,7 +12,7 @@ public sealed class ExactLibrarySourceCoordinateTests
         "11.0.0-preview.7.26381.103";
 
     [Fact]
-    public void PublicConsumerRetainsAndPatternMatchesBothSourceArms()
+    public void PublicConsumerRetainsAndPatternMatchesAllSourceArms()
     {
         PackageSourceCoordinate package =
             PackageSourceCoordinate.Create("Contoso.Json", "1.2.3");
@@ -26,15 +26,25 @@ public sealed class ExactLibrarySourceCoordinateTests
             new ExactLibrarySourceCoordinate.Package(package, assembly);
         ExactLibrarySourceCoordinate platformCoordinate =
             new ExactLibrarySourceCoordinate.Platform(population, assembly);
+        ExactLibrarySourceCoordinate projectCoordinate =
+            new ExactLibrarySourceCoordinate.Project(assembly);
+        ExactLibrarySourceCoordinate localCoordinate =
+            new ExactLibrarySourceCoordinate.Local(assembly);
 
         var packageArm = Assert.IsType<
             ExactLibrarySourceCoordinate.Package>(packageCoordinate);
         var platformArm = Assert.IsType<
             ExactLibrarySourceCoordinate.Platform>(platformCoordinate);
+        var projectArm = Assert.IsType<
+            ExactLibrarySourceCoordinate.Project>(projectCoordinate);
+        var localArm = Assert.IsType<
+            ExactLibrarySourceCoordinate.Local>(localCoordinate);
         Assert.Same(package, packageArm.PackageCoordinate);
         Assert.Same(population, platformArm.Population);
         Assert.Same(assembly, packageArm.LibraryIdentity);
         Assert.Same(assembly, platformArm.LibraryIdentity);
+        Assert.Same(assembly, projectArm.LibraryIdentity);
+        Assert.Same(assembly, localArm.LibraryIdentity);
     }
 
     [Fact]
@@ -66,27 +76,36 @@ public sealed class ExactLibrarySourceCoordinateTests
         var equivalentPlatform = new ExactLibrarySourceCoordinate.Platform(
             population,
             equivalentIdentity);
+        ExactLibrarySourceCoordinate[] first =
+        [
+            firstPackage,
+            firstPlatform,
+            new ExactLibrarySourceCoordinate.Project(firstIdentity),
+            new ExactLibrarySourceCoordinate.Local(firstIdentity),
+        ];
+        ExactLibrarySourceCoordinate[] equivalent =
+        [
+            equivalentPackage,
+            equivalentPlatform,
+            new ExactLibrarySourceCoordinate.Project(equivalentIdentity),
+            new ExactLibrarySourceCoordinate.Local(equivalentIdentity),
+        ];
 
         Assert.Equal(firstPackage, equivalentPackage);
         Assert.True(firstPackage == equivalentPackage);
         Assert.False(firstPackage != equivalentPackage);
-        Assert.Equal(
-            firstPackage.GetHashCode(),
-            equivalentPackage.GetHashCode());
-        Assert.Equal(firstPlatform, equivalentPlatform);
-        Assert.Equal(
-            firstPlatform.GetHashCode(),
-            equivalentPlatform.GetHashCode());
-        Assert.Single(new HashSet<ExactLibrarySourceCoordinate>
+        for (int i = 0; i < first.Length; i++)
         {
-            firstPackage,
-            equivalentPackage,
-        });
-        Assert.Single(new HashSet<ExactLibrarySourceCoordinate>
-        {
-            firstPlatform,
-            equivalentPlatform,
-        });
+            Assert.Equal(first[i], equivalent[i]);
+            Assert.Equal(
+                first[i].GetHashCode(),
+                equivalent[i].GetHashCode());
+            Assert.Single(new HashSet<ExactLibrarySourceCoordinate>
+            {
+                first[i],
+                equivalent[i],
+            });
+        }
     }
 
     [Fact]
@@ -111,6 +130,8 @@ public sealed class ExactLibrarySourceCoordinateTests
             new ExactLibrarySourceCoordinate.Platform(
                 new(PlatformFamily.AspNetCore),
                 baseline),
+            new ExactLibrarySourceCoordinate.Project(baseline),
+            new ExactLibrarySourceCoordinate.Local(baseline),
             new ExactLibrarySourceCoordinate.Package(
                 package.PackageCoordinate,
                 Identity(
@@ -153,10 +174,18 @@ public sealed class ExactLibrarySourceCoordinateTests
             () => new ExactLibrarySourceCoordinate.Package(
                 PackageSourceCoordinate.Create("Contoso.Json", "1.2.3"),
                 partial));
+        Assert.Throws<ArgumentException>(
+            () => new ExactLibrarySourceCoordinate.Platform(
+                new(PlatformFamily.DotNetRuntime),
+                partial));
+        Assert.Throws<ArgumentException>(
+            () => new ExactLibrarySourceCoordinate.Project(partial));
+        Assert.Throws<ArgumentException>(
+            () => new ExactLibrarySourceCoordinate.Local(partial));
     }
 
     [Fact]
-    public void RealPackageAndPlatformAssembliesRemainDistinctCoordinates()
+    public void CopiedPlatformAssemblyRemainsLocal()
     {
         ManagedMetadataIdentity.Assembly packageIdentity =
             RealIdentity("package");
@@ -175,15 +204,34 @@ public sealed class ExactLibrarySourceCoordinateTests
         var platform = new ExactLibrarySourceCoordinate.Platform(
             new(PlatformFamily.DotNetRuntime),
             platformIdentity);
+        var local = new ExactLibrarySourceCoordinate.Local(platformIdentity);
 
         Assert.NotEqual<ExactLibrarySourceCoordinate>(package, platform);
+        Assert.NotEqual<ExactLibrarySourceCoordinate>(package, local);
+        Assert.NotEqual<ExactLibrarySourceCoordinate>(platform, local);
         Assert.Equal(
-            2,
+            3,
             new HashSet<ExactLibrarySourceCoordinate>
             {
                 package,
                 platform,
+                local,
             }.Count);
+    }
+
+    [Fact]
+    public void RealProjectOutputRetainsProjectSourceDomain()
+    {
+        ManagedMetadataIdentity.Assembly projectIdentity =
+            IdentityFromPath(
+                typeof(ExactLibrarySourceCoordinate).Assembly.Location);
+        var project =
+            new ExactLibrarySourceCoordinate.Project(projectIdentity);
+        var local = new ExactLibrarySourceCoordinate.Local(projectIdentity);
+
+        Assert.Same(projectIdentity, project.LibraryIdentity);
+        Assert.Same(projectIdentity, local.LibraryIdentity);
+        Assert.NotEqual<ExactLibrarySourceCoordinate>(project, local);
     }
 
     private static ManagedMetadataIdentity.Assembly Identity(
@@ -200,14 +248,18 @@ public sealed class ExactLibrarySourceCoordinateTests
 
     private static ManagedMetadataIdentity.Assembly RealIdentity(
         string source)
-    {
-        using var stream = File.OpenRead(
+        => IdentityFromPath(
             Path.Combine(
                 AppContext.BaseDirectory,
                 "RealAssets",
                 "ExactLibraryCoordinate",
                 source,
                 "System.Text.Json.dll"));
+
+    private static ManagedMetadataIdentity.Assembly IdentityFromPath(
+        string path)
+    {
+        using var stream = File.OpenRead(path);
         using var pe = new PEReader(stream);
         MetadataReader reader = pe.GetMetadataReader();
         return new(

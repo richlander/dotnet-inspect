@@ -431,9 +431,7 @@ public sealed class MetadataSourceFindingsTests
             resolver.ResolveTypeSource(name));
 
         Assert.EndsWith(
-            Path.Combine(
-                "CorrelatedSourceCollision",
-                "Definitions.cs"),
+            "CorrelatedSourceCollision/Definitions.cs",
             source.SourceFilePath,
             StringComparison.Ordinal);
         Assert.Equal(
@@ -494,8 +492,14 @@ public sealed class MetadataSourceFindingsTests
                     StringComparison.OrdinalIgnoreCase)),
         ];
 
-        Assert.Contains("/_/Case/AmbiguousBodylessFixture.cs", matchingPaths);
-        Assert.Contains("/_/case/AmbiguousBodylessFixture.cs", matchingPaths);
+        Assert.Equal(2, matchingPaths.Length);
+        if (!OperatingSystem.IsWindows())
+        {
+            // Windows Roslyn applies the broad project PathMap instead of the
+            // nested case-distinct entries.
+            Assert.Contains("/_/Case/AmbiguousBodylessFixture.cs", matchingPaths);
+            Assert.Contains("/_/case/AmbiguousBodylessFixture.cs", matchingPaths);
+        }
         Assert.Null(resolver.ResolveTypeSource(name));
         Assert.Null(resolver.ResolveTypeSource(selectedType.FullName!));
     }

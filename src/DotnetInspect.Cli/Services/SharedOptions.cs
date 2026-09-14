@@ -207,6 +207,34 @@ public class SharedOptions
         AddSource.Validators.Add(ValidateSourceUrls);
     }
 
+    public static Option<string?> CreateOutputPathOption()
+    {
+        var option = new Option<string?>("--out")
+        {
+            Description = "Write output to file instead of stdout"
+        };
+        option.Aliases.Add("--output");
+        option.Aliases.Add("-o");
+        return option;
+    }
+
+    public static void AddOutputPathValidator(
+        Command command,
+        Option<string?> option)
+    {
+        command.Validators.Add(result =>
+        {
+            if (result.Errors.Any()
+                || result.Children.Any(static child => child.Errors.Any()))
+            {
+                return;
+            }
+
+            if (result.GetResult(option) is { Tokens: [{ Value.Length: 0 }] })
+                result.AddError("--out requires a non-empty path.");
+        });
+    }
+
     /// <summary>
     /// Rejects an explicit comma/semicolon-separated projection list that contains no names or
     /// names the same entry more than once. Matching is case-insensitive because column matching is.
