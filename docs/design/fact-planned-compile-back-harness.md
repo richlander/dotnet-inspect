@@ -903,9 +903,11 @@ Examples:
 ### Native corpus evidence and scheduled cutover comparison
 
 **Owner:** ReturnToSender / DecompilerHarness, within this reporting contract.
-**Focused issue:** [#6472](https://github.com/richlander/dotnet-inspect/issues/6472),
-step 4 of the six-step adoption and legacy-retirement tracker
-[#6199](https://github.com/richlander/dotnet-inspect/issues/6199).
+**Focused issue:** steps 5-6 of the eight-step adoption and
+legacy-retirement tracker
+[#6199](https://github.com/richlander/dotnet-inspect/issues/6199); the original
+paired cutover evidence was developed under
+[#6472](https://github.com/richlander/dotnet-inspect/issues/6472).
 
 Routine corpus fidelity must measure a target population selected without
 executing or consulting legacy compile-back. For each assembly and positive
@@ -929,11 +931,12 @@ every selected target in that assembly and does not prevent the remaining
 native assemblies or, for `rts-cutover`, the later legacy-reference phase from
 running. Unexpected failures still abort the run.
 
-The retained text report enumerates every native/legacy status pair and marks
-every exact or availability loss. The quality diff card remains the bounded
-aggregate projection: it carries provenance, inputs, caps, availability, losses,
-gains, same-status counts, and floor use without duplicating the member ledger
-already present in the snapshot and text artifact.
+The retained `rts-cutover` text report enumerates every native/legacy status
+pair and marks every exact or availability loss. Its quality diff card remains
+the bounded aggregate projection: it carries provenance, inputs, caps,
+availability, losses, gains, same-status counts, and floor use without
+duplicating the member ledger already present in the snapshot and text
+artifact.
 
 The typed snapshot records the repository revision and source state captured
 when the harness was built, Roslyn compiler identity, runtime and platform
@@ -964,6 +967,8 @@ The Release gates
 `SelectThenEvaluateNativeFirst_CompletesEveryPhaseAcrossAssemblies`,
 `AlignReturnToSenderResults_ReportsUnavailableTarget`,
 `IndependentReturnToSender_ContextFailureRetainsEverySelectedTarget`,
+`Harness_DefaultCorpusFidelityOracle_UsesNativeWithoutLegacyComparison`,
+`Harness_NativeCorpusFidelityAliases_UseNativeWithoutLegacyComparison`,
 `SummarizeReturnToSenderCutover_SeparatesExactAndAvailabilityChanges`,
 `ReturnToSenderCutover_RealFixtureRetainsEveryNativePairWithoutFloor`,
 `ReturnToSenderCutoverReport_RendersEveryStatusPairAndLoss`,
