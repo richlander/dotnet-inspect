@@ -10,7 +10,7 @@ namespace DotnetInspector.Ecosystems.Tests;
 public sealed class EcosystemWorkspaceConstructionTests
 {
     [Fact]
-    public void ShippedDeclarationsPreservePlatformOverlapAndAspireIntegrationCurrency()
+    public void ShippedDeclarationsPreservePlatformAndAiOverlapAndAspireIntegrationCurrency()
     {
         foreach (EcosystemPackDescriptor pack in EcosystemPackCatalog.Discover())
         {
@@ -43,6 +43,30 @@ public sealed class EcosystemWorkspaceConstructionTests
             Assert.Single(aspire.Populations)).Prefix.Prefix);
         Assert.Same(EcosystemIntegrationScanner.AspireBinding, aspire.IntegrationScanner);
         Assert.Equal("Aspire.Hosting", Assert.Single(aspire.CorePackages).PackageId);
+        var ai = SelectKnown(EcosystemPackIds.AI);
+        Assert.Equal(
+            [
+                "Microsoft.Extensions.AI",
+                "Microsoft.Extensions.VectorData",
+                "Microsoft.Agents.AI",
+                "ModelContextProtocol",
+            ],
+            ai.Populations.Select(item =>
+                Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                    item).Prefix.Prefix));
+        Assert.All(
+            ai.Populations.Select(item =>
+                Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(item).Prefix),
+            prefix => Assert.True(prefix.MatchesPackageId(prefix.Prefix)));
+        PackagePrefixDeclaration extensionsPrefix =
+            Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                Assert.Single(SelectKnown(
+                    EcosystemPackIds.MicrosoftExtensions).Populations)).Prefix;
+        PackagePrefixDeclaration aiExtensionsPrefix =
+            Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                ai.Populations[0]).Prefix;
+        Assert.True(extensionsPrefix.MatchesPackageId("Microsoft.Extensions.AI.OpenAI"));
+        Assert.True(aiExtensionsPrefix.MatchesPackageId("Microsoft.Extensions.AI.OpenAI"));
     }
 
     [Fact]

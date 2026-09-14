@@ -31,7 +31,7 @@ Persistence and host activation remain in their separately owned slices.
 [Subject Relations](subject-relations-workflows.md#broad-discovery-by-default),
 approved in #6763, supplies the two construction intents adopted here. The
 platform composition keeps its narrower meaning; all-known construction adds
-every shipped ecosystem, including Aspire. This replaces the earlier
+every shipped ecosystem, including Aspire and AI. This replaces the earlier
 one-composition restriction without adding product policy to Workspace.
 
 ## Authority and exact claim
@@ -377,6 +377,7 @@ AllKnownProductWorkspace
   ecosystem.aspnetcore
   ecosystem.microsoft-extensions
   ecosystem.aspire
+  ecosystem.ai
 ```
 
 This order is product policy. It is not derived from pack discovery order,
@@ -402,7 +403,7 @@ Ecosystems may add, remove, or reorder entries in a later product build with
 updated real-scenario evidence and gates. Both orders are authored independently
 of discovery; the all-known set check validates coverage without deriving order.
 
-The initial target contributions are:
+The current target contributions are:
 
 | Curated registration | Required population declarations |
 | --- | --- |
@@ -410,6 +411,7 @@ The initial target contributions are:
 | ASP.NET Core | `Platform(AspNetCore)` and `Microsoft.AspNetCore.` package prefix |
 | Microsoft.Extensions | `Microsoft.Extensions.` package prefix |
 | Aspire (all-known only) | `Aspire.` package prefix |
+| AI (all-known only) | `Microsoft.Extensions.AI`, `Microsoft.Extensions.VectorData`, `Microsoft.Agents.AI`, and `ModelContextProtocol` package prefixes |
 
 Namespace roots and core-package priorities remain additional inert knowledge.
 They cannot satisfy the curated population requirement by themselves.
@@ -420,6 +422,13 @@ retained alongside the prefix. This supports the real `Aspire.Hosting.Redis`
 scenario without resolving that package or invoking the scanner. Platform
 retains its runtime declaration for scenarios such as `System.Text.Json`,
 without inventing a package coordinate for the framework library.
+
+AI is also absent from platform curation and present in all-known construction.
+Its four literal package prefixes retain the root packages and child package
+families for Microsoft.Extensions.AI, VectorData, Agent Framework, and MCP.
+The first two deliberately overlap the broader `Microsoft.Extensions.` prefix;
+the handoff preserves both authored registrations and neither infers exclusive
+ownership, package equivalence, or traversal authorization.
 
 Adding or removing an entry is an application-manifest change, not a Workspace
 Scope default embedded in CLI, Browser, Queries, or persisted data. All-known
@@ -654,6 +663,7 @@ CreateWorkspacePlan()
        2. ecosystem.aspnetcore
        3. ecosystem.microsoft-extensions
        4. ecosystem.aspire
+       5. ecosystem.ai
 
 ```
 
@@ -661,9 +671,10 @@ Direct `new WorkspacePlan()` instead returns an empty registration set.
 Restoring an explicitly empty registration sequence constructs raw and remains
 empty; neither host calls curated construction during restoration.
 
-The neighboring Aspire pack has a selectable lower declaration and appears only
-in the all-known sequence. Plans create no live Package membership; explicit
-live construction from either plan starts with empty acquired membership.
+The neighboring Aspire and AI packs have selectable lower declarations and
+appear only in the all-known sequence. Plans create no live Package membership;
+explicit live construction from either plan starts with empty acquired
+membership.
 
 ## Required gates
 
@@ -674,7 +685,7 @@ live construction from either plan starts with empty acquired membership.
 | Projection fidelity | Known selection returns the exact retained declaration; known unavailable and unknown identities remain distinct. |
 | Resource-free projection | Discovery and selection invoke no prefix query, platform source, package-set lookup, scanner, acquisition, or Workspace mutation. |
 | Curated product Workspace | The current Platform, ASP.NET Core, Microsoft.Extensions order and required population contributions are enforced without filtering ordinary pack discovery. |
-| All-known product Workspace | The separate current four-row order includes Aspire and every known pack; missing or unavailable projections cannot be silently omitted. |
+| All-known product Workspace | The separate current five-row order includes Aspire and AI and every known pack; missing or unavailable projections cannot be silently omitted. |
 | Independent construction | One curated plan can seed distinct live Workspace identities; edits and close preserve the original plan and other owners. |
 | Lifetime preservation | Plans require no disposal; explicit live construction consumes the single Workspace awaited lifetime without an Ecosystems-owned variant. |
 | Empty lower-layer default | Direct Workspace construction without explicit registrations is empty and has no path that consults Ecosystems or requests curation. |
