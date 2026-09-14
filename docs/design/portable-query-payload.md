@@ -235,19 +235,27 @@ array, inner array, scalar — and the declared maximum is that same 4, so every
 limit in the table is reachable by an admissible payload rather than being a
 ceiling no valid payload can touch.
 
-Its worst-case JSON value count is 197:
+Its worst-case JSON value count is 204, and reaching it requires the parts to be
+maximized **jointly** rather than independently. The role rules bind `s` and `o`
+together: eight order operations means one `base` plus seven rankings, and every
+ranking role must name a `top`, so seven of the eight stages are `top` and only
+one can be the wider three-slot `window`. Mixed order kinds then maximize `o`,
+because one field-list operation can spend the whole eight-term budget while the
+remaining seven are `named` operations that each still carry an identity and a
+direction:
 
 | Part | Values | Worst case |
 | --- | --- | --- |
 | Object | 1 | |
 | `t` | 97 | one array, 24 term arrays, 72 strings |
 | `b` | 25 | one array, 8 bound arrays, 16 scalars |
-| `s` | 33 | one array, 8 stage arrays, 24 scalars — every stage a three-slot `window` |
-| `o` | 41 | one array, 8 operation arrays, 16 role and kind scalars, 16 field-term scalars |
+| `s` | 26 | one array, 8 stage arrays, 17 scalars — seven `top` plus one `window` |
+| `o` | 55 | one array, 8 operation arrays, 46 scalars — one 8-field operation plus seven `named` |
 
-A payload admitted here therefore cannot breach the outer bound. The `s` figure
-uses the widest stage tuple rather than the narrowest, because a payload may use
-`window` throughout.
+That payload is roughly 900 bytes, well inside the 3 KiB limit, so the value
+count binds before the byte count here even though the reverse holds for a
+term-heavy payload. A payload admitted here therefore cannot breach the outer
+bound.
 
 Limits are charged **as parsed, before duplicate collapse**. A payload declaring
 thirty terms that would collapse to three is rejected on the twenty-fifth rather
@@ -405,7 +413,7 @@ resolution, starting no work, visible replay refusal — belong to
 | `SelectionStageSequenceSurvivesRoundTrip` | Stage sequence survives byte-for-byte and is never sorted, deduplicated, or merged into the bound set; two intents differing only in stage sequence have different canonical bytes, witnessed by the `Head`/`Top` commutation case. |
 | `OrderOperationsAreInjective` | Role, kind, operation boundary, and direction survive round-trip exactly; field-term sequence inside one operation is preserved while outer operations emit in role order, so one assignment of baseline and rankings has exactly one spelling; a ranking operation stays bound to its stage index; two intents differing only in baseline order, or only in how the same field terms divide between baseline and ranking, have different canonical bytes. |
 | `DeclaredLimitsPrecedeVocabularyBinding` | Every limit in the declared-limits table is enforced against the payload as parsed, before duplicate collapse and before any vocabulary binder runs, with cancellation observed. |
-| `DeclaredLimitsAreBuildInvariant` | The pinned maxima are identical across vocabularies and builds; a payload at each exact maximum is admissible and one byte past each is refused. |
+| `DeclaredLimitsAreBuildInvariant` | The pinned maxima are identical across vocabularies and builds; a payload at each exact maximum is admissible and one byte past each is refused. The joint maximum — 24 terms, 8 bounds, seven `top` stages plus one `window`, and one eight-field operation plus seven `named` operations — is admissible and produces exactly 204 JSON values. |
 | `DocumentedExamplesAreCanonical` | Every JSON payload example in this document parses, validates, and canonically re-emits to exactly its own bytes through the production codec, so an example cannot drift from the contract it illustrates. |
 | `HostileIntentTextRemainsContained` | Adversarial value tokens that are valid Unicode scalar sequences — quotes, backslashes, lowercase C0 escapes, raw U+007F/U+0085/U+2028/U+2029, and a supplementary-plane scalar — round-trip through `InertText` construction and canonical escaping without escaping containment or reaching a diagnostic. |
 | `NonCanonicalTextIsRefusedBeforeBinding` | Unpaired surrogates and every other non-canonical scalar form are refused at decode, before any vocabulary binder runs, and are never accepted, repaired, or substituted with U+FFFD. |
