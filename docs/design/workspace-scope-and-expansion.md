@@ -585,7 +585,7 @@ host concern, not a Scope composition primitive.
 
 ## Design demo
 
-The Workspace subject first exposes the retained Workspaces:
+The Workspace subject first exposes retained definitions:
 
 ```text
 Workspaces
@@ -593,8 +593,8 @@ Workspaces
   Newtonsoft.Json                                  [Activate] [Delete]
 ```
 
-Selecting one changes the active Workspace without reconstructing it. The
-selected Workspace then exposes its own scope:
+Selecting one constructs a fresh candidate and atomically changes the active
+Workspace realization. The selected realization then exposes its own scope:
 
 ```text
 Workspace
@@ -640,13 +640,13 @@ The product currently has several partially overlapping meanings of Workspace:
 - a Browser-retained package array;
 - a portable definition or share packet;
 - a Navigation subject;
-- a retained Browser collection with one active Workspace; and
+- a retained Browser definition collection with one active realization; and
 - a possible dependency-discovery boundary.
 
 Those meanings have begun to produce independent lifecycle, history,
-membership, and identity protocols. Inspect Web needs each retained Workspace
-to own one ordinary scope, while the host separately owns collection,
-activation, and deletion.
+membership, and identity protocols. Each active Workspace realization needs
+one ordinary Scope, while the Browser separately owns resource-free definition
+retention, activation, and deletion.
 
 The current Browser package list also weakens the contract in important ways:
 
@@ -656,34 +656,26 @@ The current Browser package list also weakens the contract in important ways:
 - a demo can arrive through either canonical restoration or a special engine
   operation;
 - dependency references do not have one explicit closed/open boundary; and
-- retained Workspaces lack one product-owned activation and deletion contract.
+- retained definitions and the live realization lack one fully adopted
+  product-owned activation and deletion contract.
 
 The missing Scope concept remains one authoritative logical scope over physical
-acquisition and binding resources. The Browser host separately needs the small
-retained collection described below.
+acquisition and binding resources. Browser retention and selection are owned
+separately by
+[Inspect Web Retained Workspace
+Realization](inspect-web-retained-workspace-realization.md).
 
-## Retained Workspaces and one active Workspace
+## Browser retention boundary
 
-Inspect Web retains zero or more published Workspaces and identifies one as
-active whenever the collection is nonempty. Activating a demo, share packet,
-imported definition, saved definition, or external package **Open** constructs
-a fresh Workspace solely from that input, publishes it into the collection,
-and makes it active. Any previously active Workspace remains published and
-open. At most one unpublished new Workspace may exist, and it is not selectable
-or independently presented.
+Workspace Scope does not own host retention or selection. Inspect Web retains
+zero or more resource-free definition and restoration records while exactly one
+selected Workspace realization may admit new user operations. Selecting
+another definition constructs a fresh realization; candidates and draining
+predecessors are not selectable live Workspaces.
 
-The Workspace subject lists the published collection. Selecting a listed
-Workspace changes the active identity and restores its retained Navigation
-snapshot without reconstructing the Workspace. Deleting a listed Workspace
-removes and closes it. Deleting the active Workspace selects the next entry in
-collection order, otherwise the previous entry, otherwise no Workspace. The
-host changes collection and active identity before closing the removed
-Workspace.
-
-Each Workspace has one current scope revision. A host may also retain portable
-definitions or browser-history entries as data, but activating one constructs a
-fresh Workspace rather than reviving a historical Workspace identity. A packet
-is serialization input and output, not a published Workspace.
+Each active Workspace realization has one current Scope revision. A retained
+definition or browser-history entry is data, not a Scope owner. A packet is
+serialization input and output, not a live Workspace.
 
 The CLI normally creates one ephemeral Workspace for one invocation. Future
 service hosts may independently create Workspaces for separate requests, but
