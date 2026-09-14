@@ -287,6 +287,47 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   state.host.dispose();
 });
 
+test("Platform graph transport preserves retained context selection and ordinary null", async () => {
+  const selections: (string | null)[] = [];
+  const node = {
+    label: "TryAddEnumerable", status: "Analyzed", inLoop: false,
+    source: null, children: [], assembly: "Microsoft.Extensions.DependencyInjection.Abstractions",
+    typeFullName: "ServiceCollectionDescriptorExtensions", memberName: "TryAddEnumerable",
+  };
+  const state = fixture({
+    callGraph: {
+      expandPlatformCallGraph: async (...args) => {
+        selections.push(args[11]);
+        return {
+          mermaid: "graph TD",
+          callers: node,
+          callees: node,
+          targets: [],
+          scope: { packages: 0, assemblies: 3, callerAssemblies: 3, calleeScope: "Self" },
+          diagnostics: {
+            incompleteNodes: 0, incompleteEdges: 0, bindingIdentityConflicts: 0,
+            hasUnexploredTraversalBoundary: false, hasAnalysisFailureBoundary: false,
+            isIncomplete: false,
+          },
+          noBody: true,
+        };
+      },
+    },
+  });
+  for (const contextId of ["retained-demo", null]) {
+    const result = state.client.callGraph.expandPlatformCallGraph(
+      "net10.0", "10.0.12", "Microsoft.Extensions.DependencyInjection.Abstractions",
+      "aspnetcore.app", "10.0.0.0", null, null,
+      "ServiceCollectionDescriptorExtensions", "TryAddEnumerable", "selector", 0,
+      contextId);
+    await state.environment.flushAsync();
+    assert.equal((await result).scope.assemblies, 3);
+  }
+  assert.deepEqual(selections, ["retained-demo", null]);
+  assert.deepEqual(state.diagnostics, []);
+  state.host.dispose();
+});
+
 test("concurrent ordinary calls use independent authority sessions", async () => {
   const first = deferred<string>();
   const second = deferred<string>();

@@ -7,6 +7,7 @@ import {
   type RuntimeCohortVariantName,
   type RuntimeVariantAdmissionEvidence,
   type RuntimeVariantReceipt,
+  validateRuntimePinAdvancementCohort,
   validateRuntimeVariantPublicationEvidence,
 } from "../scripts/runtime-cohort-model.ts";
 
@@ -80,6 +81,10 @@ test("accepted cohort benchmarks every admitted variant", () => {
   assert.ok(receipt.variants.every(
     item => item.admission.status === "admitted",
   ));
+  assert.doesNotThrow(() => validateRuntimePinAdvancementCohort(
+    `${JSON.stringify(receipt)}\n`,
+    sourceCommit,
+  ));
 });
 
 test("known R2R thunk rejection preserves the required comparison", () => {
@@ -104,6 +109,14 @@ test("known R2R thunk rejection preserves the required comparison", () => {
     receipt.variants[2]?.admission.status,
     "correctness-rejection",
   );
+  assert.equal(
+    receipt.variants[2]?.admission.knownIssue,
+    "dotnet/runtime#129622; dotnet/runtime#129857",
+  );
+  assert.doesNotThrow(() => validateRuntimePinAdvancementCohort(
+    `${JSON.stringify(receipt)}\n`,
+    sourceCommit,
+  ));
 });
 
 test("unknown candidate and required failures reject the cohort", () => {
@@ -132,6 +145,57 @@ test("unknown candidate and required failures reject the cohort", () => {
     ],
   );
   assert.equal(requiredFailure.status, "failed");
+});
+
+test("runtime pin advancement rejects unfamiliar R2R product failures", () => {
+  const retainedFailure = createRuntimeCohortReceipt(
+    sourceCommit,
+    "2026-09-12T00:00:00Z",
+    [
+      evidence("mono"),
+      evidence("coreclr-il"),
+      evidence("coreclr-r2r", 1, [
+        "INSPECT_WEB_PRODUCT_OPERATION_FAILURE:producer-contract",
+        "Error: page.evaluate: index out of bounds",
+      ].join("\n")),
+    ],
+  );
+  assert.doesNotThrow(() => validateRuntimePinAdvancementCohort(
+    `${JSON.stringify(retainedFailure)}\n`,
+    sourceCommit,
+  ));
+
+  const unfamiliarFailure = createRuntimeCohortReceipt(
+    sourceCommit,
+    "2026-09-12T00:00:00Z",
+    [
+      evidence("mono"),
+      evidence("coreclr-il"),
+      evidence("coreclr-r2r", 1, [
+        "INSPECT_WEB_PRODUCT_OPERATION_FAILURE:producer-contract",
+        "Error: page.evaluate: unreachable",
+      ].join("\n")),
+    ],
+  );
+  assert.equal(unfamiliarFailure.status, "accepted");
+  assert.equal(
+    unfamiliarFailure.variants[2]?.admission.knownIssue,
+    null,
+  );
+  assert.throws(
+    () => validateRuntimePinAdvancementCohort(
+      `${JSON.stringify(unfamiliarFailure)}\n`,
+      sourceCommit,
+    ),
+    /recognized retained R2R issue/u,
+  );
+  assert.throws(
+    () => validateRuntimePinAdvancementCohort(
+      `${JSON.stringify(retainedFailure)}\n`,
+      "b".repeat(40),
+    ),
+    /proposal source commit/u,
+  );
 });
 
 test("cohort rejects identity and configuration drift", () => {

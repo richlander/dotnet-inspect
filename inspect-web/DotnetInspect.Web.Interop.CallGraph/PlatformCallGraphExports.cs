@@ -25,23 +25,50 @@ public static partial class CallGraphExports
         string typeFullName,
         string memberName,
         string selectorKey,
-        int metadataToken)
+        int metadataToken,
+        string? contextId = null)
     {
-        BrowserCallGraphInfo graph =
-            await BrowserPlatformCallGraph.QueryAsync(
-                targetFramework,
-                platformVersion,
-                assembly,
-                pack,
-                assemblyVersion,
-                assemblyCulture,
-                assemblyPublicKeyToken,
-                typeFullName,
-                memberName,
-                selectorKey,
-                metadataToken);
+        BrowserCallGraph graph;
+        await using (BrowserPlatformScopeResolution? resolution =
+            contextId is null
+                ? null
+                : await BrowserPlatformWorkspace.OpenRetainedContextAssemblyAsync(
+                    contextId,
+                    targetFramework,
+                    platformVersion,
+                    BrowserPlatformIdentity.AssemblyFileName(assembly),
+                    pack))
+        {
+            BrowserCallGraphInfo info = resolution is null
+                ? await BrowserPlatformCallGraph.QueryAsync(
+                    targetFramework,
+                    platformVersion,
+                    assembly,
+                    pack,
+                    assemblyVersion,
+                    assemblyCulture,
+                    assemblyPublicKeyToken,
+                    typeFullName,
+                    memberName,
+                    selectorKey,
+                    metadataToken)
+                : await BrowserPlatformCallGraph.QueryAsync(
+                    resolution,
+                    targetFramework,
+                    platformVersion,
+                    assembly,
+                    pack,
+                    assemblyVersion,
+                    assemblyCulture,
+                    assemblyPublicKeyToken,
+                    typeFullName,
+                    memberName,
+                    selectorKey,
+                    metadataToken);
+            graph = BrowserCallGraphWireProjection.Project(info);
+        }
         return JsonSerializer.Serialize(
-            BrowserCallGraphWireProjection.Project(graph),
+            graph,
             BrowserCallGraphJsonContext.Default.BrowserCallGraph);
     }
 

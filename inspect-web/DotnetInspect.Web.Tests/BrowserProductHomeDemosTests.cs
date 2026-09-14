@@ -165,6 +165,7 @@ public sealed class BrowserProductHomeDemosTests
             BrowserProductHomeDemos.ToRunPlan(
                 Select(ProductDemoIds.StjSerializer).Scenario);
 
+        Assert.Same(plan.WorkspacePlan.Contexts[0], plan.ContextInput);
         Assert.Single(plan.Requests);
         BrowserHomeDemoRunRequest.Platform request = Assert.IsType<
             BrowserHomeDemoRunRequest.Platform>(plan.Requests[0]);

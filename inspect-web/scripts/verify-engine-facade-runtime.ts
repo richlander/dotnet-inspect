@@ -127,6 +127,7 @@ const representativeOperations: Readonly<Record<string, RepresentativeOperation>
       "Concat",
       "selector",
       0,
+      "retained-platform-context",
     ],
     key: "ExpandPlatformCallGraph",
   },

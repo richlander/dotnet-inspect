@@ -854,6 +854,46 @@ public partial class AuthoredCorpusHarnessProcessTests
 
         Assert.Equal(0, run.ExitCode);
         Assert.Contains("usage: decompiler-harness", run.Output, StringComparison.Ordinal);
+        Assert.Contains("select rts-cutover", run.Output, StringComparison.Ordinal);
+        Assert.Contains("(default; aliases:", run.Output, StringComparison.Ordinal);
+        Assert.Contains("Use compile-back for the legacy oracle", run.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Harness_DefaultCorpusFidelityOracle_UsesNativeCutover()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"corpus-default-oracle-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string snapshot = Path.Combine(directory, "corpus.json");
+            HarnessRun run = RunHarness(
+                FixtureCatalog.DecompilerUnsafeNew.AssemblyPath(),
+                "--emit-corpus-snapshot",
+                snapshot,
+                "--compile-cap",
+                "0",
+                "--corpus-fidelity-cap",
+                "1",
+                "--corpus-method-cap",
+                "10",
+                "--max-examples",
+                "1");
+
+            Assert.Equal(0, run.ExitCode);
+            var baseline = CorpusSensor.ReadBaselineForTesting(snapshot);
+            var cutover = Assert.IsType<ReturnToSenderCutoverMetrics>(
+                baseline.Metrics.Fidelity.ReturnToSenderCutover);
+            Assert.Equal(CorpusFidelityOracle.ReturnToSenderCutover, baseline.FidelityOracle);
+            Assert.Equal(1, cutover.SelectedMethods);
+            Assert.Equal(0, cutover.CompileBackFloorAppliedMethods);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Fact]

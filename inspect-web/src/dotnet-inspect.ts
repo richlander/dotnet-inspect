@@ -217,6 +217,7 @@ import {
 import {
   callGraphErrorForView,
   createCallGraphInspectionCoordinator,
+  queryPlatformCallGraph,
   type InspectedCallGraph,
   type InspectedCallGraphTarget,
   type PlatformStackEntry,
@@ -981,6 +982,7 @@ const initialState = {
   graphMemberNavigationTitle: "",
   pendingGraphMemberDeepLink: null,
   platformStack: [],
+  platformDemoContextId: null,
   platformDrillLoading: false,
   platformDrillError: "",
   memberFacts: null,
@@ -1084,6 +1086,7 @@ interface StateOverrides {
   memberCallGraph: InspectedCallGraph | null;
   pendingGraphMemberDeepLink: PendingGraphMemberDeepLink | null;
   platformStack: PlatformStackEntry[];
+  platformDemoContextId: string | null;
   memberFacts: MemberFacts | null;
   libraryScope: Set<string> | null;
   accessibilityFilter: Set<string>;
@@ -2054,18 +2057,7 @@ const callGraphInspection = createCallGraphInspectionCoordinator({
     request.metadataToken,
     JSON.stringify(workspace)),
   queryPlatform: request =>
-    inspectExpandPlatformCallGraph(
-      request.framework,
-      request.platformVersion,
-      request.assembly,
-      request.pack,
-      request.assemblyVersion ?? "",
-      request.assemblyCulture,
-      request.assemblyPublicKeyToken,
-      request.type,
-      request.member,
-      request.selectorKey,
-      request.metadataToken),
+    queryPlatformCallGraph(inspectExpandPlatformCallGraph, request),
   describeError: errorMessage,
   render,
   renderPreservingMemberFocus,
@@ -3403,6 +3395,7 @@ function removeWorkspacePackageRow(key: string): void {
 }
 
 function clearWorkspacePackages() {
+  state.platformDemoContextId = null;
   const discarded = state.packages;
   state.packages = [];
   state.package = null;
@@ -11828,6 +11821,7 @@ function memberRequestSignature(
     pkg?.id,
     pkg?.version,
     pkg?.activeFramework,
+    pkg?.isRuntimePack ? state.platformDemoContextId : null,
     type?.assembly,
     type?.queryId ?? type?.id,
     type?.definitionId ?? type?.id,
@@ -12292,6 +12286,7 @@ async function loadSelectedMemberCallGraph() {
       type.definitionId ?? type.metadataId ?? type.queryId ?? type.id,
     platformPack:
       platformPackForAssembly(type.assembly, type.platformPack) ?? "",
+    platformContextId: state.platformDemoContextId,
     platformAssemblyVersion: platformAssembly?.version ?? null,
     platformAssemblyCulture: platformAssembly?.culture ?? null,
     platformAssemblyPublicKeyToken:
@@ -13300,6 +13295,9 @@ async function drillPlatformNode(
     runtimePack,
     framework);
   return callGraphInspection.drill({
+    contextId: state.package?.isRuntimePack
+      ? state.platformDemoContextId
+      : null,
     framework,
     platformVersion,
     assembly: node.assembly,
@@ -14541,6 +14539,7 @@ async function installPlatformHomeDemoSource(
     throw new Error(
       "The native Platform Library path did not retain the engine-run demo surface.");
   }
+  state.platformDemoContextId = source.contextId;
   return true;
 }
 

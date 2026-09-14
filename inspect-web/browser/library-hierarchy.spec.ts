@@ -1712,6 +1712,7 @@ function homeDemoResult(
       focusVersion: platform ? platformVersion : surface.version,
       focusFramework: platform ? "net11.0" : surface.activeFramework,
       focusAssembly: platform ? platformFocusAssembly.name : null,
+      platformContextId: platform ? "platform-demo-context" : null,
       typeId: platform ? platformFocusType.id : surface.types[0]!.id,
       section,
       memberName: callGraph ? run.name : null,

@@ -44,7 +44,7 @@ public static partial class MetadataExports
             assemblyName,
             typeId,
             workspaceJson,
-            RowSelectionIntent<TypeDependencyRowOrder>.Empty);
+            ResolveTypeDependencyRows(RowQueryIntent.Empty));
         _ = BrowserMetadataJsonSerialization.BrowserTypeMetadata;
         return JsonSerializer.Serialize(
             type,
@@ -58,7 +58,7 @@ public static partial class MetadataExports
         string assemblyName,
         string typeId,
         string workspaceJson,
-        RowSelectionIntent<TypeDependencyRowOrder>
+        ResolvedRowQueryPlan<TypeDependencyRelationship>
             typeDependencyRows)
     {
         ArgumentNullException.ThrowIfNull(typeDependencyRows);
@@ -390,7 +390,9 @@ public static partial class MetadataExports
         var dependencyRoles = new Dictionary<string, string>(
             StringComparer.Ordinal);
         foreach (TypeDependencyRelationship relationship
-                 in dependencies.RowSelection.Relationships)
+                 in dependencies.QueryResult.Dependency.Relationships
+                     .OrderBy(
+                         static relationship => relationship.Ordinal))
         {
             dependencyRoles.TryAdd(
                 relationship.TargetTypeName,
@@ -406,8 +408,7 @@ public static partial class MetadataExports
                 : typeName;
 
         foreach (TypeDependencyRelationship relationship
-                 in dependencies.RowSelection.Relationships.OrderBy(
-                     static relationship => relationship.Ordinal))
+                 in dependencies.RowSelection.Relationships)
         {
             string sourceId = GraphId(relationship.SourceTypeName);
             string targetId = GraphId(relationship.TargetTypeName);
@@ -435,6 +436,17 @@ public static partial class MetadataExports
         }
 
         return ([.. nodes], [.. edges]);
+    }
+
+    private static ResolvedRowQueryPlan<TypeDependencyRelationship>
+        ResolveTypeDependencyRows(RowQueryIntent intent)
+    {
+        RowQueryResolutionResult<TypeDependencyRelationship> result =
+            TypeDependencyRowQuery.Resolve(intent);
+        return result.Plan
+            ?? throw new InvalidOperationException(
+                "The canonical Browser Type Dependency row query "
+                    + "did not resolve.");
     }
 
     static IEnumerable<string> TypeDependencyFailures(

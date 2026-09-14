@@ -176,6 +176,8 @@ public sealed class BrowserNavigationStateSlotTests
         fixture.AcknowledgeInitialization();
         var started = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
+        var releasePreparation = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
 
         async ValueTask<NavigationPreparation> ThrowDuringRetirement(
             NavigationEvaluationRequest _,
@@ -185,10 +187,20 @@ public sealed class BrowserNavigationStateSlotTests
                 cancellationToken.Register(
                     static () => throw new InvalidOperationException(
                         "retirement cleanup failed"));
-            started.SetResult();
-            await Task.Delay(
+            Task cancellation = Task.Delay(
                 Timeout.InfiniteTimeSpan,
                 cancellationToken);
+            started.SetResult();
+            try
+            {
+                await cancellation;
+            }
+            catch (OperationCanceledException)
+                when (cancellationToken.IsCancellationRequested)
+            {
+                await releasePreparation.Task;
+                throw;
+            }
             throw new InvalidOperationException(
                 "Retirement cancellation did not stop preparation.");
         }
@@ -199,7 +211,14 @@ public sealed class BrowserNavigationStateSlotTests
                 TestContext.Current.CancellationToken).AsTask();
         await started.Task;
 
-        Assert.ThrowsAny<Exception>(slot.Retire);
+        try
+        {
+            Assert.ThrowsAny<Exception>(slot.Retire);
+        }
+        finally
+        {
+            releasePreparation.SetResult();
+        }
         Assert.Null(await maintenance);
     }
 

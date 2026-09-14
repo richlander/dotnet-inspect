@@ -265,6 +265,50 @@ Platform workspace admits at most 256 realized assemblies and retains at most
 `PlatformWorkspace_RejectsAssemblyCountAboveBrowserBound` gate those host
 contracts.
 
+### Platform demo construction and retained selection
+
+Platform home demos invoke the common `WorkspacePlan` and its exact selected
+context input through `WorkspaceContextLoader`. The loader validates the
+complete input before acquiring through Browser's existing authorized HTTP,
+tracking package store and bounded transfer policy; demo construction does not
+prefetch the packages ahead of that validation. Retained plans remain inert
+data, independent of the live Workspace and Browser cache.
+`PlatformHomeDemo_ProductionValidatesBeforeAcquisition` gates cold-cache
+framework conflicts, invalid RID and malformed exact-version failures through
+the production entry; `PlatformHomeDemo_PreservesPlanTargetFailures` also
+checks that an observed transport receives no requests.
+
+The Catalog activation returns an opaque Browser `platformContextId` alongside
+its source-native focus. The current Browser Workspace retains that selection
+in its existing in-memory snapshots. Member graph reload and drill requests
+send it through the generated CallGraph facade. Scope expansion preserves the
+ID and all members of that demo, without merging ordinary cumulative browsing.
+The ID grants no lease or live Workspace authority and is not serialized into
+portable definitions or share links. Ordinary Workspace construction clears
+the selection and sends no ID, even when its coordinates match a retained demo.
+A new demo at the same exact target replaces the prior selection; cache eviction
+also expires it. A request naming an unavailable selection fails with
+`ContextUnavailable`, never a different demo or the cumulative browsing scope.
+
+`PlatformHomeDemo_ExportRetainsExactContextAcrossReloadAndDrill` gates the
+shipped Extensions scenario, ordinary browsing, another same-target context,
+on-demand drill expansion and expiry. The emitted `System.Object.GetType`
+destination gates expansion from ASP.NET Core into a previously unselected
+runtime family and return to the original demo. A new family uses the existing
+validated acquisition path at the retained target before its realized
+coordinate joins the demo; existing families retain their exact producer.
+Its real managed inputs are pinned from
+`Microsoft.AspNetCore.App.Runtime.linux-x64` and
+`Microsoft.NETCore.App.Runtime.linux-x64` 10.0.10 and staged at the shipped
+scenario's target in the test archive; the test inspects rather than executes
+them on every host. This measured `Speed=Slow` contract remains covered by the
+unfiltered `inspect-web engine tests` pre-merge gate.
+`PlatformCallGraph_ResolvesDefinitionsBehindFacadesWithoutHostProbing`
+gates exported continuation after forwarding expands the selected context.
+The frontend `product-home-demos.test.ts` executes the actual activation,
+reload, drill and reset handoffs; `call-graph-inspection.test.ts` gates
+coordinator forwarding and visible failures through the generated-facade adapter.
+
 Because a scope is reused, nothing here runs the terminal participant-streaming
 forms of `AssemblyContextIntegrationsQuery` or
 `AssemblyContextIntegrationOpportunitiesQuery` ([#3932]): their release is
@@ -2362,12 +2406,10 @@ distinct deployment token, and the non-promotable `inspect-web-coreclr-site`
 artifact. The site is
 interpreter-only while CoreCLR native relinking remains outside the comparison
 scope. Mono staging stays on the repository's .NET 11 Preview 7 SDK. The
-CoreCLR workflow instead installs the exact runtime-main daily cohort
-`12.0.100-alpha.1.26459.112` SDK and
-`12.0.0-alpha.1.26459.112` runtime/workload packs from the `dotnet12` feed.
-The workload package identifies dotnet/dotnet VMR commit
-`7792b064d8573a30d8527944de8184b7e108837e`; the workflow verifies that
-provenance before publication.
+CoreCLR workflow instead installs the exact runtime-main daily cohort from
+`runtime-cohort-pin.json`. The workflow verifies that the SDK, runtime,
+workload packs, and workload package provenance identify the same
+dotnet/dotnet VMR commit before publication.
 That cohort's browser workload still targets `net11.0`; the runtime is .NET 12
 CoreCLR even though the application graph retains its current target framework.
 The workflow enables `runtime-async=on` across this application graph and
