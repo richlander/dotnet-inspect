@@ -107,4 +107,69 @@ public class InstalledPlatformPruneSourceTests
         Assert.Null(result.Inventory);
         Assert.False(string.IsNullOrWhiteSpace(result.Error));
     }
+
+    [Fact]
+    public void MissingOverrideFileProducesAnExactEmptyInventory()
+    {
+        string packsDirectory = CreateRuntimePack();
+        try
+        {
+            InstalledPlatformPruneSource.Result result =
+                InstalledPlatformPruneSource.Read("runtime@99.0.0", packsDirectory);
+
+            Assert.Null(result.Error);
+            PlatformPruneInventory inventory =
+                Assert.IsType<PlatformPruneInventory>(result.Inventory);
+            Assert.Empty(inventory.Entries);
+            Assert.Equal(
+                "Microsoft.NETCore.App",
+                Assert.Single(inventory.Families).Name);
+        }
+        finally
+        {
+            Directory.Delete(packsDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void UnreadableOverridePathFailsWithoutAnInventory()
+    {
+        string packsDirectory = CreateRuntimePack();
+        try
+        {
+            Directory.CreateDirectory(
+                Path.Combine(
+                    packsDirectory,
+                    "Microsoft.NETCore.App.Ref",
+                    "99.0.0",
+                    "data",
+                    "PackageOverrides.txt"));
+
+            InstalledPlatformPruneSource.Result result =
+                InstalledPlatformPruneSource.Read("runtime@99.0.0", packsDirectory);
+
+            Assert.Null(result.Inventory);
+            Assert.Contains("Could not read", result.Error, StringComparison.Ordinal);
+            Assert.Contains("PackageOverrides.txt", result.Error, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(packsDirectory, recursive: true);
+        }
+    }
+
+    private static string CreateRuntimePack()
+    {
+        string packsDirectory =
+            Directory.CreateTempSubdirectory("installed-platform-prune-").FullName;
+        string referenceDirectory = Directory.CreateDirectory(
+            Path.Combine(
+                packsDirectory,
+                "Microsoft.NETCore.App.Ref",
+                "99.0.0",
+                "ref",
+                "net99.0")).FullName;
+        File.WriteAllBytes(Path.Combine(referenceDirectory, "System.Runtime.dll"), []);
+        return packsDirectory;
+    }
 }
