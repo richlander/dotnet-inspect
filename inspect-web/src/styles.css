@@ -1508,6 +1508,22 @@ kbd {
   text-align: center;
 }
 .library-api-diff-empty strong { color: var(--text); font-size: 14px; }
+.library-api-diff-evidence {
+  margin: 14px 18px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--muted);
+  font: 10px/1.6 var(--mono);
+}
+.library-api-diff-evidence summary {
+  color: var(--text);
+  cursor: pointer;
+}
+.library-api-diff-evidence ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
 .library-api-diff-retry { align-self: center; justify-self: center; }
 .library-api-diff-loading {
   align-self: center;
@@ -2498,6 +2514,7 @@ kbd {
   .library-api-diff-status { padding-inline: 12px; }
   .library-api-diff-metrics { padding-inline: 12px; }
   .library-api-diff-types { padding-inline: 12px; }
+  .library-api-diff-evidence { margin-inline: 12px; }
   .library-api-diff-type {
     grid-template-columns: minmax(0, 1fr);
     gap: 6px;

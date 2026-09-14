@@ -369,10 +369,10 @@ class GalleryFixtureRegistry {
     if (!registration) return undefined;
     return {
       items: [{
-        items: registration.versions.map(version => ({
+        items: registration.versions.map(packageVersion => ({
           catalogEntry: {
             id: registration.packageId,
-            version,
+            version: packageVersion,
             listed: true,
           },
         })),

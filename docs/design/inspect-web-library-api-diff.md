@@ -138,8 +138,8 @@ For each endpoint, managed code:
 2. resolves the exact compile asset;
 3. projects `ApiSurfaceScope.Public` with the fixed
    `BrowserApiSurfacePolicy.Limits`; and
-4. passes both projections to `AssemblyContextApiComparisonQuery` and
-   `LibraryApiDiffPresentationAdapter`.
+4. passes both participants to `LibraryApiDiffInspection.Execute`, the shared
+   query-and-presentation terminal.
 
 Before is the target version and After is the current version. Each scope is
 released after the shared comparison and wire projection complete.
@@ -147,16 +147,29 @@ released after the shared comparison and wire projection complete.
 The Browser wire result retains:
 
 - endpoint package, version, framework, exact asset, assembly identity, scope,
-  completeness, and bounded issues;
+  completeness, and bounded issues, including the shared terminal's contained
+  Metadata inspection-failure evidence;
 - aggregate changed-Type, changed-member, and compatibility counts;
 - every producer-ordered changed Type;
 - exact nullable Before and After Type identities; and
 - type-definition and compact compatibility counts.
 
-The wire projection is all-or-nothing. It admits at most 10,000 changed Types
-and a conservative retained Type-text budget below the ordinary Worker's
-8,388,608-character JSON limit. Exceeding either bound produces typed
-`Rejected`; it never returns a truncated successful inventory.
+The wire projection is all-or-nothing. It admits at most 10,000 changed Types,
+a 6,000,000-character retained Type-text budget, the ordinary Worker's exact
+262,144 collection-entry limit, and then source-generates the exact result JSON
+while reserving the Worker's one-element result tuple framing under its
+8,388,608-character limit. Exceeding any bound produces typed `Rejected`; it
+never returns a truncated successful inventory.
+
+A Browser transport rejection omits endpoint evidence from its rejection arm,
+retains the accepted bounded request and exact bound/observation, and is itself
+checked against both Worker limits. Shared presentation rejections continue to
+retain both endpoint summaries.
+
+The shared terminal's Share is `NonProjectable` because Workspace Share does
+not represent ordered comparison endpoints. This Browser slice does not
+manufacture a replayable Share or expose that terminal metadata through its
+request-associated live result.
 
 ## Library presentation
 

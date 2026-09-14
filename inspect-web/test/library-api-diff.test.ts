@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import type {
   BrowserLibraryApiDiffEndpoint,
@@ -12,6 +13,11 @@ import {
   type LibraryApiDiffStateHost,
 } from "../src/library-api-diff.ts";
 import { createOperationAuthorityPage } from "../src/operation-authority.ts";
+
+const appSource = readFileSync(
+  new URL("../src/dotnet-inspect.ts", import.meta.url),
+  "utf8",
+);
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -247,6 +253,85 @@ test("result request mismatches fail at the Browser transport boundary", async (
   assert.equal(diagnostics.length, 1);
 });
 
+test("malformed success is recoverable and cannot enter ready rendering", async () => {
+  const state: LibraryApiDiffStateHost = {
+    libraryApiDiff: { status: "idle" },
+  };
+  let queryCount = 0;
+  const malformed = succeeded("1.0.0");
+  const { value: _omitted, ...withoutValue } = malformed;
+  const coordinator = createLibraryApiDiffCoordinator({
+    state,
+    operationAuthority: createOperationAuthorityPage(),
+    query: () => Promise.resolve(
+      queryCount++ === 0 ? withoutValue : succeeded("1.0.0"),
+    ),
+    cancel: () => undefined,
+    describeError: error => error instanceof Error ? error.message : String(error),
+    reportOperationDiagnostic: () => undefined,
+    render: () => undefined,
+  });
+  const active = selection({});
+
+  coordinator.reconcile(active);
+  await Promise.resolve();
+  assert.equal(state.libraryApiDiff.status, "failed");
+
+  coordinator.retry(active);
+  await Promise.resolve();
+  assert.equal(state.libraryApiDiff.status, "ready");
+});
+
+test("leaving Compare cancels delayed work and suppresses its completion", async () => {
+  const state: LibraryApiDiffStateHost = {
+    libraryApiDiff: { status: "idle" },
+  };
+  const pending = deferred<BrowserLibraryApiDiffResult>();
+  const cancellations: string[] = [];
+  const coordinator = createLibraryApiDiffCoordinator({
+    state,
+    operationAuthority: createOperationAuthorityPage({
+      allocation: { createId: () => "route-operation" },
+    }),
+    query: () => pending.promise,
+    cancel: operationId => {
+      cancellations.push(operationId);
+    },
+    describeError: String,
+    reportOperationDiagnostic: () => undefined,
+    render: () => undefined,
+  });
+
+  coordinator.reconcile(selection({}));
+  coordinator.reconcile(null);
+  assert.deepEqual(cancellations, ["route-operation"]);
+  assert.equal(state.libraryApiDiff.status, "idle");
+
+  pending.resolve(succeeded("1.0.0"));
+  await Promise.resolve();
+  assert.equal(state.libraryApiDiff.status, "idle");
+});
+
+test("application admission closes on every non-Compare route", () => {
+  const selectionSource = appSource.match(
+    /function currentLibraryApiDiffSelection\(\)[\s\S]*?\n}\n\nfunction scopedPlatformLibrary/,
+  )?.[0] ?? "";
+  for (const condition of [
+    "state.home",
+    "state.credits",
+    "state.packageQueryOpen",
+    "isDiagnosticsPath(location.pathname)",
+    "!state.engineReady",
+    "state.loading",
+    "Boolean(state.error)",
+  ]) {
+    assert.ok(
+      selectionSource.includes(condition),
+      `expected Library API Diff admission to reject ${condition}`,
+    );
+  }
+});
+
 test("successful rendering preserves producer order and exact nullable Type identities", () => {
   const html = renderLibraryApiDiff({
     status: "ready",
@@ -305,4 +390,59 @@ test("successful empty results stay distinct from target and endpoint unavailabi
   assert.match(html, /No public API changes/);
   assert.match(html, /Comparison complete/);
   assert.doesNotMatch(html, /unavailable/i);
+});
+
+test("unavailable rendering discloses retained endpoint failure evidence", () => {
+  const result: BrowserLibraryApiDiffResult = {
+    ...succeeded("1.0.0"),
+    kind: "Unavailable",
+    value: null,
+    unavailable: {
+      kind: "TargetIncomplete",
+      target: {
+        ...endpoint("1.0.0"),
+        isComplete: false,
+        issues: [{
+          kind: "InspectionFailures",
+          truncation: null,
+          openFailureKind: null,
+          detail: null,
+          metadataRootReason: null,
+          count: 1,
+          inspectionFailures: [{
+            operation: "generic-constraint",
+            subjectToken: 0x02000001,
+            mechanism: "Signature",
+            kind: "MalformedSignature",
+            detail: "constraint failed",
+            subjectAssembly: endpoint("1.0.0").assembly,
+            dependencyAssembly: {
+              name: "Dependency",
+              version: "2.0.0.0",
+              culture: null,
+              publicKeyToken: null,
+            },
+          }],
+        }],
+      },
+      current: endpoint("2.0.0"),
+    },
+  };
+  const html = renderLibraryApiDiff({
+    status: "ready",
+    input: {
+      packageModel: {},
+      packageId: "Example.Package",
+      currentVersion: "2.0.0",
+      targetVersion: "1.0.0",
+      targetFramework: "net11.0",
+      compileAssetId: "lib/net11.0/Example.dll",
+    },
+    result,
+  }, String);
+
+  assert.match(html, /Target endpoint evidence/);
+  assert.match(html, /generic-constraint at 0x02000001/);
+  assert.match(html, /MalformedSignature/);
+  assert.match(html, /Dependency: Dependency, 2\.0\.0\.0/);
 });

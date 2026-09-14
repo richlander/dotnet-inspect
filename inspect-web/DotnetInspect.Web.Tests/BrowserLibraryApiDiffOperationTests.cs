@@ -6,6 +6,7 @@ using System.Text.Json;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
+using InertText;
 using Inspector.Findings;
 using ILInspector.Metadata;
 using DotnetInspect.Web.Interop.Metadata;
@@ -211,6 +212,67 @@ public sealed class BrowserLibraryApiDiffOperationTests
     }
 
     [Fact]
+    public void InspectionFailureEvidenceSurvivesTheBrowserProjection()
+    {
+        BrowserLibraryApiDiffRequest request = Request("Unavailable.Package");
+        AssemblyReferenceIdentity identity = AssemblyIdentity();
+        var dependency = new AssemblyReferenceIdentity(
+            "Dependency",
+            new Version(2, 0, 0, 0),
+            Culture: null,
+            PublicKeyToken: null);
+        var failures = new LibraryApiDiffEndpointIssue.InspectionFailures(1)
+        {
+            Details =
+            [
+                new LibraryApiDiffInspectionFailure(
+                    new InertString(TextPolicy.Field, "generic-constraint"),
+                    0x02000001,
+                    MetadataTypeNameFailureMechanism.Signature,
+                    new InertString(TextPolicy.Field, "MalformedSignature"),
+                    new InertString(TextPolicy.Field, "constraint failed"),
+                    identity,
+                    dependency),
+            ],
+        };
+        var target = new LibraryApiDiffEndpointSummary(
+            identity,
+            ApiSurfaceScope.Public,
+            IsComplete: false,
+            [failures]);
+        var current = new LibraryApiDiffEndpointSummary(
+            identity,
+            ApiSurfaceScope.Public,
+            IsComplete: true,
+            []);
+
+        BrowserLibraryApiDiffResult result =
+            BrowserLibraryApiDiffWireProjection.Project(
+                request,
+                new LibraryApiDiffPresentationResult.Unavailable(
+                    LibraryApiDiffUnavailableKind.BeforeIncomplete,
+                    target,
+                    current),
+                EndpointContext(TargetVersion),
+                EndpointContext(CurrentVersion));
+
+        BrowserLibraryApiDiffEndpointIssue issue = Assert.Single(
+            result.Unavailable!.Target.Issues);
+        Assert.Equal(1, issue.Count);
+        BrowserLibraryApiDiffInspectionFailure failure = Assert.Single(
+            issue.InspectionFailures!);
+        Assert.Equal("generic-constraint", failure.Operation);
+        Assert.Equal(0x02000001, failure.SubjectToken);
+        Assert.Equal(
+            BrowserLibraryApiDiffInspectionFailureMechanism.Signature,
+            failure.Mechanism);
+        Assert.Equal("MalformedSignature", failure.Kind);
+        Assert.Equal("constraint failed", failure.Detail);
+        Assert.Equal("LibraryApiDiffFixture", failure.SubjectAssembly!.Name);
+        Assert.Equal("Dependency", failure.DependencyAssembly!.Name);
+    }
+
+    [Fact]
     public async Task ExactCompileAssetMismatchFailsWithoutNameFallback()
     {
         await using Fixture fixture = await Fixture.Open();
@@ -307,6 +369,132 @@ public sealed class BrowserLibraryApiDiffOperationTests
         Assert.True(
             evidence.Observed
                 > BrowserLibraryApiDiffWireProjection.MaxTypeTextCharacters);
+    }
+
+    [Fact]
+    public void NestedTypeSegmentsCannotExceedWorkerCollectionAdmission()
+    {
+        BrowserLibraryApiDiffRequest request = Request("Transport.Package");
+        BrowserLibraryApiDiffResult result =
+            BrowserLibraryApiDiffWireProjection.Project(
+                request,
+                Available(
+                    BrowserLibraryApiDiffWireProjection.MaxChangedTypes,
+                    segmentCount: 2),
+                EndpointContext(TargetVersion),
+                EndpointContext(CurrentVersion));
+
+        BrowserLibraryApiDiffRejected evidence =
+            Assert.IsType<BrowserLibraryApiDiffRejected>(result.Rejected);
+        Assert.Equal(
+            BrowserLibraryApiDiffRejectionKind.CollectionEntryLimitExceeded,
+            evidence.Kind);
+        Assert.Equal(
+            BrowserLibraryApiDiffWireProjection
+                .MaxOrdinaryWorkerCollectionEntries,
+            evidence.Bound);
+        Assert.True(
+            evidence.Observed
+                > BrowserLibraryApiDiffWireProjection
+                    .MaxOrdinaryWorkerCollectionEntries);
+        Assert.Null(evidence.Target);
+        Assert.Null(evidence.Current);
+    }
+
+    [Fact]
+    public void EscapedJsonCannotExceedTheOrdinaryWorkerTransport()
+    {
+        BrowserLibraryApiDiffRequest request = Request("Transport.Package");
+        BrowserLibraryApiDiffResult result =
+            BrowserLibraryApiDiffWireProjection.Project(
+                request,
+                Available(1, new string('\u0001', 500_000)),
+                EndpointContext(TargetVersion),
+                EndpointContext(CurrentVersion));
+
+        Assert.Equal(
+            BrowserLibraryApiDiffResultKind.Rejected,
+            result.Kind);
+        BrowserLibraryApiDiffRejected evidence =
+            Assert.IsType<BrowserLibraryApiDiffRejected>(result.Rejected);
+        Assert.Equal(
+            BrowserLibraryApiDiffRejectionKind
+                .SerializedResultLimitExceeded,
+            evidence.Kind);
+        Assert.Equal(
+            BrowserLibraryApiDiffWireProjection
+                .MaxOrdinaryWorkerJsonCharacters,
+            evidence.Bound);
+        Assert.True(
+            evidence.Observed
+                > BrowserLibraryApiDiffWireProjection
+                    .MaxOrdinaryWorkerJsonCharacters);
+        Assert.Null(evidence.Target);
+        Assert.Null(evidence.Current);
+    }
+
+    [Fact]
+    public void OversizedEndpointEvidenceProducesABoundedTransportRejection()
+    {
+        BrowserLibraryApiDiffRequest request = Request("Transport.Package");
+        AssemblyReferenceIdentity identity = AssemblyIdentity();
+        var operation = new InertString(TextPolicy.Field, "constraint");
+        var kind = new InertString(TextPolicy.Field, "MalformedSignature");
+        var detail = new InertString(TextPolicy.Field, "failure");
+        const int failureCount = 30_000;
+        var failures =
+            new LibraryApiDiffEndpointIssue.InspectionFailures(failureCount)
+            {
+                Details =
+                [
+                    .. Enumerable.Range(0, failureCount).Select(index =>
+                        new LibraryApiDiffInspectionFailure(
+                            operation,
+                            0x02000000 + index + 1,
+                            MetadataTypeNameFailureMechanism.Signature,
+                            kind,
+                            detail,
+                            SubjectAssembly: null,
+                            DependencyAssembly: null)),
+                ],
+            };
+        var target = new LibraryApiDiffEndpointSummary(
+            identity,
+            ApiSurfaceScope.Public,
+            IsComplete: false,
+            [failures]);
+        var current = new LibraryApiDiffEndpointSummary(
+            identity,
+            ApiSurfaceScope.Public,
+            IsComplete: true,
+            []);
+
+        BrowserLibraryApiDiffResult result =
+            BrowserLibraryApiDiffWireProjection.Project(
+                request,
+                new LibraryApiDiffPresentationResult.Unavailable(
+                    LibraryApiDiffUnavailableKind.BeforeIncomplete,
+                    target,
+                    current),
+                EndpointContext(TargetVersion),
+                EndpointContext(CurrentVersion));
+
+        BrowserLibraryApiDiffRejected evidence =
+            Assert.IsType<BrowserLibraryApiDiffRejected>(result.Rejected);
+        Assert.Equal(
+            BrowserLibraryApiDiffRejectionKind.CollectionEntryLimitExceeded,
+            evidence.Kind);
+        Assert.Null(evidence.Target);
+        Assert.Null(evidence.Current);
+        string json = JsonSerializer.Serialize(
+            result,
+            BrowserMetadataJsonContext.Default.BrowserLibraryApiDiffResult);
+        Assert.True(
+            json.Length
+                + BrowserLibraryApiDiffWireProjection
+                    .OrdinaryWorkerResultTupleOverhead
+                <= BrowserLibraryApiDiffWireProjection
+                    .MaxOrdinaryWorkerJsonCharacters);
     }
 
     [Fact]
@@ -458,7 +646,8 @@ public sealed class BrowserLibraryApiDiffOperationTests
 
     static LibraryApiDiffPresentationResult.Available Available(
         int typeCount,
-        string? display = null)
+        string? display = null,
+        int segmentCount = 1)
     {
         AssemblyReferenceIdentity identity = AssemblyIdentity();
         var endpoint = new LibraryApiDiffEndpointSummary(
@@ -471,7 +660,8 @@ public sealed class BrowserLibraryApiDiffOperationTests
             .. Enumerable.Range(0, typeCount)
                 .Select(index =>
                 {
-                    MetadataTypeDefinitionName name = TypeName($"Type{index}");
+                    MetadataTypeDefinitionName name =
+                        TypeName($"Type{index}", segmentCount);
                     var typeIdentity = new LibraryApiTypeIdentity(
                         name,
                         display ?? $"Transport.Type{index}");
@@ -513,11 +703,19 @@ public sealed class BrowserLibraryApiDiffOperationTests
             document);
     }
 
-    static MetadataTypeDefinitionName TypeName(string segment) =>
+    static MetadataTypeDefinitionName TypeName(
+        string segment,
+        int segmentCount = 1) =>
         Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
             MetadataTypeDefinitionName.Create(
                 "Transport",
-                [segment])).Name;
+                segmentCount == 1
+                    ? [segment]
+                    :
+                    [
+                        .. Enumerable.Range(0, segmentCount)
+                            .Select(index => $"{segment}_{index}"),
+                    ])).Name;
 
     static BrowserLibraryApiDiffRequest Request(string packageId) =>
         new(

@@ -69,7 +69,7 @@ export interface LibraryApiDiffDependencies {
   query(
     operationId: OperationId,
     requestJson: string,
-  ): Promise<BrowserLibraryApiDiffResult>;
+  ): Promise<unknown>;
   cancel(
     operationId: OperationId,
     reason: OperationCancelReason,
@@ -148,15 +148,285 @@ function requestJson(input: LibraryApiDiffOperationInput): string {
   });
 }
 
-function validateResult(
-  result: BrowserLibraryApiDiffResult,
-  input: LibraryApiDiffOperationInput,
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function requireRecord(
+  value: unknown,
+  description: string,
+): Record<string, unknown> {
+  if (!isRecord(value))
+    throw new Error(`${description} must be an object.`);
+  return value;
+}
+
+function requireString(value: unknown, description: string): void {
+  if (typeof value !== "string")
+    throw new Error(`${description} must be a string.`);
+}
+
+function requireInteger(value: unknown, description: string): void {
+  if (!Number.isSafeInteger(value) || Number(value) < 0)
+    throw new Error(`${description} must be a non-negative integer.`);
+}
+
+function requireNullableString(value: unknown, description: string): void {
+  if (value !== null) requireString(value, description);
+}
+
+function requireNullableInteger(value: unknown, description: string): void {
+  if (value !== null) requireInteger(value, description);
+}
+
+function requireNullableEnum(
+  value: unknown,
+  description: string,
+  values: readonly string[],
 ): void {
-  if (result.schemaVersion !== 1)
+  if (value !== null) requireEnum(value, description, values);
+}
+
+function requireEnum(
+  value: unknown,
+  description: string,
+  values: readonly string[],
+): void {
+  if (typeof value !== "string" || !values.includes(value))
+    throw new Error(`${description} is unsupported.`);
+}
+
+function requireNull(
+  record: Record<string, unknown>,
+  ...properties: string[]
+): void {
+  for (const property of properties) {
+    if (record[property] !== null)
+      throw new Error(`Library API Diff ${property} must be null.`);
+  }
+}
+
+function validateAssembly(value: unknown, description: string): void {
+  const assembly = requireRecord(value, description);
+  requireString(assembly.name, `${description}.name`);
+  requireNullableString(assembly.version, `${description}.version`);
+  requireNullableString(assembly.culture, `${description}.culture`);
+  requireNullableString(
+    assembly.publicKeyToken,
+    `${description}.publicKeyToken`,
+  );
+}
+
+function validateEndpointIssue(value: unknown, description: string): void {
+  const issue = requireRecord(value, description);
+  requireEnum(issue.kind, `${description}.kind`, [
+    "Truncated",
+    "Rejected",
+    "Failed",
+    "InspectionFailures",
+    "DegradedSignatures",
+    "UnexpectedAssemblyPopulation",
+  ]);
+  requireNullableString(issue.detail, `${description}.detail`);
+  requireNullableInteger(issue.count, `${description}.count`);
+  requireNullableEnum(
+    issue.openFailureKind,
+    `${description}.openFailureKind`,
+    [
+      "Unreadable",
+      "InvalidImage",
+      "ResourceBudget",
+      "UnsupportedMetadataFormat",
+    ],
+  );
+  requireNullableEnum(
+    issue.metadataRootReason,
+    `${description}.metadataRootReason`,
+    [
+      "UnmappableMetadataDirectory",
+      "TruncatedFixedPrefix",
+      "InvalidSignature",
+      "InvalidVersionLength",
+      "TruncatedVersionField",
+      "MissingVersionTerminator",
+    ],
+  );
+  if (issue.inspectionFailures !== null) {
+    if (!Array.isArray(issue.inspectionFailures))
+      throw new Error(`${description}.inspectionFailures must be an array.`);
+    for (const [index, entry] of issue.inspectionFailures.entries()) {
+      const failure = requireRecord(
+        entry,
+        `${description}.inspectionFailures[${index}]`,
+      );
+      requireString(failure.operation, `${description}.operation`);
+      requireInteger(failure.subjectToken, `${description}.subjectToken`);
+      requireEnum(failure.mechanism, `${description}.mechanism`, [
+        "Metadata",
+        "Relationship",
+        "Signature",
+        "TypeSpecification",
+      ]);
+      requireString(failure.kind, `${description}.failureKind`);
+      requireString(failure.detail, `${description}.failureDetail`);
+      if (failure.subjectAssembly !== null) {
+        validateAssembly(
+          failure.subjectAssembly,
+          `${description}.subjectAssembly`,
+        );
+      }
+      if (failure.dependencyAssembly !== null) {
+        validateAssembly(
+          failure.dependencyAssembly,
+          `${description}.dependencyAssembly`,
+        );
+      }
+    }
+  }
+  if (issue.truncation !== null) {
+    const truncation = requireRecord(
+      issue.truncation,
+      `${description}.truncation`,
+    );
+    requireEnum(truncation.limit, `${description}.truncation.limit`, [
+      "Participants",
+      "Types",
+      "Members",
+      "InspectionFailures",
+      "TypeForwarders",
+      "MetadataRows",
+      "RetainedTextCharacters",
+    ]);
+    for (const property of [
+      "bound",
+      "projectedParticipants",
+      "omittedParticipants",
+      "projectedTypes",
+      "projectedMembers",
+      "projectedInspectionFailures",
+      "projectedTypeForwarders",
+      "inspectedMetadataRows",
+      "projectedRetainedTextCharacters",
+    ]) {
+      requireInteger(
+        truncation[property],
+        `${description}.truncation.${property}`,
+      );
+    }
+  }
+}
+
+function validateEndpoint(value: unknown, description: string): void {
+  const endpoint = requireRecord(value, description);
+  requireString(endpoint.packageId, `${description}.packageId`);
+  requireString(endpoint.version, `${description}.version`);
+  requireString(endpoint.framework, `${description}.framework`);
+  const asset = requireRecord(endpoint.asset, `${description}.asset`);
+  requireString(asset.id, `${description}.asset.id`);
+  requireString(asset.path, `${description}.asset.path`);
+  requireString(asset.assemblyName, `${description}.asset.assemblyName`);
+  validateAssembly(endpoint.assembly, `${description}.assembly`);
+  requireEnum(endpoint.scope, `${description}.scope`, [
+    "Public",
+    "IncludeAll",
+    "PublicWithNonPublicTypes",
+  ]);
+  if (typeof endpoint.isComplete !== "boolean")
+    throw new Error(`${description}.isComplete must be a boolean.`);
+  if (!Array.isArray(endpoint.issues))
+    throw new Error(`${description}.issues must be an array.`);
+  endpoint.issues.forEach((issue, index) =>
+    validateEndpointIssue(issue, `${description}.issues[${index}]`));
+}
+
+function validateTypeIdentity(value: unknown, description: string): void {
+  const identity = requireRecord(value, description);
+  requireString(identity.identifier, `${description}.identifier`);
+  requireString(identity.namespace, `${description}.namespace`);
+  requireString(identity.display, `${description}.display`);
+  if (!Array.isArray(identity.segments)
+    || !identity.segments.every(segment => typeof segment === "string")) {
+    throw new Error(`${description}.segments must be a string array.`);
+  }
+}
+
+function validateSucceeded(value: unknown): void {
+  const succeeded = requireRecord(value, "Library API Diff success");
+  requireString(
+    succeeded.libraryIdentifier,
+    "Library API Diff success.libraryIdentifier",
+  );
+  requireString(
+    succeeded.libraryDisplay,
+    "Library API Diff success.libraryDisplay",
+  );
+  validateEndpoint(succeeded.target, "Library API Diff success.target");
+  validateEndpoint(succeeded.current, "Library API Diff success.current");
+  const aggregate = requireRecord(
+    succeeded.aggregate,
+    "Library API Diff success.aggregate",
+  );
+  for (const property of [
+    "changedTypeCount",
+    "addedTypeCount",
+    "removedTypeCount",
+    "changedMemberCount",
+    "breakingCount",
+    "additiveCount",
+    "potentiallyBreakingCount",
+  ]) {
+    requireInteger(
+      aggregate[property],
+      `Library API Diff success.aggregate.${property}`,
+    );
+  }
+  if (!Array.isArray(succeeded.types))
+    throw new Error("Library API Diff success.types must be an array.");
+  for (const [index, entry] of succeeded.types.entries()) {
+    const type = requireRecord(
+      entry,
+      `Library API Diff success.types[${index}]`,
+    );
+    requireString(type.documentIdentifier, "Library API Diff Type identifier");
+    requireString(type.display, "Library API Diff Type display");
+    requireEnum(type.state, "Library API Diff Type state", [
+      "Diff",
+      "Addition",
+      "Deletion",
+    ]);
+    if (type.typeDefinitionChanged !== null
+      && typeof type.typeDefinitionChanged !== "boolean") {
+      throw new Error(
+        "Library API Diff Type definition state must be boolean or null.",
+      );
+    }
+    for (const property of [
+      "changedMemberCount",
+      "breakingCount",
+      "additiveCount",
+      "potentiallyBreakingCount",
+    ]) {
+      requireInteger(type[property], `Library API Diff Type ${property}`);
+    }
+    if (type.before !== null)
+      validateTypeIdentity(type.before, "Library API Diff before Type");
+    if (type.after !== null)
+      validateTypeIdentity(type.after, "Library API Diff after Type");
+  }
+}
+
+function validateResult(
+  result: unknown,
+  input: LibraryApiDiffOperationInput,
+): asserts result is BrowserLibraryApiDiffResult {
+  const record = requireRecord(result, "Library API Diff result");
+  if (record.schemaVersion !== 1)
     throw new Error("Unsupported Library API Diff result schema.");
-  const request = result.request;
-  if (request === null
-    || request.schemaVersion !== 1
+  const request = requireRecord(
+    record.request,
+    "Library API Diff result request",
+  );
+  if (request.schemaVersion !== 1
     || request.packageId !== input.packageId
     || request.currentVersion !== input.currentVersion
     || request.targetVersion !== input.targetVersion
@@ -164,29 +434,116 @@ function validateResult(
     || request.compileAssetId !== input.compileAssetId) {
     throw new Error("Library API Diff result does not match its request.");
   }
-  switch (result.kind) {
+  switch (record.kind) {
     case "Succeeded":
-      if (result.value === null)
-        throw new Error("Library API Diff success has no value.");
+      validateSucceeded(record.value);
+      requireNull(
+        record,
+        "unavailable",
+        "rejected",
+        "failureKind",
+        "error",
+        "diagnostic",
+        "reason",
+      );
       return;
     case "Unavailable":
-      if (result.unavailable === null)
-        throw new Error("Library API Diff unavailable result has no evidence.");
+      {
+        const unavailable = requireRecord(
+          record.unavailable,
+          "Library API Diff unavailable evidence",
+        );
+        requireEnum(unavailable.kind, "Library API Diff unavailable kind", [
+          "TargetIncomplete",
+          "CurrentIncomplete",
+          "BothIncomplete",
+        ]);
+        validateEndpoint(
+          unavailable.target,
+          "Library API Diff unavailable target",
+        );
+        validateEndpoint(
+          unavailable.current,
+          "Library API Diff unavailable current",
+        );
+      }
+      requireNull(
+        record,
+        "value",
+        "rejected",
+        "failureKind",
+        "error",
+        "diagnostic",
+        "reason",
+      );
       return;
     case "Rejected":
-      if (result.rejected === null)
-        throw new Error("Library API Diff rejection has no evidence.");
+      {
+        const rejected = requireRecord(
+          record.rejected,
+          "Library API Diff rejection",
+        );
+        requireEnum(rejected.kind, "Library API Diff rejection kind", [
+          "LogicalLibraryMismatch",
+          "FindingComparisonFailed",
+          "CompatibilityInspectionFailed",
+          "MissingExactTypeIdentity",
+          "MissingMemberAnchor",
+          "DuplicateExactTypeIdentity",
+          "UnassociatedStructuredSubject",
+          "ContradictoryOccupiedSideTopology",
+          "ChangedTypeCountLimitExceeded",
+          "TypeTextLimitExceeded",
+          "CollectionEntryLimitExceeded",
+          "SerializedResultLimitExceeded",
+        ]);
+        if (rejected.target !== null)
+          validateEndpoint(rejected.target, "Library API Diff rejected target");
+        if (rejected.current !== null) {
+          validateEndpoint(
+            rejected.current,
+            "Library API Diff rejected current",
+          );
+        }
+        requireNullableInteger(
+          rejected.bound,
+          "Library API Diff rejection bound",
+        );
+        requireNullableInteger(
+          rejected.observed,
+          "Library API Diff rejection observation",
+        );
+      }
+      requireNull(
+        record,
+        "value",
+        "unavailable",
+        "failureKind",
+        "error",
+        "diagnostic",
+        "reason",
+      );
       return;
     case "Failed":
-      if (result.failureKind === null
-        || typeof result.error !== "string"
-        || typeof result.diagnostic !== "string") {
-        throw new Error("Library API Diff failure has no diagnostic.");
-      }
+      requireEnum(record.failureKind, "Library API Diff failure kind", [
+        "Expected",
+        "Unexpected",
+      ]);
+      requireString(record.error, "Library API Diff failure error");
+      requireString(record.diagnostic, "Library API Diff failure diagnostic");
+      requireNull(record, "value", "unavailable", "rejected", "reason");
       return;
     case "Canceled":
-      if (typeof result.reason !== "string")
-        throw new Error("Library API Diff cancellation has no reason.");
+      requireString(record.reason, "Library API Diff cancellation reason");
+      requireNull(
+        record,
+        "value",
+        "unavailable",
+        "rejected",
+        "failureKind",
+        "error",
+        "diagnostic",
+      );
       return;
     default:
       throw new Error("Unknown Library API Diff result kind.");
@@ -274,7 +631,7 @@ export function createLibraryApiDiffCoordinator(
         sink.reportUnexpectedTerminal(error, error);
         return quiesce();
       };
-      const finish = (result: BrowserLibraryApiDiffResult): undefined => {
+      const finish = (result: unknown): undefined => {
         try {
           validateResult(result, input);
           sink.reportTerminal({ kind: "succeeded", value: result });
@@ -294,7 +651,7 @@ export function createLibraryApiDiffCoordinator(
             return undefined;
           },
           activate: () => {
-            let query: Promise<BrowserLibraryApiDiffResult>;
+            let query: Promise<unknown>;
             try {
               query = dependencies.query(identity.id, requestJson(input));
             } catch (error: unknown) {
@@ -394,10 +751,62 @@ function compactCount(value: number, label: string): string {
   return value === 0 ? "" : `${value.toLocaleString()} ${label}`;
 }
 
-function endpointIssues(endpoint: BrowserLibraryApiDiffEndpoint): string {
-  return endpoint.issues
-    .map(issue => issue.detail ?? String(issue.kind))
-    .join(" ");
+function assemblyText(
+  assembly: BrowserLibraryApiDiffEndpoint["assembly"] | null,
+): string {
+  if (assembly === null) return "";
+  return assembly.version === null
+    ? assembly.name
+    : `${assembly.name}, ${assembly.version}`;
+}
+
+function endpointIssues(endpoint: BrowserLibraryApiDiffEndpoint): string[] {
+  return endpoint.issues.flatMap(issue => {
+    if (issue.kind === "InspectionFailures") {
+      const details = issue.inspectionFailures ?? [];
+      if (details.length === 0) {
+        return [
+          `${issue.count?.toLocaleString() ?? "Unknown"} Metadata inspection failures.`,
+        ];
+      }
+      return details.map(failure => {
+        const dependency = assemblyText(failure.dependencyAssembly);
+        return `${failure.operation} at 0x${failure.subjectToken.toString(16)
+          .toUpperCase().padStart(8, "0")} (${String(failure.mechanism)}/${
+          failure.kind
+        }): ${failure.detail}${dependency === ""
+          ? ""
+          : ` Dependency: ${dependency}.`}`;
+      });
+    }
+    if (issue.kind === "Truncated" && issue.truncation !== null) {
+      return [
+        `Projection stopped at ${String(issue.truncation.limit)} bound ${
+          issue.truncation.bound.toLocaleString()
+        }; ${issue.truncation.projectedTypes.toLocaleString()} Types and ${
+          issue.truncation.projectedMembers.toLocaleString()
+        } members were retained.`,
+      ];
+    }
+    if (issue.detail !== null)
+      return [`${String(issue.kind)}: ${issue.detail}`];
+    if (issue.count !== null)
+      return [`${issue.count.toLocaleString()} ${String(issue.kind)}.`];
+    return [String(issue.kind)];
+  });
+}
+
+function endpointEvidence(
+  endpoint: BrowserLibraryApiDiffEndpoint,
+  label: string,
+  escapeHtml: (value: unknown) => string,
+): string {
+  const issues = endpointIssues(endpoint);
+  if (issues.length === 0) return "";
+  return `<details class="library-api-diff-evidence">
+    <summary>${escapeHtml(label)} endpoint evidence</summary>
+    <ul>${issues.map(issue => `<li>${escapeHtml(issue)}</li>`).join("")}</ul>
+  </details>`;
 }
 
 function typeMetrics(type: BrowserLibraryApiDiffType): string {
@@ -534,16 +943,15 @@ export function renderLibraryApiDiff(
       const unavailable = result.unavailable;
       if (unavailable === null)
         throw new Error("Library API Diff unavailable result has no evidence.");
-      const detail = [
-        endpointIssues(unavailable.target),
-        endpointIssues(unavailable.current),
-      ].filter(Boolean).join(" ");
+      const evidence = [
+        endpointEvidence(unavailable.target, "Target", escapeHtml),
+        endpointEvidence(unavailable.current, "Current", escapeHtml),
+      ].join("");
       return renderFrame(
         input,
         `Comparison unavailable: ${String(unavailable.kind)}.`,
-        `<div class="library-api-diff-empty">${escapeHtml(
-          detail || "One or both API surfaces are incomplete.",
-        )}</div>`,
+        evidence
+          || '<div class="library-api-diff-empty">One or both API surfaces are incomplete.</div>',
         escapeHtml,
       );
     }

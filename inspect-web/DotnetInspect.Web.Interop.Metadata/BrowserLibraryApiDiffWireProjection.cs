@@ -1,4 +1,5 @@
 using System.Runtime.Versioning;
+using System.Text.Json;
 using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using Inspector.Findings;
@@ -21,17 +22,21 @@ internal sealed record BrowserLibraryApiDiffEndpointContext(
 /// <remarks>
 /// The Browser API-surface owner admits at most 100,000 Types and 32,000,000
 /// retained text characters per endpoint. This narrower wire boundary admits
-/// at most 10,000 changed Types and 8,000,000 characters across the repeated
-/// document, display, and structured endpoint Type identities. Both limits
-/// leave headroom for JSON framing and other worker state. Admission examines
-/// the complete producer-ordered inventory before allocating rows; an excess
-/// rejects the whole result and never truncates it.
+/// at most 10,000 changed Types and 6,000,000 characters across the repeated
+/// document, display, and structured endpoint Type identities. It then
+/// checks the exact collection-entry population, source-generates the exact
+/// result JSON, and reserves the one-element tuple framing used by the ordinary
+/// Worker. Admission examines the complete producer-ordered inventory before
+/// publication; an excess rejects the whole result and never truncates it.
 /// </remarks>
 [SupportedOSPlatform("browser")]
 internal static class BrowserLibraryApiDiffWireProjection
 {
     internal const int MaxChangedTypes = 10_000;
-    internal const int MaxTypeTextCharacters = 8_000_000;
+    internal const int MaxTypeTextCharacters = 6_000_000;
+    internal const int MaxOrdinaryWorkerJsonCharacters = 8_388_608;
+    internal const int MaxOrdinaryWorkerCollectionEntries = 262_144;
+    internal const int OrdinaryWorkerResultTupleOverhead = 2;
 
     internal static BrowserLibraryApiDiffResult Project(
         BrowserLibraryApiDiffRequest request,
@@ -44,7 +49,7 @@ internal static class BrowserLibraryApiDiffWireProjection
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(current);
 
-        return result switch
+        BrowserLibraryApiDiffResult projected = result switch
         {
             LibraryApiDiffPresentationResult.Available available =>
                 ProjectAvailable(request, available, target, current),
@@ -72,6 +77,7 @@ internal static class BrowserLibraryApiDiffWireProjection
             _ => throw new InvalidOperationException(
                 "Unknown Library API diff presentation result."),
         };
+        return AdmitTransport(request, projected);
     }
 
     static BrowserLibraryApiDiffResult ProjectAvailable(
@@ -138,6 +144,133 @@ internal static class BrowserLibraryApiDiffWireProjection
             Diagnostic: null,
             Reason: null);
     }
+
+    static BrowserLibraryApiDiffResult AdmitTransport(
+        BrowserLibraryApiDiffRequest request,
+        BrowserLibraryApiDiffResult result)
+    {
+        long collectionEntries = CollectionEntries(result);
+        if (collectionEntries > MaxOrdinaryWorkerCollectionEntries)
+        {
+            return TransportRejected(
+                request,
+                BrowserLibraryApiDiffRejectionKind
+                    .CollectionEntryLimitExceeded,
+                MaxOrdinaryWorkerCollectionEntries,
+                collectionEntries);
+        }
+
+        int serializedCharacters = JsonSerializer.Serialize(
+            result,
+            BrowserMetadataJsonContext.Default.BrowserLibraryApiDiffResult)
+            .Length;
+        long transportedCharacters =
+            (long)serializedCharacters + OrdinaryWorkerResultTupleOverhead;
+        if (transportedCharacters <= MaxOrdinaryWorkerJsonCharacters)
+        {
+            return result;
+        }
+
+        return TransportRejected(
+            request,
+            BrowserLibraryApiDiffRejectionKind.SerializedResultLimitExceeded,
+            MaxOrdinaryWorkerJsonCharacters,
+            transportedCharacters);
+    }
+
+    static BrowserLibraryApiDiffResult TransportRejected(
+        BrowserLibraryApiDiffRequest request,
+        BrowserLibraryApiDiffRejectionKind kind,
+        long bound,
+        long observed)
+    {
+        var result = new BrowserLibraryApiDiffResult(
+            1,
+            request,
+            BrowserLibraryApiDiffResultKind.Rejected,
+            Value: null,
+            Unavailable: null,
+            new BrowserLibraryApiDiffRejected(
+                kind,
+                Target: null,
+                Current: null,
+                bound,
+                observed),
+            FailureKind: null,
+            Error: null,
+            Diagnostic: null,
+            Reason: null);
+        int serializedCharacters = JsonSerializer.Serialize(
+            result,
+            BrowserMetadataJsonContext.Default.BrowserLibraryApiDiffResult)
+            .Length;
+        if (CollectionEntries(result) > MaxOrdinaryWorkerCollectionEntries
+            || (long)serializedCharacters + OrdinaryWorkerResultTupleOverhead
+                > MaxOrdinaryWorkerJsonCharacters)
+        {
+            throw new InvalidOperationException(
+                "The bounded Library API diff transport rejection exceeds "
+                    + "the ordinary Worker admission limits.");
+        }
+        return result;
+    }
+
+    static long CollectionEntries(BrowserLibraryApiDiffResult result) =>
+        OrdinaryWorkerResultTupleOverhead
+        + 12
+        + (result.Request is null ? 0 : 7)
+        + (result.Value is null ? 0 : CollectionEntries(result.Value))
+        + (result.Unavailable is null
+            ? 0
+            : CollectionEntries(result.Unavailable))
+        + (result.Rejected is null ? 0 : CollectionEntries(result.Rejected));
+
+    static long CollectionEntries(BrowserLibraryApiDiffSucceeded value) =>
+        7
+        + CollectionEntries(value.Target)
+        + CollectionEntries(value.Current)
+        + 8
+        + value.Types.Length + 1
+        + value.Types.Sum(CollectionEntries);
+
+    static long CollectionEntries(BrowserLibraryApiDiffUnavailable value) =>
+        4
+        + CollectionEntries(value.Target)
+        + CollectionEntries(value.Current);
+
+    static long CollectionEntries(BrowserLibraryApiDiffRejected value) =>
+        6
+        + (value.Target is null ? 0 : CollectionEntries(value.Target))
+        + (value.Current is null ? 0 : CollectionEntries(value.Current));
+
+    static long CollectionEntries(BrowserLibraryApiDiffEndpoint endpoint) =>
+        9
+        + 4
+        + 5
+        + endpoint.Issues.Length + 1
+        + endpoint.Issues.Sum(CollectionEntries);
+
+    static long CollectionEntries(BrowserLibraryApiDiffEndpointIssue issue) =>
+        8
+        + (issue.Truncation is null ? 0 : 11)
+        + (issue.InspectionFailures is null
+            ? 0
+            : issue.InspectionFailures.Length + 1
+                + issue.InspectionFailures.Sum(CollectionEntries));
+
+    static long CollectionEntries(
+        BrowserLibraryApiDiffInspectionFailure failure) =>
+        8
+        + (failure.SubjectAssembly is null ? 0 : 5)
+        + (failure.DependencyAssembly is null ? 0 : 5);
+
+    static long CollectionEntries(BrowserLibraryApiDiffType type) =>
+        11
+        + (type.Before is null ? 0 : CollectionEntries(type.Before))
+        + (type.After is null ? 0 : CollectionEntries(type.After));
+
+    static long CollectionEntries(BrowserLibraryApiDiffTypeIdentity identity) =>
+        6 + identity.Segments.Length;
 
     static BrowserLibraryApiDiffResult Rejected(
         BrowserLibraryApiDiffRequest request,
@@ -210,7 +343,11 @@ internal static class BrowserLibraryApiDiffWireProjection
             LibraryApiDiffEndpointIssue.InspectionFailures failures =>
                 new(
                     BrowserLibraryApiDiffEndpointIssueKind.InspectionFailures,
-                    Count: failures.Count),
+                    Count: failures.Count,
+                    InspectionFailures:
+                    [
+                        .. failures.Details.Select(Project),
+                    ]),
             LibraryApiDiffEndpointIssue.DegradedSignatures degraded =>
                 new(
                     BrowserLibraryApiDiffEndpointIssueKind.DegradedSignatures,
@@ -223,6 +360,32 @@ internal static class BrowserLibraryApiDiffWireProjection
             _ => throw new InvalidOperationException(
                 "Unknown Library API diff endpoint issue."),
         };
+
+    static BrowserLibraryApiDiffInspectionFailure Project(
+        LibraryApiDiffInspectionFailure failure) =>
+        new(
+            failure.Operation.ToString(),
+            failure.SubjectToken,
+            failure.Mechanism switch
+            {
+                MetadataTypeNameFailureMechanism.Metadata =>
+                    BrowserLibraryApiDiffInspectionFailureMechanism.Metadata,
+                MetadataTypeNameFailureMechanism.Relationship =>
+                    BrowserLibraryApiDiffInspectionFailureMechanism.Relationship,
+                MetadataTypeNameFailureMechanism.Signature =>
+                    BrowserLibraryApiDiffInspectionFailureMechanism.Signature,
+                MetadataTypeNameFailureMechanism.TypeSpecification =>
+                    BrowserLibraryApiDiffInspectionFailureMechanism.TypeSpecification,
+                _ => throw new ArgumentOutOfRangeException(nameof(failure)),
+            },
+            failure.Kind.ToString(),
+            failure.Detail.ToString(),
+            failure.SubjectAssembly is null
+                ? null
+                : Project(failure.SubjectAssembly),
+            failure.DependencyAssembly is null
+                ? null
+                : Project(failure.DependencyAssembly));
 
     static BrowserLibraryApiDiffProjectionTruncation Project(
         ApiSurfaceProjectionTruncation truncation) =>

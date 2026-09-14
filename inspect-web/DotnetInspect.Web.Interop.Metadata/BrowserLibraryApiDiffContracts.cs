@@ -37,8 +37,8 @@ public sealed record BrowserLibraryApiDiffUnavailable(
 
 public sealed record BrowserLibraryApiDiffRejected(
     BrowserLibraryApiDiffRejectionKind Kind,
-    BrowserLibraryApiDiffEndpoint Target,
-    BrowserLibraryApiDiffEndpoint Current,
+    BrowserLibraryApiDiffEndpoint? Target,
+    BrowserLibraryApiDiffEndpoint? Current,
     long? Bound,
     long? Observed);
 
@@ -69,7 +69,17 @@ public sealed record BrowserLibraryApiDiffEndpointIssue(
     BrowserLibraryApiDiffOpenFailureKind? OpenFailureKind = null,
     string? Detail = null,
     BrowserLibraryApiDiffMetadataRootMalformedReason? MetadataRootReason = null,
-    int? Count = null);
+    int? Count = null,
+    BrowserLibraryApiDiffInspectionFailure[]? InspectionFailures = null);
+
+public sealed record BrowserLibraryApiDiffInspectionFailure(
+    string Operation,
+    int SubjectToken,
+    BrowserLibraryApiDiffInspectionFailureMechanism Mechanism,
+    string Kind,
+    string Detail,
+    BrowserLibraryApiDiffAssemblyIdentity? SubjectAssembly,
+    BrowserLibraryApiDiffAssemblyIdentity? DependencyAssembly);
 
 public sealed record BrowserLibraryApiDiffProjectionTruncation(
     BrowserLibraryApiDiffProjectionLimit Limit,
@@ -160,6 +170,8 @@ public enum BrowserLibraryApiDiffRejectionKind
     ContradictoryOccupiedSideTopology,
     ChangedTypeCountLimitExceeded,
     TypeTextLimitExceeded,
+    CollectionEntryLimitExceeded,
+    SerializedResultLimitExceeded,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserLibraryApiDiffTypeState>))]
@@ -187,6 +199,17 @@ public enum BrowserLibraryApiDiffEndpointIssueKind
     InspectionFailures,
     DegradedSignatures,
     UnexpectedAssemblyPopulation,
+}
+
+[JsonConverter(
+    typeof(JsonStringEnumConverter<
+        BrowserLibraryApiDiffInspectionFailureMechanism>))]
+public enum BrowserLibraryApiDiffInspectionFailureMechanism
+{
+    Metadata,
+    Relationship,
+    Signature,
+    TypeSpecification,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserLibraryApiDiffProjectionLimit>))]

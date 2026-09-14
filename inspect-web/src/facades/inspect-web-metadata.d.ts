@@ -2,10 +2,11 @@ export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMa
 export type BrowserLibraryApiDiffCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
 export type BrowserLibraryApiDiffEndpointIssueKind = "Truncated" | "Rejected" | "Failed" | "InspectionFailures" | "DegradedSignatures" | "UnexpectedAssemblyPopulation" | number;
 export type BrowserLibraryApiDiffFailureKind = "Expected" | "Unexpected" | number;
+export type BrowserLibraryApiDiffInspectionFailureMechanism = "Metadata" | "Relationship" | "Signature" | "TypeSpecification" | number;
 export type BrowserLibraryApiDiffMetadataRootMalformedReason = "UnmappableMetadataDirectory" | "TruncatedFixedPrefix" | "InvalidSignature" | "InvalidVersionLength" | "TruncatedVersionField" | "MissingVersionTerminator" | number;
 export type BrowserLibraryApiDiffOpenFailureKind = "Unreadable" | "InvalidImage" | "ResourceBudget" | "UnsupportedMetadataFormat" | number;
 export type BrowserLibraryApiDiffProjectionLimit = "Participants" | "Types" | "Members" | "InspectionFailures" | "TypeForwarders" | "MetadataRows" | "RetainedTextCharacters" | number;
-export type BrowserLibraryApiDiffRejectionKind = "LogicalLibraryMismatch" | "FindingComparisonFailed" | "CompatibilityInspectionFailed" | "MissingExactTypeIdentity" | "MissingMemberAnchor" | "DuplicateExactTypeIdentity" | "UnassociatedStructuredSubject" | "ContradictoryOccupiedSideTopology" | "ChangedTypeCountLimitExceeded" | "TypeTextLimitExceeded" | number;
+export type BrowserLibraryApiDiffRejectionKind = "LogicalLibraryMismatch" | "FindingComparisonFailed" | "CompatibilityInspectionFailed" | "MissingExactTypeIdentity" | "MissingMemberAnchor" | "DuplicateExactTypeIdentity" | "UnassociatedStructuredSubject" | "ContradictoryOccupiedSideTopology" | "ChangedTypeCountLimitExceeded" | "TypeTextLimitExceeded" | "CollectionEntryLimitExceeded" | "SerializedResultLimitExceeded" | number;
 export type BrowserLibraryApiDiffResultKind = "Succeeded" | "Unavailable" | "Rejected" | "Failed" | "Canceled" | number;
 export type BrowserLibraryApiDiffSurfaceScope = "Public" | "IncludeAll" | "PublicWithNonPublicTypes" | number;
 export type BrowserLibraryApiDiffTypeState = "Diff" | "Addition" | "Deletion" | number;
@@ -129,6 +130,16 @@ export interface BrowserLibraryApiDiffEndpointIssue {
     readonly detail: string | null;
     readonly metadataRootReason: BrowserLibraryApiDiffMetadataRootMalformedReason | null;
     readonly count: number | null;
+    readonly inspectionFailures: ReadonlyArray<BrowserLibraryApiDiffInspectionFailure> | null;
+}
+export interface BrowserLibraryApiDiffInspectionFailure {
+    readonly operation: string;
+    readonly subjectToken: number;
+    readonly mechanism: BrowserLibraryApiDiffInspectionFailureMechanism;
+    readonly kind: string;
+    readonly detail: string;
+    readonly subjectAssembly: BrowserLibraryApiDiffAssemblyIdentity | null;
+    readonly dependencyAssembly: BrowserLibraryApiDiffAssemblyIdentity | null;
 }
 export interface BrowserLibraryApiDiffProjectionTruncation {
     readonly limit: BrowserLibraryApiDiffProjectionLimit;
@@ -144,8 +155,8 @@ export interface BrowserLibraryApiDiffProjectionTruncation {
 }
 export interface BrowserLibraryApiDiffRejected {
     readonly kind: BrowserLibraryApiDiffRejectionKind;
-    readonly target: BrowserLibraryApiDiffEndpoint;
-    readonly current: BrowserLibraryApiDiffEndpoint;
+    readonly target: BrowserLibraryApiDiffEndpoint | null;
+    readonly current: BrowserLibraryApiDiffEndpoint | null;
     readonly bound: number | null;
     readonly observed: number | null;
 }

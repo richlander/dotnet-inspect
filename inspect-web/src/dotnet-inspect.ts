@@ -4010,6 +4010,13 @@ function currentLibraryApiDiffSelection(): LibraryApiDiffSelection | null {
   const library = selectedLibrary();
   if (!pkg
     || !library
+    || state.home
+    || state.credits
+    || state.packageQueryOpen
+    || isDiagnosticsPath(location.pathname)
+    || !state.engineReady
+    || state.loading
+    || Boolean(state.error)
     || pkg.source.kind !== "nuget.org"
     || pkg.isRuntimePack
     || !state.atLibraryRoot

@@ -4,6 +4,7 @@ using System.Text.Json;
 using DotnetInspector.Packages;
 using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspect.Web;
 using NuGet.Versioning;
 
@@ -12,6 +13,8 @@ namespace DotnetInspect.Web.Interop.Metadata;
 [SupportedOSPlatform("browser")]
 public static partial class MetadataExports
 {
+    const int MaxLibraryApiDiffRequestFieldCharacters = 4_096;
+
     static readonly BrowserManagedOperationBridge LibraryApiDiffOperations =
         new();
 
@@ -45,13 +48,15 @@ public static partial class MetadataExports
                 {
                     try
                     {
-                        request = JsonSerializer.Deserialize(
-                                requestJson,
-                                BrowserMetadataJsonContext.Default
-                                    .BrowserLibraryApiDiffRequest)
+                        BrowserLibraryApiDiffRequest parsedRequest =
+                            JsonSerializer.Deserialize(
+                                    requestJson,
+                                    BrowserMetadataJsonContext.Default
+                                        .BrowserLibraryApiDiffRequest)
                             ?? throw new ArgumentException(
                                 "A Library API diff request is required.");
-                        ValidateLibraryApiDiffRequest(request);
+                        ValidateLibraryApiDiffRequest(parsedRequest);
+                        request = parsedRequest;
                         return new BrowserManagedOperationBodyResult<
                             BrowserLibraryApiDiffResult,
                             string,
@@ -191,14 +196,14 @@ public static partial class MetadataExports
             currentScope.SurfaceParticipant(currentCoordinate, currentAsset);
 
         cancellationToken.ThrowIfCancellationRequested();
-        AssemblyContextApiComparisonResult comparison =
+        InspectionEnvelope<LibraryApiDiffPresentationResult> inspection =
             targetScope.UseSurfaceParticipant(
                 targetParticipant,
                 (targetGroup, target) =>
                     currentScope.UseSurfaceParticipant(
                         currentParticipant,
                         (currentGroup, current) =>
-                            AssemblyContextApiComparisonQuery.Execute(
+                            LibraryApiDiffInspection.Execute(
                                 targetGroup,
                                 target,
                                 currentGroup,
@@ -209,7 +214,7 @@ public static partial class MetadataExports
 
         return BrowserLibraryApiDiffWireProjection.Project(
             request,
-            LibraryApiDiffPresentationAdapter.Create(comparison),
+            inspection.Content,
             Context(targetParticipant),
             Context(currentParticipant));
     }
@@ -256,6 +261,19 @@ public static partial class MetadataExports
         ArgumentException.ThrowIfNullOrWhiteSpace(request.PackageId);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.TargetFramework);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.CompileAssetId);
+        RequireBoundedRequestField(request.PackageId, nameof(request.PackageId));
+        RequireBoundedRequestField(
+            request.CurrentVersion,
+            nameof(request.CurrentVersion));
+        RequireBoundedRequestField(
+            request.TargetVersion,
+            nameof(request.TargetVersion));
+        RequireBoundedRequestField(
+            request.TargetFramework,
+            nameof(request.TargetFramework));
+        RequireBoundedRequestField(
+            request.CompileAssetId,
+            nameof(request.CompileAssetId));
         _ = BrowserFrameworkText.Require(request.TargetFramework);
         if (!NuGetVersion.TryParse(request.CurrentVersion, out _)
             || !NuGetVersion.TryParse(request.TargetVersion, out _))
@@ -263,6 +281,17 @@ public static partial class MetadataExports
             throw new ArgumentException(
                 "Library API diff requires exact current and target package versions.",
                 nameof(request));
+        }
+    }
+
+    static void RequireBoundedRequestField(string value, string parameterName)
+    {
+        if (value.Length > MaxLibraryApiDiffRequestFieldCharacters)
+        {
+            throw new ArgumentOutOfRangeException(
+                parameterName,
+                $"Library API diff request fields are limited to "
+                    + $"{MaxLibraryApiDiffRequestFieldCharacters} characters.");
         }
     }
 
