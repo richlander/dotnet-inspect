@@ -34,24 +34,10 @@ public sealed class NavigationDetachmentTests
     }
 
     [Fact]
-    public async Task ArtifactBackedStateTicketsAndExactResults_DoNotRetainAcquisitionAuthority()
+    public void ArtifactBackedStateTicketsAndExactResults_DoNotRetainAcquisitionAuthority()
     {
-        ArtifactSpecimen specimen = await CreateArtifactSpecimenAsync();
-        WeakReference[] resources =
-        [
-            specimen.Registration,
-            specimen.Artifact,
-            specimen.Error,
-        ];
-        for (int attempt = 0;
-             attempt < 10 && resources.Any(resource => resource.IsAlive);
-             attempt++)
-        {
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
-            GC.Collect();
-            await Task.Yield();
-        }
+        ArtifactSpecimen specimen = CreateArtifactSpecimen();
+        Collect();
 
         Assert.False(specimen.Registration.IsAlive);
         Assert.False(specimen.Artifact.IsAlive);
@@ -121,6 +107,11 @@ public sealed class NavigationDetachmentTests
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
+    static ArtifactSpecimen CreateArtifactSpecimen()
+        // Keep the completed async operation and its state machine outside the
+        // lifetime examined by the weak references.
+        => Task.Run(CreateArtifactSpecimenAsync).GetAwaiter().GetResult();
+
     static async Task<ArtifactSpecimen> CreateArtifactSpecimenAsync()
     {
         byte[] image = await File.ReadAllBytesAsync(
@@ -192,6 +183,13 @@ public sealed class NavigationDetachmentTests
                 }
             }, cancellationToken: TestContext.Current.CancellationToken);
         return Assert.IsType<ArtifactRootResult<ArtifactSpecimen>.Available>(result).Value;
+    }
+
+    static void Collect()
+    {
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
     }
 
     sealed record ArtifactSpecimen(
