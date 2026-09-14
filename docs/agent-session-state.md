@@ -129,9 +129,9 @@ Update both window-scoped options whenever state changes:
 
 ```sh
 tmux set -w -t "${TMUX_PANE:?}" @agent \
-  "theme agent-session-clarity; round 6 on PR 4405, waiting on CI"
+  "theme agent-session-clarity; round 6, candidate 9, 11 findings on PR 4405"
 tmux set -w -t "${TMUX_PANE:?}" @agent_state \
-  "theme=agent-session-clarity pr=4405 head=595e5d4b round=6 reviews=0/1 blocked=4597,4611 rec=wait"
+  "theme=agent-session-clarity pr=4405 head=595e5d4b round=6 candidates=9 usable=6 findings=11 reviews=0/1 blocked=4597,4611 rec=wait"
 
 # Clear when this window no longer owns the PR.
 tmux set -w -t "${TMUX_PANE:?}" -u @agent
@@ -147,10 +147,13 @@ fi` does not match it, because the command being judged is now the compound.
 That difference has stalled real work.
 
 The state must include `theme`, `head`, and either `pr` or, before a PR exists,
-`issue`; add `round`, `reviews`, `blocked`, `waiting`, and `rec` when
-applicable. Values contain no spaces. `rec` is `continue`, `wait`, `merge`,
-`split`, `approve`, or `stop`. Clear both options when the window no longer
-owns the work.
+`issue`; add `round`, cumulative pushed-candidate (`candidates`), usable-review
+(`usable`), and accepted-finding (`findings`) counts, current-round `reviews`,
+plus `blocked`, `waiting`, and `rec` when applicable. Values contain no spaces.
+`rec` is `continue`, `wait`, `merge`, `split`, `approve`, or `stop`. Clear both
+options when the window no longer owns the work.
+`findings` counts accepted review occurrences as defined in
+[The round report](round-orchestration.md#the-round-report).
 
 ### `blocked` vs. `waiting`
 
