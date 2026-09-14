@@ -18,6 +18,7 @@ namespace ILInspector.Decompiler.Tests;
 /// row halving the quality landed green. <see cref="Ratchet_CatchesTheRegressionTheCardTestsMissed"/>
 /// is that exact row, and it must fail here.
 /// </summary>
+[Trait("Speed", "Slow")]
 [Trait("Area", "Corpus")]
 public class AuthoredCorpusRatchetTests
 {

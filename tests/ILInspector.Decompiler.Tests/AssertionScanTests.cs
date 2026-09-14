@@ -210,6 +210,7 @@ public class AssertionScanTests
     ];
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void InverseLedger_ClassifiesEveryAnnotatedNode()
     {
         foreach (var row in InverseLedger.Rows(typeof(IrFunction).Assembly))
@@ -226,6 +227,7 @@ public class AssertionScanTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void FixtureGuarantee_HasMappingForEveryAnnotatedNode()
     {
         var annotatedNodes = InverseLedger.Rows(typeof(IrFunction).Assembly)

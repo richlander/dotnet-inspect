@@ -30,8 +30,8 @@ public enum PlatformSourceUnavailabilityKind
 
 /// <summary>
 /// One resource-free source contribution bound to the exact House request.
-/// Source-owner results remain live outside the receipt and are joined by
-/// owner-issued identities.
+/// Source-owner results remain live beside the receipt and are paired with
+/// the exact contribution by the source adapter result.
 /// </summary>
 public abstract class PlatformSourceContribution
 {
@@ -41,8 +41,7 @@ public abstract class PlatformSourceContribution
         PlatformSourceCapabilityIdentity capability,
         PlatformHouseRequestSnapshot request,
         PlatformSourceGeneration generation,
-        PlatformFamilyTarget? exactTarget,
-        PlatformSourceEvidenceIdentity evidence)
+        PlatformFamilyTarget? exactTarget)
     {
         if (!Enum.IsDefined(kind))
             throw new ArgumentOutOfRangeException(nameof(kind));
@@ -51,7 +50,6 @@ public abstract class PlatformSourceContribution
         ArgumentNullException.ThrowIfNull(capability);
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(generation);
-        ArgumentNullException.ThrowIfNull(evidence);
         if (facet == PlatformSourceFacet.TargetDiscovery)
         {
             if (request.Target is not PlatformTargetDemand.Selecting)
@@ -82,7 +80,6 @@ public abstract class PlatformSourceContribution
         Request = request;
         Generation = generation;
         ExactTarget = exactTarget;
-        Evidence = evidence;
     }
 
     public PlatformSourceContributionKind Kind { get; }
@@ -92,7 +89,6 @@ public abstract class PlatformSourceContribution
     public PlatformTargetDemand RequestedTarget => Request.Target;
     public PlatformSourceGeneration Generation { get; }
     public PlatformFamilyTarget? ExactTarget { get; }
-    public PlatformSourceEvidenceIdentity Evidence { get; }
 
     internal virtual IReadOnlyList<PlatformFamilyTarget> DiscoveredCandidates =>
         Array.Empty<PlatformFamilyTarget>();
@@ -106,16 +102,14 @@ public abstract class PlatformSourceContribution
             PlatformSourceCapabilityIdentity capability,
             PlatformHouseRequestSnapshot request,
             PlatformSourceGeneration generation,
-            IEnumerable<PlatformFamilyTarget> candidates,
-            PlatformSourceEvidenceIdentity evidence)
+            IEnumerable<PlatformFamilyTarget> candidates)
             : base(
                 PlatformSourceContributionKind.TargetDiscovery,
                 PlatformSourceFacet.TargetDiscovery,
                 capability,
                 request,
                 generation,
-                exactTarget: null,
-                evidence)
+                exactTarget: null)
         {
             ArgumentNullException.ThrowIfNull(candidates);
             var selecting = (PlatformTargetDemand.Selecting)request.Target;
@@ -155,18 +149,15 @@ public abstract class PlatformSourceContribution
             PlatformSourceGeneration generation,
             PlatformFamilyTarget target,
             PlatformSourceCoordinateIdentity coordinate,
-            PlatformTargetCorrespondenceIdentity correspondence,
             PlatformPopulationDemand suppliedPopulation,
-            PlatformSourceContributionCompleteness completeness,
-            PlatformSourceEvidenceIdentity evidence)
+            PlatformSourceContributionCompleteness completeness)
             : base(
                 PlatformSourceContributionKind.Realization,
                 facet,
                 capability,
                 request,
                 generation,
-                target,
-                evidence)
+                target)
         {
             if (facet is not PlatformSourceFacet.Reference
                 and not PlatformSourceFacet.Implementation)
@@ -175,22 +166,17 @@ public abstract class PlatformSourceContribution
                     "A realization contribution must use a reference or implementation facet.",
                     nameof(facet));
             }
-
             ArgumentNullException.ThrowIfNull(coordinate);
-            ArgumentNullException.ThrowIfNull(correspondence);
             ArgumentNullException.ThrowIfNull(suppliedPopulation);
             if (!Enum.IsDefined(completeness))
                 throw new ArgumentOutOfRangeException(nameof(completeness));
-
             Coordinate = coordinate;
-            Correspondence = correspondence;
             Population = suppliedPopulation;
             RealizationCompleteness = completeness;
         }
 
         public PlatformFamilyTarget Target => ExactTarget!;
         public PlatformSourceCoordinateIdentity Coordinate { get; }
-        public PlatformTargetCorrespondenceIdentity Correspondence { get; }
         public PlatformViewDemand View =>
             Facet == PlatformSourceFacet.Reference
                 ? PlatformViewDemand.Reference
@@ -215,16 +201,14 @@ public abstract class PlatformSourceContribution
             PlatformSourceCapabilityIdentity capability,
             PlatformHouseRequestSnapshot request,
             PlatformSourceGeneration generation,
-            PlatformFamilyTarget target,
-            PlatformSourceEvidenceIdentity evidence)
+            PlatformFamilyTarget target)
             : base(
                 PlatformSourceContributionKind.Documentation,
                 facet,
                 capability,
                 request,
                 generation,
-                target,
-                evidence)
+                target)
         {
             if (facet is not PlatformSourceFacet.CompiledXml
                 and not PlatformSourceFacet.SourceDerivedDocumentation)
@@ -246,16 +230,14 @@ public abstract class PlatformSourceContribution
             PlatformHouseRequestSnapshot request,
             PlatformSourceGeneration generation,
             PlatformFamilyTarget? exactTarget,
-            PlatformSourceUnavailabilityKind reason,
-            PlatformSourceEvidenceIdentity evidence)
+            PlatformSourceUnavailabilityKind reason)
             : base(
                 PlatformSourceContributionKind.Unavailable,
                 facet,
                 capability,
                 request,
                 generation,
-                exactTarget,
-                evidence)
+                exactTarget)
         {
             if (!Enum.IsDefined(reason))
                 throw new ArgumentOutOfRangeException(nameof(reason));
@@ -272,16 +254,14 @@ public abstract class PlatformSourceContribution
             PlatformSourceCapabilityIdentity capability,
             PlatformHouseRequestSnapshot request,
             PlatformSourceGeneration generation,
-            PlatformFamilyTarget? exactTarget,
-            PlatformSourceEvidenceIdentity evidence)
+            PlatformFamilyTarget? exactTarget)
             : base(
                 PlatformSourceContributionKind.Rejected,
                 facet,
                 capability,
                 request,
                 generation,
-                exactTarget,
-                evidence)
+                exactTarget)
         {
         }
     }
@@ -293,16 +273,14 @@ public abstract class PlatformSourceContribution
             PlatformSourceCapabilityIdentity capability,
             PlatformHouseRequestSnapshot request,
             PlatformSourceGeneration generation,
-            PlatformFamilyTarget? exactTarget,
-            PlatformSourceEvidenceIdentity evidence)
+            PlatformFamilyTarget? exactTarget)
             : base(
                 PlatformSourceContributionKind.Failed,
                 facet,
                 capability,
                 request,
                 generation,
-                exactTarget,
-                evidence)
+                exactTarget)
         {
         }
     }
@@ -314,16 +292,14 @@ public abstract class PlatformSourceContribution
             PlatformSourceCapabilityIdentity capability,
             PlatformHouseRequestSnapshot request,
             PlatformSourceGeneration generation,
-            PlatformFamilyTarget? exactTarget,
-            PlatformSourceEvidenceIdentity evidence)
+            PlatformFamilyTarget? exactTarget)
             : base(
                 PlatformSourceContributionKind.Incomplete,
                 facet,
                 capability,
                 request,
                 generation,
-                exactTarget,
-                evidence)
+                exactTarget)
         {
         }
     }

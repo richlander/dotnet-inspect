@@ -27,6 +27,7 @@ public class LadderRung3GateTests
     ];
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Rung3Fixture_ExposesExactMemberSet_AllFullAndFullyRaised()
     {
         var members = LoadRaisedMembers();
@@ -88,6 +89,7 @@ public class LadderRung3GateTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Rung3Fixture_HasNoMalformedOrSemanticDefects()
     {
         var results = ValidityCheck.Evaluate(FixturePath)
