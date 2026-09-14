@@ -10,6 +10,7 @@ import {
   createRuntimeCohortReceipt,
   parseRuntimeVariantReceipt,
   runtimeCohortVariantNames,
+  validateRuntimePinAdvancementCohort,
   validateRuntimeVariantPublicationEvidence,
 } from "./runtime-cohort-model.ts";
 
@@ -91,11 +92,19 @@ if (command === "record") {
     readText(argumentAfter(arguments_, "--trend")),
   );
   writeJson(argumentAfter(arguments_, "--output"), receipt);
+} else if (command === "validate-advancement") {
+  validateRuntimePinAdvancementCohort(
+    readText(argumentAfter(arguments_, "--cohort")),
+    argumentAfter(arguments_, "--source-commit"),
+  );
+  console.log("Runtime cohort is admissible for pin advancement.");
 } else {
   throw new Error(
     "Usage: record-runtime-cohort.ts record "
       + "--source-commit <sha> --evidence-root <directory> --output <file>\n"
       + "   or: record-runtime-cohort.ts benchmark "
-      + "--cohort <file> --report <file> --trend <file> --output <file>",
+      + "--cohort <file> --report <file> --trend <file> --output <file>\n"
+      + "   or: record-runtime-cohort.ts validate-advancement "
+      + "--cohort <file> --source-commit <sha>",
   );
 }

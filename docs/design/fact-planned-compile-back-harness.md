@@ -945,10 +945,14 @@ which must remain zero. An available result is `Exact`,
 
 `rts-parity` remains a separate transition mode whose population is deliberately
 selected from legacy-useful results. It continues to guard known regressions but
-cannot satisfy independent cutover coverage. `rts-cutover` is opt-in and belongs
-in the on-demand Deep Inspect census lane; this slice does not change ordinary
-defaults, regenerate the primary baseline, make RTS primary, or retire legacy
-reconstruction.
+cannot satisfy independent cutover coverage. Historically, the first
+`rts-cutover` slice was opt-in and belonged only in the on-demand Deep Inspect
+census lane; it did not change ordinary defaults, regenerate the primary
+baseline, make RTS primary, or retire legacy reconstruction. The current corpus
+contract instead makes `rts-cutover` the general default and runs the
+baseline-gated real-world sensor in the daily and manually dispatched census
+lane. Standalone fidelity, explicitly pinned legacy corpus consumers, and
+legacy reconstruction remain separate #6199 migration and retirement work.
 
 The Release gates
 `DeterministicReturnToSenderCutoverTargets_SelectsExactCapBeforeEitherOracle`,

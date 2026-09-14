@@ -162,7 +162,7 @@ static class Program
         bool qualityDiffCard = false;
         bool qualityCardRisky = false;
         var corpusFidelityCaps = new List<int>();
-        var corpusFidelityOracle = CorpusFidelityOracle.CompileBack;
+        var corpusFidelityOracle = CorpusSensor.DefaultFidelityOracle;
         var corpusProfile = CorpusProfile.RealWorld;
         int corpusMethodCap = int.MaxValue;
         bool json = false;
@@ -2709,14 +2709,18 @@ static class Program
                                 warnings and targeted-example guidance for risky
                                 raise/structuring PRs.
           --corpus-fidelity-cap <n>      with corpus baseline modes: cap methods
-                                        (repeat or use comma-separated values to compare multiple caps)
-                                checked per assembly by the expensive compile-back
-                                fidelity oracle (default 0, not run).
+                                checked per assembly by the selected expensive
+                                fidelity oracle (default 0, not run). Default
+                                rts-cutover accepts one distinct positive cap;
+                                other oracles accept repeated/comma-separated
+                                values for coverage series.
           --corpus-fidelity-oracle <name>
-                                with corpus baseline modes: select compile-back
-                                (default), rts-parity (aliases: return-to-sender,
-                                rts), or rts-cutover (aliases:
+                                with corpus baseline modes: select rts-cutover
+                                (default; aliases:
                                 return-to-sender-cutover, native-rts).
+                                Use compile-back for the legacy oracle, or
+                                rts-parity (aliases: return-to-sender, rts) for
+                                the legacy-selected transition population.
                                 Parity evaluates the compile-back-selected
                                 population; cutover independently hash-selects
                                 targets, runs native RTS without its compile-back
