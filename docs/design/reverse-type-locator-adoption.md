@@ -9,9 +9,11 @@ the Find handoff portion of
 [Reverse Type-Declaration Locator](reverse-type-declaration-locator.md) owns
 the new query contract. This map owns no participating component's internals.
 
-The current slice is design-only. Existing Find, Type, Member, Platform routing,
-and Spotlight behavior remain supported as before. No design-only row or
-mockup is advertised as implemented.
+Metadata inventories and the Workspace's explicit-context population projection
+are implemented prerequisites. Existing Find, Type, Member, Platform routing,
+and Spotlight behavior remain supported as before. The cold locator, resident
+facade, and host adoption are still pending; no design-only row or mockup is
+advertised as implemented.
 
 ## Counted production path
 
@@ -28,7 +30,7 @@ inside the Workspace owner.
 | 1 | [#6852](https://github.com/richlander/dotnet-inspect/issues/6852), Reverse Type-Declaration Locator: this contract and map. | Design review only; not product support. |
 | 2 | [#6847](https://github.com/richlander/dotnet-inspect/issues/6847), Source Selection: settle exact Library coordinates for local assemblies and project outputs in its coordinate owner. | Project and Local arms preserve source domain without paths, generations, or pseudo-Package/Platform provenance. |
 | 3 | [#6848](https://github.com/richlander/dotnet-inspect/issues/6848), Metadata: [borrowed declaration inventories](type-forwarding-resolution.md#detached-declaration-inventory) through `AssemblyInspectionSession.TypeDeclarations()`. | Implemented Metadata prerequisite: detached structured names, kinds, public/all views, and whole-inventory rejection; not yet locator or host adoption. |
-| 4 | [#6845](https://github.com/richlander/dotnet-inspect/issues/6845), [Workspace Live Locator](workspace-live-locator.md): project exact population receipts and detached context, then adopt lazy resident inventories and append-only maintenance. | Coherent first-use observation, reuse without rescanning healthy entries, receipt-pinned vectors and owner-governed close; design landing alone does not complete this step. |
+| 4 | [#6845](https://github.com/richlander/dotnet-inspect/issues/6845), [Workspace Live Locator](workspace-live-locator.md): [explicit-context population projection](workspace-live-locator.md#implemented-explicit-context-projection) is implemented for the existing context loader; global observation and the resident facade remain pending. | Coherent first-use observation, reuse without rescanning healthy entries, receipt-pinned vectors and owner-governed close; the projection slice does not complete this step. |
 | 5 | [#6849](https://github.com/richlander/dotnet-inspect/issues/6849), Queries: implement the cold reverse locator over those inputs. | Always a vector of coordinate-plus-origin candidates, deterministic outcomes and Release gates; no private cache or implicit selection. |
 | 6 | [#6846](https://github.com/richlander/dotnet-inspect/issues/6846), Sections: adopt the locator result's row unit and structured multi-format projection. | Each row retains one candidate's origin and observation context with mandatory coverage/failure disclosure. |
 | 7 | [#6844](https://github.com/richlander/dotnet-inspect/issues/6844), CLI Find: use the live facade in a short-lived Workspace; Type and Member consume the selected observation through ordinary exact-coordinate paths. | Runnable locate-once workflow, deliberate fallback/limit migration and routing parity evidence; update shipped skills only now. |
