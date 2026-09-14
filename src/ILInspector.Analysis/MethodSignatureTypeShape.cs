@@ -616,8 +616,7 @@ internal static class MethodSignatureTypeShape
         && (signature.Header.RawValue & ReservedSignatureFlag) == 0
         && ((signature.Header.RawValue & ExplicitThisSignatureFlag) == 0
             || (signature.Header.RawValue & HasThisSignatureFlag) != 0)
-        && (!signature.Header.IsGeneric
-            || signature.GenericParameterCount > 0);
+        && !signature.Header.IsGeneric;
 
     static bool AllowsGenericParameter(
         MethodSignatureTypePosition position,

@@ -901,6 +901,11 @@ public sealed class DirectCallDefinitionResolutionTests
             { "explicit-this", [0x60, 0x00, 0x01], true },
             { "reserved-bit", [0x80, 0x00, 0x01], false },
             { "zero-arity-generic", [0x10, 0x00, 0x00, 0x01], false },
+            {
+                "nonzero-arity-generic",
+                [0x10, 0x01, 0x01, 0x01, 0x08],
+                false
+            },
         };
 
     [Theory]
