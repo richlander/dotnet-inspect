@@ -173,9 +173,9 @@ contracts. The target claim is:
 Issue [#6802](https://github.com/richlander/dotnet-inspect/issues/6802) specifies
 this distinction. The registration and context-bearing profiles below and
 Definitions lowering into the common plan are implemented. CLI Platform-demo
-adoption is implemented by #6836; Browser adoption remains **unverified and not
-implemented**, following the counted plan below. This is not a second JSON
-format or a requirement that every in-process plan have a portable representation.
+adoption is implemented under #6836 by #6837, and Browser/Wasm Platform-demo
+adoption is implemented under #6855. This is not a second JSON format or a
+requirement that every in-process plan have a portable representation.
 
 ##### Implemented registration profile
 
@@ -362,11 +362,11 @@ claiming the corresponding property. The planned gates are:
 | Incompatible target declarations or an unsupported subscription remain explicit failures, not a successful partial composition or a silently selected context. | `InspectionDefinitionTests.ResolveScenario_DefersTargetValidationToPlanInvocation` and `Registry_RejectsSubscribeAndFilesystemCoordinates_AndCrossKindPeers`; **implemented by #6750**. |
 | Raw and definition-authored construction do not receive implicit Ecosystems curation; explicit catalog plans retain their authored registrations. | Definitions' raw plan is gated by `InspectionDefinitionTests.ResolveScenario_LowersSupportedContextsIntoReusableWorkspacePlan`; CLI plan parity and raw registrations are gated by `ExecuteScenario_StjDefinitionAndProgrammaticPlanReturnSameMethods`. Explicit catalog plans retain the existing `EcosystemWorkspaceConstructionTests` and public-consumer gates. Browser adoption is gated by `PlatformHomeDemo_DefinitionAndProgrammaticPlansReturnSameMethods`. |
 
-Definitions lowering is implemented by #6750, the CLI Platform-demo adoption by
-PR #6836, and the Browser/Wasm Platform-demo adoption under #6855. Both hosts
-construct independent live Workspaces from the same resource-free plan and
-selected context input; neither transfers live realization identity or
-authority. The wire owner's grammar/version decisions, floating selection,
+Definitions lowering is implemented by #6750, the CLI Platform-demo adoption
+under #6836 by #6837, and the Browser/Wasm Platform-demo adoption under #6855.
+Both hosts construct independent live Workspaces from the same resource-free
+plan and selected context input; neither transfers live realization identity
+or authority. The wire owner's grammar/version decisions, floating selection,
 group subscription implementation and restoration coordinator remain separate
 efforts. This subplan introduces no new rendering domain or format lowering;
 CLI Markout output and Browser presentation continue to consume their existing
