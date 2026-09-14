@@ -25,6 +25,7 @@
     <InternalsVisibleTo Include="TsJsExport.MultiFacade.Alpha" />
     <InternalsVisibleTo Include="TsJsExport.MultiFacade.Beta" />
     <AdditionalFiles Include="..\DotnetInspect.Web\BannedSymbols.txt" />
+    <ProjectReference Include="..\..\src\DotnetInspector.Ecosystems\DotnetInspector.Ecosystems.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.PackageQueries\DotnetInspector.PackageQueries.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
