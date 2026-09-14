@@ -328,6 +328,72 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task AcquireSelected_RangeAddressBuildMetadataRetainsInputFailure()
+    {
+        const string Id = "Selected.RangeBuildMetadata";
+        string source = Path.Combine(_root, "range-build-metadata");
+        WriteLocalPackage(
+            source,
+            Id,
+            "range version",
+            version: "1.0.0");
+        await using var composition = LocalComposition();
+
+        ConfiguredPackagePayloadResult result =
+            await composition.AcquireSelectedAsync(
+                Id,
+                "1.0.0..2.0.0",
+                (_, _) => new InMemoryPackageStore(),
+                new NuGetSourceOptions { Sources = [source] },
+                rangeAddress: "1.0.0+build",
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.Null(result.Payload);
+        Assert.Null(result.Authority);
+        PackageAuthorityFailure failure =
+            Assert.Single(result.Failures);
+        Assert.Equal(
+            PackageAuthorityFailureKind.Input,
+            failure.Kind);
+        Assert.Contains(
+            "without build metadata",
+            failure.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AcquireSelected_EmptyRangeRetainsEndpointInputFailure()
+    {
+        const string Id = "Selected.EmptyRange";
+        string source = Path.Combine(_root, "empty-range");
+        Directory.CreateDirectory(source);
+        await using var composition = LocalComposition();
+
+        ConfiguredPackagePayloadResult result =
+            await composition.AcquireSelectedAsync(
+                Id,
+                "1.0.0..2.0.0",
+                (_, _) => new InMemoryPackageStore(),
+                new NuGetSourceOptions { Sources = [source] },
+                rangeAddress: "first",
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.Null(result.Payload);
+        Assert.Null(result.Authority);
+        PackageAuthorityFailure failure =
+            Assert.Single(result.Failures);
+        Assert.Equal(
+            PackageAuthorityFailureKind.Input,
+            failure.Kind);
+        Assert.Contains(
+            "does not contain range endpoint 1.0.0",
+            failure.Message,
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("1.0.0..bad", "first")]
     [InlineData("1.0.0..2.0.0", null)]

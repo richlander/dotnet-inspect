@@ -1046,6 +1046,43 @@ public sealed class PackageHouseExecutionTests
     }
 
     [Fact]
+    public async Task CandidateManifestExpiredOperationReturnsTypedTimeout()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior([Version]));
+        PackageAcquisitionCandidate candidate =
+            ResolveCandidate(environment);
+        using PackageSourceOperationLease operation =
+            environment.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken,
+                requestTimeout: TimeSpan.FromSeconds(1),
+                operationTimeout: TimeSpan.FromTicks(1));
+        await Task.Delay(
+            TimeSpan.FromMilliseconds(20),
+            TestContext.Current.CancellationToken);
+
+        ConfiguredPackageManifestResult result =
+            await PackageHouse.AcquireCandidateManifestAsync(
+                candidate,
+                operation);
+
+        Assert.Null(result.Manifest);
+        Assert.Null(result.Authority);
+        PackageAuthorityFailure failure =
+            Assert.Single(result.Failures);
+        Assert.Equal(
+            PackageAuthorityFailureKind.Timeout,
+            failure.Kind);
+        Assert.Equal(
+            PackageSourceTimeoutKind.Operation,
+            failure.Timeout?.Kind);
+        Assert.Equal(
+            TimeSpan.FromTicks(1),
+            failure.Timeout?.Duration);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
     public async Task CandidateDemandCannotBypassHouseAuthorization()
     {
         await using HouseEnvironment environment = HouseEnvironment.Create(

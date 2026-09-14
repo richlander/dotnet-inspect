@@ -313,24 +313,32 @@ public sealed partial class DesktopPackageSourceComposition
                 return false;
             }
 
-            PackageVersionRangeSelection address =
-                rangeAddress!.Equals(
-                    "first",
-                    StringComparison.OrdinalIgnoreCase)
-                    ? new PackageVersionRangeSelection.First()
-                    : rangeAddress.Equals(
-                        "last",
+            PackageVersionRangeSelection address;
+            try
+            {
+                address =
+                    rangeAddress!.Equals(
+                        "first",
                         StringComparison.OrdinalIgnoreCase)
-                        ? new PackageVersionRangeSelection.Last()
-                        : rangeAddress[0] == '#'
-                            ? new PackageVersionRangeSelection.Ordinal(
-                                int.Parse(
-                                    rangeAddress.AsSpan(1),
-                                    System.Globalization
-                                        .CultureInfo.InvariantCulture))
-                            : new PackageVersionRangeSelection.Exact(
-                                NuGetVersion.Parse(rangeAddress)
-                                    .ToNormalizedString());
+                        ? new PackageVersionRangeSelection.First()
+                        : rangeAddress.Equals(
+                            "last",
+                            StringComparison.OrdinalIgnoreCase)
+                            ? new PackageVersionRangeSelection.Last()
+                            : rangeAddress[0] == '#'
+                                ? new PackageVersionRangeSelection.Ordinal(
+                                    int.Parse(
+                                        rangeAddress.AsSpan(1),
+                                        System.Globalization
+                                            .CultureInfo.InvariantCulture))
+                                : new PackageVersionRangeSelection.Exact(
+                                    rangeAddress);
+            }
+            catch (ArgumentException exception)
+            {
+                failure = InvalidSelection(exception.Message);
+                return false;
+            }
             selection = new PackageVersionSelectionRequest.Range(
                 range,
                 address,
@@ -411,27 +419,28 @@ public sealed partial class DesktopPackageSourceComposition
                         PackageVersionSelectionRequest.Range range,
                 }
             && result.Decision?.VersionResolution
-                is PackageVersionResolutionReceipt.NoMatch noMatch)
+                is PackageVersionResolutionReceipt.NoMatch
+                    or PackageVersionResolutionReceipt.NotFound)
         {
             failures.Add(
-                ProjectRangeNoMatchFailure(
+                ProjectRangeSelectionFailure(
                     range,
-                    noMatch));
+                    result.Decision.VersionResolution));
         }
 
         return failures;
     }
 
-    private static PackageAuthorityFailure ProjectRangeNoMatchFailure(
+    private static PackageAuthorityFailure ProjectRangeSelectionFailure(
         PackageVersionSelectionRequest.Range range,
-        PackageVersionResolutionReceipt.NoMatch noMatch)
+        PackageVersionResolutionReceipt resolution)
     {
         string message;
         try
         {
             PackageVersionVector vector = PackageVersionVector.Create(
                 range.VersionRange,
-                noMatch.Discovery.Versions,
+                resolution.Discovery.Versions,
                 range.Discovery.IncludePrerelease);
             string address = range.Selection switch
             {
@@ -448,7 +457,15 @@ public sealed partial class DesktopPackageSourceComposition
                     address,
                     out _,
                     out string? error)
-                ? noMatch.Reason.ToString()
+                ? resolution switch
+                {
+                    PackageVersionResolutionReceipt.NoMatch noMatch =>
+                        noMatch.Reason.ToString(),
+                    PackageVersionResolutionReceipt.NotFound notFound =>
+                        notFound.Reason.ToString(),
+                    _ => throw new ArgumentOutOfRangeException(
+                        nameof(resolution)),
+                }
                 : error!;
         }
         catch (ArgumentException exception)
