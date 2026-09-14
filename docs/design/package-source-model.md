@@ -1074,9 +1074,30 @@ Host-supplied independently authorized sources remain distinct unless their
 policy owner has already selected and collapsed aliases with equivalent
 authority keys and policy.
 
+One authorization observation retains both its ordered authorities and every
+typed configuration failure encountered while selecting them. Healthy
+authorities and failures may coexist; a denial is present only when no
+authority remains and policy has a specific reason. Pinned candidate and
+version-discovery settlement carry those failures forward rather than
+reconstructing them after the operation.
+
+`DesktopPackageSourceComposition.AuthorizeSourcesFor` is the desktop
+registration projection of the same result. It resolves sources through the
+partial-failure path, registers each usable source with the composition, and
+returns those exact `ConfiguredPackageAuthority` objects. Reconstructing an
+equal-looking authority from `PackageSource` is not equivalent: it has another
+opaque association and cannot address the composition's registered client.
+The returned observation is resource-free and captures no settlement lease,
+client, callback, or operation context. It therefore does not prolong the
+desktop composition's lifetime or preserve a registration that later policy
+replaces.
+
 The Release gates
 `ConfiguredAuthority_QueryDistinctSameProducerSourcesRemainDistinct`,
 `PackageSourceAuthorization_QueryDistinctAuthoritiesHaveExactAssociations`,
+`SourcePolicyAuthorization_RetainsHealthyPeerAndConfigurationFailure`,
+`AuthorizationObservation_RetainsRegisteredAuthorityAndPartialFailure`,
+`AuthorizationFailuresFlowThroughPinnedAndVersionDiscovery`,
 `PackageSourceAuthorization_CredentialPathAuthoritiesHaveNoPersistentKey`,
 `PackageSourceAuthorization_HttpAuthorityWithoutStableIdHasNoPersistentKey`,
 `SourceClassification_PlainDirectoryNeverConstructsHttpTransport`,
