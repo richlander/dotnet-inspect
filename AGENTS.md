@@ -328,11 +328,11 @@ Tests are xUnit executables. **Use `dotnet run`, not `dotnet test`**;
 `dotnet test` silently executes no tests here. Always use Release because
 compiler-generated IL shapes differ in Debug.
 
-Tag a test `[Trait("Speed", "Slow")]` when its cost comes from exhaustive or
-whole-assembly analysis rather than ordinary unit-test setup, so it runs only
-in nightly Deep Inspect, not the PR-blocking fast leg. See
-[Classifying test cost](docs/testing-cost-classification.md) for the
-threshold, placement convention, and existing consumers.
+Classify every new or materially expanded test as PR-fast or
+`[Trait("Speed", "Slow")]`. Tag exhaustive or whole-assembly tests slow;
+otherwise measure suspected slow tests in isolation. Exclude slow tests from
+PR CI only when daily Deep Inspect or a focused pre-merge gate owns them. See
+[Classifying test cost](docs/testing-cost-classification.md) for details.
 
 | Area | Command |
 | --- | --- |
