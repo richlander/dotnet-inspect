@@ -135,7 +135,7 @@ jobs:
           fi
           jq -e '
             type == "object"
-            and .schemaVersion == 5
+            and .schemaVersion == 6
             and .status == "planned"
           ' <<< "$plan" > /dev/null
           printf 'plan=%s\n' "$plan" >> "$GITHUB_OUTPUT"

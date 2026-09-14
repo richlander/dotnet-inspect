@@ -123,9 +123,12 @@ library has one module namespace.
 List contract-defining configurations in
 `eng/tla-expected-exit-codes.txt`. The per-PR gate requires each listed
 configuration to produce its exact TLC semantic exit code; a different
-coherent verdict and a timeout both fail. Changing the manifest checks every
-model directory it names, and malformed, duplicate, stale, non-canonical, or
-unsupported entries fail before TLA Tools run. Keep this manifest sparse:
+coherent verdict and a timeout both fail. The
+[CI change planner](design/ci-change-plan.md#changed-path-evidence) scopes a
+manifest change to directories whose mappings were added, removed, or changed.
+Comments and record ordering select no model execution. Malformed, duplicate,
+stale, non-canonical, or unsupported entries anywhere in the current manifest
+still fail before TLA Tools run. Keep this manifest sparse:
 unlisted legacy configurations continue to accept any recognized coherent TLC
 verdict, and an unlisted timeout remains explicitly unverified rather than
 failing an unrelated PR.
@@ -141,7 +144,7 @@ state.
 
 The per-PR TLA+ gate checks each model directory whose `.tla` or `.cfg` files
 change in that candidate, plus direct and transitive consumers and model
-directories named by a changed exact-outcome manifest. Other
+directories selected by changed exact-outcome mappings. Other
 gate-infrastructure changes run structural gate tests but do not check
 unchanged model content. The gate does not sweep unrelated committed models.
 Run `eng/run-tla-checks.sh --all` only for an explicit repository-wide local
