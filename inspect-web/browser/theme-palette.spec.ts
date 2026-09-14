@@ -11,6 +11,7 @@ const paletteRoles = [
   "--shell-accent",
   "--shell-accent-fill",
   "--shell-accent-soft",
+  "--finding-allocation",
   "--graph-target-fill",
   "--graph-target-stroke",
   "--graph-target-text",
@@ -71,6 +72,7 @@ test("shared theme roles use the modern .NET and C# palette", async ({
       "--shell-accent": "#b9aaee",
       "--shell-accent-fill": "#512bd4",
       "--shell-accent-soft": "#2b2054",
+      "--finding-allocation": "#e5663f",
       "--graph-target-fill": "#311a7f",
       "--graph-target-stroke": "#b9aaee",
       "--graph-target-text": "#f0edf7",
@@ -88,6 +90,7 @@ test("shared theme roles use the modern .NET and C# palette", async ({
       "--shell-accent": "#512bd4",
       "--shell-accent-fill": "#512bd4",
       "--shell-accent-soft": "#eeeafb",
+      "--finding-allocation": "#b74728",
       "--graph-target-fill": "#eeeafb",
       "--graph-target-stroke": "#512bd4",
       "--graph-target-text": "#211a32",
@@ -143,16 +146,26 @@ test("Annotated Source uses shared roles for persistent selection", async ({
       '.annotated-coordinate-toggle[aria-pressed="true"]',
     ].join(","),
   );
+  const allocationFinding = page.locator(
+    ".annotated-inspector-action.category-allocation",
+  );
+  const costFinding = page.locator(
+    ".annotated-inspector-action.category-cost",
+  ).first();
   expect(await selected.count()).toBeGreaterThan(0);
   expect(await pressedControls.count()).toBeGreaterThan(0);
 
   const expected = {
     dark: {
       accent: "rgb(185, 170, 238)",
+      allocation: "rgb(229, 102, 63)",
+      cost: "rgb(213, 173, 92)",
       selectedSurface: "rgb(43, 32, 84)",
     },
     light: {
       accent: "rgb(81, 43, 212)",
+      allocation: "rgb(183, 71, 40)",
+      cost: "rgb(138, 101, 13)",
       selectedSurface: "rgb(238, 234, 251)",
     },
   };
@@ -175,13 +188,35 @@ test("Annotated Source uses shared roles for persistent selection", async ({
       await expect(control).toHaveCSS("border-color", expected[theme].accent);
       await expect(control).toHaveCSS("color", expected[theme].accent);
     }
+    await expect(allocationFinding).toHaveCSS(
+      "border-left-color",
+      expected[theme].allocation,
+    );
+    await expect(costFinding).toHaveCSS(
+      "border-left-color",
+      expected[theme].cost,
+    );
   }
 });
 
 test("ordinary keyboard focus uses the shared accent", async ({ page }) => {
   const expected = {
-    dark: "rgb(185, 170, 238)",
-    light: "rgb(81, 43, 212)",
+    dark: {
+      accent: "rgb(185, 170, 238)",
+      background: "rgb(29, 23, 48)",
+      border: "rgb(81, 67, 111)",
+      hoverBorder: "rgb(130, 122, 146)",
+      muted: "rgb(170, 162, 187)",
+      text: "rgb(240, 237, 247)",
+    },
+    light: {
+      accent: "rgb(81, 43, 212)",
+      background: "rgb(248, 246, 252)",
+      border: "rgb(185, 170, 238)",
+      hoverBorder: "rgb(117, 108, 132)",
+      muted: "rgb(98, 90, 112)",
+      text: "rgb(33, 26, 50)",
+    },
   };
 
   await page.goto("/browser/workspace-titlebar.html?member=1");
@@ -190,8 +225,24 @@ test("ordinary keyboard focus uses the shared accent", async ({ page }) => {
     await page.evaluate(value => {
       document.documentElement.dataset.theme = value;
     }, theme);
+    await page.mouse.move(0, 0);
+    await expect(signatureControl).toHaveCSS(
+      "background-color",
+      expected[theme].background,
+    );
+    await expect(signatureControl).toHaveCSS("border-color", expected[theme].border);
+    await expect(signatureControl).toHaveCSS("color", expected[theme].muted);
+    await signatureControl.hover();
+    await expect(signatureControl).toHaveCSS(
+      "border-color",
+      expected[theme].hoverBorder,
+    );
+    await expect(signatureControl).toHaveCSS("color", expected[theme].text);
     await signatureControl.focus();
-    await expect(signatureControl).toHaveCSS("outline-color", expected[theme]);
+    await expect(signatureControl).toHaveCSS(
+      "outline-color",
+      expected[theme].accent,
+    );
   }
 
   await page.goto("/browser/annotated-source.html");
@@ -215,11 +266,14 @@ test("ordinary keyboard focus uses the shared accent", async ({ page }) => {
     await page.keyboard.press("Tab");
     await page.keyboard.press("Shift+Tab");
     await expect(selected).toBeFocused();
-    await expect(selected).toHaveCSS("outline-color", expected[theme]);
+    await expect(selected).toHaveCSS("outline-color", expected[theme].accent);
     await pressedControl.focus();
     await page.keyboard.press("Tab");
     await page.keyboard.press("Shift+Tab");
     await expect(pressedControl).toBeFocused();
-    await expect(pressedControl).toHaveCSS("outline-color", expected[theme]);
+    await expect(pressedControl).toHaveCSS(
+      "outline-color",
+      expected[theme].accent,
+    );
   }
 });

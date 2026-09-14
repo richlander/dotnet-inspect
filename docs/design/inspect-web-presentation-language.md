@@ -84,7 +84,9 @@ Blue and cyan remain available for information and structural graph roles.
 Green, yellow, and red remain semantic status colors. Warm colors may identify
 warnings, Findings, exceptional states, or conventional source syntax; they do
 not act as the persistent website selection identity. In particular, Inspect
-Web does not use the legacy green C# association.
+Web does not use the legacy green C# association. Allocation Findings use a
+dedicated warm role, and every Finding category retains its semantic border
+when selection or another shared control treatment is also present.
 
 Theme neutrals may be tonal adaptations rather than logo colors, but they stay
 within the same purple-to-lavender family. Text, control boundaries, selected

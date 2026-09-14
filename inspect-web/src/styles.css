@@ -21,6 +21,7 @@
   --shell-accent: #b9aaee;
   --shell-accent-fill: #512bd4;
   --shell-accent-soft: #2b2054;
+  --finding-allocation: #e5663f;
   --green: #8ebb76;
   --yellow: #d5ad5c;
   --blue: #87aeca;
@@ -109,6 +110,7 @@
   --shell-accent: #512bd4;
   --shell-accent-fill: #512bd4;
   --shell-accent-soft: #eeeafb;
+  --finding-allocation: #b74728;
   --green: #397044;
   --yellow: #8a650d;
   --blue: #245f86;
@@ -1450,13 +1452,13 @@ kbd {
   height: 24px;
   margin-left: auto;
   padding: 0 9px;
-  border: 1px solid #44473f;
+  border: 1px solid var(--line-strong);
   border-radius: 2px;
-  background: #20221e;
-  color: #b8bab2;
+  background: var(--panel-raised);
+  color: var(--muted);
   font: 10px var(--mono);
 }
-.signature-language button:hover { border-color: #666a60; color: #f0f1ec; }
+.signature-language button:hover { border-color: var(--dim); color: var(--text); }
 .signature-language button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .signature-code { margin: 0; padding: 20px 21px 22px; overflow: auto; border: 0; background: transparent; }
 .signature-code code { color: var(--code-text); font: 14px/1.7 var(--mono); }
@@ -3657,9 +3659,6 @@ kbd {
 :root[data-theme="light"] .source-result .token.namespace { color: #6c4d91; }
 :root[data-theme="light"] .source-result .token.preprocessor { color: #6c4d91; }
 
-:root[data-theme="light"] .signature-language button { background: #ffffff; color: #59615a; border-color: var(--line-strong); }
-:root[data-theme="light"] .signature-language button:hover { color: #20231f; border-color: var(--dim); }
-
 /* Annotated Source keeps the portable text selectable while Findings and source-node
    selection use explicit controls and non-underline treatments. */
 .annotated-reader { position: relative; min-height: 0; height: 100%; display: grid; grid-template-rows: minmax(0, 1fr) auto auto; overflow: hidden; background: var(--panel); }
@@ -3733,16 +3732,11 @@ kbd {
 .annotated-row-items { display: flex; align-items: stretch; flex-wrap: wrap; gap: 6px; margin: 2px 0 1px; }
 .annotated-row:first-child .annotated-row-items { margin-top: 5px; }
 .annotated-finding-chip,
-.annotated-finding-toggle { display: inline-flex; align-items: center; gap: 8px; border-left: 3px solid var(--accent) !important; border-radius: 3px; font: 11px var(--mono); text-align: left; }
+.annotated-finding-toggle { display: inline-flex; align-items: center; gap: 8px; border-left: 3px solid var(--line-strong); border-radius: 3px; font: 11px var(--mono); text-align: left; }
 .annotated-finding-chip { padding: 4px 7px; }
 .annotated-finding-chip small { color: var(--dim); }
 .annotated-structure-mark { display: inline-flex; align-items: center; padding: 4px 7px; border-left: 3px solid var(--blue); border-radius: 3px; background: color-mix(in srgb, var(--blue) 10%, transparent); color: var(--muted); font: 11px var(--mono); }
 .annotated-finding-toggle[aria-pressed="true"] { background: var(--panel-active); color: var(--text); }
-.category-allocation { border-left-color: var(--accent) !important; }
-.category-cost { border-left-color: var(--yellow) !important; }
-.category-unsafety { border-left-color: var(--red, #d97070) !important; }
-.category-semantics { border-left-color: var(--blue) !important; }
-.category-lifetime { border-left-color: var(--purple) !important; }
 
 .annotated-modal-backdrop { position: fixed; inset: 0; z-index: 70; display: grid; background: rgba(0, 0, 0, 0.72); }
 .annotated-modal { position: relative; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr); margin: 10px; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--bg); }
@@ -3788,7 +3782,12 @@ kbd {
 .annotated-destinations button { color: var(--text); border-color: var(--line-strong); }
 .annotated-destinations button:first-child { border-color: var(--accent); }
 .annotated-inspector-action > span:first-child { display: grid; gap: 3px; }
-.annotated-inspector-action { border-left: 3px solid var(--accent) !important; }
+.annotated-inspector-action { border-left: 3px solid var(--line-strong); }
+:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspector-action).category-allocation { border-left-color: var(--finding-allocation); }
+:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspector-action).category-cost { border-left-color: var(--yellow); }
+:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspector-action).category-unsafety { border-left-color: var(--red, #d97070); }
+:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspector-action).category-semantics { border-left-color: var(--blue); }
+:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspector-action).category-lifetime { border-left-color: var(--purple); }
 
 .annotated-detail { z-index: 2; padding: 14px; overflow: auto; border-top: 1px solid var(--line); background: var(--panel-raised); box-shadow: 0 -12px 36px rgba(0, 0, 0, 0.28); }
 .annotated-modal > .annotated-detail { position: absolute; top: 58px; right: 0; bottom: 0; width: min(480px, 100%); border-top: 0; border-left: 1px solid var(--line-strong); box-shadow: -16px 0 40px rgba(0, 0, 0, 0.38); }
