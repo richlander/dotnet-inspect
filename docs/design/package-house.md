@@ -893,7 +893,7 @@ every supported host that uses it.
 | Source result independence | House results, decisions, candidates, evidence, receipts, and acquired payloads retain no operation lease or live source authority. |
 | Source capability ownership | Releasing an operation or settling its root does not dispose caller-owned clients, stores, or retained payload content. |
 | Source completeness | Partial authority evidence cannot settle latest, wildcard, range, or authoritative absence, and cannot reach package-store or payload work. |
-| Pruning order | `CandidateAcquireDelegatesBeforePayloadCapability` and `CandidateRealizeDelegatesBeforePayloadCapability` prove that `Subsumed` skips payload acquisition for either upper work profile; neighboring pruning states cannot issue platform delegation. |
+| Pruning order | `KnownPlatformPackageAcquireDelegatesBeforePayloadCapability` and `CandidateRealizeDelegatesBeforePayloadCapability` prove that `Subsumed` skips payload acquisition for either upper work profile; neighboring pruning states cannot issue platform delegation. |
 | Pruning correspondence | Platform delegation consumes the policy-issued inventory/coordinate/supply receipt, compares the coordinate through the package owner's normalization, and matches the actual supplier family and exact target version. |
 | Payload authority | Discovered payload comes only from a reporting authority; pinned payload follows the Package Source Model's eligible-authority rule; the acquisition receipt and live payload match source, producer, origin, and generation. |
 | Selection correspondence | Realization consumes a selector-issued generation/request/outcome receipt matching the exact acquisition and target context. |
