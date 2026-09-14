@@ -488,6 +488,7 @@ import {
   createBrowserPackageQueryDataSource,
   packageQueryAssemblyPatterns,
   packageQueryFacets,
+  type BrowserPackageQueryInspection,
 } from "./package-query-source.ts";
 import {
   bindPackageQueryView,
@@ -903,6 +904,7 @@ const initialState = {
   packageQueryReturnFocus: null,
   packageQueryReturnFocusPending: false,
   packageQueryState: initialQueryState(),
+  packageQueryInspection: null,
   packageQueryFacets: [],
   packageQueryAssemblyPatterns: [],
   platformIndex: null,
@@ -1108,6 +1110,7 @@ interface StateOverrides {
   packageCacheStatsStatus: "idle" | "loading" | "ready" | "failed";
   diagnosticsCapturedAtUtc: string | null;
   packageQueryState: PackageQueryState;
+  packageQueryInspection: BrowserPackageQueryInspection | null;
   packageQueryFacets: QueryFacetTerm[];
   packageQueryAssemblyPatterns: QueryAssemblyPatternDescriptor[];
   packageQueryPredecessorEntryId: string | null;
@@ -1430,6 +1433,7 @@ function captureRetainedHostState() {
     packageQueryReturnFocus: state.packageQueryReturnFocus,
     packageQueryReturnFocusPending: state.packageQueryReturnFocusPending,
     packageQueryState: state.packageQueryState,
+    packageQueryInspection: state.packageQueryInspection,
     packageQueryFacets: state.packageQueryFacets,
     packageQueryAssemblyPatterns: state.packageQueryAssemblyPatterns,
     platformIndex: state.platformIndex,
@@ -1891,6 +1895,9 @@ const packageQueryController = createPackageQueryController(
       initialMatchCredit,
       eventSink),
   }, {
+    onInspection: inspection => {
+      state.packageQueryInspection = inspection;
+    },
     reportUnexpectedFailure: (operationId, error, diagnostic) => {
       console.error(
         `Package Query managed operation '${operationId}' failed unexpectedly.`,
@@ -1898,12 +1905,14 @@ const packageQueryController = createPackageQueryController(
     },
   }),
   updateKind => {
-    if (!state.packageQueryOpen) return;
     if (updateKind === "reset") {
+      state.packageQueryInspection = null;
+      if (!state.packageQueryOpen) return;
       packageQueryViewport = null;
       render();
       return;
     }
+    if (!state.packageQueryOpen) return;
     schedulePackageQueryStreamRender();
   },
 );
@@ -11207,6 +11216,7 @@ function resetPackageQueryState() {
   const fresh = initialQueryState();
   state.packageQueryState.request = fresh.request;
   state.packageQueryState.outcome = fresh.outcome;
+  state.packageQueryInspection = null;
   packageQueryViewport = null;
 }
 
