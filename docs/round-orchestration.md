@@ -122,8 +122,11 @@ reviewer to return no findings against an unchanged locked head; use
 Recovery transitions, applied without waiting for CI:
 
 - **Conflict before a usable review result:** supersede, integrate, resolve,
-  push immediately, and retry the pending round. A conflict after clean review
-  may instead take the
+  push immediately, and retry the pending round.
+- **Conflict after a usable review result:** reconcile, close and report the
+  spent round, release its lock, expire merge authorization, remove
+  `review-clean`, then integrate, resolve, and push the recovery as the next
+  numbered round. A clean review may instead take the
   [exact-head trivial-interaction waiver](#trivial-interaction-re-review-waiver)
   path when its resolution satisfies every stated condition; don't dispatch
   replacement reviewers while that decision is pending.
