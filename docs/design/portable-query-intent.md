@@ -229,8 +229,10 @@ emitted as `null` or `[]`:
   `[dimension, maximum]`: a string and a JSON integer.
 - `s` is the selection-stage sequence in declared order, encoded per the stage
   table below.
-- `o` is the order-operation sequence in declared order, encoded per the order
-  table below.
+- `o` is the order-operation set in role order — `base` first, then ranking
+  operations by ascending stage index — encoded per the order table below.
+  Declaration order is not preserved here; only the field-term sequence inside
+  one operation is.
 
 Every token is fixed. Implementations do not derive one from a .NET enum name,
 a CLI spelling, or a display label:
