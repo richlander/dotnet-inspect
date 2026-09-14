@@ -163,8 +163,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     $"{rootAssemblyName}.dll",
                     typeName,
                     WorkspaceJson,
-                    RowSelectionIntent<
-                        TypeDependencyRowOrder>.Empty);
+                    Resolve(RowQueryIntent.Empty));
         BrowserTypeMetadata bounded =
             await DotnetInspect.Web.Interop.Metadata.MetadataExports
                 .TypeProjectionAsync(
@@ -174,14 +173,50 @@ public sealed partial class BrowserEngineBoundaryTests
                     $"{rootAssemblyName}.dll",
                     typeName,
                     WorkspaceJson,
-                    RowSelectionIntent<
-                        TypeDependencyRowOrder>.Create(
+                    Resolve(
+                        RowQueryIntent.Create(
                             [
-                                RowSelectionIntentOperation<
-                                    TypeDependencyRowOrder>.Head(1),
-                            ]));
-
+                                new RowQueryPredicateIntent(
+                                    "Source",
+                                    RowQueryOperator.Equals,
+                                    new RowQueryValueToken(typeName)),
+                                new RowQueryPredicateIntent(
+                                    "Kind",
+                                    RowQueryOperator.Equals,
+                                    new RowQueryValueToken("Interface")),
+                            ],
+                            RowQueryOrderIntent.Fields(
+                                [
+                                    new RowQueryOrderTermIntent(
+                                        "Target",
+                                        RowQueryOrderDirection.Descending),
+                                ]),
+                            RowSelectionIntent<RowQueryOrderIntent>.Create(
+                                [
+                                    RowSelectionIntentOperation<
+                                        RowQueryOrderIntent>.Head(1),
+                                ]))));
         string dependencyName = dependency.FullName!;
+        BrowserTypeMetadata nested =
+            await DotnetInspect.Web.Interop.Metadata.MetadataExports
+                .TypeProjectionAsync(
+                    rootPackageId,
+                    "1.0.0",
+                    "net11.0",
+                    $"{rootAssemblyName}.dll",
+                    typeName,
+                    WorkspaceJson,
+                    Resolve(
+                        RowQueryIntent.Create(
+                            [
+                                new RowQueryPredicateIntent(
+                                    "Source",
+                                    RowQueryOperator.Equals,
+                                    new RowQueryValueToken(dependencyName)),
+                            ],
+                            baselineOrder: null,
+                            RowSelectionIntent<RowQueryOrderIntent>.Empty)));
+
         Assert.Contains(
             complete.GraphEdges,
             edge => edge.FromId == dependencyName
@@ -197,10 +232,24 @@ public sealed partial class BrowserEngineBoundaryTests
                 && edge.Kind == "implements"));
         var selectedEdge = Assert.Single(bounded.GraphEdges);
         Assert.Equal(typeName, selectedEdge.FromId);
-        Assert.Equal(dependencyName, selectedEdge.ToId);
+        Assert.Equal(typeof(ICloneable).FullName, selectedEdge.ToId);
         Assert.Equal("implements", selectedEdge.Kind);
         Assert.Empty(complete.InspectionFailures);
         Assert.Empty(bounded.InspectionFailures);
+        TypeDependencyRelationship selectedRelationship =
+            Assert.Single(
+                bounded.TypeDependencyInspection.Content
+                    .RowSelection.Relationships);
+        Assert.Equal(
+            typeof(ICloneable).FullName,
+            selectedRelationship.TargetTypeName);
+        var nestedEdge = Assert.Single(nested.GraphEdges);
+        Assert.Equal(dependencyName, nestedEdge.FromId);
+        Assert.Equal(
+            "interface",
+            Assert.Single(
+                nested.GraphNodes,
+                node => node.Id == dependencyName).Role);
     }
 
     [Fact]
@@ -430,6 +479,18 @@ public sealed partial class BrowserEngineBoundaryTests
         return JsonSerializer.Deserialize<BrowserTypeMetadata>(
             json,
             options)!;
+    }
+
+    private static ResolvedRowQueryPlan<TypeDependencyRelationship>
+        Resolve(RowQueryIntent intent)
+    {
+        RowQueryResolutionResult<TypeDependencyRelationship> result =
+            TypeDependencyRowQuery.Resolve(intent);
+        return result.Plan
+            ?? throw new Xunit.Sdk.XunitException(
+                $"Expected Type Dependency query to resolve: "
+                    + $"{result.Failure!.OperationKind}/"
+                    + $"{result.Failure.Reason}.");
     }
 
     sealed class TypeDependencyEnvelopeJsonConverter

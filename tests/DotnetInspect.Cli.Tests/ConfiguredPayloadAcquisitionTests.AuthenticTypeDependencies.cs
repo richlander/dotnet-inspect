@@ -4,6 +4,7 @@ using System.Text.Json;
 
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.RowSelection;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using NuGetFetch;
@@ -134,6 +135,39 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
         if (includeRelational)
         {
+            TypeDependencySectionResult filtered =
+                TypeDependencySectionExecutor.ExecuteParticipant(
+                    loaded.Group,
+                    root,
+                    new TypeDependencySectionPlan(
+                        NpgsqlOptions,
+                        ResolveAuthenticTypeDependencyQuery(
+                            RowQueryIntent.Create(
+                                [
+                                    new RowQueryPredicateIntent(
+                                        "Source",
+                                        RowQueryOperator.Equals,
+                                        new RowQueryValueToken(
+                                            RelationalOptions)),
+                                    new RowQueryPredicateIntent(
+                                        "Kind",
+                                        RowQueryOperator.Equals,
+                                        new RowQueryValueToken(
+                                            "Interface")),
+                                ],
+                                RowQueryOrderIntent.Fields(
+                                    [
+                                        new RowQueryOrderTermIntent(
+                                            "Target",
+                                            RowQueryOrderDirection.Descending),
+                                    ]),
+                                RowSelectionIntent<
+                                    RowQueryOrderIntent>.Empty))));
+            TypeDependencyRelationship selected =
+                Assert.Single(filtered.RowSelection.Relationships);
+            Assert.Equal(RelationalOptions, selected.SourceTypeName);
+            Assert.Equal(OptionsInterface, selected.TargetTypeName);
+
             AssemblyContextParticipant other = Assert.Single(
                 loaded.Group.Participants,
                 participant => participant.Assembly.Identity.Name == RelationalPackage);
@@ -142,6 +176,18 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             Assert.False(wrongRoot.QueryResult.Dependency.Found);
             Assert.Empty(wrongRoot.RowSelection.Relationships);
         }
+    }
+
+    private static ResolvedRowQueryPlan<TypeDependencyRelationship>
+        ResolveAuthenticTypeDependencyQuery(RowQueryIntent intent)
+    {
+        RowQueryResolutionResult<TypeDependencyRelationship> result =
+            TypeDependencyRowQuery.Resolve(intent);
+        return result.Plan
+            ?? throw new Xunit.Sdk.XunitException(
+                $"Expected Type Dependency query to resolve: "
+                    + $"{result.Failure!.OperationKind}/"
+                    + $"{result.Failure.Reason}.");
     }
 
     private static (string Source, string Target, string Kind)[] AuthenticRelationships(

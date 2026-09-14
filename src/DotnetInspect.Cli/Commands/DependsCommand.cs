@@ -190,11 +190,6 @@ public partial class DependsCommand
 
             DependencyGraphDocument document =
                 DependencyGraphProjection.Type(result.Dependency);
-            HashSet<int> selectedRelationshipOrdinals =
-                [
-                    .. result.Relationships.Select(
-                        static relationship => relationship.Ordinal),
-                ];
             TypeDependencyRelationship[] orderedRelationships =
             [
                 .. result.Dependency.Relationships.OrderBy(
@@ -208,12 +203,19 @@ public partial class DependsCommand
                     "The type dependency graph projection did not preserve "
                         + "the query relationship count.");
             }
+            Dictionary<int, DependencyGraphEdgeRow> rowsByOrdinal =
+                orderedRelationships
+                    .Select(
+                        (relationship, index) =>
+                            (relationship.Ordinal, Row: allRows[index]))
+                    .ToDictionary(
+                        static item => item.Ordinal,
+                        static item => item.Row);
             IReadOnlyList<DependencyGraphEdgeRow> rows =
             [
-                .. allRows.Where(
-                    (_, index) =>
-                        selectedRelationshipOrdinals.Contains(
-                            orderedRelationships[index].Ordinal)),
+                .. result.Relationships.Select(
+                    relationship =>
+                        rowsByOrdinal[relationship.Ordinal]),
             ];
             if (options.Count)
             {

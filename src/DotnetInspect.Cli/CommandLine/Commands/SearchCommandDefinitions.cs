@@ -704,14 +704,12 @@ public static class SearchCommandDefinitions
             var projects = parseResult.GetValue(projectOption) ?? [];
             OutputFormat outputFormat = opts.ResolveFormat(parseResult);
             RowWindow? rows = ParseDependsRows(parseResult, opts);
-            RowSelectionIntent<TypeDependencyRowOrder>
-                typeDependencyRows =
-                    string.IsNullOrEmpty(targetType)
-                        ? RowSelectionIntent<
-                            TypeDependencyRowOrder>.Empty
-                        : ParseTypeDependencyRows(
-                            parseResult,
-                            opts);
+            RowQueryIntent typeDependencyRowQuery =
+                string.IsNullOrEmpty(targetType)
+                    ? RowQueryIntent.Empty
+                    : ParseTypeDependencyRows(
+                        parseResult,
+                        opts);
             WorkspaceShareFormat? shareFormat =
                 WorkspaceShareOption.Parse(parseResult, shareOption);
             bool hasNonPackageShareInput =
@@ -868,7 +866,7 @@ public static class SearchCommandDefinitions
                 EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
                 Tree = parseResult.GetValue(opts.Tree),
                 Rows = rows,
-                TypeDependencyRows = typeDependencyRows,
+                TypeDependencyRowQuery = typeDependencyRowQuery,
                 Count = parseResult.GetValue(opts.Count),
                 Tabular = opts.ResolveTabular(parseResult),
                 Tsv = opts.ResolveTsv(parseResult),
@@ -967,7 +965,7 @@ public static class SearchCommandDefinitions
             : RowWindow.Head(count);
     }
 
-    private static RowSelectionIntent<TypeDependencyRowOrder>
+    private static RowQueryIntent
         ParseTypeDependencyRows(
         ParseResult parseResult,
         SharedOptions opts)
@@ -984,45 +982,50 @@ public static class SearchCommandDefinitions
                     $"--rows {error}");
             }
 
-            RowSelectionIntentOperation<TypeDependencyRowOrder>
+            RowSelectionIntentOperation<RowQueryOrderIntent>
                 operation =
                     spec.Kind switch
                     {
                         RowSpecKind.Count
                             when parseResult.GetValue(opts.Tail) =>
                             RowSelectionIntentOperation<
-                                TypeDependencyRowOrder>.Tail(
+                                RowQueryOrderIntent>.Tail(
                                     spec.Count),
                         RowSpecKind.Count =>
                             RowSelectionIntentOperation<
-                                TypeDependencyRowOrder>.Head(
+                                RowQueryOrderIntent>.Head(
                                     spec.Count),
                         RowSpecKind.Range =>
                             RowSelectionIntentOperation<
-                                TypeDependencyRowOrder>.Window(
+                                RowQueryOrderIntent>.Window(
                                     spec.Start,
                                     spec.End),
                         _ => throw new InvalidOperationException(
                             "Unsupported type-dependency row selection."),
                     };
-            return RowSelectionIntent<
-                TypeDependencyRowOrder>.Create([operation]);
+            return RowQueryIntent.Create(
+                [],
+                baselineOrder: null,
+                RowSelectionIntent<RowQueryOrderIntent>.Create(
+                    [operation]));
         }
 
         if (parseResult.GetResult(opts.Limit) is not { Implicit: false }
             || parseResult.GetValue(opts.Limit) is not int count)
         {
-            return RowSelectionIntent<
-                TypeDependencyRowOrder>.Empty;
+            return RowQueryIntent.Empty;
         }
 
-        return RowSelectionIntent<TypeDependencyRowOrder>.Create(
-            [
-                parseResult.GetValue(opts.Tail)
-                    ? RowSelectionIntentOperation<
-                        TypeDependencyRowOrder>.Tail(count)
-                    : RowSelectionIntentOperation<
-                        TypeDependencyRowOrder>.Head(count),
-            ]);
+        return RowQueryIntent.Create(
+            [],
+            baselineOrder: null,
+            RowSelectionIntent<RowQueryOrderIntent>.Create(
+                [
+                    parseResult.GetValue(opts.Tail)
+                        ? RowSelectionIntentOperation<
+                            RowQueryOrderIntent>.Tail(count)
+                        : RowSelectionIntentOperation<
+                            RowQueryOrderIntent>.Head(count),
+                ]));
     }
 }
