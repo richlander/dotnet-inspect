@@ -22,6 +22,13 @@ import type {
 import type {
   BrowserPackageIntegrations as PackageIntegrations,
 } from "../src/facades/inspect-web-analysis.js";
+import type {
+  BrowserLibraryApiDiffResult,
+} from "../src/facades/inspect-web-metadata.js";
+import {
+  renderLibraryApiDiff,
+  type LibraryApiDiffState,
+} from "../src/library-api-diff.ts";
 import {
   fixtureFramework,
   galleryDownloadPath,
@@ -647,6 +654,112 @@ function referenceFailure(result: AssemblyReferenceResult): string {
   }
   return result;
 }
+
+test("Library API Diff preserves distinct carriage-return and newline Type identities", async ({
+  page,
+}) => {
+  const input = {
+    packageModel: {},
+    packageId: "Example.Package",
+    currentVersion: "2.0.0",
+    targetVersion: "1.0.0",
+    targetFramework: fixtureFramework,
+    compileAssetId: "lib/net11.0/Example.dll",
+  };
+  const endpoint = (packageVersion: string) => ({
+    packageId: input.packageId,
+    version: packageVersion,
+    framework: input.targetFramework,
+    asset: {
+      id: input.compileAssetId,
+      path: input.compileAssetId,
+      assemblyName: "Example",
+    },
+    assembly: {
+      name: "Example",
+      version: packageVersion,
+      culture: null,
+      publicKeyToken: null,
+    },
+    scope: "Public" as const,
+    isComplete: true,
+    issues: [],
+  });
+  const type = (identifier: string) => ({
+    documentIdentifier: identifier,
+    display: identifier,
+    state: "Diff" as const,
+    typeDefinitionChanged: false,
+    changedMemberCount: 0,
+    breakingCount: 0,
+    additiveCount: 0,
+    potentiallyBreakingCount: 0,
+    before: {
+      identifier,
+      namespace: "Example",
+      segments: ["A", "B"],
+      display: identifier,
+    },
+    after: {
+      identifier,
+      namespace: "Example",
+      segments: ["A", "B"],
+      display: identifier,
+    },
+  });
+  const result: BrowserLibraryApiDiffResult = {
+    schemaVersion: 1,
+    request: {
+      schemaVersion: 1,
+      packageId: input.packageId,
+      currentVersion: input.currentVersion,
+      targetVersion: input.targetVersion,
+      targetFramework: input.targetFramework,
+      compileAssetId: input.compileAssetId,
+    },
+    kind: "Succeeded",
+    value: {
+      libraryIdentifier: "Example",
+      libraryDisplay: "Example",
+      target: endpoint(input.targetVersion),
+      current: endpoint(input.currentVersion),
+      aggregate: {
+        changedTypeCount: 2,
+        addedTypeCount: 0,
+        removedTypeCount: 0,
+        changedMemberCount: 0,
+        breakingCount: 0,
+        additiveCount: 0,
+        potentiallyBreakingCount: 0,
+      },
+      types: [type("Example.A\rB"), type("Example.A\nB")],
+    },
+    unavailable: null,
+    rejected: null,
+    failureKind: null,
+    error: null,
+    diagnostic: null,
+    reason: null,
+  };
+  const state: LibraryApiDiffState = {
+    status: "ready",
+    input,
+    result,
+  };
+  const html = renderLibraryApiDiff(state, value => String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;"));
+
+  await page.setContent(html);
+  const rows = page.locator(".library-api-diff-type");
+  await expect(rows.nth(0))
+    .toHaveAttribute("data-before-type-id", "Example.A\rB");
+  await expect(rows.nth(1))
+    .toHaveAttribute("data-before-type-id", "Example.A\nB");
+});
 
 test.describe("Package Query website over real Wasm", () => {
   test("keeps blank input idle and exact IDs, literal prefixes, and missing IDs distinct", async ({ page, context }) => {

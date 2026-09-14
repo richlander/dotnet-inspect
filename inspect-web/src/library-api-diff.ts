@@ -826,10 +826,12 @@ function renderTypeRow(
 ): string {
   const before = type.before?.identifier ?? "";
   const after = type.after?.identifier ?? "";
+  const beforeAttribute = escapeHtml(before).replaceAll("\r", "&#13;");
+  const afterAttribute = escapeHtml(after).replaceAll("\r", "&#13;");
   const definition = type.typeDefinitionChanged === true
     ? '<span class="library-api-diff-definition">Type definition changed</span>'
     : "";
-  return `<li class="library-api-diff-type" data-before-type-id="${escapeHtml(before)}" data-after-type-id="${escapeHtml(after)}">
+  return `<li class="library-api-diff-type" data-before-type-id="${beforeAttribute}" data-after-type-id="${afterAttribute}">
     <span class="library-api-diff-state library-api-diff-state-${String(type.state).toLowerCase()}">${escapeHtml(type.state)}</span>
     <span class="library-api-diff-type-copy">
       <strong>${escapeHtml(type.display)}</strong>

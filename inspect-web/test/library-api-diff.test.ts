@@ -358,6 +358,54 @@ test("successful rendering preserves producer order and exact nullable Type iden
   assert.doesNotMatch(html, /<button[^>]+data-(?:before|after)-type-id/);
 });
 
+test("successful rendering preserves carriage returns in Type identity attributes", () => {
+  const result = succeeded("1.0.0");
+  if (result.value === null) throw new Error("Expected success.");
+  const [template] = result.value.types;
+  if (template === undefined || template.before === null
+      || template.after === null) {
+    throw new Error("Expected a paired Type result.");
+  }
+  const html = renderLibraryApiDiff({
+    status: "ready",
+    input: {
+      packageModel: {},
+      packageId: "Example.Package",
+      currentVersion: "2.0.0",
+      targetVersion: "1.0.0",
+      targetFramework: "net11.0",
+      compileAssetId: "lib/net11.0/Example.dll",
+    },
+    result: {
+      ...result,
+      value: {
+        ...result.value,
+        aggregate: {
+          ...result.value.aggregate,
+          changedTypeCount: 1,
+        },
+        types: [{
+          ...template,
+          before: {
+            ...template.before,
+            identifier: "Example.A\rB",
+          },
+          after: {
+            ...template.after,
+            identifier: "Example.A\nB",
+          },
+        }],
+      },
+    },
+  }, value => String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll('"', "&quot;"));
+
+  assert.match(html, /data-before-type-id="Example\.A&#13;B"/);
+  assert.match(html, /data-after-type-id="Example\.A\nB"/);
+});
+
 test("successful empty results stay distinct from target and endpoint unavailability", () => {
   const empty = succeeded("2.0.0");
   if (empty.value === null) throw new Error("Expected success.");
