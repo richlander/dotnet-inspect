@@ -11,11 +11,15 @@ public sealed class TypeDependencySectionPlanTests
         TypeDependencyResult dependency = Dependency();
         var plan = new TypeDependencySectionPlan(
             "Demo.Consumer",
-            RowSelectionIntent<TypeDependencyRowOrder>.Create(
-                [
-                    RowSelectionIntentOperation<
-                        TypeDependencyRowOrder>.Head(2),
-                ]));
+            Resolve(
+                RowQueryIntent.Create(
+                    [],
+                    baselineOrder: null,
+                    RowSelectionIntent<RowQueryOrderIntent>.Create(
+                        [
+                            RowSelectionIntentOperation<
+                                RowQueryOrderIntent>.Head(2),
+                        ]))));
 
         TypeDependencyRowSelectionResult result =
             TypeDependencySectionExecutor.Select(
@@ -36,11 +40,15 @@ public sealed class TypeDependencySectionPlanTests
         TypeDependencyResult dependency = Dependency();
         var plan = new TypeDependencySectionPlan(
             "Demo.Consumer",
-            RowSelectionIntent<TypeDependencyRowOrder>.Create(
-                [
-                    RowSelectionIntentOperation<
-                        TypeDependencyRowOrder>.Window(2, 4),
-                ]));
+            Resolve(
+                RowQueryIntent.Create(
+                    [],
+                    baselineOrder: null,
+                    RowSelectionIntent<RowQueryOrderIntent>.Create(
+                        [
+                            RowSelectionIntentOperation<
+                                RowQueryOrderIntent>.Window(2, 4),
+                        ]))));
 
         TypeDependencyRowSelectionResult result =
             TypeDependencySectionExecutor.Select(
@@ -58,18 +66,185 @@ public sealed class TypeDependencySectionPlanTests
     }
 
     [Fact]
-    public void Plan_RejectsRankingWithoutAnOwnedOrder()
+    public void Resolve_RejectsTraversalAsTopRanking()
     {
-        Assert.Throws<ArgumentException>(
-            () => new TypeDependencySectionPlan(
-                "Demo.Consumer",
-                RowSelectionIntent<TypeDependencyRowOrder>.Create(
+        RowQueryResolutionResult<TypeDependencyRelationship> result =
+            TypeDependencyRowQuery.Resolve(
+                RowQueryIntent.Create(
+                    [],
+                    baselineOrder: null,
+                    RowSelectionIntent<RowQueryOrderIntent>.Create(
+                        [
+                            RowSelectionIntentOperation<
+                                RowQueryOrderIntent>.Top(
+                                    1,
+                                    RowQueryOrderIntent.Named(
+                                        "Traversal",
+                                        RowQueryOrderDirection.Ascending)),
+                        ])));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(
+            RowQueryFailureReason.NamedOrderIsNotRanking,
+            result.Failure!.Reason);
+        Assert.Equal(1, result.Failure.SemanticStageNumber);
+    }
+
+    [Fact]
+    public void Select_AppliesTypedPredicatesBeforeStableFieldOrder()
+    {
+        TypeDependencyResult dependency = Dependency();
+        var plan = new TypeDependencySectionPlan(
+            "Demo.Consumer",
+            Resolve(
+                RowQueryIntent.Create(
                     [
-                        RowSelectionIntentOperation<
-                            TypeDependencyRowOrder>.Top(
-                                1,
-                                TypeDependencyRowOrder.Traversal),
-                    ])));
+                        new RowQueryPredicateIntent(
+                            "Kind",
+                            RowQueryOperator.Equals,
+                            new RowQueryValueToken("Interface")),
+                    ],
+                    RowQueryOrderIntent.Fields(
+                        [
+                            new RowQueryOrderTermIntent(
+                                "Target",
+                                RowQueryOrderDirection.Descending),
+                        ]),
+                    RowSelectionIntent<RowQueryOrderIntent>.Create(
+                        [
+                            RowSelectionIntentOperation<
+                                RowQueryOrderIntent>.Head(1),
+                        ]))));
+
+        TypeDependencyRowSelectionResult result =
+            TypeDependencySectionExecutor.Select(
+                dependency,
+                plan);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(
+            "Demo.ISecond",
+            Assert.Single(result.Relationships).TargetTypeName);
+    }
+
+    [Fact]
+    public void Select_MatchesSourceAndTargetGlobsCaseInsensitively()
+    {
+        TypeDependencyResult dependency = Dependency();
+        var plan = new TypeDependencySectionPlan(
+            "Demo.Consumer",
+            Resolve(
+                RowQueryIntent.Create(
+                    [
+                        new RowQueryPredicateIntent(
+                            "Source",
+                            RowQueryOperator.Equals,
+                            new RowQueryValueToken("demo.*")),
+                        new RowQueryPredicateIntent(
+                            "Target",
+                            RowQueryOperator.Equals,
+                            new RowQueryValueToken("*ifirst")),
+                    ],
+                    baselineOrder: null,
+                    RowSelectionIntent<RowQueryOrderIntent>.Empty)));
+
+        TypeDependencyRowSelectionResult result =
+            TypeDependencySectionExecutor.Select(
+                dependency,
+                plan);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(
+            "Demo.IFirst",
+            Assert.Single(result.Relationships).TargetTypeName);
+    }
+
+    [Fact]
+    public void Select_FieldOrderPreservesTraversalWithinEqualKeys()
+    {
+        TypeDependencyResult dependency = Dependency();
+        var plan = new TypeDependencySectionPlan(
+            "Demo.Consumer",
+            Resolve(
+                RowQueryIntent.Create(
+                    [],
+                    RowQueryOrderIntent.Fields(
+                        [
+                            new RowQueryOrderTermIntent(
+                                "Kind",
+                                RowQueryOrderDirection.Descending),
+                        ]),
+                    RowSelectionIntent<RowQueryOrderIntent>.Empty)));
+
+        TypeDependencyRowSelectionResult result =
+            TypeDependencySectionExecutor.Select(
+                dependency,
+                plan);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(
+            ["Demo.IFirst", "Demo.ISecond", "Demo.Base"],
+            result.Relationships.Select(
+                static relationship =>
+                    relationship.TargetTypeName));
+    }
+
+    [Fact]
+    public void Select_SupportsExplicitFieldRankingForTop()
+    {
+        TypeDependencyResult dependency = Dependency();
+        var plan = new TypeDependencySectionPlan(
+            "Demo.Consumer",
+            Resolve(
+                RowQueryIntent.Create(
+                    [],
+                    baselineOrder: null,
+                    RowSelectionIntent<RowQueryOrderIntent>.Create(
+                        [
+                            RowSelectionIntentOperation<
+                                RowQueryOrderIntent>.Top(
+                                    1,
+                                    RowQueryOrderIntent.Fields(
+                                        [
+                                            new RowQueryOrderTermIntent(
+                                                "Target",
+                                                RowQueryOrderDirection.Descending),
+                                        ])),
+                        ]))));
+
+        TypeDependencyRowSelectionResult result =
+            TypeDependencySectionExecutor.Select(
+                dependency,
+                plan);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(
+            "Demo.ISecond",
+            Assert.Single(result.Relationships).TargetTypeName);
+    }
+
+    [Fact]
+    public void Resolve_RejectsInvalidKindValue()
+    {
+        RowQueryResolutionResult<TypeDependencyRelationship> result =
+            TypeDependencyRowQuery.Resolve(
+                RowQueryIntent.Create(
+                    [
+                        new RowQueryPredicateIntent(
+                            "Kind",
+                            RowQueryOperator.Equals,
+                            new RowQueryValueToken("event")),
+                    ],
+                    baselineOrder: null,
+                    RowSelectionIntent<RowQueryOrderIntent>.Empty));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(
+            RowQueryFailureReason.InvalidValue,
+            result.Failure!.Reason);
+        Assert.Equal(
+            RowQueryOperationKind.Predicate,
+            result.Failure.OperationKind);
     }
 
     [Fact]
@@ -107,4 +282,16 @@ public sealed class TypeDependencySectionPlanTests
                     3),
             ],
         };
+
+    private static ResolvedRowQueryPlan<TypeDependencyRelationship>
+        Resolve(RowQueryIntent intent)
+    {
+        RowQueryResolutionResult<TypeDependencyRelationship> result =
+            TypeDependencyRowQuery.Resolve(intent);
+        return result.Plan
+            ?? throw new Xunit.Sdk.XunitException(
+                $"Expected Type Dependency query to resolve: "
+                    + $"{result.Failure!.OperationKind}/"
+                    + $"{result.Failure.Reason}.");
+    }
 }

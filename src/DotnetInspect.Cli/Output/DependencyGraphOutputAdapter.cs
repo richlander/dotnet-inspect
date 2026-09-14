@@ -427,10 +427,9 @@ internal static class DependencyGraphOutputAdapter
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(rows);
         tokens ??= CreatePackageTokens(document);
-        HashSet<int> selectedEdgeIds =
-        [
-            .. rows.Select(static row => row.EdgeId),
-        ];
+        Dictionary<int, DependencyGraphEdge> edgesById =
+            document.Edges.ToDictionary(
+                static edge => edge.Id);
         HashSet<int> selectedNodeIds =
         [
             .. document.Roots.Select(static root => root.NodeId),
@@ -459,8 +458,8 @@ internal static class DependencyGraphOutputAdapter
                             : [])),
             ],
             [
-                .. document.Edges
-                    .Where(edge => selectedEdgeIds.Contains(edge.Id))
+                .. rows
+                    .Select(row => edgesById[row.EdgeId])
                     .Select(edge => new DependencyGraphJsonEdge(
                         edge.Id,
                         [.. edge.RootOccurrences],

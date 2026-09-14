@@ -149,12 +149,18 @@ internal static class DependencyGraphService
                     "share",
                     "Share projection was not requested.")
                 : shareProjection(typeName);
+        RowQueryResolutionResult<TypeDependencyRelationship>
+            rowQueryResolution =
+                TypeDependencyRowQuery.Resolve(
+                    options.TypeDependencyRowQuery
+                        ?? RowQueryIntent.Empty);
         TypeDependencySectionPlan plan =
             new(
                 options.TargetType,
-                options.TypeDependencyRows
-                    ?? RowSelectionIntent<
-                        TypeDependencyRowOrder>.Empty,
+                rowQueryResolution.Plan
+                    ?? throw new InvalidOperationException(
+                        "The canonical Type Dependency row query "
+                            + "did not resolve."),
                 options.Depth);
         AssemblySetRequest request =
             options.ToAssemblySetRequest(TempDirPrefix);
