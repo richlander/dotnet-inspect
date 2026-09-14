@@ -82,6 +82,7 @@ public class TypeBindCheckTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void ComposedAppDomain_ReproducesTheKnownCollision()
     {
         using var pe = new PEReader(File.OpenRead(CoreLibPath));

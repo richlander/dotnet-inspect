@@ -247,6 +247,7 @@ public sealed class ReaderConstructionSiteTests
         }.ToImmutableDictionary(StringComparer.Ordinal);
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void TrustRelevantSites_MatchThePin()
     {
         var observed = ScanTrustRelevantSites();
@@ -413,6 +414,7 @@ public sealed class ReaderConstructionSiteTests
     /// <c>PlantedCoreLibraryIdentityTests</c> owns both.
     /// </remarks>
     [Fact]
+    [Trait("Speed", "Slow")]
     public void TrustTableAccess_IsConfinedToItsPinnedMembers()
     {
         var observed = EnumerateMethods(typeof(MetadataSource).Assembly.Location)
@@ -447,6 +449,7 @@ public sealed class ReaderConstructionSiteTests
     /// approval of the one it collided with.
     /// </summary>
     [Fact]
+    [Trait("Speed", "Slow")]
     public void SiteKeys_AreUniquePerMethod()
     {
         var counts = new Dictionary<string, int>(StringComparer.Ordinal);

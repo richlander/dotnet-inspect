@@ -60,6 +60,7 @@ public class PrintedBodyMapTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void StableKindProjectionMakesAnExplicitDecisionForEveryIrNode()
     {
         var concreteNodes = typeof(IrNode).Assembly

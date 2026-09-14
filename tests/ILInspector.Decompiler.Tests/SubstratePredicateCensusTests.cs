@@ -47,6 +47,7 @@ public class SubstratePredicateCensusTests
     };
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void PassLocalPredicateHelpers_AreClassified()
     {
         var actual = EnumeratePassLocalPredicates().ToArray();

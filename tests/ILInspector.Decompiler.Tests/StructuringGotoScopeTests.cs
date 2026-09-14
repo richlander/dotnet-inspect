@@ -185,6 +185,7 @@ public class StructuringGotoScopeTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void CompilerTwoCaseSwitchReturnKeepsDissolvingCrossArmStructured()
     {
         var (function, output) = GeneratedFixtureRunner.RunWithMaterializedFixtures(
