@@ -142,6 +142,26 @@ public sealed record NavigationPackageEvaluation
 }
 
 /// <summary>
+/// An exact retained occurrence whose current owner-issued realization is
+/// Pending or Failed. It supplies no ready Package binding or artifact grant.
+/// </summary>
+public sealed record NavigationNonReadyPackageEvaluation
+{
+    public NavigationNonReadyPackageEvaluation(WorkspacePackageOccurrenceDescriptor occurrence)
+    {
+        ArgumentNullException.ThrowIfNull(occurrence);
+        if (occurrence.Realization.Status is not ArtifactRootRealizationStatus.Pending
+            and not ArtifactRootRealizationStatus.Failed)
+        {
+            throw new ArgumentException("Non-ready evaluation requires Pending or Failed status.", nameof(occurrence));
+        }
+        Occurrence = occurrence;
+    }
+
+    public WorkspacePackageOccurrenceDescriptor Occurrence { get; }
+}
+
+/// <summary>
 /// One exact retained Package and contiguous structural context beneath it.
 /// </summary>
 public sealed record NavigationRetainedSubjectContext
@@ -252,6 +272,11 @@ public sealed record NavigationLensDescriptor(
     NavigationDescriptorState State,
     bool IsEffective);
 
+/// <summary>Exact descendant-pair availability retained as semantic evidence, not a transport action.</summary>
+public sealed record NavigationDescendantLensDescriptor(
+    DescendantSubjectLensRequest Request,
+    ViewFacetOption Option);
+
 /// <summary>
 /// Complete stateless Navigation state over one explicit Workspace evaluation.
 /// </summary>
@@ -271,7 +296,8 @@ public sealed class NavigationWorkspaceSnapshot
         ImmutableArray<NavigationMemberDescriptor> members,
         ImmutableArray<NavigationLensDescriptor> lenses,
         NavigationLensOutcome lensOutcome,
-        NavigationSubjectInventory? inventory)
+        NavigationSubjectInventory? inventory,
+        ImmutableArray<NavigationDescendantLensDescriptor> descendantLenses = default)
     {
         Scope = scope;
         Workspace = workspace;
@@ -287,6 +313,7 @@ public sealed class NavigationWorkspaceSnapshot
         Lenses = lenses;
         LensOutcome = lensOutcome;
         Inventory = inventory;
+        DescendantLenses = descendantLenses.IsDefault ? [] : descendantLenses;
     }
 
     public WorkspaceScopeSnapshot Scope { get; }
@@ -316,6 +343,8 @@ public sealed class NavigationWorkspaceSnapshot
     public NavigationLensOutcome LensOutcome { get; }
 
     public NavigationSubjectInventory? Inventory { get; }
+
+    public ImmutableArray<NavigationDescendantLensDescriptor> DescendantLenses { get; }
 }
 
 /// <summary>Inputs for one pure stateless Navigation snapshot evaluation.</summary>
@@ -338,9 +367,41 @@ public delegate IViewFacetAvailabilityFacts NavigationFacetAvailabilityProvider(
     StructuralSubjectIdentity subject,
     NavigationSubjectInventory? inventory);
 
+internal sealed record NavigationWorkspaceRefreshResult(
+    NavigationWorkspaceSnapshot Snapshot,
+    NavigationTypeInventoryOutcome? IncompleteInventory = null);
+
 /// <summary>Pure composition of one complete Workspace-rooted snapshot.</summary>
 public static class NavigationWorkspaceSnapshotEvaluation
 {
+    internal static NavigationWorkspaceSnapshot WithDescendantLenses(
+        NavigationWorkspaceSnapshot source,
+        ViewFacetRegistry registry,
+        NavigationFacetAvailabilityProvider availability)
+    {
+        var descriptors = ImmutableArray.CreateBuilder<NavigationDescendantLensDescriptor>();
+        IEnumerable<StructuralSubjectIdentity> destinations = source.Types
+            .Select(row => (StructuralSubjectIdentity)row.Row.Subject)
+            .Concat(source.Members.Select(row => row.Row.Subject))
+            .Distinct();
+        foreach (StructuralSubjectIdentity destination in destinations)
+        {
+            if (!NavigationDescendantLensEvaluation.IsEligibleDescendant(source, source.ActiveSubject, destination))
+                continue;
+            foreach (ViewFacetOption option in registry.Discover(
+                ViewFacetTarget.ForSubject(destination), availability(destination, source.Inventory)))
+            {
+                descriptors.Add(new(
+                    new(source.ActiveSubject, new(destination, option.Descriptor.Id)), option));
+            }
+        }
+        return new(
+            source.Scope, source.Workspace, source.ActiveOccurrence, source.ActiveSubject,
+            source.RetainedContext, source.TypeInventoryLibraryContext, source.Packages,
+            source.Hierarchy, source.Libraries, source.Types, source.Members, source.Lenses,
+            source.LensOutcome, source.Inventory, descriptors.ToImmutable());
+    }
+
     public static NavigationWorkspaceSnapshot Evaluate(
         NavigationWorkspaceSnapshotRequest request,
         ViewFacetRegistry registry,
@@ -541,6 +602,221 @@ public static class NavigationWorkspaceSnapshotEvaluation
             lensOutcome);
     }
 
+    internal static NavigationWorkspaceSnapshot WithSubject(
+        NavigationWorkspaceSnapshot source,
+        StructuralSubjectIdentity subject,
+        ViewFacetRegistry registry,
+        NavigationFacetAvailabilityProvider availability)
+    {
+        if (subject.Workspace != source.Workspace
+            || subject != source.Workspace && !SubjectExists(source, subject))
+        {
+            throw new ArgumentException(
+                "The subject must occur in the exact evaluated snapshot.",
+                nameof(subject));
+        }
+        if (subject == source.ActiveSubject)
+            return source;
+
+        NavigationRetainedSubjectContext? context = source.RetainedContext;
+        if (subject != source.Workspace
+            && subject != context?.Package
+            && subject != context?.Library
+            && subject != context?.Type
+            && subject != context?.Member)
+        {
+            context = ContextFor(subject);
+        }
+        NavigationNonReadyPackageEvaluation? nonReady = NonReadyPackage(source);
+        NavigationWorkspaceSnapshot selected = WithContext(
+            source, subject, context, null, registry,
+            nonReady is null ? availability : (target, _) => availability(target, null));
+        return nonReady is null ? selected : WithNonReadyPackage(selected, source.Scope, nonReady);
+    }
+
+    internal static NavigationWorkspaceSnapshot WithLensOutcome(
+        NavigationWorkspaceSnapshot source,
+        NavigationLensOutcome outcome,
+        ViewFacetRegistry registry,
+        NavigationFacetAvailabilityProvider availability) =>
+        WithContext(
+            source, source.ActiveSubject, source.RetainedContext,
+            outcome, registry, availability);
+
+    internal static NavigationWorkspaceRefreshResult Refresh(
+        NavigationWorkspaceSnapshot source,
+        WorkspaceScopeSnapshot scope,
+        NavigationPackageEvaluation? package,
+        ViewFacetRegistry registry,
+        NavigationFacetAvailabilityProvider availability,
+        NavigationNonReadyPackageEvaluation? nonReadyPackage = null)
+    {
+        if (scope.Revision.Workspace != source.Workspace.Identity)
+            throw new ArgumentException("Refresh requires the exact Workspace.", nameof(scope));
+        if (nonReadyPackage is not null)
+        {
+            if (package is not null)
+                throw new ArgumentException("Ready and non-ready facts are mutually exclusive.", nameof(package));
+            return new(WithNonReadyPackage(source, scope, nonReadyPackage));
+        }
+
+        // Scope membership replacement/correspondence is a separate owner protocol.
+        // Ordinary refresh never selects a sibling occurrence.
+        NavigationWorkspaceSnapshot fresh = Evaluate(
+            new NavigationWorkspaceSnapshotRequest
+            {
+                Scope = scope,
+                Package = package,
+                ActiveSubject = source.Workspace,
+            },
+            registry,
+            availability);
+        NavigationRetainedSubjectContext? prior = source.RetainedContext;
+        NavigationRetainedSubjectContext? context = fresh.RetainedContext;
+        StructuralSubjectIdentity active = fresh.Workspace;
+        if (prior is not null && context?.Package == prior.Package)
+        {
+            NavigationTypeInventoryOutcome? retainedInventory =
+                fresh.Inventory?.Libraries.FirstOrDefault(row => row.Subject == prior.Library)?.Types;
+            if (prior.Type is not null && retainedInventory is { Evidence.IsEmpty: false }
+                && (!retainedInventory.Rows.Any(row => row.Subject == prior.Type)
+                    || prior.Member is not null && !retainedInventory.Rows
+                        .SelectMany(row => row.Members).Any(row => row.Subject == prior.Member)))
+            {
+                return new(source, retainedInventory);
+            }
+            StructuralSubjectIdentity fallback = context.Package;
+            StructuralSubjectIdentity? library = null;
+            StructuralSubjectIdentity.TypeSubject? type = null;
+            StructuralSubjectIdentity.MemberSubject? member = null;
+            if (prior.Library is not null)
+            {
+                library = fresh.Libraries.FirstOrDefault(row =>
+                    row.Subject == prior.Library)?.Subject
+                    ?? fresh.Libraries.FirstOrDefault(row =>
+                        row.Subject is StructuralSubjectIdentity.AllLibrariesSubject)?.Subject;
+                fallback = library ?? context.Package;
+            }
+            if (prior.Type is not null && library == prior.Library)
+            {
+                type = fresh.Types.FirstOrDefault(row =>
+                    row.Row.Subject == prior.Type)?.Row.Subject
+                    ?? fresh.Inventory?.InitialCandidates
+                        .Where(candidate => candidate.Subject == library)
+                        .SelectMany(candidate => candidate.Types)
+                        .OrderBy(candidate => candidate.Accessibility.IsDefault ? 0 : 1)
+                        .FirstOrDefault()?.Subject;
+                fallback = type ?? fallback;
+            }
+            if (prior.Member is not null && type == prior.Type)
+            {
+                member = fresh.Members.FirstOrDefault(row =>
+                    row.Row.Subject == prior.Member)?.Row.Subject;
+                fallback = member ?? fallback;
+            }
+            context = new NavigationRetainedSubjectContext(
+                context.Package, library, type, member);
+            active = source.ActiveSubject == source.Workspace
+                ? fresh.Workspace
+                : source.ActiveSubject == context.Package
+                    || source.ActiveSubject == library
+                    || source.ActiveSubject == type
+                    || source.ActiveSubject == member
+                    ? source.ActiveSubject
+                    : fallback;
+        }
+
+        NavigationLensOutcome? lens = null;
+        if (active == source.ActiveSubject
+            && source.LensOutcome.Basis is NavigationLensEvaluationBasis.ExactRequest exact)
+        {
+            NavigationLensActivationResult activation = NavigationLensActivation.Activate(
+                active, exact.Request, registry, availability(active, fresh.Inventory));
+            lens = activation switch
+            {
+                NavigationLensActivationResult.Applied result => result.Outcome,
+                NavigationLensActivationResult.Unavailable result => result.Outcome,
+                NavigationLensActivationResult.Failed result => result.Outcome,
+                NavigationLensActivationResult.Rejected
+                {
+                    Rejection: NavigationLensRejection.Registry rejected,
+                } => new NavigationLensOutcome.Unavailable(rejected.Basis),
+                _ => throw new InvalidOperationException("Invalid retained exact lens resolution."),
+            };
+        }
+        return new(WithContext(fresh, active, context, lens, registry, availability));
+    }
+
+    static NavigationNonReadyPackageEvaluation? NonReadyPackage(NavigationWorkspaceSnapshot snapshot)
+    {
+        WorkspacePackageOccurrenceDescriptor? occurrence = snapshot.Scope.Packages
+            .FirstOrDefault(row => row.Occurrence == snapshot.ActiveOccurrence);
+        return occurrence is not null && occurrence.Realization.Status is not ArtifactRootRealizationStatus.Ready
+            ? new(occurrence) : null;
+    }
+
+    static NavigationWorkspaceSnapshot WithNonReadyPackage(
+        NavigationWorkspaceSnapshot source,
+        WorkspaceScopeSnapshot scope,
+        NavigationNonReadyPackageEvaluation evaluation)
+    {
+        if (source.ActiveOccurrence != evaluation.Occurrence.Occurrence
+            || source.Scope.Revision.Identity != scope.Revision.Identity
+            || !source.Scope.Packages.Select(row => row.Occurrence)
+                .SequenceEqual(scope.Packages.Select(row => row.Occurrence))
+            || !scope.Packages.Any(row =>
+                row.Occurrence == source.ActiveOccurrence
+                && ReferenceEquals(row.Realization, evaluation.Occurrence.Realization)))
+        {
+            throw new ArgumentException(
+                "Non-ready refresh preserves exact occurrence membership and consumes its current realization.",
+                nameof(evaluation));
+        }
+        ArtifactRootRealizationStatus status = evaluation.Occurrence.Realization.Status;
+        NavigationDescriptorState state = status is ArtifactRootRealizationStatus.Pending
+            ? NavigationDescriptorState.Pending : NavigationDescriptorState.Failed;
+        bool workspaceActive = source.ActiveSubject == source.Workspace;
+        return new(
+            scope, source.Workspace, source.ActiveOccurrence, source.ActiveSubject,
+            source.RetainedContext, source.TypeInventoryLibraryContext,
+            PackageDescriptors(scope),
+            [.. source.Hierarchy.Select(row => row.Kind == StructuralSubjectKind.Workspace
+                ? row : row with { State = state })],
+            [.. source.Libraries.Select(row => row with { State = state })],
+            [.. source.Types.Select(row => row with { State = state })],
+            [.. source.Members.Select(row => row with { State = state })],
+            workspaceActive ? source.Lenses :
+                [.. source.Lenses.Select(row => row with { State = state, Target = null, IsEffective = false })],
+            workspaceActive ? source.LensOutcome : new NavigationLensOutcome.Suspended(source.LensOutcome.Basis, status),
+            source.Inventory);
+    }
+
+    static NavigationWorkspaceSnapshot WithContext(
+        NavigationWorkspaceSnapshot source,
+        StructuralSubjectIdentity active,
+        NavigationRetainedSubjectContext? context,
+        NavigationLensOutcome? lens,
+        ViewFacetRegistry registry,
+        NavigationFacetAvailabilityProvider availability) =>
+        Compose(
+            source.Scope,
+            source.Workspace,
+            context?.Package.Occurrence,
+            active,
+            context,
+            source.Packages,
+            [
+                .. source.Libraries.Select(row => row with
+                {
+                    IsActive = row.Subject == active,
+                    IsRetained = row.Subject == context?.Library,
+                }),
+            ],
+            source.Inventory,
+            registry,
+            availability,
+            lens);
+
     static NavigationWorkspaceSnapshot Compose(
         WorkspaceScopeSnapshot scope,
         StructuralSubjectIdentity.WorkspaceSubject workspace,
@@ -554,6 +830,12 @@ public static class NavigationWorkspaceSnapshotEvaluation
         NavigationFacetAvailabilityProvider availability,
         NavigationLensOutcome? lensOutcome)
     {
+        if (lensOutcome is not null && lensOutcome.Basis.Subject != activeSubject)
+        {
+            throw new ArgumentException(
+                "The lens outcome must bind the exact active subject.",
+                nameof(lensOutcome));
+        }
         ImmutableArray<NavigationTypeDescriptor> types =
             inventory is null
                 ? []
@@ -607,12 +889,6 @@ public static class NavigationWorkspaceSnapshotEvaluation
             ?? NavigationLensRecommendation.Recommend(
                 activeSubject,
                 options);
-        if (outcome.Basis.Subject != activeSubject)
-        {
-            throw new ArgumentException(
-                "The lens outcome must bind the exact active subject.",
-                nameof(lensOutcome));
-        }
         ImmutableArray<NavigationLensDescriptor> lenses =
         [
             .. options.Select(option =>
@@ -699,23 +975,27 @@ public static class NavigationWorkspaceSnapshotEvaluation
                 nameof(package));
     }
 
-    static bool SubjectExists(
+    internal static bool SubjectExists(
         NavigationWorkspaceSnapshot snapshot,
         StructuralSubjectIdentity subject) =>
         subject switch
         {
+            StructuralSubjectIdentity.WorkspaceSubject workspace =>
+                workspace == snapshot.Workspace,
             StructuralSubjectIdentity.PackageSubject package =>
-                package.Occurrence == snapshot.ActiveOccurrence,
+                package.Occurrence == snapshot.ActiveOccurrence
+                && snapshot.Packages.Any(row => row.Occurrence == package.Occurrence
+                    && row.State == NavigationDescriptorState.Available),
             StructuralSubjectIdentity.AllLibrariesSubject
                 or StructuralSubjectIdentity.LibrarySubject =>
                 snapshot.Libraries.Any(
-                    library => library.Subject == subject),
+                    library => library.Subject == subject && library.State == NavigationDescriptorState.Available),
             StructuralSubjectIdentity.TypeSubject =>
                 snapshot.Types.Any(
-                    type => type.Row.Subject == subject),
+                    type => type.Row.Subject == subject && type.State == NavigationDescriptorState.Available),
             StructuralSubjectIdentity.MemberSubject =>
                 snapshot.Members.Any(
-                    member => member.Row.Subject == subject),
+                    member => member.Row.Subject == subject && member.State == NavigationDescriptorState.Available),
             _ => false,
         };
 

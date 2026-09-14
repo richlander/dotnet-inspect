@@ -249,6 +249,62 @@ do not establish cardinality. Rendered Markdown is never parsed back into rows.
 Producers outside Markout, such as metadata tables, expose the same declared
 logical rows to L2 that their renderers consume.
 
+### Approved `vocabulary --json` compatibility boundary
+
+The CLI host's plain, unprojected `vocabulary --json` path is an approved
+bounded exception to ordinary Markout lowering. Its typed input is the selected
+owner-issued `VocabularySection` sequence plus the catalog schema version, and
+its lowering boundary is `VocabularyWireDocument` through the generated
+`VocabularyWireJsonContext` or `VocabularyWireCompactJsonContext`. The visible
+result is the established schema-versioned document containing section
+metadata, accepted-command identities, field schemas, operators, and typed
+value cells.
+
+This boundary exists because the lowered Markout table shape intentionally
+contains display rows, not the catalog's schema and typed values. Moving this
+path through Markout would discard that information or change the public wire
+contract. The exception is limited to this CLI host and plain unprojected
+`--json`; Markdown, plain text, table, TSV, JSONL, and projected JSON serialize
+one typed `VocabularyView` through `VocabularyViewContext`. The Release gates
+are
+`VocabularyCommandTests.JsonSerialization_PreservesWireShapeAcrossIndentationModes`,
+`Command_JsonCarriesTypedSchemaAndValues`,
+`Command_DefaultRendersTheSelfDescribingSectionIndex`,
+`Command_PlainTextUsesThePlainTextFormatter`,
+`Command_JsonlUsesProjectedRuntimeColumns`, and
+`Command_PartialMachineKeyProjectionKeepsSectionIdentityAcrossFormats`.
+The focused adoption is tracked by
+[#6811](https://github.com/richlander/dotnet-inspect/issues/6811).
+
+### Approved cache JSON compatibility boundary
+
+The CLI host's `cache --json` and `cache --jsonl` paths are an approved bounded
+exception to ordinary Markout lowering. Their typed input is the owner-issued
+`PackageCacheService.CacheInfo` snapshot, and their lowering boundary is
+`CacheInfoJson` through the generated `CacheInfoJsonContext`. Both formats
+expose one object containing the active cache `location`, formatted `total`,
+and a `categories` array whose rows contain `name`, `size`, and `items`.
+JSONL emits that complete object as exactly one line. An empty cache retains the
+same object shape with `categories: []`.
+
+This boundary exists because generated Markout list sections do not emit an
+empty section, so lowered JSON cannot preserve the required empty array.
+Ordinary Markout JSONL would instead emit one object per category row and
+discard the snapshot's location and total. The exception is limited to these
+two machine formats for cache inspection. Markdown, plain text, table, and TSV
+serialize `CacheInfoView` through `CacheInfoContext`; the empty human state
+serializes `EmptyCacheInfoView` through the same generated context. The scalar
+acknowledgements from `cache clear` expose no format selection and are not a
+cache inspection document.
+
+The Release gates are
+`CacheCommandTests.EmptyCacheInfoView_DocumentFormatsRenderExactMessage`,
+`ExecuteAsync_EmptyCache_JsonFormat_EmitsValidJson`,
+`ExecuteAsync_EmptyCache_JsonlFormat_EmitsSingleValidLine`, and
+`ExecuteAsync_PopulatedCache_JsonAndJsonlPreserveOneRecordContract`. The
+focused adoption is tracked by
+[#6833](https://github.com/richlander/dotnet-inspect/issues/6833).
+
 An incomplete comparison is not narrowed into a clean result. Diff document
 formats include typed inspection-failure rows. Single-shape diff formats
 (`--table`, `--tsv`, `--jsonl`, and `--name-only`) cannot append a second

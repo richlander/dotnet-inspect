@@ -218,7 +218,7 @@ public static class NavigationDescendantLensEvaluation
                 activation: null);
     }
 
-    static bool IsEligibleDescendant(
+    internal static bool IsEligibleDescendant(
         NavigationWorkspaceSnapshot snapshot,
         StructuralSubjectIdentity source,
         StructuralSubjectIdentity destination) =>
@@ -228,20 +228,23 @@ public static class NavigationDescendantLensEvaluation
                 StructuralSubjectIdentity.LibrarySubject library,
                 StructuralSubjectIdentity.TypeSubject type) =>
                 type.Library == library
-                && snapshot.Types.Any(row => row.Row.Subject == type),
+                && snapshot.Types.Any(row => row.Row.Subject == type
+                    && row.State == NavigationDescriptorState.Available),
             (
                 StructuralSubjectIdentity.AllLibrariesSubject libraries,
                 StructuralSubjectIdentity.TypeSubject type) =>
                 type.Library.Package == libraries.Package
                 && snapshot.Libraries.Any(row =>
-                    row.Subject == type.Library)
-                && snapshot.Types.Any(row => row.Row.Subject == type),
+                    row.Subject == type.Library && row.State == NavigationDescriptorState.Available)
+                && snapshot.Types.Any(row => row.Row.Subject == type
+                    && row.State == NavigationDescriptorState.Available),
             (
                 StructuralSubjectIdentity.TypeSubject type,
                 StructuralSubjectIdentity.MemberSubject member) =>
                 member.DeclaringType == type
                 && snapshot.Types.Any(row =>
                     row.Row.Subject == type
+                    && row.State == NavigationDescriptorState.Available
                     && row.Row.Members.Any(candidate =>
                         candidate.ContainingType == type
                         && candidate.Subject == member)),
