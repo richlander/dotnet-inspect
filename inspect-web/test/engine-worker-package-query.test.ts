@@ -106,6 +106,33 @@ const matchEvent: EngineWorkerPackageQueryDurableEvent = {
     producer: "nuget-gallery",
     description: "A test package.",
     rootRequest: "root1:Contoso.Library@1.2.3",
+    owners: ["Contoso"],
+    manifest: {
+      packageId: "Contoso.Library",
+      version: "1.2.3",
+      manifestVersion: "nuspec",
+      description: "A test package.",
+      authors: "Contoso",
+      repository: "https://example.test/contoso/library",
+      repositoryType: "git",
+      repositoryCommit: "0123456789abcdef",
+      license: "MIT",
+      licenseUrl: "https://example.test/licenses/mit",
+      packageTypes: ["Dependency"],
+      isToolPackage: false,
+      readmeFile: "README.md",
+      dependencyGroups: [{
+        targetFramework: "net10.0",
+        dependencies: [{
+          id: "Contoso.Dependency",
+          versionRange: "[2.0.0,3.0.0)",
+        }],
+        isImplicitManifestGroup: false,
+      }],
+      iconFile: "icon.png",
+      iconUrl: "https://example.test/icon.png",
+      identityProvenance: "ExpectedCoordinate",
+    },
   },
   failure: null,
   completion: null,
@@ -122,6 +149,7 @@ const failureEvent: EngineWorkerPackageQueryDurableEvent = {
     producer: "manifest",
     kind: "ManifestAcquisition",
     message: "manifest unavailable",
+    manifestFailureReason: "InvalidDependencyContract",
   },
   completion: null,
   progress: null,
@@ -926,6 +954,43 @@ test("Package Query codecs reject terminal callbacks, malformed descriptors, and
       description: "x".repeat(1_048_577),
     },
   }).kind, "rejected");
+  assert.equal(engineWorkerPackageQueryDurableEvent.decode({
+    ...matchEvent,
+    row: {
+      ...matchEvent.row,
+      owners: "Contoso",
+    },
+  }).kind, "rejected");
+  assert.equal(engineWorkerPackageQueryDurableEvent.decode({
+    ...matchEvent,
+    row: {
+      ...matchEvent.row,
+      owners: Array.from({ length: 4_097 }, () => "Contoso"),
+    },
+  }).kind, "rejected");
+  assert.equal(engineWorkerPackageQueryDurableEvent.decode({
+    ...matchEvent,
+    row: {
+      ...matchEvent.row,
+      manifest: {
+        ...matchEvent.row.manifest!,
+        dependencyGroups: [{
+          ...matchEvent.row.manifest!.dependencyGroups[0]!,
+          dependencies: [{
+            id: "Contoso.Dependency",
+            versionRange: 2,
+          }],
+        }],
+      },
+    },
+  }).kind, "rejected");
+  assert.equal(engineWorkerPackageQueryDurableEvent.decode({
+    ...failureEvent,
+    failure: {
+      ...failureEvent.failure,
+      manifestFailureReason: "UnknownReason",
+    },
+  }).kind, "rejected");
 
   const accessor = { ...matchEvent };
   Object.defineProperty(accessor, "row", {
@@ -935,6 +1000,34 @@ test("Package Query codecs reject terminal callbacks, malformed descriptors, and
     engineWorkerPackageQueryDurableEvent.decode(accessor).kind,
     "rejected",
   );
+});
+
+test("Package Query Worker accepts owner maximum manifest collections", () => {
+  const result = engineWorkerPackageQueryDurableEvent.decode({
+    ...matchEvent,
+    row: {
+      ...matchEvent.row,
+      owners: Array.from({ length: 4_096 }, () => "Contoso"),
+      manifest: {
+        ...matchEvent.row.manifest!,
+        packageTypes: Array.from({ length: 128 }, () => "Dependency"),
+        dependencyGroups: Array.from(
+          { length: 1_024 },
+          (_group, groupIndex) => ({
+            targetFramework: `net10.0-${groupIndex}`,
+            dependencies: Array.from(
+              { length: 4 },
+              (_dependency, dependencyIndex) => ({
+                id: `Dependency.${groupIndex}.${dependencyIndex}`,
+                versionRange: "[1.0.0,2.0.0)",
+              })),
+            isImplicitManifestGroup: false,
+          })),
+      },
+    },
+  });
+
+  assert.equal(result.kind, "decoded");
 });
 
 test("Package Query inspection accepts the maximum valid event scale", () => {

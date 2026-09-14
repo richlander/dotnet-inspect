@@ -6,6 +6,7 @@ import type {
   BrowserPackageQueryEvidence,
   BrowserPackageQueryEvidenceSummary,
   BrowserPackageQueryFailure,
+  BrowserPackageQueryManifest,
   BrowserPackageQueryProgress,
   BrowserPackageQueryResult,
   BrowserPackageQueryRow,
@@ -39,6 +40,18 @@ const engineWorkerPackageQueryKind = "package-query";
 const maximumRequestCharacters = 1_048_576;
 const maximumEventCharacters = 1_048_576;
 const maximumCollectionItems = 4_096;
+const maximumOwnerItems = 4_096;
+// Match the PackageManifestFactsQuery owner limits while retaining the
+// pre-existing event budget for evidence and evidence previews.
+const maximumManifestPackageTypes = 128;
+const maximumManifestDependencyGroups = 1_024;
+const maximumManifestDependencies = 4_096;
+const maximumEventCollectionItems =
+  maximumCollectionItems
+  + maximumOwnerItems
+  + maximumManifestPackageTypes
+  + maximumManifestDependencyGroups
+  + maximumManifestDependencies;
 const maximumDiagnosticCharacters = 64 * 1024;
 // A 10,000-candidate query can emit one progress and one match/failure event
 // per candidate, plus search progress and terminal completion.
@@ -50,6 +63,10 @@ type PackageQueryEvidenceScope =
   Extract<BrowserPackageQueryEvidence["scope"], string>;
 type PackageQueryFailureKind =
   Extract<BrowserPackageQueryFailure["kind"], string>;
+type PackageQueryManifestFailureReason =
+  Extract<BrowserPackageQueryFailure["manifestFailureReason"], string>;
+type PackageQueryManifestIdentityProvenance =
+  Extract<BrowserPackageQueryManifest["identityProvenance"], string>;
 type PackageQueryProgressPhase =
   Extract<BrowserPackageQueryProgress["phase"], string>;
 type PackageQueryCompletionKind =
@@ -75,8 +92,12 @@ interface EngineWorkerPackageQueryRow
 }
 
 interface EngineWorkerPackageQueryFailure
-  extends Omit<BrowserPackageQueryFailure, "kind"> {
+  extends Omit<
+    BrowserPackageQueryFailure,
+    "kind" | "manifestFailureReason"
+  > {
   readonly kind: PackageQueryFailureKind;
+  readonly manifestFailureReason: PackageQueryManifestFailureReason | null;
 }
 
 interface EngineWorkerPackageQueryProgress
@@ -369,8 +390,9 @@ function stringArray(
   value: unknown,
   description: string,
   budget: PayloadBudget,
+  maximumItems = maximumCollectionItems,
 ): readonly string[] {
-  return arrayItems(value, description, budget).map((item, index) =>
+  return arrayItems(value, description, budget, maximumItems).map((item, index) =>
     text(item, `${description}[${index}]`, budget));
 }
 
@@ -513,6 +535,149 @@ function parseEvidence(
   };
 }
 
+function parseManifestDependency(
+  value: unknown,
+  budget: PayloadBudget,
+): BrowserPackageQueryManifest["dependencyGroups"][number]["dependencies"][number] {
+  const dependency = dataRecord(
+    value,
+    ["id", "versionRange"],
+    "Package Query manifest dependency",
+  );
+  return {
+    id: text(dependency.id, "Package Query dependency ID", budget),
+    versionRange: text(
+      dependency.versionRange,
+      "Package Query dependency version range",
+      budget),
+  };
+}
+
+function parseManifestDependencyGroup(
+  value: unknown,
+  budget: PayloadBudget,
+): BrowserPackageQueryManifest["dependencyGroups"][number] {
+  const group = dataRecord(
+    value,
+    ["targetFramework", "dependencies", "isImplicitManifestGroup"],
+    "Package Query manifest dependency group",
+  );
+  return {
+    targetFramework: text(
+      group.targetFramework,
+      "Package Query dependency target framework",
+      budget),
+    dependencies: arrayItems(
+      group.dependencies,
+      "Package Query manifest dependencies",
+      budget,
+      maximumManifestDependencies)
+      .map(item => parseManifestDependency(item, budget)),
+    isImplicitManifestGroup: booleanValue(
+      group.isImplicitManifestGroup,
+      "Package Query implicit manifest group"),
+  };
+}
+
+function parseManifest(
+  value: unknown,
+  budget: PayloadBudget,
+): BrowserPackageQueryManifest | null {
+  if (value === null) return null;
+  const manifest = dataRecord(value, [
+    "packageId",
+    "version",
+    "manifestVersion",
+    "description",
+    "authors",
+    "repository",
+    "repositoryType",
+    "repositoryCommit",
+    "license",
+    "licenseUrl",
+    "packageTypes",
+    "isToolPackage",
+    "readmeFile",
+    "dependencyGroups",
+    "iconFile",
+    "iconUrl",
+    "identityProvenance",
+  ], "Package Query manifest");
+  const identityProvenance: PackageQueryManifestIdentityProvenance = literal(
+    manifest.identityProvenance,
+    ["ExpectedCoordinate", "SelfAttested"] as const,
+    "Package Query manifest identity provenance");
+  return {
+    packageId: text(
+      manifest.packageId,
+      "Package Query manifest package ID",
+      budget),
+    version: text(
+      manifest.version,
+      "Package Query manifest version",
+      budget),
+    manifestVersion: text(
+      manifest.manifestVersion,
+      "Package Query manifest schema version",
+      budget),
+    description: nullableText(
+      manifest.description,
+      "Package Query manifest description",
+      budget),
+    authors: nullableText(
+      manifest.authors,
+      "Package Query manifest authors",
+      budget),
+    repository: nullableText(
+      manifest.repository,
+      "Package Query manifest repository",
+      budget),
+    repositoryType: nullableText(
+      manifest.repositoryType,
+      "Package Query manifest repository type",
+      budget),
+    repositoryCommit: nullableText(
+      manifest.repositoryCommit,
+      "Package Query manifest repository commit",
+      budget),
+    license: nullableText(
+      manifest.license,
+      "Package Query manifest license",
+      budget),
+    licenseUrl: nullableText(
+      manifest.licenseUrl,
+      "Package Query manifest license URL",
+      budget),
+    packageTypes: stringArray(
+      manifest.packageTypes,
+      "Package Query manifest package types",
+      budget,
+      maximumManifestPackageTypes),
+    isToolPackage: booleanValue(
+      manifest.isToolPackage,
+      "Package Query tool package value"),
+    readmeFile: nullableText(
+      manifest.readmeFile,
+      "Package Query manifest README file",
+      budget),
+    dependencyGroups: arrayItems(
+      manifest.dependencyGroups,
+      "Package Query manifest dependency groups",
+      budget,
+      maximumManifestDependencyGroups)
+      .map(item => parseManifestDependencyGroup(item, budget)),
+    iconFile: nullableText(
+      manifest.iconFile,
+      "Package Query manifest icon file",
+      budget),
+    iconUrl: nullableText(
+      manifest.iconUrl,
+      "Package Query manifest icon URL",
+      budget),
+    identityProvenance,
+  };
+}
+
 function parseRow(
   value: unknown,
   budget: PayloadBudget,
@@ -527,6 +692,8 @@ function parseRow(
     "producer",
     "description",
     "rootRequest",
+    "owners",
+    "manifest",
   ], "Package Query row");
   const verified = row.verified === null
     ? null
@@ -556,6 +723,12 @@ function parseRow(
       row.rootRequest,
       "Package Query Root request",
       budget),
+    owners: stringArray(
+      row.owners,
+      "Package Query owners",
+      budget,
+      maximumOwnerItems),
+    manifest: parseManifest(row.manifest, budget),
   };
 }
 
@@ -569,7 +742,21 @@ function parseFailure(
     "producer",
     "kind",
     "message",
+    "manifestFailureReason",
   ], "Package Query failure");
+  const manifestFailureReason = failure.manifestFailureReason === null
+    ? null
+    : literal(
+      failure.manifestFailureReason,
+      [
+        "MalformedXml",
+        "UnsupportedDocumentShape",
+        "IdentityMismatch",
+        "InvalidDependencyContract",
+        "ConfiguredLimitExceeded",
+        "InvalidIdentityContract",
+      ] as const,
+      "Package Query manifest failure reason");
   return {
     packageId: nullableText(
       failure.packageId,
@@ -601,6 +788,7 @@ function parseFailure(
       failure.message,
       "Package Query failure message",
       budget),
+    manifestFailureReason,
   };
 }
 
@@ -751,7 +939,7 @@ function parseEvent(
   ], "Package Query event");
   const budget = {
     remainingCharacters: maximumEventCharacters,
-    remainingItems: maximumCollectionItems,
+    remainingItems: maximumEventCollectionItems,
   };
   switch (event.kind) {
     case "Progress":

@@ -427,6 +427,8 @@ test("streamed metadata admission rejects unknown tiers, malformed metadata, and
     { ...toolMatchEvent.row!, verified: undefined },
     { ...toolMatchEvent.row!, description: undefined },
     { ...toolMatchEvent.row!, description: 123 },
+    { ...toolMatchEvent.row!, owners: "Contoso" },
+    { ...toolMatchEvent.row!, manifest: {} },
     { ...toolMatchEvent.row!, tier: "SearchMetadata", evidence: [] },
     {
       ...toolMatchEvent.row!,
@@ -468,7 +470,7 @@ test("streamed metadata admission rejects unknown tiers, malformed metadata, and
       createBrowserPackageQueryDataSource(engine).run(
         createQueryRequest("Contoso.*"),
         () => {}, () => {}, () => {}, new AbortController().signal),
-      /Unsupported package-query row tier|not a finite number|not a non-negative integer|not a boolean|not text|no evidence|Unknown package-query evidence scope|evidence preview was not an array/);
+      /Unsupported package-query row tier|not a finite number|not a non-negative integer|not a boolean|not text|no evidence|Unknown package-query evidence scope|evidence preview was not an array|owners were not an array|manifest package types were not an array/);
   }
 });
 
@@ -494,6 +496,33 @@ const toolMatchEvent: BrowserPackageQueryEvent = {
     verified: false,
     producer: "nuget.org",
     rootRequest: null,
+    owners: ["Contoso"],
+    manifest: {
+      packageId: "contoso.tool",
+      version: "2.0.0",
+      manifestVersion: "nuspec",
+      description: "Contoso tool package.",
+      authors: "Contoso",
+      repository: "https://example.test/contoso/tool",
+      repositoryType: "git",
+      repositoryCommit: "0123456789abcdef",
+      license: "MIT",
+      licenseUrl: "https://example.test/licenses/mit",
+      packageTypes: ["DotnetTool"],
+      isToolPackage: true,
+      readmeFile: "README.md",
+      dependencyGroups: [{
+        targetFramework: "net10.0",
+        dependencies: [{
+          id: "Contoso.Dependency",
+          versionRange: "[1.0.0,2.0.0)",
+        }],
+        isImplicitManifestGroup: false,
+      }],
+      iconFile: "icon.png",
+      iconUrl: "https://example.test/icon.png",
+      identityProvenance: "ExpectedCoordinate",
+    },
   },
 };
 
@@ -747,6 +776,8 @@ test("Browser source keeps assembly matches and assessments distinct", async () 
           producer: "analysis.ldstr",
           description: null,
           rootRequest,
+          owners: [],
+          manifest: null,
         },
         failure: null,
         completion: null,
@@ -859,6 +890,8 @@ test("assembly match rows require the opaque Root request", async () => {
           producer: "analysis.ldstr",
           description: null,
           rootRequest: null,
+          owners: [],
+          manifest: null,
         },
         failure: null,
         completion: null,
@@ -896,6 +929,7 @@ test("Browser data source maps package-content rows and visible failures", async
       producer: "nuget.org",
       kind: "PackageContentEvaluation",
       message: "package content could not be evaluated",
+      manifestFailureReason: null,
     },
   };
   let candidateLimit = 0;
@@ -983,6 +1017,8 @@ test("Browser data source streams matches and failures before terminal completio
       verified: true,
       producer: "nuget.org",
       rootRequest: null,
+      owners: ["Microsoft"],
+      manifest: null,
     },
   };
   const failureEvent: BrowserPackageQueryEvent = {
@@ -997,6 +1033,7 @@ test("Browser data source streams matches and failures before terminal completio
       producer: "nuget.org",
       kind: "ManifestAcquisition",
       message: "manifest unavailable",
+      manifestFailureReason: null,
     },
   };
   const engine: BrowserPackageQueryEngine = {

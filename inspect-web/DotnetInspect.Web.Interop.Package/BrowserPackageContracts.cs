@@ -293,6 +293,41 @@ public sealed record BrowserPackageQueryEvidence(
     BrowserPackageQueryEvidenceScope Scope,
     BrowserPackageQueryEvidenceSummary? Summary);
 
+public sealed record BrowserPackageQueryDeclaredDependency(
+    string Id,
+    string VersionRange);
+
+public sealed record BrowserPackageQueryDeclaredDependencyGroup(
+    string TargetFramework,
+    BrowserPackageQueryDeclaredDependency[] Dependencies,
+    bool IsImplicitManifestGroup);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryManifestIdentityProvenance>))]
+public enum BrowserPackageQueryManifestIdentityProvenance
+{
+    ExpectedCoordinate,
+    SelfAttested,
+}
+
+public sealed record BrowserPackageQueryManifest(
+    string PackageId,
+    string Version,
+    string ManifestVersion,
+    string? Description,
+    string? Authors,
+    string? Repository,
+    string? RepositoryType,
+    string? RepositoryCommit,
+    string? License,
+    string? LicenseUrl,
+    string[] PackageTypes,
+    bool IsToolPackage,
+    string? ReadmeFile,
+    BrowserPackageQueryDeclaredDependencyGroup[] DependencyGroups,
+    string? IconFile,
+    string? IconUrl,
+    BrowserPackageQueryManifestIdentityProvenance IdentityProvenance);
+
 public sealed record BrowserPackageQueryRow(
     string PackageId,
     string Version,
@@ -302,7 +337,12 @@ public sealed record BrowserPackageQueryRow(
     bool? Verified,
     string Producer,
     string? Description = null,
-    string? RootRequest = null);
+    string? RootRequest = null)
+{
+    public string[] Owners { get; init; } = [];
+
+    public BrowserPackageQueryManifest? Manifest { get; init; }
+}
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryFailureKind>))]
 public enum BrowserPackageQueryFailureKind
@@ -318,12 +358,30 @@ public enum BrowserPackageQueryFailureKind
     AssemblyEvaluation,
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryManifestFailureReason>))]
+public enum BrowserPackageQueryManifestFailureReason
+{
+    MalformedXml,
+    UnsupportedDocumentShape,
+    IdentityMismatch,
+    InvalidDependencyContract,
+    ConfiguredLimitExceeded,
+    InvalidIdentityContract,
+}
+
 public sealed record BrowserPackageQueryFailure(
     string? PackageId,
     string? Version,
     string Producer,
     BrowserPackageQueryFailureKind Kind,
-    string Message);
+    string Message)
+{
+    public BrowserPackageQueryManifestFailureReason? ManifestFailureReason
+    {
+        get;
+        init;
+    }
+}
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryProgressPhase>))]
 public enum BrowserPackageQueryProgressPhase

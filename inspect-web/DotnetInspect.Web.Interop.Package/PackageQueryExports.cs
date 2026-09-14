@@ -485,7 +485,13 @@ namespace DotnetInspect.Web.Interop.Package
                         match.Value.Package.TotalDownloads,
                         match.Value.Package.Verified,
                         match.Value.Package.Source.Producer.Display.ToString(),
-                        match.Value.Package.Description),
+                        match.Value.Package.Description)
+                    {
+                        Owners = [.. match.Value.Package.Owners],
+                        Manifest = match.Value.Package.Manifest is { } manifest
+                            ? Project(manifest)
+                            : null,
+                    },
                     Failure: null,
                     Completion: null),
             PackageQueryEvent.Failure failure =>
@@ -515,7 +521,28 @@ namespace DotnetInspect.Web.Interop.Package
                             _ => throw new InvalidOperationException(
                                 "Unknown package-query failure kind."),
                         },
-                        failure.Value.Message),
+                        failure.Value.Message)
+                    {
+                        ManifestFailureReason =
+                            failure.Value.ManifestFailureReason switch
+                            {
+                                PackageManifestFailureReason.MalformedXml =>
+                                    BrowserPackageQueryManifestFailureReason.MalformedXml,
+                                PackageManifestFailureReason.UnsupportedDocumentShape =>
+                                    BrowserPackageQueryManifestFailureReason.UnsupportedDocumentShape,
+                                PackageManifestFailureReason.IdentityMismatch =>
+                                    BrowserPackageQueryManifestFailureReason.IdentityMismatch,
+                                PackageManifestFailureReason.InvalidDependencyContract =>
+                                    BrowserPackageQueryManifestFailureReason.InvalidDependencyContract,
+                                PackageManifestFailureReason.ConfiguredLimitExceeded =>
+                                    BrowserPackageQueryManifestFailureReason.ConfiguredLimitExceeded,
+                                PackageManifestFailureReason.InvalidIdentityContract =>
+                                    BrowserPackageQueryManifestFailureReason.InvalidIdentityContract,
+                                null => null,
+                                _ => throw new InvalidOperationException(
+                                    "Unknown package-manifest failure reason."),
+                            },
+                    },
                     Completion: null),
             PackageQueryEvent.Completed completed =>
                 new BrowserPackageQueryEvent(
@@ -555,6 +582,46 @@ namespace DotnetInspect.Web.Interop.Package
                 _ => throw new InvalidOperationException(
                     "Unknown package-query event."),
             };
+
+        private static BrowserPackageQueryManifest Project(
+            PackageManifestFacts manifest) =>
+            new(
+                manifest.Coordinate.PackageId,
+                manifest.Coordinate.Version,
+                manifest.ManifestVersion,
+                manifest.Description?.ToString(),
+                manifest.Authors,
+                manifest.Repository,
+                manifest.RepositoryType,
+                manifest.RepositoryCommit,
+                manifest.License,
+                manifest.LicenseUrl,
+                [.. manifest.PackageTypes],
+                manifest.IsToolPackage,
+                manifest.ReadmeFile,
+                [
+                    .. manifest.DependencyGroups.Select(group =>
+                        new BrowserPackageQueryDeclaredDependencyGroup(
+                            group.TargetFramework,
+                            [
+                                .. group.Dependencies.Select(dependency =>
+                                    new BrowserPackageQueryDeclaredDependency(
+                                        dependency.Id,
+                                        dependency.VersionRange)),
+                            ],
+                            group.IsImplicitManifestGroup)),
+                ],
+                manifest.IconFile,
+                manifest.IconUrl,
+                manifest.IdentityProvenance switch
+                {
+                    PackageManifestIdentityProvenance.ExpectedCoordinate =>
+                        BrowserPackageQueryManifestIdentityProvenance.ExpectedCoordinate,
+                    PackageManifestIdentityProvenance.SelfAttested =>
+                        BrowserPackageQueryManifestIdentityProvenance.SelfAttested,
+                    _ => throw new InvalidOperationException(
+                        "Unknown package-manifest identity provenance."),
+                });
 
         internal static string Serialize(BrowserPackageQueryEvent queryEvent) =>
             JsonSerializer.Serialize(

@@ -31,8 +31,10 @@ outcome is explicitly non-projectable rather than a host-reconstructed URL.
 The internal event stream remains an execution mechanism for progressive
 Browser delivery, not the completed host-neutral handoff. The Browser facade
 retains a typed transport projection of the envelope's complete event content,
-Share outcome, and diagnostics through its Worker boundary; Browser state keeps
-that projection even though the current UI does not yet render Share metadata.
+including owners, manifest facts, declared dependencies, manifest identity
+provenance, and stable manifest-failure reasons, plus its Share outcome and
+diagnostics through the Worker boundary. Browser state keeps that projection
+even though the current UI does not yet render Share metadata.
 Package-content evaluation is product-gated to at most 20 candidates.
 `PackageQueryTests` is its Release gate;
 `PackageQueryPlanner_IsReachableFromBrowserConsumer` is the Browser consumer

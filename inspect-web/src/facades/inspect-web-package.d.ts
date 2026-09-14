@@ -9,6 +9,8 @@ export type BrowserPackageQueryEventKind = "Progress" | "Match" | "Failure" | "C
 export type BrowserPackageQueryEvidenceScope = "Package" | "Query" | number;
 export type BrowserPackageQueryFacetTier = "Nuspec" | "PackageContent" | "SearchMetadata" | "Assembly" | number;
 export type BrowserPackageQueryFailureKind = "Search" | "SearchContract" | "ManifestAcquisition" | "ManifestContract" | "InvalidManifest" | "PackageContentAcquisition" | "PackageContentEvaluation" | "AssemblyAcquisition" | "AssemblyEvaluation" | number;
+export type BrowserPackageQueryManifestFailureReason = "MalformedXml" | "UnsupportedDocumentShape" | "IdentityMismatch" | "InvalidDependencyContract" | "ConfiguredLimitExceeded" | "InvalidIdentityContract" | number;
+export type BrowserPackageQueryManifestIdentityProvenance = "ExpectedCoordinate" | "SelfAttested" | number;
 export type BrowserPackageQueryMatchCreditKind = "Granted" | "NotActive" | number;
 export type BrowserPackageQueryOperationFailureKind = "Expected" | "Unexpected" | number;
 export type BrowserPackageQueryProgressPhase = "Search" | "Manifest" | "PackageContent" | "Assembly" | number;
@@ -187,6 +189,15 @@ export interface BrowserPackageQueryCompletion {
     readonly notApplicable: number | null;
     readonly scope: string | null;
 }
+export interface BrowserPackageQueryDeclaredDependency {
+    readonly id: string;
+    readonly versionRange: string;
+}
+export interface BrowserPackageQueryDeclaredDependencyGroup {
+    readonly targetFramework: string;
+    readonly dependencies: ReadonlyArray<BrowserPackageQueryDeclaredDependency>;
+    readonly isImplicitManifestGroup: boolean;
+}
 export interface BrowserPackageQueryEvent {
     readonly kind: BrowserPackageQueryEventKind;
     readonly row: BrowserPackageQueryRow | null;
@@ -225,11 +236,31 @@ export interface BrowserPackageQueryFailure {
     readonly producer: string;
     readonly kind: BrowserPackageQueryFailureKind;
     readonly message: string;
+    readonly manifestFailureReason: BrowserPackageQueryManifestFailureReason | null;
 }
 export interface BrowserPackageQueryInspection {
     readonly content: ReadonlyArray<BrowserPackageQueryEvent>;
     readonly share: BrowserInspectionShare;
     readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
+}
+export interface BrowserPackageQueryManifest {
+    readonly packageId: string;
+    readonly version: string;
+    readonly manifestVersion: string;
+    readonly description: string | null;
+    readonly authors: string | null;
+    readonly repository: string | null;
+    readonly repositoryType: string | null;
+    readonly repositoryCommit: string | null;
+    readonly license: string | null;
+    readonly licenseUrl: string | null;
+    readonly packageTypes: ReadonlyArray<string>;
+    readonly isToolPackage: boolean;
+    readonly readmeFile: string | null;
+    readonly dependencyGroups: ReadonlyArray<BrowserPackageQueryDeclaredDependencyGroup>;
+    readonly iconFile: string | null;
+    readonly iconUrl: string | null;
+    readonly identityProvenance: BrowserPackageQueryManifestIdentityProvenance;
 }
 export interface BrowserPackageQueryMatchCreditResponse {
     readonly kind: BrowserPackageQueryMatchCreditKind;
@@ -260,6 +291,8 @@ export interface BrowserPackageQueryRow {
     readonly producer: string;
     readonly description: string | null;
     readonly rootRequest: string | null;
+    readonly owners: ReadonlyArray<string>;
+    readonly manifest: BrowserPackageQueryManifest | null;
 }
 export interface BrowserPackageSurface {
     readonly package: string;

@@ -145,7 +145,8 @@ public sealed class BrowserPackageQueryOperationsTests
             "1.0.0",
             source.Source,
             PackageQueryFailureKind.ManifestAcquisition,
-            "manifest unavailable");
+            "manifest unavailable",
+            PackageManifestFailureReason.InvalidDependencyContract);
         var summary = new PackageQuerySummary(
             new InertString(TextPolicy.Field, "Contoso."),
             source.Source,
@@ -172,7 +173,7 @@ public sealed class BrowserPackageQueryOperationsTests
         var profile = new PackageProfileMatch(
             "Contoso.Package",
             "1.0.0",
-            [],
+            ["Contoso", "Fabrikam"],
             42,
             Verified: true,
             source.Source,
@@ -181,17 +182,34 @@ public sealed class BrowserPackageQueryOperationsTests
                     "Contoso.Package",
                     "1.0.0"),
                 ManifestVersion: "nuspec",
-                Description: null,
-                Authors: null,
-                Repository: null,
-                RepositoryType: null,
-                RepositoryCommit: null,
-                License: null,
-                LicenseUrl: null,
-                PackageTypes: [],
-                IsToolPackage: false,
-                ReadmeFile: null,
-                DependencyGroups: []));
+                Description: new InertString(
+                    TextPolicy.Field,
+                    "Package description."),
+                Authors: "Contoso; Fabrikam",
+                Repository: "https://example.test/contoso/package",
+                RepositoryType: "git",
+                RepositoryCommit: "0123456789abcdef",
+                License: "MIT",
+                LicenseUrl: "https://example.test/licenses/mit",
+                PackageTypes: ["DotnetTool"],
+                IsToolPackage: true,
+                ReadmeFile: "README.md",
+                DependencyGroups:
+                [
+                    new DeclaredPackageDependencyGroup(
+                        "net10.0",
+                        [
+                            new DeclaredPackageDependency(
+                                "Contoso.Dependency",
+                                "[2.0.0,3.0.0)"),
+                        ]),
+                ])
+            {
+                IconFile = "icon.png",
+                IconUrl = "https://example.test/icon.png",
+                IdentityProvenance =
+                    PackageManifestIdentityProvenance.SelfAttested,
+            });
         BrowserPackageQueryEvent projectedMatch =
             BrowserPackageQueryOperations.Project(
                 new PackageQueryEvent.Match(
@@ -211,6 +229,9 @@ public sealed class BrowserPackageQueryOperationsTests
             projectedFailure.Failure!.Kind);
         Assert.Equal("manifest unavailable", projectedFailure.Failure.Message);
         Assert.Equal(
+            BrowserPackageQueryManifestFailureReason.InvalidDependencyContract,
+            projectedFailure.Failure.ManifestFailureReason);
+        Assert.Equal(
             expectedProducer,
             projectedFailure.Failure.Producer);
         Assert.Equal(
@@ -227,6 +248,46 @@ public sealed class BrowserPackageQueryOperationsTests
         Assert.Equal(
             expectedProducer,
             projectedMatch.Row!.Producer);
+        Assert.Equal(
+            ["Contoso", "Fabrikam"],
+            projectedMatch.Row.Owners);
+        BrowserPackageQueryManifest projectedManifest =
+            Assert.IsType<BrowserPackageQueryManifest>(
+                projectedMatch.Row.Manifest);
+        Assert.Equal("contoso.package", projectedManifest.PackageId);
+        Assert.Equal("1.0.0", projectedManifest.Version);
+        Assert.Equal("nuspec", projectedManifest.ManifestVersion);
+        Assert.Equal("Package description.", projectedManifest.Description);
+        Assert.Equal("Contoso; Fabrikam", projectedManifest.Authors);
+        Assert.Equal(
+            "https://example.test/contoso/package",
+            projectedManifest.Repository);
+        Assert.Equal("git", projectedManifest.RepositoryType);
+        Assert.Equal(
+            "0123456789abcdef",
+            projectedManifest.RepositoryCommit);
+        Assert.Equal("MIT", projectedManifest.License);
+        Assert.Equal(
+            "https://example.test/licenses/mit",
+            projectedManifest.LicenseUrl);
+        Assert.Equal(["DotnetTool"], projectedManifest.PackageTypes);
+        Assert.True(projectedManifest.IsToolPackage);
+        Assert.Equal("README.md", projectedManifest.ReadmeFile);
+        BrowserPackageQueryDeclaredDependencyGroup projectedGroup =
+            Assert.Single(projectedManifest.DependencyGroups);
+        Assert.Equal("net10.0", projectedGroup.TargetFramework);
+        Assert.False(projectedGroup.IsImplicitManifestGroup);
+        BrowserPackageQueryDeclaredDependency projectedDependency =
+            Assert.Single(projectedGroup.Dependencies);
+        Assert.Equal("Contoso.Dependency", projectedDependency.Id);
+        Assert.Equal("[2.0.0,3.0.0)", projectedDependency.VersionRange);
+        Assert.Equal("icon.png", projectedManifest.IconFile);
+        Assert.Equal(
+            "https://example.test/icon.png",
+            projectedManifest.IconUrl);
+        Assert.Equal(
+            BrowserPackageQueryManifestIdentityProvenance.SelfAttested,
+            projectedManifest.IdentityProvenance);
         Assert.Equal(
             BrowserPackageQueryEventKind.Progress,
             projectedProgress.Kind);
