@@ -56,7 +56,8 @@ It does not establish:
 - target-framework reduction from project or package inputs;
 - Workspace admission, call-graph population, dependency traversal, or host
   presentation; or
-- bare-library handoff, binding, forwarding, source, analysis, or
+- shared Library construction or ownership handoff, binding, forwarding,
+  source, analysis, or
   decompilation.
 
 ## Normative basis and real-asset evidence
@@ -545,7 +546,8 @@ counted step.
 
 After 5a and 5b:
 
-1. step 6 defines provenance-retaining bare-library handoff;
+1. step 6 adopts shared Library construction and ownership handoff in
+   PlatformHouse;
 2. steps 7 and 8 add target-bound indexing and documentation;
 3. step 9 adopts PlatformHouse in Workspace, reference resolution, call graphs,
    and dependency traversal;
