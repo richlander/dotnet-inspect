@@ -970,11 +970,11 @@ does. The opt-in profile also records per-pass changes for feature coverage;
 the other profiles remain unstaged. This parity is limited to completeness:
 validity and fidelity measurements retain their own pipeline configuration.
 
-The default corpus fidelity oracle is `rts-cutover`: it independently selects
-the target population, runs native RTS first without a compile-back floor, and
-records legacy compile-back afterward only as per-row comparison evidence. No
-separate nightly legacy run is needed for real-world comparison because each
-daily Deep Inspect cutover snapshot already carries both verdicts.
+The default corpus fidelity oracle is `rts-native`: it independently selects
+the target population and runs native RTS without a compile-back floor or a
+legacy reference pass. The daily Deep Inspect real-world census explicitly
+selects `rts-cutover`, which runs legacy compile-back afterward on the same
+stable identities and retains both verdicts in its paired baseline ledger.
 Direct `--fidelity-check` and compile-back fixture gates are unchanged; they
 remain explicit consumers until later #6199 adoption and retirement slices.
 
@@ -983,13 +983,21 @@ comparisons or when replaying a baseline that still owns the legacy oracle. The
 PR quick, classic state-machine, and net11 opt-in baselines remain pinned this
 way until their own measured migration slices.
 
-Use `--corpus-fidelity-oracle rts-parity` (`return-to-sender` and `rts` remain
-aliases) for the legacy-selected transition population. It first selects the
-same bounded target population as compile-back, including getters, setters,
-constructors, and ordinary methods, then records native RTS outcomes under the
-existing method identity and fidelity-status contract. Snapshots name this mode
-`rts-parity`; diffing snapshots from different modes is rejected rather than
-presenting incomparable fidelity movement.
+Use `--corpus-fidelity-oracle rts-native` (`return-to-sender`, `rts`, and
+`native-rts` are aliases) for routine independently selected native evidence.
+It hash-selects exactly the requested cap from the corpus method inventory,
+runs native RTS with its compile-back floor disabled, and emits no
+`FidelityReference` rows or paired cutover metrics. A native run accepts at most
+one distinct positive `--corpus-fidelity-cap`; run separate invocations for cap
+comparisons so each snapshot retains its complete member ledger.
+
+Use `--corpus-fidelity-oracle rts-parity` for the legacy-selected transition
+population. It first selects the same bounded target population as compile-back,
+including getters, setters, constructors, and ordinary methods, then records
+native RTS outcomes under the existing method identity and fidelity-status
+contract. Snapshots name this mode `rts-parity`; diffing snapshots from
+different modes is rejected rather than presenting incomparable fidelity
+movement.
 
 The parity cap is therefore a legacy-selected population: methods for which
 compile-back returned `Exact`, `OpcodeDiff`, or `OperandDiff`, re-evaluated
@@ -1026,8 +1034,8 @@ on any `rts-parity` run to enforce the gate; a row present in the manifest but n
 longer failing is reported as `resolved` so the manifest can be trimmed on the
 next regeneration.
 
-Use `--corpus-fidelity-oracle rts-cutover` (`return-to-sender-cutover` and
-`native-rts` are aliases) for independently selected cutover evidence. Unlike
+Use `--corpus-fidelity-oracle rts-cutover` (`return-to-sender-cutover` is an
+alias) for scheduled paired cutover evidence. Unlike
 `rts-parity`, this mode hash-selects exactly the requested cap from the corpus
 method inventory before either compiler oracle runs. Native RTS runs first with
 its compile-back floor disabled; legacy compile-back then evaluates the same
@@ -1049,10 +1057,10 @@ eligible-method cap or an unexpected native failure occurs.
 
 The daily and manually dispatched Deep Inspect `census` lane uses this
 native-first mode for the baseline-gated real-world sensor and retains
-`corpus-snapshot.json` plus the bounded text report. Together with the general
-corpus default, this completes the current #6199 primary-consumer adoption
-slice. Standalone fidelity and the explicitly pinned legacy consumers remain
-separate cutover work.
+`corpus-snapshot.json` plus the bounded text report. Routine corpus runs use
+`rts-native` instead, so legacy compile-back comparison executes only when this
+paired mode is explicitly selected. Standalone fidelity and the explicitly
+pinned legacy consumers remain separate cutover work.
 
 Standalone `--fidelity-check` reports also print bounded examples for every
 non-success bucket: opcode and operand diffs include canonical opcode streams,
