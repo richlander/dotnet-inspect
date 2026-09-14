@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Runtime.ExceptionServices;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Analysis;
@@ -454,58 +455,85 @@ internal static class PackageAssemblySemanticFindQuery
                 ImmutableArray.CreateBuilder<
                     PackageAssemblySemanticFindOccurrence>();
 
-            for (int index = 0;
-                 index < request.Population.Candidates.Length;
-                 index++)
+            try
             {
                 ObserveCancellation();
-                PackageAcquisitionCandidate candidate =
-                    request.Population.Candidates[index];
-                ConfiguredPackagePayloadResult acquired =
-                    await sourceOperation.AcquireCandidatePayloadAsync(
-                        candidate,
-                        payloadAcquisition.GetStore,
-                        payloadAcquisition.Log,
-                        request.Budget.Payload,
-                        payloadAcquisition.TransferPolicy)
-                    .ConfigureAwait(false);
-                ObserveCancellation();
-
-                PackageAssemblySemanticFindCandidateOutcome outcome =
-                    await EvaluateCandidateAsync(
-                        index + 1,
-                        candidate,
-                        acquired,
-                        request,
-                        operationCancellation).ConfigureAwait(false);
-                outcomes.Add(outcome);
-                if (outcome
-                    is PackageAssemblySemanticFindCandidateOutcome.Matched
-                    matched)
+                for (int index = 0;
+                     index < request.Population.Candidates.Length;
+                     index++)
                 {
-                    PackageAssemblySelectedAssetContext selectedAsset =
-                        matched.Evaluation.SelectedAsset
-                        ?? throw new InvalidOperationException(
-                            "A matched candidate must retain its selected asset.");
-                    foreach (StringLiteralUseOccurrence occurrence in
-                             matched.Evaluation.Evidence.Occurrences)
+                    PackageAcquisitionCandidate candidate =
+                        request.Population.Candidates[index];
+                    ConfiguredPackagePayloadResult acquired =
+                        await sourceOperation.AcquireCandidatePayloadAsync(
+                            candidate,
+                            payloadAcquisition.GetStore,
+                            payloadAcquisition.Log,
+                            request.Budget.Payload,
+                            payloadAcquisition.TransferPolicy)
+                        .ConfigureAwait(false);
+                    ObserveCancellation();
+
+                    PackageAssemblySemanticFindCandidateOutcome outcome;
+                    try
                     {
-                        occurrences.Add(
-                            new(
-                                index + 1,
-                                candidate,
-                                selectedAsset,
-                                occurrence));
+                        outcome = await EvaluateCandidateAsync(
+                            index + 1,
+                            candidate,
+                            acquired,
+                            request,
+                            operationCancellation).ConfigureAwait(false);
                     }
-                }
+                    catch (OperationCanceledException failure)
+                    {
+                        Exception classified = ClassifyCancellation(
+                            failure,
+                            sourceOperation,
+                            callerCancellation);
+                        ExceptionDispatchInfo.Capture(classified).Throw();
+                        throw;
+                    }
+                    outcomes.Add(outcome);
+                    if (outcome
+                        is PackageAssemblySemanticFindCandidateOutcome.Matched
+                        matched)
+                    {
+                        PackageAssemblySelectedAssetContext selectedAsset =
+                            matched.Evaluation.SelectedAsset
+                            ?? throw new InvalidOperationException(
+                                "A matched candidate must retain its selected asset.");
+                        foreach (StringLiteralUseOccurrence occurrence in
+                                 matched.Evaluation.Evidence.Occurrences)
+                        {
+                            occurrences.Add(
+                                new(
+                                    index + 1,
+                                    candidate,
+                                    selectedAsset,
+                                    occurrence));
+                        }
+                    }
 
-                if (observer is not null)
-                {
-                    await observer.ObserveAsync(
-                        outcome,
-                        operationCancellation).ConfigureAwait(false);
+                    if (observer is not null)
+                    {
+                        await observer.ObserveAsync(
+                            outcome,
+                            operationCancellation).ConfigureAwait(false);
+                    }
+                    ObserveCancellation();
                 }
                 ObserveCancellation();
+            }
+            catch (OperationCanceledException failure)
+                when (failure.CancellationToken
+                    == operationCancellation)
+            {
+                Exception classified = ClassifyCancellation(
+                    failure,
+                    sourceOperation,
+                    callerCancellation);
+                ExceptionDispatchInfo.Capture(classified).Throw();
+                throw;
             }
 
             return new(
@@ -516,10 +544,50 @@ internal static class PackageAssemblySemanticFindQuery
             void ObserveCancellation()
             {
                 callerCancellation.ThrowIfCancellationRequested();
-                operationCancellation.ThrowIfCancellationRequested();
                 sourceOperation.ThrowIfExpired();
+                operationCancellation.ThrowIfCancellationRequested();
             }
         }
+    }
+
+    private static Exception ClassifyCancellation(
+        OperationCanceledException failure,
+        PackageSourceOperationLease sourceOperation,
+        CancellationToken callerCancellation)
+    {
+        if (callerCancellation.IsCancellationRequested)
+        {
+            return CopyExceptionData(
+                failure,
+                new OperationCanceledException(
+                    failure.Message,
+                    failure,
+                    callerCancellation));
+        }
+
+        try
+        {
+            sourceOperation.ThrowIfExpired();
+        }
+        catch (Exception classified)
+            when (classified
+                is OperationCanceledException
+                or NuGetOperationTimeoutException)
+        {
+            return CopyExceptionData(failure, classified);
+        }
+
+        return failure;
+    }
+
+    private static TException CopyExceptionData<TException>(
+        Exception source,
+        TException target)
+        where TException : Exception
+    {
+        foreach (object key in source.Data.Keys)
+            target.Data[key] = source.Data[key];
+        return target;
     }
 
     private static async Task<

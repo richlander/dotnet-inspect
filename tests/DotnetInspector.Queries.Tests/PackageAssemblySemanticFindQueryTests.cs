@@ -304,6 +304,87 @@ public sealed class PackageAssemblySemanticFindQueryTests
     }
 
     [Fact]
+    public async Task EmptyPopulationStillObservesCallerCancellation()
+    {
+        using var cancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                TestContext.Current.CancellationToken);
+        await using var fixture = new SourceFixture();
+        PackageSourceOperationLease operation =
+            fixture.IssueOperation(cancellation.Token);
+        var population = new PackageAcquisitionPopulation(
+            requestedCandidates: 1,
+            candidates: [],
+            failures:
+            [
+                PackageAcquisitionPopulationFailure.ForSource(
+                    new PackageAuthorityFailure(
+                        InertString.Empty,
+                        PackageAuthorityFailureKind.Configuration,
+                        "No package candidate was admitted.")),
+            ],
+            PackageAcquisitionPopulationCompletionKind.SourceFailed);
+        cancellation.Cancel();
+
+        OperationCanceledException failure =
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                async () =>
+                    await PackageAssemblySemanticFindInspection.ExecuteAsync(
+                        Request(population),
+                        operation,
+                        fixture.PayloadAcquisition,
+                        cancellation.Token));
+
+        Assert.Equal(cancellation.Token, failure.CancellationToken);
+        Assert.Throws<ObjectDisposedException>(
+            operation.ThrowIfExpired);
+    }
+
+    [Fact]
+    public async Task EmptyPopulationStillPreservesOperationTimeoutClassification()
+    {
+        await using var fixture = new SourceFixture();
+        TimeSpan timeout = TimeSpan.FromMilliseconds(20);
+        PackageSourceOperationLease operation =
+            fixture.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken,
+                operationTimeout: timeout);
+        var population = new PackageAcquisitionPopulation(
+            requestedCandidates: 1,
+            candidates: [],
+            failures:
+            [
+                PackageAcquisitionPopulationFailure.ForSource(
+                    new PackageAuthorityFailure(
+                        InertString.Empty,
+                        PackageAuthorityFailureKind.Timeout,
+                        "Package selection exhausted its operation deadline.")),
+            ],
+            PackageAcquisitionPopulationCompletionKind.SourceFailed);
+        var budget = new PackageAssemblySemanticFindBudget(
+            PackageAssemblySemanticFindBudget.Default.Payload,
+            new PackageAssemblyEvaluationBudget(
+                PackageAssemblyEvaluationBudget.Default.MaximumEntryBytes,
+                PackageAssemblyEvaluationBudget.Default
+                    .MaximumRetainedImageBytes,
+                PackageAssemblyEvaluationBudget.Default.SemanticBudget,
+                timeout));
+        await Task.Delay(
+            TimeSpan.FromMilliseconds(60),
+            TestContext.Current.CancellationToken);
+
+        await Assert.ThrowsAsync<NuGetOperationTimeoutException>(
+            async () =>
+                await PackageAssemblySemanticFindInspection.ExecuteAsync(
+                    Request(population, budget),
+                    operation,
+                    fixture.PayloadAcquisition,
+                    TestContext.Current.CancellationToken));
+        Assert.Throws<ObjectDisposedException>(
+            operation.ThrowIfExpired);
+    }
+
+    [Fact]
     public async Task CancellationDuringAcquisitionPublishesNoOutcomeAndReleasesOperation()
     {
         using var cancellation =
@@ -357,11 +438,12 @@ public sealed class PackageAssemblySemanticFindQueryTests
             await fixture.ResolvePopulationAsync(
                 operation,
                 ["Contoso.First", "Contoso.Second"]);
-        var observer = new RecordingObserver(
-            _ => cancellation.Cancel());
+        var observer =
+            new CallerCancellingObserver(cancellation);
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            async () =>
+        OperationCanceledException failure =
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                async () =>
                 await PackageAssemblySemanticFindInspection.ExecuteAsync(
                     Request(population),
                     operation,
@@ -369,6 +451,8 @@ public sealed class PackageAssemblySemanticFindQueryTests
                     observer,
                     cancellation.Token));
 
+        Assert.Equal(cancellation.Token, failure.CancellationToken);
+        Assert.Equal(42, failure.Data["fixture"]);
         Assert.Single(observer.Outcomes);
         Assert.Equal(
             "contoso.first",
@@ -513,13 +597,15 @@ public sealed class PackageAssemblySemanticFindQueryTests
     }
 
     private static PackageAssemblySemanticFindRequest Request(
-        PackageAcquisitionPopulation population) =>
+        PackageAcquisitionPopulation population,
+        PackageAssemblySemanticFindBudget? budget = null) =>
         new(
             population,
             PackageHouseTargetContext.Exact(Framework),
             PackageAssemblyPatterns.CreateRequest(
                 PackageAssemblyPatterns.StringLiteralContains,
-                Marker));
+                Marker),
+            budget);
 
     private static PackageAssemblyEvaluationOutcome Evaluation(
         PackageAssemblySemanticFindCandidateOutcome outcome) =>
@@ -558,6 +644,26 @@ public sealed class PackageAssemblySemanticFindQueryTests
             Outcomes.Add(outcome);
             observed?.Invoke(outcome);
             return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class CallerCancellingObserver(
+        CancellationTokenSource cancellation)
+        : IPackageAssemblySemanticFindObserver
+    {
+        internal List<PackageAssemblySemanticFindCandidateOutcome> Outcomes
+            { get; } = [];
+
+        public ValueTask ObserveAsync(
+            PackageAssemblySemanticFindCandidateOutcome outcome,
+            CancellationToken cancellationToken)
+        {
+            Outcomes.Add(outcome);
+            cancellation.Cancel();
+            var failure = new OperationCanceledException(
+                cancellationToken);
+            failure.Data["fixture"] = 42;
+            throw failure;
         }
     }
 
