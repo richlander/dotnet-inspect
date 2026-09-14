@@ -18,6 +18,10 @@ public readonly record struct ProjectionDestination(
 internal static class ProjectionDestinationWriter
 {
     public static bool ValidateBeforeAcquisition(ProjectionDestination destination)
+        => ValidateBeforeDestinationMutation(destination);
+
+    public static bool ValidateBeforeDestinationMutation(
+        ProjectionDestination destination)
     {
         if (!destination.ExactTransfer
             || !IsFile(destination)
