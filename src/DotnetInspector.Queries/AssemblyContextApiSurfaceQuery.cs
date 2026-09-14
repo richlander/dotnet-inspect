@@ -384,6 +384,21 @@ public static class AssemblyContextApiSurfaceQuery
         ApiSurfaceScope scope,
         ApiSurfaceProjectionLimits limits,
         IReadOnlyList<AssemblyContextParticipant>? participants = null)
+        => ExecuteBoundedCore(group, scope, limits, participants, resolveConstraints: false);
+
+    internal static AssemblyContextApiSurfaceResult ExecuteBoundedResolved(
+        AssemblyContextGroup group,
+        ApiSurfaceScope scope,
+        ApiSurfaceProjectionLimits limits,
+        IReadOnlyList<AssemblyContextParticipant> participants)
+        => ExecuteBoundedCore(group, scope, limits, participants, resolveConstraints: true);
+
+    static AssemblyContextApiSurfaceResult ExecuteBoundedCore(
+        AssemblyContextGroup group,
+        ApiSurfaceScope scope,
+        ApiSurfaceProjectionLimits limits,
+        IReadOnlyList<AssemblyContextParticipant>? participants,
+        bool resolveConstraints)
     {
         ArgumentNullException.ThrowIfNull(group);
         ArgumentNullException.ThrowIfNull(limits);
@@ -430,10 +445,23 @@ public static class AssemblyContextApiSurfaceQuery
                 limits.MaxMetadataRows - metadataRows,
                 limits.MaxRetainedTextCharacters - retainedTextCharacters);
             AssemblyContextEntry<ApiSurfaceExtractionResult> entry =
-                AssemblyContextQueryExecutor.ExecuteParticipant(
-                    group,
-                    participant,
-                    session => ProjectBounded(session, scope, bounds));
+                resolveConstraints
+                    ? AssemblyContextQueryExecutor.ExecuteParticipantOverSnapshot(
+                        group,
+                        participant,
+                        (_, snapshot) =>
+                        {
+                            using var catalog = new TypeResolutionCatalog();
+                            catalog.RegisterRetainedSnapshot(participant.Assembly, snapshot);
+                            using AssemblyInspectionSession session = AssemblyInspectionSession.Open(snapshot);
+                            return session.BoundedApiSurface(
+                                participant.Assembly, catalog, participant.BindingPolicy,
+                                ExtractionScope(scope), bounds);
+                        })
+                    : AssemblyContextQueryExecutor.ExecuteParticipant(
+                        group,
+                        participant,
+                        session => ProjectBounded(session, scope, bounds));
             walked++;
             if (entry is not AssemblyContextEntry<ApiSurfaceExtractionResult>.Available available)
             {
