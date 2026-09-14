@@ -193,6 +193,40 @@ public sealed class WorkspaceScopeSnapshot
     public ImmutableArray<WorkspacePackageOccurrenceDescriptor> Packages { get; }
     public WorkspaceClosureObservation Closure { get; }
     public WorkspaceScopePreparationDescriptor? Preparing { get; }
+
+    /// <summary>
+    /// Finds the exact Scope-issued occurrence corresponding to one acquired
+    /// Package binding.
+    /// </summary>
+    public WorkspacePackageOccurrenceDescriptor? FindPackageOccurrence(
+        PackageRootBinding binding)
+    {
+        ArgumentNullException.ThrowIfNull(binding);
+
+        PackageArtifactRootRequest request =
+            PackageArtifactRootRequest.From(binding);
+        WorkspacePackageOccurrenceDescriptor? match = null;
+        foreach (WorkspacePackageOccurrenceDescriptor package in Packages)
+        {
+            if (package.Occurrence.Correspondence
+                    is not PackageArtifactRootCorrespondence correspondence
+                || !correspondence.Matches(request))
+            {
+                continue;
+            }
+
+            if (match is not null)
+            {
+                throw new WorkspaceScopeInvariantException(
+                    this,
+                    ArtifactRootFailure.CompositionMismatch);
+            }
+
+            match = package;
+        }
+
+        return match;
+    }
 }
 
 public abstract record WorkspaceScopeReadResult
@@ -212,6 +246,7 @@ public enum WorkspaceScopeRejection
     ForeignWorkspace,
     RevisionMismatch,
     PackageCapacityExceeded,
+    PublicationBaseMismatch,
     Busy = 6,
     OccurrenceNotCurrent,
 }
