@@ -11,9 +11,11 @@ presentation is implemented in `DotnetInspector.Presentation`. The executable
 Release gates are in
 `tests/DotnetInspector.Queries.Tests/EcosystemChangeReportQueryTests.cs` and
 `tests/DotnetInspector.Presentation.Tests/EcosystemChangeReportPresentationTests.cs`.
-CLI and browser/Wasm adoption remain later delivery steps. Historical security
-changes remain unsupported because no owner supplies the required before/after
-evidence.
+The CLI production host adopts those contracts through
+`ecosystem <name> --changes`; its focused Release gates are in
+`tests/DotnetInspect.Cli.Tests/EcosystemChangesCommandTests.cs`. Browser/Wasm
+adoption remains a later delivery step. Historical security changes remain
+unsupported because no owner supplies the required before/after evidence.
 
 The **Ecosystem Change Report query** in `DotnetInspector.Queries` is the
 single normative owner. Its claim is:
@@ -209,6 +211,18 @@ candidate, receipt, and result bounds beside their reached states. Human labels
 are presentation only; hosts consume the typed document when category or
 completion meaning affects behavior.
 
+The CLI host exposes the report only through the explicit network-backed
+`ecosystem <name> --changes` gesture. It resolves the named ecosystem's exact
+product-owned `PackageSetId`; a pack without one fails rather than falling back
+to a namespace guess or all-NuGet scan. The host defaults to the query-owned
+42-day interval, accepts paired `--from`/`--through` timestamps for the same
+exclusive/inclusive bounds, maps `--security-only` to `SecurityRelevant`, and
+maps `-n` to the semantic result limit before execution. Markdown and plain
+text lower the shared Markout view; `--json` uses the shared lossless
+serializer. Catalog-only projections and single-table formats fail explicitly.
+`--verbose` reports bounded acquisition progress on stderr without
+contaminating stdout.
+
 Illustrative rendering, using synthetic package/evidence records:
 
 | Observed activity | Package | Version | Activity | Security evidence |
@@ -249,8 +263,11 @@ association, repeated activity, current context versus security-release
 evidence, `created` and `published` fallback receipt bases, out-of-window
 security facts, unavailable versus checked-empty data, take after predicates,
 ordering barriers and candidate bounds, provider failures, and cancellation
-after rows. CLI and browser adoption must still demonstrate equivalent
-semantic results and disclose their own publication timing.
+after rows. CLI adoption demonstrates the default and explicit intervals,
+exact package-set scope, security selection, structured and human output,
+ordinary source-horizon lag, unsupported option combinations, and a pack
+without executable scope. Browser adoption must still demonstrate equivalent
+semantic results and disclose its own publication timing.
 
 The shared-presentation Release gates run the real query over controlled NuGet
 Catalog and GitHub-reviewed-advisory responses, including
