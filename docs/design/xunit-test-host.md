@@ -281,6 +281,14 @@ outcome-level host gate without changing the suite's strict schema, graph
 classification, rule evaluation, non-vacuity, deterministic diagnostic,
 MSBuild graph, assembly-closure, or fail-closed boundary evidence.
 
+`DotnetInspector.MetadataRendering.Tests` is the twenty-second migrated
+adopter. Its required PR and developer commands remain unfiltered. These paths
+reuse the pinned outcome-level host gate without changing the suite's metadata
+projection, structured rendering, `mdi`, containment, untrusted-text, reference,
+or visible-failure evidence. The migration also retires the oversized-version
+fixture harness: metadata admission now rejects its invalid version length
+before rendering, and the Metadata owner separately gates that typed rejection.
+
 If the selected MTP version cannot produce the independent discovery and
 execution identities required by the decompiler completeness receipt, that
 suite remains on its transitional host until its owner has an equally strong
