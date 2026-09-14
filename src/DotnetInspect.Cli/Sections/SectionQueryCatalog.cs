@@ -71,7 +71,7 @@ public sealed record SectionQueryCatalog(
                     + (command == "library"
                         ? "Ranking and --top apply before rows are divided into performance kinds."
                         : "Execution requires a selected type or member."),
-                    PerformanceTriageOptions.QueryFacets));
+                    PerformanceTriageRowQuery.QueryFacets));
             }
             foreach (string section in BodyKindQueryOptions.Sections)
             {
@@ -86,7 +86,7 @@ public sealed record SectionQueryCatalog(
                         : "Other predicates, ordering, and --top cannot be combined with Kind."),
                     command == "library"
                         ? [BodyKindQueryOptions.QueryFacet,
-                            .. PerformanceTriageOptions.QueryFacets
+                            .. PerformanceTriageRowQuery.QueryFacets
                                 .Where(facet => facet.Operators.Contains("--where"))
                                 .Select(facet => facet with { Operators = ["--where"] })]
                         : [BodyKindQueryOptions.QueryFacet]));
