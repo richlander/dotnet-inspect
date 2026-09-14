@@ -6,6 +6,7 @@ using ILInspector.Research;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Speed", "Slow")]
 public class AllocationOccurrenceFactTests
 {
     static IReadOnlyList<IAnnotation> Classify(string methodName)

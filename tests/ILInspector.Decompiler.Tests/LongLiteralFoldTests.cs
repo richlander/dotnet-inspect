@@ -51,6 +51,7 @@ namespace ILInspector.Decompiler.Tests;
 /// (<see cref="FidelityCheck.EvaluateTargets(IReadOnlyList{string}, IReadOnlyList{FidelityCheck.CompileBackTarget}, bool, PrinterOptions?)"/>),
 /// not a harness-side reimplementation.</para>
 /// </summary>
+[Trait("Speed", "Slow")]
 [Trait("Area", "RoundTrip")]
 public sealed class LongLiteralFoldTests
 {
@@ -275,7 +276,6 @@ public sealed class LongLiteralFoldTests
     ];
 
     [Fact]
-    [Trait("Speed", "Slow")]
     public void FoldedOutput_CompilesBackExactly()
     {
         // The lens is byte-divergent as a CLASSIFICATION — a non-csc `ldc.i8 <small>`

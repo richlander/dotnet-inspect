@@ -26,6 +26,7 @@ namespace ILInspector.Decompiler.Tests;
 /// These tests lock the recovery, the honest factory-call fallback, and the honest
 /// degradation so none can silently regress.
 /// </summary>
+[Trait("Speed", "Slow")]
 public class ExpressionTreeFidelityTests
 {
     static IrFunction Raised(string methodName)

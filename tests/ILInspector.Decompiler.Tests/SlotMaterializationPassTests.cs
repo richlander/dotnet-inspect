@@ -56,6 +56,7 @@ public class SlotMaterializationPassTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     [Trait("Area", "Fidelity")]
     public void CompilerProducedPropertyConditionalRecompilesWithRetainedTemporary()
     {
