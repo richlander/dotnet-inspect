@@ -463,7 +463,7 @@ prereleases, over the first 200 candidates. Three spellings, one intent:
 rail      Microsoft.Extensions.*   [depends: Serilog]  [+ prerelease]
 CLI       package query "Microsoft.Extensions.*" \
             --where "depends=Serilog" --where "prerelease=include" --take 200
-intent    terms  (depends, eq, Serilog), (prefix, eq, Microsoft.Extensions.*),
+intent    terms  (depends, eq, Serilog), (prefix, eq, Microsoft.Extensions.),
                  (prerelease, eq, include)
           bounds (candidates, 200)
 ```
@@ -477,18 +477,28 @@ scope would run against a different population while looking like the one that
 was shared, so the scope is not optional context around the query; it is part of
 the query.
 
+Note what the term's value is. The host spellings say
+`Microsoft.Extensions.*`, but the terminal `*` is
+[input-selection](package-query-input-selection.md) grammar marking the text as
+a prefix, and the typed prefix it selects is `Microsoft.Extensions.` — which is
+what production lowering constructs and what the term carries. This is the
+general rule at work: L3 text lowers into intent and never round-trips out of
+it, so an intent records what the host *meant*, never how it was typed. Two
+hosts with different spelling conventions for the same typed prefix must produce
+the same bytes.
+
 Terms sort ordinally: `depends`, `prefix`, `prerelease`. There is no stage
 pipeline and no order, so `s` and `o` are omitted rather than emitted empty:
 
 ```json
-{"t":[["depends","eq","Serilog"],["prefix","eq","Microsoft.Extensions.*"],["prerelease","eq","include"]],"b":[["candidates",200]]}
+{"t":[["depends","eq","Serilog"],["prefix","eq","Microsoft.Extensions."],["prerelease","eq","include"]],"b":[["candidates",200]]}
 ```
 
 The packet tuple pairs those bytes with the vocabulary, and the share link
 carries that same pair:
 
 ```json
-["package.query",{"t":[["depends","eq","Serilog"],["prefix","eq","Microsoft.Extensions.*"],["prerelease","eq","include"]],"b":[["candidates",200]]}]
+["package.query",{"t":[["depends","eq","Serilog"],["prefix","eq","Microsoft.Extensions."],["prerelease","eq","include"]],"b":[["candidates",200]]}]
 ```
 
 Opening the link re-runs the request. It restores no rows, no counts, and no
@@ -501,7 +511,7 @@ the codec in the opposite order and produces identical bytes, so both people
 share one link and the packet deduplicates the two states into one:
 
 ```json
-{"t":[["depends","eq","Serilog"],["prefix","eq","Microsoft.Extensions.*"],["prerelease","eq","include"]],"b":[["candidates",200]]}
+{"t":[["depends","eq","Serilog"],["prefix","eq","Microsoft.Extensions."],["prerelease","eq","include"]],"b":[["candidates",200]]}
 ```
 
 Term sequence carries no meaning, so canonicalization removes it. Contrast the
