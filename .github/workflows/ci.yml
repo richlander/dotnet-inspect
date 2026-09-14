@@ -1055,7 +1055,7 @@ jobs:
       # classified Slow, but they define the complete shared Performance
       # Triage query path across library, type, and member scopes.
       - name: Run Performance Triage contract tests
-        if: matrix.shard == 'cli-rest'
+        if: matrix.shard == 'contracts'
         run: |
           dotnet run --project tests/DotnetInspect.Cli.Tests -c Release --no-build -- \
             --filter-method '*RenderTypeSectionsMarkdown_AppliesPerformanceTriagePlan*' \
