@@ -1047,11 +1047,12 @@ assembly, so the corpus run continues and exposes the matching legacy
 outcomes. The run fails when an assembly cannot supply the exact requested
 eligible-method cap or an unexpected native failure occurs.
 
-The on-demand Deep Inspect `census` lane uses this native-first mode for the
-baseline-gated real-world sensor and retains `corpus-snapshot.json` plus the
-bounded text report. This is the first #6199 step-5 primary-consumer adoption;
-the general corpus default and standalone fidelity command remain separate
-cutover work.
+The daily and manually dispatched Deep Inspect `census` lane uses this
+native-first mode for the baseline-gated real-world sensor and retains
+`corpus-snapshot.json` plus the bounded text report. Together with the general
+corpus default, this completes the current #6199 primary-consumer adoption
+slice. Standalone fidelity and the explicitly pinned legacy consumers remain
+separate cutover work.
 
 Standalone `--fidelity-check` reports also print bounded examples for every
 non-success bucket: opcode and operand diffs include canonical opcode streams,
