@@ -281,7 +281,8 @@ internal sealed class PackageRoleCompletionLifetime
             return new InspectionWorkspaceCoordinatedGroupCloseResult<
                 PackageRoleGroupCleanupRecord>(
                     registrationIndex,
-                    result);
+                    result,
+                    result is not PackageRoleGroupCleanupRecord.Failed);
         }
     }
 }
