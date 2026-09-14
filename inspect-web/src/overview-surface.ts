@@ -20,6 +20,11 @@ export interface PackageOverviewContentOptions {
   documentsHtml: string;
 }
 
+export interface LibraryOverviewContentOptions {
+  namespacesHtml: string;
+  typeKindsHtml: string;
+}
+
 export function renderPackageOverviewContent(
   options: PackageOverviewContentOptions,
 ): string {
@@ -28,6 +33,17 @@ export function renderPackageOverviewContent(
     <aside class="package-overview-resources" aria-label="Package resources">
       ${options.documentsHtml}
       ${options.comparisonHtml}
+    </aside>
+  </div>`;
+}
+
+export function renderLibraryOverviewContent(
+  options: LibraryOverviewContentOptions,
+): string {
+  return `<div class="library-overview-content">
+    <div class="library-overview-namespaces">${options.namespacesHtml}</div>
+    <aside class="library-overview-kinds" aria-label="Library composition">
+      ${options.typeKindsHtml}
     </aside>
   </div>`;
 }

@@ -43,6 +43,7 @@ import {
 import { renderMemberContractSections } from "../src/member-overview.ts";
 import { renderMemberFacts } from "../src/member-facts.ts";
 import {
+  renderLibraryOverviewContent,
   renderOverviewSurface,
   renderPackageOverviewContent,
 } from "../src/overview-surface.ts";
@@ -410,7 +411,7 @@ function detailHtml() {
   if (overviewMode) {
     const name = longMode
       ? `Example.${"LongNamespace.".repeat(12)}Library`
-      : "Example.Library";
+      : libraryOverviewMode ? "System.Text.Json" : "Example.Library";
     const libraries = emptyMode ? "" : Array.from(
       { length: longMode ? 30 : 2 },
       (_, index) => `<button class="library-row as-button" data-lib-scope="${name}${index}">
@@ -456,6 +457,43 @@ function detailHtml() {
       path: "README.md",
       size: 1024,
     }], escapeHtml);
+    const typeKindChips = longMode
+      ? `<button class="type-chip" data-kind-jump="class"><span class="ns-count">20</span>classes</button>
+        <button class="type-chip" data-kind-jump="struct"><span class="ns-count">8</span>structs</button>
+        <button class="type-chip" data-kind-jump="interface"><span class="ns-count">4</span>interfaces</button>`
+      : `<button class="type-chip" data-kind-jump="class"><span class="ns-count">47</span>classes</button>
+        <button class="type-chip" data-kind-jump="struct"><span class="ns-count">13</span>structs</button>
+        <button class="type-chip" data-kind-jump="interface"><span class="ns-count">5</span>interfaces</button>
+        <button class="type-chip" data-kind-jump="enum"><span class="ns-count">15</span>enums</button>
+        <button class="type-chip" data-kind-jump="delegate"><span class="ns-count">1</span>delegates</button>`;
+    const typeKindsHtml = `
+      <section class="document-section">
+        <div class="section-title"><h2>Type kinds</h2></div>
+        <div class="type-chip-list">${emptyMode
+          ? '<span class="empty-list">No public types.</span>'
+          : typeKindChips}</div>
+      </section>`;
+    const namespaceChips = emptyMode
+      ? '<span class="empty-list">No public namespaces.</span>'
+      : longMode
+        ? Array.from({ length: 30 },
+            (_, index) => `<button class="type-chip" data-namespace-jump="${name}${index}"><span class="ns-count">${index + 1}</span>${name}${index}</button>`)
+          .join("")
+        : [
+            ["System.Text.Json.Serialization", 40],
+            ["System.Text.Json", 20],
+            ["System.Text.Json.Serialization.Metadata", 12],
+            ["System.Text.Json.Nodes", 5],
+            ["System.Text.Json.Schema", 3],
+            ["System.Runtime.InteropServices", 1],
+          ].map(([namespace, count]) =>
+            `<button class="type-chip" data-namespace-jump="${namespace}"><span class="ns-count">${count}</span>${namespace}</button>`)
+          .join("");
+    const namespacesHtml = `
+      <section class="document-section">
+        <div class="section-title"><h2>Namespaces</h2><span>${emptyMode ? 0 : longMode ? 30 : 6} — click to filter</span></div>
+        <div class="type-chip-list">${namespaceChips}</div>
+      </section>`;
     return renderOverviewSurface({
       subject: packageOverviewMode ? "package" : "library",
       subjectLabel: packageOverviewMode ? "Package" : "Library",
@@ -467,8 +505,8 @@ function detailHtml() {
       packageId: "System.Text.Json",
       packageVersion: "10.0.0",
       activeFramework: "net10.0",
-      totalTypes: emptyMode ? 0 : 32,
-      totalMembers: emptyMode ? 0 : 1234,
+      totalTypes: emptyMode ? 0 : libraryOverviewMode && !longMode ? 81 : 32,
+      totalMembers: emptyMode ? 0 : libraryOverviewMode && !longMode ? 932 : 1234,
       coordinateFieldsHtml: packageOverviewMode ? `
         <label class="version-select"><span>Version</span><select id="package-version"><option>10.0.0</option><option>9.0.0</option></select></label>
         <label class="framework-select"><span>Framework</span><select id="framework"><option>net10.0</option><option>net10.0-windows10.0.19041.0</option></select></label>` : "",
@@ -478,16 +516,10 @@ function detailHtml() {
             comparisonHtml,
             documentsHtml,
           })
-        : `
-        <section class="document-section">
-          <div class="section-title"><h2>Public surface</h2></div>
-          <div class="type-chip-list"><button class="type-chip" data-kind-jump="class">32 classes</button></div>
-        </section>
-        <section class="document-section">
-          <div class="section-title"><h2>Namespaces</h2></div>
-          <div class="type-chip-list">${Array.from({ length: longMode ? 30 : 1 },
-            (_, index) => `<button class="type-chip" data-namespace-jump="${name}${index}">${name}${index}</button>`).join("")}</div>
-        </section>`,
+        : renderLibraryOverviewContent({
+            namespacesHtml,
+            typeKindsHtml,
+          }),
       escapeHtml,
     });
   }

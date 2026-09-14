@@ -1338,6 +1338,17 @@ kbd {
   margin-top: 24px;
   border-top: 1px solid var(--line);
 }
+.library-overview-content {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(260px, .6fr);
+  align-items: start;
+  gap: 32px;
+  padding: 0 16px 24px;
+}
+.library-overview-namespaces,
+.library-overview-kinds { min-width: 0; }
+.library-overview-content .document-section { padding-top: 24px; }
 .package-overview-resources .doc-chip {
   width: 100%;
 }
@@ -2340,7 +2351,8 @@ kbd {
 }
 
 @container overview-surface (max-width: 860px) {
-  .package-overview-content {
+  .package-overview-content,
+  .library-overview-content {
     grid-template-columns: minmax(0, 1fr);
     gap: 0;
   }
@@ -2392,6 +2404,7 @@ kbd {
   .overview-identity,
   .overview-scroll > .document-section,
   .package-overview-content,
+  .library-overview-content,
   .package-dependencies-scroll > .document-section,
   .package-dependencies-scroll > [data-dependency-graph-surface] > .document-section,
   .package-metadata-scroll > .document-section { padding-inline: 12px; }
