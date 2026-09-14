@@ -784,9 +784,19 @@ Long identifiers, asset paths, and document names remain contained without
 page-level horizontal overflow. Many rows scroll inside Overview while its
 header, any controls, and coordinates remain in place.
 
-Overview presents the already-loaded package. Existing acquisition loading,
-failure, and partial-package notices remain in their current host presentation;
-this placement change introduces no independent Overview query or state machine.
+Overview presents the already-loaded package. Changing its selected TFM keeps
+the package shell, inspected target, navigation, and data bar visible. Only the
+inspector content becomes busy, with a compact text-and-spinner status rather
+than the full-page bot interstitial. Pending content does not publish a new URL
+or expose the previous framework's results as the requested framework. Failure
+restores the previous content and TFM with the existing visible retry notice.
+Opening a new package or version retains the acquisition interstitial.
+`System.Text.Json@10.0.0`, switching from `net10.0` to `net9.0`, motivates this
+ordinary same-package interaction; the production-composition browser gate in
+`library-hierarchy.spec.ts` covers pending, success, failure/retry, navigation
+away, and neighboring new-version loading. Acquisition and partial-package
+notices otherwise retain their host presentation; this introduces no
+independent Overview query or acquisition state machine.
 Empty inventories retain their zero totals and any available package documents.
 Admitted libraries with no public types retain their named Library Overview.
 
