@@ -656,6 +656,37 @@ with the retained lifetime needed for a Workspace transaction to admit it.
 Rejected admission disposes House-owned resources under the artifact owner
 contract; an existing Workspace remains unchanged.
 
+`DotnetInspector.PackageQueries` owns the narrow House-to-Root adapter.
+`PackageHouseRootContributionAdapter` accepts the complete closed House
+settlement rather than host-reconstructed payload and receipt parameters. An
+acquired compile realization ending in `Settled`, `NoMatch`, or selection
+`Rejected` whose complete package Root coordinate is representable produces
+one `PackageHouseRootContribution` that pairs:
+
+- the exact `PackageHouseResult`;
+- the exact `PackageHouseRealizationReceipt.Compile`; and
+- one Artifact Acquisition-issued `PackageRootBinding`.
+
+The Queries-owned binding primitive validates the acquired package id and
+content generation against the exact
+`PackageCompileAssetSelectionReceipt`, then freezes
+`receipt.Selection` directly. It does not call either package asset selector.
+The `PackageRootBinding` remains House-agnostic and retains no House receipt;
+the transient contribution is the cross-owner correspondence.
+
+Resource-free settlements, runtime realizations, early acquisition or
+selection failures, operation-timeout failures, and acquired coordinates
+outside the existing package Root grammar return a typed no-contribution
+outcome preserving the original House result. The package Root coordinate
+currently cannot represent every configured HTTP or local Package Source
+producer key, or the broader Unicode package-id grammar accepted by Package
+Source. Until
+[#6946](https://github.com/richlander/dotnet-inspect/issues/6946) extends that
+Artifact/Workspace producer contract, and
+[#6967](https://github.com/richlander/dotnet-inspect/issues/6967) reconciles
+the package-id grammars, the adapter reports `CoordinateNotRepresentable`
+rather than throwing, guessing another identity, or weakening correspondence.
+
 An exact package Root reacquisition request from
 [#5837](https://github.com/richlander/dotnet-inspect/issues/5837) re-enters the
 same House realization path. It retains the original selection request while
