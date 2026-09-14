@@ -687,6 +687,82 @@ Every request states exactly where resolution begins.
 
 ### Single-image declaration
 
+#### Detached declaration inventory
+
+`AssemblyInspectionSession.TypeDeclarations()` returns the complete,
+reader-independent declaration evidence from its already-open image as
+`AssemblyTypeDeclarationInventoryOutcome.Read`, or rejects the whole inventory
+through the existing `Rejected(CandidateOpenFailure)` arm. A valid image with
+no discoverable declarations is a complete empty inventory; an unreadable,
+invalid, or unsupported image is not. The descriptor-based inventory reader
+uses the same declaration scanner and retains its descriptor identity and
+artifact-content validation.
+
+This is a synchronous Metadata facet, not acquisition or a cache. A borrowed
+session uses its lender's image, does not reopen the descriptor or path, and
+does not acquire forwarder targets or module files. The session and its lender
+must remain alive during the read; use after either closes throws
+`ObjectDisposedException`. Returned identities, names, kinds, and visibility
+facts are detached and remain usable after both close. Inventory residency and
+append maintenance belong to [Workspace Live Locator](workspace-live-locator.md),
+not this facet.
+
+Each discoverable entry preserves a `MetadataTypeDefinitionName`, a
+`Definition`, `Forwarder`, or `ModuleExport` kind, and `IsPublicSurface`.
+`Declarations` contains all entries; `GetDeclarations()` selects the public
+discovery view and `GetDeclarations(includeAll: true)` includes nonpublic
+entries without rereading. Neither view includes the special top-level
+empty-namespace `<Module>` definition. The public view means:
+
+- A definition and every enclosing definition have `Public` or `NestedPublic`
+  visibility. Protected nested definitions are not in this public-only view.
+- A valid AssemblyRef-terminated forwarder advertises a declaration, including
+  nested forwarders, regardless of its visibility bits. This is declaration
+  discovery, not a claim about target accessibility or successful binding.
+- A module export retains its separate kind; every row of its enclosing
+  ExportedType chain must have `Public` or `NestedPublic` visibility.
+
+This view is not the API renderer's attribute or compiler-generated-name
+suppression policy. `ModuleExport` is valid Metadata evidence even though the
+[reverse locator](reverse-type-declaration-locator.md) does not support it as a
+candidate; that consumer must report its own coverage gap rather than silently
+discarding the evidence. Repeated exact structured names, whether definitions,
+forwarders, or module exports, reject the whole inventory as `InvalidImage`;
+the inventory does not choose a declaration. Malformed names or export
+implementation chains likewise reject, using the single-image probe's existing
+structured decoder.
+
+Exact selection uses ordinal structured-name equality. Pattern selection can
+use `TypeMatcher.MatchesTypeFilter(MetadataTypeDefinitionName, string)`, which
+owns projection into Metadata's existing pattern grammar; Queries need not
+reconstruct names from display rows. The legacy `Definitions`, `Forwarders`,
+and `MeaningfulPublicTypeCount` projections retain their meanings, including
+the module name in `Definitions` and the classifier's row-local count policy.
+Malformed export targets previously skipped by the descriptor inventory are
+now rejected consistently with the declaration probe.
+
+The motivating asset is `Microsoft.NETCore.App.Ref@10.0.10`: its
+`ref/net10.0/netstandard.dll` forwards `System.Object` and
+`System.Environment+SpecialFolder` with zero visibility bits, while
+`System.Runtime.dll` defines them. Filtering forwarders by definition
+visibility bits would lose these real public discoveries.
+
+Release gates are in `AssemblyTypeDeclarationInventoryTests`:
+`BorrowedInventory_ReusesOwnerAndSurvivesDisposal` and
+`BorrowedInventory_RejectsUseAfterLenderDisposal` cover borrowing;
+`PublicAndAllViews_PreserveNestedVisibilityAndExcludeModuleRow`,
+`NestedForwarders_AreAdvertisedWithoutTargetResolutionOrVisibilityBits`, and
+`ModuleExports_AreExplicitRatherThanDroppedOrRelabeled` cover declaration
+views; `InvalidDeclarations_RejectWholeInventoryOnBothEntryPoints`,
+`NativeImage_IsRejectedRatherThanACompleteEmptyInventory`, and
+`EmptyInventory_IsACompleteEmptyDeclarationSet` distinguish rejection from
+complete emptiness. `StructuredPattern_PreservesNestedGenericBoundaries`
+covers the structured matcher. The Slow gate
+`PinnedReferencePack_BorrowedAndDescriptorInventoriesPreserveDeclarations`
+hash-pins the real package and checks both entry points.
+
+#### Single-name probe
+
 ```csharp
 public readonly record struct TypeDefinitionToken(int Value);
 public readonly record struct ExportedTypeToken(int Value);
