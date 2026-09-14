@@ -282,6 +282,75 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
     }
 
     [Fact]
+    public async Task AuthorizationObservation_RetainsRegisteredAuthorityAndPartialFailure()
+    {
+        const string Id = "Pinned.AuthorizationObservation";
+        const string Unsupported = "ftp://legacy.example/packages";
+        string healthy = Path.Combine(_root, "authorization-healthy");
+        Directory.CreateDirectory(healthy);
+        var sourceOptions = new NuGetSourceOptions
+        {
+            Sources = [healthy, Unsupported],
+        };
+        await using var composition = LocalComposition();
+
+        PackageSourceAuthorization observation =
+            composition.AuthorizeSourcesFor(Id, sourceOptions);
+
+        ConfiguredPackageAuthority authority =
+            Assert.Single(observation.Authorities);
+        Assert.Equal(healthy, authority.Source.Url);
+        PackageAuthorityFailure failure =
+            Assert.Single(observation.Failures);
+        Assert.Equal(
+            PackageAuthorityFailureKind.Configuration,
+            failure.Kind);
+        Assert.Null(observation.DenialReason);
+
+        PackageAcquisitionCandidateResult compatibility =
+            composition.ResolvePinnedCandidate(
+                PackageSourceCoordinate.Create(Id, Version),
+                sourceOptions,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        Assert.NotNull(compatibility.Candidate);
+        Assert.Same(
+            authority,
+            Assert.Single(
+                compatibility.Candidate.Authorities).Authority);
+        Assert.Equal(
+            failure.Message,
+            Assert.Single(compatibility.Failures).Message);
+        PackageSourceAuthorization repeated =
+            composition.AuthorizeSourcesFor(Id, sourceOptions);
+        Assert.Same(
+            authority,
+            Assert.Single(repeated.Authorities));
+
+        var issuer = new PackageAcquisitionCandidateIssuer();
+        PackageAcquisitionCandidateResult reusable =
+            issuer.ResolvePinnedCandidate(
+                observation,
+                PackageSourceCoordinate.Create(Id, Version));
+        Assert.NotNull(reusable.Candidate);
+        Assert.Same(
+            authority,
+            Assert.Single(
+                reusable.Candidate.Authorities).Authority);
+        Assert.Same(failure, Assert.Single(reusable.Failures));
+
+        PackageSourceAuthorization replacement =
+            PackageSourceAuthorization.Authorize(observation.Sources);
+        ConfiguredPackageAuthority replacementAuthority =
+            Assert.Single(replacement.Authorities);
+        Assert.NotSame(authority, replacementAuthority);
+        Assert.False(
+            observation.TryGetAuthority(
+                replacementAuthority.Association,
+                out _));
+    }
+
+    [Fact]
     public async Task AcquirePinned_NotFoundRetainsAttemptedAuthority()
     {
         const string Id = "Pinned.NotFound";
