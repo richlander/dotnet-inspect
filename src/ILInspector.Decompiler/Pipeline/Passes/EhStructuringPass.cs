@@ -576,8 +576,9 @@ public sealed partial class EhStructuringPass : IIrPass
     /// the return/throw at the leave site — a C# <c>return</c> inside a try runs
     /// exactly the finallys the leave did — and drop each return block once it
     /// is unreachable (no remaining reference, not reached by falling out of the
-    /// previous block). The single normal-continuation return stays put. With
-    /// the leaves gone the structuring pass raises the bodies.
+    /// previous block). A normal-continuation return may also be this accumulator
+    /// idiom; keep it outside only when an enclosing finally may change the local
+    /// it returns. With the leaves gone the structuring pass raises the bodies.
     /// </summary>
     static void InlineReturnLeaves(
         BlockContainer root,
@@ -588,10 +589,18 @@ public sealed partial class EhStructuringPass : IIrPass
             byOffset.TryAdd(block.StartOffset, block);
 
         foreach (var leave in root.Descendants.OfType<Leave>().ToList())
-            if (!TargetsEnclosingNormalContinuation(leave, continuations)
-                && byOffset.TryGetValue(leave.TargetOffset, out var target)
+            if (byOffset.TryGetValue(leave.TargetOffset, out var target)
                 && CloneTerminator(target) is { } clone)
             {
+                if (TerminatorValueMayChangeAcrossFinally(
+                    root,
+                    leave,
+                    target,
+                    continuations))
+                {
+                    continue;
+                }
+
                 leave.ReplaceWith(clone);
             }
 
@@ -600,16 +609,33 @@ public sealed partial class EhStructuringPass : IIrPass
         RemoveDeadReturns(root, ReferencedOffsets(root));
     }
 
-    static bool TargetsEnclosingNormalContinuation(
+    static bool TerminatorValueMayChangeAcrossFinally(
+        BlockContainer root,
         Leave leave,
+        Block target,
         IReadOnlyDictionary<IrNode, int> continuations)
     {
+        int? localIndex = target.Children is [var terminator]
+            ? terminator switch
+            {
+                Return { Value: LoadLocal local } => local.Index,
+                Throw { Value: LoadLocal local } => local.Index,
+                _ => null,
+            }
+            : null;
+        if (localIndex is not int index)
+            return false;
+
+        bool addressTaken = LocalAddressTaken(root, index);
         for (IrNode? ancestor = leave.Parent;
              ancestor is not null;
              ancestor = ancestor.Parent)
         {
-            if (continuations.TryGetValue(ancestor, out int continuation)
-                && continuation == leave.TargetOffset)
+            if (ancestor is TryFinally tryFinally
+                && continuations.TryGetValue(tryFinally, out int continuation)
+                && continuation == leave.TargetOffset
+                && (MayWriteLocal(tryFinally.FinallyBody, index)
+                    || addressTaken))
             {
                 return true;
             }
@@ -617,6 +643,33 @@ public sealed partial class EhStructuringPass : IIrPass
 
         return false;
     }
+
+    static bool MayWriteLocal(BlockContainer body, int index)
+    {
+        foreach (var node in body.Descendants)
+        {
+            int? writtenIndex = node switch
+            {
+                StoreLocal store => store.Index,
+                LoadLocalAddress address => address.Index,
+                _ => null,
+            };
+            if (writtenIndex == index
+                && !ReferenceOwnership.IsInsideNestedFunctionBody(node))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool LocalAddressTaken(BlockContainer root, int index)
+        => root.Descendants
+            .OfType<LoadLocalAddress>()
+            .Any(address =>
+                address.Index == index
+                && !ReferenceOwnership.IsInsideNestedFunctionBody(address));
 
     static HashSet<int> ReferencedOffsets(BlockContainer root)
     {
