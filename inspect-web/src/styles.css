@@ -3863,17 +3863,18 @@ button:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspect
   align-items: center;
   gap: 7px;
   padding: 6px 11px;
-  border: 1px solid var(--line-strong);
+  border: 1px solid color-mix(in srgb, var(--shell-accent) 70%, var(--line-strong));
   border-radius: 5px;
-  background: var(--panel-raised);
-  color: var(--muted);
+  background: var(--shell-accent-soft);
+  color: var(--text);
   font: 11px var(--mono);
+  font-weight: 700;
 }
 
 .diagnostics-back:hover,
 .diagnostics-back:focus-visible {
   border-color: var(--shell-accent);
-  color: var(--text);
+  background: color-mix(in srgb, var(--shell-accent-soft) 78%, var(--panel-raised));
 }
 
 .diagnostics-main {

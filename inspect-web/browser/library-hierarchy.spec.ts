@@ -1061,7 +1061,7 @@ test("Home keeps Search and curated demos ahead of artwork", async ({
   await expect(page.locator(".home-demos-copy"))
     .toContainText("Start from a curated package query.");
   await expect(page.locator(".data-bar"))
-    .toContainText("CLI tool · Agent skill · Credits");
+    .toContainText("CLI tool · Agent skill · Diagnostics · Credits");
 
   const wideSearch = await page.locator(".home-search").boundingBox();
   const wideDemos = await page.locator(".home-demos").boundingBox();
@@ -1329,7 +1329,7 @@ test("Home preserves Settings dismissal through an adjacent Build rerender", asy
   await expect(page.locator("#spotlight-input")).not.toBeFocused();
 });
 
-test("Diagnostics opens from Settings and Spotlight without entering the Application menu", async ({
+test("Diagnostics opens from Settings and the data bar without entering Spotlight or the Application menu", async ({
   page,
 }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -1354,6 +1354,8 @@ test("Diagnostics opens from Settings and Spotlight without entering the Applica
   await expect(page.locator("#diagnostics-cache-heading"))
     .toHaveText("Package cache");
   await expect(page.locator(".data-bar")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Back to previous page" }))
+    .toBeVisible();
   await page.screenshot({
     path: testInfo.outputPath("diagnostics-wide.png"),
     fullPage: true,
@@ -1366,19 +1368,25 @@ test("Diagnostics opens from Settings and Spotlight without entering the Applica
   await page.goBack();
   await expect(page).toHaveURL(/\/diagnostics$/);
   await expect(page.locator("#diagnostics-heading")).toBeFocused();
-  await page.locator("#diagnostics-back").click();
+  await page.getByRole("button", { name: "Back to previous page" }).click();
+  await expect(page).toHaveURL(/package=Example\.Package/);
+  await expect(page.locator("#inspector-panel h1")).toBeFocused();
+
+  await page.getByRole("link", { name: "Diagnostics" }).click();
+  await expect(page).toHaveURL(/\/diagnostics$/);
+  await expect(page.locator("#diagnostics-heading")).toBeFocused();
+  await page.getByRole("button", { name: "Back to previous page" }).click();
   await expect(page).toHaveURL(/package=Example\.Package/);
   await expect(page.locator("#inspector-panel h1")).toBeFocused();
 
   await page.keyboard.press("Control+k");
   await expect(page.locator("#spotlight-input")).toBeFocused();
   await page.locator("#spotlight-input").fill("diagnostics");
-  await page.getByRole("option").filter({ hasText: "diagnostics" }).click();
-
-  await expect(page).toHaveURL(/\/diagnostics$/);
-  await expect(page.locator("#diagnostics-heading")).toBeFocused();
-  await page.locator("#diagnostics-back").click();
-  await expect(page.locator("#inspector-panel h1")).toBeFocused();
+  await expect(page.getByRole("option").filter({ hasText: "diagnostics" }))
+    .toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#spotlight-input")).toHaveCount(0);
+  await expect(page).toHaveURL(/package=Example\.Package/);
 });
 
 test("Diagnostics retains its route geometry while Build evidence loads on a narrow viewport", async ({

@@ -299,8 +299,9 @@ export function diagnosticsViewHtml(
         href: "/",
         id: "diagnostics-product",
       })}
-      <button id="diagnostics-back" class="diagnostics-back" type="button">
-        Back
+      <button id="diagnostics-back" class="diagnostics-back" type="button"
+        aria-label="Back to previous page" title="Back to previous page">
+        &larr; Back
       </button>
     </header>
     <main class="diagnostics-main">
