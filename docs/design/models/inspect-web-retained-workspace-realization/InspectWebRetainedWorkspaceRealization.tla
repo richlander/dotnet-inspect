@@ -56,7 +56,6 @@ VARIABLES
     pendingRemoval,
     lastRealization,
     observedSettlementFailures,
-    failurePreserved,
     staleActivationOccurred,
     witnesses
 
@@ -113,7 +112,6 @@ browserVars == <<
     pendingRemoval,
     lastRealization,
     observedSettlementFailures,
-    failurePreserved,
     staleActivationOccurred,
     witnesses
 >>
@@ -143,7 +141,6 @@ vars == <<
     pendingRemoval,
     lastRealization,
     observedSettlementFailures,
-    failurePreserved,
     staleActivationOccurred,
     witnesses
 >>
@@ -178,7 +175,6 @@ Init ==
     /\ pendingRemoval = NoDefinition
     /\ lastRealization = [d \in Definitions |-> NoRealization]
     /\ observedSettlementFailures = {}
-    /\ failurePreserved = TRUE
     /\ staleActivationOccurred = FALSE
     /\ witnesses = {}
 
@@ -194,7 +190,6 @@ PublishDefinition(d) ==
         pendingRemoval,
         lastRealization,
         observedSettlementFailures,
-        failurePreserved,
         staleActivationOccurred,
         witnesses
         >>
@@ -215,7 +210,6 @@ RequestActivation(d) ==
         targetIntent,
         lastRealization,
         observedSettlementFailures,
-        failurePreserved,
         staleActivationOccurred,
         witnesses
         >>
@@ -245,7 +239,6 @@ RequestReplacementWhileCandidate(d, replacement) ==
         selectedDefinition,
         lastRealization,
         observedSettlementFailures,
-        failurePreserved,
         staleActivationOccurred,
         witnesses
         >>
@@ -275,7 +268,6 @@ RequestReplacementWhilePending(d, replacement) ==
         selectedDefinition,
         lastRealization,
         observedSettlementFailures,
-        failurePreserved,
         staleActivationOccurred,
         witnesses
         >>
@@ -296,7 +288,6 @@ RequestWithoutCoordinatorSupersession(d) ==
         targetIntent,
         lastRealization,
         observedSettlementFailures,
-        failurePreserved,
         staleActivationOccurred,
         witnesses
         >>
@@ -318,7 +309,6 @@ BeginCandidate(r) ==
         pendingRemoval,
         lastRealization,
         observedSettlementFailures,
-        failurePreserved,
         staleActivationOccurred,
         witnesses
         >>
@@ -369,19 +359,17 @@ CutOverCandidate(r) ==
         currentIntent,
         targetDefinition,
         targetIntent,
-        observedSettlementFailures,
-        failurePreserved
+        observedSettlementFailures
         >>
 
 FailCandidate(r) ==
     /\ Coordinator!FailCandidate(r)
     /\ IF BrowserFault = "FailureReplacesActive"
+           /\ selectedDefinition # NoDefinition
        THEN
-           /\ selectedDefinition' = NoDefinition
-           /\ failurePreserved' = FALSE
+           selectedDefinition' = NoDefinition
        ELSE
-           /\ UNCHANGED selectedDefinition
-           /\ failurePreserved' = TRUE
+           UNCHANGED selectedDefinition
     /\ requestedDefinition' =
         IF targetIntent[r] = currentIntent
         THEN NoDefinition
@@ -424,7 +412,6 @@ RequestDeleteActive(successor) ==
         targetIntent,
         lastRealization,
         observedSettlementFailures,
-        failurePreserved,
         staleActivationOccurred,
         witnesses
         >>
@@ -459,7 +446,6 @@ DeleteInactive(d) ==
         pendingRemoval,
         lastRealization,
         observedSettlementFailures,
-        failurePreserved,
         staleActivationOccurred,
         witnesses
         >>
@@ -479,7 +465,6 @@ ReviveDefinition(d) ==
         pendingRemoval,
         lastRealization,
         observedSettlementFailures,
-        failurePreserved,
         staleActivationOccurred,
         witnesses
         >>
@@ -521,7 +506,6 @@ Settle(r, result) ==
         targetIntent,
         pendingRemoval,
         lastRealization,
-        failurePreserved,
         staleActivationOccurred,
         witnesses
         >>
@@ -587,7 +571,6 @@ TypeOK ==
     /\ lastRealization \in
         [Definitions -> (Realizations \cup {NoRealization})]
     /\ observedSettlementFailures \subseteq Realizations
-    /\ failurePreserved \in BOOLEAN
     /\ staleActivationOccurred \in BOOLEAN
     /\ witnesses \subseteq {
         "FreshReactivation",
@@ -622,9 +605,6 @@ FreshCandidateIdentity ==
        ELSE lastRealization[targetDefinition[coordinatorPendingCandidate]]
             # coordinatorPendingCandidate
 
-FailurePreservesIncumbent ==
-    failurePreserved
-
 NoStaleActivation ==
     ~staleActivationOccurred
 
@@ -656,7 +636,6 @@ Safety ==
     /\ ActiveAssociationExact
     /\ CandidateAssociationExact
     /\ FreshCandidateIdentity
-    /\ FailurePreservesIncumbent
     /\ NoStaleActivation
     /\ SettlementFailureVisible
     /\ PendingRemovalWaitsForReplacement

@@ -39,7 +39,7 @@ incumbent, and active deletion through replacement.
 | `Liveness.cfg` | 0 | Conditional predecessor-settlement progress |
 | `BrokenReviveDefinition.cfg` | 12 | Retained definition identity cannot revive runtime authority |
 | `BrokenStaleActivation.cfg` | 12 | Older activation completion cannot publish after newer intent |
-| `BrokenFailureReplacesActive.cfg` | 12 | Candidate failure preserves the incumbent |
+| `BrokenFailureReplacesActive.cfg` | 12 | Clearing a real incumbent selection after candidate failure violates the active association |
 | `BrokenDeleteBeforeReplacement.cfg` | 12 | Active deletion waits for successful replacement |
 | `BrokenDeleteBeforeCandidateSettlement.cfg` | 12 | Displaced activation target remains retained until candidate settlement |
 | `BrokenForgetSettlementFailure.cfg` | 12 | Browser composition preserves coordinator settlement failure |
