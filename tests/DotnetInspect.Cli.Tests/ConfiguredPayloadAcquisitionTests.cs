@@ -321,6 +321,20 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         Assert.Equal(
             failure.Message,
             Assert.Single(compatibility.Failures).Message);
+        PackageAcquisitionCandidateResult houseCompatibility =
+            await composition.ResolvePinnedCandidateAsync(
+                PackageSourceCoordinate.Create(Id, Version),
+                sourceOptions,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        Assert.NotNull(houseCompatibility.Candidate);
+        Assert.Same(
+            authority,
+            Assert.Single(
+                houseCompatibility.Candidate.Authorities).Authority);
+        Assert.Equal(
+            failure.Message,
+            Assert.Single(houseCompatibility.Failures).Message);
         PackageSourceAuthorization repeated =
             composition.AuthorizeSourcesFor(Id, sourceOptions);
         Assert.Same(
@@ -348,6 +362,40 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             observation.TryGetAuthority(
                 replacementAuthority.Association,
                 out _));
+    }
+
+    [Fact]
+    public async Task CandidateManifest_UsesHouseOwnedDesktopOperation()
+    {
+        const string Id = "Pinned.HouseManifest";
+        string source = Path.Combine(_root, "house-manifest");
+        WriteLocalPackage(source, Id, "manifest payload");
+        var sourceOptions = new NuGetSourceOptions
+        {
+            Sources = [source],
+        };
+        await using var composition = LocalComposition();
+        PackageAcquisitionCandidateResult authorization =
+            await composition.ResolvePinnedCandidateAsync(
+                PackageSourceCoordinate.Create(Id, Version),
+                sourceOptions,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        ConfiguredPackageManifestResult result =
+            await composition.AcquireCandidateManifestAsync(
+                authorization.Candidate!,
+                TestContext.Current.CancellationToken);
+
+        Assert.NotNull(result.Manifest);
+        Assert.Equal(
+            PackageSourceCoordinate.Create(Id, Version),
+            result.Manifest.Coordinate);
+        Assert.Same(
+            Assert.Single(
+                authorization.Candidate!.Authorities).Authority,
+            result.Authority);
+        Assert.Empty(result.Failures);
     }
 
     [Fact]

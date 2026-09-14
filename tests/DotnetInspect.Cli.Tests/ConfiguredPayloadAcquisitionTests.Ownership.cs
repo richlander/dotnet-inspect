@@ -45,6 +45,22 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                     Id, Version, (_, _) => new InMemoryPackageStore(),
                     cancellationToken: TestContext.Current.CancellationToken);
             });
+            Assert.Throws<ObjectDisposedException>(() =>
+            {
+                _ = composition.AcquirePinnedAsync(
+                    "../invalid", Version,
+                    (_, _) => new InMemoryPackageStore(),
+                    cancellationToken:
+                        TestContext.Current.CancellationToken);
+            });
+            Assert.Throws<ObjectDisposedException>(() =>
+            {
+                _ = composition.AcquireSelectedAsync(
+                    "../invalid", null,
+                    (_, _) => new InMemoryPackageStore(),
+                    cancellationToken:
+                        TestContext.Current.CancellationToken);
+            });
             finish.SetResult();
             ConfiguredPackagePayloadResult result = await pending;
             await settlement.WaitAsync(TestContext.Current.CancellationToken);
