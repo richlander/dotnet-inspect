@@ -11,7 +11,7 @@ Its claim is that a query has exactly three layers, and only the first one
 crosses a persistence, host, or version boundary:
 
 ```text
-canonical intent   vocabulary + conjoined terms + execution bounds
+canonical intent   vocabulary + terms + execution bounds
                    + ordered selection stages + order references
       |                          <- serializes; a compatibility surface
       v            resolve exactly once, atomically, against one vocabulary
@@ -74,8 +74,8 @@ One query intent is:
 
 | Part | Meaning |
 | --- | --- |
-| `vocabulary` | Owner-issued identity of the vocabulary the terms resolve against. It is the packet's `queryId`. |
-| `terms` | A canonical set of `(key, operator, value)` triples, conjoined. |
+| `vocabulary` | Owner-issued identity of the vocabulary the terms resolve against. It serializes as the packet's `queryId`, never as a payload property. |
+| `terms` | A canonical set of `(key, operator, value)` triples. Composition follows the vocabulary's declared families. |
 | `bounds` | Declared execution bounds, each carrying an owner-issued dimension identity. Unordered. |
 | `stages` | The ordered selection-stage pipeline. Position-significant. |
 | `order` | Optional unresolved order references: one baseline, plus one per ranking stage. |
@@ -87,7 +87,22 @@ name, or CLI option spelling.
 An **operator** is one identity from the closed operator set already used by
 row predicates — equality, inequality, and the ordered comparisons. A
 vocabulary declares which operators each key admits; intent does not widen that
-set, and this design introduces no nesting, disjunction, grouping, or solver.
+set, and this design introduces no nesting, grouping, or solver.
+
+**Composition.** Terms conjoin across families. Terms belonging to one
+vocabulary-declared **combining family** form an OR-union within that family,
+and the union conjoins with everything outside it. Family membership is declared
+by the vocabulary, not marked on the term, so the serialized shape stays one
+flat set and the codec needs no knowledge of composition. Package Query's
+tool-format selection group is the existing instance: `v1` and `v2` are an
+OR-union, and production evaluation already accepts the group when any selected
+member matches. A universal conjunction rule would silently rewrite that
+supported query into one requiring a package to be both formats at once.
+
+Because composition is read from the vocabulary rather than the payload, family
+membership is part of that vocabulary's compatibility surface: changing which
+keys combine changes what an already-shared link means, and is governed by the
+same replay rules as removing a key.
 Disjunction exists only where a vocabulary declares a family whose members
 combine, as Package Query's tool-format selection group already does.
 
@@ -142,8 +157,9 @@ the same query; equality is decided on those bytes and nowhere else.
 
 - Terms sort by key, then operator, then value, each ordinal.
 - Exactly duplicated terms collapse. A repeated key bearing a different
-  operator or value is preserved: terms conjoin, and whether the conjunction is
-  satisfiable is the vocabulary's question, not the codec's.
+  operator or value is preserved. How the surviving terms compose — conjunction,
+  or an OR-union inside a declared combining family — is the vocabulary's
+  question, not the codec's, and so is whether the result is satisfiable.
 - Execution bounds emit in a fixed declared slot order. They are independent
   across dimensions, so their declaration sequence carries no meaning.
 - Selection stages and order operands are **position-significant and never
@@ -167,6 +183,55 @@ vocabulary that wants spelling-independent identity must normalize **before**
 constructing intent, where the normalization is visible to the user who typed
 it, rather than inside a codec where it would silently rewrite what was shared.
 
+## The canonical payload
+
+`workspace-definitions.md` delegates payload property order, string and numeric
+grammar, selector encodings, and limits to the query owner's codec, so this
+design fixes them. Two independent implementations — the .NET codec and the
+Browser adapter — must produce identical bytes, so none of this may be left to
+an implementation's choice.
+
+The payload is one closed JSON object. Property order is exactly `t`, `b`, `s`,
+`o`, and a part that is absent or empty is **omitted entirely** rather than
+emitted as `null` or `[]`:
+
+```json
+{
+  "t": [["depends", "eq", "Serilog"]],
+  "b": [["candidates", 200]],
+  "s": [["head", 20]],
+  "o": [["downloads", "desc"]]
+}
+```
+
+- `t` is the sorted term set. Each term is `[key, operator, value]`, three
+  strings. The operator is its identity token, not a symbol.
+- `b` is the execution-bound set in fixed slot order. Each bound is
+  `[dimension, maximum]`: a string and a JSON integer.
+- `s` is the selection-stage sequence in declared order. Each stage is
+  `[stage, operand...]`, a string followed by its stage-owned operands.
+- `o` is the order-operand sequence in declared order. Each operand is
+  `[reference, direction]`, two strings.
+
+Numbers are JSON integers with no sign, leading zero, fraction, or exponent.
+Strings use the packet's pinned canonical scalar escaping rather than a second
+convention. Unknown properties, duplicate properties, a present-but-empty array,
+and any non-canonical scalar form are invalid payloads.
+
+Inheriting that escaping means inheriting its rejections. `workspace-definitions.md`
+refuses unpaired surrogates rather than substituting U+FFFD, so an unpaired
+surrogate is a **negative decode vector here too**: it is refused before the
+vocabulary binder runs and never reaches intent. Round-trip coverage is for valid
+Unicode scalar sequences; hostile-token coverage for anything else is rejection
+coverage. Accepting or repairing such a value would break the packet's byte
+identity, which is the property the whole contract rests on.
+
+**Vocabulary is not in the payload.** It is the tuple's `queryId`, so it appears
+exactly once and cannot disagree with itself. Canonical identity is therefore
+the pair `(queryId, payload bytes)`, which is also the key format 2 already
+sorts and deduplicates on. A standalone encoding outside a packet — the `/query`
+share link — carries the same pair rather than reintroducing the field.
+
 ## Declared limits
 
 `workspace-definitions.md` delegates concrete payload limits to the query
@@ -178,8 +243,8 @@ build or by vocabulary.
 | Limit | Maximum |
 | --- | --- |
 | Canonical payload | 3 KiB of UTF-8 |
-| Nesting depth | 6 |
-| Terms | 32 |
+| Nesting depth | 6, of which the defined shape uses 4 |
+| Terms | 24 |
 | Execution bounds | 8 |
 | Selection stages | 8 |
 | Order operands | 8, counting the baseline and every ranking reference |
@@ -187,13 +252,23 @@ build or by vocabulary.
 | Value token | 256 bytes of UTF-8 |
 
 Every text maximum counts UTF-8 bytes, not scalars or grapheme clusters, so the
-count is unambiguous for non-ASCII values. Each sits beneath the packet's
-per-payload allowance of 4 KiB, depth 12, and 256 JSON values, so a payload
-admitted here cannot breach the outer bound.
+count is unambiguous for non-ASCII values.
+
+The per-part maxima are independent ceilings and are **not jointly achievable**:
+24 terms each carrying a 256-byte value would far exceed 3 KiB. The payload byte
+limit binds first, and the part counts exist to bound parse work and value count
+before that total is known.
+
+Each limit keeps the payload beneath the packet's per-payload allowance of 4 KiB,
+depth 12, and 256 JSON values. The shape above reaches depth 4 — object, array,
+inner array, scalar — against a declared ceiling of 6. Its worst-case JSON value
+count is 173: one object, plus 97 for `t` (one array, 24 inner arrays, 72
+strings), and 25 each for `b`, `s`, and `o` (one array, 8 inner arrays, 16
+scalars). A payload admitted here therefore cannot breach the outer bound.
 
 Limits are charged **as parsed, before duplicate collapse**. A payload declaring
-forty terms that would collapse to three is rejected on the fortieth rather than
-accepted on the third, so collapse can never be used to force unbounded parse
+thirty terms that would collapse to three is rejected on the twenty-fifth rather
+than accepted on the third, so collapse can never be used to force unbounded parse
 work. The canonical form must independently satisfy every limit.
 
 A vocabulary may declare stricter limits for its own keys; it may not relax
@@ -257,8 +332,8 @@ same failure mode the bounded-completion rules exist to prevent.
 ## Packet projection
 
 Canonical intent is the payload of one `[queryId, payload]` tuple in packet
-format 2's query table: `queryId` is the vocabulary identity, and the payload
-is the canonical intent object.
+format 2's query table: `queryId` is the vocabulary identity, and the payload is
+the closed JSON object fixed by [The canonical payload](#the-canonical-payload).
 
 - Parse and canonical write round-trip byte-for-byte, satisfying the packet's
   owner-codec requirement.
@@ -292,7 +367,8 @@ the payload it would carry.
 | `DuplicateAfterBindingIsReachableAndVocabularyOwned` | Two syntactically distinct terms that a vocabulary binds to one predicate reach the vocabulary stage and take that owner's declared collapse-or-fail outcome; no duplicate reaches resolution as canonical bytes. |
 | `DeclaredLimitsPrecedeVocabularyBinding` | Every limit in the declared-limits table is enforced against the payload as parsed, before duplicate collapse and before any vocabulary binder runs, with cancellation observed. |
 | `DeclaredLimitsAreBuildInvariant` | The pinned maxima are identical across vocabularies and builds; a payload at each exact maximum is admissible and one byte past each is refused. |
-| `HostileIntentTextRemainsContained` | Adversarial value tokens round-trip through `InertText` construction and canonical escaping without escaping containment or reaching a diagnostic. |
+| `HostileIntentTextRemainsContained` | Adversarial value tokens that are valid Unicode scalar sequences — quotes, backslashes, lowercase C0 escapes, raw U+007F/U+0085/U+2028/U+2029, and a supplementary-plane scalar — round-trip through `InertText` construction and canonical escaping without escaping containment or reaching a diagnostic. |
+| `NonCanonicalTextIsRefusedBeforeBinding` | Unpaired surrogates and every other non-canonical scalar form are refused at decode, before any vocabulary binder runs, and are never accepted, repaired, or substituted with U+FFFD. |
 
 ## Decisions
 
