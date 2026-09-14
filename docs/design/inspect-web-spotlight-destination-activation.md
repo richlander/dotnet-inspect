@@ -12,8 +12,11 @@ Scope and registration revisions, and creates a fresh curated Workspace only
 for an uncovered package. The resource-free coverage and activation-plan
 projection is implemented by `BrowserSpotlightDestinationProjection`.
 Current-Workspace Package and package-origin Library execution is implemented by
-`BrowserSpotlightCurrentPackageActivation`; Platform, fresh-Workspace, and
-Browser presentation adoption remain later stages.
+`BrowserSpotlightCurrentPackageActivation`. Exact current-Workspace Platform
+execution and the typed destination-presentation handoff are implemented by
+`BrowserSpotlightCurrentPlatformActivation` and
+`BrowserSpotlightDestinationPresentation`; fresh-Workspace and retained Browser
+host adoption remain later stages.
 
 This document is the normative owner of **Spotlight destination activation**.
 It owns exact-candidate classification, the Browser activation plan,
@@ -283,6 +286,15 @@ focused Scope, Navigation, and inventory extension. This owner exposes the
 present Browser boundary rather than hiding it behind generic subject
 identity.
 
+The managed execution boundary validates the descriptor's exact Workspace,
+registration revision, Scope revision, and publication base before invoking
+the caller-supplied Platform operation. It passes the complete
+Workspace-bound `BrowserSpotlightPlatformAction` without inspecting or
+reconstructing its target. The caller returns the Platform owner's opaque
+result, which remains complete in the settled Spotlight result whether it
+represents application, failure, or supersession. The boundary never mutates
+Package Scope, invokes shared Navigation, or creates a fallback Workspace.
+
 ## Fresh-Workspace activation
 
 `RestoreExternalPackageWorkspace` applies only to an uncovered package. It
@@ -482,6 +494,18 @@ typed results; committed or already-current membership survives Navigation
 failure or supersession. The boundary neither creates a fallback Workspace nor
 publishes host state.
 
+Stage 4 is implemented at the managed action-execution and presentation-handoff
+boundaries. `BrowserSpotlightCurrentPlatformActivation` validates the captured
+activation basis and invokes only the exact opaque
+`ActivateCurrentPlatformDestination` action, retaining the Platform owner's
+complete result without Package Scope mutation, shared Navigation, or
+fresh-Workspace fallback. `BrowserSpotlightDestinationPresentation` provides
+typed source home, Workspace relationship, activation disposition, and
+availability data without lowering labels or using presentation text as
+identity. Current retained-host selection intent, HTML lowering, and end-to-end
+Browser publication remain owned by
+[#6686](https://github.com/richlander/dotnet-inspect/issues/6686).
+
 Each implementation stage receives its own focused issue and PR. This design
 does not authorize one implementation change spanning all participating
 owners.
@@ -522,6 +546,11 @@ exact-Library-only Package admission, already-current Library activation,
 duplicate no-effect admission, source denial, Scope failure, stale
 registration before and during activation, exact occurrence propagation, and
 committed membership followed by Navigation failure or supersession.
+`BrowserSpotlightPlatformActivationTests` gates exact Platform action
+invocation, unchanged Package Scope, registration-, Scope-revision-, and
+publication-base-stale suppression, opaque owner failure and supersession,
+typed source-home and disposition handoff, and rejection of non-Platform
+plans.
 `WorkspaceScopeTests` gates publication-base-guarded admission and exact
 binding-to-occurrence resolution. Workspace Definitions retains its separate
 non-install cleanup gate for external-package restoration. Selection-intent

@@ -1545,19 +1545,38 @@ public sealed class PackageHouseContractTests
             PackageHouseTargetContext.Exact(
                 "net11.0",
                 platformTarget: target));
-        PlatformSupplyReceipt policy = PlatformPrunePolicy.Evaluate(
-            PlatformInventory("net11.0", "11.0.0"),
-            new PackageCoordinate(
-                "contoso.json",
-                "4.0.0-RC.1",
-                "net11.0"));
-
-        var pruning = new PackageHousePruningReceipt(
-            request,
-            policy);
+        PackageHousePruningReceipt pruning =
+            PackageHousePruningReceipt.Evaluate(
+                request,
+                PlatformInventory("net11.0", "11.0.0"));
 
         Assert.Equal("4.0.0-rc.1", coordinate.Version);
-        Assert.Same(policy, pruning.Policy);
+        Assert.Equal(
+            "4.0.0-rc.1",
+            pruning.Policy.Coordinate.Version);
+        Assert.Equal(
+            "net11.0",
+            pruning.Policy.Coordinate.Framework);
+    }
+
+    [Fact]
+    public void PruningFactoryRejectsSelectingDemand()
+    {
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Selecting(
+                new PackageVersionSelectionRequest.LatestStable(
+                    "contoso.json")),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Settle),
+            PackageHouseTargetContext.Exact(
+                "net11.0",
+                platformTarget:
+                    PlatformTarget("net11.0", "11.0.0")));
+
+        Assert.Throws<ArgumentException>(
+            () => PackageHousePruningReceipt.Evaluate(
+                request,
+                PlatformInventory("net11.0", "11.0.0")));
     }
 
     [Fact]
