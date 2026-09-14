@@ -432,6 +432,13 @@ pushed-candidate count, cumulative usable-review count, and cumulative accepted
 finding count. Never report the round number alone when replacement attempts or
 findings make it an incomplete description of progress.
 
+The accepted-finding count records accepted review occurrences, not distinct
+defect identities. Increment it once for each finding accepted as requiring
+design, evidence, or implementation work in a usable review. If a later review
+returns the same unresolved finding and it remains accepted, increment the
+count again because the recurrence is evidence about convergence. Dismissals
+and carry-forward without a new reviewer occurrence do not increment it.
+
 When a replacement candidate is required, say so on the PR and name the base tip
 and merge commit, so the next review reads as a confirmation rather than an
 unexplained second full pass.
@@ -465,10 +472,13 @@ Waiting: <comma-separated tool-evaluable predicates; omit when empty>
 Recommendation: [continue, wait, merge, split into focused successors,
 approve next rounds, stop (reason)]
 
-Fix description: <prose description of changes made in response to the round>.
+Resolution: <completed changes or accepted next-round resolution plan>.
 ```
 
-Use `Fix description` to state the concrete review-driven changes.
+Use `Resolution` to state concrete review-driven changes already made. For a
+finding-producing round that must be reported before the next candidate begins,
+state the accepted resolution plan and assign its implementation to that next
+round.
 Classification must match the reviewer outcomes:
 
 - If every required reviewer returned no findings and the locked head remained

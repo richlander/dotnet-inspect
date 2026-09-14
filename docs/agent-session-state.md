@@ -152,6 +152,8 @@ The state must include `theme`, `head`, and either `pr` or, before a PR exists,
 plus `blocked`, `waiting`, and `rec` when applicable. Values contain no spaces.
 `rec` is `continue`, `wait`, `merge`, `split`, `approve`, or `stop`. Clear both
 options when the window no longer owns the work.
+`findings` counts accepted review occurrences as defined in
+[The round report](round-orchestration.md#the-round-report).
 
 ### `blocked` vs. `waiting`
 
