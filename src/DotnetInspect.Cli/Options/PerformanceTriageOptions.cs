@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
-using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
+using DotnetInspector.Sections;
 using ILInspector.CSharp;
 
 namespace DotnetInspect.Cli.Options;
@@ -23,86 +23,19 @@ public sealed record PerformanceTriageOptions
     /// </summary>
     private static string Contain(string? text) => CSharpIdentifier.ContainRenderedText(text ?? string.Empty);
 
-    public enum RowOperator
-    {
-        Equals,
-        NotEquals,
-        GreaterOrEqual,
-        LessOrEqual,
-    }
-
-    public sealed record RowPredicate(string Field, RowOperator Operator, string Value);
+    public sealed record RowPredicate(
+        string Field,
+        RowQueryOperator Operator,
+        string Value);
 
     public sealed record OrderTerm(string Field, bool Descending);
 
     public static PerformanceTriageOptions Default { get; } = new();
-    public static readonly string[] FilterableFields =
-    [
-        "Member",
-        "Candidate",
-        "Finding",
-        "Provenance",
-        "RootReach",
-        "Shape",
-        "Operation",
-        "Token",
-        "EvidenceMethod",
-        "Evidence",
-        "Fix",
-        "Priority",
-        "Confidence",
-        "Loop",
-        "CallerLoop",
-        "CallerLoopDepth",
-        "CallerLoopWitness",
-        "Allocation",
-        "Path",
-        "PathConfidence",
-        "PostDominance",
-        "IL",
-        "Weight",
-        "DirectSites",
-        "OncePaths",
-        "ConditionalPaths",
-        "RepeatedPaths",
-        "UnknownPaths",
-        "CachedSites",
-        "OpaquePaths",
-        "Saturated",
-    ];
+    public static IReadOnlyList<string> FilterableFields =>
+        PerformanceTriageRowQuery.FilterableFields;
 
-    public static readonly string[] SortableFields =
-    [
-        "Triage",
-        "RootReach",
-        "Priority",
-        "Confidence",
-        "Loop",
-        "CallerLoop",
-        "CallerLoopDepth",
-        "CallerLoopWitness",
-        "Member",
-        "Candidate",
-        "Finding",
-        "Provenance",
-        "Shape",
-        "Operation",
-        "Token",
-        "EvidenceMethod",
-        "IL",
-        "Allocation",
-        "Path",
-        "PathConfidence",
-        "PostDominance",
-        "Weight",
-        "DirectSites",
-        "OncePaths",
-        "ConditionalPaths",
-        "RepeatedPaths",
-        "UnknownPaths",
-        "CachedSites",
-        "OpaquePaths",
-    ];
+    public static IReadOnlyList<string> SortableFields =>
+        PerformanceTriageRowQuery.SortableFields;
 
     public static readonly string[] KnownShapes =
     [
@@ -126,32 +59,6 @@ public sealed record PerformanceTriageOptions
         "sync-call-in-async",
         "temporary-byte-array-copy",
     ];
-
-    public static ImmutableArray<SectionQueryFacet> QueryFacets { get; } =
-        [.. FilterableFields.Concat(SortableFields).Distinct(StringComparer.Ordinal)
-            .Select(CreateQueryFacet)];
-
-    private static SectionQueryFacet CreateQueryFacet(string field)
-    {
-        bool filterable = FilterableFields.Contains(field);
-        bool sortable = SortableFields.Contains(field);
-        bool ranked = IsRankedField(field);
-        string value = IsNumericField(field) ? "10" : ranked ? "high" : "*";
-        return new(
-            field,
-            [.. filterable ? new[] { "--where" } : [],
-                .. sortable ? new[] { "--order-by", "--top" } : []],
-            filterable
-                ? SupportsOrderedComparison(field) ? ["=", "!=", ">=", "<="] : ["=", "!="]
-                : [],
-            filterable
-                ? IsNumericField(field) ? "integer" : ranked ? "rank" : "text/glob"
-                : "order",
-            ranked ? ["low", "medium", "high"] : [],
-            filterable
-                ? $"--where \"{field}{(SupportsOrderedComparison(field) ? ">=" : "=")}{value}\""
-                : $"--top 10 --order-by \"{field} desc\"");
-    }
 
     public bool LoopOnly { get; init; }
     public string? MinConfidence { get; init; }
@@ -399,20 +306,17 @@ public sealed record PerformanceTriageOptions
                 return false;
             }
 
-            var op = syntax.Operator switch
-            {
-                RowPredicateOperator.Equals => RowOperator.Equals,
-                RowPredicateOperator.NotEquals => RowOperator.NotEquals,
-                RowPredicateOperator.GreaterOrEqual => RowOperator.GreaterOrEqual,
-                RowPredicateOperator.LessOrEqual => RowOperator.LessOrEqual,
-                _ => throw new InvalidOperationException(
-                    $"Unknown row predicate operator '{syntax.Operator}'."),
-            };
+            var queryField = PerformanceTriageRowQuery.Field(field);
             var value = syntax.Value;
-            if (op is RowOperator.GreaterOrEqual or RowOperator.LessOrEqual
-                && !SupportsOrderedComparison(field))
+            if (!TryBindPredicateOperator(
+                    queryField,
+                    syntax.Operator,
+                    out RowQueryOperator @operator))
             {
-                error = $"Field '{Contain(field)}' supports only = and != predicates.";
+                error =
+                    $"Field '{Contain(field)}' supports only "
+                    + FormatComparisons(queryField.Operators)
+                    + " predicates.";
                 return false;
             }
             if (IsNumericField(field)
@@ -427,7 +331,7 @@ public sealed record PerformanceTriageOptions
                 return false;
             }
 
-            predicate = new RowPredicate(field, op, value);
+            predicate = new RowPredicate(field, @operator, value);
             error = "";
             return true;
         }
@@ -436,26 +340,51 @@ public sealed record PerformanceTriageOptions
     }
 
     static bool IsKnownConfidence(string value)
-        => value.Equals("low", StringComparison.OrdinalIgnoreCase)
-           || value.Equals("medium", StringComparison.OrdinalIgnoreCase)
-           || value.Equals("high", StringComparison.OrdinalIgnoreCase);
+        => PerformanceTriageRowQuery.IsRankedValue(value);
 
     private static bool IsRankedField(string field)
-        => field is "Priority" or "Confidence" or "Weight";
-
-    private static bool SupportsOrderedComparison(string field)
-        => IsNumericField(field) || IsRankedField(field);
+        => PerformanceTriageRowQuery.IsRankedField(field);
 
     internal static bool IsNumericField(string field)
-        => field is "RootReach"
-            or "CallerLoopDepth"
-            or "DirectSites"
-            or "OncePaths"
-            or "ConditionalPaths"
-            or "RepeatedPaths"
-            or "UnknownPaths"
-            or "CachedSites"
-            or "OpaquePaths";
+        => PerformanceTriageRowQuery.IsNumericField(field);
+
+    internal static bool TryBindPredicateOperator<TRow>(
+        RowQueryField<TRow> field,
+        RowPredicateOperator syntax,
+        out RowQueryOperator @operator)
+    {
+        ArgumentNullException.ThrowIfNull(field);
+        @operator = syntax switch
+        {
+            RowPredicateOperator.Equals => RowQueryOperator.Equals,
+            RowPredicateOperator.NotEquals => RowQueryOperator.NotEquals,
+            RowPredicateOperator.GreaterOrEqual =>
+                RowQueryOperator.GreaterOrEqual,
+            RowPredicateOperator.LessOrEqual =>
+                RowQueryOperator.LessOrEqual,
+            _ => throw new InvalidOperationException(
+                $"Unknown row predicate operator '{syntax}'."),
+        };
+        return field.Operators.Contains(@operator);
+    }
+
+    private static string FormatComparisons(
+        IReadOnlyList<RowQueryOperator> operators)
+    {
+        string[] comparisons =
+        [
+            .. operators.Select(RowQueryFacetProjection.Comparison),
+        ];
+        return comparisons.Length switch
+        {
+            0 => throw new InvalidOperationException(
+                "A filterable row-query field declares no predicate operators."),
+            1 => comparisons[0],
+            2 => $"{comparisons[0]} and {comparisons[1]}",
+            _ => $"{string.Join(", ", comparisons[..^1])}, "
+                + $"and {comparisons[^1]}",
+        };
+    }
 
     static string? NormalizeField(string field, IReadOnlyList<string> knownFields)
     {

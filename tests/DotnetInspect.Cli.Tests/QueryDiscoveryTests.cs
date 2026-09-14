@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using DotnetInspect.Cli.Options;
 using DotnetInspector.Sections;
@@ -551,9 +552,89 @@ public class QueryDiscoveryTests
     }
 
     [Fact]
-    public void DiscoveredPerformanceBindings_AreAcceptedByTheirOwner()
+    public void ExecutableRowSchemaCapabilitiesDriveQueryDiscovery()
     {
-        foreach (SectionQueryFacet facet in PerformanceTriageOptions.QueryFacets)
+        RowQuerySchema<QueryProjectionRow> whereOnly =
+            QueryProjectionSchema(
+                [RowQueryOperator.Equals],
+                ordered: false);
+        RowQuerySchema<QueryProjectionRow> asymmetric =
+            QueryProjectionSchema(
+                [
+                    RowQueryOperator.Equals,
+                    RowQueryOperator.LessOrEqual,
+                ],
+                ordered: true);
+
+        SectionQueryFacet initial = Assert.Single(
+            RowQueryFacetProjection.Create(
+                whereOnly,
+                _ => new("integer", [], "10"),
+                []));
+        SectionQueryFacet changed = Assert.Single(
+            RowQueryFacetProjection.Create(
+                asymmetric,
+                _ => new("integer", [], "10"),
+                []));
+
+        Assert.Equal(["--where"], initial.Operators);
+        Assert.Equal(["="], initial.Comparisons);
+        Assert.Equal(
+            ["--where", "--order-by", "--top"],
+            changed.Operators);
+        Assert.Equal(["=", "<="], changed.Comparisons);
+
+        RowQueryField<QueryProjectionRow> field =
+            Assert.Single(asymmetric.Fields);
+        Assert.True(
+            PerformanceTriageOptions.TryBindPredicateOperator(
+                field,
+                RowPredicateOperator.LessOrEqual,
+                out RowQueryOperator accepted));
+        Assert.Equal(RowQueryOperator.LessOrEqual, accepted);
+        Assert.False(
+            PerformanceTriageOptions.TryBindPredicateOperator(
+                field,
+                RowPredicateOperator.GreaterOrEqual,
+                out _));
+    }
+
+    [Fact]
+    public void PerformanceDiscoveryProjectsItsExecutableSchema()
+    {
+        RowQuerySchema<ILInspector.Analysis.OptimizationOpportunity> schema =
+            PerformanceTriageRowQuery.ExecutableSchema;
+        ImmutableArray<SectionQueryFacet> facets =
+            PerformanceTriageRowQuery.QueryFacets;
+
+        Assert.Equal(
+            [.. schema.Fields.Select(field => field.Key), "Triage"],
+            facets.Select(facet => facet.Name));
+        Assert.Contains(
+            schema.NamedOrders,
+            order => order.Key == "AllocationFanout");
+        Assert.DoesNotContain(
+            facets,
+            facet => facet.Name == "AllocationFanout");
+
+        foreach (RowQueryField<ILInspector.Analysis.OptimizationOpportunity>
+            field in schema.Fields)
+        {
+            SectionQueryFacet facet = Assert.Single(
+                facets,
+                candidate => candidate.Name == field.Key);
+            Assert.Equal(
+                field.Operators.Count > 0,
+                facet.Operators.Contains("--where"));
+            Assert.Equal(
+                field.SupportsOrdering,
+                facet.Operators.Contains("--order-by"));
+            Assert.Equal(
+                field.SupportsOrdering,
+                facet.Operators.Contains("--top"));
+        }
+
+        foreach (SectionQueryFacet facet in facets)
         {
             Assert.Equal(PerformanceTriageOptions.FilterableFields.Contains(facet.Name),
                 facet.Operators.Contains("--where"));
@@ -566,6 +647,11 @@ public class QueryDiscoveryTests
                 var options = new PerformanceTriageOptions { Where = [$"{facet.Name}{comparison}{value}"] };
                 Assert.True(options.TryGetPredicates(out _, out var error), error.ToString());
             }
+            foreach (string value in facet.Values)
+            {
+                var options = new PerformanceTriageOptions { Where = [$"{facet.Name}={value}"] };
+                Assert.True(options.TryGetPredicates(out _, out var error), error.ToString());
+            }
             if (facet.Operators.Contains("--order-by"))
             {
                 var options = new PerformanceTriageOptions { OrderBy = $"{facet.Name} desc", Top = 10 };
@@ -573,4 +659,33 @@ public class QueryDiscoveryTests
             }
         }
     }
+
+    private static RowQuerySchema<QueryProjectionRow> QueryProjectionSchema(
+        IReadOnlyList<RowQueryOperator> operators,
+        bool ordered)
+    {
+        Func<
+            RowQueryOrderDirection,
+            IComparer<RowQueryValue<int>>>? comparerFactory =
+            ordered
+                ? direction => RowQueryValueOrder.Create(
+                    Comparer<int>.Default,
+                    direction,
+                    missingLast: false)
+                : null;
+        RowQueryField<QueryProjectionRow> field =
+            RowQueryField<QueryProjectionRow>.Create(
+                RowQueryFieldIdentity.Create(),
+                "Score",
+                operators,
+                row => RowQueryValue<int>.Present(row.Score),
+                (_, _) => _ => true,
+                comparerFactory);
+        return RowQuerySchema<QueryProjectionRow>.Create(
+            RowQuerySchemaIdentity.Create(),
+            [field],
+            []);
+    }
+
+    private sealed record QueryProjectionRow(int Score);
 }
