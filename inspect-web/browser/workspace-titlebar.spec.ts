@@ -459,6 +459,34 @@ test("the narrow return control integrates with Metadata and Source frames", asy
   await expect(page.locator("#inspector-panel > h1")).toHaveCount(0);
 });
 
+test("Package Dependencies reveals a direct dependency row at ordinary desktop height", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 768 });
+  await page.goto("/browser/workspace-titlebar.html?package-dependencies=1");
+
+  const geometry = await page.evaluate(() => {
+    const scroll = document.querySelector<HTMLElement>(".package-dependencies-scroll")!;
+    const graph = document.querySelector<HTMLElement>(".graph-viewport")!;
+    const row = document.querySelector<HTMLElement>(".dep-list li")!;
+    const scrollRect = scroll.getBoundingClientRect();
+    const rowRect = row.getBoundingClientRect();
+    return {
+      graphHeight: graph.getBoundingClientRect().height,
+      rowBottom: rowRect.bottom,
+      rowTop: rowRect.top,
+      scrollBottom: scrollRect.bottom,
+      scrollTop: scroll.scrollTop,
+      scrollTopEdge: scrollRect.top,
+    };
+  });
+
+  expect(geometry.scrollTop).toBe(0);
+  expect(geometry.graphHeight).toBeCloseTo(260, 2);
+  expect(geometry.rowTop).toBeGreaterThanOrEqual(geometry.scrollTopEdge);
+  expect(geometry.rowBottom).toBeLessThanOrEqual(geometry.scrollBottom);
+});
+
 for (const [subject, width] of [
   ["package", 1440], ["package", 390], ["library", 1440], ["library", 390],
 ] as const) {

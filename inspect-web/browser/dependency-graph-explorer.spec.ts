@@ -51,7 +51,9 @@ test("group changes stay expanded and preserve an empty selection on Close", asy
   await page.getByRole("button", { name: "net11.0", exact: true }).click();
   await expect(page.getByRole("dialog")).toContainText("No connected packages");
   await expect(page.getByRole("button", { name: "net11.0", exact: true })).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator("#dep-list-section")).toHaveText("net11.0: 0 packages");
+  await expect(page.locator("#dep-list-section")).toContainText("net11.0 · 0 packages");
+  await expect(page.locator("#dep-list-section"))
+    .toContainText("No package dependencies declared for net11.0.");
   await page.getByRole("button", { name: "net10.0", exact: true }).click();
   await expect(page.getByRole("dialog").locator("svg")).toBeVisible();
   await page.getByRole("button", { name: "net11.0", exact: true }).click();
@@ -162,22 +164,23 @@ for (const layout of [
       .toBeCloseTo(layout.surfaceWidth, 2);
     const inline = await page.locator(".graph-viewport").boundingBox();
     expect(inline!.height).toBeCloseTo(layout.inlineHeight, 2);
-    const initialList = await page.evaluate(() => {
+    const initialRow = await page.evaluate(() => {
       const scroll = document.querySelector<HTMLElement>(".package-dependencies-scroll")!;
-      const list = document.querySelector<HTMLElement>("#dep-list-section")!;
+      const row = document.querySelector<HTMLElement>(".dep-list li")!;
       const scrollRect = scroll.getBoundingClientRect();
-      const listRect = list.getBoundingClientRect();
+      const rowRect = row.getBoundingClientRect();
       return {
-        listTop: listRect.top,
+        rowBottom: rowRect.bottom,
+        rowTop: rowRect.top,
         scrollBottom: scrollRect.bottom,
         scrollTop: scroll.scrollTop,
         scrollTopEdge: scrollRect.top,
       };
     });
-    expect(initialList.scrollTop).toBe(0);
-    expect(initialList.listTop).toBeGreaterThanOrEqual(initialList.scrollTopEdge);
-    expect(initialList.listTop).toBeLessThan(initialList.scrollBottom);
-    await expect(page.locator("#dep-list-section")).toBeInViewport();
+    expect(initialRow.scrollTop).toBe(0);
+    expect(initialRow.rowTop).toBeGreaterThanOrEqual(initialRow.scrollTopEdge);
+    expect(initialRow.rowBottom).toBeLessThanOrEqual(initialRow.scrollBottom);
+    await expect(page.locator(".dep-list li").first()).toBeInViewport();
     await page.getByRole("button", { name: "Explore", exact: true }).click();
     const viewport = await page.locator(".graph-viewport").boundingBox();
     expect(viewport!.width).toBeGreaterThan(layout.viewport.width - 30);
@@ -217,6 +220,6 @@ for (const layout of [
     await page.getByRole("button", { name: "Close", exact: true }).click();
     expect((await page.locator(".graph-viewport").boundingBox())!.height)
       .toBeCloseTo(layout.inlineHeight, 2);
-    await expect(page.locator("#dep-list-section")).toBeInViewport();
+    await expect(page.locator(".dep-list li").first()).toBeInViewport();
   });
 }

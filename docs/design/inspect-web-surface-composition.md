@@ -837,10 +837,12 @@ resetting the package coordinate.
 
 The inline graph is a bounded structural preview so the selected group's direct
 NuGet dependency rows enter the initial result viewport. At wide inspector
-widths its viewport is capped at 360px; constrained inspector widths use 240px.
-This follows the useful division in dependency tools between lists for the
-immediate direct answer and graphs for structural exploration, without adopting
-another application's overall model. The action row exposes
+widths its viewport is capped at 360px and yields vertical space as the browser
+height contracts so at least the first direct dependency row remains visible at
+ordinary desktop heights. Constrained inspector widths use 240px. This follows
+the useful division in dependency tools between lists for the immediate direct
+answer and graphs for structural exploration, without adopting another
+application's overall model. The action row exposes
 [Graph Explore](#graph-explore), which relocates the same live graph into the
 existing full-area viewport and retains the same dependency-group selection.
 Closing Explore returns that graph to the bounded inline preview. Other graph

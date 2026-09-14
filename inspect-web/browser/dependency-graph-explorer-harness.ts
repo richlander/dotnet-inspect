@@ -138,8 +138,13 @@ function patchGroup() {
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", String(active));
   });
-  document.querySelector<HTMLElement>("#dep-list-section")!.textContent =
-    `${selected.framework}: ${selected.dependencies.length} packages`;
+  document.querySelector<HTMLElement>("#dep-list-section")!.innerHTML = `
+    <div class="section-title"><h2>NuGet dependencies</h2><span>${selected.framework} · ${selected.dependencies.length} packages</span></div>
+    ${selected.dependencies.length
+      ? `<ul class="dep-list">${selected.dependencies.map(dependency =>
+          `<li><button class="dep-name as-link" type="button">${dependency.id}</button><code class="dep-version">${dependency.versionRange}</code></li>`)
+        .join("")}</ul>`
+      : `<div class="empty-list">No package dependencies declared for ${selected.framework}.</div>`}`;
   return mountGraph();
 }
 

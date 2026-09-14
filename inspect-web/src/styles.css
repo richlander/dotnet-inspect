@@ -1509,7 +1509,7 @@ kbd {
 .graph-viewport { position: relative; width: 100%; height: 540px; overflow: hidden; cursor: grab; touch-action: none; }
 .package-dependencies-surface .dependency-graph-section .call-graph-diagram { min-height: 260px; }
 .package-dependencies-surface .dependency-graph-section .graph-viewport {
-  height: clamp(260px, 38dvh, 360px);
+  height: clamp(260px, calc(100dvh - 508px), 360px);
 }
 .graph-viewport.panning { cursor: grabbing; }
 .graph-viewport:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
