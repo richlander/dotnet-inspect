@@ -92,7 +92,7 @@ One query intent is:
 
 | Part | Meaning |
 | --- | --- |
-| `vocabulary` | Owner-issued identity of the vocabulary the terms resolve against. It serializes as the packet's `queryId`, never as a payload property. |
+| `vocabulary` | Owner-issued identity of the vocabulary the terms resolve against. It is part of an intent's identity; where an encoding carries it is the codec's. |
 | `terms` | A canonical set of `(key, operator, value)` triples. Composition follows the vocabulary's declared families. |
 | `bounds` | Declared execution bounds, each carrying an owner-issued dimension identity. Unordered. |
 | `stages` | The ordered selection-stage pipeline. Position-significant. |
@@ -176,14 +176,22 @@ contract exists to prevent.
 Intent resolves exactly once, against exactly one vocabulary, producing either
 the owner's executable plan or one structured failure.
 
-- Resolution is **atomic**. The first failure, in deterministic order, returns
-  no plan and no partial binding.
+- Resolution is **atomic**. The first failure returns no plan and no partial
+  binding, and which failure is first is fixed by the contract rather than by a
+  host's enumeration order: parts resolve in the order they appear in the
+  contract table — vocabulary, terms, bounds, stages, order — and within a part,
+  elements resolve in that part's canonical order. Every part therefore requires
+  a total order over its elements; the concrete orders belong to the codec. Two
+  hosts resolving one intent report the same failure.
 - Resolution **starts no work**. A rejected intent issues no acquisition, no
   source request, and no package payload fetch. This matters more here than for
   row predicates: a package-query term can authorize archive downloads, so a
   malformed restored link must cost nothing.
-- A failure is **presentation-free**: term position, vocabulary identity, the
-  offending key or operator identity, and a typed reason. No diagnostic
+- A failure is **presentation-free**: the vocabulary identity, a typed location
+  naming the part and the element within it, the offending owner-issued identity
+  when the reason has one — a key, operator, dimension, or order reference — and
+  a typed reason. A reason with no offending identity, such as an unknown
+  vocabulary, carries none rather than an empty or invented one. No diagnostic
   sentence, rendered value, localized text, or exception text enters the
   contract.
 - The distinguishable reasons are at least: unknown vocabulary, unknown key,
@@ -234,8 +242,9 @@ same failure mode the bounded-completion rules exist to prevent.
 
 Keys, dimension identities, and named orders below are illustrative. The
 vocabulary owner defines the real ones; these show the model, not a vocabulary.
-Byte-level examples live with the codec in
-[Portable query payload](portable-query-payload.md#worked-examples).
+Byte-level examples live with the codec in slice 2
+([#6981](https://github.com/richlander/dotnet-inspect/pull/6981)), which adds the
+document link here when it lands.
 
 ### A package query, and everything it must carry
 
@@ -300,12 +309,13 @@ successor slice.
 
 | Gate | Contract |
 | --- | --- |
-| `IntentResolutionIsAtomic` | An invalid vocabulary, key, operator, value, or bound returns the deterministic first structured failure with no plan and no partial binding. |
+| `IntentResolutionIsAtomic` | An invalid vocabulary, key, operator, value, bound, stage, or order reference returns one structured failure with no plan and no partial binding. |
+| `FailurePrecedenceIsContractFixed` | An intent carrying several independent defects reports the same failure regardless of host enumeration or construction order, following part order and then each part's canonical order. |
 | `IntentResolutionStartsNoWork` | A rejected intent issues no acquisition, source request, or payload fetch; gated with a source capability that fails the test if invoked. |
 | `UnresolvableTermFailsVisibly` | An intent naming a key, operator, or dimension absent from the current build fails; it is never dropped, defaulted, narrowed, or widened. |
 | `IntentCarriesNoResolvedOrPresentationState` | Serialized intent contains no resolved identity, accessor, comparer, label, rendered value, or outcome. |
 | `BoundKindsRemainDistinct` | An execution bound never resolves as a selection stage or the reverse, and each retains its owner-issued dimension identity. |
-| `IntentFailureShapeIsPresentationFree` | Failures carry only position, vocabulary identity, offending identity, and typed reason. |
+| `IntentFailureShapeIsPresentationFree` | Failures carry only the vocabulary identity, a typed part-and-element location, an optional owner-issued offending identity, and a typed reason; a reason without an offending identity carries none rather than an empty or invented one. |
 | `DuplicateAfterBindingIsReachableAndVocabularyOwned` | Two syntactically distinct terms that a vocabulary binds to one predicate reach the vocabulary stage and take that owner's declared collapse-or-fail outcome; no duplicate reaches resolution as canonical bytes. |
 
 ## Decisions
