@@ -784,19 +784,25 @@ Long identifiers, asset paths, and document names remain contained without
 page-level horizontal overflow. Many rows scroll inside Overview while its
 header, any controls, and coordinates remain in place.
 
-Overview presents the already-loaded package. Changing its selected TFM keeps
-the package shell, inspected target, navigation, and data bar visible. Only the
+Overview presents the already-loaded package. Changing its selected TFM or
+version keeps the package shell, inspected target, navigation, and data bar
+visible, whether the target is cached or needs acquisition. Only the
 inspector content becomes busy, with a compact text-and-spinner status rather
 than the full-page bot interstitial. Pending content does not publish a new URL
-or expose the previous framework's results as the requested framework. Failure
-restores the previous content and TFM with the existing visible retry notice.
-Opening a new package or version retains the acquisition interstitial.
-`System.Text.Json@10.0.0`, switching from `net10.0` to `net9.0`, motivates this
-ordinary same-package interaction; the production-composition browser gate in
+or expose the previous coordinate's results as the requested coordinate.
+Completion refreshes the content and library navigation from the returned
+package; keyboard focus returns to the initiating coordinate selector. Failure
+restores the previous content and coordinate with the existing visible retry
+notice. Opening a new package retains the acquisition interstitial.
+`System.Text.Json@10.0.0`, switching from `net10.0` to `net9.0`, or to version
+`10.0.1` and back to `10.0.0`, motivates these ordinary same-package interactions.
+The production-composition browser gate in
 `library-hierarchy.spec.ts` covers pending, success, failure/retry, navigation
-away, and neighboring new-version loading. Acquisition and partial-package
-notices otherwise retain their host presentation; this introduces no
-independent Overview query or acquisition state machine.
+away, immediate return to an inspected version, and neighboring initial-package
+loading. No cache-residency preflight is required to choose this presentation.
+Acquisition and partial-package notices otherwise retain their host
+presentation; this introduces no independent Overview query or acquisition
+state machine.
 Empty inventories retain their zero totals and any available package documents.
 Admitted libraries with no public types retain their named Library Overview.
 
