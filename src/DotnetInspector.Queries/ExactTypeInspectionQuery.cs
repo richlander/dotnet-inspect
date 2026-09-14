@@ -326,7 +326,7 @@ internal static class ExactTypeInspectionQuery
         AssemblyContextApiSurfaceResult? boundedProjection =
             projectionLimits is null
                 ? null
-                : AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                : AssemblyContextApiSurfaceQuery.ExecuteBoundedResolved(
                     loaded.Group,
                     ApiSurfaceScope.PublicWithNonPublicTypes,
                     projectionLimits,
@@ -338,7 +338,8 @@ internal static class ExactTypeInspectionQuery
                         (participant, order) => new Projection(
                             order,
                             participant,
-                            AssemblyContextApiSurfaceQuery.ExecuteParticipant(
+                            AssemblyContextApiSurfaceQuery
+                                .ExecuteParticipantResolved(
                                 loaded.Group,
                                 participant,
                                 ApiSurfaceScope.PublicWithNonPublicTypes))),

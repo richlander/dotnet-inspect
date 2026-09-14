@@ -379,41 +379,56 @@ public sealed class ExactTypeInspectionOperationTests
     }
 
     [Fact]
-    public async Task ProjectDiagnostics_ConstraintFailureIsVisibleAndNonfatal()
+    public async Task ExecuteAsync_ConstraintFailureIsVisibleAndNonfatal()
     {
-        var store = await CachedStoreAsync();
+        var store = await CachedStoreAsync(
+            ("lib/net11.0/Constraint.dll",
+                BuildModuleConstraintAssembly()));
         using var client = new HttpClient(new FailingHandler());
-        InspectionEnvelope<ExactTypeInspectionResult> baseline =
+        var request = new ExactTypeInspectionRequest(
+            PackageId,
+            Version,
+            Framework,
+            "N.Holder<T>");
+        WorkspaceContextLoadOptions capabilities =
+            LoadOptions(client, store);
+        InspectionEnvelope<ExactTypeInspectionResult> unbounded =
             await ExactTypeInspectionOperation.ExecuteAsync(
-                new ExactTypeInspectionRequest(
-                    PackageId,
-                    Version,
-                    Framework,
-                    typeof(ExactTypeInspectionOperation).FullName!),
-                LoadOptions(client, store),
+                request,
+                capabilities,
                 TestContext.Current.CancellationToken);
-        var failure = new ExactTypeApiInspectionFailure(
-            ApiSurface.ConstraintResolutionOperation,
-            SubjectToken: 0x02000001,
-            MetadataTypeNameFailureMechanism.Metadata,
-            Kind: "Missing",
-            Detail: "The generic constraint dependency was unavailable.",
-            SubjectAssembly:
-                baseline.Content.SupplierAssembly?.Identity,
-            DependencyAssembly: null);
-        ExactTypeInspectionResult result =
-            baseline.Content with
-            {
-                InspectionFailures = [failure],
-            };
+        InspectionEnvelope<ExactTypeInspectionResult> bounded =
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                request,
+                capabilities,
+                new ApiSurfaceProjectionLimits(
+                    maxParticipants: 10,
+                    maxTypes: 100,
+                    maxMembers: 100,
+                    maxInspectionFailures: 100,
+                    maxTypeForwarders: 100,
+                    maxMetadataRows: 10_000),
+                TestContext.Current.CancellationToken);
 
-        Assert.True(result.IsComplete);
-        Assert.Contains(
-            ExactTypeInspectionOperation.ProjectDiagnostics(result),
-            diagnostic => diagnostic.Code
-                    == "exact-type.constraint-resolution-incomplete"
-                && diagnostic.Severity
-                    == InspectionDiagnosticSeverity.Warning);
+        Assert.All(
+            new[] { unbounded, bounded },
+            envelope =>
+            {
+                Assert.Equal(
+                    ExactTypeInspectionOutcome.Available,
+                    envelope.Content.Outcome);
+                Assert.True(envelope.Content.IsComplete);
+                Assert.Contains(
+                    envelope.Content.InspectionFailures,
+                    failure => failure.Operation
+                        == ApiSurface.ConstraintResolutionOperation);
+                Assert.Contains(
+                    envelope.Diagnostics,
+                    diagnostic => diagnostic.Code
+                            == "exact-type.constraint-resolution-incomplete"
+                        && diagnostic.Severity
+                            == InspectionDiagnosticSeverity.Warning);
+            });
     }
 
     [Fact]
@@ -849,6 +864,65 @@ public sealed class ExactTypeInspectionOperationTests
             baseType: malformedBase,
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
             methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var builder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        builder.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildModuleConstraintAssembly()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("Constraint.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Constraint"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        ModuleReferenceHandle module =
+            metadata.AddModuleReference(
+                metadata.GetOrAddString("Other.netmodule"));
+        TypeReferenceHandle constraint =
+            metadata.AddTypeReference(
+                module,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Constraint"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle holder =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Holder`1"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+        GenericParameterHandle parameter =
+            metadata.AddGenericParameter(
+                holder,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+        metadata.AddGenericParameterConstraint(parameter, constraint);
 
         var builder = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),

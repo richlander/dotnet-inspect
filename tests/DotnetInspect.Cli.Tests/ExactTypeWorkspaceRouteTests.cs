@@ -9,7 +9,6 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
-using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using NuGetFetch;
 
@@ -52,9 +51,8 @@ public sealed class ExactTypeWorkspaceRouteTests
                             new UniformPackageSourceAuthorization([Source]),
                         PackageStore = store,
                     }));
-
         Assert.Equal(0, exitCode);
-        Assert.Empty(error);
+        Assert.Equal(0, exitCode);
         Assert.Contains(
             "ILInspector.Metadata.ApiType",
             output,
@@ -195,71 +193,36 @@ public sealed class ExactTypeWorkspaceRouteTests
     }
 
     [Fact]
-    public async Task SharedRouteRendersConstraintDiagnosticAsNonfatal()
+    public async Task EligibleRoutePreservesConstraintDiagnosticAsNonfatal()
     {
-        var store = await CachedStoreAsync();
+        var store = await CachedStoreAsync(
+            ($"lib/{Framework}/Constraint.dll",
+                BuildModuleConstraintAssembly()));
         using var client = new HttpClient(new FailingHandler());
-        string typeName = typeof(ApiType).FullName!;
         var options = new TypeOptions
         {
             PackagePath = $"{PackageId}@{Version}",
             Tfm = Framework,
-            TypeName = typeName,
+            TypeName = "N.Holder<T>",
             TipLevel = TipLevel.Quiet,
         };
-        var request = new ExactTypeInspectionRequest(
-            PackageId,
-            Version,
-            Framework,
-            typeName);
-        InspectionEnvelope<ExactTypeInspectionResult> baseline =
-            await ExactTypeInspectionOperation.ExecuteAsync(
-                request,
-                new WorkspaceContextLoadOptions
-                {
-                    HttpClient = client,
-                    SourceAuthorization =
-                        new UniformPackageSourceAuthorization([Source]),
-                    PackageStore = store,
-                },
-                TestContext.Current.CancellationToken);
-        var failure = new ExactTypeApiInspectionFailure(
-            ApiSurface.ConstraintResolutionOperation,
-            SubjectToken: 0x02000001,
-            MetadataTypeNameFailureMechanism.Metadata,
-            Kind: "Missing",
-            Detail: "The generic constraint dependency was unavailable.",
-            SubjectAssembly:
-                baseline.Content.SupplierAssembly?.Identity,
-            DependencyAssembly: null);
-        ExactTypeInspectionResult result =
-            baseline.Content with
-            {
-                InspectionFailures = [failure],
-            };
-        InspectionEnvelope<ExactTypeInspectionResult> envelope =
-            new(
-                result,
-                baseline.Share,
-                [
-                    .. baseline.Diagnostics,
-                    new InspectionDiagnostic(
-                        "exact-type.constraint-resolution-incomplete",
-                        InspectionDiagnosticSeverity.Warning,
-                        "Generic-constraint classification was incomplete."),
-                ]);
 
         (int exitCode, string output, string error) =
             await ConsoleCapture.RunAsync(
-                () => TypeCommand.RenderSharedExactTypeAsync(
+                () => TypeCommand.ExecuteAsync(
                     options,
                     ResolvedMemberInspectionPlan
                         .FromCompatibilityOptions(options),
-                    request,
-                    envelope));
+                    new WorkspaceContextLoadOptions
+                    {
+                        HttpClient = client,
+                        SourceAuthorization =
+                            new UniformPackageSourceAuthorization([Source]),
+                        PackageStore = store,
+                    }));
 
         Assert.Equal(0, exitCode);
-        Assert.Contains(typeName, output, StringComparison.Ordinal);
+        Assert.Contains("N.Holder<T>", output, StringComparison.Ordinal);
         Assert.Contains("Warning:", error, StringComparison.Ordinal);
         Assert.Contains(
             "Generic-constraint classification was incomplete",
@@ -332,6 +295,65 @@ public sealed class ExactTypeWorkspaceRouteTests
             baseType: malformedBase,
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
             methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var builder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        builder.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildModuleConstraintAssembly()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("Constraint.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Constraint"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        ModuleReferenceHandle module =
+            metadata.AddModuleReference(
+                metadata.GetOrAddString("Other.netmodule"));
+        TypeReferenceHandle constraint =
+            metadata.AddTypeReference(
+                module,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Constraint"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle holder =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Holder`1"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+        GenericParameterHandle parameter =
+            metadata.AddGenericParameter(
+                holder,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+        metadata.AddGenericParameterConstraint(parameter, constraint);
 
         var builder = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),

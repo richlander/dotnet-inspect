@@ -1025,11 +1025,13 @@ through the group binding policy and collapses roots only when Metadata resolves
 them to the same terminal definition. Distinct terminal definitions are
 ambiguous. Execution bounds are caller-owned: desktop callers may select the
 explicit unbounded overload, while Browser/Wasm must supply
-`BrowserApiSurfacePolicy.Limits`. Bounded execution uses
-`AssemblyContextApiSurfaceQuery.ExecuteBounded` over the requested package
-participants. A selected Type projected before a later stop remains available
-but incomplete with typed `ProjectionTruncated` evidence; when a stop prevents
-a conclusive match, the outcome is `Unavailable`, never a false `NotFound`.
+`BrowserApiSurfacePolicy.Limits`. Bounded execution uses the resolution-aware
+`AssemblyContextApiSurfaceQuery.ExecuteBoundedResolved` path over the requested
+package participants. Both modes use resolution-aware extraction so retained
+generic-constraint failures have the same typed meaning. A selected Type
+projected before a later stop remains available but incomplete with typed
+`ProjectionTruncated` evidence; when a stop prevents a conclusive match, the
+outcome is `Unavailable`, never a false `NotFound`.
 The requested and supplying assemblies retain Metadata-issued assembly
 identity and MVID; ordered forwarding hops preserve the route between them.
 

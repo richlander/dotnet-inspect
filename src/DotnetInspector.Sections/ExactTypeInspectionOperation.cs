@@ -203,7 +203,7 @@ public static class ExactTypeInspectionOperation
         new(
             result,
             ProjectShare(request, result),
-            ProjectDiagnostics(result));
+            Diagnostics(result));
 
     static InspectionShare ProjectShare(
         ExactTypeInspectionRequest request,
@@ -267,7 +267,7 @@ public static class ExactTypeInspectionOperation
             encoded);
     }
 
-    internal static ImmutableArray<InspectionDiagnostic> ProjectDiagnostics(
+    static ImmutableArray<InspectionDiagnostic> Diagnostics(
         ExactTypeInspectionResult result)
     {
         var diagnostics =

@@ -765,19 +765,6 @@ public static class TypeCommand
             return 1;
         }
 
-        return await RenderSharedExactTypeAsync(
-            options,
-            plan,
-            request,
-            envelope).ConfigureAwait(false);
-    }
-
-    internal static async Task<int> RenderSharedExactTypeAsync(
-        TypeOptions options,
-        ResolvedMemberInspectionPlan plan,
-        ExactTypeInspectionRequest request,
-        InspectionEnvelope<ExactTypeInspectionResult> envelope)
-    {
         ExactTypeInspectionResult result = envelope.Content;
         if (!result.IsAvailable)
         {
