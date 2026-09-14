@@ -6,11 +6,14 @@ Focused query-contract proposal for
 [#6131](https://github.com/richlander/dotnet-inspect/issues/6131), contributing
 to [#6124](https://github.com/richlander/dotnet-inspect/issues/6124).
 The host-neutral query and its typed output are implemented in
-`DotnetInspector.Queries`; the executable Release gates are in
-`tests/DotnetInspector.Queries.Tests/EcosystemChangeReportQueryTests.cs`.
-Shared Markout/structured presentation and CLI and browser/Wasm adoption remain
-later delivery steps. Historical security changes remain unsupported because
-no owner supplies the required before/after evidence.
+`DotnetInspector.Queries`. Shared portable, Markout, and structured-JSON
+presentation is implemented in `DotnetInspector.Presentation`. The executable
+Release gates are in
+`tests/DotnetInspector.Queries.Tests/EcosystemChangeReportQueryTests.cs` and
+`tests/DotnetInspector.Presentation.Tests/EcosystemChangeReportPresentationTests.cs`.
+CLI and browser/Wasm adoption remain later delivery steps. Historical security
+changes remain unsupported because no owner supplies the required before/after
+evidence.
 
 The **Ecosystem Change Report query** in `DotnetInspector.Queries` is the
 single normative owner. Its claim is:
@@ -162,6 +165,50 @@ the same query and presentation evidence. Their focused adoption defines
 command grammar, placement, interaction, and host delivery under existing
 owners. This document does not introduce a new browser rendering framework.
 
+The shared collector accepts the closed query event stream and produces one
+resource-free `EcosystemChangeReportDocument`. It requires exactly one terminal
+completion, rejects an event after that terminal, and preserves cancellation
+rather than manufacturing a document. The document retains the complete
+resolved request, progress observations, selected activity rows, typed failure
+events, and terminal coverage/work summary. Its schema version is explicit.
+
+One report has one source-result identity. Before lowering that identity to its
+portable producer key, inert display, and transport kind, Presentation verifies
+that every returned row carries the terminal summary's exact source identity.
+The caller-owned association token remains process-local and is not stringified;
+the document root establishes the source shared by all of its rows. Receipt
+evidence remains nested with the exact activity row whose correspondence the
+query established.
+
+Source-generated structured JSON is the lossless portable format. It uses
+stable snake-case property names, string enum values, omitted null values, and
+the explicit schema version. It retains:
+
+- package-set identity and exact members, or the distinct literal prefix;
+- reference time and exclusive-start/inclusive-end interval;
+- Catalog coordinate, leaf, commit identity, activity kind, and commit time;
+- independent current-context and exact-first-patched availability and
+  advisory references, including advisory-document publication and update
+  times;
+- package receipt time and `created` or `published` fallback basis;
+- security-release status and positive evidence without deriving either from
+  rendered labels;
+- source horizon, acquisition work, unevaluable populations, provider
+  failures, and every independent limit/completion fact; and
+- the progress and failure events delivered before terminal completion.
+
+Markout renders the same document as package scope, activity, advisory
+evidence, work, and failure sections. Its activity table shows Catalog
+observation time, both advisory-category availability states, exact
+security-release evaluation, and receipt time/basis. The advisory table shows
+current-context, exact-first-patched, and positive security-release placements
+with each advisory's publication/update times and URL. Root fields distinguish
+reference time, requested interval and its default/explicit basis, source
+horizon, and advisory observation time. Work rows expose the configured
+candidate, receipt, and result bounds beside their reached states. Human labels
+are presentation only; hosts consume the typed document when category or
+completion meaning affects behavior.
+
 Illustrative rendering, using synthetic package/evidence records:
 
 | Observed activity | Package | Version | Activity | Security evidence |
@@ -204,3 +251,17 @@ security facts, unavailable versus checked-empty data, take after predicates,
 ordering barriers and candidate bounds, provider failures, and cancellation
 after rows. CLI and browser adoption must still demonstrate equivalent
 semantic results and disclose their own publication timing.
+
+The shared-presentation Release gates run the real query over controlled NuGet
+Catalog and GitHub-reviewed-advisory responses, including
+`Microsoft.Extensions.AI`.
+`CollectAndSerialize_PreservesEvidenceAndTimeBases` covers snapshot and deletion
+activity, current and fixed advisory categories, both receipt bases, positive
+security-release evidence, every distinct time basis, generated JSON
+round-tripping, and Markout lowering.
+`PartialFailureAndMissingTerminalStayVisible` covers unavailable advisory
+evidence, an explicit interval and literal-prefix scope, a lagging source
+horizon, typed partial completion, visible provider failure, exact row/source
+correspondence, failure-event/terminal-accounting correspondence, caller
+cancellation even when an enumerable ignores it, and rejection of missing or
+post-terminal event streams.
