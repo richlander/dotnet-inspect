@@ -668,27 +668,48 @@ public sealed class PackageHouseExecutionTests
             client => Assert.Equal(1, client.VersionRequests));
     }
 
-    [Fact]
-    public async Task CandidateAcquireDelegatesBeforePayloadCapability()
+    [Theory]
+    [InlineData(
+        "system.text.json",
+        "9.0.0",
+        "11.0.0",
+        PlatformFamily.DotNetRuntime)]
+    [InlineData(
+        "system.runtime",
+        "4.0.0",
+        "4.3.1",
+        PlatformFamily.DotNetRuntime)]
+    [InlineData(
+        "microsoft.extensions.caching.memory",
+        "10.0.0",
+        "10.0.0",
+        PlatformFamily.AspNetCore)]
+    public async Task KnownPlatformPackageAcquireDelegatesBeforePayloadCapability(
+        string packageId,
+        string requestedVersion,
+        string suppliedVersion,
+        PlatformFamily family)
     {
         await using HouseEnvironment environment =
             HouseEnvironment.CreateForPackage(
-                PrunablePackageId,
-                new SourceBehavior(["9.0.0"]));
+                packageId,
+                new SourceBehavior([requestedVersion]));
         PackageAcquisitionCandidate candidate =
             ResolveCandidate(
                 environment,
-                PrunablePackageId,
-                "9.0.0");
+                packageId,
+                requestedVersion);
         PackageHouseRequest request = CandidateRequest(
             candidate,
-            PackageHouseOperationProfile.Acquire);
+            PackageHouseOperationProfile.Acquire,
+            platformFamily: family);
         PackageHousePruningReceipt pruning =
             PackageHousePruningReceipt.Evaluate(
                 request,
                 PlatformInventory(
-                    PrunablePackageId,
-                    suppliedVersion: "11.0.0"));
+                    packageId,
+                    suppliedVersion,
+                    family));
 
         PackageHouseSettlement settlement =
             await environment.CreateHouse().ExecuteAsync(
@@ -705,6 +726,11 @@ public sealed class PackageHouseExecutionTests
             settlement);
         Assert.Same(pruning, delegated.Evidence.Decision!.Pruning);
         Assert.Same(candidate, delegated.Evidence.Decision.Candidate);
+        Assert.Equal(family, delegated.Delegation.Target.Family);
+        Assert.Equal(
+            suppliedVersion,
+            delegated.Delegation.Supply.SuppliedVersion?
+                .ToNormalizedString());
         Assert.Equal(0, environment.Clients[0].PayloadRequests);
         await environment.AssertRootSettledAsync();
     }
@@ -1529,14 +1555,15 @@ public sealed class PackageHouseExecutionTests
     private static PackageHouseRequest CandidateRequest(
         PackageAcquisitionCandidate candidate,
         PackageHouseOperationProfile profile,
-        PackageHouseAssetSelectionKind? assetSelection = null) =>
+        PackageHouseAssetSelectionKind? assetSelection = null,
+        PlatformFamily platformFamily = PlatformFamily.DotNetRuntime) =>
         new(
             new PackageHouseDemand.Candidate(candidate),
             PackageHouseOperation.Create(profile),
             PackageHouseTargetContext.Exact(
                 "net11.0",
                 platformTarget: new PlatformFamilyTarget(
-                    PlatformFamily.DotNetRuntime,
+                    platformFamily,
                     PlatformTargetFramework.Parse("net11.0"),
                     PlatformVersion.Parse("11.0.0"))),
             assetSelection);
@@ -1560,10 +1587,19 @@ public sealed class PackageHouseExecutionTests
 
     private static PlatformPruneInventory PlatformInventory(
         string packageId,
-        string suppliedVersion) =>
+        string suppliedVersion,
+        PlatformFamily family = PlatformFamily.DotNetRuntime) =>
         PlatformPruneInventory.FromExactFamily(
             new PlatformPruneTarget(
-                "Microsoft.NETCore.App",
+                family switch
+                {
+                    PlatformFamily.DotNetRuntime =>
+                        "Microsoft.NETCore.App",
+                    PlatformFamily.AspNetCore =>
+                        "Microsoft.AspNetCore.App",
+                    _ => throw new ArgumentOutOfRangeException(
+                        nameof(family)),
+                },
                 "net11.0",
                 NuGetVersion.Parse("11.0.0")),
             [$"{packageId}|{suppliedVersion}"]);
