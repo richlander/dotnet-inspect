@@ -580,9 +580,30 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    nested nodes, coercion obligations, and local-slot invariants.
    `NestedScopeNameCollisionTests` gates binding with and without outer
    materialization for lambda, local-function, already-materialized nested,
-   and deeply nested naming cases. This slice does not expand the coercion
-   domain or allocate more nested locals: all 140 nested residual webs in the
-   14-assembly investigation still failed the existing type-domain gate.
+   and deeply nested naming cases. That scope-identity change did not expand
+   the coercion domain or allocate more nested locals: all 140 nested residual
+   webs in the 14-assembly investigation still failed the existing type-domain
+   gate.
+
+   Exact core-library string webs also materialize when every producer already
+   has the testified string type. This does not expand the coercion domain or
+   infer reference conversions: object-typed nulls and other non-exact producers
+   remain deferred, as do other reference types. Every observer still supplies
+   testimony, and the existing structural-fold, nested-scope, and atomic-copy
+   boundaries remain in force. No value or control-flow edge moves.
+
+   Real witnesses include Newtonsoft.Json 13.0.4
+   `JsonValidatingReader.ReadAsString` and Microsoft.CodeAnalysis 5.0.0
+   `PathUtilities.NormalizePathPrefix` and
+   `StringExtensions.GetWithSingleAttributeSuffix`.
+   `StringSlotMaterializationTests` gates exact and sink-derived testimony,
+   typed-null versus object-null producers, nominal string identity,
+   conflicting and underivable observations, atomic copies, structural folds,
+   and corresponding real Roslyn methods in the repository compiler dependency.
+   `CompilerProducedReadAndObserveMaterializesRetainedString` preserves a
+   retained call result across a state-changing call;
+   `CompilerProducedReadAndObserveRecompilesExactly` gates its exact compile-back
+   outcome.
 
    `MaterializesSingleStoreConditionalWithSingleRead` and
    `MaterializesBooleanIdentityWhenConditionalFeedsBooleanLocal` gate
