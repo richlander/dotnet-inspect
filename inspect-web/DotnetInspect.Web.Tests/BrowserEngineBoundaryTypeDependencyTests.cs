@@ -243,8 +243,7 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             typeof(ICloneable).FullName,
             selectedRelationship.TargetTypeName);
-        BrowserTypeGraphEdge nestedEdge =
-            Assert.Single(nested.GraphEdges);
+        var nestedEdge = Assert.Single(nested.GraphEdges);
         Assert.Equal(dependencyName, nestedEdge.FromId);
         Assert.Equal(
             "interface",
