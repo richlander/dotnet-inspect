@@ -7,6 +7,9 @@ public class AwaitRecoveryPassTests
 {
     static readonly TypeRef Holder = TypeRef.CoreLib("Synthetic", "AwaitHolder");
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef Object = TypeRef.CoreLib("System", "Object");
+    static readonly TypeRef UIntPtr = TypeRef.CoreLib("System", "UIntPtr");
+    static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
     static readonly TypeRef AsyncHelpers = TypeRef.CoreLib("System.Runtime.CompilerServices", "AsyncHelpers");
     static readonly TypeRef TaskInt = TypeRef.GenericInstance(
         TypeRef.CoreLib("System.Threading.Tasks", "Task`1"),
@@ -123,6 +126,165 @@ public class AwaitRecoveryPassTests
         Assert.False(function.RequiresAsyncBodyModifier);
         Assert.Empty(function.Descendants.OfType<AwaitExpression>());
         Assert.Single(function.Descendants.OfType<Call>(), call => call.Callee.Name == "Await");
+    }
+
+    [Fact]
+    public void UnboxPointerConversionBesideAwait_StandsDown()
+    {
+        var pointer = new ILInspector.Decompiler.Pipeline.Convert(
+            UIntPtr,
+            isChecked: false,
+            isUnsigned: false,
+            new Unbox(Int32, new LoadArgument(0, "value", Object)));
+        var awaitCall = new Call(
+            new MethodRef(
+                AsyncHelpers,
+                "Await",
+                Int32,
+                [TaskInt],
+                HasThis: false)
+            {
+                TypeArguments = [Int32],
+            },
+            isVirtual: false,
+            [new LoadArgument(1, "task", TaskInt)]);
+        var combine = new MethodRef(
+            Holder,
+            "Combine",
+            Int32,
+            [UIntPtr, Int32],
+            HasThis: false);
+        var block = new Block();
+        block.Add(new Return(new Call(
+            combine,
+            isVirtual: false,
+            [pointer, awaitCall])));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(
+                TaskInt,
+                [
+                    new Parameter("value", Object),
+                    new Parameter("task", TaskInt),
+                ],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body)
+        {
+            IsRuntimeAsync = MetadataFactState.Yes,
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        Assert.True(UnsafeAwaitOperand.RequiresUnsafeContext(
+            pointer,
+            usesUpdatedMemorySafetyRules: true));
+
+        new AwaitRecoveryPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.False(function.RequiresAsyncBodyModifier);
+        Assert.Empty(function.Descendants.OfType<AwaitExpression>());
+        Assert.Single(
+            function.Descendants.OfType<Call>(),
+            call => call.Callee.Name == "Await");
+    }
+
+    [Theory]
+    [InlineData("local")]
+    [InlineData("stack-slot")]
+    [InlineData("return")]
+    public void PointerToByRefBindingBesideAwait_StandsDown(string binding)
+    {
+        var pointer = TypeRef.Pointer(Int32);
+        var byRef = TypeRef.ByRef(Int32);
+        var awaitCall = new Call(
+            new MethodRef(
+                AsyncHelpers,
+                "Await",
+                Int32,
+                [TaskInt],
+                HasThis: false)
+            {
+                TypeArguments = [Int32],
+            },
+            isVirtual: false,
+            [new LoadArgument(0, "task", TaskInt)]);
+        var pointerValue = new Call(
+            new MethodRef(
+                Holder,
+                "PointerAfterAwait",
+                pointer,
+                [Int32],
+                HasThis: false),
+            isVirtual: false,
+            [awaitCall]);
+        var block = new Block();
+        TypeRef returnType;
+        System.Collections.Immutable.ImmutableArray<TypeRef> locals;
+        switch (binding)
+        {
+            case "local":
+                block.Add(new StoreLocal(0, byRef, pointerValue));
+                block.Add(new Return(null));
+                returnType = Void;
+                locals = [byRef];
+                break;
+            case "stack-slot":
+                block.Add(new StoreStackSlot(0, pointerValue));
+                block.Add(new ExpressionStatement(new Call(
+                    new MethodRef(
+                        Holder,
+                        "Consume",
+                        Void,
+                        [byRef],
+                        HasThis: false),
+                    isVirtual: false,
+                    [new LoadStackSlot(0, byRef)])));
+                block.Add(new Return(null));
+                returnType = Void;
+                locals = [];
+                break;
+            case "return":
+                block.Add(new Return(pointerValue));
+                returnType = byRef;
+                locals = [];
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(binding));
+        }
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(
+                returnType,
+                [new Parameter("task", TaskInt)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            locals,
+            body)
+        {
+            IsRuntimeAsync = MetadataFactState.Yes,
+            UsesUpdatedMemorySafetyRules = true,
+        };
+
+        Assert.True(UnsafeAwaitOperand.RequiresUnsafeContext(
+            block.Children[0],
+            usesUpdatedMemorySafetyRules: true));
+
+        new AwaitRecoveryPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.False(function.RequiresAsyncBodyModifier);
+        Assert.Empty(function.Descendants.OfType<AwaitExpression>());
+        Assert.Single(
+            function.Descendants.OfType<Call>(),
+            call => call.Callee.Name == "Await");
     }
 
     [Fact]

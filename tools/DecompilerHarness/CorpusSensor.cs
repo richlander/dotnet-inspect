@@ -980,7 +980,12 @@ internal static class CorpusSensor
         foreach (var assembly in assemblies)
         {
             var portablePath = PortablePath(assembly);
-            foreach (var result in ValidityCheck.Evaluate(assembly, cap, lowered: false, importSiblingBodies: false, workers, sequential))
+            foreach (var result in ValidityCheck.Evaluate(
+                assembly,
+                cap,
+                lowered: false,
+                workers: workers,
+                sequential: sequential))
             {
                 results.Add(result);
                 string key = MethodKey(portablePath, result.TypeName, result.MethodName, result.Signature);

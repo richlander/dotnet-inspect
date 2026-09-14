@@ -430,12 +430,14 @@ The PlatformHouse adapter issues resource-free:
 
 - `PlatformSourceGeneration` for the source attempt;
 - `PlatformSourceCoordinateIdentity` for the package-backed source coordinate;
-- `PlatformTargetCorrespondenceIdentity` joining that coordinate to the exact
-  House target; and
-- `PlatformSourceEvidenceIdentity` for the contribution.
+  and
+- one contribution retaining the exact House request, target, capability,
+  generation, coordinate, population, view, and completeness.
 
-The live source result remains beside the House contribution. House receipts
-do not retain configured authorities, source clients, stores, package content,
+The contribution's exact retained object association establishes
+source-to-target correspondence without another occurrence token. The live
+source result remains beside the House contribution. House receipts do not
+retain configured authorities, source clients, stores, package content,
 streams, or byte buffers.
 
 Successful complete-population realization contributes

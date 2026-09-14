@@ -322,3 +322,46 @@ to returns.
 
 Still future (not built): emit `// SAFETY-TODO` audit comments at introduced
 contexts.
+
+## Operation memory-safety replay
+
+**Owner and claim:** Decompiler classifies the C# operation represented by an
+IR node through one shared contract used by rendering and every transform that
+must keep `await` outside an unsafe context. The decision follows the caller's
+selected language model and the final rendered operation, not the source opcode
+in isolation.
+
+The shared decision covers direct pointer dereferences, pointer receivers,
+function-pointer calls, pointer-to-`ref` argument adaptation, stack allocation,
+normalized member contracts, and synthesized operations whose required context
+is introduced by the printer. In particular, converting an `unbox` managed
+reference to a native integer renders through
+`Unsafe.AsPointer(ref Unsafe.Unbox<T>(...))`; both the printer and await
+admission classify that operation as unsafe.
+
+The same contract owns target-sensitive `ref` binding. The printer supplies its
+exact local, unified stack-slot, or return target type. Earlier transforms do
+not duplicate printer-only stack-slot unification: they consume explicit local
+and return types and conservatively stand down when typed stack-slot uses show
+that a pointer value may render as a `ref` binding. A managed-reference value
+needs no pointer dereference and remains safe.
+
+Managed-reference `ldobj`/`stobj` shapes remain safe, while the same IR nodes
+over unmanaged pointers require a context. Updated-rules pointer declarations,
+address-taking, arithmetic, comparisons, ordinary `fixed` headers, and pointer
+`sizeof` remain safe. Legacy rendering retains its broader member-level unsafe
+requirement.
+
+`localloc` and a raised stack allocation are classified through the operation
+that remains in the tree. A proven `cpblk`-based stackalloc-initializer raise is
+therefore classified through its `StackAllocArray` replacement. Residual
+`cpblk` and `initblk` remain visible unsupported output with Partial fidelity;
+this contract does not invent a C# spelling for them.
+
+The Release `PrinterPrecedenceTests` and `AwaitRecoveryPassTests` gates require
+printer/await agreement for synthesized unbox-to-pointer operations and
+target-sensitive `ref` bindings, and compile the updated-rules
+`unsafe(expression)` result. Existing compiler-
+produced `UnsafeEmitterTests`, `CompilerFeatureOptionsTests`, and
+`DecompilerFieldMemorySafetyTests` remain the operation, caller-model, and
+member-contract neighbors.
