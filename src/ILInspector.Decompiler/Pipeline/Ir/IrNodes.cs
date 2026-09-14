@@ -646,8 +646,8 @@ public sealed class IrFunction : IrNode
     /// Mirrors <c>CSharpPrinter.ReferencesLocalIncludingSharedNestedScopes</c>: it
     /// descends through shared-scope nested functions (which reuse the enclosing pool)
     /// but not through ones that own their own locals or stack slots, whose indices are
-    /// a separate pool — reusing the printer's <c>NeedsNestedLambdaScope</c> /
-    /// <c>NeedsNestedLocalFunctionScope</c> discriminators so the two never diverge.
+    /// a separate pool. The IR-owned <c>NeedsIsolatedLocalScope</c> discriminator
+    /// is shared with the printer so the two never diverge.
     /// </summary>
     static bool LocalSlotReferencedInScope(IrNode node, int index)
         => LocalSlotReferencesInScope(node, index).Any();
@@ -661,9 +661,9 @@ public sealed class IrFunction : IrNode
     /// </summary>
     internal static IEnumerable<IrNode> LocalSlotReferencesInScope(IrNode node, int index)
     {
-        if (node is Lambda ownScopeLambda && CSharpPrinter.NeedsNestedLambdaScope(ownScopeLambda))
+        if (node is Lambda { NeedsIsolatedLocalScope: true })
             yield break;
-        if (node is LocalFunctionStatement ownScopeLocalFunction && CSharpPrinter.NeedsNestedLocalFunctionScope(ownScopeLocalFunction))
+        if (node is LocalFunctionStatement { NeedsIsolatedLocalScope: true })
             yield break;
         if (NodeBindsLocalSlot(node, index))
             yield return node;
@@ -3563,6 +3563,8 @@ public sealed class Lambda : IrExpression
     }
 
     public TypeRef DelegateType { get; }
+    internal bool NeedsIsolatedLocalScope => !Locals.IsEmpty
+        || Body.Descendants.Any(node => node is LoadStackSlot or StoreStackSlot);
     public ImmutableArray<Parameter> Parameters { get; }
     /// <summary>
     /// Ref-kind evidence for explicitly typed lambda parameters. Empty when no
@@ -3707,6 +3709,8 @@ public sealed class LocalFunctionStatement : IrNode
 
     public string Name { get; }
     public TypeRef ReturnType { get; }
+    internal bool NeedsIsolatedLocalScope => !Locals.IsEmpty
+        || Body.Descendants.Any(node => node is LoadStackSlot or StoreStackSlot);
     public ImmutableArray<Parameter> Parameters { get; }
     public ImmutableArray<ArgumentRefKind> ParameterRefKinds { get; }
     public bool IsStatic { get; }
