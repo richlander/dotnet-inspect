@@ -29,6 +29,21 @@ dnx dotnet-inspect -y -- diff --library old/Foo.dll..new/Foo.dll --changed
 for in-place member changes, `--name-only` for a quick list. Narrow with
 `-t TypeName`; widen with `--all`.
 
+For ordinary API diffs with one Library on each side, the endpoints must have
+the same assembly name, culture, and public-key token; assembly versions may
+differ. The CLI uses the portable Library comparison contract intended for
+website Compare. Type-definition or member changes without a compatibility
+assessment remain visible as **Other API Changes** (`unclassified` in
+`--json` or `-S Changes --jsonl`/`--tsv`). Do not treat them as safe or breaking;
+`--breaking` and `--additive` select only their assessed classifications.
+
+An incomplete or rejected comparison returns nonzero and reports **not
+compared**. Missing generic-constraint dependencies retain their inspection
+failure evidence. Invalid managed-image inputs report the admission error on
+stderr. Do not interpret these outcomes as “no API changes.” Multi-Library
+packages, `-m` filtering, Analysis Diff, Implementation Diff, Finding
+Transitions, and mixed-section requests retain their existing routes.
+
 ## Did runtime behavior change? (allocations, exceptions)
 
 `-S "Analysis Diff"` compares body-level signal *deltas* between the two
