@@ -80,13 +80,13 @@ test("the inspected type follows the shell-purple palette in both themes", async
   });
   const target =
     page.locator("#type-graph-diagram g.node.self rect.label-container");
-  await expect(target).toHaveAttribute("style", /stroke:#9d8cff/);
+  await expect(target).toHaveAttribute("style", /stroke:#b9aaee/);
   expect(await contrast()).toBeGreaterThanOrEqual(3);
   await page.evaluate(() => {
     document.documentElement.dataset.theme = "light";
     return window.typeExploreProbe.update("ready");
   });
-  await expect(target).toHaveAttribute("style", /stroke:#702b90/);
+  await expect(target).toHaveAttribute("style", /stroke:#512bd4/);
   expect(await contrast()).toBeGreaterThanOrEqual(3);
 });
 
