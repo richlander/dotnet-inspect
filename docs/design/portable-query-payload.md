@@ -37,8 +37,14 @@ arm.
 
 ## Canonicalization
 
-Canonicalization is syntactic. Two intents with identical canonical bytes are
-the same query; equality is decided on those bytes and nowhere else.
+Canonicalization is syntactic. Two intents are the same query when they carry
+the same vocabulary **and** identical canonical bytes; equality is decided on
+that pair and nowhere else. Payload bytes alone are not an identity — the same
+bytes under two vocabularies are two different queries, because the keys inside
+them resolve against different namespaces. [Packet
+projection](#packet-projection) states where the vocabulary travels.
+
+Everything below governs the bytes half of that pair.
 
 - Terms sort by key, then operator, then value, each ordinal.
 - Exactly duplicated terms collapse. A repeated key bearing a different
@@ -263,7 +269,8 @@ the closed JSON object fixed by [The canonical payload](#the-canonical-payload).
 - The pinned maxima in [Declared limits](#declared-limits) sit beneath the
   packet's per-payload allowance and must be enforced before any vocabulary
   binder runs.
-- Semantically identical query states must deduplicate on canonical bytes,
+- Semantically identical query states must deduplicate on the `(queryId,
+  payload bytes)` pair, never on payload bytes alone,
   matching the packet's stated table ordering and dedup rule.
 
 Packet format 2 retains `t`, `g`, `a`, and `x`, requires one view-state entry
@@ -294,24 +301,18 @@ intent    terms  (depends, eq, Serilog), (prefix, eq, Microsoft.Extensions.),
           bounds (candidates, 200)
 ```
 
-The source input travels as a term like everything else. Intent has **no
-privileged scope slot**: a vocabulary that selects a population expresses that
-selection in its own key namespace, and a typed distinction it needs to preserve
-— an exact identifier against a literal prefix, say — is carried by using
-distinct keys, not by a slot this layer defines. A restored query that lost its
-scope would run against a different population while looking like the one that
-was shared, so the scope is not optional context around the query; it is part of
-the query.
+Two model rules decide what this intent contains before any of it reaches the
+codec, and both are owned by the parent slice rather than restated here: the
+source input travels as a term because intent has [no privileged scope
+slot](portable-query-intent.md#worked-examples), and the term's value is the
+typed prefix `Microsoft.Extensions.` rather than the host's
+`Microsoft.Extensions.*`, because [intent never contains an L3
+spelling](portable-query-intent.md#what-intent-never-contains).
 
-Note what the term's value is. The host spellings say
-`Microsoft.Extensions.*`, but the terminal `*` is
-[input-selection](package-query-input-selection.md) grammar marking the text as
-a prefix, and the typed prefix it selects is `Microsoft.Extensions.` — which is
-what production lowering constructs and what the term carries. This is the
-general rule at work: L3 text lowers into intent and never round-trips out of
-it, so an intent records what the host *meant*, never how it was typed. Two
-hosts with different spelling conventions for the same typed prefix must produce
-the same bytes.
+The byte-level consequence is this slice's: two hosts whose spelling conventions
+differ for one typed prefix hold the same intent, so they must emit the same
+bytes. Nothing in the encoding may reintroduce a distinction the model already
+removed.
 
 Terms sort ordinally: `depends`, `prefix`, `prerelease`. There is no stage
 pipeline and no order, so `s` and `o` are omitted rather than emitted empty:
@@ -397,6 +398,7 @@ resolution, starting no work, visible replay refusal — belong to
 
 | Gate | Contract |
 | --- | --- |
+| `QueryIdentityIsThePair` | Two states carrying identical payload bytes under different vocabularies remain distinct through canonicalization, packet-table ordering, and deduplication; payload bytes alone never establish equality. |
 | `IntentCanonicalFormRoundTripsByteForByte` | Parse then canonical write reproduces exact bytes for every supported term, operator, execution bound, selection stage, order operation, and escaping vector, including all four `window` endpoint combinations and both order kinds. |
 | `IntentCanonicalFormIsIndependentOfTermOrder` | Term sequence, duplicate terms, and execution-bound declaration sequence do not change canonical bytes; bounds sort by dimension identity; semantically identical states deduplicate. |
 | `RepeatedBoundDimensionIsRefused` | A payload carrying one dimension twice is refused during payload validation before any vocabulary binder runs, whether the two maxima differ or are identical, and is never collapsed, reordered, or resolved last-wins. |
