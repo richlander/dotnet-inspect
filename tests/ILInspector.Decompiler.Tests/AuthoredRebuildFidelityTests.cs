@@ -16,6 +16,7 @@ using Microsoft.CodeAnalysis.Emit;
 
 namespace ILInspector.DecompilerHarness;
 
+[Trait("Speed", "Slow")]
 [Trait("Area", "Fidelity")]
 [Collection(FidelityGateCollection.Name)]
 public sealed class AuthoredRebuildFidelityTests
@@ -68,7 +69,6 @@ public sealed class AuthoredRebuildFidelityTests
     }
 
     [Fact]
-    [Trait("Speed", "Slow")]
     public async Task AuthoredBody_ReusesFinalRtsRequestAndProductIlDiff()
     {
         string assemblyPath = FixtureCatalog.DiffPair.OldAssemblyPath();

@@ -7,6 +7,7 @@ using ILInspector.DecompilerHarness;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Speed", "Slow")]
 public class AuthoredCorpusHistoryStoreTests
 {
     const string Commit = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";

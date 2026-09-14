@@ -15,6 +15,7 @@ namespace ILInspector.Decompiler.Tests;
 /// value to fire on its specimen and invoke its manually authored equivalence
 /// contract. The semantic strength of that authored contract remains review-owned.
 /// </summary>
+[Trait("Speed", "Slow")]
 [Trait("Area", "RoundTrip")]
 [Collection(FidelityGateCollection.Name)]
 public sealed class ByteDivergentGateTests

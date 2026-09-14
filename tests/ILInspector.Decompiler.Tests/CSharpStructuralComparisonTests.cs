@@ -3574,6 +3574,7 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void RealProductDocuments_IssueChangedStructuralCorrespondence()
     {
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
@@ -3610,6 +3611,7 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void RealIteratorDocument_DoesNotTrustCompanionMethodOffsets()
     {
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
