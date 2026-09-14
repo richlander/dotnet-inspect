@@ -40,6 +40,60 @@ public sealed partial class WorkspaceScopeTests
         Assert.Same(added.Snapshot, await Current(workspace));
     }
 
+    [Fact]
+    public async Task GuardedAddRequiresExactPublicationBase()
+    {
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
+        WorkspaceScopeSnapshot initial = await Current(workspace);
+        WorkspaceScopeSnapshot? preparing = null;
+        WorkspaceScopeOperationResult.Rejected? rejected = null;
+        PackageRootBinding pending = Binding("Pending.Package", onOpen: () =>
+        {
+            preparing = Current(workspace).GetAwaiter().GetResult();
+            rejected = Assert.IsType<WorkspaceScopeOperationResult.Rejected>(
+                workspace.AddPackagesAsync(
+                    initial.Revision,
+                    initial.PublicationBase,
+                    [Binding("Blocked.Package")],
+                    Deadline,
+                    TestContext.Current.CancellationToken)
+                .AsTask().GetAwaiter().GetResult());
+        });
+
+        WorkspaceScopeSnapshot current = Committed(
+            await workspace.ReplaceScopeAsync(
+                initial.Revision,
+                [pending],
+                Deadline,
+                TestContext.Current.CancellationToken)).Snapshot;
+
+        Assert.NotNull(preparing);
+        Assert.NotNull(rejected);
+        Assert.Same(initial.Revision, preparing.Revision);
+        Assert.NotSame(initial.PublicationBase, preparing.PublicationBase);
+        Assert.Equal(
+            WorkspaceScopeRejection.PublicationBaseMismatch,
+            rejected.Reason);
+        Assert.Same(preparing, rejected.Snapshot);
+        Assert.Equal(["Pending.Package"], Names(current));
+    }
+
+    [Fact]
+    public async Task ExactPackageOccurrenceLookupUsesBindingCorrespondence()
+    {
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
+        PackageRootBinding binding = Binding("Exact.Package");
+        WorkspaceScopeSnapshot current = await Add(workspace, binding);
+
+        WorkspacePackageOccurrenceDescriptor match =
+            Assert.IsType<WorkspacePackageOccurrenceDescriptor>(
+                current.FindPackageOccurrence(binding));
+        Assert.Same(current.Packages[0], match);
+        Assert.Null(
+            current.FindPackageOccurrence(
+                Binding("Different.Package")));
+    }
+
     [Theory]
     [InlineData("ready", false)]
     [InlineData("ready", true)]
