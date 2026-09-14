@@ -231,6 +231,8 @@ interface PackageLoadingFixture {
   deferInitial?: boolean;
   deferChanges?: boolean;
   failFrameworkOnce?: string;
+  failVersionOnce?: string;
+  versions?: readonly string[];
 }
 
 // Exercise the production composition root and bindings with deterministic facade
@@ -354,6 +356,7 @@ async function installFacades(
       const diagnosticsOptions = ${JSON.stringify(diagnostics)};
       const packageLoading = ${JSON.stringify(packageLoading)};
       let packageFrameworkFailed = false;
+      let packageVersionFailed = false;
       let warmupAttempts = 0;
       export async function getPlatformVersions(tfm) {
         document.documentElement.dataset.platformVersionsRequest = tfm;
@@ -432,6 +435,10 @@ async function installFacades(
             packageFrameworkFailed = true;
             throw new Error("Framework inspection failed");
           }
+          if (!packageVersionFailed && version === packageLoading.failVersionOnce) {
+            packageVersionFailed = true;
+            throw new Error("Version inspection failed");
+          }
         }
         return {
           ...surface,
@@ -441,7 +448,8 @@ async function installFacades(
         };
       }
       export async function queryPackageVersions() {
-        return { versions: ["1.0.0", "0.9.0"], currentVersionInsertionIndex: 0, previousVersion: "0.9.0", previousVersionUnavailableReason: null };
+        const versions = packageLoading.versions ?? ["1.0.0", "0.9.0"];
+        return { versions, currentVersionInsertionIndex: 0, previousVersion: versions[1], previousVersionUnavailableReason: null };
       }
       export async function loadRuntimePack(framework, version) {
         document.documentElement.dataset.runtimePackRequest = JSON.stringify([framework, version]);
@@ -876,94 +884,119 @@ async function installPackageLoadingFacades(
   await installFacades(
     page, frameworkSurface, [], "ready", "ready", undefined,
     "ready", "ready", undefined, {},
-    { deferChanges: true, ...options });
+    { deferChanges: true, versions: ["10.0.1", "10.0.0"], ...options });
 }
 
-for (const width of [1280, 390]) {
-  test(`package TFM loading stays in the content pane at ${width}px`, async ({ page }) => {
-    await page.setViewportSize({ width, height: 900 });
+const packageCoordinateChanges = [{
+  name: "TFM",
+  selector: "#framework",
+  original: "net10.0",
+  selected: "net9.0",
+  version: "10.0.0",
+  framework: "net9.0",
+  loadingLabel: "Loading net9.0 content…",
+  failure: { failFrameworkOnce: "net9.0" },
+  error: "Framework inspection failed",
+}, {
+  name: "version",
+  selector: "#package-version",
+  original: "10.0.0",
+  selected: "10.0.1",
+  version: "10.0.1",
+  framework: "net10.0",
+  loadingLabel: "Loading version 10.0.1 content…",
+  failure: { failVersionOnce: "10.0.1" },
+  error: "Version inspection failed",
+}];
+
+for (const change of packageCoordinateChanges) {
+  for (const width of [1280, 390]) {
+    test(`package ${change.name} loading stays in the content pane at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await installPackageLoadingFacades(page);
+      await page.goto(frameworkRoot);
+      const selector = page.locator(change.selector);
+      await expect(selector).toHaveValue(change.original);
+      const target = await page.locator(".targetbar").textContent();
+      const titlebar = await page.locator(".titlebar").boundingBox();
+      const url = page.url();
+      await page.evaluate(() => {
+        new MutationObserver(records => {
+          if (records.some(record => [...record.addedNodes].some(node =>
+            node instanceof Element
+            && (node.matches(".loading-screen")
+              || node.querySelector(".loading-screen"))))) {
+            document.documentElement.dataset.interstitialShown = "true";
+          }
+        }).observe(document.querySelector("#app")!, { childList: true, subtree: true });
+      });
+      await selector.focus();
+      await selector.selectOption(change.selected);
+
+      await expect(page.locator("html")).toHaveAttribute(
+        "data-package-query-pending",
+        JSON.stringify(["System.Text.Json", change.version, change.framework]));
+      await expect(page.locator("#package-content-loading")).toHaveText(change.loadingLabel);
+      await expect(page.locator("#package-content-loading")).toBeFocused();
+      await expect(page.locator("#inspector-panel")).toHaveAttribute("aria-busy", "true");
+      await expect(page.locator(".loading-screen, .loading-bot")).toHaveCount(0);
+      await expect(page.locator(".targetbar")).toHaveText(target!);
+      await expect(page.locator(".data-bar")).toBeVisible();
+      expect(await page.locator(".titlebar").boundingBox()).toEqual(titlebar);
+      expect(page.url()).toBe(url);
+      expect(await page.evaluate(() =>
+        document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+      await releaseFacade(page, "finish-package-query");
+      await expect(selector).toHaveValue(change.selected);
+      await expect(selector).toBeFocused();
+      await expect(page.locator("#inspector-panel")).not.toHaveAttribute("aria-busy", "true");
+      await expect(page.locator("#package-content-loading, .loading-screen")).toHaveCount(0);
+      await expect(page.locator(".package-overview-surface")).toBeVisible();
+
+      await selector.selectOption(change.original);
+      await expect(selector).toHaveValue(change.original);
+      await expect(selector).toBeFocused();
+      await expect(page.locator("#package-content-loading")).toHaveCount(0);
+      await expect(page.locator("html")).not.toHaveAttribute("data-interstitial-shown");
+    });
+  }
+
+  test(`package ${change.name} failure restores content and retries inside the same page`, async ({ page }) => {
+    await installPackageLoadingFacades(page, change.failure);
+    await page.goto(frameworkRoot);
+    await page.locator(change.selector).focus();
+    await page.locator(change.selector).selectOption(change.selected);
+    await expect(page.locator("html")).toHaveAttribute("data-package-query-pending");
+    await page.locator("html").evaluate(element => {
+      delete element.dataset.packageQueryPending;
+    });
+    await releaseFacade(page, "finish-package-query");
+    await expect(page.locator(change.selector)).toHaveValue(change.original);
+    await expect(page.locator(change.selector)).toBeFocused();
+    await expect(page.locator(".query-notice")).toContainText(change.error);
+    await expect(page.locator(".loading-screen")).toHaveCount(0);
+    await page.locator(".query-notice").getByRole("button", { name: "Retry" }).click();
+    await expect(page.locator("#package-content-loading")).toHaveText(change.loadingLabel);
+    await expect(page.locator("html")).toHaveAttribute("data-package-query-pending");
+    await releaseFacade(page, "finish-package-query");
+    await expect(page.locator(change.selector)).toHaveValue(change.selected);
+    await expect(page.locator(".query-notice")).toHaveCount(0);
+  });
+
+  test(`leaving a pending package ${change.name} ignores its late completion`, async ({ page }) => {
     await installPackageLoadingFacades(page);
     await page.goto(frameworkRoot);
-    await expect(page.locator("#framework")).toHaveValue("net10.0");
-    const target = await page.locator(".targetbar").textContent();
-    const titlebar = await page.locator(".titlebar").boundingBox();
-    const url = page.url();
-    await page.evaluate(() => {
-      new MutationObserver(records => {
-        if (records.some(record => [...record.addedNodes].some(node =>
-          node instanceof Element
-          && (node.matches(".loading-screen")
-            || node.querySelector(".loading-screen"))))) {
-          document.documentElement.dataset.interstitialShown = "true";
-        }
-      }).observe(document.querySelector("#app")!, { childList: true, subtree: true });
-    });
-    await page.locator("#framework").focus();
-    await page.locator("#framework").selectOption("net9.0");
-
-    await expect(page.locator("html")).toHaveAttribute(
-      "data-package-query-pending",
-      JSON.stringify(["System.Text.Json", "10.0.0", "net9.0"]));
-    await expect(page.locator("#package-content-loading")).toHaveText("Loading net9.0 content…");
-    await expect(page.locator("#package-content-loading")).toBeFocused();
-    await expect(page.locator("#inspector-panel")).toHaveAttribute("aria-busy", "true");
-    await expect(page.locator(".loading-screen, .loading-bot")).toHaveCount(0);
-    await expect(page.locator(".targetbar")).toHaveText(target!);
-    await expect(page.locator(".data-bar")).toBeVisible();
-    expect(await page.locator(".titlebar").boundingBox()).toEqual(titlebar);
-    expect(page.url()).toBe(url);
-    expect(await page.evaluate(() =>
-      document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-
+    await page.locator(change.selector).selectOption(change.selected);
+    await expect(page.locator("html")).toHaveAttribute("data-package-query-pending");
+    await page.locator(".brand").click();
+    await expect(page.locator(".home-search")).toBeVisible();
     await releaseFacade(page, "finish-package-query");
-    await expect(page.locator("#framework")).toHaveValue("net9.0");
-    await expect(page.locator("#framework")).toBeFocused();
-    await expect(page.locator("#inspector-panel")).not.toHaveAttribute("aria-busy", "true");
+    await expect(page.locator("html")).toHaveAttribute("data-package-query-settled");
+    await expect(page.locator(".home-search")).toBeVisible();
     await expect(page.locator("#package-content-loading, .loading-screen")).toHaveCount(0);
-    await expect(page.locator(".package-overview-surface")).toBeVisible();
-    await expect(page.locator("html")).not.toHaveAttribute("data-interstitial-shown");
   });
 }
-
-test("package TFM failure restores content and retries inside the same page", async ({ page }) => {
-  await installPackageLoadingFacades(page, { failFrameworkOnce: "net9.0" });
-  await page.goto(frameworkRoot);
-  await page.locator("#framework").selectOption("net9.0");
-  await expect(page.locator("html")).toHaveAttribute("data-package-query-pending");
-  await releaseFacade(page, "finish-package-query");
-  await expect(page.locator("#framework")).toHaveValue("net10.0");
-  await expect(page.locator(".query-notice")).toContainText("Framework inspection failed");
-  await expect(page.locator(".loading-screen")).toHaveCount(0);
-  await page.locator(".query-notice").getByRole("button", { name: "Retry" }).click();
-  await expect(page.locator("#package-content-loading")).toBeVisible();
-  await releaseFacade(page, "finish-package-query");
-  await expect(page.locator("#framework")).toHaveValue("net9.0");
-  await expect(page.locator(".query-notice")).toHaveCount(0);
-});
-
-test("leaving a pending package TFM ignores its late completion", async ({ page }) => {
-  await installPackageLoadingFacades(page);
-  await page.goto(frameworkRoot);
-  await page.locator("#framework").selectOption("net9.0");
-  await expect(page.locator("html")).toHaveAttribute("data-package-query-pending");
-  await page.locator(".brand").click();
-  await expect(page.locator(".home-search")).toBeVisible();
-  await releaseFacade(page, "finish-package-query");
-  await expect(page.locator("html")).toHaveAttribute("data-package-query-settled");
-  await expect(page.locator(".home-search")).toBeVisible();
-  await expect(page.locator("#package-content-loading, .loading-screen")).toHaveCount(0);
-});
-
-test("a new package version retains the full acquisition interstitial", async ({ page }) => {
-  await installPackageLoadingFacades(page);
-  await page.goto(frameworkRoot);
-  await page.locator("#package-version").selectOption("0.9.0");
-  await expect(page.locator("html")).toHaveAttribute("data-package-query-pending");
-  await expect(page.locator(".loading-screen .loading-bot")).toBeVisible();
-  await expect(page.locator("#package-content-loading, .titlebar")).toHaveCount(0);
-  await releaseFacade(page, "finish-package-query");
-  await expect(page.locator("#package-version")).toHaveValue("0.9.0");
-});
 
 test("initial package loading retains the full acquisition interstitial", async ({ page }) => {
   await installPackageLoadingFacades(page, { deferInitial: true });
