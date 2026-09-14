@@ -4,6 +4,10 @@ on:
   schedule:
     - cron: '47 0 * * *'
   workflow_call:
+    outputs:
+      evidence_artifact_name:
+        description: Exact accepted cohort evidence artifact
+        value: ${{ jobs.benchmark.outputs.evidence_artifact_name }}
     inputs:
       dotnet_sdk_version:
         description: Candidate SDK version to validate instead of the checked-in pin
@@ -575,6 +579,8 @@ jobs:
     needs:
       - mono
       - coreclr
+    outputs:
+      evidence_artifact_name: ${{ steps.evidence.outputs.name }}
     runs-on: ubuntu-26.04
     timeout-minutes: 180
     env:
@@ -787,11 +793,19 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Name cohort evidence
+        id: evidence
+        if: always()
+        shell: bash
+        run: |
+          echo "name=inspect-web-runtime-cohort-${{ github.run_id }}-${{ github.run_attempt }}" \
+            >> "$GITHUB_OUTPUT"
+
       - name: Upload cohort evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: inspect-web-runtime-cohort-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ${{ steps.evidence.outputs.name }}
           path: ${{ runner.temp }}/runtime-cohort/evidence
           if-no-files-found: error
           retention-days: 90

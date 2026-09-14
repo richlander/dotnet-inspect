@@ -232,6 +232,21 @@ jobs:
           path: artifacts/runtime-pin-candidate
           digest-mismatch: error
 
+      - name: Download candidate cohort evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ needs.candidate-cohort.outputs.evidence_artifact_name }}
+          path: artifacts/runtime-pin-cohort
+          digest-mismatch: error
+
+      - name: Require advancement-admissible cohort
+        shell: bash
+        run: |
+          node inspect-web/scripts/record-runtime-cohort.ts \
+            validate-advancement \
+            --cohort artifacts/runtime-pin-cohort/runtime-cohort.json \
+            --source-commit "$GITHUB_SHA"
+
       - name: Create proposal branch
         id: branch
         shell: bash

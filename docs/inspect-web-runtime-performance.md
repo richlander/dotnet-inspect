@@ -256,6 +256,9 @@ ReadyToRun failure, publication failure, or rejected comparative measurement
 blocks advancement. The already-defined, explicitly evidenced ReadyToRun
 correctness rejection remains non-blocking, so a daily runtime fix can change
 the cohort automatically from two admitted variants to three.
+The proposal job consumes the exact cohort receipt and requires ReadyToRun to
+be admitted or to identify that retained issue; an unfamiliar marked product
+failure remains observational cohort evidence but cannot advance the pin.
 
 Only an accepted candidate cohort may create a version-specific
 `automation/inspect-web-runtime-pin-*` branch. The proposal job asserts that
