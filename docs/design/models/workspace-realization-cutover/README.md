@@ -7,8 +7,8 @@ composition](../../artifact-acquisition-and-workspaces.md#active-workspace-reali
 owns this model for issue
 [#6752](https://github.com/richlander/dotnet-inspect/issues/6752).
 It checks one active Workspace realization, one unpublished replacement
-candidate, exact operation admission, predecessor drainage, and visible
-terminal settlement.
+candidate, candidate-construction admission and drainage, exact active-operation
+admission, predecessor drainage, and visible terminal settlement.
 
 The model uses the product's join currencies:
 
@@ -26,38 +26,45 @@ copied into this model.
 
 Three realizations permit first activation, candidate failure or
 supersession, one successful replacement, and another candidate while the
-predecessor drains. Two operations permit overlapping predecessor and
-successor use. These are bounded checks, not an unbounded proof.
+predecessor drains. Two construction operations permit overlapping candidate
+work, and two active operations permit overlapping predecessor and successor
+use. These are bounded checks, not an unbounded proof.
 
-Candidate construction is abstracted as `Preparing -> Ready`. Artifact Roots,
-binding contexts, package bytes, caches, and cleanup internals remain with
-their existing owners. `Settle` represents the terminal result of ordinary
-awaited Workspace close. A failed result remains recorded; the model does not
-classify the lower owner's report. A superseding replacement remains pending
-until the displaced candidate settles; only then can the replacement enter
-`Preparing`.
+Candidate construction uses explicit admitted holders. Completion changes
+`Preparing` to `Completing`, closes new construction admission, drains holders,
+and only then reaches `Ready`. Artifact Roots, binding contexts, package bytes,
+caches, and cleanup internals remain with their existing owners. `Settle`
+represents the terminal result of ordinary awaited Workspace close. A failed
+result remains recorded; the model does not classify the lower owner's report.
+A superseding replacement closes construction admission and remains pending
+until the displaced candidate's admitted construction drains and the candidate
+settles; only then can the replacement enter `Preparing`.
 
 `CutOver` is one atomic action. It closes predecessor admission and selects the
 successor without waiting. A lease admitted before cutover remains associated
 with the predecessor. Close is requested only after its final lease releases.
 No action transfers an existing operation to the successor.
 
-`FairSpec` assumes each admitted operation eventually releases and each
-enabled close request and settlement eventually runs. It does not assume
-candidate success, guarantee admission, or prove recovery from a caller that
-abandons a lease. The actions require no blocking wait or worker thread, so the
-same progress argument applies to single-threaded Browser/Wasm.
+`FairSpec` assumes each admitted construction or active operation eventually
+releases and each enabled close request and settlement eventually runs. It does
+not assume candidate success, guarantee admission, or prove recovery from a
+caller that abandons a lease. The actions require no blocking wait or worker
+thread, so the same progress argument applies to single-threaded Browser/Wasm.
 
 ## Checked properties
 
 `Safety` checks:
 
 - exactly the selected active realization admits operations;
+- only the current preparing candidate admits construction;
 - a candidate is unpublished and has no active-operation authority;
+- a ready candidate has no admitted construction authority;
 - replacement construction begins only after its candidate-settlement barrier;
+- admitted candidate construction retains exact candidate authority while it
+  drains;
 - every lease retains its exact realization and definition;
 - no operation is newly admitted to a draining predecessor;
-- close begins only after operation drainage;
+- close begins only after construction and active-operation drainage;
 - settled realizations are detached; and
 - failed settlement remains visible.
 
@@ -73,6 +80,7 @@ Every configuration is pinned in `eng/tla-expected-exit-codes.txt`.
 | `Safety.cfg` | 0 | Complete bounded safety state space |
 | `Liveness.cfg` | 0 | Conditional drainage progress |
 | `BrokenCandidateSettlementBarrier.cfg` | 12 | Replacement construction waits for superseded-candidate settlement |
+| `BrokenReadyWithConstruction.cfg` | 12 | Readiness waits for admitted construction to drain |
 | `BrokenPostCutoverAdmission.cfg` | 12 | Draining predecessors cannot admit new operations |
 | `BrokenEarlyClose.cfg` | 12 | Close cannot begin while a lease remains |
 | `BrokenStaleCandidatePublish.cfg` | 12 | A superseded candidate cannot become active |
@@ -103,5 +111,5 @@ npx --no-install markdownlint-cli "$model/README.md"
 
 The focused run on 2026-09-13 used TLA Tools
 `2026.08.11.125311` with OpenJDK `25.0.4.1`. Both complete configurations
-explored 10,456 generated states and 3,268 distinct states to depth 17. All
-thirteen configured semantic verdicts matched the manifest.
+explored 29,620 generated states and 7,435 distinct states to depth 20. All
+fourteen configured semantic verdicts matched the manifest.

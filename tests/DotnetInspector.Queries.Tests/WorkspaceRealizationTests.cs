@@ -14,12 +14,16 @@ public sealed class WorkspaceRealizationTests
             await WorkspaceRealizationConsumer.BeginAsync(
                 coordinator,
                 WorkspacePlan.Empty);
-        _ = await ReplaceScopeAsync(
-            firstCandidate.ConstructionWorkspace,
-            PackageAssemblyContextCompletionTests.SharedBinding(
-                "Predecessor.First"),
-            PackageAssemblyContextCompletionTests.SharedBinding(
-                "Predecessor.Second"));
+        using (WorkspaceRealizationConstructionLease construction =
+            WorkspaceRealizationConsumer.EnterConstruction(firstCandidate))
+        {
+            _ = await ReplaceScopeAsync(
+                construction.Workspace,
+                PackageAssemblyContextCompletionTests.SharedBinding(
+                    "Predecessor.First"),
+                PackageAssemblyContextCompletionTests.SharedBinding(
+                    "Predecessor.Second"));
+        }
         WorkspaceRealization first =
             await WorkspaceRealizationConsumer.ActivateAsync(
                 coordinator,
@@ -31,10 +35,14 @@ public sealed class WorkspaceRealizationTests
             await WorkspaceRealizationConsumer.BeginAsync(
                 coordinator,
                 WorkspacePlan.Empty);
-        _ = await ReplaceScopeAsync(
-            secondCandidate.ConstructionWorkspace,
-            PackageAssemblyContextCompletionTests.SharedBinding(
-                "Successor.Only"));
+        using (WorkspaceRealizationConstructionLease construction =
+            WorkspaceRealizationConsumer.EnterConstruction(secondCandidate))
+        {
+            _ = await ReplaceScopeAsync(
+                construction.Workspace,
+                PackageAssemblyContextCompletionTests.SharedBinding(
+                    "Successor.Only"));
+        }
         _ = await coordinator.CompleteCandidateAsync(
             secondCandidate,
             TestContext.Current.CancellationToken);
@@ -76,14 +84,14 @@ public sealed class WorkspaceRealizationTests
             await WorkspaceRealizationConsumer.ActivateAsync(
                 coordinator,
                 firstCandidate);
-        WorkspaceRealizationCandidate failedCandidate =
+        WorkspaceRealizationCandidate abandonedCandidate =
             await WorkspaceRealizationConsumer.BeginAsync(
                 coordinator,
                 WorkspacePlan.Empty);
 
         var retiring = Assert.IsType<
             WorkspaceRealizationCandidateRetirementResult.Retiring>(
-                coordinator.AbandonCandidate(failedCandidate));
+                coordinator.AbandonCandidate(abandonedCandidate));
         WorkspaceRealizationSettlement settlement =
             await retiring.Retirement.Completion;
 
@@ -97,6 +105,85 @@ public sealed class WorkspaceRealizationTests
     }
 
     [Fact]
+    public async Task CandidateRuntimeFailure_RetiresCandidateAndPreservesActiveRealization()
+    {
+        await using var coordinator = new WorkspaceRealizationCoordinator();
+        WorkspaceRealizationCandidate firstCandidate =
+            await WorkspaceRealizationConsumer.BeginAsync(
+                coordinator,
+                WorkspacePlan.Empty);
+        WorkspaceRealization first =
+            await WorkspaceRealizationConsumer.ActivateAsync(
+                coordinator,
+                firstCandidate);
+        WorkspaceRealizationCandidate failedCandidate =
+            await WorkspaceRealizationConsumer.BeginAsync(
+                coordinator,
+                WorkspacePlan.Empty);
+        InspectionWorkspace failedWorkspace;
+        using (WorkspaceRealizationConstructionLease construction =
+            WorkspaceRealizationConsumer.EnterConstruction(failedCandidate))
+        {
+            failedWorkspace = construction.Workspace;
+        }
+        _ = await failedWorkspace.CloseAsync();
+
+        var failed = Assert.IsType<
+            WorkspaceRealizationCandidateCompletionResult.Rejected>(
+                await coordinator.CompleteCandidateAsync(
+                    failedCandidate,
+                    TestContext.Current.CancellationToken));
+        WorkspaceRealizationSettlement settlement =
+            await failedCandidate.Settlement;
+
+        Assert.Equal(
+            WorkspaceRealizationCandidateRejection.RuntimeUnavailable,
+            failed.Reason);
+        Assert.NotNull(failed.RuntimeFailure);
+        Assert.Equal(
+            WorkspaceRealizationRetirementReason.CandidateFailed,
+            settlement.Reason);
+        Assert.Same(first, coordinator.Current);
+        using WorkspaceRealizationOperationLease operation =
+            await WorkspaceRealizationConsumer.EnterAsync(coordinator);
+        Assert.Same(first.Identity, operation.Realization);
+    }
+
+    [Fact]
+    public async Task Completion_WaitsForAdmittedConstructionAndClosesAdmission()
+    {
+        await using var coordinator = new WorkspaceRealizationCoordinator();
+        WorkspaceRealizationCandidate candidate =
+            await WorkspaceRealizationConsumer.BeginAsync(
+                coordinator,
+                WorkspacePlan.Empty);
+        WorkspaceRealizationConstructionLease construction =
+            WorkspaceRealizationConsumer.EnterConstruction(candidate);
+
+        Task<WorkspaceRealizationCandidateCompletionResult> completion =
+            coordinator.CompleteCandidateAsync(
+                candidate,
+                TestContext.Current.CancellationToken).AsTask();
+        await Task.Yield();
+
+        Assert.False(completion.IsCompleted);
+        Assert.Throws<InvalidOperationException>(
+            () => WorkspaceRealizationConsumer.EnterConstruction(candidate));
+        var concurrent = Assert.IsType<
+            WorkspaceRealizationCandidateCompletionResult.Rejected>(
+                await coordinator.CompleteCandidateAsync(
+                    candidate,
+                    TestContext.Current.CancellationToken));
+        Assert.Equal(
+            WorkspaceRealizationCandidateRejection.CompletionInProgress,
+            concurrent.Reason);
+
+        construction.Dispose();
+        Assert.IsType<WorkspaceRealizationCandidateCompletionResult.Ready>(
+            await completion);
+    }
+
+    [Fact]
     public async Task CancelledCompletion_ReleasesCaptureAndSettlesCandidate()
     {
         await using var coordinator = new WorkspaceRealizationCoordinator();
@@ -104,7 +191,12 @@ public sealed class WorkspaceRealizationTests
             await WorkspaceRealizationConsumer.BeginAsync(
                 coordinator,
                 WorkspacePlan.Empty);
-        InspectionWorkspace workspace = candidate.ConstructionWorkspace;
+        InspectionWorkspace workspace;
+        using (WorkspaceRealizationConstructionLease construction =
+            WorkspaceRealizationConsumer.EnterConstruction(candidate))
+        {
+            workspace = construction.Workspace;
+        }
         ArtifactRootResult<
             InspectionWorkspace.ArtifactRootCompositionReadLease> heldRead =
             await workspace.ReadArtifactRootCompositionAsync(
@@ -139,6 +231,96 @@ public sealed class WorkspaceRealizationTests
     }
 
     [Fact]
+    public async Task SupersededCompletion_ReportsStaleCandidate()
+    {
+        await using var coordinator = new WorkspaceRealizationCoordinator();
+        WorkspaceRealizationCandidate candidate =
+            await WorkspaceRealizationConsumer.BeginAsync(
+                coordinator,
+                WorkspacePlan.Empty);
+        InspectionWorkspace workspace;
+        using (WorkspaceRealizationConstructionLease construction =
+            WorkspaceRealizationConsumer.EnterConstruction(candidate))
+        {
+            workspace = construction.Workspace;
+        }
+        ArtifactRootResult<
+            InspectionWorkspace.ArtifactRootCompositionReadLease> heldRead =
+            await workspace.ReadArtifactRootCompositionAsync(
+                workspace.Identity);
+        using InspectionWorkspace.ArtifactRootCompositionReadLease held =
+            Assert.IsType<
+                ArtifactRootResult<
+                    InspectionWorkspace.ArtifactRootCompositionReadLease>
+                    .Available>(heldRead).Value;
+
+        Task<WorkspaceRealizationCandidateCompletionResult> completion =
+            coordinator.CompleteCandidateAsync(
+                candidate,
+                TestContext.Current.CancellationToken).AsTask();
+        await Task.Yield();
+        Assert.False(completion.IsCompleted);
+        Task<WorkspaceRealizationCandidateStartResult> replacement =
+            coordinator.BeginCandidateAsync(WorkspacePlan.Empty).AsTask();
+
+        held.Dispose();
+
+        var rejected = Assert.IsType<
+            WorkspaceRealizationCandidateCompletionResult.Rejected>(
+                await completion);
+        Assert.Equal(
+            WorkspaceRealizationCandidateRejection.StaleCandidate,
+            rejected.Reason);
+        Assert.IsType<WorkspaceRealizationCandidateStartResult.Prepared>(
+            await replacement);
+    }
+
+    [Fact]
+    public async Task ClosedCoordinatorCompletion_ReportsCoordinatorClosed()
+    {
+        var coordinator = new WorkspaceRealizationCoordinator();
+        WorkspaceRealizationCandidate candidate =
+            await WorkspaceRealizationConsumer.BeginAsync(
+                coordinator,
+                WorkspacePlan.Empty);
+        InspectionWorkspace workspace;
+        using (WorkspaceRealizationConstructionLease construction =
+            WorkspaceRealizationConsumer.EnterConstruction(candidate))
+        {
+            workspace = construction.Workspace;
+        }
+        ArtifactRootResult<
+            InspectionWorkspace.ArtifactRootCompositionReadLease> heldRead =
+            await workspace.ReadArtifactRootCompositionAsync(
+                workspace.Identity);
+        using InspectionWorkspace.ArtifactRootCompositionReadLease held =
+            Assert.IsType<
+                ArtifactRootResult<
+                    InspectionWorkspace.ArtifactRootCompositionReadLease>
+                    .Available>(heldRead).Value;
+
+        Task<WorkspaceRealizationCandidateCompletionResult> completion =
+            coordinator.CompleteCandidateAsync(
+                candidate,
+                TestContext.Current.CancellationToken).AsTask();
+        await Task.Yield();
+        Assert.False(completion.IsCompleted);
+        Task<WorkspaceRealizationCoordinatorCloseReport> close =
+            coordinator.CloseAsync();
+
+        held.Dispose();
+
+        var rejected = Assert.IsType<
+            WorkspaceRealizationCandidateCompletionResult.Rejected>(
+                await completion);
+        Assert.Equal(
+            WorkspaceRealizationCandidateRejection.CoordinatorClosed,
+            rejected.Reason);
+        _ = await close;
+        await coordinator.DisposeAsync();
+    }
+
+    [Fact]
     public async Task NewCandidate_SupersedesAndSettlesPriorCandidate()
     {
         await using var coordinator = new WorkspaceRealizationCoordinator();
@@ -159,10 +341,41 @@ public sealed class WorkspaceRealizationTests
             WorkspaceRealizationRetirementReason.CandidateSuperseded,
             settlement.Reason);
         Assert.Throws<InvalidOperationException>(
-            () => _ = prior.ConstructionWorkspace);
+            () => WorkspaceRealizationConsumer.EnterConstruction(prior));
         Assert.IsType<
             WorkspaceRealizationCutoverResult.Rejected>(
                 coordinator.CutOver(prior));
+    }
+
+    [Fact]
+    public async Task SupersededCandidate_DrainsAdmittedConstruction()
+    {
+        await using var coordinator = new WorkspaceRealizationCoordinator();
+        WorkspaceRealizationCandidate prior =
+            await WorkspaceRealizationConsumer.BeginAsync(
+                coordinator,
+                WorkspacePlan.Empty);
+        WorkspaceRealizationConstructionLease construction =
+            WorkspaceRealizationConsumer.EnterConstruction(prior);
+
+        Task<WorkspaceRealizationCandidateStartResult> replacement =
+            coordinator.BeginCandidateAsync(WorkspacePlan.Empty).AsTask();
+        await Task.Yield();
+
+        Assert.False(replacement.IsCompleted);
+        Assert.False(prior.Settlement.IsCompleted);
+        Assert.Throws<InvalidOperationException>(
+            () => WorkspaceRealizationConsumer.EnterConstruction(prior));
+        Assert.Same(prior.Realization, construction.Workspace.Identity);
+
+        construction.Dispose();
+
+        Assert.IsType<WorkspaceRealizationCandidateStartResult.Prepared>(
+            await replacement);
+        WorkspaceRealizationSettlement settlement = await prior.Settlement;
+        Assert.Equal(
+            WorkspaceRealizationRetirementReason.CandidateSuperseded,
+            settlement.Reason);
     }
 
     [Fact]
@@ -176,10 +389,14 @@ public sealed class WorkspaceRealizationTests
         PackageRootBinding binding =
                 PackageAssemblyContextCompletionTests.SharedBinding(
                     "Candidate.Supersession");
-        PackageAssemblyContextCompletion completion =
-                await PreparePackageCompletionAsync(
-                    prior.ConstructionWorkspace,
-                    binding);
+        PackageAssemblyContextCompletion completion;
+        using (WorkspaceRealizationConstructionLease construction =
+            WorkspaceRealizationConsumer.EnterConstruction(prior))
+        {
+            completion = await PreparePackageCompletionAsync(
+                construction.Workspace,
+                binding);
+        }
         PackageAssemblyContextProjection retained =
                 completion.CreateProjection([binding]);
 
@@ -283,9 +500,13 @@ public sealed class WorkspaceRealizationTests
             await WorkspaceRealizationConsumer.BeginAsync(
                 coordinator,
                 WorkspacePlan.Empty);
-        _ = await PreparePackageCompletionAsync(
-            firstCandidate.ConstructionWorkspace,
-            binding);
+        using (WorkspaceRealizationConstructionLease construction =
+            WorkspaceRealizationConsumer.EnterConstruction(firstCandidate))
+        {
+            _ = await PreparePackageCompletionAsync(
+                construction.Workspace,
+                binding);
+        }
         _ = await WorkspaceRealizationConsumer.ActivateAsync(
             coordinator,
             firstCandidate);
@@ -294,10 +515,14 @@ public sealed class WorkspaceRealizationTests
             await WorkspaceRealizationConsumer.BeginAsync(
                 coordinator,
                 WorkspacePlan.Empty);
-        PackageAssemblyContextCompletion successor =
-            await PreparePackageCompletionAsync(
-                secondCandidate.ConstructionWorkspace,
+        PackageAssemblyContextCompletion successor;
+        using (WorkspaceRealizationConstructionLease construction =
+            WorkspaceRealizationConsumer.EnterConstruction(secondCandidate))
+        {
+            successor = await PreparePackageCompletionAsync(
+                construction.Workspace,
                 binding);
+        }
         _ = await coordinator.CompleteCandidateAsync(
             secondCandidate,
             TestContext.Current.CancellationToken);
@@ -333,9 +558,9 @@ public sealed class WorkspaceRealizationTests
         Assert.Equal(
             WorkspaceRealizationCandidateRejection.NotReady,
             rejected.Reason);
-        Assert.Same(
-            candidate.Realization,
-            candidate.ConstructionWorkspace.Identity);
+        using WorkspaceRealizationConstructionLease construction =
+            WorkspaceRealizationConsumer.EnterConstruction(candidate);
+        Assert.Same(candidate.Realization, construction.Workspace.Identity);
     }
 
     [Fact]
@@ -382,7 +607,12 @@ public sealed class WorkspaceRealizationTests
             await WorkspaceRealizationConsumer.BeginAsync(
                 coordinator,
                 WorkspacePlan.Empty);
-        InspectionWorkspace workspace = candidate.ConstructionWorkspace;
+        InspectionWorkspace workspace;
+        using (WorkspaceRealizationConstructionLease construction =
+            WorkspaceRealizationConsumer.EnterConstruction(candidate))
+        {
+            workspace = construction.Workspace;
+        }
         PackageRootBinding binding =
             PackageAssemblyContextCompletionTests.SharedBinding(
                 "Realization.Close.Failure");

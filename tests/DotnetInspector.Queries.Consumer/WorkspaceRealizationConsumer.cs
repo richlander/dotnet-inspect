@@ -13,6 +13,10 @@ public static class WorkspaceRealizationConsumer
         return AssertPrepared(result);
     }
 
+    public static WorkspaceRealizationConstructionLease EnterConstruction(
+        WorkspaceRealizationCandidate candidate) =>
+        candidate.EnterConstruction();
+
     public static async ValueTask<WorkspaceRealization> ActivateAsync(
         WorkspaceRealizationCoordinator coordinator,
         WorkspaceRealizationCandidate candidate)

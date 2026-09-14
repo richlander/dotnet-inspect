@@ -49,6 +49,7 @@ public enum WorkspaceRealizationRetirementReason
     Replaced,
     CandidateAbandoned,
     CandidateCancelled,
+    CandidateFailed,
     CandidateSuperseded,
     CoordinatorClosed,
 }
@@ -111,16 +112,55 @@ public sealed class WorkspaceRealizationCandidate
     public WorkspacePlan OriginPlan => State.OriginPlan;
 
     /// <summary>
-    /// The candidate Workspace while construction remains open.
+    /// Enters one construction operation while candidate admission remains
+    /// open.
     /// </summary>
-    public InspectionWorkspace ConstructionWorkspace =>
-        _owner.GetConstructionWorkspace(this);
+    public WorkspaceRealizationConstructionLease EnterConstruction() =>
+        _owner.EnterConstruction(this);
 
     /// <summary>
     /// Completes if this candidate or its later active realization retires.
     /// </summary>
     public Task<WorkspaceRealizationSettlement> Settlement =>
         State.Settlement.Task;
+}
+
+/// <summary>
+/// Live authority for one candidate-construction operation.
+/// Hold the lease for the complete operation and do not retain its Workspace
+/// after release.
+/// </summary>
+public sealed class WorkspaceRealizationConstructionLease : IDisposable
+{
+    WorkspaceRealizationCoordinator? _owner;
+    readonly WorkspaceRealizationCoordinator.RealizationState _state;
+
+    internal WorkspaceRealizationConstructionLease(
+        WorkspaceRealizationCoordinator owner,
+        WorkspaceRealizationCoordinator.RealizationState state)
+    {
+        _owner = owner;
+        _state = state;
+    }
+
+    public InspectionWorkspace Workspace
+    {
+        get
+        {
+            WorkspaceRealizationCoordinator owner =
+                Volatile.Read(ref _owner)
+                ?? throw new ObjectDisposedException(
+                    nameof(WorkspaceRealizationConstructionLease));
+            return owner.GetConstructionWorkspace(_state);
+        }
+    }
+
+    public void Dispose()
+    {
+        WorkspaceRealizationCoordinator? owner =
+            Interlocked.Exchange(ref _owner, null);
+        owner?.ReleaseConstruction(_state);
+    }
 }
 
 /// <summary>
@@ -164,6 +204,7 @@ public abstract record WorkspaceRealizationCandidateStartResult
 public enum WorkspaceRealizationCandidateRejection
 {
     StaleCandidate,
+    CompletionInProgress,
     AlreadyReady,
     NotReady,
     CoordinatorClosed,
@@ -372,6 +413,7 @@ public sealed class WorkspaceRealizationCoordinator : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(candidate);
         RealizationState state;
         InspectionWorkspace workspace;
+        Task constructionDrain;
         lock (_gate)
         {
             if (!ReferenceEquals(candidate.Owner, this)
@@ -396,28 +438,106 @@ public sealed class WorkspaceRealizationCoordinator : IAsyncDisposable
                         candidate,
                         WorkspaceRealizationCandidateRejection.AlreadyReady);
             }
+            if (candidate.State.Phase == RealizationPhase.Completing)
+            {
+                return new WorkspaceRealizationCandidateCompletionResult
+                    .Rejected(
+                        candidate,
+                        WorkspaceRealizationCandidateRejection
+                            .CompletionInProgress);
+            }
             state = candidate.State;
             workspace = state.Workspace;
+            state.Phase = RealizationPhase.Completing;
+            constructionDrain = state.ConstructionCount == 0
+                ? Task.CompletedTask
+                : state.BeginConstructionDrain();
         }
 
         ArtifactRootResult<WorkspaceRealizationOperationSnapshot> captured;
         try
         {
+            await constructionDrain.WaitAsync(cancellationToken)
+                .ConfigureAwait(false);
+            lock (_gate)
+            {
+                if (_closeCompletion is not null)
+                {
+                    return new WorkspaceRealizationCandidateCompletionResult
+                        .Rejected(
+                            candidate,
+                            WorkspaceRealizationCandidateRejection
+                                .CoordinatorClosed);
+                }
+                if (!ReferenceEquals(state, _candidate?.State)
+                    || state.Phase != RealizationPhase.Completing)
+                {
+                    return new WorkspaceRealizationCandidateCompletionResult
+                        .Rejected(
+                            candidate,
+                            WorkspaceRealizationCandidateRejection
+                                .StaleCandidate);
+                }
+            }
             cancellationToken.ThrowIfCancellationRequested();
             captured =
                 await workspace.CaptureRealizationOperationSnapshotAsync(
                     cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
         }
         catch (OperationCanceledException)
             when (cancellationToken.IsCancellationRequested)
         {
-            RetireCancelledCandidate(candidate);
+            RetireCandidate(
+                candidate,
+                WorkspaceRealizationRetirementReason.CandidateCancelled);
+            throw;
+        }
+        catch
+        {
+            RetireCandidate(
+                candidate,
+                WorkspaceRealizationRetirementReason.CandidateFailed);
             throw;
         }
         if (captured
             is ArtifactRootResult<WorkspaceRealizationOperationSnapshot>
                 .Rejected unavailable)
         {
+            RealizationState? startClose = null;
+            WorkspaceRealizationCandidateRejection? changed = null;
+            lock (_gate)
+            {
+                if (_closeCompletion is not null)
+                {
+                    changed =
+                        WorkspaceRealizationCandidateRejection
+                            .CoordinatorClosed;
+                }
+                else if (!ReferenceEquals(state, _candidate?.State)
+                    || state.Phase != RealizationPhase.Completing)
+                {
+                    changed =
+                        WorkspaceRealizationCandidateRejection.StaleCandidate;
+                }
+                else
+                {
+                    _candidate = null;
+                    _currentAttempt = null;
+                    WorkspaceRealizationRetirement retirement;
+                    (retirement, startClose) = RetireLocked(
+                        state,
+                        WorkspaceRealizationRetirementReason.CandidateFailed);
+                    _candidateBarrier = retirement.Completion;
+                }
+            }
+            if (startClose is not null)
+                StartClose(startClose);
+            if (changed is { } rejection)
+            {
+                return new WorkspaceRealizationCandidateCompletionResult
+                    .Rejected(candidate, rejection);
+            }
             return new WorkspaceRealizationCandidateCompletionResult.Rejected(
                 candidate,
                 WorkspaceRealizationCandidateRejection.RuntimeUnavailable,
@@ -444,12 +564,20 @@ public sealed class WorkspaceRealizationCoordinator : IAsyncDisposable
                         WorkspaceRealizationCandidateRejection.CoordinatorClosed);
             }
             if (!ReferenceEquals(state, _candidate?.State)
-                || state.Phase != RealizationPhase.Preparing)
+                || state.Phase != RealizationPhase.Completing)
             {
                 return new WorkspaceRealizationCandidateCompletionResult
                     .Rejected(
                         candidate,
                         WorkspaceRealizationCandidateRejection.StaleCandidate);
+            }
+            if (snapshot.Scope.Preparing is not null)
+            {
+                state.Phase = RealizationPhase.Preparing;
+                return new WorkspaceRealizationCandidateCompletionResult
+                    .Rejected(
+                        candidate,
+                        WorkspaceRealizationCandidateRejection.NotReady);
             }
 
             state.InitialDefinition = snapshot.Definition;
@@ -678,7 +806,7 @@ public sealed class WorkspaceRealizationCoordinator : IAsyncDisposable
             throw new AggregateException(failures);
     }
 
-    internal InspectionWorkspace GetConstructionWorkspace(
+    internal WorkspaceRealizationConstructionLease EnterConstruction(
         WorkspaceRealizationCandidate candidate)
     {
         lock (_gate)
@@ -692,12 +820,65 @@ public sealed class WorkspaceRealizationCoordinator : IAsyncDisposable
                 throw new InvalidOperationException(
                     "The candidate is no longer open for construction.");
             }
-            return candidate.State.Workspace;
+            candidate.State.ConstructionCount++;
+            return new WorkspaceRealizationConstructionLease(
+                this,
+                candidate.State);
         }
     }
 
-    void RetireCancelledCandidate(
-        WorkspaceRealizationCandidate candidate)
+    internal InspectionWorkspace GetConstructionWorkspace(
+        RealizationState state)
+    {
+        lock (_gate)
+        {
+            if (state.Phase
+                is not (RealizationPhase.Preparing
+                    or RealizationPhase.Completing
+                    or RealizationPhase.Draining))
+            {
+                throw new InvalidOperationException(
+                    "The candidate construction operation is no longer live.");
+            }
+            return state.Workspace;
+        }
+    }
+
+    internal void ReleaseConstruction(RealizationState state)
+    {
+        TaskCompletionSource? completion = null;
+        bool startClose = false;
+        lock (_gate)
+        {
+            if (state.ConstructionCount <= 0)
+            {
+                throw new InvalidOperationException(
+                    "A Workspace realization construction lease was released more than once.");
+            }
+            state.ConstructionCount--;
+            if (state.ConstructionCount == 0
+                && state.Phase == RealizationPhase.Completing)
+            {
+                completion = state.ConstructionDrain;
+                state.ConstructionDrain = null;
+            }
+            if (state.ConstructionCount == 0
+                && state.OperationCount == 0
+                && state.Phase == RealizationPhase.Draining
+                && !state.CloseStarted)
+            {
+                state.CloseStarted = true;
+                startClose = true;
+            }
+        }
+        completion?.TrySetResult();
+        if (startClose)
+            StartClose(state);
+    }
+
+    void RetireCandidate(
+        WorkspaceRealizationCandidate candidate,
+        WorkspaceRealizationRetirementReason reason)
     {
         RealizationState? startClose = null;
         lock (_gate)
@@ -713,7 +894,7 @@ public sealed class WorkspaceRealizationCoordinator : IAsyncDisposable
             WorkspaceRealizationRetirement retirement;
             (retirement, startClose) = RetireLocked(
                 candidate.State,
-                WorkspaceRealizationRetirementReason.CandidateCancelled);
+                reason);
             _candidateBarrier = retirement.Completion;
         }
 
@@ -733,6 +914,7 @@ public sealed class WorkspaceRealizationCoordinator : IAsyncDisposable
             }
             state.OperationCount--;
             if (state.OperationCount == 0
+                && state.ConstructionCount == 0
                 && state.Phase == RealizationPhase.Draining
                 && !state.CloseStarted)
             {
@@ -755,12 +937,16 @@ public sealed class WorkspaceRealizationCoordinator : IAsyncDisposable
 
         state.AdmissionOpen = false;
         state.Phase = RealizationPhase.Draining;
+        TaskCompletionSource? constructionDrain = state.ConstructionDrain;
+        state.ConstructionDrain = null;
         state.Retirement = new WorkspaceRealizationRetirement(
             state.Identity,
             reason,
             state.Settlement.Task);
         _retired.Add(new(state.Sequence, state.Settlement.Task));
-        if (state.OperationCount == 0)
+        constructionDrain?.TrySetResult();
+        if (state.ConstructionCount == 0
+            && state.OperationCount == 0)
         {
             state.CloseStarted = true;
             return (state.Retirement, state);
@@ -867,6 +1053,8 @@ public sealed class WorkspaceRealizationCoordinator : IAsyncDisposable
         internal RealizationPhase Phase { get; set; } =
             RealizationPhase.Preparing;
         internal bool AdmissionOpen { get; set; }
+        internal int ConstructionCount { get; set; }
+        internal TaskCompletionSource? ConstructionDrain { get; set; }
         internal int OperationCount { get; set; }
         internal bool CloseStarted { get; set; }
         internal WorkspaceDefinitionSnapshot? InitialDefinition { get; set; }
@@ -875,6 +1063,13 @@ public sealed class WorkspaceRealizationCoordinator : IAsyncDisposable
         internal TaskCompletionSource<WorkspaceRealizationSettlement>
             Settlement { get; } = new(
                 TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal Task BeginConstructionDrain()
+        {
+            ConstructionDrain = new(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            return ConstructionDrain.Task;
+        }
 
         internal InspectionWorkspace DetachWorkspace()
         {
@@ -894,6 +1089,7 @@ public sealed class WorkspaceRealizationCoordinator : IAsyncDisposable
     internal enum RealizationPhase
     {
         Preparing,
+        Completing,
         Ready,
         Active,
         Draining,

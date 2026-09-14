@@ -155,6 +155,7 @@ docs/design/models/workspace-realization-cutover/BrokenCandidateSettlementBarrie
 docs/design/models/workspace-realization-cutover/BrokenForgetFailure.cfg=12
 docs/design/models/workspace-realization-cutover/BrokenNeverSettle.cfg=13
 docs/design/models/workspace-realization-cutover/BrokenPostCutoverAdmission.cfg=12
+docs/design/models/workspace-realization-cutover/BrokenReadyWithConstruction.cfg=12
 docs/design/models/workspace-realization-cutover/BrokenStaleCandidatePublish.cfg=12
 docs/design/models/workspace-realization-cutover/BrokenTransferAuthority.cfg=12
 docs/design/models/workspace-realization-cutover/Liveness.cfg=0

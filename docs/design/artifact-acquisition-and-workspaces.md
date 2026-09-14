@@ -3849,17 +3849,21 @@ introduce another operation generation.
 
 At most one unpublished candidate accepts construction work. A candidate has a
 fresh Workspace identity and ordinary private Workspace resources, but no
-active-operation authority. It becomes eligible for publication only after its
-construction capability closes and one complete definition snapshot can be
-captured.
+active-operation authority. Construction enters through an explicit
+`WorkspaceRealizationConstructionLease`; the caller holds that lease for the
+complete construction operation and does not retain its Workspace afterward.
+Candidate completion closes new construction admission, waits for every
+already-admitted construction lease to release, and then captures one complete
+definition snapshot. A Scope snapshot that still reports unfinished
+preparation is not ready for publication.
 
 A newer replacement attempt supersedes the older unpublished candidate,
-closes its construction admission, and observes its terminal settlement before
-publishing another candidate. Candidate failure, cancellation, expiry, or
-supersession closes only that candidate and leaves the current active
-realization unchanged. Cancellation remains a cancellation outcome for the
-caller while the candidate's typed settlement records cancellation as its
-retirement reason.
+closes its construction admission, lets already-admitted construction finish,
+and observes its terminal settlement before publishing another candidate.
+Candidate failure, cancellation, expiry, or supersession closes only that
+candidate and leaves the current active realization unchanged. Cancellation
+remains a cancellation outcome for the caller while the candidate's typed
+settlement records cancellation as its retirement reason.
 
 Successful cutover is one non-yielding transition:
 
@@ -3909,11 +3913,12 @@ and does not reactivate a predecessor or prevent a later candidate from
 becoming current. After terminal settlement, the coordinator retains only
 resource-free settlement evidence and no reference to the closed Workspace.
 
-No lock spans construction, snapshot capture, Workspace close, or settlement
-awaits. The cutover region performs bounded validation and pointer/authority
-changes only. Last-lease release invokes `CloseAsync()` after leaving the gate;
-it requires no worker thread or blocking wait and is valid for single-threaded
-Browser/Wasm. Eventual drainage assumes admitted operations release their
+No lock spans construction, construction drainage, snapshot capture, Workspace
+close, or settlement awaits. The cutover region performs bounded validation
+and pointer/authority changes only. Last construction- or operation-lease
+release invokes `CloseAsync()` after leaving the gate; it requires no worker
+thread or blocking wait and is valid for single-threaded Browser/Wasm. Eventual
+drainage assumes admitted construction and active operations release their
 leases and lower-owner close reaches a terminal outcome.
 
 Repeated cutover can temporarily retain several draining predecessors.
@@ -3923,23 +3928,30 @@ constructs one realization, admits its operation, and closes the coordinator at
 invocation completion.
 
 The implementation is `WorkspaceRealizationCoordinator`,
-`WorkspaceRealizationOperationLease`, and
-`WorkspaceDefinitionSnapshot`. Existing direct Workspace operations remain
-compatibility and construction surfaces; only adopters that enter through the
-coordinator satisfy the active-realization authority claim.
+`WorkspaceRealizationConstructionLease`,
+`WorkspaceRealizationOperationLease`, and `WorkspaceDefinitionSnapshot`.
+Existing direct Workspace operations remain compatibility surfaces; only
+adopters that enter construction and active operations through the coordinator
+satisfy the active-realization authority claim.
 
 The focused model under
 [`docs/design/models/workspace-realization-cutover/`](models/workspace-realization-cutover/)
 checks candidate failure and supersession, atomic cutover, post-cutover
-admission refusal, exact operation association, predecessor drainage, visible
-settlement failure, and conditional single-thread progress.
+admission refusal, construction admission closure and drainage, exact operation
+association, predecessor drainage, visible settlement failure, and conditional
+single-thread progress.
 
 The corresponding Release gates are:
 
 - `Cutover_StopsPredecessorAdmissionAndDrainsAdmittedOperation`;
 - `CandidateFailure_PreservesActiveRealization`;
+- `CandidateRuntimeFailure_RetiresCandidateAndPreservesActiveRealization`;
+- `Completion_WaitsForAdmittedConstructionAndClosesAdmission`;
 - `CancelledCompletion_ReleasesCaptureAndSettlesCandidate`;
+- `SupersededCompletion_ReportsStaleCandidate`;
+- `ClosedCoordinatorCompletion_ReportsCoordinatorClosed`;
 - `NewCandidate_SupersedesAndSettlesPriorCandidate`;
+- `SupersededCandidate_DrainsAdmittedConstruction`;
 - `OperationAuthority_RetainsExactDefinitionSnapshot`;
 - `EqualOriginPlan_SharesIntentButNotRealizationAuthority`;
 - `SharedPackageContent_PredecessorSettlementKeepsSuccessorUsable`;

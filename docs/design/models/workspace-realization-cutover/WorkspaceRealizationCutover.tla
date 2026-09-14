@@ -11,18 +11,20 @@ ASSUME Fault \in {
     "TransferAuthority",
     "ForgetFailure",
     "NeverSettle",
-    "BypassCandidateSettlement"
+    "BypassCandidateSettlement",
+    "ReadyWithConstruction"
 }
 
 Realizations == 1..3
 Operations == 1..2
+ConstructionOperations == 1..2
 NoRealization == 0
 NoDefinition == <<"None", 0>>
 Definition(r) == <<"Definition", r>>
 Definitions == {Definition(r) : r \in Realizations}
 
 Phases ==
-    {"Unused", "Preparing", "Ready", "Active", "Draining",
+    {"Unused", "Preparing", "Completing", "Ready", "Active", "Draining",
      "Settled", "Failed"}
 
 VARIABLES
@@ -32,6 +34,9 @@ VARIABLES
     pendingCandidate,
     candidateBarrier,
     admissionOpen,
+    constructionAdmissionOpen,
+    constructionRealization,
+    constructionAdmittedWhileCurrent,
     operationRealization,
     operationDefinition,
     admittedWhileSelected,
@@ -41,12 +46,18 @@ VARIABLES
 
 vars ==
     <<phase, active, candidate, pendingCandidate, candidateBarrier,
-      admissionOpen, operationRealization, operationDefinition,
+      admissionOpen, constructionAdmissionOpen, constructionRealization,
+      constructionAdmittedWhileCurrent, operationRealization,
+      operationDefinition,
       admittedWhileSelected, closeRequested, failures, witnesses>>
 
 Holders(r) ==
     {operation \in Operations :
         operationRealization[operation] = r}
+
+ConstructionHolders(r) ==
+    {operation \in ConstructionOperations :
+        constructionRealization[operation] = r}
 
 UnusedRealizations ==
     {r \in Realizations : phase[r] = "Unused"}
@@ -63,6 +74,12 @@ Init ==
     /\ pendingCandidate = NoRealization
     /\ candidateBarrier = NoRealization
     /\ admissionOpen = [r \in Realizations |-> FALSE]
+    /\ constructionAdmissionOpen =
+        [r \in Realizations |-> FALSE]
+    /\ constructionRealization =
+        [operation \in ConstructionOperations |-> NoRealization]
+    /\ constructionAdmittedWhileCurrent =
+        [operation \in ConstructionOperations |-> TRUE]
     /\ operationRealization =
         [operation \in Operations |-> NoRealization]
     /\ operationDefinition =
@@ -81,45 +98,77 @@ BeginCandidate(r) ==
     /\ phase' = [phase EXCEPT ![r] = "Preparing"]
     /\ candidate' = r
     /\ candidateBarrier' = NoRealization
-    /\ UNCHANGED <<active, pendingCandidate, admissionOpen,
+    /\ constructionAdmissionOpen' =
+        [constructionAdmissionOpen EXCEPT ![r] = TRUE]
+    /\ UNCHANGED <<active, pendingCandidate,
+                   constructionRealization,
+                   constructionAdmittedWhileCurrent, admissionOpen,
                    operationRealization,
                    operationDefinition, admittedWhileSelected,
                    closeRequested, failures, witnesses>>
 
-ReadyCandidate(r) ==
+CompleteCandidate(r) ==
     /\ candidate = r
     /\ phase[r] = "Preparing"
-    /\ phase' = [phase EXCEPT ![r] = "Ready"]
+    /\ phase' = [phase EXCEPT ![r] = "Completing"]
+    /\ constructionAdmissionOpen' =
+        [constructionAdmissionOpen EXCEPT ![r] = FALSE]
     /\ UNCHANGED <<active, candidate, pendingCandidate, candidateBarrier,
                    admissionOpen,
+                   constructionRealization,
+                   constructionAdmittedWhileCurrent,
+                   operationRealization, operationDefinition,
+                   admittedWhileSelected, closeRequested, failures,
+                   witnesses>>
+
+ReadyCandidate(r) ==
+    /\ candidate = r
+    /\ phase[r] = "Completing"
+    /\ ConstructionHolders(r) = {} \/ Fault = "ReadyWithConstruction"
+    /\ phase' = [phase EXCEPT ![r] = "Ready"]
+    /\ UNCHANGED <<active, candidate, pendingCandidate, candidateBarrier,
+                   admissionOpen, constructionAdmissionOpen,
+                   constructionRealization,
+                   constructionAdmittedWhileCurrent,
                    operationRealization, operationDefinition,
                    admittedWhileSelected, closeRequested, failures,
                    witnesses>>
 
 FailCandidate(r) ==
     /\ candidate = r
-    /\ phase[r] \in {"Preparing", "Ready"}
+    /\ phase[r] \in {"Preparing", "Completing", "Ready"}
     /\ phase' = [phase EXCEPT ![r] = "Draining"]
     /\ candidate' = NoRealization
     /\ candidateBarrier' = r
-    /\ closeRequested' = [closeRequested EXCEPT ![r] = TRUE]
+    /\ constructionAdmissionOpen' =
+        [constructionAdmissionOpen EXCEPT ![r] = FALSE]
+    /\ closeRequested' =
+        [closeRequested EXCEPT
+            ![r] = ConstructionHolders(r) = {} /\ Holders(r) = {}]
     /\ witnesses' = witnesses \cup {"CandidateFailed"}
     /\ UNCHANGED <<active, pendingCandidate, admissionOpen,
+                   constructionRealization,
+                   constructionAdmittedWhileCurrent,
                    operationRealization,
                    operationDefinition, admittedWhileSelected, failures>>
 
 SupersedeCandidate(old, replacement) ==
     /\ candidate = old
-    /\ phase[old] \in {"Preparing", "Ready"}
+    /\ phase[old] \in {"Preparing", "Completing", "Ready"}
     /\ replacement \in UnusedRealizations
     /\ phase' = [phase EXCEPT ![old] = "Draining"]
     /\ candidate' = NoRealization
     /\ pendingCandidate' = replacement
     /\ candidateBarrier' = old
+    /\ constructionAdmissionOpen' =
+        [constructionAdmissionOpen EXCEPT ![old] = FALSE]
     /\ closeRequested' =
-        [closeRequested EXCEPT ![old] = TRUE]
+        [closeRequested EXCEPT
+            ![old] =
+                ConstructionHolders(old) = {} /\ Holders(old) = {}]
     /\ witnesses' = witnesses \cup {"CandidateSuperseded"}
-    /\ UNCHANGED <<active, admissionOpen, operationRealization,
+    /\ UNCHANGED <<active, admissionOpen, constructionRealization,
+                   constructionAdmittedWhileCurrent, operationRealization,
                    operationDefinition, admittedWhileSelected, failures>>
 
 SupersedePendingCandidate(old, replacement) ==
@@ -129,7 +178,9 @@ SupersedePendingCandidate(old, replacement) ==
     /\ replacement \in UnusedRealizations \ {old}
     /\ pendingCandidate' = replacement
     /\ UNCHANGED <<phase, active, candidate, candidateBarrier,
-                   admissionOpen, operationRealization,
+                   admissionOpen, constructionAdmissionOpen,
+                   constructionRealization,
+                   constructionAdmittedWhileCurrent, operationRealization,
                    operationDefinition, admittedWhileSelected,
                    closeRequested, failures, witnesses>>
 
@@ -143,12 +194,15 @@ AdmitPendingCandidate(r) ==
     /\ phase' = [phase EXCEPT ![r] = "Preparing"]
     /\ candidate' = r
     /\ pendingCandidate' = NoRealization
+    /\ constructionAdmissionOpen' =
+        [constructionAdmissionOpen EXCEPT ![r] = TRUE]
     /\ candidateBarrier' =
         IF Fault = "BypassCandidateSettlement"
             /\ CandidateBarrierPhase \notin {"Settled", "Failed"}
         THEN candidateBarrier
         ELSE NoRealization
-    /\ UNCHANGED <<active, admissionOpen, operationRealization,
+    /\ UNCHANGED <<active, admissionOpen, constructionRealization,
+                   constructionAdmittedWhileCurrent, operationRealization,
                    operationDefinition, admittedWhileSelected,
                    closeRequested, failures, witnesses>>
 
@@ -169,10 +223,13 @@ CutOver(r) ==
           /\ candidateBarrier' = NoRealization
           /\ admissionOpen' =
               [current \in Realizations |-> current = r]
+          /\ constructionAdmissionOpen' =
+              [current \in Realizations |-> FALSE]
           /\ closeRequested' =
               [current \in Realizations |->
                   IF current = predecessor
                       /\ predecessor # NoRealization
+                      /\ ConstructionHolders(predecessor) = {}
                       /\ Holders(predecessor) = {}
                   THEN TRUE
                   ELSE closeRequested[current]]
@@ -190,7 +247,9 @@ CutOver(r) ==
                          /\ Holders(predecessor) # {}
                     THEN {"PredecessorDrainingWithLease"}
                     ELSE {})
-    /\ UNCHANGED <<operationDefinition, admittedWhileSelected, failures>>
+    /\ UNCHANGED <<constructionRealization,
+                   constructionAdmittedWhileCurrent,
+                   operationDefinition, admittedWhileSelected, failures>>
 
 PublishStaleCandidate(r) ==
     /\ Fault = "StaleCandidatePublish"
@@ -201,6 +260,8 @@ PublishStaleCandidate(r) ==
     /\ admissionOpen' =
         [current \in Realizations |-> current = r]
     /\ UNCHANGED <<candidate, pendingCandidate, candidateBarrier,
+                   constructionAdmissionOpen, constructionRealization,
+                   constructionAdmittedWhileCurrent,
                    operationRealization, operationDefinition,
                    admittedWhileSelected, closeRequested, failures,
                    witnesses>>
@@ -227,6 +288,8 @@ Admit(operation, r) ==
                     /\ phase[r] = "Active"]
     /\ UNCHANGED <<phase, active, candidate, pendingCandidate,
                    candidateBarrier, admissionOpen,
+                   constructionAdmissionOpen, constructionRealization,
+                   constructionAdmittedWhileCurrent,
                    closeRequested, failures, witnesses>>
 
 Release(operation) ==
@@ -241,15 +304,52 @@ Release(operation) ==
         [admittedWhileSelected EXCEPT ![operation] = TRUE]
     /\ UNCHANGED <<phase, active, candidate, pendingCandidate,
                    candidateBarrier, admissionOpen,
+                   constructionAdmissionOpen, constructionRealization,
+                   constructionAdmittedWhileCurrent,
+                   closeRequested, failures, witnesses>>
+
+AdmitConstruction(operation, r) ==
+    /\ constructionRealization[operation] = NoRealization
+    /\ r = candidate
+    /\ constructionAdmissionOpen[r]
+    /\ phase[r] = "Preparing"
+    /\ constructionRealization' =
+        [constructionRealization EXCEPT ![operation] = r]
+    /\ constructionAdmittedWhileCurrent' =
+        [constructionAdmittedWhileCurrent EXCEPT
+            ![operation] =
+                r = candidate /\ constructionAdmissionOpen[r]
+                    /\ phase[r] = "Preparing"]
+    /\ UNCHANGED <<phase, active, candidate, pendingCandidate,
+                   candidateBarrier, admissionOpen,
+                   constructionAdmissionOpen, operationRealization,
+                   operationDefinition, admittedWhileSelected,
+                   closeRequested, failures, witnesses>>
+
+ReleaseConstruction(operation) ==
+    /\ constructionRealization[operation] # NoRealization
+    /\ constructionRealization' =
+        [constructionRealization EXCEPT
+            ![operation] = NoRealization]
+    /\ constructionAdmittedWhileCurrent' =
+        [constructionAdmittedWhileCurrent EXCEPT
+            ![operation] = TRUE]
+    /\ UNCHANGED <<phase, active, candidate, pendingCandidate,
+                   candidateBarrier, admissionOpen,
+                   constructionAdmissionOpen, operationRealization,
+                   operationDefinition, admittedWhileSelected,
                    closeRequested, failures, witnesses>>
 
 RequestClose(r) ==
     /\ phase[r] = "Draining"
     /\ ~closeRequested[r]
-    /\ Holders(r) = {} \/ Fault = "EarlyClose"
+    /\ (ConstructionHolders(r) = {} /\ Holders(r) = {})
+        \/ Fault = "EarlyClose"
     /\ closeRequested' = [closeRequested EXCEPT ![r] = TRUE]
     /\ UNCHANGED <<phase, active, candidate, pendingCandidate,
                    candidateBarrier, admissionOpen,
+                   constructionAdmissionOpen, constructionRealization,
+                   constructionAdmittedWhileCurrent,
                    operationRealization, operationDefinition,
                    admittedWhileSelected, failures, witnesses>>
 
@@ -257,6 +357,7 @@ Settle(r, result) ==
     /\ Fault # "NeverSettle"
     /\ phase[r] = "Draining"
     /\ closeRequested[r]
+    /\ ConstructionHolders(r) = {}
     /\ Holders(r) = {}
     /\ result \in {"Succeeded", "Failed"}
     /\ phase' =
@@ -273,7 +374,9 @@ Settle(r, result) ==
         THEN witnesses \cup {"SettlementFailed"}
         ELSE witnesses
     /\ UNCHANGED <<active, candidate, pendingCandidate, candidateBarrier,
-                   admissionOpen,
+                   admissionOpen, constructionAdmissionOpen,
+                   constructionRealization,
+                   constructionAdmittedWhileCurrent,
                    operationRealization, operationDefinition,
                    admittedWhileSelected, closeRequested>>
 
@@ -283,6 +386,7 @@ SettleAny(r) ==
 Next ==
     \/ \E r \in Realizations :
         BeginCandidate(r)
+        \/ CompleteCandidate(r)
         \/ ReadyCandidate(r)
         \/ FailCandidate(r)
         \/ CutOver(r)
@@ -298,6 +402,10 @@ Next ==
         Admit(operation, r)
     \/ \E operation \in Operations :
         Release(operation)
+    \/ \E operation \in ConstructionOperations, r \in Realizations :
+        AdmitConstruction(operation, r)
+    \/ \E operation \in ConstructionOperations :
+        ReleaseConstruction(operation)
 
 Spec ==
     Init /\ [][Next]_vars
@@ -305,6 +413,8 @@ Spec ==
 FairSpec ==
     /\ Spec
     /\ \A operation \in Operations : WF_vars(Release(operation))
+    /\ \A operation \in ConstructionOperations :
+        WF_vars(ReleaseConstruction(operation))
     /\ \A r \in Realizations :
         WF_vars(RequestClose(r)) /\ WF_vars(SettleAny(r))
 
@@ -315,6 +425,11 @@ TypeOK ==
     /\ pendingCandidate \in Realizations \cup {NoRealization}
     /\ candidateBarrier \in Realizations \cup {NoRealization}
     /\ admissionOpen \in [Realizations -> BOOLEAN]
+    /\ constructionAdmissionOpen \in [Realizations -> BOOLEAN]
+    /\ constructionRealization \in
+        [ConstructionOperations -> Realizations \cup {NoRealization}]
+    /\ constructionAdmittedWhileCurrent \in
+        [ConstructionOperations -> BOOLEAN]
     /\ operationRealization \in
         [Operations -> Realizations \cup {NoRealization}]
     /\ operationDefinition \in
@@ -337,8 +452,13 @@ OnlySelectedRealizationAdmits ==
 CandidateIsUnpublished ==
     candidate # NoRealization =>
         /\ candidate # active
-        /\ phase[candidate] \in {"Preparing", "Ready"}
+        /\ phase[candidate] \in {"Preparing", "Completing", "Ready"}
         /\ ~admissionOpen[candidate]
+
+OnlyCurrentCandidateAdmitsConstruction ==
+    \A r \in Realizations :
+        constructionAdmissionOpen[r] <=>
+            r = candidate /\ phase[r] = "Preparing"
 
 PendingCandidateWaitsForSettlement ==
     pendingCandidate # NoRealization =>
@@ -359,6 +479,18 @@ OperationAuthorityIsExact ==
             /\ phase[operationRealization[operation]]
                 \in {"Active", "Draining"}
 
+ConstructionAuthorityIsExact ==
+    \A operation \in ConstructionOperations :
+        constructionRealization[operation] # NoRealization =>
+            /\ constructionAdmittedWhileCurrent[operation]
+            /\ phase[constructionRealization[operation]]
+                \in {"Preparing", "Completing", "Draining"}
+
+ReadyHasNoConstructionAuthority ==
+    \A r \in Realizations :
+        phase[r] \in {"Ready", "Active"} =>
+            ConstructionHolders(r) = {}
+
 NoPostCutoverPredecessorAdmission ==
     \A operation \in Operations :
         operationRealization[operation] # NoRealization =>
@@ -366,7 +498,9 @@ NoPostCutoverPredecessorAdmission ==
 
 CloseBeginsAfterDrain ==
     \A r \in Realizations :
-        closeRequested[r] => Holders(r) = {}
+        closeRequested[r] =>
+            /\ ConstructionHolders(r) = {}
+            /\ Holders(r) = {}
 
 SettledRealizationsAreDetached ==
     \A r \in Realizations :
@@ -374,6 +508,8 @@ SettledRealizationsAreDetached ==
             /\ r # active
             /\ r # candidate
             /\ ~admissionOpen[r]
+            /\ ~constructionAdmissionOpen[r]
+            /\ ConstructionHolders(r) = {}
             /\ Holders(r) = {}
 
 SettlementFailureIsVisible ==
@@ -385,8 +521,11 @@ Safety ==
     /\ OnlySelectedRealizationIsActive
     /\ OnlySelectedRealizationAdmits
     /\ CandidateIsUnpublished
+    /\ OnlyCurrentCandidateAdmitsConstruction
     /\ PendingCandidateWaitsForSettlement
     /\ CandidateConstructionHasNoBarrier
+    /\ ConstructionAuthorityIsExact
+    /\ ReadyHasNoConstructionAuthority
     /\ OperationAuthorityIsExact
     /\ NoPostCutoverPredecessorAdmission
     /\ CloseBeginsAfterDrain
