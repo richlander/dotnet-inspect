@@ -26,8 +26,8 @@ lookup after parity.
 | 2 | [#6847](https://github.com/richlander/dotnet-inspect/issues/6847), Source Selection: settle exact Library coordinates for local assemblies and project outputs in its coordinate owner. | No pseudo-Package/Platform coordinates; explicit unsupported outcome until adopted. |
 | 3 | [#6848](https://github.com/richlander/dotnet-inspect/issues/6848), Metadata: expose structured declaration inventories through authorized borrowed inspection, with visibility and failure evidence. | Definitions and forwarders retain exact names without Queries decoding metadata or inferring visibility. |
 | 4 | [#6845](https://github.com/richlander/dotnet-inspect/issues/6845), Workspace: project an exact finite locator population and detached occurrence/reopening context from source-owner correspondence. | Package, Platform, restored-project assets and local inputs retain their source distinction, target/view, upstream coverage and ordinary authority boundary. |
-| 5 | [#6849](https://github.com/richlander/dotnet-inspect/issues/6849), Queries: implement the cold reverse locator over those inputs. | Typed deterministic outcomes and Release gates; no private cache. |
-| 6 | [#6846](https://github.com/richlander/dotnet-inspect/issues/6846), Sections: adopt the locator result's row unit and structured multi-format projection. | Logical candidate rows retain separate observation contexts and mandatory coverage/failure disclosure. |
+| 5 | [#6849](https://github.com/richlander/dotnet-inspect/issues/6849), Queries: implement the cold reverse locator over those inputs. | Always a vector of coordinate-plus-origin candidates, deterministic outcomes and Release gates; no private cache or implicit selection. |
+| 6 | [#6846](https://github.com/richlander/dotnet-inspect/issues/6846), Sections: adopt the locator result's row unit and structured multi-format projection. | Each row retains one candidate's origin and observation context with mandatory coverage/failure disclosure. |
 | 7 | [#6844](https://github.com/richlander/dotnet-inspect/issues/6844), CLI Find: produce the handoff; Type and Member consume the selected observation through ordinary exact-coordinate paths. | Runnable locate-once workflow, deliberate fallback/limit migration and routing parity evidence; update shipped skills only now. |
 | 8 | [#6851](https://github.com/richlander/dotnet-inspect/issues/6851), Inspect Web: consume the same locator and selected Type/Member context. | Browser/Wasm navigation uses typed data, not displayed names; portable sharing remains owner-governed. |
 | 9 | [#6850](https://github.com/richlander/dotnet-inspect/issues/6850), Platform discovery in Services: retire or narrow `PlatformTypeCatalog` after its consumers migrate. | No duplicated general reverse scan; retain acquisition/probing/naming and Spotlight's static filename population. |
@@ -49,13 +49,16 @@ consumption by Type and Member; returning a new unused DTO is not adoption.
 
 ## Rendering handoff
 
-L1 owns the typed candidate/observation/coverage envelope. L2 owns its section
-schema and one-row-per-logical-candidate projection, with observation contexts
-retained as structured child evidence rather than flattened into an arbitrary
-winner. Markout is the default common Markdown/table lowering substrate under
+L1 owns the typed candidate-vector/coverage envelope. Each entry retains its
+coordinate, origin, and one observation context; different origins or contexts
+are separate choices, not a grouped coordinate with an implicit winner.
+L2 adopts one row per candidate entry and uses the source owner's safe origin
+display. Markout is the default common Markdown/table lowering substrate under
 [Output shapes](output-shapes.md). Typed JSON preserves the coordinate union,
-structured name, declaration kind, observations and coverage; projected
-JSON/JSONL/TSV are display projections, not replacement identity codecs.
+structured name, declaration kind, origin, observation context and coverage.
+Its candidate array remains an array for zero, one, and many entries.
+Projected JSON/JSONL/TSV are display projections, not replacement identity
+codecs or permission to select a preferred source.
 
 The Sections adoption must choose supported loss-aware lowerings under
 [Projected JSON](projected-json.md), preserve mandatory incomplete-result
@@ -66,8 +69,10 @@ or visibly decline; parsing displayed columns is not a reopening path.
 
 The browser may bypass Markout for interactive candidate selection and
 navigation only: the input remains the same typed L1/L2 result, and the final
-UI adapter selects a candidate and, where necessary, one observation. It does
-not reclassify matching or infer source identity. This is the existing
+UI adapter owns selection of a candidate with its attached origin/context.
+Consumer policy may choose an entry or ask the user; the locator does neither,
+including for a singleton. The adapter does not reclassify matching or infer
+source identity. This is the existing
 interactive-host exception, not a separate query engine.
 
 ## Retirement and evidence boundaries

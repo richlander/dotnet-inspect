@@ -11,9 +11,10 @@ coordinate arm, CLI behavior, or browser capability is implemented here.
 **Reverse Type-Declaration Locator**, in `DotnetInspector.Queries`, owns:
 
 > For one explicitly supplied finite assembly population, report matching type
-> declarations as detached exact Library source coordinates and structured
-> Metadata names, preserving declaration kind, observation context, and the
-> coverage that bounds the answer. Discovery never selects a binding.
+> declarations as a vector of detached exact Library source coordinates with
+> origin and structured Metadata names, preserving declaration kind,
+> observation context, and coverage. The consumer chooses; discovery never
+> selects a candidate or binding.
 
 This is one new query-composition owner. Metadata retains declaration decoding,
 name identity, matching grammar, visibility, and type binding. Source Selection
@@ -47,9 +48,9 @@ lists zipped by source order:
 
 | Input | Meaning and owner |
 | --- | --- |
-| Occurrence identity | Owner-issued identity of this assembly occurrence within its exact population/generation. Reordering enumeration does not reissue identities. |
+| Occurrence identity and order | Owner-issued identity and stable order of this assembly occurrence within its exact population/generation. Reordering enumeration does not reissue them. |
 | Library coordinate or coordinate-unavailable outcome | Source Selection's `ExactLibrarySourceCoordinate`, attached through source-owner correspondence to the observed assembly. |
-| Observation context | Detached source-owner realization evidence identifying the selected target/view and producer, where applicable; retained separately from the logical Library coordinate. |
+| Origin and observation context | Detached source-owner provenance and realization evidence identifying the Platform or package-feed source and the selected target/view; retained separately from the logical Library coordinate. |
 | Declaration access or acquisition/admission failure | Existing operation/Workspace-authorized Metadata access to that occurrence, or its typed non-success. |
 
 The query snapshots the finite roster for its attempt. It borrows through
@@ -111,7 +112,42 @@ under its own classification contract. A fallback must retain its effective
 request and coverage and cannot replace or disguise an incomplete primary
 answer. User-facing fallback migration belongs to Find, not this owner.
 
-## Detached result and ambiguity
+## Result currency: coordinates plus origin
+
+Result currency and cardinality are separate contract choices:
+
+| Currency | What the consumer receives |
+| --- | --- |
+| Coordinates only | A resource-free address, but not the origin evidence useful for choosing among available sources. |
+| Coordinates plus origin | A resource-free address with source-owner provenance for consumer selection and display. This is the locator currency. |
+| Live handle | Access under an owner's active lifetime and authority. A different workflow may need this, but discovery does not return it. |
+
+Whether an owner computes or caches an answer does not determine its currency.
+For this workflow, cold and any future warm answers expose the same
+**vector of coordinates plus origin**. Zero, one, and many candidates use the
+same shape. The query never turns a singleton into a scalar or chooses the
+first candidate. This is the locator's contract, not a rule for every cache
+or live-resource API in the repository.
+
+Origin is typed, detached evidence supplied by the source owner. It tells the
+consumer whether the declaration was observed through Platform or a particular
+package-feed producer; a generic `NuGet` label is not a replacement for the
+available feed provenance. Platform family and realization evidence remain
+distinct from a pack's transport through NuGet. Within a Package coordinate,
+different feed observations remain separate choices even when the package ID,
+version, assembly identity, type, and displayed source label coincide.
+
+[Package source model](package-source-model.md#identity-roles)
+separates credential-free producer provenance from configured authority.
+Preserve that distinction: origin may inform the consumer's policy but does
+not authorize a feed or recreate a live source association. Source display
+uses the owner's safe projection, such as `PackageSourceDisplay`, rather than
+raw configured URLs or credentials. A display label is not identity. If an
+owner cannot supply detailed origin, retain an explicit unavailable-origin
+observation, not an inferred `nuget.org` origin; this alone does not invalidate
+a coordinate/context already established by its owner.
+
+## Detached candidate vector
 
 The result is one immutable envelope containing the request sequence,
 population evidence, per-member outcomes, and one answer per request. The
@@ -122,26 +158,32 @@ LocatorResult
   population evidence + member outcomes
   answers, in request order
     request + completion
-    candidates
+    candidates: vector, always present for an evaluated request
       ExactLibrarySourceCoordinate
       MetadataTypeDefinitionName
       Definition | Forwarder
-      observation occurrences + detached context
+      origin
+      observation occurrence + detached context
 ```
 
-One logical candidate is keyed by **Library coordinate, exact structured type
-name, and declaration kind**. Its observations retain every distinct contributing
-occurrence and associated context. Repeating the same occurrence does not add
-a candidate or observation. Equal logical coordinates realized in different
-targets/views can share a candidate only while retaining those separate
-observations; selecting a candidate with multiple contexts requires selecting
-the observation as well.
+One vector entry is one observed declaration choice: **Library coordinate,
+exact structured type name, declaration kind, and observation occurrence**,
+with its origin and context attached. Repeating that same declaration from the
+same occurrence does not add an entry. Distinct occurrences, origins or
+target/view contexts remain separate entries even when their logical
+coordinates are equal. There is no coordinate-only collapse followed by a
+hidden origin/context choice.
+
+The consumer may display the vector, group it without discarding entries, or
+apply an explicit selection policy suited to its workflow. It owns that choice
+even when only one entry is returned; a UI need not prompt merely because the
+API leaves selection to the consumer.
 
 A forwarder's coordinate identifies the Library declaring the forwarder, not
 its target Library. A definition and a forwarder remain distinct even when
 they have the same name. Duplicate physical declarations inside an image must
 remain Metadata-issued ambiguity or rejected-inventory evidence, not be
-laundered into a unique candidate by logical deduplication. Module-export
+laundered into a unique candidate by occurrence deduplication. Module-export
 declarations are not silently relabeled as definitions or forwarders; an
 unsupported declaration form leaves visible incomplete member evidence.
 
@@ -149,18 +191,18 @@ Candidate ordering is deterministic for the same population regardless of
 producer enumeration order. Order by namespace and root-to-leaf metadata
 segments (ordinal), then source arm (Package before Platform), source-owner
 identity components, Metadata assembly identity components, and declaration
-kind (Definition before Forwarder). Source/assembly component comparison uses
+kind (Definition before Forwarder), then the population-issued stable occurrence
+order. That final order belongs to the fixed population and is not reassigned
+when producer enumeration is permuted. Source/assembly component comparison uses
 owner-normalized equality components and stable ordinal/numeric ordering,
-not culture, paths, display names, hashes, or acquisition timing. Observations
-remain an identity-associated set; their presentation order is not a choice of
-reopening context. Future coordinate arms need their own owner-defined stable
-ordering before admission.
+not culture, paths, display names, hashes, or acquisition timing. Future
+coordinate arms need their own owner-defined stable ordering before admission.
 
 Ordering is not ranking or resolution precedence. In particular, a definition
 does not suppress a forwarder, a namespace-prefix assembly name does not win,
-and source order does not select a candidate. A name request returning two
-Libraries is ambiguous for single-target selection, even if both declarations
-could later bind to one terminal type.
+and source order does not select a candidate. Multiple entries remain choices
+for the consumer, even if their declarations could later bind to one terminal
+type. The query does not switch to a separate `Ambiguous` result currency.
 
 ## Completion and failure
 
@@ -178,13 +220,17 @@ free-form diagnostics are not the failure identity. A whole-image rejection
 contributes no guessed rows; healthy members, and rows a Metadata producer
 explicitly certifies from a partial inventory, remain useful candidates.
 
-| Coverage and observed candidates | Answer |
+| Coverage and observed candidates | Evaluated answer |
 | --- | --- |
-| Complete, zero | `Missing` within exactly the selected population and request. |
-| Complete, one | `SingleCandidate`, not `ResolvedType`. It may still have multiple observation contexts. |
-| Complete, more than one | `Ambiguous`, retaining every logical candidate. |
-| Incomplete, any count | `Incomplete`, retaining known candidates and gaps. Zero is not absence; one is not uniqueness; two still demonstrate ambiguity without exhausting alternatives. |
-| Invalid request or unusable population association | `Rejected` with typed reason, not a successful empty result. |
+| Complete, zero | Empty vector plus complete coverage; the consumer can report a scoped miss. |
+| Complete, one | One-element vector plus complete coverage; no scalar, selected candidate, or `ResolvedType`. |
+| Complete, more than one | All candidate entries in the same vector shape plus complete coverage; consumer-owned choice. |
+| Incomplete, any count | Vector of known candidates plus incomplete coverage and gaps. Zero is not absence; one is not uniqueness; more entries do not exhaust the alternatives. |
+
+Invalid requests or unusable population associations produce typed `Rejected`
+outcomes, not evaluated empty vectors. This admission failure is independent
+of candidate cardinality. `Missing`, `SingleCandidate`, and `Ambiguous` are not
+alternative query-answer shapes.
 
 An explicitly empty, completely realized population can prove a scoped miss.
 A failed attempt that happened to acquire no assemblies cannot. Likewise, a
@@ -196,13 +242,13 @@ remain visible; collecting one row does not certify uniqueness. Bounds use
 the existing query/work-planning contracts rather than format-dependent
 execution. A caller cancellation propagates as cancellation after ordinary
 owner cleanup; it is not a completed envelope. Unexpected operation-wide
-errors likewise propagate, not become `Missing`.
+errors likewise propagate, not become empty successful vectors.
 
 ## Reopening and lifetime boundary
 
-The immediate output obligation is to preserve the selected candidate and
-observation context together. It is neither a live Workspace handle nor
-authority to acquire from the recorded source. A result remains readable after
+The immediate output obligation is to preserve each candidate's coordinate,
+origin, and observation context together. It is neither a live Workspace handle
+nor authority to acquire from the recorded source. A result remains readable after
 the originating operation or Workspace closes, but that historical evidence
 does not entitle a new operation or promise the same local bytes.
 
@@ -288,15 +334,19 @@ Proposed typed workflow, **not executable syntax or current output**:
 
 ```text
 Locate JsonSerializer in exact package + Platform reference populations
-  Ambiguous, Complete
-  Package(System.Text.Json@10.0.0, exact assembly identity)
+  coverage: Complete
+  candidates: [
+    Package(System.Text.Json@10.0.0, exact assembly identity)
     { namespace: System.Text.Json, segments: [JsonSerializer] }, Definition
-    observation: exact package producer, net10.0, selected asset/view
-  Platform(DotNetRuntime, exact assembly identity)
+    origin: package feed (owner-issued nuget.org producer evidence)
+    context: exact package producer, net10.0, selected asset/view
+    Platform(DotNetRuntime, exact assembly identity)
     { namespace: System.Text.Json, segments: [JsonSerializer] }, Definition
-    observation: exact Platform 10.0.10 reference realization
+    origin: Platform
+    context: exact Platform 10.0.10 reference realization
+  ]
 
-Select the package observation -> Type inspection
+Consumer selects the package entry -> Type inspection
   reuse coordinate + structured name + detached context; bind normally
 Select a Serialize overload there -> Member inspection
   reuse that exact type context and Metadata-issued member selector
@@ -306,8 +356,10 @@ Neighboring query: `System.Object` over the reference `netstandard` and
 `System.Runtime` members returns both the Forwarder and Definition candidates,
 not a preferred winner. Reopening the forwarder without an available target
 produces Metadata's unbound/unavailable outcome, not a different locator result.
-If one member cannot be inventoried, keep the healthy candidate but report
-`Incomplete`, never `SingleCandidate`.
+If one member cannot be inventoried, return the one-element vector with
+incomplete coverage. A complete single-source search also returns a
+one-element vector, with complete coverage instead. Neither chooses the entry
+for the consumer. A complete no-match search returns `candidates: []`.
 
 ## Required evidence and adoption
 
@@ -317,11 +369,12 @@ candidate implementation tests.
 
 | Claim | Required outcome-level gate |
 | --- | --- |
-| Deterministic identity-preserving discovery | Queries: permute one exact mixed-source population; compare candidates, occurrence associations, and failures, including same-named Libraries and two views of one coordinate. |
+| Stable vector currency and consumer choice | Queries/Sections: zero, one and many matches retain the same vector/array shape; no singleton unwrap or preferred entry. The same coordinate from two feeds remains two entries with owner-issued origins, including colliding display labels. |
+| Deterministic identity-preserving discovery | Queries: permute one exact mixed-source population; compare candidate entries, occurrence associations, and failures, including same-named Libraries and two views of one coordinate. |
 | Declaration fidelity | Metadata/Queries: pinned definition/forwarder pair, nested generic names, exact versus pattern matching, public/all visibility, and duplicate or unsupported declaration evidence. |
 | Honest completeness | Queries: empty complete population, upstream omitted-member gap, invalid image, coordinate-unavailable local member, partial inventory, and early work stop alongside a healthy match. |
 | Detached exact handoff | Workspace/host adoption: retain result after close, then reopen each selected package/Platform observation under new authority; preserve producer, target/view, Library and type. Include unavailable reopening and forwarder failure. |
-| Format and host continuity | Sections/CLI/browser: compare typed identities and coverage across output and navigation; row windows never certify a partial census or pick a binding. |
+| Format and host continuity | Sections/CLI/browser: compare typed coordinates, origin and coverage across output and navigation; consume owner-safe origin display without using it as identity or authority. Row windows never certify a partial census or pick a binding. |
 
 No new TLA+ model is needed for this stateless query contract. Stateful
 realization/replacement and optional cache interactions belong to their owners

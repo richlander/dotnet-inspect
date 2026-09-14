@@ -115,9 +115,10 @@ substrates, and inspection producers that will extend that space.
   acquisition, Workspace, metadata, Analysis, graph and sharing contracts.
   The proposed
   [Reverse Type-Declaration Locator](design/reverse-type-declaration-locator.md)
-  owns finite-population declaration discovery as detached exact Library
-  coordinates, structured Metadata names, declaration kinds, observation
-  contexts and coverage. It does not select a type binding; its
+  owns finite-population declaration discovery as vectors of detached exact
+  Library coordinates with origin, structured Metadata names, declaration
+  kinds, observation contexts and coverage. Consumers choose candidates;
+  it does not select a type binding. Its
   [delivery map](design/reverse-type-locator-adoption.md) stages producer and
   CLI/browser adoption separately.
   The proposed
