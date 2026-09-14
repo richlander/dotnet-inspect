@@ -1061,7 +1061,7 @@ test("Home keeps Search and curated demos ahead of artwork", async ({
   await expect(page.locator(".home-demos-copy"))
     .toContainText("Start from a curated package query.");
   await expect(page.locator(".data-bar"))
-    .toContainText("CLI tool · Agent skill · Credits");
+    .toContainText("CLI tool · Agent skill · Diagnostics · Credits");
 
   const wideSearch = await page.locator(".home-search").boundingBox();
   const wideDemos = await page.locator(".home-demos").boundingBox();
