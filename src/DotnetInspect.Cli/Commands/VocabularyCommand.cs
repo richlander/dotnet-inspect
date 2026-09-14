@@ -38,13 +38,18 @@ public static class VocabularyCommand
             return DiscoverOutput.Execute(
                 discover,
                 schema,
-                projection: options,
-                tree: options.Tree,
-                json: options.JsonOutput,
-                tsv: options.Tsv,
-                jsonl: options.Jsonl,
-                markdown: !options.Tabular && !options.JsonOutput && !options.PlainText,
-                plainText: options.PlainText);
+                DiscoveryOutputRequest.Create(
+                    OutputFormatResolver.ResolveStored(
+                        options.Format,
+                        options.JsonOutput,
+                        options.PlainText,
+                        options.Tabular,
+                        options.Tsv,
+                        options.Jsonl),
+                    options.Tree,
+                    options.Format == OutputFormat.Table,
+                    options.NoHeader,
+                    projection: options));
         }
 
         SelectResult selection = SelectResolver.ResolveSelectAsSections(

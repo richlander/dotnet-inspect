@@ -63,7 +63,14 @@ public class DiffCommand
             var schemaMap = DiffSections.CreateSchema();
             var discoverable = pipeline.GetDiscoverableSections(new DiffDiscoveryModel(), options.IncludeSections);
             return DiscoverOutput.ExecuteEffective(options.Discover, discoverable, schemaMap,
-                tree: options.Tree, json: false, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular,
+                DiscoveryOutputRequest.Create(
+                    options.Jsonl ? OutputFormat.Jsonl
+                        : options.Tsv ? OutputFormat.Tsv
+                        : options.Tabular ? OutputFormat.Table
+                        : OutputFormat.Markdown,
+                    options.Tree,
+                    options.TabularExplicitlySet,
+                    options.NoHeader),
                 sectionCostAnnotations: pipeline.GetCostAnnotations(),
                 sectionCategories: pipeline.GetCategoryMap());
         }

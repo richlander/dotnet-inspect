@@ -65,14 +65,22 @@ public partial class DependsCommand
                 DiscoverOutput.Execute(
                     discover,
                     DependsAssetSections.CreateGraphSchema(),
-                    tree: options.Tree,
-                    json: options.JsonOutput,
-                    tsv: options.Tsv,
-                    jsonl: options.Jsonl,
+                    DiscoveryOutputRequest.Create(
+                        OutputFormatResolver.ResolveStored(
+                            options.Format,
+                            options.JsonOutput,
+                            plainText: false,
+                            options.Tabular,
+                            options.Tsv,
+                            options.Jsonl),
+                        options.Tree,
+                        options.Tabular,
+                        options.NoHeader,
+                        (int)options.Verbosity,
+                        options),
                     sectionCostAnnotations:
                         catalog.Pipeline.GetCostAnnotations(),
-                    sectionCategories: catalog.SelectionCategoryMap,
-                    projection: options),
+                    sectionCategories: catalog.SelectionCategoryMap),
                 false);
         }
 

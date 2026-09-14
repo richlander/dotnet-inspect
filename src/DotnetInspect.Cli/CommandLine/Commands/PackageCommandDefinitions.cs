@@ -397,6 +397,7 @@ public static class PackageCommandDefinitions
                     Tabular = opts.ResolveTabular(parseResult),
                     Tsv = opts.ResolveTsv(parseResult),
                     Jsonl = opts.ResolveJsonl(parseResult),
+                    NoHeader = parseResult.GetValue(opts.NoHeaders),
                     Columns = opts.ParseColumns(parseResult),
                     Fields = opts.ParseFields(parseResult),
                     RowSelection = rowSelection,
