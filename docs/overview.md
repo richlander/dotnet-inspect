@@ -393,7 +393,12 @@ substrates, and inspection producers that will extend that space.
   `DotnetInspector.Core` was deleted in step 5 of
   [#6334](https://github.com/richlander/dotnet-inspect/issues/6334), tracked by
   [#6801](https://github.com/richlander/dotnet-inspect/issues/6801).
-- `src/ILInspector.Decompiler/` emits lowered C#, raw IL, and structural annotated IL from method bodies.
+- `src/ILInspector.Decompiler/` emits lowered C#, raw IL, and structural
+  annotated IL from method bodies. Its target
+  [exception-flow facts](design/decompiler-exception-flow-facts.md) owner
+  supplies immutable per-function exception-region identity, topology,
+  membership, transfer, and raw/structured correspondence without taking
+  pass-owned rewrite policy.
 - `src/ILInspector.Research/` owns the offset-keyed fact overlay above Analysis
   and Decompiler: its registry orders fact producers, joins R1 analysis
   occurrences with R2 decompiler projections, and projects facts into the

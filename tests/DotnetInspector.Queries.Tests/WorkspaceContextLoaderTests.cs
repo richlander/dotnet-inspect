@@ -23,7 +23,7 @@ namespace DotnetInspector.Queries.Tests;
 /// descriptor construction, and image access are exercised against real PE
 /// images rather than synthetic bytes.
 /// </summary>
-public sealed class WorkspaceContextLoaderTests
+public sealed partial class WorkspaceContextLoaderTests
 {
     const string Framework = "net10.0";
     const string PackageId = "workspace.sample";

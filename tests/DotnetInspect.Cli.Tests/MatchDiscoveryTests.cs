@@ -2683,9 +2683,14 @@ public sealed class MatchDiscoveryTests
             File.Delete(otherSelectedPackage);
 
             Directory.SetCurrentDirectory(discoveryDirectory);
+            string effectiveDiscoveryDirectory =
+                Directory.GetCurrentDirectory();
             string source = fileUri
                 ? new Uri(feedDirectory + Path.DirectorySeparatorChar).AbsoluteUri
                 : Path.Combine(".", "feed");
+            string expectedSource = fileUri
+                ? feedDirectory
+                : Path.Combine(effectiveDiscoveryDirectory, "feed");
             var (discoveryExit, discoveryOutput, discoveryError) = await RunCliAsync(
                 "match", seed, "--similar",
                 "--package", $"{packageName}@1.0.0..2.0.0", "--at", "last",
@@ -2698,9 +2703,11 @@ public sealed class MatchDiscoveryTests
             Assert.Contains(
                 $"--package {ShellCommandText.Quote($"{packageName}@2.0.0")}", disclosure,
                 StringComparison.OrdinalIgnoreCase);
-            Assert.Contains($"--source {ShellCommandText.Quote(feedDirectory)}", disclosure);
+            Assert.Contains($"--source {ShellCommandText.Quote(expectedSource)}", disclosure);
             Assert.DoesNotContain($"--source {ShellCommandText.Quote(otherFeedDirectory)}", disclosure);
-            Assert.Contains($"--nugetconfig-directory {ShellCommandText.Quote(discoveryDirectory)}", disclosure);
+            Assert.Contains(
+                $"--nugetconfig-directory {ShellCommandText.Quote(effectiveDiscoveryDirectory)}",
+                disclosure);
             string token = discovery.GetProperty("candidates").EnumerateArray()
                 .Single(candidate => candidate.GetProperty("member").GetString() == "Replay.Target.ExactPeer")
                 .GetProperty("token").GetString()!;

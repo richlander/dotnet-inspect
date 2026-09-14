@@ -518,13 +518,14 @@ public sealed class DependencyGraphOutputAdapterTests
             });
 
         Assert.Empty(error);
+        string normalizedTree = tree.ReplaceLineEndings("\n");
         Assert.DoesNotContain(
             "First\n   └─ Second\n      └─ Leaf",
-            tree,
+            normalizedTree,
             StringComparison.Ordinal);
         Assert.Contains(
             "└─ (revisit) Second\n   └─ Leaf",
-            tree,
+            normalizedTree,
             StringComparison.Ordinal);
     }
 
