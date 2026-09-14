@@ -23,7 +23,7 @@ export interface LibraryApiDiffSelection {
   readonly target: EffectiveDiffTarget;
 }
 
-export interface LibraryApiDiffOperationInput {
+interface LibraryApiDiffOperationInput {
   readonly packageModel: object;
   readonly packageId: string;
   readonly currentVersion: string;
