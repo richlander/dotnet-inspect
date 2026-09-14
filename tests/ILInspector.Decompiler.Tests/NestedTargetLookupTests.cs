@@ -10,6 +10,7 @@ namespace ILInspector.Decompiler.Tests;
 /// <c>target-method-not-found</c> bucket and the check silently stopped measuring
 /// that part of the changed population.
 /// </summary>
+[Trait("Speed", "Slow")]
 [Trait("Area", "Fidelity")]
 [Collection(FidelityGateCollection.Name)]
 public class NestedTargetLookupTests
@@ -34,7 +35,6 @@ public class NestedTargetLookupTests
     }
 
     [Fact]
-    [Trait("Speed", "Slow")]
     public void CorpusSweep_StillSkipsNestedTypes()
     {
         // Preserve existing --fidelity-check behavior: the non-targeted corpus

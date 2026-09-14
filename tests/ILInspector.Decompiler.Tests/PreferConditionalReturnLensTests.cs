@@ -20,6 +20,7 @@ namespace ILInspector.Decompiler.Tests;
 /// structural rewrite AND, via <see cref="Equivalence"/>, executed runtime
 /// equivalence over every boolean input.
 /// </summary>
+[Trait("Speed", "Slow")]
 [Trait("Area", "RoundTrip")]
 public sealed class PreferConditionalReturnLensTests
 {

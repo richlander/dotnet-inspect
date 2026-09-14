@@ -65,6 +65,7 @@ public class LadderRung6GateTests
     ];
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Rung6Fixtures_ExposeExactUnsafeMemberSet()
     {
         Assert.Equal(
@@ -83,9 +84,10 @@ public class LadderRung6GateTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Rung6Fixtures_HaveNoInvalidFullOutput()
     {
-        var results = ValidityCheck.Evaluate([NewUnsafePath, LegacyUnsafePath], importSiblingBodies: true)
+        var results = ValidityCheck.Evaluate([NewUnsafePath, LegacyUnsafePath])
             .Where(r => r.TypeName == NewUnsafeType || r.TypeName == LegacyUnsafeType)
             .ToList();
 
@@ -1886,6 +1888,7 @@ public class LadderRung6GateTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Rung6FunctionPointerInvocation_RecompilesThroughFidelityHarness()
     {
         AssertExactCompileBack(NewUnsafePath, NewUnsafeType, "InvokeFunctionPointer");
@@ -1893,6 +1896,7 @@ public class LadderRung6GateTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Rung6PinnedPointerElementAccess_RecompilesThroughFidelityHarness()
     {
         AssertExactCompileBack(NewUnsafePath, NewUnsafeType, "SumPinned");
@@ -1900,6 +1904,7 @@ public class LadderRung6GateTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Rung6PointerArithmetic_RecompilesThroughFidelityHarness()
     {
         AssertPointerArithmeticRecovery(NewUnsafePath, PointerArithmeticType);
