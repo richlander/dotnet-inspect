@@ -123,7 +123,7 @@ public sealed partial class CSharpPrinter
         if (lambda.ExpressionBody is { } expr)
         {
             if (_stackSlotTelemetry is not null
-                && NeedsNestedLambdaScope(lambda))
+                && lambda.NeedsIsolatedLocalScope)
             {
                 _ = LambdaBodyTextWithLocalScope(lambda);
             }
@@ -161,7 +161,7 @@ public sealed partial class CSharpPrinter
             statementCount++;
         }
 
-        if (NeedsNestedLambdaScope(lambda))
+        if (lambda.NeedsIsolatedLocalScope)
         {
             string bodyText = LambdaBodyTextWithLocalScope(lambda);
             string text = RequiresMultilineLambdaBlock(statementCount, bodyText)
@@ -291,12 +291,6 @@ public sealed partial class CSharpPrinter
             { Kind: TypeRefKind.Definition, Namespace: "System", Name: "Action" } => TypeRef.CoreLib("System", "Void"),
             _ => null,
         };
-
-    // internal so IrFunction.MarkLocalEliminated can reuse the exact shared-vs-isolated
-    // nested-scope discriminator this printer uses, keeping the two from drifting (#3295).
-    internal static bool NeedsNestedLambdaScope(Lambda lambda)
-        => !lambda.Locals.IsEmpty
-            || lambda.Body.Descendants.Any(node => node is LoadStackSlot or StoreStackSlot);
 
     /// <summary>Renders a locals-bearing lambda body through an isolated nested printer, trimmed but not yet flattened.</summary>
     string LambdaBodyTextWithLocalScope(Lambda lambda)

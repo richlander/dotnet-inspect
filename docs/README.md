@@ -108,6 +108,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Inspection Graph Modes](design/inspection-graph-modes.md) | Single-seed, peer-seed, and induced-set requests over member, type, assembly, and package subjects. |
 | [Subject Relations Workflows](design/subject-relations-workflows.md) | Proposed ecosystem-aware locator and subject `@Relations` experience, per-subject section catalog, relation-form/evidence dialect, broad finite populations, exact handoffs, and CLI/browser adoption and retirement. |
 | [Reverse Type-Declaration Locator](design/reverse-type-declaration-locator.md) | Proposed finite-population declaration query returning coordinate-plus-origin vectors with structured names, definition/forwarder evidence, observation contexts and completeness; consumers choose candidates. |
+| [Workspace Live Locator](design/workspace-live-locator.md) | Proposed lazy resident declaration index following append-only admitted growth, exact request-population receipts, shared work and Workspace-owned close; results remain detached coordinate-plus-origin vectors. |
 | [Reverse Type Locator Adoption](design/reverse-type-locator-adoption.md) | Focused producer, query, rendering, CLI/browser and Platform retirement path for the exact Find handoff. |
 | [Pairwise Library Call-Use](design/pairwise-library-call-use.md) | Exact resolved direct IL call and construction occurrences crossing between two admitted libraries, with physical evidence and explicit completion. |
 | [Call Graph Characteristics](design/call-graph-characteristics.md) | Mapping current call nodes, edges, occurrences, signals, and loop state into the inspection-graph descriptor model. |
@@ -223,6 +224,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [C# Declared-Type Self-Name Admission](design/csharp-declared-type-self-name.md) | Proposed typed admission from one exact Metadata leaf to the identifier shared by a type header, constructors, and finalizers. |
 | [C# Memory-Safety Declaration Spelling](design/csharp-memory-safety-spelling.md) | Proposed CSharp-owned spelling of caller contracts independently from pointer syntax and body-context requirements. |
 | [Source Finding Producers](design/source-finding-producers.md) | How source-derived Findings are produced. |
+| [SourceFetch Evidence Admission](design/source-fetch.md) | Host-authorized source-byte candidate ordering, validation, publication, and typed failure. |
 | [Source Availability Audit](design/source-availability-audit.md) | Operation-scoped source reachability and origin-validated positive reuse. |
 | [Source Integrity Audit](design/source-integrity-audit.md) | Operation-scoped SourceLink body verification and immutable positive reuse. |
 | [Untrusted Data Threat Model](design/untrusted-data-threat-model.md) | Trust boundaries, existing controls, and the security-scope rationale for untrusted internet-origin data. |

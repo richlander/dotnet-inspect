@@ -142,6 +142,7 @@ export interface BrowserHomeDemoRunActivation {
   readonly memberKind: string | null;
   readonly memberAnchorDigest: string | null;
   readonly memberSection: string | null;
+  readonly platformContextId: string | null;
 }
 
 export interface BrowserHomeDemoRunResult {

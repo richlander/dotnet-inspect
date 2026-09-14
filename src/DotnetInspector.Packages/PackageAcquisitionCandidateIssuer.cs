@@ -32,16 +32,20 @@ public sealed class PackageAcquisitionCandidateIssuer
         ArgumentNullException.ThrowIfNull(coordinate);
         if (authorization.Authorities.Count == 0)
         {
+            IReadOnlyList<PackageAuthorityFailure> failures =
+                authorization.Failures.Count > 0
+                    ? authorization.Failures
+                    : [
+                        new PackageAuthorityFailure(
+                            InertString.Empty,
+                            PackageAuthorityFailureKind.Configuration,
+                            authorization.DenialReason
+                                ?? $"No configured package source is authorized for '{coordinate.PackageId}'."),
+                    ];
             return new PackageAcquisitionCandidateResult(
                 PackageAcquisitionCandidateResultState.Denied,
                 candidate: null,
-                [
-                    new PackageAuthorityFailure(
-                        InertString.Empty,
-                        PackageAuthorityFailureKind.Configuration,
-                        authorization.DenialReason
-                            ?? $"No configured package source is authorized for '{coordinate.PackageId}'."),
-                ]);
+                failures);
         }
 
         return new PackageAcquisitionCandidateResult(
@@ -50,7 +54,7 @@ public sealed class PackageAcquisitionCandidateIssuer
                 _issuer,
                 coordinate,
                 authorization.Authorities),
-            failures: []);
+            authorization.Failures);
     }
 
     /// <summary>
@@ -220,15 +224,17 @@ public sealed class PackageAcquisitionCandidateIssuer
         if (authorization.Authorities.Count == 0)
         {
             IReadOnlyList<PackageAuthorityFailure> emptyFailures =
-                terminalFailures.Count == 0
-                    ? [
+                authorization.Failures.Count > 0
+                    || terminalFailures.Count > 0
+                    ? [.. authorization.Failures, .. terminalFailures]
+                    :
+                    [
                         new PackageAuthorityFailure(
                             InertString.Empty,
                             PackageAuthorityFailureKind.Configuration,
                             authorization.DenialReason
                                 ?? $"No configured package source is authorized for '{packageId}'."),
-                    ]
-                    : terminalFailures;
+                    ];
             return new PackageVersionDiscoveryResult(
                 packageId,
                 PackageVersionDiscoveryState.Failed,
@@ -248,7 +254,8 @@ public sealed class PackageAcquisitionCandidateIssuer
         var candidates =
             new List<ConfiguredPackageCandidateObservation>();
         var failures = new List<PackageAuthorityFailure>(
-            terminalFailures);
+            authorization.Failures);
+        failures.AddRange(terminalFailures);
         bool hasAnyCandidate = false;
         for (int index = 0; index < outcomes.Count; index++)
         {

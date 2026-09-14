@@ -121,6 +121,11 @@ substrates, and inspection producers that will extend that space.
   it does not select a type binding. Its
   [delivery map](design/reverse-type-locator-adoption.md) stages producer and
   CLI/browser adoption separately.
+  [Workspace Live Locator](design/workspace-live-locator.md) owns the proposed
+  lazy, Workspace-resident declaration index, coherent observation of
+  append-only admitted population growth, and receipt-pinned queries that
+  return the same detached vectors. Metadata, source/publication and resource
+  owners retain their contracts; the facade drains through Workspace close.
   The proposed
   [structural clone search scope](design/structural-clone-search-scope.md)
   owner defines Library, Type, and Member seed populations plus the shared
@@ -350,10 +355,11 @@ substrates, and inspection producers that will extend that space.
   bytes, or decline so acquisition can continue.
   Its `SourceFetch` implementation targets an independent `SourceFetch` root
   alongside `NuGetFetch`: it owns bounded host-authorized source-byte
-  transport, redirect and origin enforcement, content-store integration, and
-  typed transport outcomes. `PdbSourceHouse` retains local, repository, and
-  remote ordering, PDB checksum verification, decoding, and settled
-  PDB-source outcomes.
+  transport, caller-owned validation, redirect handling without a provenance
+  claim, content-store integration, and typed transport outcomes; see
+  [SourceFetch evidence admission](design/source-fetch.md).
+  `PdbSourceHouse` retains local, repository, and remote ordering, PDB checksum
+  verification, decoding, and settled PDB-source outcomes.
 - `src/NetworkAccess/` owns the shared network-destination admission policy
   used by product HTTP composition and NuGet feed transports. Its project and
   compiled assembly dependencies are restricted to the platform by
