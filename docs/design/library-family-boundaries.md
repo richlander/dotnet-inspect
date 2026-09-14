@@ -141,8 +141,8 @@ both inspection families and the shorter name is established by the subject:
 
 - `NuGetFetch` owns NuGet protocol access and transport behavior.
 - Target `SourceFetch` owns bounded, host-authorized source-byte retrieval,
-  redirect and origin enforcement, content-store integration, and typed
-  transport outcomes.
+  redirect handling, caller-validation admission, content-store integration,
+  and typed transport outcomes.
 - `CSharpText` owns model-free C# and XML-documentation text grammars.
 - `InertText` owns construction-time containment of untrusted text.
 - `NetworkAccess` owns network-destination admission shared by

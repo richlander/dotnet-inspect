@@ -277,6 +277,9 @@ population/source generation. CoreCache persistence requires its owner's
 complete immutable input identity and cold-path equivalence. Neither the
 logical Library coordinate nor a filesystem path is a sufficient cache key.
 There is no locator-owned process cache or third resource lifetime.
+[Workspace Live Locator](workspace-live-locator.md) separately specifies the
+operator-approved on-demand, resident, append-only Workspace consumption
+scenario; it preserves this query's result and selection contract.
 [#6756](https://github.com/richlander/dotnet-inspect/issues/6756) can independently
 remove the current Platform catalog's unsafe retained state.
 
