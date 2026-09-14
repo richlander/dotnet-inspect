@@ -87,10 +87,13 @@ export interface RuntimeCohortBenchmarkReceipt {
 
 const sha256Pattern = /^[0-9a-f]{64}$/u;
 const commitPattern = /^[0-9a-f]{40,64}$/u;
-const knownR2RFailureFragments = [
-  "Invalid Program: attempted to call a UnmanagedCallersOnly method from managed code.",
-  "RuntimeError: index out of bounds",
-] as const;
+const knownR2RIssue =
+  "dotnet/runtime#129622; dotnet/runtime#129857";
+const knownR2RManagedCallFailure =
+  "Invalid Program: attempted to call a UnmanagedCallersOnly method from managed code.";
+const knownR2RProducerFailure =
+  "INSPECT_WEB_PRODUCT_OPERATION_FAILURE:producer-contract";
+const knownR2RBoundsFailure = "index out of bounds";
 const productOperationFailureFragment =
   "INSPECT_WEB_PRODUCT_OPERATION_FAILURE:";
 
@@ -407,9 +410,12 @@ function classifyAdmission(
   const productCorrectnessRejection = evidence.receipt.name === "coreclr-r2r"
     && evidence.logText.includes(productOperationFailureFragment);
   if (productCorrectnessRejection) {
-    const knownIssue = knownR2RFailureFragments.every(fragment =>
-      evidence.logText.includes(fragment))
-      ? "dotnet/runtime#129622; dotnet/runtime#129857"
+    const knownIssue = evidence.logText.includes(knownR2RManagedCallFailure)
+      || (
+        evidence.logText.includes(knownR2RProducerFailure)
+        && evidence.logText.includes(knownR2RBoundsFailure)
+      )
+      ? knownR2RIssue
       : null;
     return {
       ...common,
@@ -515,6 +521,54 @@ export function createRuntimeCohortReceipt(
       .map(variant => variant.name),
     variants,
   };
+}
+
+export function validateRuntimePinAdvancementCohort(
+  cohortText: string,
+  expectedSourceCommit: string,
+): void {
+  requireCondition(
+    commitPattern.test(expectedSourceCommit),
+    "Expected cohort source commit must be a lowercase Git commit.",
+  );
+  const cohort: unknown = JSON.parse(cohortText);
+  requireCondition(isRecord(cohort), "Cohort receipt must be an object.");
+  requireCondition(cohort.schema === 1, "Cohort receipt schema must be 1.");
+  requireCondition(
+    cohort.sourceCommit === expectedSourceCommit,
+    "Cohort receipt does not match the proposal source commit.",
+  );
+  requireCondition(
+    cohort.status === "accepted",
+    "Runtime pin advancement requires an accepted cohort.",
+  );
+  requireCondition(
+    isUnknownArray(cohort.variants),
+    "Cohort variants must be an array.",
+  );
+  const r2rVariants = cohort.variants.filter(variant =>
+    isRecord(variant) && variant.name === "coreclr-r2r"
+  );
+  requireCondition(
+    r2rVariants.length === 1,
+    "Cohort must contain exactly one coreclr-r2r variant.",
+  );
+  const r2rVariant = r2rVariants[0];
+  requireCondition(
+    isRecord(r2rVariant),
+    "CoreCLR R2R variant must be an object.",
+  );
+  const r2rAdmission = r2rVariant.admission;
+  requireCondition(
+    isRecord(r2rAdmission),
+    "CoreCLR R2R admission must be an object.",
+  );
+  if (r2rAdmission.status === "admitted") return;
+  requireCondition(
+    r2rAdmission.status === "correctness-rejection"
+      && r2rAdmission.knownIssue === knownR2RIssue,
+    "Runtime pin advancement requires admitted R2R or the recognized retained R2R issue.",
+  );
 }
 
 export function createRuntimeCohortBenchmarkReceipt(

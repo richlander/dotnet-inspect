@@ -943,6 +943,7 @@ jobs:
             --corpus-method-cap 100 \
             --compile-cap 0 \
             --corpus-fidelity-cap 0 \
+            --corpus-fidelity-oracle compile-back \
             --max-examples 3 \
             | tee artifacts/decompiler-pr-corpus/quality-diff-card.md
           status=${PIPESTATUS[0]}
