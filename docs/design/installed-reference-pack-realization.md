@@ -221,13 +221,14 @@ The bridge issues:
 
 - one `PlatformSourceGeneration` corresponding to the source attempt;
 - one `PlatformSourceCoordinateIdentity` corresponding to the exact installed
-  coordinate;
-- one `PlatformTargetCorrespondenceIdentity` joining that coordinate to the
-  exact House target; and
-- one `PlatformSourceEvidenceIdentity` for the contribution.
+  coordinate; and
+- one contribution retaining the exact House request, target, capability,
+  generation, coordinate, population, view, and completeness.
 
-These identities are resource-free. The House contribution and receipt do not
-retain dotnet-root paths, streams, buffers, or live source objects.
+These values are resource-free. Their exact retained object association
+establishes source-to-target correspondence without another occurrence token.
+The House contribution and receipt do not retain dotnet-root paths, streams,
+buffers, or live source objects.
 
 ## Failure and work semantics
 

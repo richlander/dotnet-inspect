@@ -211,32 +211,6 @@ public sealed class PlatformSourceCoordinateIdentity
     public override string ToString() => Name;
 }
 
-/// <summary>Resource-free identity for source-to-target correspondence.</summary>
-public sealed class PlatformTargetCorrespondenceIdentity
-{
-    private PlatformTargetCorrespondenceIdentity(string name) => Name = name;
-
-    public string Name { get; }
-
-    public static PlatformTargetCorrespondenceIdentity Create(string name) =>
-        new(PlatformHouseIdentityName.Validate(name));
-
-    public override string ToString() => Name;
-}
-
-/// <summary>Resource-free identity for source-owner evidence.</summary>
-public sealed class PlatformSourceEvidenceIdentity
-{
-    private PlatformSourceEvidenceIdentity(string name) => Name = name;
-
-    public string Name { get; }
-
-    public static PlatformSourceEvidenceIdentity Create(string name) =>
-        new(PlatformHouseIdentityName.Validate(name));
-
-    public override string ToString() => Name;
-}
-
 /// <summary>Opaque owner-issued reference-to-implementation correspondence.</summary>
 public sealed class PlatformViewCorrespondenceIdentity
 {

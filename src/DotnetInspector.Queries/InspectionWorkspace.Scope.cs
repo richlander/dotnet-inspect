@@ -36,7 +36,8 @@ public sealed partial class InspectionWorkspace
         ImmutableArray<PackageRootBinding> packages,
         DateTimeOffset deadline,
         CancellationToken cancellationToken = default) =>
-        MutateScopeAsync(expectedRevision, packages, deadline,
+        MutateScopeAsync(expectedRevision, expectedPublicationBase: null,
+            requirePublicationBase: false, packages, deadline,
             WorkspaceScopeOperationKind.Replace, cancellationToken);
 
     /// <summary>
@@ -47,7 +48,8 @@ public sealed partial class InspectionWorkspace
         WorkspaceScopeRevision expectedRevision,
         DateTimeOffset deadline,
         CancellationToken cancellationToken = default) =>
-        MutateScopeAsync(expectedRevision, [], deadline,
+        MutateScopeAsync(expectedRevision, expectedPublicationBase: null,
+            requirePublicationBase: false, [], deadline,
             WorkspaceScopeOperationKind.Clear, cancellationToken);
 
     /// <summary>
@@ -60,7 +62,22 @@ public sealed partial class InspectionWorkspace
         ImmutableArray<PackageRootBinding> packages,
         DateTimeOffset deadline,
         CancellationToken cancellationToken = default) =>
-        MutateScopeAsync(expectedRevision, packages, deadline,
+        MutateScopeAsync(expectedRevision, expectedPublicationBase: null,
+            requirePublicationBase: false, packages, deadline,
+            WorkspaceScopeOperationKind.Add, cancellationToken);
+
+    /// <summary>
+    /// Appends one all-or-failure batch against an exact current Scope
+    /// publication base.
+    /// </summary>
+    public ValueTask<WorkspaceScopeOperationResult> AddPackagesAsync(
+        WorkspaceScopeRevision expectedRevision,
+        WorkspaceScopePublicationBaseIdentity expectedPublicationBase,
+        ImmutableArray<PackageRootBinding> packages,
+        DateTimeOffset deadline,
+        CancellationToken cancellationToken = default) =>
+        MutateScopeAsync(expectedRevision, expectedPublicationBase,
+            requirePublicationBase: true, packages, deadline,
             WorkspaceScopeOperationKind.Add, cancellationToken);
 
     /// <summary>
@@ -72,7 +89,8 @@ public sealed partial class InspectionWorkspace
         WorkspacePackageOccurrenceIdentity occurrence,
         DateTimeOffset deadline,
         CancellationToken cancellationToken = default) =>
-        MutateScopeAsync(expectedRevision, [], deadline,
+        MutateScopeAsync(expectedRevision, expectedPublicationBase: null,
+            requirePublicationBase: false, [], deadline,
             WorkspaceScopeOperationKind.Remove, cancellationToken, occurrence);
 
     /// <summary>
@@ -115,6 +133,8 @@ public sealed partial class InspectionWorkspace
 
     async ValueTask<WorkspaceScopeOperationResult> MutateScopeAsync(
         WorkspaceScopeRevision expectedRevision,
+        WorkspaceScopePublicationBaseIdentity? expectedPublicationBase,
+        bool requirePublicationBase,
         ImmutableArray<PackageRootBinding> packages,
         DateTimeOffset deadline,
         WorkspaceScopeOperationKind kind,
@@ -136,7 +156,12 @@ public sealed partial class InspectionWorkspace
                     return new WorkspaceScopeOperationResult.Unavailable(_scopeSnapshot, unavailable);
                 WorkspaceScopeSnapshot current = ObserveScope(lease);
                 WorkspaceScopeRejection? failure =
-                    ValidateScopeSubmission(expectedRevision, deadline, current);
+                    ValidateScopeSubmission(
+                        expectedRevision,
+                        expectedPublicationBase,
+                        requirePublicationBase,
+                        deadline,
+                        current);
                 if (failure is { } invalid)
                     return new WorkspaceScopeOperationResult.Rejected(current, invalid);
                 if (packages.IsDefault || packages.Any(static package => package is null))
@@ -308,10 +333,14 @@ public sealed partial class InspectionWorkspace
 
     WorkspaceScopeRejection? ValidateScopeSubmission(
         WorkspaceScopeRevision expected,
+        WorkspaceScopePublicationBaseIdentity? expectedPublicationBase,
+        bool requirePublicationBase,
         DateTimeOffset deadline,
         WorkspaceScopeSnapshot current)
     {
-        if (expected is null || !FiniteDeadline(deadline))
+        if (expected is null
+            || requirePublicationBase && expectedPublicationBase is null
+            || !FiniteDeadline(deadline))
             return WorkspaceScopeRejection.Malformed;
         if (deadline <= _rootTime.GetUtcNow())
             return WorkspaceScopeRejection.DeadlineExpired;
@@ -319,6 +348,13 @@ public sealed partial class InspectionWorkspace
             return WorkspaceScopeRejection.ForeignWorkspace;
         if (!ReferenceEquals(expected.Identity, current.Revision.Identity))
             return WorkspaceScopeRejection.RevisionMismatch;
+        if (requirePublicationBase
+            && !ReferenceEquals(
+                expectedPublicationBase,
+                current.PublicationBase))
+        {
+            return WorkspaceScopeRejection.PublicationBaseMismatch;
+        }
         return null;
     }
 

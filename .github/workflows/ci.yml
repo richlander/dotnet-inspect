@@ -1095,6 +1095,7 @@ jobs:
         run: dotnet run --project tests/Inspector.Artifacts.Tests -c Release
 
       - name: Run Library contract tests
+        if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.Libraries.Tests -c Release
 
       - name: Run resource ownership contract tests

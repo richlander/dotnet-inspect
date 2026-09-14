@@ -10,9 +10,10 @@ approved this focused Browser-specific capability: Spotlight preserves the
 active Workspace for destinations already admitted or covered by its current
 Scope and registration revisions, and creates a fresh curated Workspace only
 for an uncovered package. The resource-free coverage and activation-plan
-projection is implemented by
-`BrowserSpotlightDestinationProjection`; execution and Browser presentation
-adoption remain later stages.
+projection is implemented by `BrowserSpotlightDestinationProjection`.
+Current-Workspace Package and package-origin Library execution is implemented by
+`BrowserSpotlightCurrentPackageActivation`; Platform, fresh-Workspace, and
+Browser presentation adoption remain later stages.
 
 This document is the normative owner of **Spotlight destination activation**.
 It owns exact-candidate classification, the Browser activation plan,
@@ -208,6 +209,15 @@ exact package against the captured current Scope base and identifies the
 requested package occurrence. A package-origin Library additionally retains
 its exact Library intent beneath that enclosing package.
 
+The managed execution boundary acquires the resource-bearing
+`PackageRootBinding` through a caller-supplied source operation, then submits it
+through Scope's publication-base-guarded add operation. Scope rejects the
+handoff when either the logical revision or publication base no longer matches
+the captured basis. A committed or no-effect result is resolved back to the
+exact Scope-issued occurrence by complete Package artifact-root
+correspondence; package ID, version, display text, or list position cannot
+substitute for that correspondence.
+
 Registration did not add the Package; the user's selection does. A committed
 Scope result therefore remains durable current-Workspace membership even if
 the later focus request fails or is superseded. Traversal-derived participants
@@ -234,6 +244,15 @@ A post-commit focus failure reports both facts: membership changed, and the
 requested destination did not become active. Spotlight never rolls back the
 committed Package and never converts that failure into a new-Workspace
 activation.
+
+The execution boundary carries the exact occurrence, optional Library intent,
+successful Scope result, and source request into a narrow Navigation-operation
+port. The port returns Navigation's existing complete operation result; this
+owner does not reconstruct Navigation actions or collapse rejection, failure,
+or supersession. General protected consumption of Workspace membership results
+by Navigation remains owned by
+[#5584](https://github.com/richlander/dotnet-inspect/issues/5584), not this
+stage.
 
 ### Platform destinations
 
@@ -453,6 +472,16 @@ source-bound package requests, Workspace-bound generic action payloads, and
 exact Library intents preserve owner-issued values opaquely; the projection
 never reconstructs or executes them.
 
+Stage 3 is implemented in the managed Inspect Web composition layer for
+`AddCurrentPackage` and `ActivateCurrentPackageLibrary`. It validates the
+captured Workspace, registration revision, Scope revision, and publication
+base before acquisition, after acquisition, and after successful Scope
+settlement. The final pre-Scope handoff is atomically guarded by Scope's exact
+publication base. Acquisition, membership, and focus remain independently
+typed results; committed or already-current membership survives Navigation
+failure or supersession. The boundary neither creates a fallback Workspace nor
+publishes host state.
+
 Each implementation stage receives its own focused issue and PR. This design
 does not authorize one implementation change spanning all participating
 owners.
@@ -487,10 +516,18 @@ ordered overlapping witnesses for admitted and registration-covered Package
 and Library subjects, exact-Library-only coverage, independent Scope and
 registration basis validation, stale and foreign Workspace evidence,
 same-ID/version source-request separation, stale Package occurrences, and the
-real package and Platform `System.Text.Json` overlap. Later execution gates
-must cover current Scope commit followed by Navigation failure, selection-time
-stale revision, supersession, and source denial. Workspace Definitions retains
-its separate non-install cleanup gate for external-package restoration.
+real package and Platform `System.Text.Json` overlap.
+`BrowserSpotlightPackageActivationTests` gates prefix-covered and
+exact-Library-only Package admission, already-current Library activation,
+duplicate no-effect admission, source denial, Scope failure, stale
+registration before and during activation, exact occurrence propagation, and
+committed membership followed by Navigation failure or supersession.
+`WorkspaceScopeTests` gates publication-base-guarded admission and exact
+binding-to-occurrence resolution. Workspace Definitions retains its separate
+non-install cleanup gate for external-package restoration. Selection-intent
+authority, active-Workspace publication, and Browser end-to-end presentation
+remain end-to-end adoption work under
+[#6686](https://github.com/richlander/dotnet-inspect/issues/6686).
 
 Presentation is Browser-native stateful interaction and does not require
 Markout. The model and future Browser tests are the selected positive gates;
