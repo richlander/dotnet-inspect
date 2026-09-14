@@ -121,7 +121,7 @@ internal static class RowQueryFacetProjection
             ? ">="
             : Comparison(field.Operators[0]);
 
-    private static string Comparison(RowQueryOperator @operator) =>
+    internal static string Comparison(RowQueryOperator @operator) =>
         @operator switch
         {
             RowQueryOperator.Equals => "=",

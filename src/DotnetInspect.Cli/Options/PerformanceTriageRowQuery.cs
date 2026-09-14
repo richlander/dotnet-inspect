@@ -88,10 +88,6 @@ internal static class PerformanceTriageRowQuery
     internal static bool IsRankedValue(string value) =>
         Rank(value) >= 0;
 
-    internal static bool SupportsOrderedComparison(string field) =>
-        Field(field).Operators.Contains(
-            RowQueryOperator.GreaterOrEqual);
-
     internal static ResolvedRowQueryPlan<Analysis.OptimizationOpportunity>
         Resolve(
             PerformanceTriageOptions options,
@@ -124,19 +120,7 @@ internal static class PerformanceTriageRowQuery
             loweredPredicates.Add(
                 Predicate(
                     predicate.Field,
-                    predicate.Operator switch
-                    {
-                        PerformanceTriageOptions.RowOperator.Equals =>
-                            RowQueryOperator.Equals,
-                        PerformanceTriageOptions.RowOperator.NotEquals =>
-                            RowQueryOperator.NotEquals,
-                        PerformanceTriageOptions.RowOperator.GreaterOrEqual =>
-                            RowQueryOperator.GreaterOrEqual,
-                        PerformanceTriageOptions.RowOperator.LessOrEqual =>
-                            RowQueryOperator.LessOrEqual,
-                        _ => throw new InvalidOperationException(
-                            $"Unsupported Performance Triage operator {predicate.Operator}."),
-                    },
+                    predicate.Operator,
                     predicate.Value));
         }
 
@@ -597,7 +581,7 @@ internal static class PerformanceTriageRowQuery
         ];
     }
 
-    private static RowQueryField<Analysis.OptimizationOpportunity> Field(
+    internal static RowQueryField<Analysis.OptimizationOpportunity> Field(
         string key) =>
         Schema.Fields.Single(
             field => string.Equals(

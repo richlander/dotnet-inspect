@@ -558,11 +558,11 @@ public class QueryDiscoveryTests
             QueryProjectionSchema(
                 [RowQueryOperator.Equals],
                 ordered: false);
-        RowQuerySchema<QueryProjectionRow> ordered =
+        RowQuerySchema<QueryProjectionRow> asymmetric =
             QueryProjectionSchema(
                 [
                     RowQueryOperator.Equals,
-                    RowQueryOperator.GreaterOrEqual,
+                    RowQueryOperator.LessOrEqual,
                 ],
                 ordered: true);
 
@@ -573,7 +573,7 @@ public class QueryDiscoveryTests
                 []));
         SectionQueryFacet changed = Assert.Single(
             RowQueryFacetProjection.Create(
-                ordered,
+                asymmetric,
                 _ => new("integer", [], "10"),
                 []));
 
@@ -582,7 +582,21 @@ public class QueryDiscoveryTests
         Assert.Equal(
             ["--where", "--order-by", "--top"],
             changed.Operators);
-        Assert.Equal(["=", ">="], changed.Comparisons);
+        Assert.Equal(["=", "<="], changed.Comparisons);
+
+        RowQueryField<QueryProjectionRow> field =
+            Assert.Single(asymmetric.Fields);
+        Assert.True(
+            PerformanceTriageOptions.TryBindPredicateOperator(
+                field,
+                RowPredicateOperator.LessOrEqual,
+                out RowQueryOperator accepted));
+        Assert.Equal(RowQueryOperator.LessOrEqual, accepted);
+        Assert.False(
+            PerformanceTriageOptions.TryBindPredicateOperator(
+                field,
+                RowPredicateOperator.GreaterOrEqual,
+                out _));
     }
 
     [Fact]

@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
+using DotnetInspect.Cli.Sections;
 using DotnetInspector.Sections;
 using ILInspector.CSharp;
 
@@ -22,15 +23,10 @@ public sealed record PerformanceTriageOptions
     /// </summary>
     private static string Contain(string? text) => CSharpIdentifier.ContainRenderedText(text ?? string.Empty);
 
-    public enum RowOperator
-    {
-        Equals,
-        NotEquals,
-        GreaterOrEqual,
-        LessOrEqual,
-    }
-
-    public sealed record RowPredicate(string Field, RowOperator Operator, string Value);
+    public sealed record RowPredicate(
+        string Field,
+        RowQueryOperator Operator,
+        string Value);
 
     public sealed record OrderTerm(string Field, bool Descending);
 
@@ -310,20 +306,17 @@ public sealed record PerformanceTriageOptions
                 return false;
             }
 
-            var op = syntax.Operator switch
-            {
-                RowPredicateOperator.Equals => RowOperator.Equals,
-                RowPredicateOperator.NotEquals => RowOperator.NotEquals,
-                RowPredicateOperator.GreaterOrEqual => RowOperator.GreaterOrEqual,
-                RowPredicateOperator.LessOrEqual => RowOperator.LessOrEqual,
-                _ => throw new InvalidOperationException(
-                    $"Unknown row predicate operator '{syntax.Operator}'."),
-            };
+            var queryField = PerformanceTriageRowQuery.Field(field);
             var value = syntax.Value;
-            if (op is RowOperator.GreaterOrEqual or RowOperator.LessOrEqual
-                && !SupportsOrderedComparison(field))
+            if (!TryBindPredicateOperator(
+                    queryField,
+                    syntax.Operator,
+                    out RowQueryOperator @operator))
             {
-                error = $"Field '{Contain(field)}' supports only = and != predicates.";
+                error =
+                    $"Field '{Contain(field)}' supports only "
+                    + FormatComparisons(queryField.Operators)
+                    + " predicates.";
                 return false;
             }
             if (IsNumericField(field)
@@ -338,7 +331,7 @@ public sealed record PerformanceTriageOptions
                 return false;
             }
 
-            predicate = new RowPredicate(field, op, value);
+            predicate = new RowPredicate(field, @operator, value);
             error = "";
             return true;
         }
@@ -352,11 +345,46 @@ public sealed record PerformanceTriageOptions
     private static bool IsRankedField(string field)
         => PerformanceTriageRowQuery.IsRankedField(field);
 
-    private static bool SupportsOrderedComparison(string field)
-        => PerformanceTriageRowQuery.SupportsOrderedComparison(field);
-
     internal static bool IsNumericField(string field)
         => PerformanceTriageRowQuery.IsNumericField(field);
+
+    internal static bool TryBindPredicateOperator<TRow>(
+        RowQueryField<TRow> field,
+        RowPredicateOperator syntax,
+        out RowQueryOperator @operator)
+    {
+        ArgumentNullException.ThrowIfNull(field);
+        @operator = syntax switch
+        {
+            RowPredicateOperator.Equals => RowQueryOperator.Equals,
+            RowPredicateOperator.NotEquals => RowQueryOperator.NotEquals,
+            RowPredicateOperator.GreaterOrEqual =>
+                RowQueryOperator.GreaterOrEqual,
+            RowPredicateOperator.LessOrEqual =>
+                RowQueryOperator.LessOrEqual,
+            _ => throw new InvalidOperationException(
+                $"Unknown row predicate operator '{syntax}'."),
+        };
+        return field.Operators.Contains(@operator);
+    }
+
+    private static string FormatComparisons(
+        IReadOnlyList<RowQueryOperator> operators)
+    {
+        string[] comparisons =
+        [
+            .. operators.Select(RowQueryFacetProjection.Comparison),
+        ];
+        return comparisons.Length switch
+        {
+            0 => throw new InvalidOperationException(
+                "A filterable row-query field declares no predicate operators."),
+            1 => comparisons[0],
+            2 => $"{comparisons[0]} and {comparisons[1]}",
+            _ => $"{string.Join(", ", comparisons[..^1])}, "
+                + $"and {comparisons[^1]}",
+        };
+    }
 
     static string? NormalizeField(string field, IReadOnlyList<string> knownFields)
     {
