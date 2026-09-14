@@ -6,6 +6,12 @@ This document is the normative owner for the lifetime, reference, operation
 authority, and synchronous content-borrowing contract of one realized managed
 Library.
 
+The resource-free `LibraryReference`, `LibraryContentReference`, closed content
+roles, and exact Artifact/Metadata correspondence floor are implemented in
+`DotnetInspector.Libraries`. The live `LibraryContentOwner`,
+`LibraryOperationLease`, scoped borrowing, and asynchronous retirement remain
+design-only for the next implementation slice.
+
 It expands step 15 of
 [Resource Ownership and Borrowing](resource-ownership-and-borrowing.md) and is
 tracked end to end by
@@ -426,7 +432,7 @@ The project may depend on:
 
 - `Inspector.Resources`;
 - the implemented Artifact reference and content-child contract floor;
-- `ILInspector.MetadataPrimitives` for exact assembly identity; and
+- `ILInspector.Metadata` for its implemented exact assembly identity; and
 - `DotnetInspector.SourceSelection` for the owner-issued exact source
   coordinate.
 
@@ -475,17 +481,30 @@ defines a private lifetime wrapper.
 
 ## Evidence plan
 
-This specification is design-only. Its behavioral properties remain
-**unverified** until the named implementation and adoption slices add Release
-gates.
+The resource-free reference floor is implemented. Its Release contract suite
+gates:
+
+- references and correspondence values are resource-free
+  (`ReferenceContracts_AreResourceFree`);
+- portable source coordinates remain distinct from process-local realized
+  Library and Artifact references
+  (`EqualPackageAndPlatformAssemblies_RemainSourceDistinct`);
+- package and Platform Libraries with equal assembly identities remain
+  source-distinct
+  (`EqualPackageAndPlatformAssemblies_RemainSourceDistinct`);
+- one Artifact may serve both assembly roles without duplicating the content
+  reference (`DirectAssembly_MayServeBothAssemblyRoles`);
+- companion records retain exact same-Library assembly correspondence
+  (`ContentReferences_RetainExactRolesAndCorrespondence`); and
+- foreign-generation, foreign-assembly, source-identity, and PDB-role
+  mismatches are rejected (`Construction_RejectsCrossGenerationContent` and
+  `Construction_RejectsUncorrelatedContent`).
+
+Live ownership behavior remains **unverified** until the owner and adoption
+slices add their named Release gates.
 
 The Library contract suite must gate:
 
-- references and receipts are resource-free;
-- portable source coordinates remain distinct from process-local realized
-  Library and Artifact references;
-- package and Platform Libraries with equal assembly identities remain
-  source-distinct;
 - construction transfers every accepted child exactly once;
 - rejection and partial failure leave no ambiguous ownership;
 - operation issuance rejects released owners and foreign Library references;
