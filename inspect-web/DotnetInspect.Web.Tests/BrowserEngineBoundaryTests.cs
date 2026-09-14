@@ -3047,12 +3047,23 @@ public sealed partial class BrowserEngineBoundaryTests
         BrowserHomeDemoRunResult programmatic =
             await DotnetInspect.Web.Interop.Catalog.CatalogExports
                 .RunPlatformHomeDemoAsync(programmaticPlan);
+        Assert.NotNull(document.Activation!.PlatformContextId);
+        Assert.NotNull(programmatic.Activation!.PlatformContextId);
+        Assert.NotEqual(
+            document.Activation.PlatformContextId,
+            programmatic.Activation.PlatformContextId);
 
         string documentJson = JsonSerializer.Serialize(
-            document,
+            document with
+            {
+                Activation = document.Activation with { PlatformContextId = null },
+            },
             BrowserCatalogJsonContext.Default.BrowserHomeDemoRunResult);
         string programmaticJson = JsonSerializer.Serialize(
-            programmatic,
+            programmatic with
+            {
+                Activation = programmatic.Activation with { PlatformContextId = null },
+            },
             BrowserCatalogJsonContext.Default.BrowserHomeDemoRunResult);
         Assert.Contains(
             "System.Text.Json.JsonSerializer",
@@ -3121,6 +3132,47 @@ public sealed partial class BrowserEngineBoundaryTests
             error.Message,
             StringComparison.Ordinal);
         Assert.Equal(0, handler.Requests);
+    }
+
+    [Theory]
+    [InlineData("net9.0", null, "10.0.9876",
+        WorkspaceContextLoadFailureKind.ConflictingAcquisitionTarget)]
+    [InlineData("net10.0", "LINUX-X64", "10.0.9876",
+        WorkspaceContextLoadFailureKind.InvalidCoordinate)]
+    [InlineData("net10.0", null, "10.0.not-a-version",
+        WorkspaceContextLoadFailureKind.InvalidCoordinate)]
+    public async Task PlatformHomeDemo_ProductionValidatesBeforeAcquisition(
+        string framework,
+        string? runtimeIdentifier,
+        string version,
+        WorkspaceContextLoadFailureKind failureKind)
+    {
+        Assert.Null(BrowserPackageWorkspace.SessionPackageStore.TryGetCached(
+            "microsoft.netcore.app.runtime.linux-x64", version, null));
+        var plan = new WorkspacePlan(
+            [],
+            [
+                new WorkspaceContextInput
+                {
+                    Framework = framework,
+                    RuntimeIdentifier = runtimeIdentifier,
+                    Members = [WorkspaceMemberCoordinate.Platform(
+                        "runtime", "System.Text.Json", version, "net10.0")],
+                },
+            ]);
+
+        InvalidOperationException failure =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => BrowserPlatformWorkspace.OpenContextAsync(
+                    plan,
+                    plan.Contexts[0],
+                    "runtime",
+                    "System.Text.Json",
+                    TestContext.Current.CancellationToken));
+
+        Assert.Contains(failureKind.ToString(), failure.Message, StringComparison.Ordinal);
+        Assert.Null(BrowserPackageWorkspace.SessionPackageStore.TryGetCached(
+            "microsoft.netcore.app.runtime.linux-x64", version, null));
     }
 
     [Fact]
@@ -6641,28 +6693,55 @@ public sealed partial class BrowserEngineBoundaryTests
                 TestContext.Current.CancellationToken);
         AssemblyReferenceIdentity exactIdentity =
             exact.Participant.Participant.Assembly.Identity;
-        BrowserCallGraphInfo exactGraph =
-            await BrowserPlatformCallGraph.QueryAsync(
-                exact,
+        string contextId = Assert.IsType<string>(exact.ContextId);
+        BrowserCallGraph exactGraph = Assert.IsType<BrowserCallGraph>(
+            JsonSerializer.Deserialize(
+                await DotnetInspect.Web.Interop.CallGraph.CallGraphExports.ExpandPlatformCallGraph(
+                    framework,
+                    version,
+                    "System.Runtime",
+                    "netcore.app",
+                    exactIdentity.Version!.ToString(),
+                    exactIdentity.Culture,
+                    exactIdentity.PublicKeyToken,
+                    destination.TypeDefinitionId!,
+                    destination.MemberName,
+                    destination.SelectorKey,
+                    0,
+                    contextId),
+                BrowserCallGraphJsonContext.Default.BrowserCallGraph));
+        Assert.Equal(2, exactGraph.Scope.Assemblies);
+        await using (BrowserPlatformScopeResolution expanded =
+            await BrowserPlatformWorkspace.OpenRetainedContextAssemblyAsync(
+                contextId,
                 framework,
                 version,
-                "System.Runtime",
+                "System.Private.CoreLib.dll",
                 "netcore.app",
-                (exactIdentity.Version
-                    ?? throw new InvalidOperationException(
-                        "The System.Runtime facade has no assembly version."))
-                    .ToString(),
-                exactIdentity.Culture,
-                exactIdentity.PublicKeyToken,
-                destination.TypeDefinitionId!,
-                destination.MemberName,
-                destination.SelectorKey,
-                0,
-                client,
-                authorization,
-                TimeSpan.FromSeconds(5),
-                TestContext.Current.CancellationToken);
-        Assert.Equal(2, exactGraph.Scope.Assemblies);
+                TestContext.Current.CancellationToken))
+        {
+            Assert.Equal(contextId, expanded.ContextId);
+            Assert.NotSame(exact.Scope, expanded.Scope);
+            Assert.Equal(2, expanded.Scope.Members.Length);
+        }
+
+        BrowserCallGraph continuedExact = Assert.IsType<BrowserCallGraph>(
+            JsonSerializer.Deserialize(
+                await DotnetInspect.Web.Interop.CallGraph.CallGraphExports.ExpandPlatformCallGraph(
+                    framework,
+                    version,
+                    destination.Assembly!,
+                    destination.PlatformPack!,
+                    destination.AssemblyVersion!,
+                    destination.AssemblyCulture,
+                    destination.AssemblyPublicKeyToken,
+                    destination.TypeDefinitionId!,
+                    destination.MemberName,
+                    destination.SelectorKey,
+                    destination.MetadataToken ?? 0,
+                    contextId),
+                BrowserCallGraphJsonContext.Default.BrowserCallGraph));
+        Assert.Equal(2, continuedExact.Scope.Assemblies);
 
         BrowserPackageSurface terminalSurface =
             Assert.IsType<BrowserPackageSurface>(

@@ -247,7 +247,8 @@ internal static class BrowserPlatformCallGraph
                     initial.Scope,
                     initial.Participant,
                     initial.Coordinate,
-                    BrowserPackageWorkspace.LeaseScope(initial.Scope)));
+                    BrowserPackageWorkspace.LeaseScope(initial.Scope),
+                    initial.ContextId));
         string rootFamily = owner.Current.Coordinate.Family;
         string rootAssembly =
             owner.Current.Participant.Participant.Assembly.Identity.Name;

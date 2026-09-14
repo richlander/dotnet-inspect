@@ -409,7 +409,8 @@ public static partial class CatalogExports
                         MemberName: null,
                         MemberKind: null,
                         MemberAnchorDigest: null,
-                        MemberSection: null),
+                        MemberSection: null,
+                        PlatformContextId: resolution.ContextId),
                     null),
                 Graph: null);
         }
@@ -440,7 +441,8 @@ public static partial class CatalogExports
                     member.Name,
                     member.Kind,
                     member.AnchorDigest,
-                    memberPlan.MemberSection),
+                    memberPlan.MemberSection,
+                    PlatformContextId: resolution.ContextId),
                 CallGraph: null),
             new BrowserPlatformHomeDemoGraphRequest(
                 focusFramework,

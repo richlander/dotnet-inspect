@@ -121,7 +121,8 @@ internal sealed record BrowserPlatformScopeResolution(
     BrowserPlatformScope Scope,
     WorkspaceContextMember Participant,
     RealizedMemberCoordinate.Platform Coordinate,
-    BrowserScopeLease<BrowserPlatformScope> ScopeLease) : IAsyncDisposable
+    BrowserScopeLease<BrowserPlatformScope> ScopeLease,
+    string? ContextId = null) : IAsyncDisposable
 {
     public ValueTask DisposeAsync() => ScopeLease.DisposeAsync();
 }
@@ -162,7 +163,7 @@ internal static class BrowserPlatformWorkspace
 
     static readonly Dictionary<string, TargetState> Targets =
         new(StringComparer.Ordinal);
-    static readonly Dictionary<string, BrowserPlatformScope> DemoTargets =
+    static readonly Dictionary<string, DemoTarget> DemoTargets =
         new(StringComparer.Ordinal);
     static readonly Dictionary<string, Task> TargetTails =
         new(StringComparer.Ordinal);
@@ -174,6 +175,7 @@ internal static class BrowserPlatformWorkspace
     {
         string name = AssemblySimpleName(assembly);
         BrowserPlatformScope[] demoScopes = DemoTargets.Values
+            .Select(target => target.Scope)
             .Distinct()
             .Where(scope => BrowserPackageWorkspace.IsScopeRetained(scope)
                 && scope.Framework.Equals(framework, StringComparison.OrdinalIgnoreCase)
@@ -204,6 +206,79 @@ internal static class BrowserPlatformWorkspace
         RealizedMemberCoordinate.Platform selected = coordinates[0];
         return new(retained, retained.Participant(selected.Family, name),
             selected, BrowserPackageWorkspace.LeaseScope(retained));
+    }
+
+    internal static Task<BrowserPlatformScopeResolution> OpenRetainedContextAssemblyAsync(
+        string contextId,
+        string targetFramework,
+        string platformVersion,
+        string assembly,
+        string pack,
+        CancellationToken cancellationToken = default)
+    {
+        string targetKey = TargetKey(targetFramework, platformVersion);
+        string family = Family(pack);
+        string name = AssemblySimpleName(assembly);
+        return BrowserPackageWorkspace.RunPackageOperationAsync(
+            deadline => EnqueueAsync(
+                targetKey,
+                async () =>
+                {
+                    deadline.Token.ThrowIfCancellationRequested();
+                    await using BrowserPlatformScopeResolution current =
+                        LeaseDemoContext(targetKey, contextId);
+                    BrowserPlatformScopeResolution selected = current;
+                    if (!current.Scope.Coordinates.Any(coordinate =>
+                            coordinate.Family == family
+                            && string.Equals(coordinate.Assembly, name, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        selected = await ExpandContextCoreAsync(
+                            targetKey,
+                            current,
+                            [new(assembly, pack)],
+                            ProductionHost,
+                            deadline).ConfigureAwait(false);
+                    }
+
+                    try
+                    {
+                        return new BrowserPlatformScopeResolution(
+                            selected.Scope,
+                            selected.Scope.Participant(family, name),
+                            AssertSingleCoordinate(selected.Scope, family, name),
+                            BrowserPackageWorkspace.LeaseScope(selected.Scope),
+                            contextId);
+                    }
+                    finally
+                    {
+                        if (!ReferenceEquals(selected, current))
+                            await selected.DisposeAsync().ConfigureAwait(false);
+                    }
+                },
+                deadline.Token),
+            BrowserPackageWorkspace.PackageOperationTimeout,
+            cancellationToken);
+    }
+
+    static BrowserPlatformScopeResolution LeaseDemoContext(
+        string targetKey,
+        string contextId)
+    {
+        if (!DemoTargets.TryGetValue(targetKey, out DemoTarget? target)
+            || !string.Equals(target.ContextId, contextId, StringComparison.Ordinal)
+            || !BrowserPackageWorkspace.IsScopeRetained(target.Scope))
+        {
+            throw new InvalidOperationException(
+                "ContextUnavailable: the selected Platform demo context is no longer retained.");
+        }
+
+        RealizedMemberCoordinate.Platform coordinate = target.Scope.Coordinates[0];
+        return new(
+            target.Scope,
+            target.Scope.Participant(coordinate.Family, coordinate.Assembly!),
+            coordinate,
+            BrowserPackageWorkspace.LeaseScope(target.Scope),
+            contextId);
     }
 
     internal static Task<BrowserPlatformScopeResolution> OpenRuntimeAsync(
@@ -611,28 +686,14 @@ internal static class BrowserPlatformWorkspace
         deadline.Token.ThrowIfCancellationRequested();
         using var packageLeases =
             new BrowserPackageWorkspace.PackageLeaseSet();
-        if (ReferenceEquals(host, ProductionHost))
-        {
-            foreach (string family in platform.Families)
-            {
-                BrowserPackage package =
-                    await BrowserPlatformCatalog.AcquireRuntimeAsync(
-                        platform.Framework,
-                        family,
-                        platform.Version,
-                        deadline.Remaining,
-                        deadline.Token).ConfigureAwait(false);
-                packageLeases.Lease(package.CacheKey);
-            }
-        }
 
         DemoTargets.TryGetValue(
             targetKey,
-            out BrowserPlatformScope? previous);
+            out DemoTarget? previous);
         await using BrowserScopeLease<BrowserPlatformScope>? retainedLease =
             previous is not null
-            && BrowserPackageWorkspace.IsScopeRetained(previous)
-                ? BrowserPackageWorkspace.LeaseScope(previous)
+            && BrowserPackageWorkspace.IsScopeRetained(previous.Scope)
+                ? BrowserPackageWorkspace.LeaseScope(previous.Scope)
                 : null;
         await using ScopeReservation reservation =
             await BrowserPackageWorkspace.ReserveScopeAsync(deadline.Token)
@@ -653,7 +714,8 @@ internal static class BrowserPlatformWorkspace
             attempt.PackageKeys,
             reservation,
             platform.FocusFamily,
-            platform.FocusAssembly).ConfigureAwait(false);
+            platform.FocusAssembly,
+            Guid.NewGuid().ToString("N")).ConfigureAwait(false);
     }
 
     static async Task<BrowserPlatformScopeResolution> ExpandContextCoreAsync(
@@ -664,6 +726,10 @@ internal static class BrowserPlatformWorkspace
         BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline)
     {
         deadline.Token.ThrowIfCancellationRequested();
+        await using BrowserPlatformScopeResolution? retained =
+            current.ContextId is { } contextId
+                ? LeaseDemoContext(targetKey, contextId)
+                : null;
         using var packageLeases =
             new BrowserPackageWorkspace.PackageLeaseSet();
         var selections = ImmutableArray.CreateBuilder<PlatformSelection>();
@@ -675,28 +741,11 @@ internal static class BrowserPlatformWorkspace
                     Family(request.Pack),
                     AssemblySimpleName(request.AssemblyFileName)));
         }
-        if (ReferenceEquals(host, ProductionHost))
-        {
-            foreach (string family in selections
-                .Select(selection => selection.Family)
-                .Distinct(StringComparer.Ordinal))
-            {
-                BrowserPackage package =
-                    await BrowserPlatformCatalog.AcquireRuntimeAsync(
-                        current.Scope.Framework,
-                        family,
-                        current.Coordinate.Version,
-                        deadline.Remaining,
-                        deadline.Token).ConfigureAwait(false);
-                packageLeases.Lease(package.CacheKey);
-            }
-        }
-
         await using ScopeReservation reservation =
             await BrowserPackageWorkspace.ReserveScopeAsync(deadline.Token)
                 .ConfigureAwait(false);
         ImmutableArray<RealizedMemberCoordinate.Platform> coordinates =
-            current.Scope.Coordinates;
+            (retained ?? current).Scope.Coordinates;
         foreach (PlatformSelection selection in selections)
         {
             if (coordinates.Any(candidate =>
@@ -713,7 +762,7 @@ internal static class BrowserPlatformWorkspace
 
             EnsureAssemblyCapacity(coordinates.Length + 1);
             coordinates = coordinates.Add(
-                current.Scope.PlatformCoordinate(
+                (retained ?? current).Scope.PlatformCoordinate(
                     selection.Family,
                     selection.Assembly));
         }
@@ -732,7 +781,8 @@ internal static class BrowserPlatformWorkspace
             packageKeys,
             reservation,
             focus.Family,
-            current.Participant.Participant.Assembly.Identity.Name)
+            current.Participant.Participant.Assembly.Identity.Name,
+            current.ContextId ?? Guid.NewGuid().ToString("N"))
             .ConfigureAwait(false);
     }
 
@@ -742,7 +792,8 @@ internal static class BrowserPlatformWorkspace
         ImmutableHashSet<string> packageKeys,
         ScopeReservation reservation,
         string focusFamily,
-        string focusAssembly)
+        string focusAssembly,
+        string contextId)
     {
         RealizedMemberCoordinate.Platform selected =
             AssertSingleCoordinate(
@@ -765,12 +816,12 @@ internal static class BrowserPlatformWorkspace
                 focusAssembly);
         DemoTargets.TryGetValue(
             targetKey,
-            out BrowserPlatformScope? previous);
-        DemoTargets[targetKey] = registered;
+            out DemoTarget? previous);
+        DemoTargets[targetKey] = new(contextId, registered);
         if (previous is not null
-            && !ReferenceEquals(previous, registered))
+            && !ReferenceEquals(previous.Scope, registered))
         {
-            await BrowserPackageWorkspace.RemoveScopeAsync(previous)
+            await BrowserPackageWorkspace.RemoveScopeAsync(previous.Scope)
                 .ConfigureAwait(false);
         }
 
@@ -778,7 +829,8 @@ internal static class BrowserPlatformWorkspace
             registered,
             participant,
             selected,
-            lease);
+            lease,
+            contextId);
     }
 
     static Task<BrowserPlatformScopeResolution> OpenAsync(
@@ -1738,7 +1790,7 @@ internal static class BrowserPlatformWorkspace
     static void ForgetDemoScope(BrowserPlatformScope scope)
     {
         string? key = DemoTargets
-            .Where(candidate => ReferenceEquals(candidate.Value, scope))
+            .Where(candidate => ReferenceEquals(candidate.Value.Scope, scope))
             .Select(candidate => candidate.Key)
             .FirstOrDefault();
         if (key is not null)
@@ -1776,6 +1828,8 @@ internal static class BrowserPlatformWorkspace
 
         internal long LastAccess { get; set; }
     }
+
+    sealed record DemoTarget(string ContextId, BrowserPlatformScope Scope);
 
     sealed class PlatformLoadAttempt(
         BrowserPlatformScope? scope,
@@ -1826,7 +1880,6 @@ internal static class BrowserPlatformWorkspace
     readonly record struct PlatformPlanContext(
         string Framework,
         string Version,
-        ImmutableArray<string> Families,
         string FocusFamily,
         string FocusAssembly)
     {
@@ -1873,30 +1926,9 @@ internal static class BrowserPlatformWorkspace
             string version = focus.Version
                 ?? throw new InvalidOperationException(
                     "A Browser Platform home demo requires an exact Platform version.");
-            bool prefetchable = members.All(member =>
-                IsSupportedFamily(member.Family)
-                && member.Assembly is { Length: > 0 }
-                && member.Version is { Length: > 0 }
-                && !member.Version.Equals(
-                    "latest",
-                    StringComparison.OrdinalIgnoreCase)
-                && member.Version.Equals(
-                    version,
-                    StringComparison.OrdinalIgnoreCase)
-                && string.Equals(
-                    member.Framework ?? context.Framework,
-                    framework,
-                    StringComparison.OrdinalIgnoreCase));
-
             return new PlatformPlanContext(
                 framework,
                 version,
-                prefetchable
-                    ? [
-                        .. members.Select(member => member.Family)
-                            .Distinct(StringComparer.Ordinal),
-                    ]
-                    : [],
                 focusFamily,
                 focusAssembly);
         }

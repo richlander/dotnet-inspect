@@ -731,7 +731,10 @@ test("platform call graphs carry the target pack into lazy acquisition", () => {
     /pack:\s*request\.platformPack/);
   assert.match(
     appSource,
-    /inspectExpandPlatformCallGraph\(\s*request\.framework,\s*request\.platformVersion,\s*request\.assembly,\s*request\.pack/);
+    /queryPlatformCallGraph\(inspectExpandPlatformCallGraph, request\)/);
+  assert.match(
+    callGraphInspectionSource,
+    /return query\(\s*request\.framework,\s*request\.platformVersion,\s*request\.assembly,\s*request\.pack/);
 });
 
 test("platform pack inference rejects cross-family ambiguity", () => {
