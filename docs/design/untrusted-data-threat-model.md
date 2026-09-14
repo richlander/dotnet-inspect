@@ -1411,6 +1411,10 @@ reachability or reading bytes. The source-byte, availability, and integrity
 cache categories were versioned when the stricter audit rule landed;
 source-byte reuse remains checksum-gated, while entries without final-origin
 evidence cannot satisfy the audit paths.
+[SourceFetch evidence admission](source-fetch.md) owns candidate ordering,
+validation-before-use, and source-byte publication. Its exact-URL cache stores
+candidate bytes rather than a provenance verdict, so every use is validated
+again by the current PDB checksum predicate.
 
 Checksum evidence follows the portable-PDB document row rather than a display
 or canonical path. Direct member, type, and IL-offset projections join on row
