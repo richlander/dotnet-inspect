@@ -766,14 +766,27 @@ public static class ResourceEffectSelectorBinder
             || selector.Version.Version == identity.Version);
 
     static bool IsSupportedCoreLibraryFacade(string simpleName) =>
-        simpleName is
-            "mscorlib"
-            or "netstandard"
-            or "System.Private.CoreLib"
-            or "System.Runtime"
-            or "System.Runtime.Extensions"
-            or "System.Buffers"
-            or "System.Memory";
+        simpleName.Equals(
+            "mscorlib",
+            StringComparison.OrdinalIgnoreCase)
+        || simpleName.Equals(
+            "netstandard",
+            StringComparison.OrdinalIgnoreCase)
+        || simpleName.Equals(
+            "System.Private.CoreLib",
+            StringComparison.OrdinalIgnoreCase)
+        || simpleName.Equals(
+            "System.Runtime",
+            StringComparison.OrdinalIgnoreCase)
+        || simpleName.Equals(
+            "System.Runtime.Extensions",
+            StringComparison.OrdinalIgnoreCase)
+        || simpleName.Equals(
+            "System.Buffers",
+            StringComparison.OrdinalIgnoreCase)
+        || simpleName.Equals(
+            "System.Memory",
+            StringComparison.OrdinalIgnoreCase);
 
     static MatchResult MatchBoundType(
         TypeRef left,

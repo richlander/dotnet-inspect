@@ -68,6 +68,50 @@ public sealed partial class DirectCallDefinitionResolutionTests
     }
 
     [Fact]
+    public void CoreLibraryFacadeAssemblyNameIsCaseInsensitive()
+    {
+        var typeVariable = new ResourceEffectGenericVariable(
+            ResourceEffectGenericVariableKind.Type,
+            0);
+        ResourceKindReference kind = new(
+            new ResourceKindIdentity("dotnet.array-pool.buffer"),
+            [typeVariable]);
+        AdmittedResourceEffectDeclaration declaration = Admit(
+            ArrayPoolSelector(
+                "Rent",
+                ResourceEffectMemberKind.Method,
+                isStatic: false,
+                [
+                    new ResourceEffectParameterSelector(
+                        CoreType("Int32", "system.runtime"),
+                        ResourceEffectRefKind.Value),
+                ],
+                new ResourceTypeExpression.SzArray(
+                    new ResourceTypeExpression.Variable(
+                        typeVariable))),
+            new ResourceEffect.Acquire(
+                kind,
+                new ResourceEffectLocation.Return(),
+                new ResourceEffectCompletion.NormalReturn(),
+                Correspondence: null,
+                Lender: null),
+            kind);
+        DirectCallDefinitionResolution[] calls =
+        [
+            .. ResolveOwnershipFixture().Results
+                .Where(result => result.Call.Callee.Name == "Rent"),
+        ];
+
+        Assert.NotEmpty(calls);
+        Assert.All(
+            calls,
+            result => Assert.IsType<ResourceEffectSelectorBinding.Resolved>(
+                ResourceEffectSelectorBinder.Bind(
+                    declaration,
+                    result)));
+    }
+
+    [Fact]
     public void ArrayPoolReturnRejectsSameNamedUserMethod()
     {
         var typeVariable = new ResourceEffectGenericVariable(
@@ -790,10 +834,12 @@ public sealed partial class DirectCallDefinitionResolutionTests
             CoreType("Void"));
     }
 
-    static ResourceTypeExpression.Named CoreType(string name) =>
+    static ResourceTypeExpression.Named CoreType(
+        string name,
+        string assemblyName = "System.Runtime") =>
         new(
             new ResourceAssemblySelector(
-                "System.Runtime",
+                assemblyName,
                 "b03f5f7f11d50a3a",
                 ResourceAssemblyVersionPolicy.Any,
                 allowCoreLibraryFacade: true),
