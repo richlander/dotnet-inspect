@@ -19,20 +19,47 @@ import type {
 
 function metadataResult(fullName = "Example.Widget"): BrowserTypeMetadata {
   return {
-    fullName,
-    namespace: "Example",
-    name: "Widget",
-    kind: "Class",
-    modifiers: [],
-    accessibility: "Public",
-    assembly: "Example.Package.dll",
-    baseType: null,
-    interfaces: [],
+    exactTypeInspection: {
+      content: {
+        outcome: 0,
+        requestedType: fullName,
+        matchedType: fullName,
+        type: {
+          fullName,
+          namespace: "Example",
+          name: "Widget",
+          kind: "Class",
+          accessibility: "Public",
+          attributes: [],
+          isSealed: false,
+          isAbstract: false,
+          isStatic: false,
+          isByRefLike: false,
+          isReadOnly: false,
+          baseType: null,
+          interfaces: [],
+          derivedTypes: [],
+          typeParameters: [],
+          members: [],
+          enumUnderlyingType: null,
+          isForwarded: false,
+        },
+        requestedAssembly: null,
+        supplierAssembly: null,
+        forwardingHops: [],
+        suggestions: [],
+        inspectionFailures: [],
+        failures: [],
+        isAvailable: true,
+        isComplete: true,
+      },
+      share: {
+        fullUrl: null,
+        packet: null,
+      },
+      diagnostics: [],
+    },
     derivedTypes: [],
-    typeParameters: [],
-    attributes: [],
-    enumUnderlyingType: null,
-    composition: null,
     graphNodes: [],
     graphEdges: [],
     typeDependencyInspection: {
@@ -290,7 +317,9 @@ test("newer type metadata requests suppress stale success and failure", async ()
   second.resolve(metadataResult("Example.Current"));
   await Promise.all([firstLoad, secondLoad]);
 
-  assert.equal(state.typeMetadata?.fullName, "Example.Current");
+  assert.equal(
+    state.typeMetadata?.exactTypeInspection.content.type?.fullName,
+    "Example.Current");
   assert.equal(state.typeMetadataError, "");
   assert.equal(state.typeMetadataLoading, false);
   assert.equal(state.typeMetadataKey, "second");

@@ -78,6 +78,25 @@ public static partial class MetadataExports
             scope.SurfaceParticipant(
                 root,
                 root.CompileAsset(assemblyName));
+        InspectionEnvelope<ExactTypeInspectionResult> exactTypeInspection =
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                new ExactTypeInspectionRequest(
+                    packageId,
+                    version,
+                    targetFramework,
+                    typeId),
+                new WorkspaceContextLoadOptions
+                {
+                    HttpClient = BrowserPackageWorkspace.NetworkClient,
+                    SourceAuthorization =
+                        BrowserPackageWorkspace.PackageSourceAuthorization,
+                    PackageStore =
+                        BrowserPackageWorkspace.SessionPackageStore,
+                    PackageTransferPolicy =
+                        BrowserPackageWorkspace.PackageTransferPolicy,
+                    PayloadLimits =
+                        BrowserPackageWorkspace.PackageLimits,
+                });
 
         (ResearchViews.TypeProjectionResult Projection,
             TypeDependencySectionResult Dependencies) result =
@@ -114,44 +133,8 @@ public static partial class MetadataExports
                 projection.Identity.FullName);
 
         return new BrowserTypeMetadata(
-                projection.Identity.FullName,
-                projection.Identity.Namespace,
-                projection.Identity.Name,
-                projection.Identity.Kind,
-                [.. projection.Identity.Modifiers],
-                projection.Identity.Accessibility,
-                projection.Identity.Assembly,
-                projection.BaseType,
-                [.. projection.Interfaces],
+                exactTypeInspection,
                 [.. projection.DerivedTypes],
-                [
-                    .. projection.TypeParameters.Select(parameter => new BrowserTypeParameter(
-                        parameter.Name,
-                        parameter.Variance,
-                        [.. parameter.Constraints])),
-                ],
-                [.. projection.Attributes],
-                projection.EnumUnderlyingType,
-                projection.Composition is { } composition
-                    ? new BrowserTypeComposition(
-                        composition.Methods,
-                        composition.Properties,
-                        composition.Fields,
-                        composition.Events,
-                        composition.Constructors,
-                        composition.Operators,
-                        composition.ExplicitInterfaceImplementations,
-                        composition.ExtensionMethods,
-                        composition.Static,
-                        composition.Unsafe,
-                        composition.Async,
-                        composition.Virtual,
-                        composition.Abstract,
-                        composition.Override,
-                        composition.Extension,
-                        composition.Obsolete,
-                        composition.Total)
-                    : null,
                 graphNodes,
                 graphEdges,
                 dependencyEnvelope,

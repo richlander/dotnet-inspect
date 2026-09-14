@@ -58,23 +58,31 @@ export interface TypeParameterSummary {
   constraints?: readonly string[];
 }
 
-export interface CompositionCounts {
-  total: number;
-}
-
 export interface TypeMetadata {
-  modifiers?: readonly string[];
-  kind?: string;
-  accessibility?: string | null;
-  namespace?: string | null;
-  assembly?: string | null;
-  baseType?: string | null;
-  enumUnderlyingType?: string | null;
-  typeParameters?: readonly TypeParameterSummary[];
-  interfaces?: readonly string[];
+  exactTypeInspection?: {
+    content: {
+      type?: {
+        namespace?: string | null;
+        kind?: string;
+        accessibility?: string | null;
+        attributes?: readonly string[];
+        isSealed?: boolean;
+        isAbstract?: boolean;
+        isStatic?: boolean;
+        isByRefLike?: boolean;
+        isReadOnly?: boolean;
+        baseType?: string | null;
+        enumUnderlyingType?: string | null;
+        typeParameters?: readonly TypeParameterSummary[];
+        interfaces?: readonly string[];
+        members?: readonly unknown[];
+      } | null;
+      supplierAssembly?: {
+        identity: { name: string };
+      } | null;
+    };
+  };
   derivedTypes?: readonly string[];
-  attributes?: readonly string[];
-  composition?: CompositionCounts | null;
   graphNodes?: readonly unknown[];
   inspectionFailures?: readonly string[];
 }
@@ -545,12 +553,23 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
     workspaceIdentity);
   const fresh = metadataState.typeMetadataKey === current;
   const meta = fresh ? metadataState.typeMetadata : null;
+  const exact = meta?.exactTypeInspection?.content.type ?? null;
+  const exactModifiers = [
+    exact?.isStatic ? "static" : "",
+    exact?.isAbstract && !exact?.isStatic ? "abstract" : "",
+    exact?.isSealed && !exact?.isStatic ? "sealed" : "",
+    exact?.isReadOnly ? "readonly" : "",
+    exact?.isByRefLike ? "ref" : "",
+  ].filter(part => part.length > 0);
+  const exactAssembly =
+    meta?.exactTypeInspection?.content.supplierAssembly?.identity.name;
   const renderSurface = (content: string) => {
     const kind = [
-      ...(meta?.modifiers || []),
-      meta?.kind || item.kind,
+      ...exactModifiers,
+      exact?.kind || item.kind,
     ].filter(part => part.length > 0).join(" ");
-    const accessibility = meta?.accessibility || item.accessibility || "public";
+    const accessibility =
+      exact?.accessibility || item.accessibility || "public";
     const coordinate =
       `${packageContext.activeFramework} · ${item.assembly} · ${packageContext.id}@${packageContext.version}`;
     return `
@@ -579,41 +598,42 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
   }
 
   const shape: (readonly [string, string])[] = [
-    ["Kind", [...(meta.modifiers || []), meta.kind || item.kind].join(" ")],
-    ["Accessibility", meta.accessibility || item.accessibility || "public"],
-    ["Namespace", meta.namespace || item.namespace || "global"],
-    ["Assembly", meta.assembly || item.assembly],
+    ["Kind", [...exactModifiers, exact?.kind || item.kind].join(" ")],
+    ["Accessibility", exact?.accessibility || item.accessibility || "public"],
+    ["Namespace", exact?.namespace || item.namespace || "global"],
+    ["Assembly", exactAssembly || item.assembly],
   ];
-  if (meta.baseType) shape.push(["Base type", meta.baseType]);
-  if (meta.enumUnderlyingType) shape.push(["Enum underlying", meta.enumUnderlyingType]);
-  if (meta.typeParameters?.length) {
-    shape.push(["Type parameters", meta.typeParameters
+  if (exact?.baseType) shape.push(["Base type", exact.baseType]);
+  if (exact?.enumUnderlyingType)
+    shape.push(["Enum underlying", exact.enumUnderlyingType]);
+  if (exact?.typeParameters?.length) {
+    shape.push(["Type parameters", exact.typeParameters
       .map(parameter => `${parameter.variance ? parameter.variance + " " : ""}${parameter.name}${parameter.constraints?.length ? ` : ${parameter.constraints.join(", ")}` : ""}`)
       .join(" · ")]);
   }
 
-  const interfaces = (meta.interfaces || []).length
+  const interfaces = (exact?.interfaces || []).length
     ? `<section class="document-section">
-        <div class="section-title"><h2>Implements</h2><span>${meta.interfaces!.length} interface${meta.interfaces!.length === 1 ? "" : "s"}</span></div>
-        <div class="type-chip-list">${meta.interfaces!.map(name => relatedTypeChip(name)).join("")}</div>
+        <div class="section-title"><h2>Implements</h2><span>${exact!.interfaces!.length} interface${exact!.interfaces!.length === 1 ? "" : "s"}</span></div>
+        <div class="type-chip-list">${exact!.interfaces!.map(name => relatedTypeChip(name)).join("")}</div>
       </section>`
     : "";
 
   const derived = (meta.derivedTypes || []).length
     ? `<section class="document-section">
-        <div class="section-title"><h2>Known derived types</h2><span>${meta.derivedTypes!.length} in ${escapeHtml(meta.assembly || item.assembly)}</span></div>
+        <div class="section-title"><h2>Known derived types</h2><span>${meta.derivedTypes!.length} in ${escapeHtml(exactAssembly || item.assembly)}</span></div>
         <div class="type-chip-list">${meta.derivedTypes!.map(name => relatedTypeChip(name)).join("")}</div>
       </section>`
     : "";
 
-  const attributes = (meta.attributes || []).length
+  const attributes = (exact?.attributes || []).length
     ? `<section class="document-section">
-        <div class="section-title"><h2>Custom attributes</h2><span>${meta.attributes!.length}</span></div>
-        <div class="type-chip-list">${meta.attributes!.map(name => `<code class="attr-chip">[${escapeHtml(name)}]</code>`).join("")}</div>
+        <div class="section-title"><h2>Custom attributes</h2><span>${exact!.attributes!.length}</span></div>
+        <div class="type-chip-list">${exact!.attributes!.map(name => `<code class="attr-chip">[${escapeHtml(name)}]</code>`).join("")}</div>
       </section>`
     : "";
 
-  const composition = meta.composition && memberCompositionHtml
+  const composition = exact?.members?.length && memberCompositionHtml
     ? `<section class="document-section">
         <div class="section-title"><h2>Members</h2><span>click a count to browse the member list</span></div>
         ${memberCompositionHtml}

@@ -97,6 +97,43 @@ public sealed partial class BrowserEngineBoundaryTests
                 && edge.Kind == "implements");
         Assert.Empty(workspace.InspectionFailures);
         Assert.Equal(
+            ExactTypeInspectionOutcome.Available,
+            workspace.ExactTypeInspection.Content.Outcome);
+        Assert.Equal(
+            typeName,
+            workspace.ExactTypeInspection.Content.Type?.FullName);
+        Assert.IsType<InspectionShare.Available>(
+            workspace.ExactTypeInspection.Share);
+        InspectionEnvelope<ExactTypeInspectionResult> direct =
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                new ExactTypeInspectionRequest(
+                    rootPackageId,
+                    "1.0.0",
+                    "net11.0",
+                    typeName),
+                new WorkspaceContextLoadOptions
+                {
+                    HttpClient = BrowserPackageWorkspace.NetworkClient,
+                    SourceAuthorization =
+                        BrowserPackageWorkspace.PackageSourceAuthorization,
+                    PackageStore =
+                        BrowserPackageWorkspace.SessionPackageStore,
+                    PackageTransferPolicy =
+                        BrowserPackageWorkspace.PackageTransferPolicy,
+                    PayloadLimits =
+                        BrowserPackageWorkspace.PackageLimits,
+                },
+                TestContext.Current.CancellationToken);
+        Assert.Equal(
+            JsonSerializer.Serialize(
+                direct,
+                BrowserMetadataJsonContext.Default
+                    .ExactTypeInspectionEnvelope),
+            JsonSerializer.Serialize(
+                workspace.ExactTypeInspection,
+                BrowserMetadataJsonContext.Default
+                    .ExactTypeInspectionEnvelope));
+        Assert.Equal(
             typeName,
             workspace.TypeDependencyInspection.Content
                 .QueryResult.Dependency.MatchedType);
@@ -416,11 +453,14 @@ public sealed partial class BrowserEngineBoundaryTests
             ]
             """);
 
-        Assert.Equal(typeName, metadata.FullName);
-        Assert.Contains(typeof(IDisposable).FullName!, metadata.Interfaces);
+        ExactTypeApi exactType =
+            Assert.IsType<ExactTypeApi>(
+                metadata.ExactTypeInspection.Content.Type);
+        Assert.Equal(typeName, exactType.FullName);
+        Assert.Contains(typeof(IDisposable).FullName!, exactType.Interfaces);
         Assert.DoesNotContain(
             typeof(IAsyncDisposable).FullName!,
-            metadata.Interfaces);
+            exactType.Interfaces);
         Assert.Empty(metadata.GraphEdges);
         Assert.Contains(
             metadata.InspectionFailures,

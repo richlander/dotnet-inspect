@@ -895,13 +895,21 @@ test("type metadata renders composition, interfaces, and derived types once load
       typeMetadataLoading: false,
       typeMetadataError: null,
       typeMetadata: {
-        kind: "class",
-        accessibility: "public",
-        namespace: "System.Text.Json",
-        assembly: "System.Text.Json.dll",
-        interfaces: ["System.IDisposable"],
+        exactTypeInspection: {
+          content: {
+            type: {
+              kind: "class",
+              accessibility: "public",
+              namespace: "System.Text.Json",
+              interfaces: ["System.IDisposable"],
+              members: [{}],
+            },
+            supplierAssembly: {
+              identity: { name: "System.Text.Json" },
+            },
+          },
+        },
         derivedTypes: ["System.Text.Json.MyJsonSerializer"],
-        composition: { total: 3 },
       },
     },
     memberCompositionHtml: `

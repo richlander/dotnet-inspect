@@ -1006,6 +1006,58 @@ The workspace must eventually lend its retained image generation to the Metadata
 before it owns this path; constructing an independent catalog over the same path would create
 separate image lifetimes and budgets.
 
+#### Exact single-Type operation
+
+The first complete shared operation at this seam is exact single-Type API
+inspection. `ExactTypeInspectionRequest` names one explicitly versioned NuGet
+package, one explicit target framework other than `all`, and one non-glob Type.
+`ExactTypeInspectionOperation.Execute` consumes an admitted
+`WorkspaceRealizationOperationLease` and the matching loaded assembly context;
+`ExecuteAsync` is the initial cold host composition that constructs, activates,
+uses, and fully settles one owner-bounded realization per request.
+
+The Metadata query considers only participants realized from the requested
+package coordinate. It projects public members for public Types and complete
+members for an exact non-public Type, prefers an exact full-name declaration
+over fuzzy generic-name matching, follows Type forwarders through the group
+binding policy, and collapses roots only when Metadata resolves them to the
+same terminal definition. Distinct terminal definitions are ambiguous. The
+requested and supplying assemblies retain Metadata-issued assembly identity
+and MVID; ordered forwarding hops preserve the route between them.
+
+The terminal `InspectionEnvelope<ExactTypeInspectionResult>` is detached. Its
+content contains declaration facts, member signatures and inventory, exact
+assembly identities, forwarding evidence, suggestions, and typed failure
+evidence. It contains no Workspace, realization identity, lease, reader,
+acquired content, opener, callback, or other resource-bearing handle. Share
+projection and diagnostics are computed once by the shared operation. CLI and
+Browser/Wasm consume that envelope rather than reconstructing its facts.
+
+The CLI cutover is intentionally limited to the default quiet/minimal exact-Type
+view for an explicit package version and TFM. Explicit sections, alternate
+formats, filters, `--all`, normal/detailed verbosity, documentation/source work,
+and every non-package source shape remain on the compatibility path because
+their richer facts are outside this result contract. Browser/Wasm embeds the
+same envelope unchanged beside its existing Research-owned relationship graph
+and dependency envelope; those outer results do not become exact-Type facts.
+
+The Release gates are:
+
+- `ExactTypeInspectionOperationTests` for detached cold equivalence, exact
+  assembly/MVID identity, forwarded supplier identity and hops, not-found,
+  ambiguity, stable diagnostics, and predecessor/successor realization
+  association;
+- `ExactTypeWorkspaceRouteTests` for non-vacuous CLI retirement and default
+  member-signature rendering without the eligible legacy source resolver;
+- `BrowserEngineBoundaryTests.QueryTypeProjection_*` for Browser consumption,
+  exact non-public selection, and isolation from fuzzy dependency roots; and
+- `metadata-inspection.test.ts` plus `type-panel.test.ts` for the generated
+  Browser contract and presentation composition.
+
+The broader retained Browser realization lifecycle, type listing, source/PDB,
+Analysis, body, decompiler, standalone `member`, and package/platform/project/
+direct-library routes are not changed by this operation.
+
 ### 3. `AssemblyInspectionSession` — one PE-lifetime owner, composing `PdbContext`
 
 Opened from a `ResolvedAssemblyReference`, it owns the `PEReader`/`MetadataReader`, opens once,
