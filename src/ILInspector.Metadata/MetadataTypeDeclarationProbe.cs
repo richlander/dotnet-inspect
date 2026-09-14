@@ -492,7 +492,7 @@ public static class MetadataTypeDeclarationProbe
                 reader,
                 definition);
 
-    static bool TryReadExportedCandidate(
+    internal static bool TryReadExportedCandidate(
         MetadataReader reader,
         ExportedTypeHandle handle,
         AssemblyReferenceProjectionCache referenceProjection,

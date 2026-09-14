@@ -468,6 +468,16 @@ public sealed class AssemblyInspectionSession :
     }
 
     /// <summary>
+    /// Copies structured declaration and visibility evidence from this image
+    /// without reopening its source. The result survives session disposal.
+    /// </summary>
+    public AssemblyTypeDeclarationInventoryOutcome TypeDeclarations()
+    {
+        _image.EnsureAlive();
+        return AssemblyTypeDeclarationInventoryReader.Read(_image.PEReader);
+    }
+
+    /// <summary>
     /// Reports whether this image declares one exact structured extension
     /// member identity.
     /// </summary>
