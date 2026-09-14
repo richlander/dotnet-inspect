@@ -129,6 +129,34 @@ internal static class ProductEcosystemPacks
             new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
                 new PackagePrefixDeclaration("ModelContextProtocol")),
         ]),
+        ProjectWorkspace(new(
+            EcosystemPackIds.Azure,
+            "Azure",
+            "Azure client libraries, identity, and Microsoft.Extensions integration.",
+            600,
+            PackageSet: null,
+            [])
+        {
+            NamespaceRoots =
+            [
+                "Azure",
+                "Microsoft.Extensions.Azure",
+            ],
+            CorePackages =
+            [
+                new("Microsoft.Extensions.Azure"),
+                new("Azure.Identity"),
+                new("Azure.Security.KeyVault.Secrets"),
+                new("Azure.Storage.Blobs"),
+                new("Azure.Messaging.ServiceBus"),
+            ],
+        }, "ecosystem.azure",
+        [
+            new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
+                new PackagePrefixDeclaration("Azure.")),
+            new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
+                new PackagePrefixDeclaration("Microsoft.Extensions.Azure")),
+        ]),
     ]);
 
     internal static WorkspacePlan PlatformWorkspacePlan { get; } = EcosystemWorkspacePlanFactory.Create(
@@ -147,6 +175,7 @@ internal static class ProductEcosystemPacks
             EcosystemPackIds.MicrosoftExtensions,
             EcosystemPackIds.Aspire,
             EcosystemPackIds.AI,
+            EcosystemPackIds.Azure,
         ],
         requireAllPacks: true);
 
