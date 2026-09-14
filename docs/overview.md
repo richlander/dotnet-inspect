@@ -121,6 +121,11 @@ substrates, and inspection producers that will extend that space.
   it does not select a type binding. Its
   [delivery map](design/reverse-type-locator-adoption.md) stages producer and
   CLI/browser adoption separately.
+  [Workspace Live Locator](design/workspace-live-locator.md) owns the proposed
+  lazy, Workspace-resident declaration index, coherent observation of
+  append-only admitted population growth, and receipt-pinned queries that
+  return the same detached vectors. Metadata, source/publication and resource
+  owners retain their contracts; the facade drains through Workspace close.
   The proposed
   [structural clone search scope](design/structural-clone-search-scope.md)
   owner defines Library, Type, and Member seed populations plus the shared
