@@ -1025,12 +1025,16 @@ sealed record AssemblyContextGroupReleaseResult(Exception? Failure);
 public abstract class InspectionWorkspaceGroupCloseResult
 {
     internal InspectionWorkspaceGroupCloseResult(
-        int registrationIndex)
+        int registrationIndex,
+        bool succeeded)
     {
         RegistrationIndex = registrationIndex;
+        Succeeded = succeeded;
     }
 
     public int RegistrationIndex { get; }
+
+    public bool Succeeded { get; }
 }
 
 /// <summary>
@@ -1042,12 +1046,10 @@ public sealed class InspectionWorkspaceDirectGroupCloseResult
     internal InspectionWorkspaceDirectGroupCloseResult(
         int registrationIndex,
         Exception? failure)
-        : base(registrationIndex)
+        : base(registrationIndex, failure is null)
     {
         Failure = failure;
     }
-
-    public bool Succeeded => Failure is null;
 
     public Exception? Failure { get; }
 }
@@ -1060,8 +1062,9 @@ public sealed class InspectionWorkspaceCoordinatedGroupCloseResult<TResult>
 {
     internal InspectionWorkspaceCoordinatedGroupCloseResult(
         int registrationIndex,
-        TResult result)
-        : base(registrationIndex)
+        TResult result,
+        bool succeeded)
+        : base(registrationIndex, succeeded)
     {
         Result = result;
     }
@@ -1129,6 +1132,10 @@ public sealed class InspectionWorkspaceCloseReport
     {
         get;
     }
+
+    public bool Succeeded =>
+        ArtifactSessionCleanupFailures.IsEmpty
+        && Groups.All(group => group.Succeeded);
 }
 
 /// <summary>
