@@ -1,4 +1,3 @@
-using DotnetInspector.Ecosystems;
 using DotnetInspector.Queries;
 
 namespace DotnetInspect.Web;
@@ -393,6 +392,7 @@ internal static class BrowserSpotlightExternalPackageActivation
                 TNavigationAction,
                 TPlatformAction,
                 TLibraryIntent> descriptor,
+            WorkspacePlan curatedPlan,
             BrowserSpotlightRetainedWorkspaceAdmissionOperation<
                 THostAuthority,
                 THostRejection> admit,
@@ -427,6 +427,7 @@ internal static class BrowserSpotlightExternalPackageActivation
     {
         ArgumentNullException.ThrowIfNull(sourceWorkspace);
         ArgumentNullException.ThrowIfNull(descriptor);
+        ArgumentNullException.ThrowIfNull(curatedPlan);
         ArgumentNullException.ThrowIfNull(admit);
         ArgumentNullException.ThrowIfNull(createRequest);
         ArgumentNullException.ThrowIfNull(restore);
@@ -504,8 +505,6 @@ internal static class BrowserSpotlightExternalPackageActivation
         }
         THostAuthority hostAuthority = admitted.Authority;
         ArgumentNullException.ThrowIfNull(hostAuthority);
-        WorkspacePlan curatedPlan =
-            EcosystemPackCatalog.CreatePlatformWorkspacePlan();
         TDefinitionsRequest request =
             createRequest(plan.Package, curatedPlan, hostAuthority);
         ArgumentNullException.ThrowIfNull(request);

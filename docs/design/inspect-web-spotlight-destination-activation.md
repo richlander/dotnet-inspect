@@ -510,14 +510,15 @@ Stage 5 is implemented at the managed Definitions and retained-host
 composition boundary. `BrowserSpotlightExternalPackageActivation` accepts only
 `RestoreExternalPackageWorkspace`, validates the source activation basis,
 obtains one opaque retained-host intent authority, and supplies the exact
-Package plus `EcosystemPackCatalog.CreatePlatformWorkspacePlan()` to the
-Definitions request factory. Only a typed complete Definitions result can
-reach the synchronous retained-host publication operation. A source-basis or
-host-authority rejection after completion invokes the Definitions-owned
-non-install operation exactly once; a Definitions failure is retained without
-publication or duplicate cleanup. The live retained-Workspace collection,
-TypeScript selection intent, HTML effects, and end-to-end Browser acceptance
-remain owned by
+Package plus the exact Ecosystems-owned curated `WorkspacePlan` supplied by the
+Catalog facade to the Definitions request factory. The shared Core does not
+reach into the facade-only Ecosystems catalog. Only a typed complete
+Definitions result can reach the synchronous retained-host publication
+operation. A source-basis or host-authority rejection after completion invokes
+the Definitions-owned non-install operation exactly once; a Definitions
+failure is retained without publication or duplicate cleanup. The live
+retained-Workspace collection, TypeScript selection intent, HTML effects, and
+end-to-end Browser acceptance remain owned by
 [#6686](https://github.com/richlander/dotnet-inspect/issues/6686).
 
 Each implementation stage receives its own focused issue and PR. This design

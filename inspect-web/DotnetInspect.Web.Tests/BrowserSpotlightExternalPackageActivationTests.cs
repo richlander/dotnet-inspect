@@ -444,6 +444,7 @@ public sealed class BrowserSpotlightExternalPackageActivationTests
             TestNonInstallResult>(
                 source,
                 descriptor,
+                EcosystemPackCatalog.CreatePlatformWorkspacePlan(),
                 host.Admit,
                 createRequest,
                 restore,
