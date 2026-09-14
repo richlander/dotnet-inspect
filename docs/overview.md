@@ -350,10 +350,11 @@ substrates, and inspection producers that will extend that space.
   bytes, or decline so acquisition can continue.
   Its `SourceFetch` implementation targets an independent `SourceFetch` root
   alongside `NuGetFetch`: it owns bounded host-authorized source-byte
-  transport, redirect and origin enforcement, content-store integration, and
-  typed transport outcomes. `PdbSourceHouse` retains local, repository, and
-  remote ordering, PDB checksum verification, decoding, and settled
-  PDB-source outcomes.
+  transport, caller-owned validation, redirect handling without a provenance
+  claim, content-store integration, and typed transport outcomes; see
+  [SourceFetch evidence admission](design/source-fetch.md).
+  `PdbSourceHouse` retains local, repository, and remote ordering, PDB checksum
+  verification, decoding, and settled PDB-source outcomes.
 - `src/NetworkAccess/` owns the shared network-destination admission policy
   used by product HTTP composition and NuGet feed transports. Its project and
   compiled assembly dependencies are restricted to the platform by
