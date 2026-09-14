@@ -156,6 +156,7 @@ public sealed class DynamicCompilationSiteInventoryTests
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Manifest_MatchesLiveDynamicSites()
     {
         var live = ScanLiveSites();
@@ -211,6 +212,7 @@ public sealed class DynamicCompilationSiteInventoryTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void DynamicSiteCount_MatchesExpectedFingerprint()
     {
         Assert.Equal(ExpectedDynamicFiles, RetainedDynamicSites.Count);

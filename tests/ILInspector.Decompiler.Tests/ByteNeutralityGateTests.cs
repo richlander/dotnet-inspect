@@ -60,6 +60,7 @@ namespace ILInspector.Decompiler.Tests;
 /// registered equivalence contract.
 /// </para>
 /// </summary>
+[Trait("Speed", "Slow")]
 [Trait("Area", "Fidelity")]
 [Collection(FidelityGateCollection.Name)]
 public sealed class ByteNeutralityGateTests
@@ -274,7 +275,6 @@ public sealed class ByteNeutralityGateTests
     }
 
     [Fact]
-    [Trait("Speed", "Slow")]
     public void CompileBackValue_On_RecompilesToTheSameIlAsOff()
     {
         // The claim under test: an emitting compile-back value's rewritten output

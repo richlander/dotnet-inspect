@@ -94,11 +94,21 @@ public void SomeExpensiveTheory(string assemblyName)
 - The decompiler suite uses the same trait, but its native xUnit console
   runner takes a different flag spelling than the CLI suite's Microsoft
   Testing Platform runner: `dotnet run --project
-  tests/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"`
-  (fast) vs. `-trait "Speed=Slow"` (slow-only). See
+  tests/ILInspector.Decompiler.Tests -c Release -- --gate fast`
+  (`-trait- "Speed=Slow"`) vs. `--gate slow` (`-trait "Speed=Slow"`). The
+  path-gated `decompiler-gates` PR job owns the fast subset and a bounded
+  compile-back receipt; daily Deep Inspect's `--gate no-corpus` run owns every
+  excluded non-corpus test, including broad whole-pipeline sweeps. See
   [`docs/decompiler-correctness-pipeline.md`](decompiler-correctness-pipeline.md)
   for that suite's full `Area`/`Speed` trait combination and its
   `--gate fast`/`--gate slow` equivalents.
+
+  #6889 is the scale reference for this policy: measurement found 247 cases at
+  or above two seconds plus policy-defined corpus, fidelity, compile-back, and
+  whole-assembly suites in the nominal fast preset. Classifying 41 wholly-slow
+  classes and 72 individually-slow methods reduced the local fast path from
+  6,940 tests in 2,300 seconds to 5,445 tests in 159 seconds, with no remaining
+  case at or above the threshold.
 
 Tagging a test is a policy change (when it runs), not a behavior change (what
 it asserts). It requires no `.github/workflows/*.yml` edits.

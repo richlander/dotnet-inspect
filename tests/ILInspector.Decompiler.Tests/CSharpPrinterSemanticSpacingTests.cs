@@ -1224,6 +1224,7 @@ public class CSharpPrinterSemanticSpacingTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void InsertedBlankLines_RebaseAnnotatedSourceDocumentSpans()
     {
         using var source = MetadataSource.Open(typeof(SemanticSpacingFixture).Assembly.Location);

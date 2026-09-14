@@ -17,6 +17,7 @@ namespace ILInspector.Decompiler.Tests;
 /// in the listing — one composition, no drift. This is the #2996 output-contract
 /// enabler: CSharp-owned signature + decompiler-owned body, per member.
 /// </summary>
+[Trait("Speed", "Slow")]
 [Trait("Area", "RoundTrip")]
 public sealed class MemberBodyProducerMemberRenderTests
 {

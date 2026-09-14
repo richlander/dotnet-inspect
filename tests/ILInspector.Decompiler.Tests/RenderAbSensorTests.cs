@@ -4,6 +4,7 @@ using ILInspector.Research;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Speed", "Slow")]
 [Collection(ConsoleMutatorCollection.Name)]
 public class RenderAbSensorTests
 {

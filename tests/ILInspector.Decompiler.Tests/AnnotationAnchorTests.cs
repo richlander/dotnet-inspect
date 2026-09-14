@@ -21,6 +21,7 @@ public class AnnotationAnchorTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Box_AnchorsToTheReturnStatement_EvenThoughTheBoxWasRaisedAway()
     {
         // object BoxInt(int x) => x;  the box is erased by the raise, so no node
@@ -33,6 +34,7 @@ public class AnnotationAnchorTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void RaisedArrayLiteral_AnchorsToItsOwnStatement_NotThePrecedingOne()
     {
         // object first = new object(); return new object[] { first };
@@ -51,6 +53,7 @@ public class AnnotationAnchorTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void EveryAnnotation_IsAnchoredSomewhere()
     {
         // Positive-only: a fact is never silently dropped.
@@ -75,6 +78,7 @@ public class AnnotationAnchorTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void StackallocFactKeepsItsDeclarationLineCaretAfterStatementRangeNarrowing()
     {
         using var source = MetadataSource.Open(typeof(LifetimeSampleClass).Assembly.Location);
@@ -104,6 +108,7 @@ public class AnnotationAnchorTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Array_AnchorsToAStatementThatStillContainsTheNewArray()
     {
         // The array survives the raise, so its fact should land on the very
@@ -469,6 +474,7 @@ public class AnnotationAnchorTests
         => Assert.False(AnnotationAnchor.TryTrimToPrinted(lineText, ref column, ref length));
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void ResearchRegistry_RunsAllocationProducer()
     {
         var source = MetadataSource.Open(typeof(AllocSampleClass).Assembly.Location);

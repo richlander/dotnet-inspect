@@ -465,6 +465,7 @@ public class CrossAssemblyMethodFactsTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task ConcurrentResolution_DoesNotInvalidateDefinitionCorrespondence()
     {
         using var fixture = VersionUnifiedSignatureFixture.Create();
