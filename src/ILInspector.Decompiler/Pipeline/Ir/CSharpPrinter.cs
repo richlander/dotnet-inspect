@@ -3487,83 +3487,28 @@ public sealed partial class CSharpPrinter
     /// </summary>
     bool IsUnsafeOperation(IrNode node)
     {
-        if (ConsumedMethodsRequireUnsafe(node)
-            || ConsumedFieldsRequireUnsafe(node))
+        if (OperationMemorySafetyContract.RequiresUnsafe(
+                node,
+                _newMemorySafetyRules,
+                _skipLocalsInit,
+                _consumedMembers,
+                RefBindingTargetType))
             return true;
 
-        return node switch
-        {
-            CallIndirect => true,
-            StackAllocate => true,
-            // A stackalloc-backed Span (raised to `stackalloc T[n]` by
-            // StackAllocSpanPass) is governed by the stackalloc rule — unsafe
-            // only under [SkipLocalsInit], where the stack space is
-            // uninitialized.
-            StackAllocArray sa =>
-                _skipLocalsInit
-                || sa.ResultType?.Kind == TypeRefKind.Pointer,
-            Call c => MethodRequiresUnsafe(c.Callee)
-                || CallRendersPointerDereference(c),
-            NewObject n => MethodRequiresUnsafe(n.Constructor)
-                || ArgumentsRenderPointerDereference(
-                    n.Arguments,
-                    n.Constructor.ParameterTypes),
-            IncrementDecrement i =>
-                MethodRequiresUnsafe(i.ConsumedMethod),
-            Convert c => IsUnboxPointerConversion(c),
-            LoadField f => IsPointerReceiver(f.Instance),
-            StoreField f => IsPointerReceiver(f.Instance),
-            LoadFieldAddress f => IsPointerReceiver(f.Instance),
-            LoadProperty p =>
-                AccessorRequiresUnsafe(p.Accessor, p.Instance),
-            StoreProperty p =>
-                AccessorRequiresUnsafe(p.Accessor, p.Instance),
-            EventSubscription e =>
-                AccessorRequiresUnsafe(e.Accessor, e.Instance),
-            FixedBufferElementAddress => true,
-            LoadIndirect { Address: FixedBufferElementAddress } => true,
-            StoreIndirect { Address: FixedBufferElementAddress } => true,
-            LoadIndirect l => RendersAsPointerDeref(l.Address),
-            StoreIndirect s => RendersAsPointerDeref(s.Address),
-            InitObject o => RendersAsPointerDeref(o.Address),
-            _ => IsRaisedUnsafeOperation(node),
-        };
+        return false;
     }
 
-    bool IsRaisedUnsafeOperation(IrNode node) => node switch
-    {
-        StoreLocal { Type.Kind: TypeRefKind.ByRef } s => RendersAsPointerDeref(s.Value),
-        StoreStackSlot s when StackSlotTargetType(s) is { Kind: TypeRefKind.ByRef }
-            => RendersAsPointerDeref(s.Value),
-        Return { Value: { } value } when CurrentReturnType.Kind == TypeRefKind.ByRef
-            => RendersAsPointerDeref(value),
-        LocalFunctionInvocation i => (_newMemorySafetyRules
-                && i.RequiresUnsafe)
-            || !_newMemorySafetyRules
-                && SignatureRequiresUnsafe(i.ReturnType, i.ParameterTypes)
-            || ArgumentsRenderPointerDereference(i.Arguments, i.ParameterTypes),
-        PositionalPattern p => MethodRequiresUnsafe(p.ConsumedDeconstructMethod),
-        NullCoalescingFieldAssignment f => IsPointerReceiver(f.Instance),
-        NullCoalescingFieldAssignmentExpression f => IsPointerReceiver(f.Instance),
-        NullCoalescingPropertyAssignment p => AccessorRequiresUnsafe(p.Setter, p.Instance),
-        DeconstructionAssignment d => d.Targets.Any(DeconstructionTargetRequiresUnsafe)
-            || d.ConsumedDeconstructMethod is { } method
-                && MethodRequiresUnsafe(method),
-        DelegateCreation d => MethodRequiresUnsafe(d.Method)
-            || IsPointerReceiver(d.Target),
-        AddressOfMethod a => MethodRequiresUnsafe(a.Method),
-        ChainedAssignment c => c.Targets.Any(t => MethodRequiresUnsafe(t.Accessor)),
-        ObjectInitializerExpression o => MethodsRequireUnsafe(o.ConsumedMethods),
-        WithExpression w => MethodRequiresUnsafe(w.CloneMethod)
-            || MethodsRequireUnsafe(w.ConsumedMethods),
-        InitializerBlock i => MethodsRequireUnsafe(i.ConsumedMethods),
-        RecursivePropertyDeclarationPattern p => MethodRequiresUnsafe(p.Accessor),
-        PatternSwitchExpressionArm { Subpattern: { } p } => MethodRequiresUnsafe(p.Accessor),
-        _ => false,
-    };
+    TypeRef? RefBindingTargetType(IrNode node)
+        => node switch
+        {
+            StoreLocal store => store.Type,
+            StoreStackSlot store => StackSlotTargetType(store),
+            Return => CurrentReturnType,
+            _ => null,
+        };
 
     static bool IsPointerReceiver(IrExpression? receiver)
-        => receiver?.ResultType is { Kind: TypeRefKind.Pointer };
+        => OperationMemorySafetyContract.IsPointerReceiver(receiver);
 
     bool AccessorRequiresUnsafe(MethodRef accessor, IrExpression? receiver)
         => MethodRequiresUnsafe(accessor)
@@ -3571,92 +3516,20 @@ public sealed partial class CSharpPrinter
 
     bool MethodRequiresUnsafe(MethodRef? method)
         => method is not null
-            && MethodMemorySafetyContract.RequiresUnsafe(
+            && OperationMemorySafetyContract.MethodRequiresUnsafe(
                 method,
-                _newMemorySafetyRules,
-                SignatureRequiresUnsafe(method));
+                _newMemorySafetyRules);
 
     bool MethodsRequireUnsafe(IEnumerable<MethodRef?> methods)
         => methods.Any(MethodRequiresUnsafe);
-
-    bool ConsumedMethodsRequireUnsafe(IrNode node)
-    {
-        _consumedMembers.Clear();
-        ConsumedMemberEvidence.AddFrom(node, _consumedMembers);
-        return _consumedMembers.Any(item => item.Method is { } method
-            && MethodRequiresUnsafe(method));
-    }
-
-    bool ConsumedFieldsRequireUnsafe(IrNode node)
-    {
-        _consumedMembers.Clear();
-        ConsumedMemberEvidence.AddFrom(node, _consumedMembers);
-        return _consumedMembers.Any(item => item.Field is { } field
-            && FieldMemorySafetyContract.RequiresUnsafe(
-                field,
-                _newMemorySafetyRules,
-                legacyShapeRequiresUnsafe:
-                    field.FixedBuffer is null
-                    && ContainsPointer(field.Type)));
-    }
-
-    bool DeconstructionTargetRequiresUnsafe(DeconstructionTarget target)
-        => target is
-            {
-                Kind: DeconstructionTargetKind.Property,
-                Accessor: { } accessor,
-            }
-            && AccessorRequiresUnsafe(accessor, target.Instance);
-
-    bool CallRendersPointerDereference(Call call)
-    {
-        if (call.Callee.HasThis)
-        {
-            if (call.Arguments is not [var receiver, ..])
-                return false;
-            return IsPointerReceiver(receiver)
-                || ArgumentsRenderPointerDereference(
-                    [.. call.Arguments.Skip(1)],
-                    call.Callee.ParameterTypes);
-        }
-
-        return ArgumentsRenderPointerDereference(call.Arguments, call.Callee.ParameterTypes);
-    }
-
-    static bool ArgumentsRenderPointerDereference(
-        IReadOnlyList<IrExpression> arguments,
-        IReadOnlyList<TypeRef> parameterTypes)
-        => arguments
-            .Select((argument, index) => (argument, index))
-            .Any(pair => IsPointerByRefArgument(parameterTypes, pair.index, pair.argument));
 
     bool IsLegacyPointerOperation(IrNode node)
         => node is StoreStackSlot store
             ? ContainsPointer(StackSlotTargetType(store))
             : UnsafeAwaitOperand.IsLegacyPointerOperation(node);
 
-    /// <summary>
-    /// Compat-mode requires-unsafe heuristic for a callee whose
-    /// <c>RequiresUnsafeAttribute</c> can't be read (a cross-assembly
-    /// MemberRef): the member is requires-unsafe if a pointer or function-pointer
-    /// type appears anywhere among its parameter or return types — possibly
-    /// nested in a non-pointer type such as <c>int*[]</c>. Mirrors the spec's
-    /// compat fallback, which keeps such calls unsafe during the migration window
-    /// even for callers that haven't opted into the new rules.
-    /// </summary>
-    static bool SignatureRequiresUnsafe(MethodRef callee)
-        => SignatureRequiresUnsafe(callee.ReturnType, callee.ParameterTypes);
-
-    static bool SignatureRequiresUnsafe(
-        TypeRef returnType,
-        IEnumerable<TypeRef> parameterTypes)
-        => ContainsPointer(returnType) || parameterTypes.Any(ContainsPointer);
-
     static bool ContainsPointer(TypeRef? type)
-        => type is not null
-            && (type.Kind is TypeRefKind.Pointer or TypeRefKind.FunctionPointer
-                || ContainsPointer(type.ElementType)
-                || type.TypeArguments.Any(ContainsPointer));
+        => OperationMemorySafetyContract.ContainsPointer(type);
 
     /// <summary>
     /// Whether <see cref="Deref"/> renders this load/store-indirect address with
@@ -3665,20 +3538,8 @@ public sealed partial class CSharpPrinter
     /// <see cref="Deref"/> exactly: anything not spelled as a place or a
     /// <c>ByRef</c> is a pointer dereference, which requires an unsafe context.
     /// </summary>
-    static bool RendersAsPointerDeref(IrExpression address) => address switch
-    {
-        LoadArgument { Index: 0, Name: "this" } => false,
-        LoadLocalAddress => false,
-        LoadArgumentAddress => false,
-        LoadFieldAddress => false,
-        FixedBufferElementAddress => false,
-        LoadElementAddress => false,
-        Conditional { ResultType.Kind: TypeRefKind.ByRef } c
-            when c.WhenTrue.ResultType?.Kind == TypeRefKind.ByRef
-                && c.WhenFalse.ResultType?.Kind == TypeRefKind.ByRef => false,
-        { ResultType.Kind: TypeRefKind.ByRef } => false,
-        _ => true,
-    };
+    static bool RendersAsPointerDeref(IrExpression address)
+        => OperationMemorySafetyContract.RendersAsPointerDereference(address);
 
     /// <summary>
     /// A constructor-chain call renders as a <c>base(args)</c> / <c>this(args)</c>
@@ -5567,7 +5428,7 @@ public sealed partial class CSharpPrinter
         => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "IntPtr" or "UIntPtr" };
 
     static bool IsUnboxPointerConversion(Convert convert)
-        => IsNativeInteger(convert.Target) && convert.Operand is Unbox;
+        => OperationMemorySafetyContract.IsUnboxPointerConversion(convert);
 
     /// <summary>
     /// The C# type a store-indirect writes through. A primitive <c>stind</c>
