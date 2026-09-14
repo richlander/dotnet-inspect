@@ -1,0 +1,5 @@
+states/
+*.out
+*.log
+MC.cfg
+MC.tla
