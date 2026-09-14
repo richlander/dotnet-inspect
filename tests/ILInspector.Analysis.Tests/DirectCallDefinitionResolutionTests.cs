@@ -894,6 +894,48 @@ public sealed class DirectCallDefinitionResolutionTests
             Assert.Single(Resolve(functionPointer).Results));
     }
 
+    public static TheoryData<string, byte[], bool>
+        FunctionPointerHeaders => new()
+        {
+            { "explicit-this-without-this", [0x40, 0x00, 0x01], false },
+            { "explicit-this", [0x60, 0x00, 0x01], true },
+            { "reserved-bit", [0x80, 0x00, 0x01], false },
+            { "zero-arity-generic", [0x10, 0x00, 0x00, 0x01], false },
+        };
+
+    [Theory]
+    [MemberData(nameof(FunctionPointerHeaders))]
+    public void FunctionPointerHeadersAreValidated(
+        string _,
+        byte[] functionPointerSignature,
+        bool isSupported)
+    {
+        SyntheticParticipant participant = CreateSynthetic(new()
+        {
+            TargetSignature =
+            [
+                0x00,
+                0x01,
+                0x01,
+                0x1B,
+                .. functionPointerSignature,
+            ],
+            CallArgumentKinds = [SyntheticStackValue.NativeInt],
+        });
+
+        DirectCallDefinitionResolution result =
+            Assert.Single(Resolve(participant).Results);
+        if (isSupported)
+        {
+            Assert.IsType<DirectCallDefinitionResolution.Resolved>(result);
+        }
+        else
+        {
+            Assert.IsType<DirectCallDefinitionResolution.Unsupported>(
+                result);
+        }
+    }
+
     [Fact]
     public void UnmatchedAmbiguousUnsupportedAndIncompleteAreDistinct()
     {

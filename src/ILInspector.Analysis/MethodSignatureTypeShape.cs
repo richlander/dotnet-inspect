@@ -48,6 +48,10 @@ internal readonly record struct MethodSignatureTypeRoot(
 /// </summary>
 internal static class MethodSignatureTypeShape
 {
+    const byte HasThisSignatureFlag = 0x20;
+    const byte ExplicitThisSignatureFlag = 0x40;
+    const byte ReservedSignatureFlag = 0x80;
+
     internal static MethodSignatureTypeInspection InspectInvocation(
         MemberRef member,
         int typeGenericArity,
@@ -425,6 +429,7 @@ internal static class MethodSignatureTypeShape
                                 position,
                                 modifiedFrom)
                             || hasModifiedPayload
+                            || !HasSupportedFunctionPointerHeader(function)
                             || function.ParameterTypes.IsDefault
                             || function.RequiredParameterCount < 0
                             || function.RequiredParameterCount
@@ -604,6 +609,15 @@ internal static class MethodSignatureTypeShape
         MethodSignatureTypePosition position,
         MethodSignatureTypePosition? modifiedFrom) =>
         AllowsPointer(position, modifiedFrom);
+
+    static bool HasSupportedFunctionPointerHeader(
+        MethodSignature<TypeRef> signature) =>
+        signature.Header.Kind == SignatureKind.Method
+        && (signature.Header.RawValue & ReservedSignatureFlag) == 0
+        && ((signature.Header.RawValue & ExplicitThisSignatureFlag) == 0
+            || (signature.Header.RawValue & HasThisSignatureFlag) != 0)
+        && (!signature.Header.IsGeneric
+            || signature.GenericParameterCount > 0);
 
     static bool AllowsGenericParameter(
         MethodSignatureTypePosition position,
