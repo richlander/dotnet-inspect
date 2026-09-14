@@ -749,10 +749,22 @@ operation-level compatibility failure remains visible in that operation's
 surface; the Overview warning provides persistent package context rather than
 replacing the failure.
 
-Package content retains the admitted-library inventory and document links. The
-platform library picker remains with the Libraries section. Library rows enter
-the existing Library subject, whose Overview retains kind and namespace
-navigation. Document opening, counts, and ordering retain their semantics.
+Package content retains the admitted-library inventory, comparison targets, and
+document links. At wide inspector widths, the admitted-library inventory owns
+the primary column while comparison targets and package documents share a
+secondary package-resources column. This follows the useful content/resource
+allocation of conventional package-detail pages without adopting their overall
+navigation or adding package facts. At constrained widths, the same complete
+sections return to one ordered stack: Libraries, Documentation, then Comparison
+targets. Package documents precede comparison setup because they describe the
+current package, while comparison choices prepare a later operation. The
+platform library picker remains with the Libraries section.
+Library rows enter the existing Library subject, whose Overview retains kind
+and namespace navigation. Comparison selection, document opening, counts, and
+ordering retain their semantics.
+`System.Text.Json@10.0.0` is the motivating ordinary package: its admitted
+libraries remain primary while its README and comparison setup stay visible
+without requiring a second scroll through sparse full-width sections.
 
 The bottom context row preserves the exact package/version and active
 framework. At narrow widths the Libraries (Package) or Types (Library) return

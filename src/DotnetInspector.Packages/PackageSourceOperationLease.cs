@@ -44,6 +44,13 @@ public sealed class PackageSourceOperationLease : IDisposable
         return work.Generation.ResolvePinnedCandidate(authorization, coordinate);
     }
 
+    internal bool OwnsCandidate(PackageAcquisitionCandidate candidate)
+    {
+        using ActiveWorkRegistration work = StartWork();
+        work.Context.ThrowIfExpired();
+        return work.Generation.OwnsCandidate(candidate);
+    }
+
     public ValueTask<PackageAcquisitionCandidateResult> ResolvePinnedCandidateAsync(
         IPackageSourceAuthorization sourceAuthorization,
         PackageSourceCoordinate coordinate)

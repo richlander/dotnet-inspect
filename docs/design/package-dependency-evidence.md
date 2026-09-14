@@ -15,8 +15,10 @@ processing, and independent phase-count vocabulary for package-manifest and
 restored-project inputs. The authored-project facts provider and normalized
 adapter are implemented by `AuthoredProjectDependencyFactsQuery` and this
 query. The runtime provider and normalized adapter are implemented by
-`RuntimeDependencyFactsQuery` and this query. Policy composition and host
-adoption remain staged work. Restored-project inputs consume typed
+`RuntimeDependencyFactsQuery` and this query. The PackageHouse input adapter
+retains this owner-issued evidence as the prerequisite to policy composition.
+Pruning composition and host adoption remain staged work. Restored-project
+inputs consume typed
 pruning-processing evidence from their artifact owner. Optional owner
 observations remain dependent on issue #5315.
 
@@ -64,8 +66,15 @@ tracked by issue #5535. The focused query implementation is #5533, and #5532
 joins those consumers to restored-project facts from #5314, direct-nuspec
 identity from #5316, and optional package-owner evidence from issue #5315.
 
-The first policy consumer of the larger shape is the package-pruning
-composition required by
+The first package-processing consumer of the larger shape is
+`PackageHouseDependencyInputAdapter`, tracked by
+[#6644](https://github.com/richlander/dotnet-inspect/issues/6644). It retains
+one exact normalized dependency subject and root beside the source-authorized
+candidate and House request without translating this owner's authorship,
+processing, completion, or failure states.
+
+The first policy consumer is the subsequent package-pruning composition
+required by
 [#6228](https://github.com/richlander/dotnet-inspect/issues/6228). That policy
 combines this owner-issued shape with the independently owned platform prune
 inventory. It does not move pruning policy into this owner.

@@ -483,6 +483,26 @@ for (const [subject, width] of [
       "System.Text.Json@10.0.0", "net10.0",
     ]);
     if (subject === "package") {
+      const inventory = await box(page, ".package-overview-inventory");
+      const resources = await box(page, ".package-overview-resources");
+      if (width === 1440) {
+        expect(resources.x).toBeGreaterThanOrEqual(
+          inventory.x + inventory.width);
+        expect(resources.y).toBeCloseTo(inventory.y, 0);
+      } else {
+        expect(resources.x).toBeCloseTo(inventory.x, 0);
+        expect(resources.y).toBeGreaterThanOrEqual(
+          inventory.y + inventory.height);
+      }
+      await expect(page.locator(".package-overview-resources")).toContainText(
+        "Comparison targets");
+      await expect(page.locator(".package-overview-resources")).toContainText(
+        "Documentation");
+      await expect(page.locator(
+        ".package-overview-resources .section-title h2")).toHaveText([
+          "Documentation",
+          "Comparison targets",
+        ]);
       await page.getByRole("combobox", { name: "Version", exact: true }).selectOption("9.0.0");
       await expect(page.locator("#package-version")).toHaveValue("9.0.0");
       await page.getByRole("combobox", { name: "Framework", exact: true }).selectOption("net10.0-windows10.0.19041.0");
@@ -534,6 +554,31 @@ test("Package Overview keeps empty totals and available documents", async ({ pag
   await expect(page.locator(".library-row")).toHaveCount(0);
   await expect(page.locator("[data-doc-path='README.md']")).toBeVisible();
   await expect(page.locator(".overview-surface-footer")).toBeVisible();
+});
+
+test("Package Overview resources retain focus across allocation changes", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?package-overview=1");
+
+  const document = page.locator("[data-doc-path='README.md']");
+  await document.focus();
+  await page.setViewportSize({ width: 800, height: 900 });
+  await expect(document).toBeFocused();
+
+  const inventory = await box(page, ".package-overview-inventory");
+  const resources = await box(page, ".package-overview-resources");
+  expect(resources.y).toBeGreaterThanOrEqual(inventory.y + inventory.height);
+
+  const diffTarget = page.locator("#package-diff-target");
+  await diffTarget.focus();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(diffTarget).toBeFocused();
+  const wideInventory = await box(page, ".package-overview-inventory");
+  const wideResources = await box(page, ".package-overview-resources");
+  expect(wideResources.x).toBeGreaterThanOrEqual(
+    wideInventory.x + wideInventory.width);
 });
 
 test("Member Facts presents a compact summary separate from member identity", async ({
