@@ -976,12 +976,16 @@ for (const change of packageCoordinateChanges) {
     await expect(page.locator(change.selector)).toBeFocused();
     await expect(page.locator(".query-notice")).toContainText(change.error);
     await expect(page.locator(".loading-screen")).toHaveCount(0);
-    await page.locator(".query-notice").getByRole("button", { name: "Retry" }).click();
+    const retry = page.locator(".query-notice").getByRole("button", { name: "Retry" });
+    await retry.focus();
+    await retry.press("Enter");
     await expect(page.locator("#package-content-loading")).toHaveText(change.loadingLabel);
+    await expect(page.locator("#package-content-loading")).toBeFocused();
     await expect(page.locator("html")).toHaveAttribute("data-package-query-pending");
     await releaseFacade(page, "finish-package-query");
     await expect(page.locator(change.selector)).toHaveValue(change.selected);
     await expect(page.locator(".query-notice")).toHaveCount(0);
+    await expect(page.locator(change.selector)).toBeFocused();
   });
 
   test(`leaving a pending package ${change.name} ignores its late completion`, async ({ page }) => {

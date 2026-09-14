@@ -4482,6 +4482,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     : focusedElement?.id;
   const packageControlHadFocus = packageLoadingControl === "framework"
     || packageLoadingControl === "package-version";
+  const packageRetryHadFocus = loadingPackageContent
+    && focusedElement?.id === "retry-notice";
   const homeFocus =
     pendingHomeFocusTarget ?? captureHomeFocus(focusedElement);
   contentFrameFocusOwner = null;
@@ -4858,7 +4860,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     focusLevelOneHeading();
   } else if (isIntegrationMode(integrationTabFocus)) {
     restoreIntegrationTabFocus(document, integrationTabFocus);
-  } else if (packageControlHadFocus && (packageLoadingHadFocus || loadingPackageContent)) {
+  } else if (packageRetryHadFocus
+    || (packageControlHadFocus && (packageLoadingHadFocus || loadingPackageContent))) {
     document.querySelector<HTMLElement>(
       loadingPackageContent ? "#package-content-loading" : `#${packageLoadingControl}`)
       ?.focus({ preventScroll: true });
