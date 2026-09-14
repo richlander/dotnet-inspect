@@ -146,7 +146,7 @@ function patchGroup() {
 async function render() {
   explorer.beforeRender(key());
   app.innerHTML = `
-    <main>
+    <main class="package-dependencies-layout-harness">
       <h1 tabindex="-1">Dependencies: ${pkg.id}</h1>
       <div class="working-surface-actions"><button type="button" id="explore" data-graph-explore${state === "query-error" || state === "no-groups" ? " disabled" : ""}>Explore</button></div>
       <button type="button" id="coordinates">Package coordinate controls</button>

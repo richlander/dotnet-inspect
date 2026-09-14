@@ -835,9 +835,21 @@ references, and partial workspace warning. Selecting another manifest group
 patches its list and graph in place without changing the surface frame or
 resetting the package coordinate.
 
-The action row also exposes [Graph Explore](#graph-explore), retaining inline
-presentation as the default and the same dependency-group selection in both
-placements.
+The inline graph is a bounded structural preview so the selected group's direct
+NuGet dependency rows enter the initial result viewport. At wide inspector
+widths its viewport is capped at 360px; constrained inspector widths use 240px.
+This follows the useful division in dependency tools between lists for the
+immediate direct answer and graphs for structural exploration, without adopting
+another application's overall model. The action row exposes
+[Graph Explore](#graph-explore), which relocates the same live graph into the
+existing full-area viewport and retains the same dependency-group selection.
+Closing Explore returns that graph to the bounded inline preview. Other graph
+surfaces retain their existing inline sizing.
+
+`Microsoft.Extensions.Hosting@10.0.0` is the motivating graph-heavy package: its
+`net10.0` group has 22 direct NuGet dependencies, whose rows remain visible
+beside the inline graph experience. `System.Text.Json@10.0.0` is the neighboring
+zero-dependency case.
 
 The fixed bottom context row preserves the exact package coordinate and active
 framework. Loading, query failure, no-dependency, no-exact-group, graph

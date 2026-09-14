@@ -133,10 +133,11 @@ test("coordinate replacement closes the viewer and notices travel with the graph
 });
 
 for (const size of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
-  test(`Dependencies uses the viewport and keeps truncated diagnostics clear at ${size.width}px`, async ({ page }) => {
+  test(`Dependencies keeps a bounded inline preview and uses the Explore viewport at ${size.width}px`, async ({ page }) => {
     await page.setViewportSize(size);
     const inline = await page.locator(".graph-viewport").boundingBox();
-    expect(inline!.height).toBeCloseTo(540, 2);
+    expect(inline!.height).toBeCloseTo(size.width === 1440 ? 360 : 240, 2);
+    await expect(page.locator("#dep-list-section")).toBeInViewport();
     await page.getByRole("button", { name: "Explore", exact: true }).click();
     const viewport = await page.locator(".graph-viewport").boundingBox();
     expect(viewport!.width).toBeGreaterThan(size.width - 30);
@@ -173,6 +174,8 @@ for (const size of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }])
     }
     await expect(page.getByRole("button", { name: "Close", exact: true })).toBeInViewport();
     await page.getByRole("button", { name: "Close", exact: true }).click();
-    expect((await page.locator(".graph-viewport").boundingBox())!.height).toBeCloseTo(540, 2);
+    expect((await page.locator(".graph-viewport").boundingBox())!.height)
+      .toBeCloseTo(size.width === 1440 ? 360 : 240, 2);
+    await expect(page.locator("#dep-list-section")).toBeInViewport();
   });
 }
