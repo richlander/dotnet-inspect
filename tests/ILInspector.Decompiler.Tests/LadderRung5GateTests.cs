@@ -66,6 +66,7 @@ public class LadderRung5GateTests
     ];
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Rung5Fixture_ExposesExactProgramMemberSet()
     {
         var members = LoadRaisedMembers().Where(m => m.Type == ProgramType).ToList();
@@ -75,6 +76,7 @@ public class LadderRung5GateTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Rung5Fixture_ExposesExactRecordMemberSet()
     {
         var members = LoadRaisedMembers().Where(m => m.Type == RecordType).ToList();
@@ -87,6 +89,7 @@ public class LadderRung5GateTests
     // render valid C#, and no rung 5 member should be malformed after the #1630
     // with-expression fix removed the only Partial-malformed fixture member.
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Rung5Fixture_HasNoInvalidFull()
     {
         var results = ValidityCheck.Evaluate(FixturePath)

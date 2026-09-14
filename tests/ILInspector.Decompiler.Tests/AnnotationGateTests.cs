@@ -38,6 +38,7 @@ public class AnnotationGateTests
     static string CoreLibPath => typeof(object).Assembly.Location;
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void CoreLib_AnnotationsAgreeWithRawIL()
     {
         var result = AnnotationCheck.Evaluate(CoreLibPath);
