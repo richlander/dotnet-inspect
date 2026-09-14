@@ -767,6 +767,46 @@ public sealed class RowQueryContractTests
                     [new("A", 1, 1, "x")],
                     predicatePlan)));
 
+        var baselineFactoryException =
+            new SentinelException("baseline factory");
+        int baselineFactoryCalls = 0;
+        var baselineFactoryOrder =
+            new RowQueryNamedOrder<QueryRow>(
+                RowQueryNamedOrderIdentity.Create(),
+                "baseline-throwing",
+                RowQueryOrderPurpose.Sequence,
+                _ =>
+                {
+                    baselineFactoryCalls++;
+                    throw baselineFactoryException;
+                });
+        ResolvedRowQueryPlan<QueryRow> baselineFactoryPlan =
+            AssertSuccess(
+                RowQueryResolver.Resolve(
+                    RowQuerySchema<QueryRow>.Create(
+                        RowQuerySchemaIdentity.Create(),
+                        [],
+                        [baselineFactoryOrder]),
+                    Intent(
+                        baseline:
+                            RowQueryOrderIntent.Named(
+                                "baseline-throwing",
+                                RowQueryOrderDirection.Ascending))));
+        Assert.Equal(0, baselineFactoryCalls);
+        Assert.Same(
+            baselineFactoryException,
+            Assert.Throws<SentinelException>(
+                () => RowQueryExecutor.Apply(
+                    [],
+                    baselineFactoryPlan)));
+        Assert.Same(
+            baselineFactoryException,
+            Assert.Throws<SentinelException>(
+                () => RowQueryExecutor.Apply(
+                    [new("A", 1, 1, "x")],
+                    baselineFactoryPlan)));
+        Assert.Equal(2, baselineFactoryCalls);
+
         var comparerException =
             new SentinelException("comparer");
         RowQueryField<QueryRow> comparerField =

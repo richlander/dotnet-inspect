@@ -31,14 +31,14 @@ public static class RowQueryExecutor
                 selected.Add(row);
         }
 
-        if (plan.BaselineOrder is not null
-            && selected.Count > 1)
+        if (plan.BaselineOrder is not null)
         {
-            StableSort(
-                selected,
+            IComparer<TRow> comparer =
                 plan.CreateBaselineComparer()
                 ?? throw new InvalidOperationException(
-                    "A resolved baseline order produced no comparer."));
+                    "A resolved baseline order produced no comparer.");
+            if (selected.Count > 1)
+                StableSort(selected, comparer);
         }
 
         return RowSelectionExecutor.Apply(
