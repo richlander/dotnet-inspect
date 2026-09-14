@@ -36725,7 +36725,8 @@ public partial class CommandExecutionTests
             null,
             null,
             ("skills/safe/SKILL.md", safe),
-            ("skills/contained/SKILL.md", $"contained{bidi}skill"));
+            ("skills/contained/SKILL.md", $"contained{bidi}skill"),
+            ("skills/example/SKILL.md/payload.txt", "first\nsecond"));
         try
         {
             (string Name, string[] Arguments, string Stdout, string File)[] cases =
@@ -36789,6 +36790,21 @@ public partial class CommandExecutionTests
                 wildcard.Error,
                 StringComparison.Ordinal);
             Assert.False(File.Exists(wildcardPath));
+
+            var directoryPath = Path.Combine(tempDir, "directory.md");
+            File.WriteAllText(directoryPath, "sentinel");
+            var directory = await RunAppAsync(
+                "package", packagePath,
+                "--content", "--path", "skills/example/SKILL.md", "--bare", "-n1",
+                "--out", directoryPath, "--tips", "q");
+
+            Assert.Equal(1, directory.Exit);
+            Assert.Empty(directory.Output);
+            Assert.Contains(
+                "a rendered line limit cannot be combined with exact --out transfer",
+                directory.Error,
+                StringComparison.Ordinal);
+            Assert.Equal("sentinel", File.ReadAllText(directoryPath));
         }
         finally
         {

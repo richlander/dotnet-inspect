@@ -4080,14 +4080,16 @@ public class PackageCommand
                 && PackageFileFamily.IsSkillDocumentPath(selector));
     }
 
-    private static ProjectionDestination PackagePayloadDestination(InspectionOptions options)
+    private static ProjectionDestination PackagePayloadDestination(
+        InspectionOptions options,
+        bool? resolvedSkillPayload = null)
         => new(
             options.OutputPath,
             options.Rows,
             ExactTransfer: (options.Print || RequiresUnaryPackageContent(options))
                 && HasUnstructuredOutputPath(options)
                 && options.ContentScope == PackageFileContentScope.Full
-                && !IsGuaranteedSkillPayload(options));
+                && !(resolvedSkillPayload ?? IsGuaranteedSkillPayload(options)));
 
     /// <summary>
     /// Restores the readme role to the document the manifest declares when
@@ -4258,7 +4260,20 @@ public class PackageCommand
         if (LensProjection.TryProject(options, "--content", visibleRows.Count(row => row.Found), out var contentProjectionExit))
             return contentProjectionExit;
 
-        var destination = PackagePayloadDestination(options);
+        List<PackageFileContent> resolvedFiles =
+            visibleRows.Where(row => row.Found).Take(2).ToList();
+        bool? resolvedSkillPayload = resolvedFiles.Count == 1
+            ? resolvedFiles[0].SelectedContent is not null
+            : null;
+        var destination = PackagePayloadDestination(
+            options,
+            resolvedSkillPayload);
+        if (!ProjectionDestinationWriter.ValidateBeforeDestinationMutation(
+                destination))
+        {
+            return 1;
+        }
+
         if (options.Bare)
             return PrintBarePackageFileContentRows(visibleRows, destination);
 
@@ -4594,9 +4609,14 @@ public class PackageCommand
             return 1;
         }
 
-        var destination = PackagePayloadDestination(options);
-        if (!ProjectionDestinationWriter.ValidateBeforeAcquisition(destination))
+        var destination = PackagePayloadDestination(
+            options,
+            PackageFileFamily.IsSkillDocument(files[0]));
+        if (!ProjectionDestinationWriter.ValidateBeforeDestinationMutation(
+                destination))
+        {
             return 1;
+        }
 
         var content = ReadPackageFileContent(
             extractPath,
