@@ -204,9 +204,11 @@ portable replay identity.
 Timeline declares **Evaluations** and **Transitions** as separate result
 cohorts. Evaluations is its single high-value default section at `-v:m`,
 including for discovery-only work. Transitions is explicitly selectable;
-`-S @All` selects both. Bare `-S` selects the Timeline default, not pairwise
-Changes. The terminal's authoritative temporal evidence is not reduced to
-whichever cohort a renderer selects.
+`-S "*"` selects both through the existing wildcard grammar. The
+[section model](section-model.md#category-doors) remains authoritative; no
+computed `@All` category is introduced. Bare `-S` selects the Timeline default,
+not pairwise Changes. The terminal's authoritative temporal evidence is not
+reduced to whichever cohort a renderer selects.
 
 The section/query catalog is mode-aware before acquisition. Pairwise Changes,
 Analysis Diff, Implementation Diff, and Finding Transitions cannot be mixed
