@@ -1,5 +1,13 @@
 # Portable query intent
 
+## Status
+
+**Unverified.** This is a design-only contract. No part of it is implemented,
+and every gate in [Required gates](#required-gates) is a requirement on the
+implementation rather than a property enforced today. Statements about what a
+codec does, admits, or refuses describe the contract an implementation must
+satisfy, not observed behavior.
+
 ## Owner and consumers
 
 This focused owner defines **query intent**: the single serializable
@@ -78,7 +86,7 @@ One query intent is:
 | `terms` | A canonical set of `(key, operator, value)` triples. Composition follows the vocabulary's declared families. |
 | `bounds` | Declared execution bounds, each carrying an owner-issued dimension identity. Unordered. |
 | `stages` | The ordered selection-stage pipeline. Position-significant. |
-| `order` | Optional unresolved order references: one baseline, plus one per ranking stage. |
+| `order` | Optional unresolved order operations: at most one baseline, plus at most one per ranking stage. |
 
 A **key** is a canonical query key from the named vocabulary's declared key
 namespace: a bounded ordinal token. It is not a display label, heading, column
@@ -133,10 +141,13 @@ honestly claim; changing stage sequence changes the answer. Keeping them in
 distinct typed slots prevents the error this separation exists to prevent:
 reading an acquisition budget as a view window, or the reverse.
 
-**Order** is an unresolved order reference: either one named-order identity
-plus a direction, or an ordered list of key-and-direction terms composing
-lexicographically in declaration order. Intent carries at most one baseline
-order, and one ranking order bound to each selection stage that ranks. A
+**Order** is a set of unresolved order operations. Each is either one
+named-order identity plus a direction, or an ordered list of key-and-direction
+terms composing lexicographically in declaration order — the two forms
+`row-query-order.md` admits. Every operation carries its own role, so intent
+holds at most one baseline operation and at most one ranking operation per
+ranking stage, and an operation's internal boundary is never lost by flattening
+it against a neighbour. A
 vocabulary with no order — Package Query has none, because source relevance
 order is not its to own — simply omits the part.
 
@@ -162,13 +173,13 @@ the same query; equality is decided on those bytes and nowhere else.
   question, not the codec's, and so is whether the result is satisfiable.
 - Execution bounds emit in a fixed declared slot order. They are independent
   across dimensions, so their declaration sequence carries no meaning.
-- Selection stages and order operands are **position-significant and never
-  reordered**. Sequence is their meaning, so each emits exactly as declared,
-  and a ranking order emits with the stage it binds to.
+- Selection stages and order operations are **position-significant and never
+  reordered**. Sequence is their meaning, so each emits exactly as declared, and
+  a ranking operation names the stage index it binds to.
 
 Three canonicalization classes therefore exist, and no rule may move a part
-between them: conjoined terms sort, independent execution bounds occupy fixed
-slots, and ordered stages and order operands retain their declared sequence.
+between them: terms sort, independent execution bounds occupy fixed slots, and
+ordered stages and order operations retain their declared sequence.
 - Scalar escaping follows the packet's pinned canonical rules rather than a
   second escaping convention.
 - Values are never normalized here. Package identifiers, framework names, and
@@ -200,7 +211,7 @@ emitted as `null` or `[]`:
   "t": [["depends", "eq", "Serilog"]],
   "b": [["candidates", 200]],
   "s": [["head", 20]],
-  "o": [["downloads", "desc"]]
+  "o": [["base", "fields", "downloads", "desc"]]
 }
 ```
 
@@ -208,10 +219,52 @@ emitted as `null` or `[]`:
   strings. The operator is its identity token, not a symbol.
 - `b` is the execution-bound set in fixed slot order. Each bound is
   `[dimension, maximum]`: a string and a JSON integer.
-- `s` is the selection-stage sequence in declared order. Each stage is
-  `[stage, operand...]`, a string followed by its stage-owned operands.
-- `o` is the order-operand sequence in declared order. Each operand is
-  `[reference, direction]`, two strings.
+- `s` is the selection-stage sequence in declared order, encoded per the stage
+  table below.
+- `o` is the order-operation sequence in declared order, encoded per the order
+  table below.
+
+Every token is fixed. Implementations do not derive one from a .NET enum name,
+a CLI spelling, or a display label:
+
+| Kind | Canonical tokens |
+| --- | --- |
+| Operator | `eq`, `ne`, `gte`, `lte` |
+| Direction | `asc`, `desc` |
+| Stage | `head`, `tail`, `window`, `top` |
+| Order role | `base`, or a JSON integer index into `s` |
+| Order kind | `named`, `fields` |
+
+The operator set is exactly the four identities the row predicate syntax already
+admits; equality and inequality plus the two inclusive ordered comparisons. There
+is no strict `lt` or `gt`.
+
+Each stage tuple has fixed arity, so no stage is ambiguous with another:
+
+| Stage | Tuple | Notes |
+| --- | --- | --- |
+| Head | `["head", count]` | `count` is a positive integer. |
+| Tail | `["tail", count]` | `count` is a positive integer. |
+| Top | `["top", count]` | The ranking order binds through `o`, not here. |
+| Window | `["window", start, end]` | Arity is always 3. An omitted bound is positional `null`; present bounds are positive 1-based inclusive integers. |
+
+Positional `null` is permitted **only** in the two `window` endpoint slots.
+Nowhere else may a slot carry `null`.
+
+Each order operation carries its own role, kind, and boundary, so operations
+cannot run together:
+
+| Kind | Tuple |
+| --- | --- |
+| Named | `[role, "named", identity, direction]` |
+| Field list | `[role, "fields", key, direction, key, direction, ...]` |
+
+`role` is `base` for the baseline order, or the integer index of the `s` stage
+whose ranking it supplies. The operation array is its own boundary, so a
+baseline of `[a asc]` beside a ranking of `[b desc, c asc]` cannot serialize
+identically to a baseline of `[a asc, b desc]` beside a ranking of `[c asc]`.
+At most one operation carries `base`, and at most one carries any given stage
+index; a role naming a stage that is not `top` is invalid.
 
 Numbers are JSON integers with no sign, leading zero, fraction, or exponent.
 Strings use the packet's pinned canonical scalar escaping rather than a second
@@ -247,7 +300,8 @@ build or by vocabulary.
 | Terms | 24 |
 | Execution bounds | 8 |
 | Selection stages | 8 |
-| Order operands | 8, counting the baseline and every ranking reference |
+| Order operations | 8, counting the baseline and every ranking operation |
+| Order field terms | 8 in total across every operation |
 | Key or dimension identity | 64 bytes of UTF-8 |
 | Value token | 256 bytes of UTF-8 |
 
@@ -261,10 +315,21 @@ before that total is known.
 
 Each limit keeps the payload beneath the packet's per-payload allowance of 4 KiB,
 depth 12, and 256 JSON values. The shape above reaches depth 4 — object, array,
-inner array, scalar — against a declared ceiling of 6. Its worst-case JSON value
-count is 173: one object, plus 97 for `t` (one array, 24 inner arrays, 72
-strings), and 25 each for `b`, `s`, and `o` (one array, 8 inner arrays, 16
-scalars). A payload admitted here therefore cannot breach the outer bound.
+inner array, scalar — against a declared ceiling of 6.
+
+Its worst-case JSON value count is 197:
+
+| Part | Values | Worst case |
+| --- | --- | --- |
+| Object | 1 | |
+| `t` | 97 | one array, 24 term arrays, 72 strings |
+| `b` | 25 | one array, 8 bound arrays, 16 scalars |
+| `s` | 33 | one array, 8 stage arrays, 24 scalars — every stage a three-slot `window` |
+| `o` | 41 | one array, 8 operation arrays, 16 role and kind scalars, 16 field-term scalars |
+
+A payload admitted here therefore cannot breach the outer bound. The `s` figure
+uses the widest stage tuple rather than the narrowest, because a payload may use
+`window` throughout.
 
 Limits are charged **as parsed, before duplicate collapse**. A payload declaring
 thirty terms that would collapse to three is rejected on the twenty-fifth rather
@@ -335,13 +400,13 @@ Canonical intent is the payload of one `[queryId, payload]` tuple in packet
 format 2's query table: `queryId` is the vocabulary identity, and the payload is
 the closed JSON object fixed by [The canonical payload](#the-canonical-payload).
 
-- Parse and canonical write round-trip byte-for-byte, satisfying the packet's
-  owner-codec requirement.
+- Parse and canonical write must round-trip byte-for-byte, satisfying the
+  packet's owner-codec requirement.
 - The pinned maxima in [Declared limits](#declared-limits) sit beneath the
-  packet's per-payload allowance and are enforced before any vocabulary binder
-  runs.
-- Semantically identical query states deduplicate on canonical bytes, matching
-  the packet's stated table ordering and dedup rule.
+  packet's per-payload allowance and must be enforced before any vocabulary
+  binder runs.
+- Semantically identical query states must deduplicate on canonical bytes,
+  matching the packet's stated table ordering and dedup rule.
 
 Packet format 2 retains `t`, `g`, `a`, and `x`, requires one view-state entry
 per coordinate-table index, and rejects empty contexts. A package query has no
@@ -354,10 +419,10 @@ the payload it would carry.
 
 | Gate | Contract |
 | --- | --- |
-| `IntentCanonicalFormRoundTripsByteForByte` | Parse then canonical write reproduces exact bytes for every supported term, operator, execution bound, selection stage, order operand, and escaping vector. |
+| `IntentCanonicalFormRoundTripsByteForByte` | Parse then canonical write reproduces exact bytes for every supported term, operator, execution bound, selection stage, order operation, and escaping vector, including all four `window` endpoint combinations and both order kinds. |
 | `IntentCanonicalFormIsIndependentOfTermOrder` | Term sequence, duplicate terms, and execution-bound declaration sequence do not change canonical bytes; semantically identical states deduplicate. |
 | `SelectionStageSequenceSurvivesRoundTrip` | Stage sequence survives byte-for-byte and is never sorted, deduplicated, or merged into the bound set; two intents differing only in stage sequence have different canonical bytes, witnessed by the `Head`/`Top` commutation case. |
-| `OrderOperandsRetainDeclaredSequence` | An order operand's sequence and direction survive round-trip exactly, are never sorted or deduplicated, and a ranking order stays bound to its selection stage; two intents differing only in baseline order have different canonical bytes. |
+| `OrderOperationsAreInjective` | Role, kind, operation boundary, sequence, and direction survive round-trip exactly and are never sorted or deduplicated; a ranking operation stays bound to its stage index; two intents differing only in baseline order, or only in how the same field terms divide between baseline and ranking, have different canonical bytes. |
 | `IntentResolutionIsAtomic` | An invalid vocabulary, key, operator, value, or bound returns the deterministic first structured failure with no plan and no partial binding. |
 | `IntentResolutionStartsNoWork` | A rejected intent issues no acquisition, source request, or payload fetch; gated with a source capability that fails the test if invoked. |
 | `UnresolvableTermFailsVisibly` | An intent naming a key, operator, or dimension absent from the current build fails; it is never dropped, defaulted, narrowed, or widened. |
