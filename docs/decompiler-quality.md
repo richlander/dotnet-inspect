@@ -106,9 +106,11 @@ inside the fixed corpus**, not a larger random assembly set.
 
 Use this order for risky decompiler work:
 
-1. Run the fixed corpus with multiple `--corpus-fidelity-cap` values and record
-   exact, opcode-diff, operand-diff, fidelity-unavailable, recompile-failed, and
-   context-failed counts plus failure buckets.
+1. Run the fixed corpus through separate native RTS invocations at the desired
+   `--corpus-fidelity-cap` values, and record exact, opcode-diff, operand-diff,
+   fidelity-unavailable, recompile-failed, and context-failed counts plus
+   failure buckets. Separate runs preserve the complete independently selected
+   ledger for each cap.
 2. For a risky raise/structuring PR, emit a per-method corpus delta and treat the
    changed methods as the fidelity population to cover. A bigger general sample
    is not enough if the changed methods remain unchecked.

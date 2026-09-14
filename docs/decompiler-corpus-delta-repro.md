@@ -52,6 +52,7 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --corpus-method-cap 100 \
   --compile-cap 0 \
   --corpus-fidelity-cap 0 \
+  --corpus-fidelity-oracle compile-back \
   --max-examples 24
 ```
 
@@ -72,6 +73,7 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --corpus-method-cap 100 \
   --compile-cap 0 \
   --corpus-fidelity-cap 0 \
+  --corpus-fidelity-oracle compile-back \
   --max-examples 24
 ```
 
