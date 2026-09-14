@@ -79,11 +79,18 @@ or the work appears to need multiple normative owners.
 5. Re-run focused gates for anything the integrated range can affect.
 6. Push and record the candidate head and effective base; the lock begins.
 7. Satisfy the applicable eligibility row below.
-8. Dispatch every required reviewer at the exact candidate head.
+8. Dispatch every required reviewer at the exact candidate head. When every
+   reviewer returns a usable result, the round number is spent.
 9. Reconcile all feedback publicly.
 10. Close only when reconciliation, the applicable local gates, and the status
-    acquisition cadence are satisfied. The lock ends, the round number is
-    spent, and the visible [round report](#the-round-report) is required.
+    acquisition cadence are satisfied. The lock ends, and the visible
+    [round report](#the-round-report) is required.
+
+A round is spent when every required reviewer returns a usable result. A clean
+result can make that exact head review-clean. A finding-producing result spends
+the round just as surely: reconcile it, report the round, and form any fix as
+the next numbered round. A cancelled, empty, policy-blocked, or otherwise
+unusable review does not spend a round and may be retried on the unchanged head.
 
 ### Eligibility table
 
@@ -113,30 +120,34 @@ reviewer to return no findings against an unchanged locked head; use
 
 Recovery transitions, applied without waiting for CI:
 
-- **Conflict:** supersede, integrate, resolve, push immediately, and restart
-  the same round. A conflict after clean review may instead take the
+- **Conflict before a usable review result:** supersede, integrate, resolve,
+  push immediately, and retry the pending round. A conflict after clean review
+  may instead take the
   [exact-head trivial-interaction waiver](#trivial-interaction-re-review-waiver)
   path when its resolution satisfies every stated condition; don't dispatch
   replacement reviewers while that decision is pending.
 - **Scope violation:** keep the locked head unchanged while the user chooses
   split, abandonment, or an approved broad exception (see
   [Recovering from an over-broad design](design-scope.md#recovering-from-an-over-broad-design)).
-  A resulting head change follows the author-change transition at the same
-  round.
-- **Failure requiring an author change:** supersede, push the fix, satisfy the
-  failed-gate row, and restart the same round.
-- **Cancelled or evidenced transient failure:** keep the lock and retry the
-  unchanged head; repeat only with concrete transient evidence, otherwise treat
-  it as an author change.
+  Before a usable review result, a resulting head change retries the pending
+  round; afterward, it forms the next numbered round.
+- **Pre-review failure requiring an author change:** supersede, push the fix,
+  satisfy the failed-gate row, and retry the pending round.
+- **Review finding requiring an author change:** close and report the
+  finding-producing round; push the fix as the next numbered round.
+- **Cancelled or evidenced transient review failure:** keep the lock and retry
+  the unchanged head only with concrete transient evidence. An unusable review
+  result does not spend the pending round.
 
 A final-gate `ci-required` failure observed during or after a non-boundary
 Markdown-only round does not interrupt or reopen that round. Finish its review
 path; afterward, retry the unchanged head only with concrete transient evidence,
 otherwise remove `review-clean` and form a candidate at the next round number.
 Never close a round or goal while one of its applicable required checks is red. A
-superseded attempt spends no round and gets no completion report; let its
-reviewers finish or acknowledge cancellation, and carry every returned finding
-forward.
+candidate superseded before a usable reviewer result spends no round and gets no
+completion report. Once every required reviewer returns a usable result, that
+round is spent even when findings require a replacement head; carry every
+finding forward.
 
 ### Merge preflight
 
@@ -416,6 +427,11 @@ Reconcile the reviews publicly on the PR: attribute findings, state what was
 verified or dismissed, and link resolution commits or explain explicit
 non-actions.
 
+Every review status and reconciliation post names the numbered round, cumulative
+pushed-candidate count, cumulative usable-review count, and cumulative accepted
+finding count. Never report the round number alone when replacement attempts or
+findings make it an incomplete description of progress.
+
 When a replacement candidate is required, say so on the PR and name the base tip
 and merge commit, so the next review reads as a confirmation rather than an
 unexplained second full pass.
@@ -441,6 +457,8 @@ Round <n> is complete for PR <number>.
 - Round end: <datetime>.
 - Round duration: <hours:minutes>
 
+Progress: <pushed candidates> candidates, <usable reviews> usable reviews,
+<accepted findings> accepted findings.
 Reviews: <clean>/<required> clean — <status by reviewer>
 Blocked: <PR or issue numbers not yours to fix; omit when empty>
 Waiting: <comma-separated tool-evaluable predicates; omit when empty>
@@ -607,10 +625,11 @@ other interaction invalidates both. Any head movement also invalidates both.
 ## Block boundaries and splitting
 
 [Stop after six rounds](../AGENTS.md#stop-after-six-rounds) states the binding
-rules: rounds 1-6 run without approval, approval is required only before
-rounds 7, 13, 19, and so on, and round 12 (and every six-round boundary after
-it) carries a presumption to split remaining work into focused successors.
-This section owns the checkpoint procedure and the split mechanics.
+rules: each usable fixed-head review result consumes one round; rounds 1-6 run
+without approval; approval is required before rounds 7, 13, 19, and so on; and
+round 12 (and every six-round boundary after it) carries a presumption to split
+remaining work into focused successors. This section owns the checkpoint
+procedure and split mechanics.
 
 ### The block-approval checkpoint
 
