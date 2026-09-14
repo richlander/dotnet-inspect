@@ -936,7 +936,12 @@ The Release gates for the desktop adoption are:
 - `ConfiguredPayloadAcquisitionTests`, covering exact and selected acquisition,
   partial authorization, required-producer filtering, reporting-authority
   fallback, invalid selection, timeouts, cancellation, and composition
-  settlement, with
+  settlement; `DesktopSettlementWaitsForPayloadBeforeReleasingClients`
+  preserves synchronous post-disposal rejection for valid and invalid
+  requests, and
+  `AcquireSelected_TransportFallbackRetainsOriginalSourceSelection` keeps
+  pre-acquisition source-set correspondence independent of payload-attempt
+  failures, with
   `CandidateManifest_UsesHouseOwnedDesktopOperation` as the positive
   composition-owned candidate and manifest canary;
 - `PackageHouseExecutionTests.ExactAcquireBindsLivePayloadToResourceFreeReceipt`

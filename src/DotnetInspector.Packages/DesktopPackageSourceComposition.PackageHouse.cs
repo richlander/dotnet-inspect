@@ -92,7 +92,7 @@ public sealed partial class DesktopPackageSourceComposition
                 IPackageStore> createStore,
             NuGetSourceOptions? sourceOptions,
             Action<string>? log,
-            CancellationToken cancellationToken,
+            PackageSourceOperationLease sourceOperation,
             PackagePayloadLimits? limits,
             IPackagePayloadTransferPolicy? transferPolicy,
             string? requiredProducerKey)
@@ -110,7 +110,7 @@ public sealed partial class DesktopPackageSourceComposition
                 limits,
                 transferPolicy,
                 log),
-            cancellationToken,
+            sourceOperation,
             requiredProducerKey);
     }
 
@@ -123,7 +123,7 @@ public sealed partial class DesktopPackageSourceComposition
                 IPackageStore> createStore,
             NuGetSourceOptions? sourceOptions,
             Action<string>? log,
-            CancellationToken cancellationToken,
+            PackageSourceOperationLease sourceOperation,
             PackagePayloadLimits? limits,
             IPackagePayloadTransferPolicy? transferPolicy)
     {
@@ -140,7 +140,7 @@ public sealed partial class DesktopPackageSourceComposition
                 limits,
                 transferPolicy,
                 log),
-            cancellationToken,
+            sourceOperation,
             requiredProducerKey: null);
     }
 
@@ -150,16 +150,16 @@ public sealed partial class DesktopPackageSourceComposition
             string packageId,
             NuGetSourceOptions? sourceOptions,
             PackagePayloadAcquisitionPlan payloadAcquisition,
-            CancellationToken cancellationToken,
+            PackageSourceOperationLease sourceOperation,
             string? requiredProducerKey)
     {
         Task<PackageHouseSettlement> execution =
-            ExecuteHouseAsync(
+            ExecuteHouseCoreAsync(
                 request,
                 packageId,
                 sourceOptions,
                 payloadAcquisition,
-                cancellationToken,
+                sourceOperation,
                 requiredProducerKey);
         return ProjectPayloadAsync(execution);
     }
@@ -191,10 +191,7 @@ public sealed partial class DesktopPackageSourceComposition
         string? requiredProducerKey)
     {
         PackageSourceOperationLease sourceOperation =
-            _sourceLease.IssueOperationLease(
-                cancellationToken,
-                request.Operation.RequestTimeout,
-                request.Operation.OperationTimeout);
+            IssueHouseOperation(cancellationToken);
         return ExecuteHouseCoreAsync(
             request,
             packageId,
@@ -203,6 +200,13 @@ public sealed partial class DesktopPackageSourceComposition
             sourceOperation,
             requiredProducerKey);
     }
+
+    private PackageSourceOperationLease IssueHouseOperation(
+        CancellationToken cancellationToken) =>
+        _sourceLease.IssueOperationLease(
+            cancellationToken,
+            _options.RequestTimeout,
+            _options.OperationTimeout);
 
     private async Task<PackageHouseSettlement> ExecuteHouseCoreAsync(
         PackageHouseRequest request,

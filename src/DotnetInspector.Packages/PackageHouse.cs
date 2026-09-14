@@ -439,6 +439,12 @@ public sealed class PackageHouse
                     _payloadAcquisition
                     ?? throw new InvalidOperationException(
                         "An Acquire or Realize operation requires an authority-scoped package store capability.");
+                bool selectionUsesOriginalSources =
+                    request.Demand is not PackageHouseDemand.Selecting
+                    || failures.Count == 0
+                        && AuthoritiesMatch(
+                            candidate,
+                            authorization);
                 ConfiguredPackagePayloadResult payloadResult =
                     await sourceOperation
                         .AcquireCandidatePayloadAsync(
@@ -451,12 +457,6 @@ public sealed class PackageHouse
                         .ConfigureAwait(false);
                 failures.AddRange(
                     AdaptFailures(request, payloadResult.Failures));
-                bool selectionUsesOriginalSources =
-                    request.Demand is not PackageHouseDemand.Selecting
-                    || failures.Count == 0
-                        && AuthoritiesMatch(
-                            candidate,
-                            authorization);
                 if (payloadResult.Payload is not { } payload)
                 {
                     PackageHouseEvidence evidence = new(

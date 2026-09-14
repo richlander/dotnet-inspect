@@ -170,6 +170,51 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     [Fact]
+    public async Task AcquireSelected_TransportFallbackRetainsOriginalSourceSelection()
+    {
+        const string Id = "Selected.TransportFallback";
+        var requests = new ConcurrentQueue<string>();
+        await using var composition = CreateComposition((source, _) =>
+            new SelectionFeedHandler(
+                source.Url,
+                Id,
+                [Version],
+                version => CreatePackage(
+                    Id,
+                    source.Url,
+                    version: version),
+                requests,
+                payloadStatus:
+                    source.Url == FirstFeed
+                        ? HttpStatusCode.BadGateway
+                        : null));
+
+        ConfiguredPackagePayloadResult result =
+            await composition.AcquireSelectedAsync(
+                Id,
+                null,
+                (_, _) => new InMemoryPackageStore(),
+                new NuGetSourceOptions
+                {
+                    Sources = [FirstFeed, SecondFeed],
+                },
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.NotNull(result.Payload);
+        Assert.Equal(SecondFeed, result.Authority!.Source.Url);
+        Assert.Contains(
+            result.Failures,
+            failure =>
+                failure.Kind
+                    == PackageAuthorityFailureKind.Transport
+                && failure.Authority.ToString().Contains(
+                    FirstFeed,
+                    StringComparison.Ordinal));
+        Assert.True(result.SelectionUsesOriginalSources);
+    }
+
+    [Fact]
     public async Task AcquireSelected_QueryDistinctAuthoritiesDoNotShareReportingEvidence()
     {
         const string Id = "Selected.QueryAuthority";
@@ -569,7 +614,9 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     private sealed class SelectionFeedHandler(
         string source, string id, IReadOnlyList<string> versions,
         Func<string, byte[]> payload, ConcurrentQueue<string> requests,
-        bool missingPayload = false, bool listed = true, bool missingListingState = false,
+        bool missingPayload = false, bool listed = true,
+        bool missingListingState = false,
+        HttpStatusCode? payloadStatus = null,
         Func<string, CancellationToken, Task>? beforeResponse = null) : HttpMessageHandler
     {
         protected override async Task<HttpResponseMessage> SendAsync(
@@ -610,9 +657,15 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             else if (url.StartsWith($"{flat}{id.ToLowerInvariant()}/", StringComparison.Ordinal)
                 && url.EndsWith(".nupkg", StringComparison.Ordinal))
             {
-                status = missingPayload ? HttpStatusCode.NotFound : HttpStatusCode.OK;
+                status = payloadStatus
+                    ?? (missingPayload
+                        ? HttpStatusCode.NotFound
+                        : HttpStatusCode.OK);
                 string version = request.RequestUri.Segments[^2].TrimEnd('/');
-                content = new ByteArrayContent(missingPayload ? [] : payload(version));
+                content = new ByteArrayContent(
+                    status == HttpStatusCode.OK
+                        ? payload(version)
+                        : []);
             }
             else
             {

@@ -46,38 +46,51 @@ public sealed partial class DesktopPackageSourceComposition
                 _options.RequestTimeout,
                 _options.OperationTimeout);
         }
-        if (!PackageExtractor.IsValidPackageId(packageId))
-        {
-            return Task.FromResult(
-                InvalidSelection(
-                    "The package ID must use the NuGet package ID grammar."));
-        }
-        if (sourceOptions?.AuthorizedSourceKeys is not null
-            || sourceOptions?.ResolvedSources is not null)
-        {
-            return Task.FromResult(
-                InvalidSelection(
-                    "Selected payload acquisition requires configured sources, not legacy producer or resolved-source restrictions."));
-        }
-        if (!TryCreateSelectionRequest(
-                packageId,
-                versionSelector,
-                includePrerelease,
-                rangeAddress,
-                out PackageVersionSelectionRequest? selection,
-                out ConfiguredPackagePayloadResult? failure))
-        {
-            return Task.FromResult(failure!);
-        }
 
-        return AcquireSelectedThroughHouseAsync(
-            selection!,
-            createStore,
-            sourceOptions,
-            log,
-            cancellationToken,
-            limits,
-            transferPolicy);
+        PackageSourceOperationLease? sourceOperation =
+            IssueHouseOperation(cancellationToken);
+        try
+        {
+            if (!PackageExtractor.IsValidPackageId(packageId))
+            {
+                return Task.FromResult(
+                    InvalidSelection(
+                        "The package ID must use the NuGet package ID grammar."));
+            }
+            if (sourceOptions?.AuthorizedSourceKeys is not null
+                || sourceOptions?.ResolvedSources is not null)
+            {
+                return Task.FromResult(
+                    InvalidSelection(
+                        "Selected payload acquisition requires configured sources, not legacy producer or resolved-source restrictions."));
+            }
+            if (!TryCreateSelectionRequest(
+                    packageId,
+                    versionSelector,
+                    includePrerelease,
+                    rangeAddress,
+                    out PackageVersionSelectionRequest? selection,
+                    out ConfiguredPackagePayloadResult? failure))
+            {
+                return Task.FromResult(failure!);
+            }
+
+            Task<ConfiguredPackagePayloadResult> execution =
+                AcquireSelectedThroughHouseAsync(
+                    selection!,
+                    createStore,
+                    sourceOptions,
+                    log,
+                    sourceOperation,
+                    limits,
+                    transferPolicy);
+            sourceOperation = null;
+            return execution;
+        }
+        finally
+        {
+            sourceOperation?.Dispose();
+        }
     }
 
     private async Task<ConfiguredPackagePayloadResult> AcquireSelectedCoreAsync(

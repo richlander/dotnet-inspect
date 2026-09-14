@@ -43,27 +43,40 @@ public sealed partial class DesktopPackageSourceComposition
                 _options.RequestTimeout,
                 _options.OperationTimeout);
         }
-        if (!PackageExtractor.IsValidPackageId(packageId)
-            || !PackageExtractor.TryNormalizePackageVersion(
-                version,
-                out string normalizedVersion))
-        {
-            return Task.FromResult(
-                InvalidSelection(
-                    "Payload acquisition requires a valid package ID and an exact version."));
-        }
 
-        return AcquirePinnedThroughHouseAsync(
-            PackageSourceCoordinate.Create(
-                packageId,
-                normalizedVersion),
-            createStore,
-            sourceOptions,
-            log,
-            cancellationToken,
-            limits,
-            transferPolicy,
-            requiredProducerKey);
+        PackageSourceOperationLease? sourceOperation =
+            IssueHouseOperation(cancellationToken);
+        try
+        {
+            if (!PackageExtractor.IsValidPackageId(packageId)
+                || !PackageExtractor.TryNormalizePackageVersion(
+                    version,
+                    out string normalizedVersion))
+            {
+                return Task.FromResult(
+                    InvalidSelection(
+                        "Payload acquisition requires a valid package ID and an exact version."));
+            }
+
+            Task<ConfiguredPackagePayloadResult> execution =
+                AcquirePinnedThroughHouseAsync(
+                    PackageSourceCoordinate.Create(
+                        packageId,
+                        normalizedVersion),
+                    createStore,
+                    sourceOptions,
+                    log,
+                    sourceOperation,
+                    limits,
+                    transferPolicy,
+                    requiredProducerKey);
+            sourceOperation = null;
+            return execution;
+        }
+        finally
+        {
+            sourceOperation?.Dispose();
+        }
     }
 
     private async Task<ConfiguredPackagePayloadResult> AcquirePinnedCoreAsync(
