@@ -461,7 +461,7 @@ public sealed class EcosystemChangesCommandTests
             var root = CommandLineBuilder.CreateRootCommand();
             string[] processed =
                 CommandLineBuilder.PreprocessArgs(arguments, root);
-            return CommandLineBuilder.InvokeAsync(
+            return CommandLineBuilder.InvokeWithLineWindowAsync(
                 root.Parse(processed),
                 processed);
         });
