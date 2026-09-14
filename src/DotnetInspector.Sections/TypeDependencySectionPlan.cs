@@ -9,20 +9,23 @@ public enum TypeDependencyRowSet
     Relationships,
 }
 
-public enum TypeDependencyRowOrder
-{
-    Traversal,
-}
-
 public sealed class TypeDependencySectionPlan
 {
     public TypeDependencySectionPlan(
         string targetType,
-        RowSelectionIntent<TypeDependencyRowOrder> relationshipRows,
+        ResolvedRowQueryPlan<TypeDependencyRelationship>
+            relationshipQuery,
         int? maximumDepth = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(targetType);
-        ArgumentNullException.ThrowIfNull(relationshipRows);
+        ArgumentNullException.ThrowIfNull(relationshipQuery);
+        if (!TypeDependencyRowQuery.Owns(relationshipQuery))
+        {
+            throw new ArgumentException(
+                "The relationship row plan was not resolved from the "
+                    + "Type Dependency schema.",
+                nameof(relationshipQuery));
+        }
         if (maximumDepth is < 0)
         {
             throw new ArgumentOutOfRangeException(
@@ -30,24 +33,15 @@ public sealed class TypeDependencySectionPlan
                 maximumDepth,
                 "A maximum dependency depth cannot be negative.");
         }
-        if (relationshipRows.Operations.Any(
-                static operation =>
-                    operation.Kind is RowSelectionStageKind.Top))
-        {
-            throw new ArgumentException(
-                "Type-dependency relationships have one declared traversal "
-                    + "order and do not support ranked Top selection.",
-                nameof(relationshipRows));
-        }
 
         TargetType = targetType;
-        RelationshipRows = relationshipRows;
+        RelationshipQuery = relationshipQuery;
         MaximumDepth = maximumDepth;
     }
 
     public string TargetType { get; }
 
-    public RowSelectionIntent<TypeDependencyRowOrder> RelationshipRows
+    public ResolvedRowQueryPlan<TypeDependencyRelationship> RelationshipQuery
     {
         get;
     }
@@ -59,8 +53,18 @@ public sealed class TypeDependencySectionPlan
         int? maximumDepth = null) =>
         new(
             targetType,
-            RowSelectionIntent<TypeDependencyRowOrder>.Empty,
+            ResolveRequired(RowQueryIntent.Empty),
             maximumDepth);
+
+    private static ResolvedRowQueryPlan<TypeDependencyRelationship>
+        ResolveRequired(RowQueryIntent intent)
+    {
+        RowQueryResolutionResult<TypeDependencyRelationship> result =
+            TypeDependencyRowQuery.Resolve(intent);
+        return result.Plan
+            ?? throw new InvalidOperationException(
+                "The canonical Type Dependency row query did not resolve.");
+    }
 }
 
 public sealed class TypeDependencyRowSelectionResult
@@ -150,32 +154,21 @@ public static class TypeDependencySectionExecutor
                 failure: null);
         }
 
-        TypeDependencyRelationship[] relationships =
-        [
-            .. dependency.Relationships.OrderBy(
-                static relationship => relationship.Ordinal),
-        ];
-        RowsCohortResult<
-            TypeDependencyRowSet,
-            TypeDependencyRelationship> selection =
-                RowsCohortExecutor.ApplyUnordered(
-                    [
-                        RowsCohortSequence<
-                            TypeDependencyRowSet,
-                            TypeDependencyRelationship>.Create(
-                                TypeDependencyRowSet.Relationships,
-                                relationships),
-                    ],
-                    plan.RelationshipRows);
+        RowSelectionResult<TypeDependencyRelationship> selection =
+            RowQueryExecutor.Apply(
+                dependency.Relationships,
+                plan.RelationshipQuery);
         if (!selection.IsSuccess)
         {
             return new TypeDependencyRowSelectionResult(
                 [],
-                selection.Failure);
+                new RowsCohortSemanticFailure<TypeDependencyRowSet>(
+                    TypeDependencyRowSet.Relationships,
+                    selection.Failure!));
         }
 
         return new TypeDependencyRowSelectionResult(
-            selection.RowSets.Single().Values,
+            selection.Values,
             failure: null);
     }
 }
