@@ -579,7 +579,7 @@ empty snapshot is a cache miss rather than authoritative candidate metadata.
 | Version resolution | `$LOCAL_APP_DATA/dotnet-inspect/versions-v5/` | 1 hour | dotnet-inspect; one entry per producer, cache kind, package id, and latest flavor where applicable |
 | Package metadata | `$LOCAL_APP_DATA/dotnet-inspect/metadata/` | 1 hour | dotnet-inspect |
 | Symbol miss markers | `$LOCAL_APP_DATA/dotnet-inspect/symbol-misses/` | 1 day | dotnet-inspect |
-| Verified SourceLink bytes | `$LOCAL_APP_DATA/dotnet-inspect/source-bytes-v2/` | Permanent when the caller's checksum validator accepts the bytes | dotnet-inspect |
+| [Validated source-byte candidates](source-fetch.md#candidate-order-and-validation) | `$LOCAL_APP_DATA/dotnet-inspect/source-bytes-v2/` | Permanent candidate bytes; every use is revalidated by the caller | dotnet-inspect |
 | [SourceLink availability markers](source-availability-audit.md#cache-subject-and-reuse) | `$LOCAL_APP_DATA/dotnet-inspect/source-audit-v2/` | Permanent for immutable positives, 1 day for mutable positives; no persisted misses | dotnet-inspect |
 | [SourceLink integrity markers](source-integrity-audit.md#cache-subject-and-reuse) | `$LOCAL_APP_DATA/dotnet-inspect/source-integrity-v2/` | Permanent for immutable exact or line-ending-normalized results; no mutable or negative entries | dotnet-inspect |
 

@@ -267,7 +267,7 @@ public abstract class IrNode
     /// empty-<c>Locals</c> capturing body <em>shares</em> the host's scope and
     /// references the outer function's locals by their outer index, matching how
     /// the C# printer scopes it
-    /// (<c>NeedsNestedLambdaScope</c>/<c>NeedsNestedLocalFunctionScope</c>). A
+    /// (the IR-owned <c>NeedsIsolatedLocalScope</c> discriminator). A
     /// pass that drops a local without repointing its readers, or fabricates a
     /// dangling slot, trips this instead of surfacing as a downstream
     /// miscompile.</item>

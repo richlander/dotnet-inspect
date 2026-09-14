@@ -1841,17 +1841,17 @@ public sealed partial class CSharpPrinter
 
     static bool ReferencesLocalIncludingSharedNestedScopes(IrNode node, int index)
     {
-        if (node is Lambda nestedLambda && NeedsNestedLambdaScope(nestedLambda))
+        if (node is Lambda { NeedsIsolatedLocalScope: true })
             return false;
-        if (node is LocalFunctionStatement nestedLocalFunction && NeedsNestedLocalFunctionScope(nestedLocalFunction))
+        if (node is LocalFunctionStatement { NeedsIsolatedLocalScope: true })
             return false;
         if (IsLocalReference(node, index))
             return true;
         foreach (var child in node.Children)
         {
-            if (child is Lambda lambda && NeedsNestedLambdaScope(lambda))
+            if (child is Lambda { NeedsIsolatedLocalScope: true })
                 continue;
-            if (child is LocalFunctionStatement localFunction && NeedsNestedLocalFunctionScope(localFunction))
+            if (child is LocalFunctionStatement { NeedsIsolatedLocalScope: true })
                 continue;
             if (ReferencesLocalIncludingSharedNestedScopes(child, index))
                 return true;
@@ -2010,12 +2010,6 @@ public sealed partial class CSharpPrinter
         }
         return false;
     }
-
-    // internal so IrFunction.MarkLocalEliminated can reuse the exact shared-vs-isolated
-    // nested-scope discriminator this printer uses, keeping the two from drifting (#3295).
-    internal static bool NeedsNestedLocalFunctionScope(LocalFunctionStatement localFunction)
-        => !localFunction.Locals.IsEmpty
-            || localFunction.Body.Descendants.Any(node => node is LoadStackSlot or StoreStackSlot);
 
     void AppendNestedLocalFunctionBody(StringBuilder sb, LocalFunctionStatement localFunction, int indent)
     {
@@ -2377,7 +2371,7 @@ public sealed partial class CSharpPrinter
             if (localFunction.ExpressionBody is { } body && !expressionNeedsUnsafeBlock)
             {
                 if (_stackSlotTelemetry is not null
-                    && NeedsNestedLocalFunctionScope(localFunction))
+                    && localFunction.NeedsIsolatedLocalScope)
                 {
                     _ = NestedLocalFunctionBodyText(localFunction);
                 }
@@ -2394,7 +2388,7 @@ public sealed partial class CSharpPrinter
             {
                 sb.Append(pad).AppendLf(header);
                 sb.Append(pad).AppendLf("{");
-                if (NeedsNestedLocalFunctionScope(localFunction))
+                if (localFunction.NeedsIsolatedLocalScope)
                     AppendNestedLocalFunctionBody(sb, localFunction, indent + 1);
                 else
                 {
