@@ -66,7 +66,7 @@ internal sealed class LibraryBodyAnalysisAccumulator
         var ownershipFlow =
             ImmutableArray.CreateBuilder<ArrayPoolOwnershipMethodEvidence>();
         var declaredSources = new Dictionary<int, MethodIdentity>();
-        int none = 0, impl = 0, expl = 0;
+        int none = 0, impl = 0, expl = 0, unavailable = 0;
 
         foreach (var result in results)
         {
@@ -109,6 +109,7 @@ internal sealed class LibraryBodyAnalysisAccumulator
             {
                 case CallerUnsafeMode.Explicit: expl++; break;
                 case CallerUnsafeMode.Implicit: impl++; break;
+                case CallerUnsafeMode.Unavailable: unavailable++; break;
                 default: none++; break;
             }
             declaredMethods.Add(r.Caller!);
@@ -260,8 +261,12 @@ internal sealed class LibraryBodyAnalysisAccumulator
             Safety: new(
                 Evidence: unsafeEvidence.ToImmutable(),
                 LeverageMethods: unsafeLeverageMethods.ToImmutable(),
-                UpdatedRulesEnabled: _primaryMetadataResolver.MemorySafetyRulesEnabled,
-                Modes: new UnsafeModeBreakdown(none, impl, expl),
+                Rules: _primaryMetadataResolver.MemorySafetyRules,
+                Modes: new UnsafeModeBreakdown(
+                    none,
+                    impl,
+                    expl,
+                    unavailable),
                 Occurrences: unsafetyOccurrences),
             Allocations: new(allocationOccurrences),
             Optimizations: new(

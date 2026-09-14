@@ -293,6 +293,41 @@ public sealed record BrowserPackageQueryEvidence(
     BrowserPackageQueryEvidenceScope Scope,
     BrowserPackageQueryEvidenceSummary? Summary);
 
+public sealed record BrowserPackageQueryDeclaredDependency(
+    string Id,
+    string VersionRange);
+
+public sealed record BrowserPackageQueryDeclaredDependencyGroup(
+    string TargetFramework,
+    BrowserPackageQueryDeclaredDependency[] Dependencies,
+    bool IsImplicitManifestGroup);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryManifestIdentityProvenance>))]
+public enum BrowserPackageQueryManifestIdentityProvenance
+{
+    ExpectedCoordinate,
+    SelfAttested,
+}
+
+public sealed record BrowserPackageQueryManifest(
+    string PackageId,
+    string Version,
+    string ManifestVersion,
+    string? Description,
+    string? Authors,
+    string? Repository,
+    string? RepositoryType,
+    string? RepositoryCommit,
+    string? License,
+    string? LicenseUrl,
+    string[] PackageTypes,
+    bool IsToolPackage,
+    string? ReadmeFile,
+    BrowserPackageQueryDeclaredDependencyGroup[] DependencyGroups,
+    string? IconFile,
+    string? IconUrl,
+    BrowserPackageQueryManifestIdentityProvenance IdentityProvenance);
+
 public sealed record BrowserPackageQueryRow(
     string PackageId,
     string Version,
@@ -302,7 +337,12 @@ public sealed record BrowserPackageQueryRow(
     bool? Verified,
     string Producer,
     string? Description = null,
-    string? RootRequest = null);
+    string? RootRequest = null)
+{
+    public string[] Owners { get; init; } = [];
+
+    public BrowserPackageQueryManifest? Manifest { get; init; }
+}
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryFailureKind>))]
 public enum BrowserPackageQueryFailureKind
@@ -318,12 +358,30 @@ public enum BrowserPackageQueryFailureKind
     AssemblyEvaluation,
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryManifestFailureReason>))]
+public enum BrowserPackageQueryManifestFailureReason
+{
+    MalformedXml,
+    UnsupportedDocumentShape,
+    IdentityMismatch,
+    InvalidDependencyContract,
+    ConfiguredLimitExceeded,
+    InvalidIdentityContract,
+}
+
 public sealed record BrowserPackageQueryFailure(
     string? PackageId,
     string? Version,
     string Producer,
     BrowserPackageQueryFailureKind Kind,
-    string Message);
+    string Message)
+{
+    public BrowserPackageQueryManifestFailureReason? ManifestFailureReason
+    {
+        get;
+        init;
+    }
+}
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryProgressPhase>))]
 public enum BrowserPackageQueryProgressPhase
@@ -399,6 +457,31 @@ public sealed record BrowserPackageQueryEvent(
     BrowserPackageQueryProgress? Progress = null,
     BrowserPackageAssemblyAssessment? Assessment = null);
 
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserInspectionShareKind>))]
+public enum BrowserInspectionShareKind
+{
+    Available,
+    NonProjectable,
+}
+
+public sealed record BrowserInspectionShare(
+    BrowserInspectionShareKind Kind,
+    string? FullUrl,
+    string? Packet,
+    string? Path,
+    string? Reason);
+
+public sealed record BrowserInspectionDiagnostic(
+    string Code,
+    string Severity,
+    string Summary,
+    string? Correspondence);
+
+public sealed record BrowserPackageQueryInspection(
+    BrowserPackageQueryEvent[] Content,
+    BrowserInspectionShare Share,
+    BrowserInspectionDiagnostic[] Diagnostics);
+
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryResultKind>))]
 public enum BrowserPackageQueryResultKind
 {
@@ -418,6 +501,7 @@ public sealed record BrowserPackageQueryResult(
     int Version,
     BrowserPackageQueryResultKind Kind,
     BrowserPackageQueryEvent? Value,
+    BrowserPackageQueryInspection? Inspection,
     BrowserPackageQueryOperationFailureKind? FailureKind,
     string? Error,
     string? Diagnostic,
@@ -434,13 +518,13 @@ public sealed record BrowserPackageQueryResult(
                 BrowserPackageQueryEvent,
                 string,
                 string>.Succeeded succeeded =>
-                new(1, BrowserPackageQueryResultKind.Succeeded,
-                    succeeded.Value, null, null, null, null),
+                new(2, BrowserPackageQueryResultKind.Succeeded,
+                    succeeded.Value, null, null, null, null, null),
             BrowserManagedOperationResult<
                 BrowserPackageQueryEvent,
                 string,
                 string>.Failed failed =>
-                new(1, BrowserPackageQueryResultKind.Failed, null,
+                new(2, BrowserPackageQueryResultKind.Failed, null, null,
                     failed.FailureKind switch
                     {
                         BrowserManagedOperationFailureKind.Expected =>
@@ -454,8 +538,45 @@ public sealed record BrowserPackageQueryResult(
                 BrowserPackageQueryEvent,
                 string,
                 string>.Canceled canceled =>
-                new(1, BrowserPackageQueryResultKind.Canceled,
-                    null, null, null, null,
+                new(2, BrowserPackageQueryResultKind.Canceled,
+                    null, null, null, null, null,
+                    BrowserManagedOperationCancelReasons.Format(canceled.Reason)),
+            _ => throw new ArgumentOutOfRangeException(nameof(result)),
+        };
+
+    internal static BrowserPackageQueryResult From(
+        BrowserManagedOperationResult<
+            BrowserPackageQueryInspection,
+            string,
+            string> result) =>
+        result switch
+        {
+            BrowserManagedOperationResult<
+                BrowserPackageQueryInspection,
+                string,
+                string>.Succeeded succeeded =>
+                new(2, BrowserPackageQueryResultKind.Succeeded,
+                    null, succeeded.Value, null, null, null, null),
+            BrowserManagedOperationResult<
+                BrowserPackageQueryInspection,
+                string,
+                string>.Failed failed =>
+                new(2, BrowserPackageQueryResultKind.Failed, null, null,
+                    failed.FailureKind switch
+                    {
+                        BrowserManagedOperationFailureKind.Expected =>
+                            BrowserPackageQueryOperationFailureKind.Expected,
+                        BrowserManagedOperationFailureKind.Unexpected =>
+                            BrowserPackageQueryOperationFailureKind.Unexpected,
+                        _ => throw new ArgumentOutOfRangeException(nameof(result)),
+                    },
+                    failed.Error, failed.Diagnostic, null),
+            BrowserManagedOperationResult<
+                BrowserPackageQueryInspection,
+                string,
+                string>.Canceled canceled =>
+                new(2, BrowserPackageQueryResultKind.Canceled,
+                    null, null, null, null, null,
                     BrowserManagedOperationCancelReasons.Format(canceled.Reason)),
             _ => throw new ArgumentOutOfRangeException(nameof(result)),
         };
@@ -592,6 +713,7 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPackageQueryFacetCatalog))]
 [JsonSerializable(typeof(BrowserPackageAssemblyQueryPattern[]))]
 [JsonSerializable(typeof(BrowserPackageQueryEvent))]
+[JsonSerializable(typeof(BrowserPackageQueryInspection))]
 [JsonSerializable(typeof(BrowserPackageQueryResult))]
 [JsonSerializable(typeof(BrowserPackageQueryCancellation))]
 [JsonSerializable(typeof(BrowserPackageQueryMatchCreditResponse))]

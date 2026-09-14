@@ -323,7 +323,9 @@ past realizations for a compatible Workspace and chooses one implicitly.
 
 Only one realization is selected for new operation admission before and after
 cutover. Candidate construction and predecessor drainage may temporarily keep
-resources from more than one realization alive, but that transition is not a
+resources from more than one realization alive. Candidate completion and
+retirement close new construction admission and drain already-admitted
+construction before publication or settlement, but that transition is not a
 user-selectable collection of live Workspaces.
 
 The Workspace owner defines admission, cutover, and settlement types. Artifact,

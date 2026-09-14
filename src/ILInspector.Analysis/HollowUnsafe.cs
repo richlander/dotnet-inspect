@@ -38,7 +38,7 @@ public static class HollowUnsafe
     /// exactly this), so "no visible op" must never be read as "safe".
     /// </remarks>
     public static bool IsHollow(MethodIdentity method, ImmutableArray<UnsafeEvidence> evidence)
-        => method.CallerUnsafeMode != CallerUnsafeMode.None
+        => CallerUnsafeModeFacts.RequiresUnsafe(method.CallerUnsafeMode)
             && !HasRealizedUnsafeOp(method, evidence);
 
     /// <summary>
@@ -56,7 +56,9 @@ public static class HollowUnsafe
             .ToHashSet();
 
         return methods
-            .Where(method => method.CallerUnsafeMode != CallerUnsafeMode.None
+            .Where(method =>
+                CallerUnsafeModeFacts.RequiresUnsafe(
+                    method.CallerUnsafeMode)
                 && !realizedTokens.Contains(method.MetadataToken))
             .OrderBy(method => method.MetadataToken)
             .Select(method => new HollowUnsafeMethod(method, method.CallerUnsafeMode))

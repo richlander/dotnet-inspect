@@ -1,3 +1,7 @@
+#:project ../../../src/DotnetInspector.Packages/DotnetInspector.Packages.csproj
+#:project ../../../src/ILInspector.Metadata/ILInspector.Metadata.csproj
+#:property OwnsItsOwnStderr=true
+
 using System.IO.Compression;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;

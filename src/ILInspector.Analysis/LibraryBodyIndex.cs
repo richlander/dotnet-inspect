@@ -106,7 +106,7 @@ public sealed class LibraryBodyIndex
             (features
                 & LibraryBodyAnalysisFeatures.OptimizationOpportunities) != 0;
         _unsafeLeverageMethods = analysis.Safety.LeverageMethods;
-        MemorySafetyRulesEnabled = analysis.Safety.UpdatedRulesEnabled;
+        MemorySafetyRules = analysis.Safety.Rules;
         UnsafeModes = analysis.Safety.Modes;
         _bodySignals = analysis.Methods.BodySignals;
         _allocationOccurrences = analysis.Allocations.Occurrences;
@@ -851,11 +851,20 @@ public sealed class LibraryBodyIndex
             out operation);
 
     /// <summary>
-    /// Whether the module opted into the updated memory-safety rules via
-    /// <c>MemorySafetyRulesAttribute</c> (Roslyn's <c>UseUpdatedMemorySafetyRules</c>).
-    /// When false, every requires-unsafe member is <see cref="CallerUnsafeMode.Implicit"/>.
+    /// The defining module's normalized memory-safety rules result.
     /// </summary>
-    public bool MemorySafetyRulesEnabled { get; }
+    public MemorySafetyRulesResult MemorySafetyRules { get; }
+
+    /// <summary>
+    /// Whether the normalized module result selects the recognized updated
+    /// rules. False covers every other state; callers that need the distinction
+    /// consume <see cref="MemorySafetyRules"/>.
+    /// </summary>
+    public bool MemorySafetyRulesEnabled =>
+        MemorySafetyRules is MemorySafetyRulesResult.Available
+        {
+            State: MemorySafetyRulesState.Updated,
+        };
 
     /// <summary>Per-<see cref="CallerUnsafeMode"/> method counts across the whole assembly.</summary>
     public UnsafeModeBreakdown UnsafeModes { get; }
@@ -1118,7 +1127,9 @@ public sealed class LibraryBodyIndex
                 Safety: new(
                     Evidence: unsafeEvidence,
                     LeverageMethods: [],
-                    UpdatedRulesEnabled: false,
+                    Rules: new MemorySafetyRulesResult.Available(
+                        MemorySafetyRulesState.Legacy,
+                        []),
                     Modes: new UnsafeModeBreakdown(
                         methods.Count(method =>
                             method.CallerUnsafeMode == CallerUnsafeMode.None),
@@ -1127,7 +1138,10 @@ public sealed class LibraryBodyIndex
                                 == CallerUnsafeMode.Implicit),
                         methods.Count(method =>
                             method.CallerUnsafeMode
-                                == CallerUnsafeMode.Explicit)),
+                                == CallerUnsafeMode.Explicit),
+                        methods.Count(method =>
+                            method.CallerUnsafeMode
+                                == CallerUnsafeMode.Unavailable)),
                     Occurrences: unsafetyOccurrences
                         ?? new Dictionary<
                             int,

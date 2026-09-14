@@ -2183,6 +2183,15 @@ kbd {
 .loading-brand { position: fixed; top: 20px; left: 22px; color: var(--muted); text-decoration: none; font: 13px var(--mono); }
 .loading-brand span { color: var(--accent); font-size: 19px; }
 .load-progress { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.package-content-loading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 24px;
+  color: var(--muted);
+  font: 13px var(--mono);
+}
+.package-content-loading .loader { flex-shrink: 0; }
 .loading-bot {
   width: 200px; height: 200px; object-fit: contain;
   margin-bottom: 6px;

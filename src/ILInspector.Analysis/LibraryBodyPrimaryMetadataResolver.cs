@@ -18,7 +18,7 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
     readonly MetadataReader _reader;
     readonly string _assemblyName;
     readonly Guid _mvid;
-    readonly bool _memorySafetyRulesEnabled;
+    readonly MemorySafetyMetadataIndex _memorySafety;
     readonly Func<
         EntityHandle,
         GenericScope,
@@ -63,14 +63,14 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             isStableReceiverGetter;
         _asyncStateMachineTypesBuilt =
             asyncStateMachineTypesBuilt;
-        _memorySafetyRulesEnabled = DetectMemorySafetyRules();
+        _memorySafety = MemorySafetyMetadataIndex.Create(reader);
         _localTypeDefinitions = new(
             BuildLocalTypeDefinitions,
             LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
-    internal bool MemorySafetyRulesEnabled =>
-        _memorySafetyRulesEnabled;
+    internal MemorySafetyRulesResult MemorySafetyRules =>
+        _memorySafety.Rules;
 
     internal string AssemblyName => _assemblyName;
 
@@ -104,18 +104,6 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
 
     internal bool IsAllocatingValueTypeBox(int token, GenericScope scope) =>
         IsAllocatingValueTypeBox(token, ResolveTypeToken(token, scope));
-
-    // Roslyn's ModuleSymbol.UseUpdatedMemorySafetyRules: the module opted in
-    // when MemorySafetyRulesAttribute is applied (emitted [module:], like
-    // RefSafetyRulesAttribute). Check the module and assembly scopes.
-    bool DetectMemorySafetyRules()
-    {
-        const string ns = "System.Runtime.CompilerServices";
-        if (HasAttributeNamed(_reader.GetModuleDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns))
-            return true;
-        return _reader.IsAssembly
-            && HasAttributeNamed(_reader.GetAssemblyDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns);
-    }
 
     // True when a `newobj` of this operand constructs a value type. Combines a name-based
     // FRAMEWORK fast path with an authoritative metadata resolution of the constructor's
@@ -200,7 +188,8 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             MetadataTokens.GetToken(methodHandle),
             (methodDef.Attributes & MethodAttributes.Static) != 0,
             IsExtensionMethod(typeHandle, methodDef),
-            ComputeCallerUnsafeMode(typeHandle, methodDef, parameterTypes, returnType),
+            CallerUnsafeModeFromContract(
+                _memorySafety.GetMemberContract(methodHandle)),
             methodDef.GetGenericParameters().Count,
             GenericParameterNames(methodDef))
         {
@@ -241,33 +230,20 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             && AttributeReader.HasExtensionAttribute(_reader, methodDef.GetCustomAttributes());
     }
 
-    // Mirrors Roslyn's PEMethodSymbol.CallerUnsafeMode: a member "requires
-    // unsafe" when it carries RequiresUnsafeAttribute (the metadata form of
-    // the `unsafe` modifier) or has a pointer/function pointer in its
-    // signature; the mode is then gated on the module opting into the rules.
-    CallerUnsafeMode ComputeCallerUnsafeMode(
-        TypeDefinitionHandle typeHandle, MethodDefinition methodDef,
-        ImmutableArray<TypeRef> parameterTypes, TypeRef returnType)
-    {
-        bool requiresUnsafe =
-            HasRequiresUnsafe(methodDef.GetCustomAttributes())
-            || HasRequiresUnsafe(_reader.GetTypeDefinition(typeHandle).GetCustomAttributes())
-            || parameterTypes.Any(type => type.ContainsPointer())
-            || returnType.ContainsPointer();
-
-        if (!requiresUnsafe)
-            return CallerUnsafeMode.None;
-        return _memorySafetyRulesEnabled ? CallerUnsafeMode.Explicit : CallerUnsafeMode.Implicit;
-    }
-
-    // Read attributes straight from SRM — a simple has-attribute check needs
-    // no shared decode/render machinery, so Analysis stays independent.
-    bool HasRequiresUnsafe(CustomAttributeHandleCollection attributes)
-        // Match the distinctive simple name: the implemented attribute is in
-        // System.Diagnostics.CodeAnalysis, while the design doc says
-        // System.Runtime.CompilerServices — tolerate the namespace churn.
-        => HasAttributeNamed(attributes, "RequiresUnsafeAttribute",
-            "System.Diagnostics.CodeAnalysis", "System.Runtime.CompilerServices");
+    static CallerUnsafeMode CallerUnsafeModeFromContract(
+        MemorySafetyMemberContractResult contract)
+        => contract switch
+        {
+            MemorySafetyMemberContractResult.None =>
+                CallerUnsafeMode.None,
+            MemorySafetyMemberContractResult.Implicit =>
+                CallerUnsafeMode.Implicit,
+            MemorySafetyMemberContractResult.Explicit =>
+                CallerUnsafeMode.Explicit,
+            MemorySafetyMemberContractResult.Unavailable =>
+                CallerUnsafeMode.Unavailable,
+            _ => CallerUnsafeMode.Unavailable,
+        };
 
     bool HasAttributeNamed(CustomAttributeHandleCollection attributes, string simpleName, params string[] namespaces)
     {
