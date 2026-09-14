@@ -127,6 +127,14 @@ substrates, and inspection producers that will extend that space.
   return the same detached vectors. Metadata, source/publication and resource
   owners retain their contracts; the facade drains through Workspace close.
   The proposed
+  [Diff Timeline inspection](design/diff-timeline.md) owns the target
+  version-population, explicit evaluation-selection, and temporal-result
+  contract consumed by CLI and Browser/Wasm. It groups pairwise comparison
+  and Timeline under Diff while retaining their different evidence and
+  acquisition semantics; its CLI adoption removes the standalone `timeline`
+  command without compatibility. Package, Finding, Workspace, envelope,
+  row-selection, and Browser interaction owners retain their contracts.
+  The proposed
   [structural clone search scope](design/structural-clone-search-scope.md)
   owner defines Library, Type, and Member seed populations plus the shared
   `Self`, `SelfAndRegisteredEcosystems`, and `Everything` candidate breadth
