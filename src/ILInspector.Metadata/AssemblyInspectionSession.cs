@@ -142,6 +142,18 @@ public sealed class AssemblyInspectionSession :
         => AssemblyInspector.ExtractReferenceIdentities(_image.PEReader);
 
     /// <summary>
+    /// Complete detached declaration evidence from this image, or an explicit rejection.
+    /// Does not reopen the source or resolve forwarding targets.
+    /// </summary>
+    public AssemblyTypeDeclarationInventoryOutcome TypeDeclarations(
+        CancellationToken cancellationToken = default)
+    {
+        _image.EnsureAlive();
+        return AssemblyTypeDeclarationInventoryReader.Read(
+            _image.PEReader, cancellationToken);
+    }
+
+    /// <summary>
     /// The image's own simple assembly name and the simple names of its assembly references,
     /// read from the <c>Assembly</c> and <c>AssemblyRef</c> tables alone. Use this in preference to
     /// <see cref="AssemblyInfo"/> when only reachability by name is needed: it decodes no

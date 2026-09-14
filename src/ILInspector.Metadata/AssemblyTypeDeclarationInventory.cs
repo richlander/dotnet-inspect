@@ -1,30 +1,44 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Metadata;
 
 /// <summary>
+/// One definition's structured name and declared Public/NestedPublic visibility.
+/// This does not compute accessibility through enclosing types.
+/// </summary>
+public sealed record MetadataTypeDefinitionDeclaration(
+    MetadataTypeDefinitionName Name,
+    bool IsPublic);
+
+/// <summary>
 /// Reader-independent definition and forwarding declarations from one
-/// acquisition-issued assembly descriptor.
+/// image. Duplicate declarations retain their metadata row order.
 /// </summary>
 public sealed class AssemblyTypeDeclarationInventory
 {
     internal AssemblyTypeDeclarationInventory(
         AssemblyReferenceIdentity identity,
-        ImmutableArray<MetadataTypeDefinitionName> definitions,
+        ImmutableArray<MetadataTypeDefinitionDeclaration> definitions,
         ImmutableArray<MetadataTypeDefinitionName> forwarders,
+        ImmutableArray<MetadataTypeDefinitionName> moduleExports,
         int meaningfulPublicTypeCount)
     {
         Identity = identity;
-        Definitions = definitions;
+        TypeDefinitions = definitions;
+        Definitions = definitions.Select(definition => definition.Name).ToImmutableArray();
         Forwarders = forwarders;
+        ModuleExports = moduleExports;
         MeaningfulPublicTypeCount = meaningfulPublicTypeCount;
     }
 
     public AssemblyReferenceIdentity Identity { get; }
+    public ImmutableArray<MetadataTypeDefinitionDeclaration> TypeDefinitions { get; }
     public ImmutableArray<MetadataTypeDefinitionName> Definitions { get; }
     public ImmutableArray<MetadataTypeDefinitionName> Forwarders { get; }
+    public ImmutableArray<MetadataTypeDefinitionName> ModuleExports { get; }
     public int MeaningfulPublicTypeCount { get; }
 }
 
@@ -98,80 +112,10 @@ public static class AssemblyTypeDeclarationInventoryReader
                     "The opened image identity does not match the acquisition descriptor.");
             }
 
-            var definitions =
-                ImmutableArray.CreateBuilder<MetadataTypeDefinitionName>();
-            int meaningfulPublicTypeCount = 0;
-            foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
-            {
-                TypeDefinition definition = reader.GetTypeDefinition(handle);
-                if (MetadataTypeDefinitionNameReader.Read(reader, handle)
-                    is not MetadataTypeDefinitionNameReadResult.Read read)
-                {
-                    return Reject(
-                        CandidateOpenFailureKind.InvalidImage,
-                        "A type definition name could not be decoded.");
-                }
-
-                definitions.Add(read.Name);
-                if (definition.IsPublic
-                    && !TypeFilters.IsCompilerGenerated(
-                        reader.GetString(definition.Name)))
-                {
-                    meaningfulPublicTypeCount++;
-                }
-            }
-
-            var forwarders =
-                ImmutableArray.CreateBuilder<MetadataTypeDefinitionName>();
-            foreach (ExportedTypeHandle handle in reader.ExportedTypes)
-            {
-                var traversal =
-                    MetadataRelationshipTraversal
-                        .WalkExportedTypeImplementationChain(reader, handle);
-                if (traversal is
-                    RelationshipTraversalResult<
-                        RelationshipChain<ExportedTypeHandle>>.Rejected)
-                {
-                    return Reject(
-                        CandidateOpenFailureKind.InvalidImage,
-                        "An exported type relationship could not be decoded.");
-                }
-
-                RelationshipChain<ExportedTypeHandle> chain =
-                    ((RelationshipTraversalResult<
-                        RelationshipChain<ExportedTypeHandle>>.Completed)
-                            traversal).Value;
-                if (chain.Terminal.Kind != HandleKind.AssemblyReference)
-                    continue;
-
-                // ECMA-335 marks the root as a forwarder; nested rows point to
-                // that root without carrying tdForwarder themselves.
-                ExportedType root =
-                    reader.GetExportedType(chain.Handles[0]);
-                if (!root.IsForwarder)
-                {
-                    return Reject(
-                        CandidateOpenFailureKind.InvalidImage,
-                        "An assembly-forwarded type chain is not marked as a forwarder.");
-                }
-
-                if (MetadataTypeDefinitionNameReader.Read(reader, handle)
-                    is not MetadataTypeDefinitionNameReadResult.Read read)
-                {
-                    return Reject(
-                        CandidateOpenFailureKind.InvalidImage,
-                        "A forwarded type name could not be decoded.");
-                }
-
-                forwarders.Add(read.Name);
-            }
-
-            return new AssemblyTypeDeclarationInventoryOutcome.Read(
-                new AssemblyTypeDeclarationInventory(
-                    actual,
-                    definitions.ToImmutable(),
-                    forwarders.ToImmutable(),
-                    meaningfulPublicTypeCount));
+            AssemblyTypeDeclarationInventoryOutcome outcome =
+                ReadDeclarations(reader, actual, default);
+            rejectionEstablished = outcome is AssemblyTypeDeclarationInventoryOutcome.Rejected;
+            return outcome;
         }
         catch (UnsupportedMetadataFormatException ex)
         {
@@ -240,6 +184,151 @@ public static class AssemblyTypeDeclarationInventoryReader
                 stream?.Dispose();
             }
         }
+    }
+
+    internal static AssemblyTypeDeclarationInventoryOutcome Read(
+        PEReader peReader,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        try
+        {
+            if (!MetadataFormatAdmission.AdmitImage(peReader))
+            {
+                return Rejected(
+                    CandidateOpenFailureKind.InvalidImage,
+                    "The selected image has no managed metadata.");
+            }
+
+            MetadataReader reader = MetadataFormatAdmission.GetMetadataReader(peReader);
+            if (!reader.IsAssembly)
+            {
+                return Rejected(
+                    CandidateOpenFailureKind.InvalidImage,
+                    "The selected image is not an assembly.");
+            }
+
+            return ReadDeclarations(
+                reader,
+                AssemblyReferenceIdentity.FromAssemblyDefinition(reader),
+                cancellationToken);
+        }
+        catch (UnsupportedMetadataFormatException)
+        {
+            return Rejected(
+                CandidateOpenFailureKind.UnsupportedMetadataFormat,
+                "The selected image uses an unsupported metadata format.");
+        }
+        catch (MalformedMetadataRootException ex)
+        {
+            return Rejected(
+                CandidateOpenFailureKind.InvalidImage,
+                $"The selected image has a malformed metadata root ({ex.Reason}).",
+                ex.Reason);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return Rejected(
+                CandidateOpenFailureKind.Unreadable,
+                "The selected image could not be read.");
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException or ArgumentOutOfRangeException or OverflowException)
+        {
+            return Rejected(
+                CandidateOpenFailureKind.InvalidImage,
+                "The selected image metadata is invalid.");
+        }
+    }
+
+    static AssemblyTypeDeclarationInventoryOutcome ReadDeclarations(
+        MetadataReader reader,
+        AssemblyReferenceIdentity identity,
+        CancellationToken cancellationToken)
+    {
+        var definitions = ImmutableArray.CreateBuilder<MetadataTypeDefinitionDeclaration>();
+        int meaningfulPublicTypeCount = 0;
+        foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            TypeDefinition definition = reader.GetTypeDefinition(handle);
+            if (MetadataTypeDefinitionNameReader.Read(reader, handle)
+                is not MetadataTypeDefinitionNameReadResult.Read read)
+            {
+                return Rejected(
+                    CandidateOpenFailureKind.InvalidImage,
+                    "A type definition name could not be decoded.");
+            }
+
+            definitions.Add(new(read.Name, definition.IsPublic));
+            if (definition.IsPublic
+                && !TypeFilters.IsCompilerGenerated(read.Name.Segments[^1]))
+            {
+                meaningfulPublicTypeCount++;
+            }
+        }
+
+        var forwarders = ImmutableArray.CreateBuilder<MetadataTypeDefinitionName>();
+        var moduleExports = ImmutableArray.CreateBuilder<MetadataTypeDefinitionName>();
+        foreach (ExportedTypeHandle handle in reader.ExportedTypes)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var traversal = MetadataRelationshipTraversal
+                .WalkExportedTypeImplementationChain(reader, handle);
+            if (traversal is not RelationshipTraversalResult<
+                RelationshipChain<ExportedTypeHandle>>.Completed completed)
+            {
+                return Rejected(
+                    CandidateOpenFailureKind.InvalidImage,
+                    "An exported type relationship could not be decoded.");
+            }
+
+            RelationshipChain<ExportedTypeHandle> chain = completed.Value;
+            int terminalRow = MetadataTokens.GetRowNumber(chain.Terminal);
+            bool validTerminal = !chain.Terminal.IsNil && (chain.Terminal.Kind switch
+            {
+                HandleKind.AssemblyReference => terminalRow <= reader.AssemblyReferences.Count,
+                HandleKind.AssemblyFile => terminalRow <= reader.AssemblyFiles.Count,
+                _ => false,
+            });
+            if (!validTerminal)
+            {
+                return Rejected(
+                    CandidateOpenFailureKind.InvalidImage,
+                    "An exported type chain has no valid assembly or file target.");
+            }
+
+            ExportedType root = reader.GetExportedType(chain.Handles[0]);
+            bool isForwarder = chain.Terminal.Kind == HandleKind.AssemblyReference;
+            // SRM's IsForwarder also tests the target kind; check the stored bit itself.
+            const int ForwarderFlag = 0x00200000;
+            bool markedForwarder = ((int)root.Attributes & ForwarderFlag) != 0;
+            if (isForwarder != markedForwarder)
+            {
+                return Rejected(
+                    CandidateOpenFailureKind.InvalidImage,
+                    "An exported type chain's target does not match its forwarder marking.");
+            }
+
+            if (MetadataTypeDefinitionNameReader.Read(reader, handle)
+                is not MetadataTypeDefinitionNameReadResult.Read read)
+            {
+                return Rejected(
+                    CandidateOpenFailureKind.InvalidImage,
+                    "An exported type name could not be decoded.");
+            }
+
+            (isForwarder ? forwarders : moduleExports).Add(read.Name);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        return new AssemblyTypeDeclarationInventoryOutcome.Read(
+            new AssemblyTypeDeclarationInventory(
+                identity,
+                definitions.ToImmutable(),
+                forwarders.ToImmutable(),
+                moduleExports.ToImmutable(),
+                meaningfulPublicTypeCount));
     }
 
     static AssemblyTypeDeclarationInventoryOutcome.Rejected Rejected(

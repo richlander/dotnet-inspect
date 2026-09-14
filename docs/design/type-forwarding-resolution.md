@@ -11,9 +11,10 @@ use the implemented declaration, acquisition, binding-result, resolution, and
 correspondence surfaces. Sections explicitly marked design-only describe target
 contracts rather than shipped behavior.
 
-This document is limited to Metadata's consumer-independent resolution
-contract: one exact structured request, one policy-authorized forwarding path,
-and one typed terminal outcome. It does not specify how a caller selects
+This document is limited to Metadata's consumer-independent declaration and
+resolution contracts: detached single-image declaration evidence, or one exact
+structured request, one policy-authorized forwarding path, and one typed
+terminal outcome. It does not specify how a caller selects
 requests, combines outcomes, admits artifacts, judges C# spellability, or
 presents results.
 
@@ -202,6 +203,59 @@ type model, not forwarding. The CLI owns neither.
 The declarations below specify shape and ownership. Exact member names may
 change during implementation, but weakening a discriminated result back to
 nullable strings is not an implementation detail.
+
+### Detached declaration inventory
+
+`AssemblyInspectionSession.TypeDeclarations` reads the image already owned or
+borrowed by the session. Its `AssemblyTypeDeclarationInventoryOutcome` is either
+`Read` with a complete, detached inventory or `Rejected` with a typed failure;
+malformed names or export relationships never become a successful shortened
+inventory. Cancellation propagates, and a disposed session or lender fails
+before inspection. Results remain usable after the borrow and lender close.
+
+The inventory preserves metadata row order and duplicates within each category:
+
+- `TypeDefinitions` pairs each structured name with `IsPublic`, using the
+  existing Metadata `Public`/`NestedPublic` flag test. This is declaration
+  visibility, not effective C# accessibility through enclosing types.
+  `Definitions` is the corresponding name-only projection.
+- `Forwarders` contains structured names whose validated export chain ends at
+  an `AssemblyRef` and has a forwarder root. It does not bind that reference or
+  infer the target definition's visibility. Forwarders remain available to both
+  public and all-declaration consumers.
+- `ModuleExports` preserves names exported through a `File` instead of silently
+  omitting this unsupported resolution case. Consumers decide how to report
+  unsupported module location; Metadata does not acquire another module.
+
+These categories are evidence, not winners. Equal names in different rows or
+categories remain separate; exact and pattern matching belong to the locator.
+Nested segment boundaries and generic arity retain the existing
+`MetadataTypeDefinitionName` contract rather than a flattened display spelling.
+`MeaningfulPublicTypeCount` retains the existing facade-classification rule,
+including its compiler-generated leaf-name exclusion.
+
+The descriptor reader shares this decoder and retains its authoritative-stream
+and identity checks. Reading module-export names intentionally tightens its
+previous behavior: malformed module-export names now reject the image rather
+than being skipped. Nil or out-of-range export targets and a forwarder marking
+inconsistent with the terminal kind also reject rather than masquerading as
+module exports. Valid definition/forwarder classification is unchanged.
+
+The motivating assets are `Microsoft.NETCore.App.Ref@10.0.10`:
+`ref/net10.0/netstandard.dll` forwards `System.Object`, while
+`System.Runtime.dll` defines it. SRM's TypeDef and ExportedType tables and the
+existing declaration probe provide the analogous implementation evidence;
+neither an API display row nor runtime reflection is a declaration oracle.
+
+Release gates are `AssemblyTypeDeclarationInventoryTests` for declaration,
+duplicate, malformed, cancellation and lender-lifetime outcomes, the existing
+descriptor/cleanup tests for owned opens, and
+`BorrowedDeclarationInventoryConsumerTests` for the pinned reference-pack
+scenario through a non-friend authorized artifact callback.
+This is delivery step 3 of the
+[reverse-locator adoption plan](reverse-type-locator-adoption.md), not a shipped
+Find command. Workspace/Queries and the later CLI and Browser/Wasm slices
+consume these facts; host presentation and matching contracts remain theirs.
 
 ### Type definition name
 
