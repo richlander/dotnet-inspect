@@ -64,7 +64,7 @@ public enum PackageHouseRootNoContributionReason
     ResourceFreeSettlement,
     CompileRealizationUnavailable,
     OperationFailed,
-    ProducerNotRepresentable,
+    CoordinateNotRepresentable,
 }
 
 /// <summary>
@@ -147,19 +147,17 @@ public static class PackageHouseRootContributionAdapter
                 result,
                 PackageHouseRootNoContributionReason.OperationFailed);
         }
-        if (!RealizedMemberCoordinate.IsCanonicalProducer(
-                acquired.Payload.ProducerKey))
+        if (!PackageRootBinding.TryCreateFromSourceSelection(
+                acquired.Payload,
+                realization.Receipt,
+                out PackageRootBinding? binding))
         {
             return new PackageHouseRootContributionOutcome.NoContribution(
                 result,
                 PackageHouseRootNoContributionReason
-                    .ProducerNotRepresentable);
+                    .CoordinateNotRepresentable);
         }
 
-        PackageRootBinding binding =
-            PackageRootBinding.CreateFromSourceSelection(
-                acquired.Payload,
-                realization.Receipt);
         return new PackageHouseRootContributionOutcome.Contributed(
             new PackageHouseRootContribution(
                 result,

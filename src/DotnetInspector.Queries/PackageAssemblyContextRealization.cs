@@ -149,6 +149,54 @@ public sealed class PackageRootBinding
         PackageCompileAssetSelectionReceipt receipt,
         string? displayPackageId = null)
     {
+        string? acquisitionFramework =
+            ValidateSourceSelection(payload, receipt);
+        return Create(
+            payload,
+            payload.Coordinate.PackageId,
+            displayPackageId ?? payload.Coordinate.PackageId,
+            payload.Coordinate.Version,
+            payload.Content,
+            payload.ProducerKey,
+            acquisitionFramework,
+            receipt.RequestedTargetFramework,
+            receipt.RequestedRuntimeIdentifier,
+            assetSelection: receipt.Selection);
+    }
+
+    /// <summary>
+    /// Attempts to bind a typed-source payload to its exact compile selection
+    /// when the complete package Root coordinate is representable.
+    /// </summary>
+    internal static bool TryCreateFromSourceSelection(
+        AcquiredPackageSourcePayload payload,
+        PackageCompileAssetSelectionReceipt receipt,
+        [NotNullWhen(true)] out PackageRootBinding? binding,
+        string? displayPackageId = null)
+    {
+        string? acquisitionFramework =
+            ValidateSourceSelection(payload, receipt);
+        return TryCreate(
+            payload,
+            payload.Coordinate.PackageId,
+            displayPackageId ?? payload.Coordinate.PackageId,
+            payload.Coordinate.Version,
+            payload.Content,
+            payload.ProducerKey,
+            acquisitionFramework,
+            receipt.RequestedTargetFramework,
+            receipt.RequestedRuntimeIdentifier,
+            receipt.Selection,
+            compileTargetFramework: null,
+            usesCompatibleImplementationSelection: false,
+            out binding,
+            out _);
+    }
+
+    private static string? ValidateSourceSelection(
+        AcquiredPackageSourcePayload payload,
+        PackageCompileAssetSelectionReceipt receipt)
+    {
         ArgumentNullException.ThrowIfNull(payload);
         ArgumentNullException.ThrowIfNull(receipt);
         if (!payload.Coordinate.PackageId.Equals(
@@ -185,17 +233,7 @@ public sealed class PackageRootBinding
                 nameof(receipt));
         }
 
-        return Create(
-            payload,
-            payload.Coordinate.PackageId,
-            displayPackageId ?? payload.Coordinate.PackageId,
-            payload.Coordinate.Version,
-            payload.Content,
-            payload.ProducerKey,
-            acquisitionFramework,
-            receipt.RequestedTargetFramework,
-            receipt.RequestedRuntimeIdentifier,
-            assetSelection: receipt.Selection);
+        return acquisitionFramework;
     }
 
     /// <summary>
@@ -466,6 +504,47 @@ public sealed class PackageRootBinding
         string? compileTargetFramework = null,
         bool usesCompatibleImplementationSelection = false)
     {
+        if (!TryCreate(
+                acquiredPayload,
+                coordinatePackageId,
+                displayPackageId,
+                packageVersion,
+                content,
+                producerKey,
+                acquisitionFramework,
+                targetFramework,
+                runtimeIdentifier,
+                assetSelection,
+                compileTargetFramework,
+                usesCompatibleImplementationSelection,
+                out PackageRootBinding? binding,
+                out string? problem))
+        {
+            throw new ArgumentException(
+                $"The acquired package payload cannot form a realized coordinate: {problem}.",
+                nameof(acquiredPayload));
+        }
+
+        return binding;
+    }
+
+    static bool TryCreate(
+        object acquiredPayload,
+        string coordinatePackageId,
+        string displayPackageId,
+        string packageVersion,
+        IPackageContent content,
+        string producerKey,
+        string? acquisitionFramework,
+        string? targetFramework,
+        string? runtimeIdentifier,
+        PackageCompileAssetSelection? assetSelection,
+        string? compileTargetFramework,
+        bool usesCompatibleImplementationSelection,
+        [NotNullWhen(true)] out PackageRootBinding? binding,
+        [NotNullWhen(false)] out string? problem)
+    {
+        binding = null;
         if (!displayPackageId.Equals(
                 coordinatePackageId,
                 StringComparison.OrdinalIgnoreCase))
@@ -481,13 +560,6 @@ public sealed class PackageRootBinding
                 nameof(acquiredPayload));
         }
 
-        var root = new PackageRootRealization(
-            content,
-            displayPackageId,
-            packageVersion,
-            targetFramework,
-            runtimeIdentifier,
-            assetSelection);
         string? effectiveFramework =
             (string.IsNullOrWhiteSpace(acquisitionFramework)
                 ? null
@@ -502,20 +574,26 @@ public sealed class PackageRootBinding
                 effectiveFramework,
                 effectiveRuntimeIdentifier,
                 out RealizedMemberCoordinate.Package? coordinate,
-                out string? problem))
+                out problem))
         {
-            throw new ArgumentException(
-                $"The acquired package payload cannot form a realized coordinate: {problem}.",
-                nameof(acquiredPayload));
+            return false;
         }
 
-        return new PackageRootBinding(
+        var root = new PackageRootRealization(
+            content,
+            displayPackageId,
+            packageVersion,
+            targetFramework,
+            runtimeIdentifier,
+            assetSelection);
+        binding = new PackageRootBinding(
             root,
             coordinate,
             content.GenerationIdentity,
             new PackageRootSelectionIdentity(),
             compileTargetFramework ?? targetFramework,
             usesCompatibleImplementationSelection);
+        return true;
     }
 
     internal static string? SourceAcquisitionFramework(string? targetFramework) =>

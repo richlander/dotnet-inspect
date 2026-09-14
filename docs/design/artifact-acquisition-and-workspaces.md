@@ -2185,14 +2185,19 @@ selection without another selector invocation. The public adapter remains in
 House-agnostic binding with the exact House result and compile receipt rather
 than storing House history on `PackageRootBinding`.
 
-The current realized package-coordinate grammar admits the modern NuGet.org
-producer key and bounded legacy producer keys. A valid configured HTTP or local
-Package Source producer can therefore be acquired and selected before Root
-construction reports that the producer is not representable. The adapter
-surfaces that state as typed no-contribution evidence. Extending the portable
-coordinate and reacquisition currency for every owner-issued producer remains
+The current realized package-coordinate grammar admits the bounded published
+package-id grammar, the modern NuGet.org producer key, and bounded legacy
+producer keys. Package Source accepts a broader Unicode package-id grammar and
+valid configured HTTP or local producers. Such a package can therefore be
+acquired and selected before Root construction reports that the complete
+coordinate is not representable. The adapter surfaces that state as typed
+no-contribution evidence rather than entering the throwing constructor.
+Extending the portable coordinate and reacquisition currency for every
+owner-issued producer remains
 [#6946](https://github.com/richlander/dotnet-inspect/issues/6946); this adapter
-does not hash, truncate, or parse producer display text to bypass that owner.
+does not hash, truncate, parse display text, or narrow owner-issued package
+identity to bypass either coordinate owner. Package-id representation remains
+[#6967](https://github.com/richlander/dotnet-inspect/issues/6967).
 
 The content-generation identity is an opaque, credential-free reference token
 for one retained immutable package-content snapshot, owned by

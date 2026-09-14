@@ -660,7 +660,7 @@ public sealed class PackageHouseExecutionTests
     }
 
     [Fact]
-    public async Task CustomProducerCompileRealizationReportsUnsupportedRootCoordinate()
+    public async Task CustomProducerCompileRealizationReportsUnrepresentableRootCoordinate()
     {
         await using HouseEnvironment environment = HouseEnvironment.Create(
             new SourceBehavior(
@@ -700,7 +700,59 @@ public sealed class PackageHouseExecutionTests
         Assert.Same(acquired.Result, noContribution.Result);
         Assert.Equal(
             PackageHouseRootNoContributionReason
-                .ProducerNotRepresentable,
+                .CoordinateNotRepresentable,
+            noContribution.Reason);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task UnicodePackageIdCompileRealizationReportsUnrepresentableRootCoordinate()
+    {
+        const string unicodePackageId = "Caf\u00E9";
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateNuGetOrg(
+                "caf\u00E9",
+                new SourceBehavior(
+                    [Version],
+                    PayloadEntries:
+                    [
+                        "lib/net10.0/Contoso.dll",
+                    ]));
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(
+                PackageSourceCoordinate.Create(
+                    unicodePackageId,
+                    Version)),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize),
+            PackageHouseTargetContext.Exact("net10.0"),
+            PackageHouseAssetSelectionKind.Compile);
+
+        PackageHouseSettlement settlement =
+            await environment.CreateHouse(
+                (_, _) => new InMemoryPackageStore())
+                .ExecuteAsync(
+                    request,
+                    environment.IssueOperation(
+                        request,
+                        TestContext.Current.CancellationToken));
+
+        PackageHouseSettlement.Acquired acquired =
+            Assert.IsType<PackageHouseSettlement.Acquired>(
+                settlement);
+        Assert.Equal(
+            "caf\u00E9",
+            acquired.Payload.Coordinate.PackageId);
+        Assert.IsType<PackageHouseRealizationReceipt.Compile>(
+            acquired.Result.Evidence.Realization);
+        PackageHouseRootContributionOutcome.NoContribution noContribution =
+            Assert.IsType<
+                PackageHouseRootContributionOutcome.NoContribution>(
+                PackageHouseRootContributionAdapter.Create(settlement));
+        Assert.Same(acquired.Result, noContribution.Result);
+        Assert.Equal(
+            PackageHouseRootNoContributionReason
+                .CoordinateNotRepresentable,
             noContribution.Reason);
         await environment.AssertRootSettledAsync();
     }
@@ -1714,8 +1766,13 @@ public sealed class PackageHouseExecutionTests
 
         public static HouseEnvironment CreateNuGetOrg(
             SourceBehavior behavior) =>
+            CreateNuGetOrg(PackageId, behavior);
+
+        public static HouseEnvironment CreateNuGetOrg(
+            string packageId,
+            SourceBehavior behavior) =>
             CreateForPackage(
-                PackageId,
+                packageId,
                 [behavior],
                 useNuGetOrgEndpoint: true);
 
