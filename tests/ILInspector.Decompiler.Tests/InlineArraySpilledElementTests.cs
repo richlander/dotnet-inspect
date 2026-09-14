@@ -697,6 +697,7 @@ public class InlineArraySpilledElementTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void MarkLocalEliminated_HasABehavioralCaseForEveryLocalSlotCarrierKind()
     {
         // Drift tripwire: every carrier that can bind a local slot in the IR tree must

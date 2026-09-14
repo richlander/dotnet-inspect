@@ -611,6 +611,7 @@ public class ExpressionInliningPassTests
     // A newly added binding node fails this pin until it is handled in Writes
     // (issue #3133 adversarial review kept surfacing missing writers).
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Writes_CoversEveryLocalOrArgumentBindingNode()
     {
         string[] bindingIndexNames = ["LocalIndex", "VariableIndex"];

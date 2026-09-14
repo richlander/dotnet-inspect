@@ -14,6 +14,7 @@ namespace ILInspector.Decompiler.Tests;
 [CollectionDefinition("ExplicitFilterGuardProcess", DisableParallelization = true)]
 public sealed class ExplicitFilterGuardProcessCollection;
 
+[Trait("Speed", "Slow")]
 [Collection("ExplicitFilterGuardProcess")]
 public class ExplicitFilterGuardTests
 {

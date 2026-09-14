@@ -15,6 +15,7 @@ using Microsoft.CodeAnalysis.CSharp;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Speed", "Slow")]
 [Trait("Area", "RoundTrip")]
 public sealed class ValidDifferentFaultIsolationTests
 {

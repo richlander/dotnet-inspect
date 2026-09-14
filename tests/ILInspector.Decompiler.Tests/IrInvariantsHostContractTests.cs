@@ -290,6 +290,7 @@ public sealed class IrInvariantsHostContractTests
     /// </para>
     /// </summary>
     [Fact]
+    [Trait("Speed", "Slow")]
     public void OnlyTheShippedToolEntryPointDeclinesValidation()
     {
         var sites = FindOptOutSites().OrderBy(static s => s, StringComparer.Ordinal).ToArray();

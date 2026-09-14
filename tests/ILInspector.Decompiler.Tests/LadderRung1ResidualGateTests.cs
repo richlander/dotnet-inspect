@@ -26,6 +26,7 @@ public class LadderRung1ResidualGateTests
     static readonly string[] ExpectedMembers = [".ctor", "ThrowExpression"];
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Residuals_ExposeExactMemberSet_AllFullAndFullyRaised()
     {
         var members = LoadRaisedMembers();
@@ -71,6 +72,7 @@ public class LadderRung1ResidualGateTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void Residuals_HaveNoMalformedOrSemanticDefects()
     {
         var results = ValidityCheck.Evaluate(FixturePath)
