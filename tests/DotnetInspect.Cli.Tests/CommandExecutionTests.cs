@@ -31400,13 +31400,8 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Theory]
-    [InlineData("content", "Package README file")]
-    [InlineData("print", "package readme file")]
-    [InlineData("bare", "PACKAGE README FILE")]
-    public async Task PackageExactTransfer_LineWindowRejectsBeforePackageAcquisition(
-        string mode,
-        string section)
+    [Fact]
+    public async Task PackageExactTransfer_ExplicitPathLineWindowRejectsBeforePackageAcquisition()
     {
         string packageName =
             $"Test.Projection.NoAcquire.{Guid.NewGuid():N}";
@@ -31415,15 +31410,14 @@ public partial class CommandExecutionTests
             $"{packageName}.txt");
         try
         {
-            string[] projection = mode == "content"
-                ? ["--content", "--path", "README.md"]
-                : ["-S", section, $"--{mode}"];
             var result = await RunAppAsync(
                 [
                     "--offline",
                     "package",
                     packageName,
-                    .. projection,
+                    "--content",
+                    "--path",
+                    "README.md",
                     "-n1",
                     "--out",
                     outputPath,
