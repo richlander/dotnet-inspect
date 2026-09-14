@@ -6,6 +6,7 @@ using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using DotnetInspect.Cli.Views;
 using Markout;
+using Markout.Formatting;
 
 namespace DotnetInspect.Cli.Commands;
 
@@ -70,7 +71,7 @@ public class CacheCommand
             case OutputFormat.PlainText:
                 if (isEmpty)
                 {
-                    Console.WriteLine("Cache is empty.");
+                    WriteEmptyCache(new PlainTextFormatter());
                     break;
                 }
                 MarkoutSerializer.Serialize(view, Console.Out, new PlainTextFormatter(), CacheInfoContext.Default);
@@ -79,7 +80,7 @@ public class CacheCommand
             default:
                 if (isEmpty)
                 {
-                    Console.WriteLine("Cache is empty.");
+                    WriteEmptyCache(new MarkdownFormatter());
                     break;
                 }
                 MarkoutSerializer.Serialize(view, Console.Out, CacheInfoContext.Default);
@@ -89,6 +90,14 @@ public class CacheCommand
 
         return 0;
     }
+
+    private static void WriteEmptyCache(IMarkoutFormatter formatter) =>
+        MarkoutSerializer.Serialize(
+            new EmptyCacheInfoView(),
+            Console.Out,
+            formatter,
+            CacheInfoContext.Default,
+            new MarkoutWriterOptions { IncludeDescription = true });
 
     private static int CleanCache()
     {

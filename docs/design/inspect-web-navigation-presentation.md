@@ -329,9 +329,10 @@ This model retires Navigation Presentation's allocation ladder, allocation
 buttons, manually retained inline windows, wheel sliding, edge indicators, and
 subject/inspector Short Label, Icon, and Index fallbacks. The implementation
 must remove those consumer paths when it adopts the new model rather than
-keeping a compatibility mode. `SlideStrip` remains a separately owned reusable
-control; this document neither changes its contract nor decides whether that
-control has enough remaining adoption to retain.
+keeping a compatibility mode. The separate reusable windowing control had no
+remaining production adopter after that removal, so
+[#6277](https://github.com/richlander/dotnet-inspect/issues/6277) retired its
+implementation, tests, styles, and stale first-adopter design.
 
 Issue #6158 is the overall end-to-end tracker for this Browser presentation
 replacement. Its counted path has three focused slices:
@@ -341,10 +342,8 @@ replacement. Its counted path has three focused slices:
    inventories and delete the retired Navigation Presentation interaction in
    the same production slice,
    [#6276](https://github.com/richlander/dotnet-inspect/issues/6276); and
-3. reconcile the now-unconsumed SlideStrip owner in the separate focused
-   [#6277](https://github.com/richlander/dotnet-inspect/issues/6277), retaining
-   it only with a justified consumer or retiring its implementation and stale
-   first-adopter documentation.
+3. retire the now-unconsumed reusable windowing owner in the separate focused
+   [#6277](https://github.com/richlander/dotnet-inspect/issues/6277).
 
 The second slice completes the user-visible navigation replacement. The third
 closes the existing-architecture retirement plan without broadening this

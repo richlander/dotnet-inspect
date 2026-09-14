@@ -31,6 +31,11 @@ L1 query, a host-neutral API, or a browser/Wasm contract. The service boundary
 is still useful: commands do not classify candidates, and writers do not
 reconstruct search semantics.
 
+The proposed [Reverse Type-Declaration Locator](reverse-type-declaration-locator.md)
+is the separately owned host-neutral coordinate-discovery successor. Its
+[adoption map](reverse-type-locator-adoption.md) tracks the CLI migration;
+this service's current behavior and gaps remain unchanged until that adoption.
+
 The analogous `MemberSearchService` confirms the local convention of one
 ordered source collector, typed query execution, flat result rows, and
 writer-owned presentation. Member search has a different classification

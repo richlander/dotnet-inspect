@@ -65,6 +65,38 @@ public abstract record NavigationInventoryEvidence
         public Exception Error { get; }
     }
 
+    /// <summary>Detached participant rejection for retained Navigation state.</summary>
+    public sealed record DetachedParticipantRejected : NavigationInventoryEvidence
+    {
+        internal DetachedParticipantRejected(
+            StructuralSubjectIdentity.LibrarySubject library,
+            NavigationAssemblyIdentity producerSubject,
+            CandidateOpenFailure failure) : base(library)
+        {
+            ProducerSubject = producerSubject;
+            Failure = failure;
+        }
+
+        public NavigationAssemblyIdentity ProducerSubject { get; }
+        public CandidateOpenFailure Failure { get; }
+    }
+
+    /// <summary>Exact failure association and diagnostic data, without exception or access authority.</summary>
+    public sealed record DetachedParticipantFailed : NavigationInventoryEvidence
+    {
+        internal DetachedParticipantFailed(
+            StructuralSubjectIdentity.LibrarySubject library,
+            NavigationAssemblyIdentity producerSubject,
+            NavigationExceptionEvidence error) : base(library)
+        {
+            ProducerSubject = producerSubject;
+            Error = error;
+        }
+
+        public NavigationAssemblyIdentity ProducerSubject { get; }
+        public NavigationExceptionEvidence Error { get; }
+    }
+
     /// <summary>A metadata row failed while the Library surface was produced.</summary>
     public sealed record InspectionFailed : NavigationInventoryEvidence
     {

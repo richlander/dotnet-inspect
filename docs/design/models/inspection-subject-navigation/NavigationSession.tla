@@ -8,7 +8,7 @@
 (* identity ranking, lens contents, rendering, or any implementation.       *)
 (*                                                                         *)
 (* Product concept                    Model variable                       *)
-(*   installed navigation snapshot      installedSnapshot                  *)
+(*   semantic value + action generation installedSnapshot                  *)
 (*   installed snapshot revision        installedRev                       *)
 (*   consumer-installed snapshot         consumerSnapshot                   *)
 (*   consumer-installed revision         consumerRev                        *)
@@ -41,7 +41,7 @@ CONSTANTS
   MaxMaintenance,   \* how many standalone maintenance requests it may issue
   MaxSynchronization, \* how many external synchronization requests may issue
   IntentKinds,      \* subject, lens, coordinate, and canonical restoration
-  SnapshotValues,   \* finite complete-snapshot contents
+  SnapshotValues,   \* finite complete semantic snapshot contents
   InitialSnapshot,  \* content retained before the first modelled result
   SessionId,        \* the identity of this retained navigation session
   ForeignSessionId  \* some other session, used only for foreign authority
@@ -111,16 +111,26 @@ SemanticOutcomes ==
 ResultSources == {"none", "evaluation", "navigationPreparation"}
 Dispositions == {"current", "synchronizationRequired"}
 
+\* A complete consumer publication carries semantic data and action generation.
+\* Revision versions only semantic data; the receipt joins revision and generation.
+Publication(semantic, generation) ==
+  [semantic |-> semantic, generation |-> generation]
+
+IsPublication(snapshot) ==
+  /\ snapshot.semantic \in SnapshotValues
+  /\ snapshot.generation \in Nat
+
 NoResult ==
   [ outcome         |-> "none",
     source          |-> "none",
     preparationFailureOccurred |-> FALSE,
+    retryPublicationOccurred |-> FALSE,
     disposition     |-> "none",
-    receiptSnapshot |-> InitialSnapshot,
+    receiptSnapshot |-> Publication(InitialSnapshot, 0),
     receiptRev      |-> 0,
     snapshotChanged |-> FALSE,
-    priorSnapshot   |-> InitialSnapshot,
-    resultSnapshot  |-> InitialSnapshot,
+    priorSnapshot   |-> Publication(InitialSnapshot, 0),
+    resultSnapshot  |-> Publication(InitialSnapshot, 0),
     priorRev        |-> 0,
     resultRev       |-> 0 ]
 
@@ -135,10 +145,11 @@ Result(outcome, source, preparationFailureOccurred,
   [ outcome         |-> outcome,
     source          |-> source,
     preparationFailureOccurred |-> preparationFailureOccurred,
+    retryPublicationOccurred |-> FALSE,
     disposition     |-> disposition,
     receiptSnapshot |-> receiptSnapshot,
     receiptRev      |-> receiptRev,
-    snapshotChanged |-> resultSnapshot # priorSnapshot,
+    snapshotChanged |-> resultSnapshot.semantic # priorSnapshot.semantic,
     priorSnapshot   |-> priorSnapshot,
     resultSnapshot  |-> resultSnapshot,
     priorRev        |-> priorRev,
@@ -189,13 +200,13 @@ MaintenanceIndex(n) == CHOOSE i \in DOMAIN maintenanceQueue : maintenanceQueue[i
 MaintenanceEntry(n) == maintenanceQueue[MaintenanceIndex(n)]
 
 TypeOK ==
-  /\ installedSnapshot \in SnapshotValues
+  /\ IsPublication(installedSnapshot)
   /\ installedRev \in Nat
-  /\ consumerSnapshot \in SnapshotValues
+  /\ IsPublication(consumerSnapshot)
   /\ consumerRev \in Nat
   /\ consumerInstalledEpoch \in Nat
   /\ consumerInstalledEpoch <= effectEpoch
-  /\ acknowledgedSnapshot \in SnapshotValues
+  /\ IsPublication(acknowledgedSnapshot)
   /\ acknowledgedRev \in Nat
   /\ acknowledgedRev <= consumerRev
   /\ consumerRev <= installedRev
@@ -209,12 +220,13 @@ TypeOK ==
   /\ lastResult.outcome \in SemanticOutcomes \cup {"none"}
   /\ lastResult.source \in ResultSources
   /\ lastResult.preparationFailureOccurred \in BOOLEAN
+  /\ lastResult.retryPublicationOccurred \in BOOLEAN
   /\ lastResult.disposition \in Dispositions \cup {"none"}
-  /\ lastResult.receiptSnapshot \in SnapshotValues
+  /\ IsPublication(lastResult.receiptSnapshot)
   /\ lastResult.receiptRev \in Nat
   /\ lastResult.snapshotChanged \in BOOLEAN
-  /\ lastResult.priorSnapshot \in SnapshotValues
-  /\ lastResult.resultSnapshot \in SnapshotValues
+  /\ IsPublication(lastResult.priorSnapshot)
+  /\ IsPublication(lastResult.resultSnapshot)
   /\ lastResult.priorRev \in Nat
   /\ lastResult.resultRev \in Nat
   /\ effectEpoch \in Nat
@@ -241,12 +253,12 @@ TypeOK ==
   /\ abandonmentWitness \in BOOLEAN
 
 Init ==
-  /\ installedSnapshot = InitialSnapshot
+  /\ installedSnapshot = Publication(InitialSnapshot, 0)
   /\ installedRev = 0
-  /\ consumerSnapshot = InitialSnapshot
+  /\ consumerSnapshot = Publication(InitialSnapshot, 0)
   /\ consumerRev = 0
   /\ consumerInstalledEpoch = 0
-  /\ acknowledgedSnapshot = InitialSnapshot
+  /\ acknowledgedSnapshot = Publication(InitialSnapshot, 0)
   /\ acknowledgedRev = 0
   /\ currentIntent = 0
   /\ explicit = NoExplicitWork
@@ -310,7 +322,7 @@ BeginExplicitIntent(kind) ==
 ExplicitResultInstalls(returnedSnapshot) ==
   /\ explicit # NoExplicitWork
   /\ explicit.token = currentIntent
-  /\ returnedSnapshot # installedSnapshot
+  /\ returnedSnapshot.semantic # installedSnapshot.semantic
   /\ installedSnapshot' = returnedSnapshot
   /\ installedRev' = installedRev + 1
   /\ effectEpoch' = effectEpoch + 1
@@ -344,7 +356,7 @@ ExplicitNonSuccess(outcome, returnedSnapshot) ==
   /\ outcome \in {"unavailable", "failed"}
   /\ explicit # NoExplicitWork
   /\ explicit.token = currentIntent
-  /\ LET changed == returnedSnapshot # installedSnapshot IN
+  /\ LET changed == returnedSnapshot.semantic # installedSnapshot.semantic IN
        /\ installedSnapshot' = returnedSnapshot
        /\ installedRev' = IF changed THEN installedRev + 1 ELSE installedRev
        /\ effectEpoch' = effectEpoch + 1
@@ -377,6 +389,50 @@ ExplicitNonSuccess(outcome, returnedSnapshot) ==
                   nextSynchronization, synchronizationRequest,
                   settledSynchronizations,
                   admissionWitness,
+                  regatherWitness, orderWitness, visibleWitness,
+                  consumerSyncWitness, consumerAckWitness,
+                  synchronizationWitness, abandonmentWitness >>
+
+\* A consumed advertised action can be republished for retry after a retaining
+\* non-success result. This is bounded by explicit intents, not a retry ceiling.
+\* The semantic snapshot/revision stay fixed, but receipt and epoch must change.
+ExplicitRetryActionPublication ==
+  /\ explicit # NoExplicitWork
+  /\ explicit.token = currentIntent
+  /\ installedSnapshot' =
+       Publication(installedSnapshot.semantic, installedSnapshot.generation + 1)
+  /\ installedRev' = installedRev
+  /\ effectEpoch' = effectEpoch + 1
+  /\ effect' = Authority("retained", installedRev, currentIntent, effectEpoch + 1)
+  /\ hostAuthority' = effect'
+  /\ lastResult' =
+       [Result("unavailable", "none", FALSE,
+               ConsumerDisposition(installedSnapshot', installedRev),
+               acknowledgedSnapshot, acknowledgedRev,
+               installedSnapshot, installedSnapshot', installedRev, installedRev)
+         EXCEPT !.retryPublicationOccurred = TRUE]
+  /\ dispositionWitness' =
+       /\ dispositionWitness
+       /\ CorrectDispositionAtIssue(lastResult')
+  /\ revisionWitness' =
+       /\ revisionWitness
+       /\ installedSnapshot'.semantic = installedSnapshot.semantic
+       /\ installedRev' = installedRev
+       /\ installedSnapshot'.generation = installedSnapshot.generation + 1
+       /\ lastResult'.priorSnapshot = installedSnapshot
+       /\ lastResult'.resultSnapshot = installedSnapshot'
+       /\ lastResult'.priorRev = installedRev
+       /\ lastResult'.resultRev = installedRev'
+       /\ effectEpoch' = effectEpoch + 1
+       /\ effect' = Authority("retained", installedRev, currentIntent, effectEpoch + 1)
+       /\ hostAuthority' = effect'
+  /\ explicit' = NoExplicitWork
+  /\ UNCHANGED << consumerSnapshot, consumerRev, consumerInstalledEpoch,
+                  acknowledgedSnapshot, acknowledgedRev,
+                  currentIntent, superseded, nextMaintenance,
+                  maintenanceQueue, lastAdmitted, admittedRequests,
+                  nextSynchronization, synchronizationRequest,
+                  settledSynchronizations, admissionWitness,
                   regatherWitness, orderWitness, visibleWitness,
                   consumerSyncWitness, consumerAckWitness,
                   synchronizationWitness, abandonmentWitness >>
@@ -525,7 +581,7 @@ RequestMaintenance ==
        Append(maintenanceQueue,
               [ seq           |-> nextMaintenance,
                 ready         |-> FALSE,
-                basis         |-> installedRev,
+                basis         |-> installedSnapshot.generation,
                 needsRegather |-> FALSE ])
   /\ nextMaintenance' = nextMaintenance + 1
   /\ UNCHANGED << installedSnapshot, installedRev,
@@ -571,8 +627,8 @@ GatherMaintenanceFacts(n) ==
 RebuildMaintenance(n) ==
   /\ HasMaintenance(n)
   /\ LET i == MaintenanceIndex(n) IN
-       /\ maintenanceQueue[i].basis # installedRev
-       /\ maintenanceQueue' = [maintenanceQueue EXCEPT ![i].basis = installedRev,
+       /\ maintenanceQueue[i].basis # installedSnapshot.generation
+       /\ maintenanceQueue' = [maintenanceQueue EXCEPT ![i].basis = installedSnapshot.generation,
                                                        ![i].ready = FALSE,
                                                        ![i].needsRegather = TRUE]
        /\ regatherWitness' =
@@ -600,7 +656,7 @@ RebuildMaintenance(n) ==
 MaintenanceAdmissible ==
   /\ maintenanceQueue # << >>
   /\ Head(maintenanceQueue).ready
-  /\ Head(maintenanceQueue).basis = installedRev
+  /\ Head(maintenanceQueue).basis = installedSnapshot.generation
   /\ ~Head(maintenanceQueue).needsRegather
   /\ explicit = NoExplicitWork
   /\ effect = NoAuthority
@@ -608,7 +664,8 @@ MaintenanceAdmissible ==
 AdmitMaintenance ==
   /\ MaintenanceAdmissible
   /\ LET replacement ==
-       CHOOSE snapshot \in SnapshotValues \ {installedSnapshot} : TRUE
+       Publication(CHOOSE snapshot \in SnapshotValues \ {installedSnapshot.semantic} : TRUE,
+                   installedSnapshot.generation + 1)
      IN
        /\ installedSnapshot' = replacement
        /\ lastResult' =
@@ -674,11 +731,10 @@ RequestConsumerSynchronization ==
 
 \* A retained consumer that abandoned or lost authority while behind the
 \* session can receive the complete current snapshot under fresh authority.
-\* Pending maintenance drains first; any intervening current result can
-\* discharge the same request when that result is acknowledged.
+\* Pending maintenance drains first. Acknowledgement may make the receipt
+\* current but does not discard this request's dedicated response identity.
 SynchronizeConsumer ==
   /\ synchronizationRequest # 0
-  /\ ConsumerAcknowledgementLags
   /\ explicit = NoExplicitWork
   /\ maintenanceQueue = << >>
   /\ effect = NoAuthority
@@ -710,7 +766,7 @@ SynchronizeConsumer ==
             settledSynchronizations \cup {synchronizationRequest}
        /\ lastResult'.resultSnapshot = installedSnapshot
        /\ lastResult'.resultRev = installedRev
-       /\ lastResult'.disposition = "synchronizationRequired"
+       /\ CorrectDispositionAtIssue(lastResult')
   /\ UNCHANGED << installedSnapshot, installedRev,
                   consumerSnapshot, consumerRev, consumerInstalledEpoch,
                   acknowledgedSnapshot, acknowledgedRev,
@@ -771,11 +827,8 @@ AcknowledgeEffect ==
   /\ acknowledgedRev' = consumerRev
   /\ effect' = NoAuthority
   /\ hostAuthority' = NoAuthority
-  /\ settledSynchronizations' =
-       IF synchronizationRequest = 0
-         THEN settledSynchronizations
-         ELSE settledSynchronizations \cup {synchronizationRequest}
-  /\ synchronizationRequest' = 0
+  /\ synchronizationRequest' = synchronizationRequest
+  /\ settledSynchronizations' = settledSynchronizations
   /\ consumerAckWitness' =
        /\ consumerAckWitness
        /\ consumerRev = installedRev
@@ -788,11 +841,8 @@ AcknowledgeEffect ==
        /\ (synchronizationRequest = 0 \/
              /\ synchronizationRequest \notin settledSynchronizations
              /\ synchronizationRequest < nextSynchronization)
-       /\ synchronizationRequest' = 0
-       /\ settledSynchronizations' =
-            IF synchronizationRequest = 0
-              THEN settledSynchronizations
-              ELSE settledSynchronizations \cup {synchronizationRequest}
+       /\ synchronizationRequest' = synchronizationRequest
+       /\ settledSynchronizations' = settledSynchronizations
   /\ UNCHANGED << installedSnapshot, installedRev,
                   consumerSnapshot, consumerRev, consumerInstalledEpoch,
                   currentIntent, explicit,
@@ -850,11 +900,15 @@ ForeignAuthorityOffered ==
                   abandonmentWitness >>
 
 ResolveExplicit ==
-  \/ \E returnedSnapshot \in SnapshotValues :
-       ExplicitResultInstalls(returnedSnapshot)
+  \/ \E semantic \in SnapshotValues :
+       ExplicitResultInstalls(Publication(semantic, installedSnapshot.generation + 1))
   \/ \E outcome \in {"unavailable", "failed"},
-          returnedSnapshot \in SnapshotValues :
-       ExplicitNonSuccess(outcome, returnedSnapshot)
+          semantic \in SnapshotValues :
+       ExplicitNonSuccess(outcome,
+         Publication(semantic, IF semantic = installedSnapshot.semantic
+                                 THEN installedSnapshot.generation
+                                 ELSE installedSnapshot.generation + 1))
+  \/ ExplicitRetryActionPublication
   \/ NavigationPreparationFailure
   \/ ExplicitRejected
   \/ ExternalPrerequisiteAbort
@@ -907,6 +961,8 @@ ExactCurrentAuthority ==
     /\ effect.rev = installedRev
     /\ effect.intent = currentIntent
     /\ effect.epoch = effectEpoch
+    /\ lastResult.resultSnapshot = installedSnapshot
+    /\ lastResult.resultRev = installedRev
 
 \* No maintenance admission during unresolved explicit work or unconsumed
 \* effects.
@@ -938,10 +994,20 @@ NonSuccessRevisionMatchesSnapshotChange ==
   /\ revisionWitness
   /\ (lastResult.outcome \in {"unavailable", "failed"} =>
         /\ lastResult.snapshotChanged =
-             (lastResult.resultSnapshot # lastResult.priorSnapshot)
+             (lastResult.resultSnapshot.semantic # lastResult.priorSnapshot.semantic)
         /\ IF lastResult.snapshotChanged
              THEN lastResult.resultRev = lastResult.priorRev + 1
              ELSE lastResult.resultRev = lastResult.priorRev)
+
+\* The generation-only path cannot rewrite semantic state or reuse the old
+\* publication. The pre-state witness separately checks fresh effect authority.
+RetryActionPublicationPreservesSemanticRevision ==
+  /\ revisionWitness
+  /\ (lastResult.retryPublicationOccurred =>
+        /\ ~lastResult.snapshotChanged
+        /\ lastResult.resultRev = lastResult.priorRev
+        /\ lastResult.resultSnapshot.semantic = lastResult.priorSnapshot.semantic
+        /\ lastResult.resultSnapshot.generation = lastResult.priorSnapshot.generation + 1)
 
 \* Navigation preparation failure has no complete replacement snapshot to
 \* install.  Its distinguishable result therefore records identical
@@ -964,14 +1030,22 @@ PreparationFailureRetainsSnapshotAndRevision ==
               /\ installedRev = lastResult.resultRev))
 
 \* Consumer-installed and product-acknowledged state are separate currencies.
-\* Neither may lead its authority source, and equal revisions mean equal
-\* complete snapshots rather than merely matching counters.
+\* Neither may lead its authority source. Equal revisions mean equal semantic
+\* data, not equal actions; complete snapshots agree at the composite receipt.
 ConsumerSynchronizationShape ==
   /\ acknowledgedRev <= consumerRev
   /\ consumerRev <= installedRev
+  /\ acknowledgedSnapshot.generation <= consumerSnapshot.generation
+  /\ consumerSnapshot.generation <= installedSnapshot.generation
   /\ (acknowledgedRev = consumerRev =>
-        acknowledgedSnapshot = consumerSnapshot)
+        acknowledgedSnapshot.semantic = consumerSnapshot.semantic)
   /\ (consumerRev = installedRev =>
+        consumerSnapshot.semantic = installedSnapshot.semantic)
+  /\ (acknowledgedRev = consumerRev /\
+        acknowledgedSnapshot.generation = consumerSnapshot.generation =>
+        acknowledgedSnapshot = consumerSnapshot)
+  /\ (consumerRev = installedRev /\
+        consumerSnapshot.generation = installedSnapshot.generation =>
         consumerSnapshot = installedSnapshot)
 
 \* Every consumer-visible effect installs the complete current snapshot carried
@@ -1001,7 +1075,7 @@ SynchronizationRequestDiscipline == synchronizationWitness
 SynchronizationAuthorityIsCurrent ==
   effect.outcome = "synchronize" =>
     /\ lastResult.outcome = "synchronize"
-    /\ lastResult.disposition = "synchronizationRequired"
+    /\ CorrectDisposition(lastResult)
     /\ lastResult.resultSnapshot = installedSnapshot
     /\ lastResult.resultRev = installedRev
     /\ effect.rev = installedRev
@@ -1041,8 +1115,7 @@ EveryQueuedRequestIsAdmitted ==
   \A n \in 1 .. MaxMaintenance : HasMaintenance(n) ~> (n \in admittedRequests)
 
 \* Every synchronization request that the bounded environment issues receives
-\* dedicated fresh authority or is discharged by acknowledgement of another
-\* current result carrying the complete product snapshot.
+\* dedicated fresh authority, even if another current result was acknowledged.
 EverySynchronizationRequestSettles ==
   \A n \in 1 .. MaxSynchronization :
     (n < nextSynchronization) ~> (n \in settledSynchronizations)
@@ -1066,7 +1139,7 @@ MaintenanceResumesAfterAbort ==
 \* and re-gather before it can be admitted, and it still is.
 StaleBasisMaintenanceResumes ==
   \A n \in 1 .. MaxMaintenance :
-    (HasMaintenance(n) /\ MaintenanceEntry(n).basis # installedRev)
+    (HasMaintenance(n) /\ MaintenanceEntry(n).basis # installedSnapshot.generation)
       ~> (n \in admittedRequests)
 
 =============================================================================

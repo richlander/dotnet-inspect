@@ -5,6 +5,54 @@ namespace CiChangeDetection;
 
 internal static partial class WorkflowContract
 {
+    private static readonly HashSet<string> CommonTestSteps =
+    [
+        "actions/checkout@v7",
+        "Setup .NET",
+        "Cache NuGet packages",
+        "Build",
+    ];
+
+    private static readonly Dictionary<string, (string Condition, string Shard)>
+        SpecialTestStepConditions = new(StringComparer.Ordinal)
+        {
+            ["Upload PR decompiler corpus artifact"] = (
+                "matrix.shard == 'host-policy' && always()",
+                "host-policy"),
+            ["Check PR decompiler corpus result"] = (
+                "matrix.shard == 'host-policy' && " +
+                "steps.decompiler_pr_corpus.outcome == 'failure'",
+                "host-policy"),
+            ["Run decompiler unit tests (fast)"] = (
+                "matrix.shard == 'analysis' && " +
+                "fromJSON(needs.changes.outputs.plan).validations.decompilerGates",
+                "analysis"),
+            ["Run DecompilerHarness tests"] = (
+                "matrix.shard == 'analysis' && " +
+                "fromJSON(needs.changes.outputs.plan).validations.decompilerGates",
+                "analysis"),
+            ["Restore vendored ILAssembler"] = (
+                "matrix.shard == 'analysis' && matrix.rid == 'linux-x64' && " +
+                "fromJSON(needs.changes.outputs.plan).validations.ilRoundTrip",
+                "analysis"),
+            ["Run IL round-trip tests (fast)"] = (
+                "matrix.shard == 'analysis' && matrix.rid == 'linux-x64' && " +
+                "fromJSON(needs.changes.outputs.plan).validations.ilRoundTrip",
+                "analysis"),
+            ["Check contract test ilasm/ildasm/mdv result"] = (
+                "matrix.shard == 'contracts' && " +
+                "steps.iltools_contracts.outcome == 'failure'",
+                "contracts"),
+            ["Check analysis test ilasm/ildasm result"] = (
+                "matrix.shard == 'analysis' && " +
+                "steps.iltools_analysis.outcome == 'failure'",
+                "analysis"),
+            ["Check GitHub Packages fixture result"] = (
+                "matrix.shard == 'host-policy' && " +
+                "steps.package_fixture.outcome == 'failure'",
+                "host-policy"),
+        };
+
     private static void ValidateConsumerStepContracts(YamlMappingNode jobs)
     {
         string[] jobNames =
@@ -323,30 +371,17 @@ internal static partial class WorkflowContract
         var allowedIf = new Dictionary<string, string>(
             StringComparer.Ordinal)
         {
-            ["test/Upload PR decompiler corpus artifact"] = "always()",
-            ["test/Check PR decompiler corpus result"] =
-                "steps.decompiler_pr_corpus.outcome == 'failure'",
-            ["test/Check ilasm/ildasm/mdv result"] =
-                "steps.iltools.outcome == 'failure'",
-            ["test/Check GitHub Packages fixture result"] =
-                "steps.package_fixture.outcome == 'failure'",
             ["decompiler-gates/Upload gate report"] = "always()",
             ["csharp-diff-smoke/Upload C# Diff smoke artifact"] = "always()",
             ["il-diff-smoke/Upload IL Diff smoke artifact"] = "always()",
-        };
-        var plannerSelectedIf = new HashSet<string>(StringComparer.Ordinal)
-        {
-            "test/Restore vendored ILAssembler",
-            "test/Run IL round-trip tests (fast)",
-            "test/Run decompiler unit tests (fast)",
-            "test/Run DecompilerHarness tests",
         };
         var allowedContinueOnError = new HashSet<string>(
             StringComparer.Ordinal)
         {
             "test/Run GitHub Packages fixture test",
             "test/Run PR decompiler corpus sensor",
-            "test/Install ilasm/ildasm/mdv",
+            "test/Install ilasm/ildasm/mdv for contract tests",
+            "test/Install ilasm/ildasm for analysis tests",
             "decompiler-gates/Run decompiler gates",
         };
         var allowedShell = new Dictionary<string, string>(
@@ -354,7 +389,8 @@ internal static partial class WorkflowContract
         {
             ["test/Run GitHub Packages fixture test"] = "bash",
             ["test/Run PR decompiler corpus sensor"] = "bash",
-            ["test/Install ilasm/ildasm/mdv"] = "bash",
+            ["test/Install ilasm/ildasm/mdv for contract tests"] = "bash",
+            ["test/Install ilasm/ildasm for analysis tests"] = "bash",
             ["csharp-diff-smoke/Run C# Diff baseline smoke"] = "bash",
             ["il-diff-smoke/Run IL Diff baseline smoke"] = "bash",
             ["skill-gate/Run embedded skill tests"] = "bash",
@@ -366,7 +402,10 @@ internal static partial class WorkflowContract
                 "package_fixture",
             ["test/Run PR decompiler corpus sensor"] =
                 "decompiler_pr_corpus",
-            ["test/Install ilasm/ildasm/mdv"] = "iltools",
+            ["test/Install ilasm/ildasm/mdv for contract tests"] =
+                "iltools_contracts",
+            ["test/Install ilasm/ildasm for analysis tests"] =
+                "iltools_analysis",
             ["decompiler-gates/Run decompiler gates"] = "gates",
         };
         var allowedTimeoutMinutes = new Dictionary<string, string>(
@@ -381,6 +420,7 @@ internal static partial class WorkflowContract
         var seenId = new HashSet<string>(StringComparer.Ordinal);
         var seenTimeoutMinutes =
             new HashSet<string>(StringComparer.Ordinal);
+        var seenTestShards = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (string jobName in jobNames)
         {
@@ -403,7 +443,15 @@ internal static partial class WorkflowContract
                 }
 
                 string key = $"{jobName}/{identity}";
-                if (!plannerSelectedIf.Contains(key))
+                if (jobName == "test")
+                {
+                    ValidateTestStepGuard(
+                        step,
+                        identity,
+                        key,
+                        seenTestShards);
+                }
+                else
                 {
                     ValidateOptionalStepValue(
                         step,
@@ -467,6 +515,52 @@ internal static partial class WorkflowContract
             seenTimeoutMinutes,
             allowedTimeoutMinutes.Keys,
             "consumer step timeout minutes");
+        RequireSeenExactly(
+            seenTestShards,
+            TestShards,
+            "test shard step guards");
+    }
+
+    private static void ValidateTestStepGuard(
+        YamlMappingNode step,
+        string identity,
+        string key,
+        ISet<string> seenShards)
+    {
+        if (CommonTestSteps.Contains(identity))
+        {
+            RequireAbsent(step, "if", key);
+            return;
+        }
+
+        string condition = GetOptionalScalar(step, "if")
+            ?? throw new InvalidOperationException(
+                $"{key} must select one test shard.");
+        if (SpecialTestStepConditions.TryGetValue(
+                identity,
+                out (string Condition, string Shard) special))
+        {
+            if (condition != special.Condition)
+            {
+                throw new InvalidOperationException(
+                    $"{key}.if is not the approved shard condition.");
+            }
+
+            seenShards.Add(special.Shard);
+            return;
+        }
+
+        foreach (string shard in TestShards)
+        {
+            if (condition == $"matrix.shard == '{shard}'")
+            {
+                seenShards.Add(shard);
+                return;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"{key}.if must select exactly one approved test shard.");
     }
 
     private static void ValidateOptionalStepValue(

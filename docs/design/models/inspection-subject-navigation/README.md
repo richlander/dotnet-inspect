@@ -5,15 +5,15 @@ described in [`../../inspection-subject-navigation.md`](../../inspection-subject
 They replace prose state-machine description with specifications a model
 checker can exhaust.
 
-There are three independent models. None imports another, and each is small
-enough for TLC to explore its entire state space within seconds in the recorded
-environment.
+There are three independent, finite models. None imports another.
+The current retained-state run
+took about 33 minutes on the recorded host; the other two took seconds.
 
 | Model | Mechanism |
 | --- | --- |
-| `NavigationSession.tla` | Retained session: intent, supersession, maintenance order, effect authority, consumer synchronization |
+| `NavigationSession.tla` | Explicit product state: intent, supersession, maintenance order, semantic revision versus publication generation, effect authority, consumer synchronization |
 | `AtomicRestoration.tla` | Fresh Workspace initialization: one exact requested subject+lens pair published as one complete Navigation snapshot |
-| `SnapshotAuthority.tla` | Retained versus stateless execution and the prior state each may read |
+| `SnapshotAuthority.tla` | Explicit host-current product state versus consumer-supplied snapshots, and standalone evaluation |
 
 ## What these models cover
 
@@ -32,7 +32,7 @@ read that way:
   and lenses appear only as opaque values.
 - **Workspace isolation and structural ancestry.** Workspace identity,
   retained-coordinate occurrence identity, the
-  `Workspace -> (Package | Root) -> Library -> Type -> Member` grammar, and
+  `Workspace -> Package -> Library -> Type -> Member` grammar, and
   complete descendant binding are not modelled. Each retained-session instance
   assumes one exact Workspace boundary; implementation gates must reject
   foreign-Workspace subject actions and restoration payloads and prevent
@@ -40,7 +40,7 @@ read that way:
 - **Availability classification.** Descriptor classification and the
   reconciliation tables are not modelled. `NavigationSession.tla` does model
   the narrower rule that a completed `Unavailable` or `Failed` result advances
-  revision exactly when its complete returned snapshot changed. The model
+  semantic revision exactly when its complete semantic snapshot changed. The model
   distinguishes Navigation preparation failure, which has no installable
   replacement snapshot, from a failed Registry or policy evaluation. It does
   not distinguish Registry failure from policy failure.
@@ -60,6 +60,13 @@ read that way:
 - **Implementation correctness.** Nothing here proves that a future C# or
   TypeScript implementation conforms to these specifications. Conformance is
   the job of the named implementation gates in the owning document.
+- **Host-slot and ticket races.** `SnapshotAuthority.tla` assumes the explicitly
+  supplied product state is the host's current slot for an admitted operation.
+  It does not model competing `CanCommit` calls or full
+  session/Workspace/request/attempt/basis ticket identity. Those remain
+  implementation gates. `NavigationSession.tla` abstracts operation execution
+  and authority gathering without redefining their owners. These independent
+  models are not a Browser cutover or cross-owner composition proof.
 - **Complete restoration coordination.** `AtomicRestoration.tla` covers only
   atomic subject+lens initialization inside one fresh Workspace. Replacement
   Workspace construction, cleanup, and active-reference installation belong to
@@ -80,6 +87,8 @@ The models are also finite by construction: a bounded number of intents,
 maintenance requests, and operations. They establish that no permitted
 interleaving within those bounds violates the invariants; they are not
 inductive proofs for unbounded runs.
+Queued-request cancellation is not modeled: per-request admission liveness
+assumes the request was not explicitly cancelled.
 
 ## Correlated claims
 
@@ -92,24 +101,40 @@ back. The three models therefore carry three correlation currencies:
 
 | Model | Currency | Used by |
 | --- | --- | --- |
-| `NavigationSession.tla` | maintenance and synchronization request numbers, exact settled-request sets, intent token, consumer-installed revision, acknowledged-consumer revision | per-request admission, per-token settlement, per-authority installation, and product/consumer synchronization |
+| `NavigationSession.tla` | maintenance and synchronization request numbers, exact settled-request sets, intent token, semantic revision, action generation, and consumer installation epoch | per-request admission, per-token settlement, per-authority installation, and composite publication receipts |
 | `AtomicRestoration.tla` | restoration token plus an independently retained request payload | per-attempt settlement and exact prepared result |
 | `SnapshotAuthority.tla` | operation ID plus independently retained requested lens | per-operation resolution, rejection, and exact applied result |
 
 ## `NavigationSession.tla`
 
-One retained navigation session holding zero or one installed snapshot,
-consumer-installed state, and the complete snapshot revision last acknowledged
-by its retained consumer. The product issues monotonic explicit intent tokens
+One product-issued Navigation state lineage with an installed snapshot,
+consumer-installed state, and the composite publication last acknowledged by
+its retained consumer. The host retains the current state slot; product
+transitions receive state explicitly. The product issues monotonic intent tokens
 for subject, lens, Navigation-local coordinate, and canonical-restoration work.
 The owner issues maintenance request numbers for standalone inventory refresh and
 reconciliation and retains the exact identities admitted. The bounded
 environment issues exact synchronization request numbers. Every admitted
-result returns four-part effect authority: session identity, snapshot state
+result returns four-part effect authority: session identity, semantic state
 revision, intent token, and effect epoch. A consumer validates that authority,
 installs the complete result snapshot under the exact epoch, then acknowledges
 or abandons it. Installation does not itself advance the acknowledgement
 receipt.
+
+Snapshots are records with opaque `semantic` contents and an independently
+versioned action `generation`. Semantic replacement advances revision and
+generation; `ExplicitRetryActionPublication` advances generation alone for a
+retaining non-success result. The model uses `Unavailable` as its representative
+retryable outcome, not as a restriction on product retry eligibility.
+Acknowledgement joins revision and generation. The four-part authority's fresh
+epoch binds the exact complete publication; generation is not a fifth authority
+component.
+
+`NavigationPreparationFailure` retains its historical no-action-renewal branch.
+Its complete-publication retention invariant describes that branch, not a ban
+on renewing actions after preparation failure. The separate retry transition
+checks the shared publication/receipt rule; the full cross-product of failure
+sources and retry eligibility remains an implementation gate.
 
 Modelled behaviour includes: a newer explicit intent superseding older explicit
 and maintenance work; a superseded operation returning late; an external
@@ -121,7 +146,11 @@ snapshots; Navigation preparation failure is a distinct retaining action.
 It also models abandonment preserving acknowledgement debt before or after
 installation, a later non-installing result synchronizing that debt, and a
 dedicated fresh-authority synchronization result after queued maintenance
-drains. Synchronization request generation is finite; the product response path
+drains. A queued request keeps its identity when maintenance is acknowledged,
+so its dedicated response can be `Current`. This is #6113's implementation
+path; the owning contract also permits acknowledgement to discharge the request,
+but this model no longer chooses that alternative.
+Synchronization request generation is finite; the product response path
 has no modeled retry ceiling.
 
 | Invariant | Claim |
@@ -133,9 +162,10 @@ has no modeled retry ceiling.
 | `MaintenanceRequestOrder` | Maintenance was admitted in owner-issued request order, never fact-completion order, and the queue stays ordered and outstanding |
 | `NoStaleVisibleEffect` | Every consumer-visible effect executed under exactly the session's current unconsumed authority |
 | `MaintenanceRegatherDiscipline` | A stale request cannot become ready or admit until rebuilding requires and gathering completes a re-gather |
-| `NonSuccessRevisionMatchesSnapshotChange` | A completed unavailable or failed result advances revision exactly when the complete returned snapshot changed |
+| `NonSuccessRevisionMatchesSnapshotChange` | A completed unavailable or failed result advances revision exactly when the complete semantic snapshot changed |
+| `RetryActionPublicationPreservesSemanticRevision` | Retry renewal preserves semantic contents and revision, advances action generation, and issues a fresh epoch bound to that publication |
 | `PreparationFailureRetainsSnapshotAndRevision` | Navigation preparation failure retains the complete installed snapshot and revision, identifies its source, and returns fresh retained product and host authority |
-| `ConsumerSynchronizationShape` | The acknowledged receipt never leads consumer-installed state, consumer-installed state never leads the product, and equal revisions carry equal complete snapshots |
+| `ConsumerSynchronizationShape` | Receipt and installation never lead the product in revision or generation; equal revisions carry equal semantic data, while equal composite publications carry equal complete snapshots |
 | `ConsumerVisibleEffectSynchronizes` | A current visible effect installs the complete result snapshot, revision, and exact effect epoch before acknowledgement |
 | `AcknowledgementRequiresConsumerSynchronization` | Acknowledgement advances the receipt only after the complete current snapshot was installed under the current effect epoch |
 | `AbandonmentPreservesAcknowledgement` | Abandonment never advances the product-owned acknowledgement receipt, including after consumer installation |
@@ -155,7 +185,7 @@ discharge it.
 | `EffectEventuallyConsumed` | Unconsumed authority is eventually acknowledged, abandoned, or superseded |
 | `MaintenanceEventuallyDrains` | The whole queue eventually drains |
 | `EveryQueuedRequestIsAdmitted` | Every queued request's exact identity eventually appears in the admitted-request set |
-| `EverySynchronizationRequestSettles` | Every bounded external synchronization request receives dedicated fresh authority or is discharged by acknowledgement of another current result |
+| `EverySynchronizationRequestSettles` | Every bounded external synchronization request receives its own dedicated fresh authority, even if an intervening acknowledgement makes the receipt current |
 | `BlockedMaintenanceResumes` | A request blocked by unresolved explicit work or an unconsumed effect is still admitted once that work resolves and that effect is released |
 | `MaintenanceResumesAfterAbort` | A request blocked behind an external prerequisite abort is admitted after that abort effect is acknowledged or abandoned |
 | `StaleBasisMaintenanceResumes` | The same request whose basis a newer snapshot invalidated rebuilds, re-gathers, and is admitted in original request order |
@@ -204,19 +234,31 @@ subject and lens requested for that same token.
 
 ## `SnapshotAuthority.tla`
 
-Retained and stateless execution of the same navigation work. A retained
-operation reads prior state only from its session's installed snapshot and
-rejects explicitly supplied prior state with a typed outcome. A stateless
-evaluation may consume an explicit prior snapshot as data and retains nothing.
+Retained and standalone execution of the same navigation work. Both use
+stateless product functions. A retained operation explicitly receives the
+host-current product-issued state in `command.state`; it does not recover prior
+state from a retained service. A UI's separately supplied `command.prior`
+snapshot is rejected for retained execution. Standalone evaluation may consume
+that prior snapshot as data and retains nothing.
 
-Snapshots carry **custody** as well as origin. Custody says who holds the
-value: `sessionInstalled` is the snapshot the session installed, and `supplied`
-is any value handed in by a consumer. A stale copy of this session's own
-earlier snapshot has session origin and a session lens, so origin and lens
-alone would accept it; its custody keeps it detectably supplied. Each installed
-snapshot also records the origin and the custody of the snapshot it was derived
-from, so adopting a supplied value shows up in the installed record rather than
-having to be inferred.
+Snapshots carry **custody** as well as origin. `hostCurrentState` is the
+product-issued snapshot held in the host's authoritative current-state slot;
+passing it explicitly does not turn it into consumer custody. `supplied` is a
+consumer-authored or retained presentation snapshot. A stale same-session copy
+has session origin and a session lens, so origin and lens alone would accept
+it; custody keeps it detectably supplied. Every installed snapshot also records
+the origin and custody of its derivation basis.
+
+The historical invariant name `InstalledSnapshotIsSessionCustody` is retained,
+but its custody value is now `hostCurrentState`. The model rejects consumer
+snapshots, not explicit product state. Its typed prior-snapshot rejection is a
+conceptual invalid-input probe; #6113's API excludes such a snapshot argument
+altogether. Object-identity races at the actual host slot are not modeled.
+
+This custody model assumes each retained apply represents a semantic
+replacement. Equal-snapshot success and action-only publication renewal are
+covered by `NavigationSession`, not this model's commit counter. That counter
+is not evidence for the product's semantic equality algorithm.
 
 Operations and results are correlated by an **operation ID** that the session
 assigns on submission and every result carries back. That is what lets a claim
@@ -237,9 +279,9 @@ retained authority, whether it succeeds or is rejected.
 | Invariant | Claim |
 | --- | --- |
 | `TypeOK` | State stays within its declared shape |
-| `InstalledSnapshotIsSessionCustody` | The installed snapshot is in session custody, session-owned, carries a session lens, and was derived from a snapshot that was itself in session custody, so no supplied value — including a stale same-session copy — becomes retained state |
+| `InstalledSnapshotIsSessionCustody` | The installed snapshot is product-issued state in host-current custody, with a session lens and a basis from that same custody; no consumer-supplied value becomes retained state |
 | `OnlyRetainedExecutionInstalls` | The installed revision advances only through retained execution |
-| `RetainedPriorStateIsInstalledSnapshot` | Every retained operation used the session-custody installed snapshot as its only prior state |
+| `RetainedPriorStateIsInstalledSnapshot` | Every retained operation used its explicit host-current product state argument as its only prior state |
 | `OperationAndResultAreCorrelated` | Every result names a submitted operation, an in-flight operation is one past the outstanding result, and with nothing in flight the outstanding result belongs to the most recent operation |
 | `NonApplyStepsPreserveInstalledSnapshot` | Stateless execution, stateless rejection, retained rejection, and the authority-only steps left the whole installed snapshot record unchanged, compared field by field rather than by revision counting |
 | `RetainedRejectionHasExactAuthorityAndInstallsNothing` | Every retained rejection advanced the effect epoch, returned authority naming this session, the unchanged installed revision, the current operation, and the new epoch, and installed nothing |
@@ -253,7 +295,7 @@ retained authority, whether it succeeds or is rejected.
 | --- | --- |
 | `EveryCommandResolves` | Each operation reaches the result carrying its own operation ID |
 | `EffectEventuallyConsumed` | Unconsumed authority is eventually acknowledged, abandoned, or superseded |
-| `SuppliedRetainedPriorStateIsAlwaysRejected` | Every retained operation carrying explicitly supplied prior state reaches its own typed rejection, identified by that operation's ID |
+| `SuppliedRetainedPriorStateIsAlwaysRejected` | Every retained operation carrying a consumer-supplied prior snapshot reaches its own typed rejection, identified by that operation's ID |
 
 ## Alignment with the owning document
 
@@ -262,7 +304,7 @@ remaining differences are deliberate abstractions rather than disagreements:
 
 - **Outcome classes.** Effect authority still uses the internal `applied` and
   `retained` execution classes, but `NavigationSession.tla` now separately
-  records semantic outcome, complete-snapshot change, prior revision, and
+  records semantic outcome, semantic-snapshot change, prior revision, and
   result revision. Changed `Unavailable` and Registry or policy `Failed`
   results advance revision; unchanged ones retain it. `Rejected` and
   Navigation preparation `Failed` results always retain revision; superseded
@@ -271,7 +313,7 @@ remaining differences are deliberate abstractions rather than disagreements:
   fresh authority. A model-only occurrence field identifies a result produced
   by the Navigation preparation-failure action independently from its reported
   source.
-- **Consumer receipt.** The model records the complete snapshot and revision
+- **Consumer receipt.** The model records complete semantic data, revision, and generation
   last acknowledged by one retained consumer separately from the consumer's
   installed snapshot, revision, and effect epoch. It abstracts host rendering
   and history, but it does not abstract whether the consumer installed the
@@ -279,10 +321,13 @@ remaining differences are deliberate abstractions rather than disagreements:
 - **Synchronization demand.** `MaxSynchronization` bounds external request
   generation so repeated request/abandon cycles remain finite. It does not
   bound product responses: every issued request has a per-request settlement
-  property, and another current result may discharge a pending request.
+  property. An intervening acknowledgement may remove receipt debt, but the
+  exact pending request still receives a dedicated current response.
 - **Superseded maintenance results.** A newer explicit intent invalidates
   already gathered maintenance facts. The queued request remains, rebuilds
-  from the replacement snapshot, and re-gathers before admission.
+  from the replacement publication, and re-gathers before admission.
+  Generation-only renewal also invalidates the queued basis; explicit intent
+  invalidates gathered facts even without changing semantic state.
 - **Coordinate intent scope.** The model's coordinate kind covers
   Navigation-local activation and variation with ordinary latest-admitted
   supersession. It does not abstract Workspace-owner membership effects, whose
@@ -301,9 +346,10 @@ remaining differences are deliberate abstractions rather than disagreements:
   retained-result correlation for a lens request. Exact subject-result
   correlation remains a named implementation gate; canonical preparation
   checks the complete subject+lens pair.
-- **Unmodelled currencies.** Action IDs, generations, descriptor states,
+- **Unmodelled currencies.** Individual action IDs, descriptor states,
   diagnostics, and correspondence are not modelled. Subjects, lenses, and
-  snapshots are opaque values. Operation IDs, synchronization request numbers,
+  semantic snapshots are opaque values; action generation is explicit.
+  Operation IDs, synchronization request numbers,
   retained request maps, and the preparation-failure occurrence field are model
   correlation currencies, not proposed product fields.
 
@@ -325,7 +371,7 @@ never falsified. If a future edit weakens an action guard, the witness still
 evaluates the real pre-state, so TLC reports a counterexample. Witnesses are
 model bookkeeping, not product state.
 
-`revisionWitness` independently compares complete non-success results with
+`revisionWitness` independently compares complete semantic non-success results with
 their pre-state installation. For Navigation preparation failure it also
 latches the exact failure source and fresh retained product and host authority,
 so removing authority or coherently rewriting result and authority to another
@@ -334,6 +380,13 @@ post-state is still caught. The result's model-only
 ran without deriving that fact from the reported source. The dedicated
 invariant correlates the independently recorded occurrence with the exact
 source.
+
+For retry publication, the same witness separately compares pre-state semantic
+contents, revision, generation, and effect epoch. The
+`retryPublicationOccurred` result marker selects the dedicated invariant;
+changing the action's assignment cannot silently change the witness's
+expectation. Composite receipt checks retain both revision and generation
+through the complete published snapshot record.
 
 `snapshotStabilityWitness` compares the whole installed snapshot record rather
 than its revision, so a step that rewrote the snapshot's lens or provenance
@@ -361,14 +414,22 @@ java -XX:+UseParallelGC -cp "$TLA_TOOLS/tla2tools.jar" tlc2.TLC \
   -workers auto -cleanup SnapshotAuthority.tla
 ```
 
-`tla2tools.jar` is the official release asset from
-`https://github.com/tlaplus/tlaplus/releases`. Neither it nor a JVM is
-vendored in this repository, and no repository build or test target depends on
-them.
+Use the hash-verified distribution pinned by
+[the TLA+ setup runbook](../../../runbooks/tla-plus-setup.md), not the rolling
+upstream release asset. The repository gate is `eng/run-tla-checks.sh`.
 
 ### Locally used tools
 
-The results below came from:
+The 2026-09-13 rechecks use:
+
+- TLC `2026.08.11.125311` (`0894c34`), the repository pin, SHA-256
+  `ab323b79802aedc3203b3f9af37c6aca3ed43f4e0225b36f2aa77b26de46c05f`.
+- OpenJDK Temurin `25.0.4.1+1-LTS`, macOS `26.6.2`, `aarch64`.
+- Worktree-local Java and TLC under `artifacts/navigation-model-tools/`,
+  provisioned after `java -version` reported no Java runtime and no worktree
+  `tla2tools.jar` was found.
+
+The historical 2026-08-29 campaign used:
 
 - TLC `TLC2 Version 2026.08.21.155922 (rev: 9787e65)`, from the official
   `v1.8.0` `tla2tools.jar` asset downloaded on 2026-08-27.
@@ -386,9 +447,48 @@ rule.
 ### Exhaustive model checking
 
 Each run is an exhaustive breadth-first exploration of the shipped `.cfg`.
-Generated and distinct state counts are stable across repeated runs on the same
-tools version. All three report
-`Model checking completed. No error has been found.`
+The 2026-09-13 recheck passed every configured invariant and temporal property:
+
+| Model | States generated | Distinct states | Search depth | TLC exit |
+| --- | --- | --- | --- | --- |
+| `NavigationSession.tla` | 1,119,384 | 211,924 | 24 | `0` |
+| `AtomicRestoration.tla` | 8,081 | 2,333 | 9 | `0` |
+| `SnapshotAuthority.tla` | 36,755 | 13,790 | 9 | `0` |
+
+All three reported `Model checking completed. No error has been found.`
+Navigation's new publication dimension and preserved synchronization requests
+grow its state graph without changing `MaxIntent = 2`,
+`MaxMaintenance = 2`, `MaxSynchronization = 2`, or either semantic snapshot
+value. The custody clarification preserves `MaxCommands = 3` and the previous
+state counts. `AtomicRestoration` is unchanged and was rechecked as a regression
+control.
+
+The final runs used these commands from the worktree root:
+
+```sh
+tools="$PWD/artifacts/navigation-model-tools"
+java="$tools/jdk-25.0.4.1+1-jre/Contents/Home/bin/java"
+mkdir -p "$tools/runtime"
+for model in NavigationSession SnapshotAuthority AtomicRestoration; do
+  "$java" -Djava.io.tmpdir="$tools/runtime" \
+    -Dtlc2.tool.queue.IStateQueue=MemStateQueue -XX:+UseParallelGC \
+    -cp "$tools/tla2tools.jar" tlc2.TLC \
+    -workers 1 -lncheck final -cleanup -noGenerateSpecTE -coverage 9999 \
+    -metadir "$tools/states-$model" \
+    "docs/design/models/inspection-subject-navigation/$model.tla" \
+    > "$tools/$model.log" 2>&1
+done
+```
+
+The main run used that invocation separately; the two smaller models were
+batched afterward. An earlier run with periodic liveness and a disk queue was
+stopped for slow progress. In-memory queuing and final-only liveness change
+execution strategy, not the model, bounds, or checked properties. Final
+coverage is retained; the main run took 32m38s, custody 7s, and restoration 1s.
+
+The historical baseline below reported
+`Model checking completed. No error has been found.` These counts describe the
+pre-generation model, not the revised Navigation state graph:
 
 | Model | States generated | Distinct states | Search depth |
 | --- | --- | --- | --- |
@@ -396,12 +496,12 @@ tools version. All three report
 | `AtomicRestoration.tla` | 8,081 | 2,333 | 9 |
 | `SnapshotAuthority.tla` | 36,755 | 13,790 | 9 |
 
-The recorded `NavigationSession.tla` depth is from the single-worker action
+The historical `NavigationSession.tla` depth is from the single-worker action
 coverage run. Automatic-worker runs produced the same generated and distinct
 state counts with reported depths 23 and 24, so parallel traversal depth is not
 treated as stable evidence.
 
-The additional state records semantic unavailable and failed outcomes
+The retained state records semantic unavailable and failed outcomes
 independently from their source and apply/retain execution class, retains
 canonical request payloads independently from prepared results, and retains
 each operation's requested lens independently from its result. Stale
@@ -410,6 +510,7 @@ before admission. `NavigationSession.tla` now separately records the
 product-installed, consumer-installed, and product-acknowledged complete
 snapshots. `MaxSynchronization = 2` bounds external request generation while
 preserving two request/abandon cycles; it does not bound product responses.
+The revision/generation split does not raise any configuration bound.
 
 Deadlock checking is disabled in all three configs. A behaviour that has issued
 every intent, drained its queue, and consumed its last effect has nothing left
@@ -417,7 +518,23 @@ to do; termination is the intended end state, not a defect.
 
 ### Action coverage
 
-`tlc2.TLC -coverage 1` reports that every action in every model contributes
+The 2026-09-13 single-worker runs exercised every action. Current main-model
+coverage includes:
+
+| Action | Distinct transitions | Invocations |
+| --- | --- | --- |
+| `ExplicitRetryActionPublication` | 1,500 | 70,040 |
+| `RebuildMaintenance` | 3,763 | 99,926 |
+| `AdmitMaintenance` | 2,809 | 18,116 |
+| `RequestConsumerSynchronization` | 22,883 | 42,819 |
+| `SynchronizeConsumer` | 1,243 | 11,532 |
+| `VisibleEffect` | 11,997 | 63,260 |
+| `AcknowledgeEffect` | 11,997 | 11,997 |
+
+The custody model's `ExecuteRetained` contributes 112 distinct transitions
+across 1,014 invocations with explicit `command.state` as its basis.
+
+The historical `tlc2.TLC -coverage 1` run reported every action contributing
 transitions in the shipped configuration, so no modelled step is dead. In the
 single-worker `NavigationSession.tla` run,
 `RequestConsumerSynchronization` contributes 12,786 distinct transitions
@@ -427,17 +544,19 @@ contributes 5,804 across 5,938. `ExecuteEffectWork` in
 `SnapshotAuthority.tla` contributes transitions but no new distinct states
 because it only latches a witness that is already true.
 
-### Mutation probes
+### Historical mutation probes
 
 Coverage and exhaustive checking do not show that a claim would catch anything.
-Each probe below breaks one design rule in a scratch copy and re-runs TLC with
+Each probe below broke one design rule in a scratch copy and ran TLC with
 a configuration that enables exactly one claim, so the reported violation names
 the claim under test rather than whichever claim happens to be listed first.
 
-Every safety invariant and liveness property in the tables above has a probe,
+Every pre-generation safety invariant and liveness property had a probe,
 with one deliberate exception: `TypeOK` in each model is a typing guard, not a
 headline claim, and is not probed. The probes are not committed; the table
-records how to reproduce them.
+records the historical mutations. It is not a claim that all 63 probes were
+rerun after the explicit-state/generation changes. The focused rechecks below
+exercise the revised currencies and representative retained checks.
 
 | Probe | Mutation | Claim | Result |
 | --- | --- | --- | --- |
@@ -542,6 +661,61 @@ operation after an earlier one was rejected, `SA15` adopts only the stale
 same-session supplied snapshot whose origin and lens resemble session data,
 and `SA18` returns another admissible session lens under the correct operation
 ID.
+
+### Explicit-state and publication rechecks
+
+On 2026-09-13, twelve focused mutation checks and four reachability checks
+produced their expected TLC verdicts. Each scratch configuration selects only
+its named invariant or property. Safety violations exit `12`; the liveness
+violation exits `13`. None is reported as a successful production model.
+
+| Probe | Mutation | Named claim | Verdict |
+| --- | --- | --- | --- |
+| NS39 | Advance semantic revision in `ExplicitRetryActionPublication` | `RetryActionPublicationPreservesSemanticRevision` | Violated, `12` |
+| NS40 | Keep the action generation unchanged during retry publication | `RetryActionPublicationPreservesSemanticRevision` | Violated, `12` |
+| NS41 | Derive disposition from acknowledged revision alone, ignoring generation | `CurrentResultDispositionIsExact` | Violated, `12` |
+| NS42 | Install the prior publication only for the retry-generation result | `ConsumerVisibleEffectSynchronizes` | Violated, `12` |
+| NS43 | Reuse the prior effect epoch coherently in retry state and authority | `RetryActionPublicationPreservesSemanticRevision` | Violated, `12` |
+| NS44 | Reintroduce `ConsumerAcknowledgementLags` as a dedicated-response guard while retaining the request through acknowledgement | `EverySynchronizationRequestSettles` | Violated, `13` |
+| NS14 recheck | Retain revision for a changed semantic non-success snapshot | `NonSuccessRevisionMatchesSnapshotChange` | Violated, `12` |
+| NS21 recheck | Return dedicated synchronization authority at the wrong revision | `SynchronizationAuthorityIsCurrent` | Violated, `12` |
+| NS28 recheck | Copy consumer installation into the receipt during abandonment | `AbandonmentPreservesAcknowledgement` | Violated, `12` |
+| SA1 recheck | Take the retained basis from `command.prior` instead of explicit `command.state` | `InstalledSnapshotIsSessionCustody` | Violated, `12` |
+| SA2 recheck | The same consumer-snapshot adoption | `RetainedPriorStateIsInstalledSnapshot` | Violated, `12` |
+| SA18 recheck | Install a different admissible session lens from the exact request | `AppliedResultEqualsExactRequest` | Violated, `12` |
+
+The new safety probes retain the shipped bounds. NS44 uses
+`MaxIntent = 1`, `MaxMaintenance = 1`, `MaxSynchronization = 2`, and only the
+`lens` intent kind; all other constants are unchanged. It explores 4,581
+generated and 1,942 distinct states at depth 17. Its counterexample queues
+synchronization, admits maintenance, installs and acknowledges maintenance,
+then leaves that exact synchronization request stuck because its receipt is
+already current.
+
+Reachability checks add the negation of the indicated condition as a scratch
+invariant. An invariant violation therefore witnesses reachability, not a
+broken contract:
+
+| Probe | Reached condition | Verdict |
+| --- | --- | --- |
+| NS-W1 | `lastResult.retryPublicationOccurred` | Reached, `12` |
+| NS-W2 | `lastResult.outcome = "synchronize" /\ lastResult.disposition = "current" /\ lastAdmitted > 0` | Reached, `12` |
+| NS-W3 | `installedRev = acknowledgedRev /\ installedSnapshot.generation > acknowledgedSnapshot.generation` | Reached, `12` |
+| SA-W1 | `command.mode = "retained" /\ command.state = installed /\ command.prior = NoSnapshot` | Reached, `12` |
+
+NS-W2 reaches this concrete order at depth 11: explicit result, queued
+maintenance, abandoned explicit authority, synchronization request, maintenance
+admission, consumer installation, maintenance acknowledgement, then the same
+request's dedicated `Current` response. SA-W1 demonstrates that explicit
+host-current product state is admitted rather than rejected along with
+consumer snapshots. The unchanged `SnapshotAuthority` state counts and live
+`ExecuteRetained` action show that custody was clarified without pruning its
+retained execution path.
+
+The local probe command was
+`python3 artifacts/navigation-model-tools/probes.py`. The scratch script,
+configurations, and logs are local evidence, not a new repository test runner;
+the tables specify the reproducible edits and selected claims.
 
 ## Changing a model
 

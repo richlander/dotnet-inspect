@@ -78,19 +78,20 @@ public static class InstalledPlatformPruneSource
 
         var target = new PlatformPruneTarget(family, targetFramework, packVersion);
         string overrides = Path.Combine(versionDirectory.FullName, "data", "PackageOverrides.txt");
-        if (!File.Exists(overrides))
-        {
-            // The pack ships no prune data, so this target subsumes nothing. That is an answer,
-            // and it is still this family's answer: an inventory read exactly from this pack with
-            // no entries, not the no-platform inventory, which would drop the family entirely.
-            return new Result(PlatformPruneInventory.FromExactFamily(target, []), null);
-        }
-
         try
         {
             return new Result(
                 PlatformPruneInventory.FromExactFamily(target, File.ReadLines(overrides)),
                 null);
+        }
+        catch (Exception exception)
+            when (exception is FileNotFoundException
+                or DirectoryNotFoundException)
+        {
+            // The pack ships no prune data, so this target subsumes nothing. That is an answer,
+            // and it is still this family's answer: an inventory read exactly from this pack with
+            // no entries, not the no-platform inventory, which would drop the family entirely.
+            return new Result(PlatformPruneInventory.FromExactFamily(target, []), null);
         }
         catch (Exception exception)
             when (exception is FormatException

@@ -54,6 +54,30 @@ public class CacheCommandTests : IDisposable
     }
 
     [Fact]
+    public void EmptyCacheInfoView_DocumentFormatsRenderExactMessage()
+    {
+        var view = new EmptyCacheInfoView();
+        var markdown = new StringWriter();
+        var plainText = new StringWriter();
+
+        MarkoutSerializer.Serialize(
+            view,
+            markdown,
+            new MarkdownFormatter(),
+            CacheInfoContext.Default,
+            new MarkoutWriterOptions { IncludeDescription = true });
+        MarkoutSerializer.Serialize(
+            view,
+            plainText,
+            new PlainTextFormatter(),
+            CacheInfoContext.Default,
+            new MarkoutWriterOptions { IncludeDescription = true });
+
+        Assert.Equal("Cache is empty.", markdown.ToString().Trim());
+        Assert.Equal("Cache is empty.", plainText.ToString().Trim());
+    }
+
+    [Fact]
     public async Task ExecuteAsync_EmptyCache_JsonFormat_EmitsValidJson()
     {
         // Finding 9 follow-up: machine formats must emit structured output even for
@@ -87,7 +111,7 @@ public class CacheCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task ExecuteAsync_ShowsInfo_ReturnsZero()
+    public async Task ExecuteAsync_EmptyCache_DefaultFormat_UsesMarkoutEmptyView()
     {
         var options = new CacheOptions(Clean: false, Verbose: false);
 
@@ -95,9 +119,46 @@ public class CacheCommandTests : IDisposable
             () => CacheCommand.ExecuteAsync(options));
 
         Assert.Equal(0, result);
-        Assert.True(
-            output.Contains("Location") || output.Contains("Cache is empty"),
-            "Expected cache info or empty cache message");
+        Assert.Equal("Cache is empty.", output.Trim());
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_PopulatedCache_JsonAndJsonlPreserveOneRecordContract()
+    {
+        var categoryPath = Path.Combine(_cacheBasePath, "versions");
+        Directory.CreateDirectory(categoryPath);
+        File.WriteAllText(Path.Combine(categoryPath, "versions.json"), "{}");
+
+        var (_, json, jsonError) = await ConsoleCapture.RunAsync(
+            () => CacheCommand.ExecuteAsync(
+                new CacheOptions(
+                    Clean: false,
+                    Verbose: false,
+                    Format: OutputFormat.Json)));
+        var (_, jsonl, jsonlError) = await ConsoleCapture.RunAsync(
+            () => CacheCommand.ExecuteAsync(
+                new CacheOptions(
+                    Clean: false,
+                    Verbose: false,
+                    Format: OutputFormat.Jsonl)));
+
+        Assert.Empty(jsonError);
+        Assert.Empty(jsonlError);
+        using JsonDocument jsonDocument = JsonDocument.Parse(json);
+        using JsonDocument jsonlDocument = JsonDocument.Parse(jsonl);
+        Assert.True(JsonElement.DeepEquals(
+            jsonDocument.RootElement,
+            jsonlDocument.RootElement));
+        Assert.Equal(
+            ["location", "total", "categories"],
+            jsonDocument.RootElement.EnumerateObject()
+                .Select(property => property.Name)
+                .ToArray());
+        JsonElement category = Assert.Single(
+            jsonDocument.RootElement.GetProperty("categories").EnumerateArray());
+        Assert.Equal(
+            ["name", "size", "items"],
+            category.EnumerateObject().Select(property => property.Name).ToArray());
     }
 
     [Theory]

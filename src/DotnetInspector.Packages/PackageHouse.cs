@@ -77,8 +77,8 @@ public sealed class PackageHouse
     }
 
     /// <summary>
-    /// Consumes one source operation lease to settle an exact or selecting
-    /// request. Stores and any returned payload remain caller-owned.
+    /// Consumes one source operation lease to settle an exact, candidate-bound,
+    /// or selecting request. Stores and any returned payload remain caller-owned.
     /// </summary>
     public Task<PackageHouseSettlement> ExecuteAsync(
         PackageHouseRequest request,
@@ -160,6 +160,41 @@ public sealed class PackageHouse
                         }
 
                         candidate = exactCandidate;
+                        decision =
+                            PackageHouseDecisionReceipt.RetainPackage(
+                                request,
+                                candidate.Coordinate,
+                                candidate);
+                        break;
+
+                    case PackageHouseDemand.Candidate candidateDemand:
+                        candidate = candidateDemand.Value;
+                        if (!sourceOperation.OwnsCandidate(candidate))
+                        {
+                            throw new InvalidOperationException(
+                                "The package acquisition candidate belongs to another Package Source root generation.");
+                        }
+                        authorization =
+                            _sourceAuthorization.AuthorizeSourcesFor(
+                                candidate.Coordinate.PackageId);
+                        sourceOperation.ThrowIfExpired();
+                        failures = [];
+                        if (!CandidateRemainsAuthorized(
+                                candidate,
+                                authorization))
+                        {
+                            decision =
+                                PackageHouseDecisionReceipt.Stop(
+                                    request,
+                                    candidate.Coordinate);
+                            return ResourceFree(
+                                new PackageHouseResult.Rejected(
+                                    new PackageHouseEvidence(
+                                        request,
+                                        decision),
+                                    Reason(
+                                        "The resolved package candidate is not authorized by this PackageHouse.")));
+                        }
                         decision =
                             PackageHouseDecisionReceipt.RetainPackage(
                                 request,
@@ -334,6 +369,15 @@ public sealed class PackageHouse
             }
         }
     }
+
+    private static bool CandidateRemainsAuthorized(
+        PackageAcquisitionCandidate candidate,
+        PackageSourceAuthorization authorization) =>
+        candidate.Authorities.All(
+            evidence =>
+                authorization.TryGetAuthority(
+                    evidence.Authority.Association,
+                    out _));
 
     private static PackageHouseResult CreateCandidateTerminalResult(
         PackageAcquisitionCandidateResult candidate,
