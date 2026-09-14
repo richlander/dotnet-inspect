@@ -3860,6 +3860,9 @@ preparation is not ready for publication.
 A newer replacement attempt supersedes the older unpublished candidate,
 closes its construction admission, lets already-admitted construction finish,
 and observes its terminal settlement before publishing another candidate.
+The newer attempt may be cancelled while awaiting that settlement; cancellation
+creates no replacement candidate, does not reopen the retired candidate, and
+does not bypass its continuing settlement.
 Candidate failure, cancellation, expiry, or supersession closes only that
 candidate and leaves the current active realization unchanged. Cancellation
 remains a cancellation outcome for the caller while the candidate's typed
@@ -3951,6 +3954,7 @@ The corresponding Release gates are:
 - `SupersededCompletion_ReportsStaleCandidate`;
 - `ClosedCoordinatorCompletion_ReportsCoordinatorClosed`;
 - `NewCandidate_SupersedesAndSettlesPriorCandidate`;
+- `CancelledCandidateStartWait_DoesNotCreateReplacement`;
 - `SupersededCandidate_DrainsAdmittedConstruction`;
 - `OperationAuthority_RetainsExactDefinitionSnapshot`;
 - `EqualOriginPlan_SharesIntentButNotRealizationAuthority`;

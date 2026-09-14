@@ -1945,7 +1945,8 @@ public sealed class InspectionWorkspaceTests
             return new InspectionWorkspaceCoordinatedGroupCloseResult<
                 string>(
                     registrationIndex,
-                    "released");
+                    "released",
+                    succeeded: true);
         }
     }
 
