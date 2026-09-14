@@ -31,6 +31,10 @@ namespace DotnetInspect.Cli.Tests;
 [Collection("Console")]
 public sealed class HttpTimeoutEndToEndTests : IDisposable
 {
+    private const string PackagePayloadPath =
+        "/flat/dotnet-inspect-timeout-probe/1.0.0/"
+        + "dotnet-inspect-timeout-probe.1.0.0.nupkg";
+
     private readonly TcpListener _listener;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly int _port;
@@ -147,7 +151,9 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
         if (start < 0)
             start = error.IndexOf("HttpClient.Timeout", StringComparison.Ordinal);
         if (start < 0)
-            start = error.IndexOf("request did not complete within", StringComparison.Ordinal);
+            start = error.IndexOf(
+                "NuGet payload request did not complete within",
+                StringComparison.Ordinal);
         Assert.True(start >= 0, $"Expected a timeout in the error, got: {error}");
 
         int end = error.IndexOf('\n', start);
@@ -242,12 +248,11 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
             using (client)
             {
                 NetworkStream stream = client.GetStream();
-                var buffer = new byte[4096];
-                int read = await stream.ReadAsync(buffer, cancellationToken);
-                string request = Encoding.ASCII.GetString(buffer, 0, read);
-                string path = request.Split(' ').Skip(1).FirstOrDefault() ?? string.Empty;
+                string path = await ReadRequestPathAsync(
+                    stream,
+                    cancellationToken);
 
-                if (!path.StartsWith("/index.json", StringComparison.Ordinal))
+                if (path == PackagePayloadPath)
                 {
                     // The package payload. Send headers and a partial body, then stall so this
                     // reaches the body phase that historically clamped values above 30 seconds.
@@ -261,6 +266,12 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
                     await stream.FlushAsync(cancellationToken);
                     await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
                     return;
+                }
+
+                if (path != "/index.json")
+                {
+                    throw new InvalidDataException(
+                        $"Unexpected stub-feed request path '{path}'.");
                 }
 
                 string body =
@@ -285,6 +296,47 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
         {
             // The client gave up first, which is the point of the stalling branch.
         }
+    }
+
+    private static async Task<string> ReadRequestPathAsync(
+        Stream stream,
+        CancellationToken cancellationToken)
+    {
+        var buffer = new byte[4096];
+        int length = 0;
+        while (length < buffer.Length)
+        {
+            int read = await stream.ReadAsync(
+                buffer.AsMemory(length),
+                cancellationToken);
+            if (read == 0)
+                throw new EndOfStreamException(
+                    "The HTTP request ended before its request line.");
+
+            length += read;
+            for (int index = 1; index < length; index++)
+            {
+                if (buffer[index - 1] != '\r' || buffer[index] != '\n')
+                    continue;
+
+                string requestLine = Encoding.ASCII.GetString(
+                    buffer,
+                    0,
+                    index - 1);
+                int firstSpace = requestLine.IndexOf(' ');
+                int secondSpace = requestLine.IndexOf(' ', firstSpace + 1);
+                if (firstSpace <= 0 || secondSpace <= firstSpace + 1)
+                {
+                    throw new InvalidDataException(
+                        $"Invalid HTTP request line '{requestLine}'.");
+                }
+
+                return requestLine[(firstSpace + 1)..secondSpace];
+            }
+        }
+
+        throw new InvalidDataException(
+            "The HTTP request line exceeds the stub-feed limit.");
     }
 
     private static string ProductAssemblyPath()
