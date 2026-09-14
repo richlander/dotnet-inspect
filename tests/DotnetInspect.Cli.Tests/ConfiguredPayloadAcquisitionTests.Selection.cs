@@ -292,6 +292,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     [Theory]
     [InlineData("1.0.0..bad", "first")]
     [InlineData("1.0.0..2.0.0", null)]
+    [InlineData("1_.*", null)]
     [InlineData(null, "first")]
     public async Task AcquireSelected_InvalidSelectorFailsBeforeTransport(string? selector, string? address)
     {

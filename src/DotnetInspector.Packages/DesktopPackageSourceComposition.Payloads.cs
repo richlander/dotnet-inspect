@@ -20,13 +20,51 @@ public sealed partial class DesktopPackageSourceComposition
         NuGetOperationContext? operationContext = null,
         PackagePayloadLimits? limits = null,
         IPackagePayloadTransferPolicy? transferPolicy = null,
-        string? requiredProducerKey = null) =>
-        PackageSourceSettlementCompatibility.RunAsync(
-            _sourceLease, cancellationToken, operationContext,
-            (generation, operation) => AcquirePinnedCoreAsync(
-                generation, packageId, version, createStore, sourceOptions, log,
-                operation, limits, transferPolicy, requiredProducerKey),
-            _options.RequestTimeout, _options.OperationTimeout);
+        string? requiredProducerKey = null)
+    {
+        ArgumentNullException.ThrowIfNull(createStore);
+        if (operationContext is not null)
+        {
+            return PackageSourceSettlementCompatibility.RunAsync(
+                _sourceLease,
+                cancellationToken,
+                operationContext,
+                (generation, operation) => AcquirePinnedCoreAsync(
+                    generation,
+                    packageId,
+                    version,
+                    createStore,
+                    sourceOptions,
+                    log,
+                    operation,
+                    limits,
+                    transferPolicy,
+                    requiredProducerKey),
+                _options.RequestTimeout,
+                _options.OperationTimeout);
+        }
+        if (!PackageExtractor.IsValidPackageId(packageId)
+            || !PackageExtractor.TryNormalizePackageVersion(
+                version,
+                out string normalizedVersion))
+        {
+            return Task.FromResult(
+                InvalidSelection(
+                    "Payload acquisition requires a valid package ID and an exact version."));
+        }
+
+        return AcquirePinnedThroughHouseAsync(
+            PackageSourceCoordinate.Create(
+                packageId,
+                normalizedVersion),
+            createStore,
+            sourceOptions,
+            log,
+            cancellationToken,
+            limits,
+            transferPolicy,
+            requiredProducerKey);
+    }
 
     private async Task<ConfiguredPackagePayloadResult> AcquirePinnedCoreAsync(
         PackageSourceSettlementGeneration generation,

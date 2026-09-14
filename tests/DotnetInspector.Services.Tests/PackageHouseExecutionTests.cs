@@ -147,6 +147,10 @@ public sealed class PackageHouseExecutionTests
             acquisition.Generation);
         Assert.Equal(payload.Origin, acquisition.Origin);
         Assert.Equal(payload.ProducerKey, acquisition.Producer.Key);
+        Assert.Same(
+            environment.Clients[0].Source,
+            acquired.SourcePayloadResult!.Source);
+        Assert.True(acquired.SelectionUsesOriginalSources);
         Assert.Equal(1, environment.Clients[0].PayloadRequests);
         await environment.AssertRootSettledAsync();
     }
@@ -209,6 +213,8 @@ public sealed class PackageHouseExecutionTests
             Assert.IsType<PackageVersionResolutionReceipt.Resolved>(
                 settlement.Result.Decision.VersionResolution);
         Assert.Single(resolution.Candidate.Authorities);
+        Assert.Single(settlement.SourcePayloadResult!.ReportingAuthorities!);
+        Assert.False(settlement.SelectionUsesOriginalSources);
     }
 
     [Fact]
@@ -492,6 +498,47 @@ public sealed class PackageHouseExecutionTests
             "another Package Source root generation",
             exception.Message,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CandidateManifestReleasesTransferredOperationWhenSourceThrows()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior([Version]));
+        PackageAcquisitionCandidate candidate =
+            ResolveCandidate(environment);
+
+        await Assert.ThrowsAsync<NotSupportedException>(
+            () => PackageHouse.AcquireCandidateManifestAsync(
+                candidate,
+                environment.Root.IssueOperationLease(
+                    TestContext.Current.CancellationToken)));
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task CandidateManifestRejectsForeignGenerationAndReleasesOperation()
+    {
+        await using HouseEnvironment first = HouseEnvironment.Create(
+            new SourceBehavior([Version]));
+        await using HouseEnvironment second = HouseEnvironment.Create(
+            new SourceBehavior([Version]));
+        PackageAcquisitionCandidate candidate =
+            ResolveCandidate(first);
+
+        InvalidOperationException exception =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => PackageHouse.AcquireCandidateManifestAsync(
+                    candidate,
+                    second.Root.IssueOperationLease(
+                        TestContext.Current.CancellationToken)));
+
+        Assert.Contains(
+            "another Package Source root generation",
+            exception.Message,
+            StringComparison.Ordinal);
+        await first.AssertRootSettledAsync();
+        await second.AssertRootSettledAsync();
     }
 
     [Fact]

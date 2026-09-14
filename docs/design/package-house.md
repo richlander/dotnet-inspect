@@ -32,10 +32,12 @@ relationship evidence without copying its authorship or processing semantics.
 `PackageHouseDependencyPruningQuery` preserves explicit non-evaluated states
 or creates one PackageHouse-issued policy receipt, and candidate-bound House
 execution applies that receipt before payload acquisition.
-`DesktopPackageSourceComposition` still constructs desktop capabilities and
-exposes the shipping compatibility surface. `Realize`, target-aware
-dependency-edge realization, Workspace admission, and host adoption remain
-later steps.
+`DesktopPackageSourceComposition` still owns desktop configuration,
+credentials, transports, clients, stores, and disposal, but its
+composition-owned exact and selecting payload operations, asynchronous pinned
+candidate path, and candidate-manifest path now settle through PackageHouse.
+`Realize`, target-aware dependency-edge realization, Workspace admission, and
+broader host adoption remain later steps.
 [#4653](https://github.com/richlander/dotnet-inspect/pull/4653) remains useful
 design and implementation evidence; it is not the branch this architecture
 extends. Its remaining intent is retired through the focused adoption steps in
@@ -183,6 +185,24 @@ Workspace participants.
 
 `DesktopPackageSourceComposition` owns its desktop capabilities and supplies
 them to one Package Source Model-issued settlement lease for its lifetime.
+For an operation whose lifetime the composition owns, it observes the exact
+registered authorities and partial configuration failures, issues one
+request-matched operation lease, and transfers that lease to a short-lived
+PackageHouse executor. The executor is stateless between calls. Its desktop
+projection preserves the exact lower-owner payload attempt details required by
+the compatibility result, including not-found and reporting authorities,
+without publishing those details as a second House receipt or retaining live
+source authority.
+
+An overload supplied with a caller-owned `NuGetOperationContext` remains an
+explicit direct compatibility branch. The composition cannot transfer a
+borrowed context into PackageHouse's consumed operation lease. The synchronous
+`ResolvePinnedCandidate` compatibility method also remains direct. Its
+asynchronous replacement uses House when no borrowed context is supplied and
+preserves the direct branch for query operations that still share one external
+context. Those branches retire with their callers rather than disguising
+borrowed operation authority as House ownership.
+
 Browser/Wasm and query adapters supply their host-created clients through the
 same lease contract.
 
@@ -894,6 +914,25 @@ every supported host that uses it.
 Focused owner suites enforce their own algorithms. House tests compose public
 owner outcomes; they do not manufacture package evidence or inspect private
 test seams.
+
+The Release gates for the desktop adoption are:
+
+- `ConfiguredPayloadAcquisitionTests`, covering exact and selected acquisition,
+  partial authorization, required-producer filtering, reporting-authority
+  fallback, invalid selection, timeouts, cancellation, and composition
+  settlement, with
+  `CandidateManifest_UsesHouseOwnedDesktopOperation` as the positive
+  composition-owned candidate and manifest canary;
+- `PackageHouseExecutionTests.ExactAcquireBindsLivePayloadToResourceFreeReceipt`
+  and
+  `PackageHouseExecutionTests.SelectingAcquireUsesOnlyAuthoritiesThatReportedSelection`,
+  covering the compatibility details projected from exact House settlement;
+  and
+- `PackageHouseExecutionTests.CandidateManifestReleasesTransferredOperationWhenSourceThrows`
+  and
+  `PackageHouseExecutionTests.CandidateManifestRejectsForeignGenerationAndReleasesOperation`,
+  covering candidate-manifest generation correspondence and terminal lease
+  release.
 
 ## Demo
 
