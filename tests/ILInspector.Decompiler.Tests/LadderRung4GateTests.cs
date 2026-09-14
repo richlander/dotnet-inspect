@@ -157,7 +157,7 @@ public class LadderRung4GateTests
     [Fact]
     public void Rung4Fixture_HasNoMalformedOrSemanticDefectiveFullOutput()
     {
-        var results = ValidityCheck.Evaluate(FixturePath, importSiblingBodies: true)
+        var results = ValidityCheck.Evaluate(FixturePath)
             .Where(r => r.TypeName == FixtureType)
             .ToList();
 
