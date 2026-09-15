@@ -487,7 +487,7 @@ async function installFacades(
         return {
           packages: 1,
           resident: 1,
-          maxResident: 12,
+          maxPackageEntries: 12,
           workspaces: 1,
           maxWorkspaces: 4,
           residentBytes: 0,
@@ -1567,7 +1567,8 @@ test("Diagnostics opens from Settings and the data bar without entering Spotligh
     has: page.locator("#diagnostics-cache-heading"),
   });
   await expect(storageCard).toContainText("Resident payloads");
-  await expect(storageCard).toContainText("1 of 12");
+  await expect(storageCard).toContainText("Package-entry budget");
+  await expect(storageCard).toContainText("12");
   await expect(storageCard).toContainText("0 B of 128 MB");
   await expect(storageCard).toContainText("1 of 4");
   await expect(storageCard).toContainText("64 MB each");

@@ -275,9 +275,10 @@ function cacheCardHtml(
   if (cache.kind === "ready") {
     body = `<dl class="diagnostics-facts">
       ${factHtml("Packages acquired", formatInteger(cache.stats.packages), escapeHtml)}
-      ${factHtml("Resident payloads", formatCapacity(cache.stats.resident, cache.stats.maxResident, formatInteger), escapeHtml)}
+      ${factHtml("Resident payloads", formatInteger(cache.stats.resident), escapeHtml)}
+      ${factHtml("Package-entry budget", formatInteger(cache.stats.maxPackageEntries), escapeHtml)}
       ${factHtml("Resident bytes", formatCapacity(cache.stats.residentBytes, cache.stats.maxResidentBytes, formatBytes), escapeHtml, { className: "emphasis" })}
-      ${factHtml("Open Workspaces", formatCapacity(cache.stats.workspaces, cache.stats.maxWorkspaces, formatInteger), escapeHtml)}
+      ${factHtml("Workspace slots", formatCapacity(cache.stats.workspaces, cache.stats.maxWorkspaces, formatInteger), escapeHtml)}
       ${factHtml("Workspace image budget", `${formatBytes(cache.stats.maxWorkspaceRetainedImageBytes)} each`, escapeHtml)}
     </dl>`;
   } else if (cache.kind === "failed") {

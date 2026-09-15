@@ -205,7 +205,7 @@ public sealed record BrowserTypeSearchHit(
 public sealed record BrowserPackageCacheStats(
     int Packages,
     int Resident,
-    int MaxResident,
+    int MaxPackageEntries,
     int Workspaces,
     int MaxWorkspaces,
     long ResidentBytes,

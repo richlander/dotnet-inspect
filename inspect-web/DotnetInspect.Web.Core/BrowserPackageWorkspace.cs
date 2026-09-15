@@ -14,7 +14,7 @@ namespace DotnetInspect.Web;
 internal sealed record BrowserPackageCacheSnapshot(
     int Packages,
     int Resident,
-    int MaxResident,
+    int MaxPackageEntries,
     int Workspaces,
     int MaxWorkspaces,
     long ResidentBytes,

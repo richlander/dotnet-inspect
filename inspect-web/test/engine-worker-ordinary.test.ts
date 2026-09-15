@@ -416,7 +416,7 @@ test("generated rejection fails visibly without poisoning neighboring calls", as
       packageCacheStats: () => ({
         packages: 4,
         resident: 2,
-        maxResident: 12,
+        maxPackageEntries: 12,
         workspaces: 1,
         maxWorkspaces: 4,
         residentBytes: 1024,
@@ -435,7 +435,7 @@ test("generated rejection fails visibly without poisoning neighboring calls", as
   assert.deepEqual(await neighbor, {
     packages: 4,
     resident: 2,
-    maxResident: 12,
+    maxPackageEntries: 12,
     workspaces: 1,
     maxWorkspaces: 4,
     residentBytes: 1024,
@@ -457,7 +457,7 @@ test("malformed and oversized generated results reject only their calls", async 
       packageCacheStats: () => ({
         packages: 1,
         resident: 1,
-        maxResident: 12,
+        maxPackageEntries: 12,
         workspaces: 0,
         maxWorkspaces: 4,
         residentBytes: 64,
@@ -606,7 +606,7 @@ test("a closed-epoch ordinary client cannot dispatch into a replacement", async 
         return {
           packages: 0,
           resident: 0,
-          maxResident: 12,
+          maxPackageEntries: 12,
           workspaces: 0,
           maxWorkspaces: 4,
           residentBytes: 0,
