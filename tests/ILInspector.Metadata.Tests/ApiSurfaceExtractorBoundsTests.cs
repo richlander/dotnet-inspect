@@ -471,6 +471,90 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void InterfaceReferenceContributesItsCompleteRetainedText()
+    {
+        const string assemblyName = "Dependency";
+        const string culture = "en-US";
+        const string token = "0011223344556677";
+        const string fullName = "Dependency.ReallyLongInterface";
+        const string typeNamespace = "Dependency";
+        const string typeName = "ReallyLongInterface";
+        MetadataTypeDefinitionName definitionName = Assert.IsType<
+            MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(
+                typeNamespace,
+                [typeName])).Name;
+        var withoutReference = new ApiType();
+        var withReference = new ApiType
+        {
+            InterfaceReferences =
+            [
+                new(
+                    new ApiAssemblyIdentity(
+                        assemblyName,
+                        new Version(1, 2, 3, 4),
+                        culture,
+                        token),
+                    fullName,
+                    definitionName),
+            ],
+        };
+
+        Assert.Equal(
+            assemblyName.Length
+                + culture.Length
+                + token.Length
+                + fullName.Length
+                + typeNamespace.Length
+                + typeName.Length,
+            ApiSurfaceExtractor.CountRetainedText(withReference)
+                - ApiSurfaceExtractor.CountRetainedText(withoutReference));
+    }
+
+    [Fact]
+    public void InterfaceReferencesParticipateInExactRetainedTextBudget()
+    {
+        byte[] withoutReferences = BuildInterfaceFloodImage(
+            interfaceCount: 0,
+            nameLength: 32,
+            typeCount: 2);
+        byte[] withReferences = BuildInterfaceFloodImage(
+            interfaceCount: 1,
+            nameLength: 32,
+            typeCount: 2);
+        ApiSurfaceExtractionBounds generous = new(
+            int.MaxValue,
+            int.MaxValue,
+            int.MaxValue,
+            int.MaxValue,
+            int.MaxValue,
+            int.MaxValue);
+        var without = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(
+            Extract(withoutReferences, generous));
+        var with = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(
+            Extract(withReferences, generous));
+        int displayOnlyBudget = checked(
+            without.RetainedTextCharacters
+            + with.Surface.Types.Sum(type =>
+                type.Interfaces.Sum(value => value.Length)));
+
+        Assert.True(with.RetainedTextCharacters > displayOnlyBudget);
+        var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(
+            Extract(
+                withReferences,
+                new ApiSurfaceExtractionBounds(
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    displayOnlyBudget)));
+        Assert.Equal(
+            ApiSurfaceExtractionBound.RetainedTextCharacters,
+            exceeded.Bound);
+    }
+
+    [Fact]
     public void ParameterTypeReferenceContributesItsCompleteRetainedText()
     {
         const string assemblyName = "Dependency";
@@ -1559,6 +1643,18 @@ public sealed class ApiSurfaceExtractorBoundsTests
             typesOnly);
     }
 
+    static ApiSurfaceExtractionResult Extract(
+        byte[] image,
+        ApiSurfaceExtractionBounds bounds)
+    {
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        return ApiSurfaceExtractor.ExtractBounded(
+            peReader,
+            ApiSurfaceExtractionScope.Public,
+            bounds);
+    }
+
     static void AssertRejectedSignatureDoesNotAmplify(byte[] image)
     {
         using var stream = new MemoryStream(image, writable: false);
@@ -1954,7 +2050,10 @@ public sealed class ApiSurfaceExtractorBoundsTests
         return Serialize(metadata);
     }
 
-    static byte[] BuildInterfaceFloodImage(int interfaceCount, int nameLength)
+    static byte[] BuildInterfaceFloodImage(
+        int interfaceCount,
+        int nameLength,
+        int typeCount = 1)
     {
         var metadata = Metadata("Interfaces");
         AssemblyReferenceHandle assembly = metadata.AddAssemblyReference(
@@ -1972,9 +2071,27 @@ public sealed class ApiSurfaceExtractorBoundsTests
             metadata,
             "Interfaces",
             TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract);
-        for (int index = 0; index < interfaceCount; index++)
-            metadata.AddInterfaceImplementation(type, interfaceType);
+        AddImplementations(type);
+        for (int typeIndex = 1; typeIndex < typeCount; typeIndex++)
+        {
+            type = metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract,
+                metadata.GetOrAddString("Samples"),
+                metadata.GetOrAddString($"Interfaces{typeIndex}"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            AddImplementations(type);
+        }
         return Serialize(metadata);
+
+        void AddImplementations(TypeDefinitionHandle owner)
+        {
+            for (int index = 0; index < interfaceCount; index++)
+                metadata.AddInterfaceImplementation(owner, interfaceType);
+        }
     }
 
     static byte[] BuildWideTypeSpecImage(

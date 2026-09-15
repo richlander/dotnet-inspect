@@ -1010,6 +1010,132 @@ public class ApiSurfaceExtractorTests
     }
 
     [Fact]
+    public void PopulateDerivedTypes_UsesStructuredInterfaceIdentity()
+    {
+        var assembly = new ApiAssemblyIdentity(
+            "Identity",
+            new Version(1, 0, 0, 0),
+            null,
+            null);
+        MetadataTypeDefinitionName nested =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "N",
+                    ["Outer", "Inner"])).Name;
+        MetadataTypeDefinitionName topLevel =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "N.Outer",
+                    ["Inner"])).Name;
+        var target = new ApiType
+        {
+            Namespace = "N",
+            Name = "Outer.Inner",
+            DefinitionName = nested,
+            Kind = "interface",
+        };
+        var nestedImplementation = new ApiType
+        {
+            Namespace = "N",
+            Name = "NestedImplementation",
+            Interfaces = ["N.Outer.Inner"],
+            InterfaceReferences =
+            [
+                new(assembly, "N.Outer.Inner", nested),
+            ],
+        };
+        var topLevelImplementation = new ApiType
+        {
+            Namespace = "N",
+            Name = "TopLevelImplementation",
+            Interfaces = ["N.Outer.Inner"],
+            InterfaceReferences =
+            [
+                new(assembly, "N.Outer.Inner", topLevel),
+            ],
+        };
+        var surface = new ApiSurface
+        {
+            AssemblyIdentity = assembly,
+            Types =
+            [
+                target,
+                nestedImplementation,
+                topLevelImplementation,
+            ],
+        };
+
+        ApiSurfaceExtractor.PopulateDerivedTypes(
+            surface,
+            target);
+
+        Assert.Equal(
+            ["N.NestedImplementation"],
+            target.DerivedTypes);
+    }
+
+    [Fact]
+    public void PopulateDerivedTypes_UsesStructuredBaseIdentity()
+    {
+        var assembly = new ApiAssemblyIdentity(
+            "Identity",
+            new Version(1, 0, 0, 0),
+            null,
+            null);
+        MetadataTypeDefinitionName nested =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "N",
+                    ["Outer", "Inner"])).Name;
+        MetadataTypeDefinitionName topLevel =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "N.Outer",
+                    ["Inner"])).Name;
+        var target = new ApiType
+        {
+            Namespace = "N",
+            Name = "Outer.Inner",
+            DefinitionName = nested,
+            Kind = "class",
+        };
+        var nestedChild = new ApiType
+        {
+            Namespace = "N",
+            Name = "NestedChild",
+            BaseType = "N.Outer.Inner",
+            BaseTypeReference =
+                new(assembly, "N.Outer.Inner", nested),
+        };
+        var topLevelChild = new ApiType
+        {
+            Namespace = "N",
+            Name = "TopLevelChild",
+            BaseType = "N.Outer.Inner",
+            BaseTypeReference =
+                new(assembly, "N.Outer.Inner", topLevel),
+        };
+        var surface = new ApiSurface
+        {
+            AssemblyIdentity = assembly,
+            Types =
+            [
+                target,
+                nestedChild,
+                topLevelChild,
+            ],
+        };
+
+        ApiSurfaceExtractor.PopulateDerivedTypes(
+            surface,
+            target);
+
+        Assert.Equal(
+            ["N.NestedChild"],
+            target.DerivedTypes);
+    }
+
+    [Fact]
     public void PopulateDerivedTypes_ReturnsNullWhenNoDerivedTypes()
     {
         var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;

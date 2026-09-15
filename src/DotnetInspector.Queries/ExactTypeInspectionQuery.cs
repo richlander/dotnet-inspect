@@ -457,9 +457,20 @@ internal static class ExactTypeInspectionQuery
                 name.Equals(
                     request.Type,
                     StringComparison.OrdinalIgnoreCase));
-            string[] matchingNames = exactName is not null
-                ? [exactName]
-                :
+            string[] exactShortNames = exactName is null
+                ? [
+                    .. declarationNames.Where(name =>
+                        TypeMatcher.MatchesExactTypeName(
+                            name,
+                            request.Type)),
+                ]
+                : [];
+            string[] matchingNames =
+                exactName is not null
+                    ? [exactName]
+                    : exactShortNames.Length > 0
+                        ? exactShortNames
+                        :
                 [
                     .. declarationNames.Where(name =>
                         TypeMatcher.MatchesTypeFilter(

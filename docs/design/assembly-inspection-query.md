@@ -1013,9 +1013,10 @@ inspection. `ExactTypeInspectionRequest` names one explicitly versioned NuGet
 package, one explicit target framework other than `all`, and one non-glob Type.
 Its selection kind distinguishes a user query from an exact Metadata definition
 identity. CLI uses query selection, including its existing case-insensitive
-full-name preference and generic-name fallback. Browser discovery uses exact
-definition selection: its escaped `DefinitionId` is compared ordinally and
-never enters fuzzy matching.
+full-name preference, then arity-preserving exact short or namespace-suffix
+matching before generic-name fallback. Browser discovery uses exact definition
+selection: its escaped `DefinitionId` is compared ordinally and never enters
+fuzzy matching.
 `ExactTypeInspectionOperation.Execute` consumes an admitted
 `WorkspaceRealizationOperationLease` and the matching loaded assembly context;
 `ExecuteAsync` is the initial cold host composition that constructs, activates,

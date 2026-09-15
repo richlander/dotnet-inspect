@@ -203,6 +203,11 @@ export interface BrowserPackageQueryDeclaredDependencyGroup {
     readonly dependencies: ReadonlyArray<BrowserPackageQueryDeclaredDependency>;
     readonly isImplicitManifestGroup: boolean;
 }
+export interface BrowserPackageQueryDocument {
+    readonly results: ReadonlyArray<BrowserPackageQueryRow>;
+    readonly failures: ReadonlyArray<BrowserPackageQueryFailure>;
+    readonly completion: BrowserPackageQueryCompletion;
+}
 export interface BrowserPackageQueryEvent {
     readonly kind: BrowserPackageQueryEventKind;
     readonly row: BrowserPackageQueryRow | null;
@@ -244,7 +249,7 @@ export interface BrowserPackageQueryFailure {
     readonly manifestFailureReason: BrowserPackageQueryManifestFailureReason | null;
 }
 export interface BrowserPackageQueryInspection {
-    readonly content: ReadonlyArray<BrowserPackageQueryEvent>;
+    readonly content: BrowserPackageQueryDocument;
     readonly share: BrowserInspectionShare;
     readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
 }

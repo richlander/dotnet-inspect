@@ -198,7 +198,7 @@ function succeeded(
   value: EngineWorkerPackageQueryCompletionEvent = completionEvent,
 ): BrowserPackageQueryResult {
   return {
-    version: 2,
+    version: 3,
     kind: "Succeeded",
     value,
     inspection: null,
@@ -210,14 +210,38 @@ function succeeded(
 }
 
 function inspected(
-  content: readonly BrowserPackageQueryEvent[] = [completionEvent],
+  events: readonly BrowserPackageQueryEvent[] = [
+    matchEvent,
+    failureEvent,
+    completionEvent,
+  ],
 ): BrowserPackageQueryResult {
+  const results = events
+    .filter(event => event.kind === "Match")
+    .map(event => event.row!);
+  const failures = events
+    .filter(event => event.kind === "Failure")
+    .map(event => event.failure!);
+  const completion = events
+    .find(event => event.kind === "Completed")
+    ?.completion;
+  if (completion === null || completion === undefined) {
+    throw new Error("Expected Package Query completion.");
+  }
   return {
-    version: 2,
+    version: 3,
     kind: "Succeeded",
     value: null,
     inspection: {
-      content,
+      content: {
+        results,
+        failures,
+        completion: {
+          ...completion,
+          matches: results.length,
+          failures: failures.length,
+        },
+      },
       share: {
         kind: "NonProjectable",
         fullUrl: null,
@@ -241,7 +265,7 @@ function inspected(
 
 function canceled(reason: string): BrowserPackageQueryResult {
   return {
-    version: 2,
+    version: 3,
     kind: "Canceled",
     value: null,
     inspection: null,
@@ -258,7 +282,7 @@ function failed(
   diagnostic: string,
 ): BrowserPackageQueryResult {
   return {
-    version: 2,
+    version: 3,
     kind: "Failed",
     value: null,
     inspection: null,
@@ -568,15 +592,13 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
   assert.deepEqual(await handle.outcome, {
     kind: "succeeded",
     value: {
-      event: completionEvent,
+      event: null,
       inspection: {
-        content: [
-          progressEvent,
-          matchEvent,
-          failureEvent,
-          assessmentEvent,
-          completionEvent,
-        ],
+        content: {
+          results: [matchEvent.row],
+          failures: [failureEvent.failure],
+          completion: completionEvent.completion,
+        },
         share: {
           kind: "NonProjectable",
           fullUrl: null,
@@ -658,7 +680,11 @@ test("Package Query Worker accepts escaped owner-valid manifest callbacks", asyn
     runPackageAssemblyQuery: () => Promise.resolve(succeeded()),
     runPackageQuery(...args) {
       emitSerialized(args[7], serialized);
-      return Promise.resolve(inspected([expandedMatch, completionEvent]));
+      return Promise.resolve(inspected([
+        expandedMatch,
+        failureEvent,
+        completionEvent,
+      ]));
     },
   };
   const harness = createHarness(facade);
@@ -671,11 +697,13 @@ test("Package Query Worker accepts escaped owner-valid manifest callbacks", asyn
   if (outcome.kind !== "succeeded")
     throw new Error("Expected Package Query to succeed.");
   assert.equal(
-    outcome.value.inspection?.content[0]?.row?.manifest?.packageTypes.length,
+    outcome.value.inspection?.content.results[0]
+      ?.manifest?.packageTypes.length,
     8,
   );
   assert.equal(
-    outcome.value.inspection?.content[0]?.row?.manifest?.packageTypes[0]?.length,
+    outcome.value.inspection?.content.results[0]
+      ?.manifest?.packageTypes[0]?.length,
     32 * 1_024,
   );
 
@@ -933,7 +961,7 @@ test("Package Query generated terminal validation contains malformed results to 
     }),
     runPackageAssemblyQuery: () => Promise.resolve({
       ...succeeded(),
-      version: 3,
+      version: 2,
     }),
     runPackageQuery: () => Promise.resolve({
       ...succeeded(),
@@ -982,7 +1010,7 @@ test("Package Query generated terminal validation contains malformed results to 
     error: {
       failureKind: "Unexpected",
       error: "Package Query returned invalid Worker boundary data.",
-      diagnostic: "Expected a version 2 Package Query result.",
+      diagnostic: "Expected a version 3 Package Query result.",
     },
   });
   await assembly.handle.quiesced;
@@ -1123,9 +1151,9 @@ test("Package Query Worker accepts owner maximum manifest collections", () => {
   assert.equal(result.kind, "decoded");
 });
 
-test("Package Query inspection accepts the maximum valid event scale", () => {
+test("Package Query inspection accepts the maximum valid Document scale", () => {
   const content = [
-    ...Array.from({ length: 4_097 }, () => progressEvent),
+    ...Array.from({ length: 4_097 }, () => failureEvent),
     completionEvent,
   ];
 
@@ -1135,7 +1163,7 @@ test("Package Query inspection accepts the maximum valid event scale", () => {
   );
 
   const combined = inspected([
-    ...Array.from({ length: 16_000 }, () => progressEvent),
+    ...Array.from({ length: 10_001 }, () => failureEvent),
     completionEvent,
   ]);
   assert.notEqual(combined.inspection, null);
@@ -1151,6 +1179,14 @@ test("Package Query inspection accepts the maximum valid event scale", () => {
       })),
     },
   }).kind, "succeeded");
+
+  assert.equal(
+    mapEngineWorkerPackageQueryResult(inspected([
+      ...Array.from({ length: 10_002 }, () => failureEvent),
+      completionEvent,
+    ])).kind,
+    "failed",
+  );
 
   const result = inspected();
   assert.notEqual(result.inspection, null);
@@ -1168,7 +1204,7 @@ test("Package Query inspection accepts the maximum valid event scale", () => {
   }).kind, "failed");
 });
 
-test("Package Query terminal rejects completion that differs from inspection", () => {
+test("Package Query terminal rejects duplicated completion beside inspection", () => {
   const result = inspected();
   assert.notEqual(result.inspection, null);
   assert.equal(
@@ -1218,7 +1254,7 @@ test("Package Query cancellation, credit, and terminal mappers enforce exact res
   }, 10), /different match-credit amount/);
 
   assert.deepEqual(mapEngineWorkerPackageQueryResult({
-    version: 2,
+    version: 3,
     kind: "Failed",
     value: null,
     inspection: null,
@@ -1241,7 +1277,7 @@ test("Package Query cancellation, credit, and terminal mappers enforce exact res
     reason: "timeout",
   });
   assert.deepEqual(mapEngineWorkerPackageQueryResult({
-    version: 2,
+    version: 3,
     kind: "Failed",
     value: null,
     inspection: null,

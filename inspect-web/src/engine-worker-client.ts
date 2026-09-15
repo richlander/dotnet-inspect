@@ -440,7 +440,7 @@ export function bindPackageQueryFacade(
       await started.handle.quiesced;
       if (outcome.kind === "succeeded") {
         return {
-          version: 2,
+          version: 3,
           kind: "Succeeded",
           value: outcome.value.inspection === null
             ? outcome.value.event
@@ -454,7 +454,7 @@ export function bindPackageQueryFacade(
       }
       if (outcome.kind === "failed") {
         return {
-          version: 2,
+          version: 3,
           kind: "Failed",
           value: null,
           inspection: null,
@@ -465,7 +465,7 @@ export function bindPackageQueryFacade(
         };
       }
       return {
-        version: 2,
+        version: 3,
         kind: "Canceled",
         value: null,
         inspection: null,

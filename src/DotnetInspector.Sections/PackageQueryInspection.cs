@@ -11,7 +11,7 @@ namespace DotnetInspector.Sections;
 public static class PackageQueryInspection
 {
     public static async ValueTask<
-        InspectionEnvelope<ImmutableArray<PackageQueryEvent>>>
+        InspectionEnvelope<PackageQueryDocument>>
         ExecuteAsync(
             IPackageSourceClient source,
             PackageQueryPlan plan,
@@ -20,11 +20,11 @@ public static class PackageQueryInspection
             source,
             plan,
             contentProvider: null,
-            observer: null,
+            nonterminalSink: null,
             cancellationToken).ConfigureAwait(false);
 
     public static async ValueTask<
-        InspectionEnvelope<ImmutableArray<PackageQueryEvent>>>
+        InspectionEnvelope<PackageQueryDocument>>
         ExecuteAsync(
             IPackageSourceClient source,
             PackageQueryPlan plan,
@@ -34,27 +34,68 @@ public static class PackageQueryInspection
             source,
             plan,
             contentProvider,
-            observer: null,
+            nonterminalSink: null,
             cancellationToken).ConfigureAwait(false);
 
     public static async ValueTask<
-        InspectionEnvelope<ImmutableArray<PackageQueryEvent>>>
+        InspectionEnvelope<PackageQueryDocument>>
         ExecuteAsync(
             IPackageSourceClient source,
             PackageQueryPlan plan,
             IPackageQueryContentProvider? contentProvider,
-            IPackageQueryEventObserver? observer,
+            IPackageQueryNonterminalSink? nonterminalSink,
             CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(plan);
 
-        ImmutableArray<PackageQueryEvent> content =
-            await PackageQuery.ExecuteToArrayAsync(
-                source,
-                plan,
-                contentProvider,
-                observer,
-                cancellationToken).ConfigureAwait(false);
+        var results = ImmutableArray.CreateBuilder<PackageQueryMatch>();
+        var failures = ImmutableArray.CreateBuilder<PackageQueryFailure>();
+        PackageQuerySummary? summary = null;
+        await foreach (PackageQueryEvent queryEvent in PackageQuery.ExecuteAsync(
+            source,
+            plan,
+            contentProvider,
+            cancellationToken).ConfigureAwait(false))
+        {
+            if (summary is not null)
+            {
+                throw new InvalidOperationException(
+                    "Package Query produced an event after completion.");
+            }
+
+            switch (queryEvent)
+            {
+                case PackageQueryEvent.Match match:
+                    results.Add(match.Value);
+                    break;
+                case PackageQueryEvent.Failure failure:
+                    failures.Add(failure.Value);
+                    break;
+                case PackageQueryEvent.Completed completed:
+                    summary = completed.Value;
+                    continue;
+            }
+
+            if (queryEvent is PackageQueryEvent.Nonterminal nonterminal
+                && nonterminalSink is not null)
+            {
+                await nonterminalSink.ReportAsync(
+                    nonterminal,
+                    cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        if (summary is null)
+        {
+            throw new InvalidOperationException(
+                "Package Query ended without completion.");
+        }
+
+        var content = new PackageQueryDocument(
+            results.ToImmutable(),
+            failures.ToImmutable(),
+            summary);
         ValidateContent(plan, content);
 
         return new(
@@ -66,25 +107,24 @@ public static class PackageQueryInspection
 
     private static void ValidateContent(
         PackageQueryPlan plan,
-        ImmutableArray<PackageQueryEvent> content)
+        PackageQueryDocument content)
     {
-        if (content.IsDefault)
+        if (content.Results.IsDefault
+            || content.Failures.IsDefault)
         {
             throw new ArgumentException(
                 "Package Query content must be initialized.",
                 nameof(content));
         }
-        if (content.Length == 0
-            || content[^1] is not PackageQueryEvent.Completed completed
-            || content.Count(static queryEvent =>
-                queryEvent is PackageQueryEvent.Completed) != 1)
+        PackageQuerySummary summary = content.Summary;
+        if (summary.Matches != content.Results.Length
+            || summary.Failures != content.Failures.Length)
         {
             throw new ArgumentException(
-                "Package Query content must end with exactly one completion event.",
+                "Package Query content does not match its terminal accounting.",
                 nameof(content));
         }
 
-        PackageQuerySummary summary = completed.Value;
         if (!summary.Prefix.ToString().Equals(
                 plan.Prefix.ToString(),
                 StringComparison.Ordinal)
@@ -96,4 +136,15 @@ public static class PackageQueryInspection
                 nameof(content));
         }
     }
+}
+
+/// <summary>
+/// Receives Package Query events established before terminal settlement.
+/// Completion remains authoritative in the returned Document.
+/// </summary>
+public interface IPackageQueryNonterminalSink
+{
+    ValueTask ReportAsync(
+        PackageQueryEvent.Nonterminal queryEvent,
+        CancellationToken cancellationToken);
 }
