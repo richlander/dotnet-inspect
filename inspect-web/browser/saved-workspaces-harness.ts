@@ -72,7 +72,7 @@ function render(focus?: SavedWorkspaceFocus) {
       action: packageIdentityKey(pkg), package: pkg.id,
       version: pkg.version, framework: pkg.activeFramework,
     })),
-    demos: [], demoError: "", loading: false, error: "", escapeHtml,
+    loading: false, error: "", escapeHtml,
     savedWorkspaces: {
       state: saves.state, canSave: state.packages.length > 0, canOpen: true,
     },

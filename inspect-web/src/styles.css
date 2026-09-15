@@ -563,6 +563,11 @@ body:has(:not([hidden]) > [role="dialog"][aria-modal="true"])
 .workspace-demo-row strong { font: 12px var(--mono); color: var(--text); }
 .workspace-demo-row small { margin-top: 4px; color: var(--muted); font-size: 11px; }
 .workspace-demo-row button { white-space: nowrap; }
+.demos-page > .notice-stack { grid-row: 2; }
+.demos-content { grid-row: 3; min-width: 0; }
+.demos-content > * { max-width: 900px; margin-inline: auto; }
+.demos-content p { color: var(--muted); line-height: 1.6; margin-block: 16px; }
+.demos-content .workspace-demo-row { overflow-wrap: anywhere; }
 .workspace-occurrence {
   display: grid;
   grid-template-columns: 110px minmax(0, 1fr) auto;

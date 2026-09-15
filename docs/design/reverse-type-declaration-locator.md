@@ -186,6 +186,13 @@ apply an explicit selection policy suited to its workflow. It owns that choice
 even when only one entry is returned; a UI need not prompt merely because the
 API leaves selection to the consumer.
 
+Candidates also retain Metadata's
+[definition discovery attributes](type-forwarding-resolution.md#definition-discovery-attributes)
+unchanged as `DiscoveryAttributes`. These are additional evidence, not part
+of coordinate equality, ordering, or locator filtering policy.
+Declaration-discovery completeness does not assert target-attribute availability.
+Cold and resident answers carry the same owner-issued facts.
+
 A forwarder's coordinate identifies the Library declaring the forwarder, not
 its target Library. A definition and a forwarder remain distinct even when
 they have the same name. Duplicate physical declarations inside an image must

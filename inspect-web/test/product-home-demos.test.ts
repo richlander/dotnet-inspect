@@ -19,8 +19,38 @@ import {
   isProductHomeDemosPath,
   prepareProductHomeDemoSource,
   productHomeDemoCatalog,
+  productHomeDemosViewHtml,
   setProductHomeDemoCatalog,
 } from "../src/product-home-demos.ts";
+
+test("Demos renders the ordered catalog separately from Workspace contents", () => {
+  setProductHomeDemoCatalog([{
+    id: "stj-serializer",
+    title: "System.Text.Json",
+    summary: "Browse a real package API",
+  }, {
+    id: "stj-graph",
+    title: "Serializer graph",
+    summary: "Explore serialization calls",
+  }]);
+  const html = productHomeDemosViewHtml(value => value, "");
+  assert.match(html, /<h1>Demos<\/h1>/);
+  assert.match(html, /2 available/);
+  assert.match(html, /data-workspace-demo="stj-serializer"[\s\S]*data-workspace-demo="stj-graph"/);
+  assert.match(html, /aria-label="Open demo System.Text.Json"/);
+  assert.doesNotMatch(html, /data-workspace-save|loaded coordinates|<h2>Packages/);
+});
+
+test("Demos distinguishes an empty catalog from a visible catalog failure", () => {
+  setProductHomeDemoCatalog([]);
+  assert.match(productHomeDemosViewHtml(value => value, ""),
+    /No product demos are available/);
+  const failed = productHomeDemosViewHtml(
+    value => value.replaceAll("<", "&lt;"),
+    "Product demos are unavailable: <offline>");
+  assert.match(failed, /role="alert">Product demos are unavailable: &lt;offline>/);
+  assert.doesNotMatch(failed, /0 available|No product demos/);
+});
 
 function surface(
   packageId: string,

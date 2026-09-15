@@ -8571,6 +8571,33 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void PackageChangesUsesFullCatalogSourceWithinReportDeadline()
+    {
+        Assert.Equal(
+            TimeSpan.FromSeconds(120),
+            BrowserPackageWorkspace.PackageChangesOperationTimeout);
+        Assert.Equal(
+            TimeSpan.FromSeconds(5),
+            BrowserPackageWorkspace.PackageChangesOperationTimeout
+            - BrowserPackageWorkspace.PackageChangesSourceOperationTimeout);
+        Assert.True(
+            BrowserPackageWorkspace.PackageChangesRequestTimeout
+            < BrowserPackageWorkspace.PackageChangesSourceOperationTimeout);
+        Assert.Equal(
+            BrowserPackageWorkspace.PackageChangesRequestTimeout,
+            BrowserPackageWorkspace.PackageChangesAdvisoryClient.Timeout);
+        Assert.Equal(
+            PackageSourceKind.NuGetV3,
+            BrowserPackageWorkspace.Catalog.Source.TransportKind);
+        Assert.Equal(
+            PackageProducerIdentity.NuGetOrg,
+            BrowserPackageWorkspace.Catalog.Source.Producer);
+        Assert.True(
+            BrowserPackageWorkspace.Catalog.Capabilities.HasFlag(
+                PackageSourceCapabilities.Catalog));
+    }
+
+    [Fact]
     public async Task VersionPickerPreservesGalleryRegistrationTimeout()
     {
         var handler = new StallingGalleryRegistrationHandler();
