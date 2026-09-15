@@ -157,6 +157,8 @@ identity render, including a user's new focus selection after dismissal.
 and a data-bar link. The failed-demo-publication case also activates Retry
 after recovery. Delayed Package encoding cases cover Back and superseding
 navigation; an encoding failure retains the inspection with a visible notice.
+Rejected predecessor replacement and rejected Demos-entry publication likewise
+retain the current inspection or Home surface and expose the history failure.
 These cases consume the existing modal-focus, retry, and canonical-history
 contracts rather than introducing new navigation semantics.
 

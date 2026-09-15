@@ -2243,6 +2243,59 @@ test("Demos keeps the inspection visible when its predecessor encoding fails", a
   expect(new URL(page.url()).pathname).toBe("/");
 });
 
+test("Demos keeps the inspection visible when predecessor history replacement fails", async ({
+  page,
+}) => {
+  await installFacades(page);
+  await page.goto("/?package=Example.Package&version=1.0.0&framework=net10.0");
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+  await page.waitForFunction(() => new URL(location.href).searchParams.has("w"));
+  await chooseSubject(page, "package", "Package");
+  await page.waitForFunction(() => {
+    const packet = new URL(location.href).searchParams.get("w");
+    return packet
+      ? JSON.parse(atob(packet)).view.lens === "overview"
+      : false;
+  });
+  await page.evaluate(() => {
+    Object.defineProperty(history, "replaceState", {
+      configurable: true,
+      value: () => {
+        throw new DOMException("History blocked");
+      },
+    });
+  });
+  await page.getByRole("link", { name: "Demos", exact: true }).click();
+  await expect(page.locator(".query-notice-text"))
+    .toContainText("browser rejected the current inspection history update");
+  await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("heading", { name: "Demos", exact: true }))
+    .toHaveCount(0);
+});
+
+test("Demos keeps Home visible when its history entry is rejected", async ({
+  page,
+}) => {
+  await installHomeDemo(page, "Methods", "package");
+  await page.goto("/");
+  await expect(page.locator("#home-demos")).toBeEnabled();
+  await page.evaluate(() => {
+    Object.defineProperty(history, "pushState", {
+      configurable: true,
+      value: () => {
+        throw new DOMException("History blocked");
+      },
+    });
+  });
+  await page.locator("#home-demos").click();
+  await expect(page.locator(".query-notice-text"))
+    .toContainText("browser rejected the Demos history entry");
+  await expect(page.locator("#home-demos")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Demos", exact: true }))
+    .toHaveCount(0);
+  await expect(page).toHaveURL("/");
+});
+
 for (const invoker of ["heading", "demo", "credits"]) {
   test(`Demos restores Spotlight dismissal focus to its ${invoker}`, async ({ page }) => {
     const id = await installHomeDemo(page, "Methods", "package");

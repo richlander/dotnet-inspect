@@ -10636,11 +10636,16 @@ async function openProductDemosRoute(): Promise<void> {
     }
     if (!navigationSequence.isCurrent(navigationSeq)
       || projection !== workspaceUrlProjection()) return;
-    workspaceLocation.replace(predecessor.toString(), history.state);
+    if (!workspaceLocation.replace(predecessor.toString(), history.state)) {
+      throw new Error(
+        "The browser rejected the current inspection history update.");
+    }
     if (retainedWorkspaces.activeWorkspaceId !== null)
       activeWorkspaceUrl = predecessor.toString();
   }
-  workspaceLocation.push("/demos");
+  if (!workspaceLocation.push("/demos")) {
+    throw new Error("The browser rejected the Demos history entry.");
+  }
   ++syncUrlRevision;
   dismissModalsForRoutedNavigation();
   state.loading = !state.engineReady;
