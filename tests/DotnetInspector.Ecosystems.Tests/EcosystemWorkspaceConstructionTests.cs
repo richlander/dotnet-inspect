@@ -36,6 +36,9 @@ public sealed class EcosystemWorkspaceConstructionTests
                 Assert.IsType<WorkspaceEcosystemPopulationDeclaration.Platform>(item).Population.Family),
             item => Assert.Equal("Microsoft.AspNetCore.",
                 Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(item).Prefix.Prefix));
+        PackagePrefixDeclaration aspNetCorePrefix =
+            Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                aspNetCore.Populations[1]).Prefix;
         Assert.Equal("Microsoft.Extensions.", Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
             Assert.Single(SelectKnown(
                 EcosystemPackIds.MicrosoftExtensions).Populations)).Prefix.Prefix);
@@ -119,6 +122,35 @@ public sealed class EcosystemWorkspaceConstructionTests
         Assert.True(aspireAzurePrefix.MatchesPackageId("Aspire.Azure.AI.OpenAI"));
         Assert.True(aspireHostingAzurePrefix.MatchesPackageId(
             "Aspire.Hosting.Azure.SignalR"));
+        var blazor = SelectKnown(EcosystemPackIds.Blazor);
+        Assert.Equal(
+            [
+                "Microsoft.AspNetCore.Components.WebAssembly",
+                "Microsoft.AspNetCore.Components.WebView.Maui",
+                "Microsoft.AspNetCore.Components.QuickGrid.EntityFrameworkAdapter",
+                "Microsoft.Authentication.WebAssembly.Msal",
+            ],
+            blazor.CorePackages.Select(package => package.PackageId));
+        Assert.Equal(
+            [
+                "Microsoft.AspNetCore.Components",
+                "Microsoft.Authentication.WebAssembly",
+            ],
+            blazor.Populations.Select(item =>
+                Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                    item).Prefix.Prefix));
+        PackagePrefixDeclaration blazorComponentsPrefix =
+            Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                blazor.Populations[0]).Prefix;
+        PackagePrefixDeclaration blazorAuthenticationPrefix =
+            Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                blazor.Populations[1]).Prefix;
+        Assert.True(aspNetCorePrefix.MatchesPackageId(
+            "Microsoft.AspNetCore.Components.WebAssembly"));
+        Assert.True(blazorComponentsPrefix.MatchesPackageId(
+            "Microsoft.AspNetCore.Components.WebAssembly"));
+        Assert.True(blazorAuthenticationPrefix.MatchesPackageId(
+            "Microsoft.Authentication.WebAssembly.Msal"));
     }
 
     [Fact]
