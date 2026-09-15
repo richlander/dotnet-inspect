@@ -71,6 +71,50 @@ public static class PortableQueryModel
     /// </remarks>
     public static IComparer<string> ScalarOrder { get; } = new ScalarOrderComparer();
 
+    /// <summary>
+    /// Puts terms in the model's semantic order: key, then operator, then value,
+    /// each compared as text by <see cref="ScalarOrder"/> — the key's identity
+    /// text, the operator's identity text, and the exact value token, never a
+    /// resolved or normalized form.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This order is the model's, not an encoding's. An intent held and resolved
+    /// in process never touches a codec, yet two hosts must still agree on which
+    /// of several defects is reported first, so both the codec and the resolver
+    /// read the order from here rather than each implementing it.
+    /// </para>
+    /// <para>
+    /// Exact duplicates collapse, because term membership is set-valued: an
+    /// identical triple present twice is one term, so resolution never receives
+    /// an exact duplicate and only a binder collision can be a duplicate. What a
+    /// caller supplied is still what the codec's declared maxima are charged
+    /// against — limits are charged as parsed, before this.
+    /// </para>
+    /// </remarks>
+    public static IEnumerable<PortableQueryTerm> InSemanticOrder(
+        IEnumerable<PortableQueryTerm> terms)
+    {
+        ArgumentNullException.ThrowIfNull(terms);
+        return terms
+            .Distinct()
+            .OrderBy(term => term.Key, ScalarOrder)
+            .ThenBy(term => TextOf(term.Operator), ScalarOrder)
+            .ThenBy(term => term.Value, ScalarOrder);
+    }
+
+    /// <summary>
+    /// Puts execution bounds in the model's semantic order: by dimension
+    /// identity. Their declaration sequence carries nothing, because bounds in
+    /// different dimensions are independent.
+    /// </summary>
+    public static IEnumerable<PortableQueryBound> InSemanticOrder(
+        IEnumerable<PortableQueryBound> bounds)
+    {
+        ArgumentNullException.ThrowIfNull(bounds);
+        return bounds.OrderBy(bound => bound.Dimension, ScalarOrder);
+    }
+
     /// <summary>Spells one operator identity.</summary>
     public static string TextOf(PortableQueryOperator value) => value switch
     {

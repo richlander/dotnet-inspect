@@ -240,13 +240,7 @@ public static class PortableQueryPayloadCodec
             Property(TermsProperty);
             WriteArray(
                 builder,
-                intent.Terms
-                    .Distinct()
-                    .OrderBy(term => term.Key, PortableQueryModel.ScalarOrder)
-                    .ThenBy(
-                        term => PortableQueryModel.TextOf(term.Operator),
-                        PortableQueryModel.ScalarOrder)
-                    .ThenBy(term => term.Value, PortableQueryModel.ScalarOrder),
+                PortableQueryModel.InSemanticOrder(intent.Terms),
                 static (target, term) =>
                 {
                     target.Append('[');
@@ -264,9 +258,7 @@ public static class PortableQueryPayloadCodec
             Property(BoundsProperty);
             WriteArray(
                 builder,
-                intent.Bounds.OrderBy(
-                    bound => bound.Dimension,
-                    PortableQueryModel.ScalarOrder),
+                PortableQueryModel.InSemanticOrder(intent.Bounds),
                 static (target, bound) =>
                 {
                     target.Append('[');
