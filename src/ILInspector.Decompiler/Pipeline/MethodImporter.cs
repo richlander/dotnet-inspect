@@ -154,7 +154,7 @@ public static class MethodImporter
             MethodBodyReadResult.Unavailable unavailable =>
                 throw new MethodBodyEvidenceUnavailableException(
                     $"MethodDef 0x{methodToken:X8} body evidence is unavailable: "
-                    + Describe(unavailable.Reason),
+                    + Describe(source, unavailable.Reason),
                     classicAsyncRequest),
             _ => throw new InvalidOperationException(
                 "Unknown method-body read result."),
@@ -368,6 +368,30 @@ public static class MethodImporter
             _ => throw new BadImageFormatException(
                 "Catch-type name evidence and token identity disagree."),
         };
+    }
+
+    static string Describe(
+        MetadataSource source,
+        MethodBodyUnavailableReason reason)
+    {
+        if (reason is MethodBodyUnavailableReason.MalformedBody)
+        {
+            try
+            {
+                if (source.ModuleVersionId == Guid.Empty)
+                    return "the module must have a non-empty MVID";
+            }
+            catch (BadImageFormatException)
+            {
+                return "the module must have a readable, non-empty MVID";
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                return "the module must have a readable, non-empty MVID";
+            }
+        }
+
+        return Describe(reason);
     }
 
     static string Describe(MethodBodyUnavailableReason reason) => reason switch
