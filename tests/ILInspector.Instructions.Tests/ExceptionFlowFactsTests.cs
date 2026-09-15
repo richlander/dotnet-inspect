@@ -214,6 +214,44 @@ public class ExceptionFlowFactsTests
     }
 
     [Fact]
+    public void LeaveMayRemainInTheSameProtectedRegion()
+    {
+        byte[] image = File.ReadAllBytes(SelfPath);
+        int token = TokenOf(nameof(ExceptionFlowFactsSamples.ConditionalInTry));
+        using var pe = new PEReader(new MemoryStream(image, writable: false));
+        MetadataReader reader = pe.GetMetadataReader();
+        MethodBodyBlock body = ReadBody(pe, reader, token);
+        ExceptionRegion clause = Assert.Single(body.ExceptionRegions);
+        DecodedInstruction branch = MethodInstructions.Decode(body).Instructions.Single(
+            instruction => instruction.Branches
+                && !instruction.IsUnconditionalBranch);
+        Assert.Equal(OperandKind.ShortInlineBrTarget, branch.Operand);
+        int target = Assert.Single(branch.BranchTargets);
+        Assert.InRange(
+            branch.Offset,
+            clause.TryOffset,
+            clause.TryOffset + clause.TryLength - 1);
+        Assert.InRange(
+            target,
+            clause.TryOffset,
+            clause.TryOffset + clause.TryLength - 1);
+        image[MethodCodeOffset(image, token) + branch.Offset] = 0xDE;
+
+        MethodInstructions method = MethodInstructions.Decode(
+            ReadMutatedBody(image, token));
+        InstructionExceptionFlowFacts facts = AvailableFacts(method);
+        InstructionNormalTransfer transfer = Assert.IsType<
+            InstructionExceptionFlowResult<InstructionNormalTransfer>.Available>(
+                facts.NormalTransferAt(branch.Offset, target)).Value;
+
+        Assert.Empty(transfer.RegionsLeft);
+        Assert.Empty(transfer.CleanupHandlers);
+        Assert.Empty(transfer.RegionsEntered);
+        Assert.Equal(NormalContinuationKind.Block, transfer.Continuation.Kind);
+        Assert.Equal(target, transfer.Continuation.BlockStart);
+    }
+
+    [Fact]
     public void ExceptionalTransfersAreExplicitlyUnavailable()
     {
         (_, MethodInstructions method) =
@@ -451,13 +489,22 @@ public class ExceptionFlowFactsTests
             inner.HandlerOffset,
             outer.TryOffset,
             outer.TryOffset + outer.TryLength - 1);
+        ImmutableArray<DecodedInstruction> instructions =
+            MethodInstructions.Decode(body).Instructions;
+        int outerHandlerEnd = outer.HandlerOffset + outer.HandlerLength;
+        int strictSubextentEnd = Enumerable.Range(1, instructions.Length - 1)
+            .Where(index => !instructions[index - 1].OpCode.IsPrefix())
+            .Select(index => instructions[index].Offset)
+            .First(offset =>
+                offset > outer.HandlerOffset
+                && offset < outerHandlerEnd);
 
         WriteHandlerExtent(
             image,
             token,
             clauseOrdinal: 0,
             outer.HandlerOffset,
-            outer.HandlerLength);
+            strictSubextentEnd - outer.HandlerOffset);
 
         MethodInstructions method = MethodInstructions.Decode(
             ReadMutatedBody(image, token));

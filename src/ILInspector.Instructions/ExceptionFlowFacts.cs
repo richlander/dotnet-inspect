@@ -1055,8 +1055,6 @@ internal sealed class ExceptionFlowTopology
             destination.Select(region => region.Ordinal).ToHashSet();
         ImmutableArray<ExceptionFlowTopologyRegion> regionsLeft =
             [.. source.Where(region => !destinationOrdinals.Contains(region.Ordinal))];
-        if (regionsLeft.IsEmpty)
-            return false;
         foreach (ExceptionFlowTopologyRegion handler in regionsLeft.Where(
                      region => region.Role == InstructionExceptionRegionRole.Handler))
         {
