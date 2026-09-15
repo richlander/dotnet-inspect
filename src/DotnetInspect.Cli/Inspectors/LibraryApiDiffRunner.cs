@@ -12,7 +12,7 @@ internal static class LibraryApiDiffRunner
         new(1, 1_000_000, 1_000_000, 1_000, 1_000_000, 10_000_000);
 
     internal static async Task<
-        InspectionEnvelope<LibraryApiDiffPresentationResult>> ExecuteAsync(
+        InspectionEnvelope<LibraryApiDiffOutcome>> ExecuteAsync(
             AssemblySetEntry before,
             AssemblySetEntry after,
             bool includeAll)
