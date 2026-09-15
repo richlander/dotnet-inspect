@@ -311,6 +311,14 @@ the pinned outcome-level host gate without changing the suite's model-bound C#
 formatting, declaration, type-shell, memory-safety spelling, declared-self-name,
 or visible-refusal evidence.
 
+`Inspector.Text.Tests` is the twenty-sixth migrated adopter. The tracker called
+this project `ILInspector.Text.Tests` before its rename in
+[#6387](https://github.com/richlander/dotnet-inspect/pull/6387). Its developer
+command remains unfiltered. This path reuses the pinned outcome-level host gate
+without changing the suite's exact line census, bounded projection, text
+comparison, movement, line-ending, final-terminator, or implementation-diff
+relation evidence.
+
 If the selected MTP version cannot produce the independent discovery and
 execution identities required by the decompiler completeness receipt, that
 suite remains on its transitional host until its owner has an equally strong

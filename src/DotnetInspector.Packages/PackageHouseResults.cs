@@ -850,58 +850,10 @@ public sealed class PackageHouseEvidence
                 "A House evidence envelope cannot retain a null failure.",
                 nameof(failures));
         }
-        foreach (PackageHouseFailure.Timeout timeout
-            in Failures.OfType<PackageHouseFailure.Timeout>())
-        {
-            TimeSpan expected = timeout.Kind switch
-            {
-                PackageHouseTimeoutKind.Request =>
-                    request.Operation.RequestTimeout,
-                PackageHouseTimeoutKind.Operation =>
-                    request.Operation.OperationTimeout,
-                _ => throw new ArgumentOutOfRangeException(nameof(failures)),
-            };
-            if (!ReferenceEquals(
-                    timeout.Operation,
-                    request.Operation.Identity)
-                || timeout.Duration != expected)
-            {
-                throw new ArgumentException(
-                    "A retained timeout must match the request's operation identity and configured duration.",
-                    nameof(failures));
-            }
-        }
-        foreach (PackageHouseFailure.Authority authority
-            in Failures.OfType<PackageHouseFailure.Authority>())
-        {
-            if (!ReferenceEquals(
-                        authority.Operation,
-                        request.Operation.Identity))
-            {
-                    throw new ArgumentException(
-                        "A retained authority failure must match the request's operation identity.",
-                        nameof(failures));
-            }
-            if (authority.Failure.Timeout is { } timeout)
-            {
-                    TimeSpan expected = timeout.Kind switch
-                    {
-                        PackageSourceTimeoutKind.Request
-                            or PackageSourceTimeoutKind.MetadataBody =>
-                            request.Operation.RequestTimeout,
-                        PackageSourceTimeoutKind.Operation =>
-                            request.Operation.OperationTimeout,
-                        _ => throw new ArgumentOutOfRangeException(
-                            nameof(failures)),
-                    };
-                    if (timeout.Duration != expected)
-                    {
-                        throw new ArgumentException(
-                            "A retained authority timeout must match the request's configured duration.",
-                            nameof(failures));
-                    }
-            }
-        }
+        PackageHouseContractValidation.RequireFailuresMatchOperation(
+            request.Operation,
+            Failures,
+            nameof(failures));
     }
 
     public PackageHouseRequest Request { get; }
@@ -1233,6 +1185,67 @@ public abstract class PackageHouseResult
 
 internal static class PackageHouseContractValidation
 {
+    internal static void RequireFailuresMatchOperation(
+        PackageHouseOperation operation,
+        IEnumerable<PackageHouseFailure> failures,
+        string parameterName)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        ArgumentNullException.ThrowIfNull(failures);
+        foreach (PackageHouseFailure.Timeout timeout
+            in failures.OfType<PackageHouseFailure.Timeout>())
+        {
+            TimeSpan expected = timeout.Kind switch
+            {
+                PackageHouseTimeoutKind.Request =>
+                    operation.RequestTimeout,
+                PackageHouseTimeoutKind.Operation =>
+                    operation.OperationTimeout,
+                _ => throw new ArgumentOutOfRangeException(parameterName),
+            };
+            if (!ReferenceEquals(
+                    timeout.Operation,
+                    operation.Identity)
+                || timeout.Duration != expected)
+            {
+                throw new ArgumentException(
+                    "A retained timeout must match the request's operation identity and configured duration.",
+                    parameterName);
+            }
+        }
+        foreach (PackageHouseFailure.Authority authority
+            in failures.OfType<PackageHouseFailure.Authority>())
+        {
+            if (!ReferenceEquals(
+                    authority.Operation,
+                    operation.Identity))
+            {
+                throw new ArgumentException(
+                    "A retained authority failure must match the request's operation identity.",
+                    parameterName);
+            }
+            if (authority.Failure.Timeout is { } timeout)
+            {
+                TimeSpan expected = timeout.Kind switch
+                {
+                    PackageSourceTimeoutKind.Request
+                        or PackageSourceTimeoutKind.MetadataBody =>
+                        operation.RequestTimeout,
+                    PackageSourceTimeoutKind.Operation =>
+                        operation.OperationTimeout,
+                    _ => throw new ArgumentOutOfRangeException(
+                        parameterName),
+                };
+                if (timeout.Duration != expected)
+                {
+                    throw new ArgumentException(
+                        "A retained authority timeout must match the request's configured duration.",
+                        parameterName);
+                }
+            }
+        }
+    }
+
     internal static void RequireVersionResolutionMatchesDemand(
         PackageHouseDemand demand,
         PackageHouseDecision decision,

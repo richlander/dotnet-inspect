@@ -208,6 +208,7 @@ public sealed record BrowserPackageCacheStats(
     int MaxPackageEntries,
     int Workspaces,
     int MaxWorkspaces,
+    int MaxWorkspaceAssembliesPerRole,
     long ResidentBytes,
     long MaxResidentBytes,
     long MaxWorkspaceRetainedImageBytes);

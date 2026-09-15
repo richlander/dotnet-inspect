@@ -18,7 +18,8 @@ This contract is implemented by
 `InstructionExceptionFlowResult<T>` as step 3 of
 [#6965](https://github.com/richlander/dotnet-inspect/issues/6965). It extends the
 [`ILInspector.Instructions` substrate](instruction-substrate.md), tracked by
-that issue. Analysis and Decompiler adoption remain later focused steps.
+that issue. Analysis adopts the facts in step 4; Decompiler adoption remains a
+later focused step.
 
 Instructions is the right owner because these facts become true only after
 joining decoded opcodes and branch targets with the declared exception
@@ -202,6 +203,13 @@ Analysis and Decompiler are peers above Instructions:
 
 The owner exposes no `CanRaise`, `IsLeakSafe`, or recipe-specific answer.
 
+The Analysis step-4 adapter uses `LocationAt` to obtain validated inner/outer
+protected-region and handler membership for ArrayPool cleanup policy. It uses
+Metadata clause order only within the owner-issued protected-region identity
+and declines when location or catch-type evidence is unavailable. Exceptional
+search and unwind remain unclaimed; deciding whether an earlier catch can
+intercept a resource path is conservative Analysis policy.
+
 ## Analogous implementations
 
 The architecture comparison was performed on 2026-09-10 and transfers
@@ -250,6 +258,12 @@ review and applicable notices.
 Existing `BlockGraphTests` gate that leave edges still traverse nested
 `finally` handlers in runtime order while the graph consumes the shared
 topology cleanup query.
+
+Analysis `LeakTriageAnalyzerTests` gate preservation of the Metadata body and
+clause identities, explicit refusal of uncorrelated body signals, nested
+protected-context ordering, handler-identity release membership, catch-all
+cleanup, and typed/nested catch near misses through the production
+`LibraryBodyIndex` path.
 
 The .NET runtime's
 [`TextReader.Read(Span<char>)`](https://github.com/dotnet/runtime/blob/f9b470a5ae7dccd67a1d3fb21aea39c3c8410c7c/src/libraries/System.Private.CoreLib/src/System/IO/TextReader.cs#L96-L114)

@@ -587,6 +587,16 @@ needs atomic multi-Package edits, visible failures, and a capacity above the
 current 12-package Browser limit. The retained Workspace collection remains a
 host concern, not a Scope composition primitive.
 
+The [2026-09-15 Workspace budget census](../data/inspect-web-workspace-budget-census-2026-09-15.tsv)
+measures that exact shipped set through product package acquisition, compile
+asset selection, and Workspace role realization. Its 44 archives total
+12.87 MiB, and its shared 44-assembly role retains 5.47 MiB. One realization
+uses one Browser Workspace slot. The current byte, 256-assembly-per-role, and
+four-slot limits therefore admit the scenario independently; the
+12-package-entry limit refuses it before construction. This evidence does not
+choose a replacement entry limit because atomic replacement may need old and
+new coordinate sets to coexist while protected work settles.
+
 ## Design demo
 
 The Workspace subject first exposes retained definitions:

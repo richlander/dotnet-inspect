@@ -5,6 +5,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 using ILInspector.Instructions;
+using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
 
@@ -80,15 +81,21 @@ internal sealed class LibraryBodyStableReceiverGetterClassifier
         _getterClassified?.Invoke(methodHandle);
         MethodDefinition method =
             _reader.GetMethodDefinition(methodHandle);
-        var body = _peReader.GetMethodBody(method.RelativeVirtualAddress);
-        if (body.ExceptionRegions.Length != 0)
+        MethodBodyReadResult read = MethodBodySource.Read(
+            _peReader,
+            MetadataTokens.GetToken(methodHandle));
+        if (read is not MethodBodyReadResult.Available available
+            || available.Body.ExceptionRegionCatalog.HasExceptionRegions)
+        {
             return false;
+        }
         DecodedInstruction? first = null;
         DecodedInstruction? fieldLoad = null;
         DecodedInstruction? third = null;
         int count = 0;
         foreach (DecodedInstruction instruction
-            in InstructionDecoder.Decode(body.GetILBytes() ?? []))
+            in InstructionDecoder.Decode(
+                available.Body.IL.ToArray()))
         {
             if (instruction.OpCode == ILOpCode.Nop)
                 continue;

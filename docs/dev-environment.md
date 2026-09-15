@@ -196,7 +196,7 @@ dotnet run --project tests/InertText.Tests -c Release
 dotnet run --project tests/Inspector.Text.Tests -c Release
 ```
 
-Both are xUnit in-process executables. Their source lives under `tests/`, while
+Both are xUnit MTP executables. Their source lives under `tests/`, while
 their built outputs remain under `artifacts/`. The in-process corpus data stays
 with its test host; it is not an independently compiled inspected fixture.
 See [repository layout](fixture-governance.md#repository-layout).
