@@ -664,7 +664,6 @@ public sealed class MethodCallAnalysisTests
         return new MethodBodyAnalysisContext(
             Method(),
             instructions,
-            [],
             loopRegions ?? [],
             []);
     }

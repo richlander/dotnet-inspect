@@ -15,7 +15,8 @@ this evidence but do not redefine it.
 This contract is implemented by `MethodBodySource.Read`,
 `MethodBodyReadResult`, and `MethodExceptionRegionCatalog`, tracked as step 2
 of [#6965](https://github.com/richlander/dotnet-inspect/issues/6965).
-Instructions and peer-consumer adoption remain later focused steps.
+Instructions consumes the contract in step 3 and Analysis in step 4.
+Decompiler adoption remains a later focused step.
 
 The owner is `ILInspector.Metadata`, alongside Metadata's
 `StateMachineRelationshipResult` and `MemorySafetyRulesResult`. Those APIs
@@ -24,10 +25,10 @@ consumers do not reinterpret the same rows independently. Exception regions
 need the same shared handoff at method-body scope.
 
 The detached handoff values can remain in
-`ILInspector.MetadataPrimitives`, where `MethodBodyData` already carries copied
-IL and SRM `ExceptionRegion` values. Type placement at that dependency leaf
-does not transfer semantic ownership: Metadata issues the body evidence and
-defines what its result means.
+`ILInspector.MetadataPrimitives`, where `MethodBodyData` carries copied IL and
+the detached exception catalog. Type placement at that dependency leaf does
+not transfer semantic ownership: Metadata issues the body evidence and defines
+what its result means.
 
 ## Current basis and replacement
 
@@ -116,6 +117,12 @@ These direct questions are useful to Analysis for method signals, candidate
 selection, and inventory; to Decompiler for import admission and catch-type
 evidence; and to Metadata presentation for the existing **Exception Regions**
 section.
+
+Analysis step 4 consumes the catalog directly for body signals, stable-getter
+admission, structural-clone EH admission, and catch-type evidence. Its
+caller-owned `PEReader` paths use the static `MethodBodySource.Read` adapter,
+which retains reader ownership with the caller and returns the same detached
+closed result.
 
 ## Closed result
 
