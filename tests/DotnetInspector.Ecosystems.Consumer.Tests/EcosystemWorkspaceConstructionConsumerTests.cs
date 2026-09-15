@@ -15,7 +15,7 @@ public sealed class EcosystemWorkspaceConstructionConsumerTests
             : [EcosystemPackIds.Platform, EcosystemPackIds.AspNetCore,
                 EcosystemPackIds.MicrosoftExtensions, EcosystemPackIds.Aspire,
                 EcosystemPackIds.AI, EcosystemPackIds.Azure,
-                EcosystemPackIds.Blazor];
+                EcosystemPackIds.Blazor, EcosystemPackIds.Maui];
 
         WorkspaceEcosystemRegistrationDeclaration[] declarations =
             [.. plan.Registrations.Select(item => Assert.IsType<WorkspaceRegistration.Ecosystem>(item).Declaration)];
@@ -105,6 +105,35 @@ public sealed class EcosystemWorkspaceConstructionConsumerTests
                 "Microsoft.Authentication.WebAssembly",
             ],
             blazor.Populations.Select(population =>
+                Assert.IsType<
+                    WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                        population).Prefix.Prefix));
+    }
+
+    [Fact]
+    public void AllKnownMauiRegistrationSeparatesConcreteRootsFromDiscoveryPrefixes()
+    {
+        WorkspaceEcosystemRegistrationDeclaration maui =
+            EcosystemPackCatalog.CreateWorkspacePlan().Registrations
+                .Select(item => Assert.IsType<WorkspaceRegistration.Ecosystem>(item).Declaration)
+                .Single(declaration => declaration.Id.Value == EcosystemPackIds.Maui.Value);
+
+        Assert.Equal(
+            [
+                "Microsoft.Maui.Controls",
+                "Microsoft.AspNetCore.Components.WebView.Maui",
+                "CommunityToolkit.Maui",
+                "Microsoft.Maui.Graphics.Skia",
+                "Microsoft.Maui.Graphics.Text.Markdig",
+            ],
+            maui.CorePackages.Select(package => package.PackageId));
+        Assert.Equal(
+            [
+                "Microsoft.Maui.",
+                "CommunityToolkit.Maui",
+                "Microsoft.AspNetCore.Components.WebView.Maui",
+            ],
+            maui.Populations.Select(population =>
                 Assert.IsType<
                     WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
                         population).Prefix.Prefix));

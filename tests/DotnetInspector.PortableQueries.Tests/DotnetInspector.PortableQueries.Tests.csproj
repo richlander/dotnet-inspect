@@ -3,14 +3,14 @@
   <PropertyGroup>
     <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
     <LangVersion>preview</LangVersion>
+    <RootNamespace>DotnetInspector.PortableQueries.Tests</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <IsAotCompatible>false</IsAotCompatible>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <OutputType>Exe</OutputType>
     <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+    <OutputType>Exe</OutputType>
   </PropertyGroup>
 
   <ItemGroup>
@@ -22,9 +22,14 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Inspector.Findings\Inspector.Findings.csproj" />
-    <ProjectReference Include="..\..\src\ILInspector.Instructions\ILInspector.Instructions.csproj" />
-    <ProjectReference Include="..\..\src\ILInspector.Metadata\ILInspector.Metadata.csproj" />
+    <ProjectReference Include="../../src/DotnetInspector.PortableQueries/DotnetInspector.PortableQueries.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The design model is the gate; the codec is tested against it rather than
+         against a copy that could drift. -->
+    <EmbeddedResource Include="..\..\docs\design\models\portable-query-payload\vectors.json"
+                      LogicalName="DotnetInspector.PortableQueries.Tests.PortableQueryPayloadVectors.json" />
   </ItemGroup>
 
 </Project>
