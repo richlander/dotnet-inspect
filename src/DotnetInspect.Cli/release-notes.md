@@ -38,6 +38,45 @@
   roots; add `-S Dependencies` for declaration evidence without traversal.
   The retired command token remains reserved and reports this replacement
   guidance instead of being interpreted as a package target (#5995).
+- **Breaking:** Positional `depends <type> --json` now serializes the shared
+  camelCase `TypeDependencySectionResult` Content directly. The former
+  presentation graph was `{nodes, edges, depth_boundaries,
+  package_projections}`: node identities carried `kind`, nodes and edges
+  carried `root_occurrences`, and edges duplicated flattened fields such as
+  `source_identity` and `target_identity`. The replacement is
+  `{queryResult:{dependency:{matchedType,tree,found,relationships,
+  depthBoundaries,rejections},participants:[{kind,subject,...}],
+  hasSurvivingParticipant,isComplete},rowSelection:{isSuccess,relationships,
+  failure}}`. Participant `kind` is `completed` or `rejected`; dependency enums
+  remain numeric. The complete dependency relationships and the selected
+  `rowSelection.relationships` are both retained. Asset-mode `depends`,
+  Discover, Count JSON, and non-JSON output are unchanged (#6719).
+- Adds presence-only `--envelope` to positional `depends <type>`, implying JSON
+  and emitting schema version `1`, result kind `type-dependencies`, the same
+  Content serializer used by `--json`, Share, and ordered diagnostics.
+  Framing uses lower snake case; Share preserves `available` and
+  `nonProjectable`, diagnostic severity remains `Information`, `Warning`, or
+  `Error`, absent correspondence remains `null`, and no `evidence` member is
+  emitted.
+  `--compact`, semantic relationship row selection, and `--depth` traversal
+  remain available. Competing formats, Discover/schema/effective modes,
+  section selection, explicit document verbosity, Count, projections,
+  decoration, and rendered-line clipping are rejected before acquisition.
+  Progress and informational options remain on stderr; explicit `--share`
+  retains its final-stderr-line policy. Type-not-found diagnostics precede
+  side output, and an available Share follows `--info` or trace host
+  diagnostics as the final stderr line. Share is constructed even when stderr
+  projection is not requested; mixed-source plans and explicit `--depth`
+  produce typed `nonProjectable` Share without changing successful Content.
+  Asset mode, other commands, Library Diff, evidence capture, and
+  `--evidence-envelope` have not adopted this transport (#6719, #7117, #7126).
+- Corrects shared assembly-context JSON prerequisites: the six existing
+  `AssemblyResolutionProvenance` cases now serialize with `kind` values
+  `package`, `platform`, `project`, `local`, `embedded`, and `designated`
+  instead of empty objects. `AssemblyContextSubject` retains Identity and full
+  typed resolution Provenance but excludes its process-local `Registration`.
+  The existing Browser source-generated serializer receives these Content
+  corrections without adding CLI framing or runtime evidence capture (#6719).
 - Routes `vocabulary` value rows through the shared semantic selection path:
   `-n` and bare `-N` select Head rows, `--tail` selects from the end, and
   range-form `--rows` composes in argument order across every selected section.
