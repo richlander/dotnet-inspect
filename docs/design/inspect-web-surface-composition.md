@@ -567,7 +567,7 @@ consumer-owned bottom legend outside the transformed viewport, so zoom and pan
 cannot move, crop, or shrink its explanation. Call graph names its member and
 assembly roles plus platform lookup; Type relationships names inspected, base,
 interface, derived, and unavailable types; Package Dependencies names inspected,
-open, and load-on-selection packages. Legend rows wrap at narrow widths and form
+same-prefix, and external packages. Legend rows wrap at narrow widths and form
 the final interpretation row. Browser-specific Mermaid source remains internal
 to rendering rather than appearing as Call-graph-only inspection evidence. Any
 future source copy or graph export experience requires one deliberate contract
@@ -605,8 +605,26 @@ underlying page. The viewer identifies the inspected package; group buttons
 identify the selected manifest framework independently of the active coordinate.
 The shared header uses the package coordinate as its subject, the active target
 framework as context, and the existing graph-reading guidance as its summary.
-Its bottom legend distinguishes the inspected package, packages already open in
-the Workspace, and packages that load on selection.
+Its bottom legend distinguishes the inspected package, packages with the same
+package-family prefix, and external packages. The inspected package uses the
+shared purple graph-target role, same-prefix packages use blue, and external
+packages use neutral graph roles in both themes.
+
+The package-family prefix is the first two dot-delimited segments of the
+inspected package ID, or the complete ID when it has fewer than two segments.
+A different package is same-prefix when its ID equals that prefix or begins
+with the prefix followed by a dot, using ordinal case-insensitive comparison.
+The rule operates on typed package IDs, so `Microsoft.Extensions`,
+`Microsoft.Extensions.Hosting`, and `Microsoft.Extensions.Logging` share the
+`Microsoft.Extensions` frame while `Microsoft.ExtensionsX` does not.
+The package facade classifies the graph's complete package-ID batch with
+`StringComparison.OrdinalIgnoreCase` before Mermaid lowering; browser Unicode
+casing tables do not reinterpret that .NET-owned comparison contract.
+
+Structural identity is independent from Workspace state. Whether a node
+switches to an existing Workspace package or loads on selection remains in its
+typed navigation metadata, accessible action label, and existing selection
+path; it does not alter the Mermaid class or legend role.
 Selecting a group stays in Explore and updates the existing list and graph.
 Closing retains that selection. Pending graph rendering can complete in either
 placement; opening or closing does not restart it.
@@ -1655,7 +1673,11 @@ with the absence of a synthesized `Default feed` control.
    section.
 2. Switch manifest target-framework groups and confirm that the dependency
    list and graph update in place while the surface frame, package coordinate,
-   and scroll ownership remain stable. Open or load a dependency from both the
+   and scroll ownership remain stable. With
+   `Microsoft.Extensions.Hosting@10.0.0`, confirm that the graph and legend
+   distinguish the inspected package, case-insensitive `Microsoft.Extensions`
+   same-prefix packages, and external packages. Include loaded and unloaded
+   nodes in the latter two roles, then open or load a dependency from both the
    list and graph and confirm that existing navigation behavior is preserved.
 3. Exercise loading, query failure, no declared dependencies, no exact group,
    graph rendering failure, and partial workspace failure. Confirm that each
