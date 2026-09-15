@@ -48,14 +48,67 @@ columns, or rows.
 This section locks the target CLI boundary for
 [#6719](https://github.com/richlander/dotnet-inspect/issues/6719), including
 the [subject-owned Diff adoption](command-transition-model.md#envelope-complete-adoption).
-It does not claim that current commands already implement the option or the
-content-JSON alignment below.
 
 The envelope owner's proposed
 [service-evidence enrichment](inspection-envelope.md#service-evidence-enrichment)
 adds a typed companion without changing that content boundary. Its planned
 `--evidence-envelope` consumer is additional adoption work for #6719, not a
 new rung in this ladder or an already available output option.
+
+### Implementation status
+
+Baseline transport is adopted only by positional `depends <type>`.
+That operation registers `result_kind` `type-dependencies` at
+`schema_version` `1` and uses one host-neutral
+`TypeDependencySectionJsonContext` for both Content-only `--json` and the
+Content subtree of `--envelope`.
+
+`--depth` remains traversal, while `--rows` and
+`-n`/`--head`/`--tail` remain semantic relationship selection. Content retains
+both
+`queryResult.dependency.relationships` and the selected
+`rowSelection.relationships`. The service constructs Share for both JSON
+boundaries regardless of stderr projection; `--json` emits Content only, while
+`--envelope` exposes Share. Mixed-source plans and explicit `--depth` issue
+typed `Share.NonProjectable`. Explicit `--share` retains the existing final
+stderr line policy after host diagnostics.
+
+Admission rejects competing or unadopted output operations before acquisition.
+The common writer buffers both JSON forms before stdout commit. Service-issued
+empty or non-success Content retains its exit policy; acquisition failure
+without a result emits no manufactured envelope.
+
+Asset-mode `depends`, all other commands, Discover, Count,
+`--evidence-envelope`, optional evidence capture from
+[#7117](https://github.com/richlander/dotnet-inspect/issues/7117), and Library
+Diff remain unadopted. Library Diff follows through the common writer;
+[#7126](https://github.com/richlander/dotnet-inspect/issues/7126) separately
+owns command cutover, and #6719 remains open for the rest of the rollout.
+
+The adoption also closes two shared Content-serialization prerequisites.
+`AssemblyResolutionProvenance` serializes its six existing cases with owner
+`kind` discriminators `package`, `platform`, `project`, `local`, `embedded`,
+and `designated`. `AssemblyContextSubject` excludes its process-local
+`Registration` while retaining Identity and full typed resolution Provenance,
+following the
+[host-observable object-identity rule](host-observable-content-kinds.md#serialization-ready-schema).
+These corrections flow through the existing Browser source-generated
+serializer. They do not add Browser framing or runtime evidence capture.
+
+The adopting Release gate assignments are:
+
+- [`ConfiguredPayloadAcquisitionTests.TypeEnvelope.cs`](../../tests/DotnetInspect.Cli.Tests/ConfiguredPayloadAcquisitionTests.TypeEnvelope.cs)
+  owns the real Npgsql paired JSON scenario, both Share cases, semantic
+  windows/depth, failed and empty results, and pre-acquisition admission.
+- [`InspectionEnvelopeOutputTests.cs`](../../tests/DotnetInspect.Cli.Tests/InspectionEnvelopeOutputTests.cs)
+  owns framing, ordered diagnostics, serialization-failure buffering, and
+  deferred Share after host metrics.
+- [`AssemblyResolutionProvenanceJsonTests.cs`](../../tests/ILInspector.Metadata.Tests/AssemblyResolutionProvenanceJsonTests.cs)
+  owns round-trip coverage for all six provenance cases.
+- [`BrowserEngineBoundaryTypeDependencyTests.cs`](../../inspect-web/DotnetInspect.Web.Tests/BrowserEngineBoundaryTypeDependencyTests.cs)
+  test `QueryTypeProjection_RetainsDependencySubjectWireFacts` owns the real
+  Browser managed-export boundary: subject identity and provenance survive
+  without test-deserializer compensation.
 
 ### Two serialization boundaries
 
@@ -126,26 +179,21 @@ does not establish the equality above. Each adopter must deliberately migrate
 any differing machine schema, classify and disclose that change under
 [CLI change classification](cli-change-classification.md), and exercise the
 same Content contract in both JSON modes. Unadopted routes retain their current
-contracts; this specification changes no executable output.
+contracts.
 
-The production path remains #6719's three steps: lock the CLI contract,
-implement the shared transport with an already-enveloped operation, then
-exercise a second content kind through Library API Diff. The wider CLI and
-Browser adoption remains in
+The #6719 path has locked the CLI contract and adopted the common transport
+with type dependencies. Exercising Library API Diff as the second content kind
+remains. The wider CLI and Browser adoption remains in
 [the five-step Diff plan](command-transition-model.md#cutover-and-production-path).
-The transport contract below completes the first specification step. It does
-not complete #6719's implementation or publish support on any command.
 
-Use the real `System.Text.Json@9.0.0..10.0.0` Library comparison as the paired
-JSON scenario. Planned Release gates must compare decoded unprojected content
-between both modes, preserve the complete service envelope, and cover a
-successful empty comparison plus typed unavailable/rejected content.
-They must also exercise both Share cases, retained ordered diagnostics,
-admitted content projection, semantic Count, and rejection of incompatible
-post-service shaping. A content-only success must not imply that Share is
-available or envelope diagnostics are empty.
-These implementation properties remain **unverified** until the adopting
-production-host gates exist; Markdown validation does not establish them.
+The first production scenario is
+`Npgsql.EntityFrameworkCore.PostgreSQL@8.0.4`, target
+`Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure.Internal.NpgsqlOptionsExtension`,
+and `net8.0`. The named adopting gates above own this scenario and its
+transport, selection, failure, provenance, and Browser-boundary coverage. A
+content-only success does not imply that Share is available or envelope
+diagnostics are empty. The later Library scenario remains
+`System.Text.Json@9.0.0..10.0.0`.
 
 ### Envelope transport
 
@@ -180,13 +228,13 @@ specific to its result kind; an unrelated result kind need not advance.
 This is schema identification, not a version-negotiation option or a promise
 to retain obsolete serializers.
 
-The first adopter identities are `type-dependencies` for
-`TypeDependencySectionResult` and `library-api-diff` for
-`LibraryApiDiffOutcome`. An Outcome's Available, Rejected, or other case does
-not change `result_kind`; its own discriminator remains inside `content`.
-Another operation with a different content contract, such as Discover or
-semantic Count, needs its own registration. Neither the command token nor
-the generic CLR name is a wire discriminator.
+The registered adopter identity is `type-dependencies` for
+`TypeDependencySectionResult`. The planned second identity is
+`library-api-diff` for `LibraryApiDiffOutcome`. An Outcome's Available,
+Rejected, or other case does not change `result_kind`; its own discriminator
+remains inside `content`. Another operation with a different content contract,
+such as Discover or semantic Count, needs its own registration. Neither the
+command token nor the generic CLR name is a wire discriminator.
 
 Envelope and diagnostic member names use lower snake case. Share keeps its
 owner-issued `kind` discriminator and values, including `available` and
@@ -303,18 +351,19 @@ adoption does not wait for optional Evidence support in #7117, Browser UI,
 History, or subject-owned command cutover. Those consumers reuse this
 transport rather than publish another framing convention.
 
-The three-step #6719 path above remains the counted delivery plan. The first
-runtime adoption uses type dependencies; Library API Diff supplies the second
-content kind through the same CLI transport. Changing their legacy
-unprojected `--json` from a graph/presentation document to shared Content is
-**intentionally breaking** where the schemas differ. The adopting PR must
-record the exact old/new schemas and update current help, product guidance,
-and Breaking release notes; there is no compatibility-only JSON switch.
-Other formats and unadopted operations keep their owned behavior.
+The first runtime adoption is positional type dependencies; Library API Diff
+will supply the second content kind through the same CLI transport. Changing
+legacy unprojected `--json` from a graph/presentation document to shared
+Content is **intentionally breaking** where the schemas differ. Positional
+type dependencies have disclosed that break in current help, product
+guidance, and Breaking release notes; there is no compatibility-only JSON
+switch. Other formats and unadopted operations keep their owned behavior.
 Browser's baseline delivery remains independently governed by the envelope
 owner; this CLI-specific framing does not change its wire or interaction model.
 
-The adopting Release gates must exercise the public command entry point:
+The positional type adopter assigns these requirements to the named Release
+gates in [Implementation status](#implementation-status). Future adopters must
+likewise exercise their public command entry point:
 
 - parse each complete payload and compare Content between the paired JSON
   modes, including empty success and owner-issued non-success;
@@ -327,12 +376,12 @@ The adopting Release gates must exercise the public command entry point:
 - when evidence is adopted, preserve the baseline subtree, deliver the
   concrete Evidence, and reject unavailable capture without fallback.
 
-Use #6709's real type-dependency package inputs and the existing
-`System.Text.Json@9.0.0..10.0.0` comparison, with smaller boundary fixtures for
-PR-fast cases. Reuse the existing production runtime/serialization gates for
-CoreCLR and NativeAOT; no new platform exception is introduced here.
-All transport implementation properties remain **unverified** until those
-gates land. This specification adds no executable options or serializers.
+Use the authentic Npgsql type-dependency scenario recorded above and, for the
+second adopter, the existing `System.Text.Json@9.0.0..10.0.0` comparison, with
+smaller boundary fixtures for PR-fast cases. Reuse the existing production
+runtime/serialization gates for CoreCLR and NativeAOT; no new platform
+exception is introduced here. Those gates, not this implementation-status
+note or Markdown validation, establish the runtime properties.
 
 ## The shape ladder
 

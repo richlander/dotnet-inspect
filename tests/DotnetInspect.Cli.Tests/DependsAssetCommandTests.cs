@@ -139,7 +139,8 @@ public sealed class DependsAssetCommandTests
         using JsonDocument document = JsonDocument.Parse(jsonOutput);
         JsonElement[] boundaries =
         [
-            .. document.RootElement.GetProperty("depth_boundaries")
+            .. document.RootElement.GetProperty("queryResult").GetProperty("dependency")
+                .GetProperty("depthBoundaries")
                 .EnumerateArray(),
         ];
         Assert.NotEmpty(boundaries);
@@ -148,32 +149,18 @@ public sealed class DependsAssetCommandTests
             boundary =>
             {
                 Assert.Equal(
-                    "Type",
-                    boundary.GetProperty("producer").GetString());
-                Assert.Equal(
                     1,
-                    boundary.GetProperty("maximum_depth").GetInt32());
-                Assert.Equal(
-                    [1],
-                    boundary.GetProperty("root_occurrences")
-                        .EnumerateArray()
-                        .Select(static occurrence =>
-                            occurrence.GetInt32()));
-                JsonElement identity =
-                    boundary.GetProperty("node_identity");
-                Assert.Equal(
-                    "type",
-                    identity.GetProperty("kind").GetString());
+                    boundary.GetProperty("maximumDepth").GetInt32());
                 Assert.False(
                     string.IsNullOrEmpty(
-                        identity.GetProperty("type").GetString()));
+                        boundary.GetProperty("typeName").GetString()));
             });
         Assert.Contains(
             "(bounded at depth 1)",
             treeOutput,
             StringComparison.Ordinal);
         Assert.Equal(
-            document.RootElement.GetProperty("edges")
+            document.RootElement.GetProperty("rowSelection").GetProperty("relationships")
                 .GetArrayLength(),
             int.Parse(
                 countOutput.Trim(),

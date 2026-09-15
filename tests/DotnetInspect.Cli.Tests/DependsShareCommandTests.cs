@@ -32,8 +32,9 @@ public partial class CommandExecutionTests
         Assert.Equal(
             "Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure.Internal.NpgsqlOptionsExtension",
             document.RootElement
-                .GetProperty("nodes")[0]
-                .GetProperty("label")
+                .GetProperty("queryResult")
+                .GetProperty("dependency")
+                .GetProperty("matchedType")
                 .GetString());
         string shareLine = result.Error
             .Split(
