@@ -83,7 +83,8 @@
   and the common buffered writer. Content matches unprojected `--json`;
   Share remains non-projectable at `comparison/endpoints`. Typed non-success
   is serialized before returning failure; acquisition failure fabricates no
-  result. `--compact` formats either JSON boundary and `--all` remains an
+  result. `--compact` formats either complete JSON boundary, rejects projected
+  or other Diff operations, and `--all` remains an
   API-scope input. Envelope rejects Type/classification filters, sections,
   explicit verbosity, row/line controls, competing formats, and non-API modes.
   Complete Content JSON rejects rendered-line clipping. This completes the

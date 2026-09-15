@@ -591,7 +591,8 @@ logical Library (assembly name, culture, and public-key token).
 On this route, unprojected `--json` serializes the complete
 `LibraryApiDiffOutcome`, replacing the former `{changes: ...}` presentation
 view. Use `--envelope` for that same Content plus Share and diagnostics;
-`--compact` controls whitespace for either. For example:
+`--compact` controls whitespace for either complete JSON boundary, not projected
+or other Diff operations. For example:
 
 ```bash
 dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 --tfm net8.0 --envelope --compact

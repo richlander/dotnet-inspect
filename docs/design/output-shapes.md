@@ -93,7 +93,8 @@ Explicit Type/classification filters, section selection, and other admitted
 presentation controls still request projected JSON. They are incompatible
 with `--envelope`, as are non-API modes and multi-Library endpoints. `--all`
 remains a service API-scope input; `--compact` controls whitespace for either
-JSON boundary. Rendered-line clipping is rejected for complete Content JSON.
+JSON boundary, and rejects projected or unadopted Diff operations rather than
+silently ignoring the option. Rendered-line clipping is rejected for complete Content JSON.
 Share remains the service-issued `NonProjectable` at `comparison/endpoints`.
 
 Asset-mode `depends`, other commands, Discover, Count,

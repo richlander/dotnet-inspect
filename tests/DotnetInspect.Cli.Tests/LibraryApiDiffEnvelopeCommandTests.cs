@@ -206,15 +206,38 @@ public sealed class LibraryApiDiffEnvelopeCommandTests
         Assert.Contains("--compact", result.Error);
     }
 
-    [Fact]
-    [Trait("Speed", "Slow")]
-    public async Task PlatformReferencePackage_RejectsResolvedMultiLibraryEndpoints()
+    [Theory]
+    [InlineData("--type", "Widget")]
+    [InlineData("-S", "Changes")]
+    [InlineData("--member", "Method")]
+    [InlineData("--discover", null)]
+    public async Task Compact_RejectsProjectedOrOtherOperationsBeforeResolution(
+        string option, string? value)
     {
-        var result = await Invoke(
-            "--package", "Microsoft.NETCore.App.Ref@9.0.0..10.0.0", "--envelope");
+        var result = await Invoke([
+            "--library", "missing-before.dll..missing-after.dll",
+            "--json", "--compact", option,
+            .. value is null ? Array.Empty<string>() : [value]]);
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
+        Assert.Contains("--compact", result.Error);
+        Assert.DoesNotContain("Error resolving", result.Error);
+    }
+
+    [Theory]
+    [Trait("Speed", "Slow")]
+    [InlineData("--envelope")]
+    [InlineData("--compact")]
+    public async Task PlatformReferencePackage_RejectsResolvedMultiLibraryEndpoints(string option)
+    {
+        var result = await Invoke([
+            "--package", "Microsoft.NETCore.App.Ref@9.0.0..10.0.0", option,
+            .. option == "--compact" ? new[] { "--json" } : Array.Empty<string>()]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(option, result.Error);
         Assert.True(
             result.Error.Contains("exactly one Library at each API diff endpoint", StringComparison.Ordinal),
             result.Error);

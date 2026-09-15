@@ -255,7 +255,7 @@ public static class InspectionCommandDefinitions
         };
         var findingOption = new Option<string?>("--finding") { Description = "Finding Transitions producer: api.type, api.member, api.attribute, analysis.allocation, or analysis.call-site" };
         var legendOption = new Option<bool>("--legend") { Description = "Show legend explaining change symbols" };
-        var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json or --envelope)" };
+        var compactOption = new Option<bool>("--compact") { Description = "Minified complete Library API diff JSON (use with unprojected --json or --envelope)" };
 
         diffCommand.Arguments.Add(argsArg);
         diffCommand.Options.Add(packageOption);

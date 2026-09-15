@@ -54,7 +54,8 @@ Use `--envelope` for the same Content plus Share and diagnostics, with
 `schema_version: 1` and `result_kind: "library-api-diff"`. `--all` is admitted;
 Type/classification filters, sections, explicit verbosity, row/line windows,
 and other Diff modes are not. Add `--compact` to either JSON form for compact
-whitespace. Share is non-projectable for the ordered comparison endpoints.
+whitespace; it is rejected with projected or other Diff operations. Share is
+non-projectable for the ordered comparison endpoints.
 This does not add Evidence capture or change the current Browser projection.
 
 ## Did runtime behavior change? (allocations, exceptions)

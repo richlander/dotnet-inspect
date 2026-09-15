@@ -29,9 +29,11 @@ public class DiffCommand
     public const string Name = "diff";
     public static async Task<int> ExecuteAsync(DiffOptions options)
     {
-        if (options.EnvelopeOutput
+        string? transportOption = options.EnvelopeOutput ? "--envelope"
+            : options.CompactJson ? "--compact" : null;
+        if (transportOption is not null
             && (options.HasContentProjection
-                || options.JsonOutput
+                || options.EnvelopeOutput && options.JsonOutput
                 || options.Discover is not null
                 || options.MemberFilter.Count > 0
                 || options.Finding is not null
@@ -42,7 +44,7 @@ public class DiffCommand
                 || options.Legend))
         {
             CommandError.Write(
-                "--envelope requires an unprojected Library API diff; "
+                $"{transportOption} requires an unprojected Library API diff; "
                 + "filters, selected sections, discovery, and other diff operations are not supported.");
             return 1;
         }
@@ -235,10 +237,10 @@ public class DiffCommand
 
             try
             {
-                if (options.EnvelopeOutput && !UsesSharedLibraryApiDiff(inputs, options))
+                if (transportOption is not null && !UsesSharedLibraryApiDiff(inputs, options))
                 {
                     CommandError.Write(
-                        "--envelope currently requires exactly one Library at each API diff endpoint; "
+                        $"{transportOption} currently requires exactly one Library at each API diff endpoint; "
                         + $"resolved {inputs.From.AssemblySet.Assemblies.Count} before and "
                         + $"{inputs.To.AssemblySet.Assemblies.Count} after.");
                     return 1;
