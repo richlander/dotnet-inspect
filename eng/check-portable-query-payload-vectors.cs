@@ -35,9 +35,7 @@ using System.Text.Json;
 // Wire properties in canonical order. Which intent part each one carries is
 // the prose's to say (portable-query-payload.md, "Shape"); this region fixes
 // only the spelling and the order. An absent or empty part is omitted, never
-// emitted as null or []. An intent with no parts canonicalizes to the empty
-// object; whether such a query means anything is the vocabulary's question,
-// not the codec's.
+// emitted as null or []. An intent with no parts canonicalizes to {}.
 string[] properties = ["t", "b", "s", "o"];
 
 // What one tuple slot may hold.

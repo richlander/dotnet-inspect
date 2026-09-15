@@ -109,10 +109,10 @@ Three consequences follow, each with its own reason:
   intent, where the user can see it happen, rather than inside a codec where it
   would silently rewrite what was shared.
 
-Emission is compact, with no whitespace between tokens, and absent or empty
-parts are omitted rather than emitted as `null` or `[]`. An intent with no parts
-at all canonicalizes to the empty object; whether such a query means anything is
-the vocabulary's question, and never this codec's. Bytes that arrive in
+Emission is compact, and a part the intent does not use has no presence on
+the wire at all — the shape region fixes that spelling. Whether a query with no
+parts means anything is the vocabulary's question, and never this codec's. Bytes
+that arrive in
 any other spelling — reordered, padded, or carrying a duplicate the canonical
 form would have collapsed — are refused as non-canonical rather than repaired.
 The packet owner already refuses non-canonical decoded JSON; this payload does
@@ -167,8 +167,9 @@ the vectors `operation-boundary-a` and `operation-boundary-b` are that pair.
 
 Every string has exactly one spelling: the packet owner's, which the shape
 region carries for this codec so that no second convention is introduced here.
-Inheriting that rule means inheriting its rejections: an unpaired surrogate is
-refused before any vocabulary binder runs and is never repaired to U+FFFD.
+Inheriting that rule means inheriting its rejections: whatever the packet's
+writer refuses, this codec refuses before any vocabulary binder runs, and it
+repairs nothing.
 Measured, no `System.Text.Json` encoder implements the rule — each uppercases
 the hex, escapes U+007F, U+0085, U+2028, and U+2029, and turns a supplementary
 character into a surrogate-pair escape — so the codec must reuse the packet's
