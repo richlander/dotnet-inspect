@@ -330,7 +330,7 @@ type, member, and graph source surfaces; page-level placement and related
 action placement remain with their owning surfaces.
 
 For type and member Source, the placement of provenance relative to content and
-the placement of Copy and optional Open are owned by
+the placement of Copy, optional Open, and Explore are owned by
 [Inspect Web Surface Composition](inspect-web-surface-composition.md#source-and-annotated-source).
 Graph Source retains its modal-local composition.
 
