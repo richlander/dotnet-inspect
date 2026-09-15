@@ -42,17 +42,13 @@ Inspect Web may retain zero or more resource-free Workspace definitions and
 restoration records, but at most one selected Workspace realization may admit
 new user operations.
 
-Selecting an inactive definition on the canonical restoration path constructs
-a fresh candidate realization and atomically cuts over only after construction
-succeeds. The incumbent definition, presentation, and realization remain
-selected when construction fails, is cancelled, or is superseded. A
-Definitions-issued `LegacyCompatibilityRequired` result instead hands exact
-focused non-Package v1 state to the existing compatibility adapter before
-candidate construction; this design grants that adapter no realization
-authority. A predecessor may drain work after canonical cutover, but it is
-never selectable and cannot admit new work. Inspect Web does not search dormant
-definitions, candidates, predecessors, or past realizations for a compatible
-realization to revive.
+Selecting an inactive definition constructs a fresh candidate realization and
+atomically cuts over only after construction succeeds. The incumbent
+definition, presentation, and realization remain selected when construction
+fails, is cancelled, or is superseded. A predecessor may drain work after
+cutover, but it is never selectable and cannot admit new work. Inspect Web does
+not search dormant definitions, candidates, predecessors, or past realizations
+for a compatible realization to revive.
 
 The enforcing product gates are the Browser realization host's exclusive use
 of `WorkspaceRealizationCoordinator` for construction, cutover, operation
@@ -253,33 +249,22 @@ definition.
 
 ### Selecting an inactive definition
 
-Selection dispatch is asynchronous. The canonical restoration path is
-transactional:
+Selection is asynchronous and transactional:
 
 1. record the latest activation intent for the exact retained-definition
    identity,
-2. dispatch the retained definition through Workspace Definitions into either
-   its immutable `WorkspacePlan` and resource-free complete-restoration recipe,
-   or `LegacyCompatibilityRequired`,
-3. for `LegacyCompatibilityRequired`, pass the exact owner-issued v1 semantic
-   plan to the existing Browser compatibility adapter under the same current
-   intent and end this candidate path without reserving capacity or
-   constructing a Workspace,
-4. otherwise reserve Browser aggregate-realization capacity,
-5. ask `WorkspaceRealizationCoordinator` to begin a candidate from that exact
+2. lower the retained definition into its immutable `WorkspacePlan` and
+   resource-free complete-restoration recipe,
+3. reserve Browser aggregate-realization capacity,
+4. ask `WorkspaceRealizationCoordinator` to begin a candidate from that exact
    plan,
-6. continue restoration against the candidate's
+5. continue restoration against the candidate's
    `WorkspaceRealizationConstructionLease.Workspace`,
-7. complete construction with the exact definition snapshot,
-8. cut over only if the intent is still current,
-9. hand the authorized Navigation outcome to Inspect Web Navigation Consumer
+6. complete construction with the exact definition snapshot,
+7. cut over only if the intent is still current,
+8. hand the authorized Navigation outcome to Inspect Web Navigation Consumer
    for installation, canonical location, history, focus, and announcement, and
-10. observe predecessor settlement independently.
-
-The legacy handoff in step 3 remains usable only while the exact host intent is
-current. Its adapter keeps its existing compatibility publication and cleanup
-contract; it does not acquire candidate, cutover, or predecessor authority from
-this design.
+9. observe predecessor settlement independently.
 
 Definition lowering cannot require a live Workspace and cannot run through a
 different temporary Workspace. The continuation receives the
@@ -287,7 +272,7 @@ coordinator-owned construction lease; neither Workspace Definitions nor the
 Browser retains the lease's Workspace after release.
 
 The incumbent remains selected and continues admitting operations through step
-7. Cutover in step 8 transfers new-operation authority before incumbent
+6. Cutover in step 7 transfers new-operation authority before incumbent
 presentation is discarded.
 
 Candidate construction may derive initial presentation in private, but that
@@ -556,12 +541,7 @@ tracks the end-to-end architecture retirement.
    restoration path for resource-free retained records, asynchronous
    selection, rollback presentation, and exact history composition. This slice
    does not create a Browser-private restoration recipe or treat a currently
-   projectable version-1 URL as a complete record. A Definitions-issued
-   `LegacyCompatibilityRequired` result for a focused non-Package v1 input is
-   the explicit compatibility boundary: the Browser passes its exact retained
-   semantic plan to the existing v1 adapter without constructing a candidate
-   Workspace or deriving a replacement plan from snapshot state. This narrow
-   immutable-v1 route is not retired by this slice. Tracked by
+   projectable version-1 URL as a complete record. Tracked by
    [#7028](https://github.com/richlander/dotnet-inspect/issues/7028).
 3. **Fresh materialization producers.** Route saved Open, Spotlight external
    packages, package-query handoff, demos, shared links, and initial/history

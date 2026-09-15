@@ -1875,12 +1875,13 @@ evidence follows deterministic plan order, not asynchronous completion order.
 value and grant no host publication authority.
 `LegacyCompatibilityRequired` is not success-shaped restoration: it is the
 typed pre-construction classification that preserves immutable non-Package v1
-support outside the Package-only v2 path. The Browser passes its exact
-Definitions-owned plan to the existing v1 share/history adapter; the CLI passes
-it to the existing v1 scenario/demo adapter. Neither host derives a replacement
-plan from labels, routes, or snapshot state. No retirement of this narrow
-compatibility route is claimed by #5525; a future structural owner may make
-those inputs directly version-2-projectable.
+support outside the Package-only v2 path. It exposes the exact
+Definitions-owned plan to the adjacent compatibility owner and prohibits a
+consumer from deriving a replacement plan from labels, routes, or snapshot
+state. Host intent, publication, cleanup, and authority semantics remain with
+that adjacent owner. No retirement of this narrow compatibility route is
+claimed by #5525; a future structural owner may make those inputs directly
+version-2-projectable.
 
 The existing
 [`CompleteRestoration.tla`](models/workspace-definitions-restoration/CompleteRestoration.tla)
