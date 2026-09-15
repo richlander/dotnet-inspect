@@ -224,6 +224,35 @@ public sealed class CSharpMemorySafetySpellingTests
     }
 
     [Fact]
+    public void SingleDeclarationOutcomeRejectsInitOnlyAccessorShape()
+    {
+        ApiType type = Type(MemorySafetyRulesState.Updated);
+        ApiMember property = Property(
+            "Value",
+            MemorySafetyRulesState.Updated,
+            ContractKind.None,
+            MemorySafetyPointerEvidence.Absent,
+            [
+                ("get", ContractKind.None, MemorySafetyPointerEvidence.Absent),
+                ("set", ContractKind.None, MemorySafetyPointerEvidence.Absent),
+            ]);
+        property.SignatureModel!.Accessors
+            .Single(accessor => accessor.Kind == "set")
+            .StructuralReturnType =
+                "modreq(System.Runtime.CompilerServices.IsExternalInit) void";
+
+        CSharpMemberDeclarationOutcome.NotRendered notRendered = Assert.IsType<
+            CSharpMemberDeclarationOutcome.NotRendered>(
+                Formatter(CSharpMemorySafetyLanguage.UpdatedCallerContracts)
+                    .FormatMemberOutcome(type, property));
+
+        Assert.Contains(
+            "accessor return shape",
+            notRendered.Diagnostic.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void SelectedPropertyDoesNotPublishBodyOwnedUnsafeContext()
     {
         ApiType type = Type(MemorySafetyRulesState.Updated);
@@ -2149,7 +2178,7 @@ public sealed class CSharpMemorySafetySpellingTests
                     ModuleId));
             if (kind == "get")
                 getterToken = token;
-            else if (kind is "set" or "init")
+            else if (kind == "set")
                 setterToken = token;
         }
 

@@ -211,14 +211,19 @@ internal static class CSharpMemorySafetySpelling
                 return Refuse("a complete structured property accessor shape is unavailable.");
             if (accessors.Any(
                     static accessor =>
-                        accessor.Kind is not ("get" or "set" or "init")))
+                        accessor.Kind is not ("get" or "set")))
             {
                 return Refuse("the structured property contains an unsupported accessor kind.");
             }
+            if (accessors.Any(
+                    static accessor =>
+                        accessor.StructuralReturnType is not null))
+            {
+                return Refuse(
+                    "the structured property contains an unsupported accessor return shape.");
+            }
             if (accessors.GroupBy(static accessor => accessor.Kind)
-                    .Any(static group => group.Count() != 1)
-                || (accessors.Any(static accessor => accessor.Kind == "set")
-                    && accessors.Any(static accessor => accessor.Kind == "init")))
+                    .Any(static group => group.Count() != 1))
             {
                 return Refuse("the structured property accessor shape is ambiguous.");
             }
@@ -226,7 +231,7 @@ internal static class CSharpMemorySafetySpelling
             int[] accessorTokens = accessors.Select(accessor => accessor.Kind switch
                 {
                     "get" => member.GetterToken,
-                    "set" or "init" => member.SetterToken,
+                    "set" => member.SetterToken,
                     _ => null,
                 })
                 .OfType<int>()

@@ -87,6 +87,16 @@ public sealed class BrowserMemberDeclarationTests
         Assert.Null(propertyDeclaration.Unavailable);
         Assert.False(propertyDeclaration.Compatibility);
 
+        BrowserMemberDeclaration initOnlyDeclaration = await Declaration(
+            spellingType,
+            Member(spellingType, "InitOnly"));
+        Assert.Null(initOnlyDeclaration.Text);
+        Assert.Contains(
+            "accessor return shape",
+            Assert.IsType<string>(initOnlyDeclaration.Unavailable),
+            StringComparison.OrdinalIgnoreCase);
+        Assert.False(initOnlyDeclaration.Compatibility);
+
         JsonElement explicitLayoutType =
             Type(surfaceDocument.RootElement, ExplicitLayoutType);
         BrowserMemberDeclaration safeFieldDeclaration = await Declaration(
