@@ -1,18 +1,20 @@
-# CoreCache maintenance lifecycle
+# PersistentCache maintenance lifecycle
 
-Defines the caller-visible contract for `CoreCache`'s versioned-category
-maintenance lifecycle: registration, generation-scoped background cleanup, and
-the accounting reported by `Clear` and `CancelAndWaitForMaintenance`.
+Defines the caller-visible contract for
+`DotnetInspector.Cache.PersistentCache`'s versioned-category maintenance
+lifecycle: registration, generation-scoped background cleanup, and the
+accounting reported by `Clear` and `CancelAndWaitForMaintenance`.
 
 ## Scope
 
-Owner: `src/DotnetInspector.Core/CoreCache.cs`. This document covers only the
-maintenance lifecycle -- `RegisterVersionedCategory`, `Initialize`'s effect on
-already-registered categories, the background cleanup tasks it schedules, and
-`Clear`/`CancelAndWaitForMaintenance`'s reported accounting. It does not cover
-`CoreCache`'s ordinary read/write cache paths, `CacheTelemetry`, or any other
-cache in the repository (in particular, `NuGetCache`'s atomic-rename
-publishing is a different owner; see
+Owner: `src/DotnetInspector.Cache/PersistentCache.cs`. This document covers
+only the maintenance lifecycle -- `RegisterVersionedCategory`, `Initialize`'s
+effect on already-registered categories, the background cleanup tasks it
+schedules, and `Clear`/`CancelAndWaitForMaintenance`'s reported accounting. It
+does not cover `PersistentCache`'s ordinary read/write cache paths,
+`DotnetInspector.Cache.CacheTelemetry`, or any other cache in the repository
+(in particular, `NuGetCache`'s atomic-rename publishing is a different owner;
+see
 [`cache-concurrency.md`](cache-concurrency.md) and
 [`models/package-cache-publication/`](models/package-cache-publication/)).
 
@@ -28,13 +30,13 @@ publishing is a different owner; see
   change a versioned category's target version -- nor its exact spelling --
   after registering it once.
 - **Every registered category has at most one live cleanup task at a time.**
-  Within one maintenance generation, CoreCache never runs two concurrent
-  cleanup tasks for the same (root, prefix, version) key -- a repeated
-  schedule request for a key already present in the current generation's task
-  map is a no-op. This key is a *within-generation* dedup key, not the
-  generation's identity: a cancellation-triggered generation restart replaces
-  the task map wholesale, so the very same (root, prefix, version) key can be
-  scheduled again as a fresh task in the new generation.
+  Within one maintenance generation, `PersistentCache` never runs two
+  concurrent cleanup tasks for the same (root, prefix, version) key -- a
+  repeated schedule request for a key already present in the current
+  generation's task map is a no-op. This key is a *within-generation* dedup
+  key, not the generation's identity: a cancellation-triggered generation
+  restart replaces the task map wholesale, so the very same (root, prefix,
+  version) key can be scheduled again as a fresh task in the new generation.
 - **`Initialize` and the internal aggregate-cleanup path re-schedule every
   currently-registered category.** An explicit `Initialize` call, and
   `RequestVersionedCategoryCleanupAsync`'s internal aggregate-scheduling pass,
@@ -134,7 +136,7 @@ the model's `Safety.cfg` configuration exactly (`AllowTornWrite = FALSE`,
 `BrokenTornReadOnly.cfg`, and `BrokenTornWriteOnly.cfg` no longer describe
 shipped behavior; they remain in the model as negative controls proving the
 lock is load-bearing, not incidental.
-`tests/DotnetInspector.Services.Tests/CacheMaintenanceProgressTests.cs` proves
+`tests/DotnetInspector.Cache.Tests/CacheMaintenanceProgressTests.cs` proves
 the fix directly: it fails reliably against the pre-fix implementation and
 passes against the fix, for both the destructive (`TakeSnapshot`) and
 non-destructive (`Snapshot`) reader paths.
@@ -196,8 +198,8 @@ loss or corruption.
 
 This document does not define or change:
 
-- `CoreCache`'s non-maintenance read/write cache contract;
-- `CacheTelemetry`'s internals;
+- `PersistentCache`'s non-maintenance read/write cache contract;
+- `DotnetInspector.Cache.CacheTelemetry`'s internals;
 - any other cache in the repository; or
 - the second and third exposures noted above (self-correcting-once-quiescent
   ordering gaps, not proven defects requiring a fix on their own).

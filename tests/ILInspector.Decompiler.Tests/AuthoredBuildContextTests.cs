@@ -11,6 +11,7 @@ using Microsoft.CodeAnalysis;
 
 namespace ILInspector.DecompilerHarness;
 
+[Trait("Speed", "Slow")]
 [Trait("Area", "Fidelity")]
 [Collection(FidelityGateCollection.Name)]
 public sealed class AuthoredBuildContextTests
@@ -36,7 +37,7 @@ public sealed class AuthoredBuildContextTests
     }
 
     [Fact]
-    public void AppliedOptions_UseEachActualAttempt()
+    public async Task AppliedOptions_UseEachActualAttempt()
     {
         string assemblyPath = FixtureCatalog.DecompilerAuthoredRebuild.AssemblyPath();
         using var source = SourceLinkService.Open(assemblyPath);
@@ -46,7 +47,7 @@ public sealed class AuthoredBuildContextTests
             MetadataFindings.InspectCompilationReferences(source.Context, Subject));
         Assert.Equal("True", context.Option("checked"));
         Assert.Null(context.Option("optimization"));
-        var result = Rebuild(context);
+        var result = await Rebuild(context);
 
         Assert.True(Assert.IsType<RebuildCompilationAttempt>(result.AuthoredAttempt).Options.CheckOverflow);
         Assert.False(Assert.IsType<RebuildCompilationAttempt>(result.DecompilerLane.CompilationAttempt).Options.CheckOverflow);
@@ -75,9 +76,9 @@ public sealed class AuthoredBuildContextTests
     }
 
     [Fact]
-    public void ExactAuthoredIl_DoesNotCertifyUnknownContext()
+    public async Task ExactAuthoredIl_DoesNotCertifyUnknownContext()
     {
-        var result = Rebuild(Context(new CompilationOptionInfo("optimization", "debug")));
+        var result = await Rebuild(Context(new CompilationOptionInfo("optimization", "debug")));
 
         Assert.Equal(AuthoredRebuildOutcome.Exact, result.Outcome);
         Assert.Equal(SourceChecksumVerification.Exact, result.ChecksumVerification);
@@ -94,9 +95,9 @@ public sealed class AuthoredBuildContextTests
     [InlineData("match", "Agree")]
     [InlineData("different", "Different")]
     [InlineData("missing", "Unknown")]
-    public void ReferenceIdentity_DoesNotUseFilenameAsProof(string mode, string expected)
+    public async Task ReferenceIdentity_DoesNotUseFilenameAsProof(string mode, string expected)
     {
-        var decompiler = Decompile();
+        var decompiler = await Decompile();
         var attempt = Assert.IsType<RebuildCompilationAttempt>(decompiler.CompilationAttempt);
         var reference = attempt.Provenance.References.First(reference => reference.ModuleVersionId is not null);
         Guid mvid = mode switch
@@ -121,16 +122,20 @@ public sealed class AuthoredBuildContextTests
     }
 
     [Fact]
-    public void ReplacingAuthoredAttempt_DoesNotReuseItsContextOrVerdict()
+    public async Task ReplacingAuthoredAttempt_DoesNotReuseItsContextOrVerdict()
     {
-        var decompiler = Decompile();
-        var debug = AuthoredRebuildFidelity.CompileAuthoredBody(
+        string assemblyPath = FixtureCatalog.DecompilerAuthoredRebuild.AssemblyPath();
+        using ReturnToSender.CompilationClosure closure =
+            ReturnToSender.CreateCompilationClosure(assemblyPath);
+        var decompiler = (await ReturnToSender.CompileBackPropertyGetters(
+            assemblyPath, maxTargets: 1, closure)).Single();
+        var debug = await AuthoredRebuildFidelity.CompileAuthoredBody(
             decompiler, AuthoredBody(), SourceChecksumVerification.Exact, Context(new CompilationOptionInfo("optimization", "debug")));
-        var release = AuthoredRebuildFidelity.CompileAuthoredBody(
+        var release = await AuthoredRebuildFidelity.CompileAuthoredBody(
             decompiler, AuthoredBody(), SourceChecksumVerification.Exact, Context(new CompilationOptionInfo("optimization", "release")));
-        var failed = AuthoredRebuildFidelity.CompileAuthoredBody(
+        var failed = await AuthoredRebuildFidelity.CompileAuthoredBody(
             decompiler, "return MissingValue;", null, Context());
-        var different = AuthoredRebuildFidelity.CompileAuthoredBody(
+        var different = await AuthoredRebuildFidelity.CompileAuthoredBody(
             decompiler, "return 43;", null, Context(new CompilationOptionInfo("optimization", "debug")));
 
         Assert.Same(decompiler, debug.DecompilerLane);
@@ -150,9 +155,9 @@ public sealed class AuthoredBuildContextTests
     }
 
     [Fact]
-    public void FloorReplacement_DropsPreviousCompilationContext()
+    public async Task FloorReplacement_DropsPreviousCompilationContext()
     {
-        var decompiler = Decompile();
+        var decompiler = await Decompile();
         Assert.NotNull(decompiler.CompilationAttempt);
         var target = decompiler.Plan.TargetMethod;
         var floor = new FidelityCheck.CompileBackResult(
@@ -169,10 +174,10 @@ public sealed class AuthoredBuildContextTests
     }
 
     [Fact]
-    public void FailedInspection_RemainsSeparateFromBothComparisons()
+    public async Task FailedInspection_RemainsSeparateFromBothComparisons()
     {
         var context = RecordedBuildContext.Failed(Subject, "PDB options unavailable after decode failure");
-        var result = Rebuild(context);
+        var result = await Rebuild(context);
 
         Assert.NotNull(result.MemberComparison);
         Assert.Equal(AuthoredBuildContextStatus.Failed, result.AuthoredContext.Status);
@@ -184,14 +189,14 @@ public sealed class AuthoredBuildContextTests
     }
 
     [Fact]
-    public void FailedReferences_DoNotDiscardRecordedOptions()
+    public async Task FailedReferences_DoNotDiscardRecordedOptions()
     {
         var context = new RecordedBuildContext(
             true,
             Options(new CompilationOptionInfo("optimization", "debug")),
             new FindingInspection<CompilationReferenceInfo>.Failed(
                 new(Subject, MetadataFindings.CompilationReferenceDescriptor, "Reference metadata could not be decoded.")));
-        var result = Rebuild(context);
+        var result = await Rebuild(context);
 
         Assert.Equal(AuthoredRebuildOutcome.Exact, result.Outcome);
         Assert.Equal(AuthoredBuildContextStatus.Failed, result.AuthoredContext.Status);
@@ -202,9 +207,9 @@ public sealed class AuthoredBuildContextTests
     }
 
     [Fact]
-    public void UnsupportedAndMissingOptions_DiscloseActualDefaults()
+    public async Task UnsupportedAndMissingOptions_DiscloseActualDefaults()
     {
-        var result = Rebuild(Context(
+        var result = await Rebuild(Context(
             new("optimization", "unsupported-mode"),
             new("unsafe", "not-a-boolean"),
             new("custom-option", "custom-value")));
@@ -218,9 +223,9 @@ public sealed class AuthoredBuildContextTests
     }
 
     [Fact]
-    public void MissingAuthoredAttempt_DoesNotBorrowDecompilerContext()
+    public async Task MissingAuthoredAttempt_DoesNotBorrowDecompilerContext()
     {
-        var complete = Rebuild(Context());
+        var complete = await Rebuild(Context());
         var unavailable = new AuthoredRebuildFidelityResult(
             complete.DecompilerLane, AuthoredRebuildOutcome.SourceAbsent,
             null, complete.BuildContext, "No source", null);
@@ -232,9 +237,9 @@ public sealed class AuthoredBuildContextTests
     }
 
     [Fact]
-    public void Report_PreservesBothLanesAndIndependentCountsUnderCap()
+    public async Task Report_PreservesBothLanesAndIndependentCountsUnderCap()
     {
-        var result = Rebuild(Context(new("optimization", "debug"), new("custom-option", "\u001bvalue")));
+        var result = await Rebuild(Context(new("optimization", "debug"), new("custom-option", "\u001bvalue")));
         var failedDecompiler = result with
         {
             DecompilerLane = result.DecompilerLane with
@@ -265,8 +270,8 @@ public sealed class AuthoredBuildContextTests
     static BuildContextFact Fact(LaneBuildContext context, string name)
         => Assert.Single(context.Facts, fact => fact.Name == name);
 
-    static ReturnToSender.Result Decompile()
-        => ReturnToSender.CompileBackFirstPropertyGetter(FixtureCatalog.DecompilerAuthoredRebuild.AssemblyPath());
+    static async Task<ReturnToSender.Result> Decompile()
+        => await ReturnToSender.CompileBackFirstPropertyGetter(FixtureCatalog.DecompilerAuthoredRebuild.AssemblyPath());
 
     static string AuthoredBody()
     {
@@ -275,9 +280,16 @@ public sealed class AuthoredBuildContextTests
         return body;
     }
 
-    static AuthoredRebuildFidelityResult Rebuild(RecordedBuildContext context)
-        => AuthoredRebuildFidelity.CompileAuthoredBody(
-            Decompile(), AuthoredBody(), SourceChecksumVerification.Exact, context);
+    static async Task<AuthoredRebuildFidelityResult> Rebuild(RecordedBuildContext context)
+    {
+        string assemblyPath = FixtureCatalog.DecompilerAuthoredRebuild.AssemblyPath();
+        using ReturnToSender.CompilationClosure closure =
+            ReturnToSender.CreateCompilationClosure(assemblyPath);
+        ReturnToSender.Result decompiler = (await ReturnToSender.CompileBackPropertyGetters(
+            assemblyPath, maxTargets: 1, closure)).Single();
+        return await AuthoredRebuildFidelity.CompileAuthoredBody(
+            decompiler, AuthoredBody(), SourceChecksumVerification.Exact, context);
+    }
 
     static RecordedBuildContext Context(params CompilationOptionInfo[] options)
         => new(true, Options(options), MetadataFindings.InspectCompilationReferences([], Subject));

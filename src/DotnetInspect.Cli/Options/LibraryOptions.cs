@@ -1,0 +1,355 @@
+using DotnetInspect.Cli.Output;
+using DotnetInspector.Packages;
+using ILInspector.Metadata;
+
+namespace DotnetInspect.Cli.Options;
+
+/// <summary>
+/// Configuration options for assembly inspection.
+/// </summary>
+public record LibraryOptions : IProjectionOptions
+{
+    /// <summary>
+    /// Assembly name within a package (positional argument).
+    /// Null when inspecting via --package, --platform, or direct file path.
+    /// </summary>
+    public string? AssemblyName { get; init; }
+
+    /// <summary>
+    /// Show PE metadata (Assembly Info section: name, version, TFM, arch, signed, etc.).
+    /// </summary>
+    public bool IncludeMetadata { get; init; }
+
+    /// <summary>
+    /// Include assembly references in output.
+    /// </summary>
+    public bool IncludeReferences { get; init; }
+
+    /// <summary>
+    /// Legacy CLI request for the References tree projection.
+    /// </summary>
+    public bool IncludeDependencies { get; init; }
+
+    /// <summary>
+    /// Internal execution demand for the resolved transitive reference tree.
+    /// </summary>
+    internal bool CollectReferenceTree { get; init; }
+
+    /// <summary>
+    /// Internal execution demand for the identifier audit's resolved transitive scope.
+    /// Kept separate from the References projection so selecting the audit cannot change
+    /// unrelated Signals rows.
+    /// </summary>
+    internal bool CollectIdentifierConfusionReferenceTree { get; init; }
+
+    /// <summary>
+    /// Maximum reference-tree depth, where 1 includes direct references only.
+    /// Null traverses the complete resolvable graph.
+    /// </summary>
+    public int? ReferenceTreeDepth { get; init; }
+
+    /// <summary>
+    /// Path to a NuGet package to extract the assembly from.
+    /// If null, the assembly is loaded from the local filesystem.
+    /// </summary>
+    public string? PackagePath { get; init; }
+
+    /// <summary>
+    /// Include prerelease/preview versions when resolving an unversioned package.
+    /// </summary>
+    public bool IncludePrerelease { get; init; }
+
+    /// <summary>
+    /// Platform assembly name (e.g., System.Text.Json).
+    /// Resolves to installed .NET runtime assembly.
+    /// </summary>
+    public string? PlatformAssembly { get; init; }
+
+    /// <summary>
+    /// Optional platform framework family (runtime, aspnetcore, netstandard).
+    /// </summary>
+    public string? PlatformFramework { get; init; }
+
+    /// <summary>
+    /// Platform shared runtime version. Searches runtime frameworks in priority order when framework is not specified.
+    /// </summary>
+    public string? PlatformVersion { get; init; }
+
+    /// <summary>
+    /// Target framework moniker to select assembly from package.
+    /// Alternative to specifying full assembly path.
+    /// </summary>
+    public string? Tfm { get; init; }
+
+    /// <summary>Optional narrowing of ordinary Integration evidence.</summary>
+    public IntegrationQueryOptions IntegrationQuery { get; init; } = IntegrationQueryOptions.Default;
+
+    /// <summary>
+    /// Optional type glob/name filter for Source Files rows.
+    /// </summary>
+    public string? TypeFilter { get; init; }
+
+    /// <summary>
+    /// MethodDef token + IL offset parameter for coordinate-scoped sections.
+    /// </summary>
+    public string? ILOffsetParameter { get; init; }
+
+    /// <summary>
+    /// Heap coordinate (<c>Heap:Address</c>) for the coordinate-scoped metadata heap section.
+    /// </summary>
+    public string? HeapParameter { get; init; }
+
+    /// <summary>The metadata root selected for every <c>@Metadata</c> operation.</summary>
+    public MetadataRootKind MetadataRoot { get; init; } = MetadataRootKind.Cli;
+
+    /// <summary>
+    /// Path to a text file containing sparse MethodDef token + IL offset coordinates.
+    /// </summary>
+    public string? ILOffsetsPath { get; init; }
+
+    /// <summary>
+    /// Use GitHub /blob/ URLs for browser viewing instead of raw source URLs.
+    /// </summary>
+    public bool BrowsableUrls { get; init; }
+
+    /// <summary>
+    /// Output as JSON instead of MDF.
+    /// </summary>
+    public bool JsonOutput { get; init; }
+
+    /// <summary>
+    /// Explicit markdown output requested.
+    /// </summary>
+    public bool Markdown { get; init; }
+
+    /// <summary>
+    /// Output as plain text instead of Markdown.
+    /// </summary>
+    public bool PlainText { get; init; }
+
+    /// <summary>
+    /// Tabular output (pretty table or TSV).
+    /// </summary>
+    public bool Tabular { get; init; }
+
+    /// <summary>
+    /// Emit tabular output as normalized TSV instead of a pretty table.
+    /// </summary>
+    public bool Tsv { get; init; }
+
+    /// <summary>
+    /// Emit tabular output as JSON Lines, one object per row.
+    /// </summary>
+    public bool Jsonl { get; init; }
+
+    /// <summary>
+    /// Suppress column headers (use with --table or --tsv).
+    /// </summary>
+    public bool NoHeader { get; init; }
+
+    /// <summary>
+    /// True when a tabular output flag was explicitly passed (not just the default format).
+    /// </summary>
+    public bool TabularExplicitlySet { get; init; }
+
+    /// <summary>
+    /// True when the user explicitly chose an output format via CLI flags.
+    /// </summary>
+    public bool FormatExplicitlySet { get; init; }
+
+    /// <summary>
+    /// Resolved output format.
+    /// </summary>
+    public OutputFormat Format { get; init; } = OutputFormat.Markdown;
+
+    /// <summary>
+    /// Show progress messages on stderr.
+    /// </summary>
+    public bool Verbose { get; init; }
+
+    /// <summary>
+    /// Report the work the run actually did — selected sections, the queries they demanded, what
+    /// prerequisite expansion added, execution times, and expensive resource acquisition — on
+    /// stderr. Diagnostic only: stdout is unchanged, so a caller parsing the document is unaffected.
+    /// </summary>
+    public bool Trace { get; init; }
+
+    /// <summary>
+    /// Output verbosity level.
+    /// </summary>
+    public Verbosity Verbosity { get; init; } = Verbosity.Normal;
+
+    /// <summary>
+    /// The user's originally requested verbosity, before any internal force-bumping for
+    /// <c>-S</c>/<c>-D</c>. Capability authorization (network work) keys off this so
+    /// a forced Detailed bump never silently authorizes downloads. Defaults to <see cref="Verbosity"/>.
+    /// </summary>
+    public Verbosity? UserVerbosityOverride { get; init; }
+
+    /// <summary>Effective user verbosity (falls back to <see cref="Verbosity"/> when not set).</summary>
+    public Verbosity UserVerbosity => UserVerbosityOverride ?? Verbosity;
+
+    /// <summary>
+    /// Bare <c>-S</c> mode: render the network-free <b>fixed</b> overview — only sections whose
+    /// declared <see cref="SectionSizeClass.Fixed"/> growth class and <see cref="SectionCost.NetworkFree"/>
+    /// cost make their membership package-independent. Set internally when a valueless <c>-S</c>
+    /// (no value, no explicit selection) is issued at the default verbosity; leaves an explicit
+    /// <c>-v:n</c>/<c>-v:d</c> on the normal curated ladder.
+    /// </summary>
+    public bool FixedOverview { get; init; }
+
+    /// <summary>
+    /// Sections to include by heading name. If null, all sections are included.
+    /// </summary>
+    public HashSet<string>? IncludeSections { get; init; }
+
+    /// <summary>
+    /// The user's resolved section selection before internal discovery scope is synthesized.
+    /// Capability authorization keys off this value so an internal base-category expansion cannot
+    /// authorize PDB or source network work. Null falls back to <see cref="IncludeSections"/> for
+    /// callers that do not perform internal scope expansion.
+    /// </summary>
+    public HashSet<string>? UserIncludeSectionsOverride { get; init; }
+
+    /// <summary>The section selection that came from the user's gesture.</summary>
+    public HashSet<string>? UserIncludeSections
+        => UserIncludeSectionsOverride ?? IncludeSections;
+
+    /// <summary>
+    /// Whether the caller actually passed <c>-S/--select</c>, before command sugar can add
+    /// internally selected sections.
+    /// </summary>
+    public bool SelectExplicitlySet { get; init; }
+
+    /// <summary>
+    /// Canonical sections reached through an exact selector or compatible legacy alias. An empty
+    /// set records that selection came only through categories, globs, or a preset. Null preserves
+    /// exact-selection behavior for typed callers that supply <see cref="IncludeSections"/> directly.
+    /// </summary>
+    public HashSet<string>? ExactIncludeSectionsOverride { get; init; }
+
+    /// <summary>The selected sections that retain exact-selector provenance.</summary>
+    public HashSet<string>? ExactIncludeSections
+        => ExactIncludeSectionsOverride ?? IncludeSections;
+
+    /// <summary>
+    /// Discovery flag values. Null means not specified, empty array means bare -D, populated means section name.
+    /// </summary>
+    public string[]? Discover { get; init; }
+
+    /// <summary>
+    /// Run the producers needed to establish actual section effectiveness during discovery.
+    /// </summary>
+    public bool Effective { get; init; }
+
+    public bool Tree { get; init; }
+
+    /// <summary>
+    /// Names to select (sections). Null means all.
+    /// </summary>
+    public string[]? Select { get; init; }
+
+    /// <summary>
+    /// Bare <c>-S</c>: a request for this command's default preset rather than for any named
+    /// section or category. Tracked separately from <see cref="Select"/> so the marker is never
+    /// spellable as a selector value. See #3547.
+    /// </summary>
+    public bool SelectDefault { get; init; }
+
+    /// <summary>
+    /// Column names to include. Null means all.
+    /// </summary>
+    public string[]? Columns { get; init; }
+
+    /// <summary>
+    /// Field names to include. Null means all.
+    /// </summary>
+    public string[]? Fields { get; init; }
+
+    /// <summary>
+    /// Show static discovery schema instead of target-effective discovery.
+    /// </summary>
+    public bool Schema { get; init; }
+
+    /// <summary>
+    /// Output the number of rendered table rows for a single selected section.
+    /// </summary>
+    public bool Count { get; init; }
+
+    /// <summary>
+    /// Path to write a projected payload to instead of stdout.
+    /// </summary>
+    public string? OutputPath { get; init; }
+
+    public bool Print { get; init; }
+
+    public bool Value { get; init; }
+
+    public bool Urls { get; init; }
+
+    public bool Paths { get; init; }
+
+    public bool JsonArray { get; init; }
+
+    public RowSelector? PrintRow { get; init; }
+
+    public RowSelector? ProjectionRow { get; init; }
+
+    /// <summary>
+    /// Limit data rows per rendered table.
+    /// </summary>
+    public RowWindow? Rows { get; init; }
+
+    /// <summary>
+    /// Row predicates for the Performance Triage section.
+    /// </summary>
+    public PerformanceTriageOptions PerformanceTriage { get; init; } = PerformanceTriageOptions.Default;
+
+    /// <summary>
+    /// Exact rendered-syntax predicate for the Body Shapes section.
+    /// </summary>
+    public BodyKindQueryOptions BodyKindQuery { get; init; } = BodyKindQueryOptions.Default;
+
+    /// <summary>
+    /// Candidate-population controls for the Clone Candidates section.
+    /// </summary>
+    public CloneCandidateQueryOptions CloneCandidateQuery { get; init; } =
+        CloneCandidateQueryOptions.Default;
+
+    /// <summary>
+    /// NuGet source configuration options.
+    /// </summary>
+    public NuGetSourceOptions? SourceOptions { get; init; }
+
+    /// <summary>
+    /// Extract embedded resources to a directory.
+    /// </summary>
+    public string? ExtractResources { get; init; }
+
+    /// <summary>
+    /// Default options: basic assembly info only.
+    /// </summary>
+    public static LibraryOptions Default => new();
+
+    /// <summary>
+    /// All inspection features enabled.
+    /// </summary>
+    public static LibraryOptions All => new()
+    {
+    };
+
+    /// <summary>
+    /// True when no explicit output format was selected (default → table).
+    /// </summary>
+    public bool IsDefaultInvocation => Tabular && !JsonOutput;
+
+    /// <summary>
+    /// True when the user has opted into rich markdown output (via --markdown or -v:*).
+    /// </summary>
+    public bool VerbosityEnabled => !Tabular && !JsonOutput;
+
+    /// <summary>
+    /// True when output is raw text (not rendered markdown).
+    /// </summary>
+    public bool IsRawOutput => JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ExtractResources != null || Count || Value || Urls || Paths;
+}

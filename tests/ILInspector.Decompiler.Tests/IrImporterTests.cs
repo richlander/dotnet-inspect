@@ -4701,16 +4701,18 @@ public class RaisingPassTests
     [Fact]
     public void ReturnDispatch_TypeDispatchGuardReturns_Structures()
     {
-        // CSharpPrinter.IsUnsafeOperation is a real #921 nonnested-forward-guards
-        // representative: csc lowers a type-test dispatch to guard branches whose
-        // arms either return directly or feed a tiny stack-slot return diamond.
-        // Folding the inner return diamonds and isolated return tail exposes
-        // return leaves that the structurer can inline, eliminating the goto soup.
-        using var source = MetadataSource.Open(typeof(CSharpPrinter).Assembly.Location);
+        // OperationMemorySafetyContract.RequiresUnsafeOperation is a real #921
+        // nonnested-forward-guards representative: csc lowers a type-test dispatch
+        // to guard branches whose arms either return directly or feed a tiny
+        // stack-slot return diamond. Folding the inner return diamonds and isolated
+        // return tail exposes return leaves that the structurer can inline,
+        // eliminating the goto soup.
+        using var source = MetadataSource.Open(
+            typeof(OperationMemorySafetyContract).Assembly.Location);
         var function = IrImporter.Import(
             source,
-            "ILInspector.Decompiler.Pipeline.CSharpPrinter",
-            "IsUnsafeOperation");
+            "ILInspector.Decompiler.Pipeline.OperationMemorySafetyContract",
+            "RequiresUnsafeOperation");
         Assert.NotNull(function);
 
         IrPasses.Run(function);
@@ -4718,9 +4720,9 @@ public class RaisingPassTests
 
         Assert.DoesNotContain("goto", output);
         Assert.DoesNotContain(function.Descendants.OfType<ConditionalBranch>(), _ => true);
-        Assert.Contains("if (node is Call c)", output);
+        Assert.Contains("if (node is Call call)", output);
         Assert.Contains(
-            "return MethodRequiresUnsafe(c.Callee) || CallRendersPointerDereference(c);",
+            "return CallRendersPointerDereference(call);",
             output);
     }
 

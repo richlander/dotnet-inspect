@@ -2,7 +2,9 @@
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-scratch=$(mktemp -d)
+scratch="$repo_root/artifacts/ts-jsexport-typescript-test"
+rm -rf "$scratch"
+mkdir -p "$scratch"
 trap 'rm -rf "$scratch"' EXIT
 
 dotnet_root=${DOTNET_ROOT:-$(dirname "$(command -v dotnet)")}
@@ -24,9 +26,9 @@ if [[ -z "$dotnet_dts" ]]; then
   exit 1
 fi
 
-tsc=${TSC:-"$repo_root/prototypes/inspect-web/node_modules/.bin/tsc"}
+tsc=${TSC:-"$repo_root/inspect-web/node_modules/.bin/tsc"}
 if [[ ! -x "$tsc" ]]; then
-  echo "TypeScript compiler not found at $tsc; run npm ci in prototypes/inspect-web." >&2
+  echo "TypeScript compiler not found at $tsc; run npm ci in inspect-web." >&2
   exit 1
 fi
 
@@ -65,9 +67,17 @@ import {
   getCollectionSelection,
   getDefaultSelection,
   getFlagSelection,
+  getGenericRecordIntAsync,
+  getGenericRecordWidgetAsync,
+  getGenericNestedEnvelope,
+  getGenericNestedChoice,
   getKindSelection,
+  getMixedNullableValueEnvelope,
+  getNullableGenericNested,
+  getNullableWrappedGenericNestedEnvelope,
   getOutcomeSelection,
   getSelectionEnvelopeAsync,
+  getWrappedGenericNestedEnvelope,
   getWidgetSelection,
   getWrappedBlob,
 } from "./facade.js";
@@ -75,9 +85,16 @@ import type {
   Boxed,
   CollectionSelection,
   FlagSelection,
+  GenericRecord,
+  GenericNested,
+  GenericNestedEnvelope,
+  GenericNestedChoice,
   KindSelection,
+  MixedNullableValueEnvelope,
+  NullableWrappedGenericNestedEnvelope,
   OutcomeSelection,
   SelectionEnvelope,
+  WrappedGenericNestedEnvelope,
   WidgetDto,
   WidgetKind,
   WidgetSelection,
@@ -96,6 +113,10 @@ type GroupEntries = Extract<SelectionEnvelope["group"], ReadonlyArray<unknown>>;
 export const missingSelectionEntry: SelectionEntries[number] = null;
 export const missingMapEntry: SelectionMap[string] = null;
 export const missingGroupEntry: GroupEntries[number] = null;
+export const missingGenericNestedValue:
+  GenericNested<string | null>["value"] = null;
+export const missingGenericNestedChoiceValue:
+  Extract<GenericNestedChoice, { readonly value: unknown }>["value"] = null;
 
 function isEntryArray(
   selection: CollectionSelection,
@@ -239,6 +260,59 @@ export async function summarizeEnvelope(): Promise<string> {
     describeBoxed(envelope.count, envelope.widget),
     describeBlob(envelope.blob),
     describeGroup(envelope.group),
+  ].join("|");
+}
+
+export async function summarizeGenericRecords(): Promise<string> {
+  const numbers: GenericRecord<number> = await getGenericRecordIntAsync();
+  const widgets: GenericRecord<WidgetDto | null> =
+    await getGenericRecordWidgetAsync("sample");
+  const nullable: GenericNested<string | null> =
+    getNullableGenericNested();
+  const envelope: GenericNestedEnvelope = getGenericNestedEnvelope();
+  const wrappedEnvelope: WrappedGenericNestedEnvelope =
+    getWrappedGenericNestedEnvelope();
+  const nullableWrappedEnvelope: NullableWrappedGenericNestedEnvelope =
+    getNullableWrappedGenericNestedEnvelope();
+  const mixedNullableValueEnvelope: MixedNullableValueEnvelope =
+    getMixedNullableValueEnvelope();
+  const nestedChoice: GenericNestedChoice = getGenericNestedChoice();
+  return [
+    numbers.content,
+    numbers.nested.value,
+    numbers.items.map(item => item.value).join(","),
+    numbers.lookup["missing"],
+    numbers.choice,
+    widgets.content?.name ?? "null",
+    widgets.nested.value?.count ?? "null",
+    widgets.items[0]?.value?.count ?? "null",
+    widgets.lookup["missing"]?.name ?? "null",
+    typeof widgets.choice === "object" && widgets.choice !== null
+      ? widgets.choice.count
+      : "unexpected",
+    nullable.value ?? "null",
+    envelope.item.value ?? "null",
+    wrappedEnvelope.item === null
+      || typeof wrappedEnvelope.item === "number"
+      ? wrappedEnvelope.item
+      : wrappedEnvelope.item.value ?? "null",
+    wrappedEnvelope.items === null
+      || typeof wrappedEnvelope.items === "number"
+      ? wrappedEnvelope.items
+      : wrappedEnvelope.items[0]?.value ?? "null",
+    wrappedEnvelope.lookup === null
+      || typeof wrappedEnvelope.lookup === "number"
+      ? wrappedEnvelope.lookup
+      : wrappedEnvelope.lookup["missing"]?.value ?? "null",
+    nullableWrappedEnvelope.item === null
+      || typeof nullableWrappedEnvelope.item === "number"
+      ? nullableWrappedEnvelope.item
+      : nullableWrappedEnvelope.item.value ?? "null",
+    mixedNullableValueEnvelope.item.first ?? "null",
+    mixedNullableValueEnvelope.item.second ?? "null",
+    nestedChoice === null || typeof nestedChoice === "number"
+      ? nestedChoice
+      : nestedChoice.value ?? "null",
   ].join("|");
 }
 TS
@@ -430,6 +504,21 @@ expect_union_facade_compile_failure \
   'Boxed<string>' \
   '^export function getBoxedCount'
 expect_union_facade_compile_failure \
+  generic-record-closed-argument \
+  'GenericRecord<number>' \
+  'GenericRecord<string>' \
+  '^export async function getGenericRecordIntAsync'
+expect_union_facade_compile_failure \
+  generic-record-direct-reference-null \
+  'GenericNested<string \| null>' \
+  'GenericNested<string>' \
+  '^export function getNullableGenericNested'
+expect_union_facade_compile_failure \
+  generic-record-union-reference-null \
+  'GenericNested<string \| null>' \
+  'GenericNested<string>' \
+  '^export type GenericNestedChoice'
+expect_union_facade_compile_failure \
   union-closed-byte-array-argument \
   'Wrapped<string>' \
   'Wrapped<number>' \
@@ -471,5 +560,10 @@ expect_union_usage_compile_failure \
   union-closed-generic-mismatch \
   'describeBoxed\(getBoxedCount\(11\), getBoxedWidget\("boxed"\)\)' \
   'describeBoxed(getBoxedWidget("boxed"), getBoxedCount(11))'
+
+expect_union_usage_compile_failure \
+  generic-record-closed-mismatch \
+  'numbers: GenericRecord<number>' \
+  'numbers: GenericRecord<WidgetDto>'
 
 echo "ts-jsexport TypeScript compiler gates passed."

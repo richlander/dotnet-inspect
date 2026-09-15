@@ -5,6 +5,42 @@ namespace CiChangeDetection;
 
 internal static partial class WorkflowContract
 {
+    private static readonly HashSet<string> CommonTestSteps =
+    [
+        "actions/checkout@v7",
+        "Setup .NET",
+        "Cache NuGet packages",
+        "Build",
+    ];
+
+    private static readonly Dictionary<string, (string Condition, string Shard)>
+        SpecialTestStepConditions = new(StringComparer.Ordinal)
+        {
+            ["Upload PR decompiler corpus artifact"] = (
+                "matrix.shard == 'host-policy' && always()",
+                "host-policy"),
+            ["Check PR decompiler corpus result"] = (
+                "matrix.shard == 'host-policy' && " +
+                "steps.decompiler_pr_corpus.outcome == 'failure'",
+                "host-policy"),
+            ["Restore vendored ILAssembler"] = (
+                "matrix.shard == 'analysis' && matrix.rid == 'linux-x64' && " +
+                "fromJSON(needs.changes.outputs.plan).validations.ilRoundTrip",
+                "analysis"),
+            ["Run IL round-trip tests (fast)"] = (
+                "matrix.shard == 'analysis' && matrix.rid == 'linux-x64' && " +
+                "fromJSON(needs.changes.outputs.plan).validations.ilRoundTrip",
+                "analysis"),
+            ["Check contract test ilasm/ildasm/mdv result"] = (
+                "matrix.shard == 'contracts' && " +
+                "steps.iltools_contracts.outcome == 'failure'",
+                "contracts"),
+            ["Check GitHub Packages fixture result"] = (
+                "matrix.shard == 'host-policy' && " +
+                "steps.package_fixture.outcome == 'failure'",
+                "host-policy"),
+        };
+
     private static void ValidateConsumerStepContracts(YamlMappingNode jobs)
     {
         string[] jobNames =
@@ -39,7 +75,47 @@ internal static partial class WorkflowContract
         ValidateConsumerStepGuards(jobs, jobNames);
         ValidateRepositoryGuardsJob(jobs);
         ValidateDependencyPolicyJob(jobs);
-        ValidateIlDiffTestStep(jobs);
+        ValidateRequiredRunStep(
+            jobs,
+            "test",
+            "Run IL diff tests",
+            "dotnet run --project tests/ILInspector.ILDiff.Tests -c Release");
+        ValidateRequiredRunStep(
+            jobs,
+            "test",
+            "Run NetworkAccess tests",
+            "dotnet run --project tests/NetworkAccess.Tests -c Release");
+        ValidateRequiredRunStep(
+            jobs,
+            "test",
+            "Run UntrustedDocuments tests",
+            "dotnet run --project tests/UntrustedDocuments.Tests -c Release");
+        ValidateRequiredRunStep(
+            jobs,
+            "test",
+            "Run DotnetInspector.Networking tests",
+            "dotnet run --project tests/DotnetInspector.Networking.Tests -c Release");
+        ValidateRequiredRunStep(
+            jobs,
+            "decompiler-gates",
+            "Run decompiler unit tests (fast)",
+            "dotnet run --project tests/ILInspector.Decompiler.Tests -c Release " +
+                "--no-build -- --gate fast");
+        ValidateRequiredRunStep(
+            jobs,
+            "decompiler-gates",
+            "Run DecompilerHarness tests",
+            "dotnet run --project tests/DecompilerHarness.Tests -c Release --no-build");
+        ValidateRequiredRunStep(
+            jobs,
+            "test",
+            "Run DotnetInspector.Cache tests",
+            "dotnet run --project tests/DotnetInspector.Cache.Tests -c Release");
+        ValidateRequiredRunStep(
+            jobs,
+            "test",
+            "Run DotnetInspector.Packages tests",
+            "dotnet run --project tests/DotnetInspector.Packages.Tests -c Release");
     }
 
     private static void ValidateRepositoryGuardsJob(YamlMappingNode jobs)
@@ -77,10 +153,10 @@ internal static partial class WorkflowContract
             job,
             "steps",
             "jobs.repository-guards");
-        if (steps.Children.Count != 5)
+        if (steps.Children.Count != 4)
         {
             throw new InvalidOperationException(
-                "jobs.repository-guards must contain exactly five steps.");
+                "jobs.repository-guards must contain exactly four steps.");
         }
 
         YamlMappingNode checkout = RequireMapping(
@@ -160,13 +236,6 @@ internal static partial class WorkflowContract
 
         RequireNamedRunStep(
             steps.Children[3],
-            "Run repository line-ending guard",
-            "dotnet run --project tests/dotnet-inspect.Tests -c Release -- " +
-                "--filter-class \"DotnetInspector.Tests.RepositoryLineEndingTests\" " +
-                "--minimum-expected-tests 2\n",
-            "jobs.repository-guards line-ending step");
-        RequireNamedRunStep(
-            steps.Children[4],
             "Run legacy source-identity guard",
             "dotnet run --project tests/NuGetFetch.Tests -c Release -- " +
                 "--filter-method \"*LegacyPackageSourceIdentitySurfaceMatchesMigrationSet\" " +
@@ -256,41 +325,45 @@ internal static partial class WorkflowContract
             "jobs.dependency-policy Validate dependency policy step");
     }
 
-    private static void ValidateIlDiffTestStep(YamlMappingNode jobs)
+    private static void ValidateRequiredRunStep(
+        YamlMappingNode jobs,
+        string jobName,
+        string stepName,
+        string command)
     {
-        YamlSequenceNode testSteps = GetRequiredSequence(
-            GetRequiredMapping(jobs, "test", "jobs"),
+        YamlSequenceNode steps = GetRequiredSequence(
+            GetRequiredMapping(jobs, jobName, "jobs"),
             "steps",
-            "jobs.test");
-        YamlMappingNode? ilDiffTestStep = null;
-        foreach (YamlNode stepNode in testSteps.Children)
+            $"jobs.{jobName}");
+        YamlMappingNode? requiredStep = null;
+        foreach (YamlNode stepNode in steps.Children)
         {
             YamlMappingNode step = RequireMapping(
                 stepNode,
-                "jobs.test step");
-            if (GetOptionalScalar(step, "name") != "Run IL diff tests")
+                $"jobs.{jobName} step");
+            if (GetOptionalScalar(step, "name") != stepName)
             {
                 continue;
             }
 
-            if (ilDiffTestStep is not null)
+            if (requiredStep is not null)
             {
                 throw new InvalidOperationException(
-                    "jobs.test contains duplicate step: Run IL diff tests.");
+                    $"jobs.{jobName} contains duplicate step: {stepName}.");
             }
-            ilDiffTestStep = step;
+            requiredStep = step;
         }
 
-        if (ilDiffTestStep is null)
+        if (requiredStep is null)
         {
             throw new InvalidOperationException(
-                "jobs.test is missing step: Run IL diff tests.");
+                $"jobs.{jobName} is missing step: {stepName}.");
         }
         RequireScalarValue(
-            ilDiffTestStep,
+            requiredStep,
             "run",
-            "dotnet run --project tests/ILInspector.ILDiff.Tests -c Release",
-            "jobs.test Run IL diff tests");
+            command,
+            $"jobs.{jobName} {stepName}");
     }
 
     private static void ValidateConsumerStepGuards(
@@ -300,29 +373,19 @@ internal static partial class WorkflowContract
         var allowedIf = new Dictionary<string, string>(
             StringComparer.Ordinal)
         {
-            ["test/Upload PR decompiler corpus artifact"] = "always()",
-            ["test/Check PR decompiler corpus result"] =
-                "steps.decompiler_pr_corpus.outcome == 'failure'",
-            ["test/Check ilasm/ildasm/mdv result"] =
-                "steps.iltools.outcome == 'failure'",
-            ["test/Check GitHub Packages fixture result"] =
-                "steps.package_fixture.outcome == 'failure'",
             ["decompiler-gates/Upload gate report"] = "always()",
+            ["decompiler-gates/Check decompiler test ilasm/ildasm result"] =
+                "always() && steps.iltools_decompiler.outcome == 'failure'",
             ["csharp-diff-smoke/Upload C# Diff smoke artifact"] = "always()",
             ["il-diff-smoke/Upload IL Diff smoke artifact"] = "always()",
-        };
-        var plannerSelectedIf = new HashSet<string>(StringComparer.Ordinal)
-        {
-            "test/Restore vendored ILAssembler",
-            "test/Run IL round-trip tests (fast)",
-            "test/Run decompiler unit tests (fast)",
         };
         var allowedContinueOnError = new HashSet<string>(
             StringComparer.Ordinal)
         {
             "test/Run GitHub Packages fixture test",
             "test/Run PR decompiler corpus sensor",
-            "test/Install ilasm/ildasm/mdv",
+            "test/Install ilasm/ildasm/mdv for contract tests",
+            "decompiler-gates/Install ilasm/ildasm for decompiler tests",
             "decompiler-gates/Run decompiler gates",
         };
         var allowedShell = new Dictionary<string, string>(
@@ -330,7 +393,9 @@ internal static partial class WorkflowContract
         {
             ["test/Run GitHub Packages fixture test"] = "bash",
             ["test/Run PR decompiler corpus sensor"] = "bash",
-            ["test/Install ilasm/ildasm/mdv"] = "bash",
+            ["test/Install ilasm/ildasm/mdv for contract tests"] = "bash",
+            ["decompiler-gates/Install ilasm/ildasm for decompiler tests"] =
+                "bash",
             ["csharp-diff-smoke/Run C# Diff baseline smoke"] = "bash",
             ["il-diff-smoke/Run IL Diff baseline smoke"] = "bash",
             ["skill-gate/Run embedded skill tests"] = "bash",
@@ -342,13 +407,16 @@ internal static partial class WorkflowContract
                 "package_fixture",
             ["test/Run PR decompiler corpus sensor"] =
                 "decompiler_pr_corpus",
-            ["test/Install ilasm/ildasm/mdv"] = "iltools",
+            ["test/Install ilasm/ildasm/mdv for contract tests"] =
+                "iltools_contracts",
+            ["decompiler-gates/Install ilasm/ildasm for decompiler tests"] =
+                "iltools_decompiler",
             ["decompiler-gates/Run decompiler gates"] = "gates",
         };
         var allowedTimeoutMinutes = new Dictionary<string, string>(
             StringComparer.Ordinal)
         {
-            ["decompiler-gates/Run decompiler gates"] = "45",
+            ["decompiler-gates/Run decompiler gates"] = "5",
         };
         var seenIf = new HashSet<string>(StringComparer.Ordinal);
         var seenContinueOnError =
@@ -357,6 +425,7 @@ internal static partial class WorkflowContract
         var seenId = new HashSet<string>(StringComparer.Ordinal);
         var seenTimeoutMinutes =
             new HashSet<string>(StringComparer.Ordinal);
+        var seenTestShards = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (string jobName in jobNames)
         {
@@ -379,7 +448,15 @@ internal static partial class WorkflowContract
                 }
 
                 string key = $"{jobName}/{identity}";
-                if (!plannerSelectedIf.Contains(key))
+                if (jobName == "test")
+                {
+                    ValidateTestStepGuard(
+                        step,
+                        identity,
+                        key,
+                        seenTestShards);
+                }
+                else
                 {
                     ValidateOptionalStepValue(
                         step,
@@ -443,6 +520,52 @@ internal static partial class WorkflowContract
             seenTimeoutMinutes,
             allowedTimeoutMinutes.Keys,
             "consumer step timeout minutes");
+        RequireSeenExactly(
+            seenTestShards,
+            TestShards,
+            "test shard step guards");
+    }
+
+    private static void ValidateTestStepGuard(
+        YamlMappingNode step,
+        string identity,
+        string key,
+        ISet<string> seenShards)
+    {
+        if (CommonTestSteps.Contains(identity))
+        {
+            RequireAbsent(step, "if", key);
+            return;
+        }
+
+        string condition = GetOptionalScalar(step, "if")
+            ?? throw new InvalidOperationException(
+                $"{key} must select one test shard.");
+        if (SpecialTestStepConditions.TryGetValue(
+                identity,
+                out (string Condition, string Shard) special))
+        {
+            if (condition != special.Condition)
+            {
+                throw new InvalidOperationException(
+                    $"{key}.if is not the approved shard condition.");
+            }
+
+            seenShards.Add(special.Shard);
+            return;
+        }
+
+        foreach (string shard in TestShards)
+        {
+            if (condition == $"matrix.shard == '{shard}'")
+            {
+                seenShards.Add(shard);
+                return;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"{key}.if must select exactly one approved test shard.");
     }
 
     private static void ValidateOptionalStepValue(

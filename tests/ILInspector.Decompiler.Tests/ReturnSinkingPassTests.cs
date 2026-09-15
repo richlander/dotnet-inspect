@@ -134,6 +134,53 @@ public class ReturnSinkingPassTests
     static int StoreCount(IrFunction function, int index) =>
         function.Descendants.OfType<StoreLocal>().Count(s => s.Index == index);
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void NestedLocalOwnershipSeparatesIndependentPoolsAndOuterCaptures(
+        bool localFunction, bool isolated)
+    {
+        var nestedBlock = new Block(0);
+        if (isolated)
+        {
+            nestedBlock.Add(new StoreLocal(0, Int32, new Constant(2, Int32)));
+            nestedBlock.Add(Use(new LoadLocal(0, Int32)));
+        }
+        nestedBlock.Add(new Return(new LoadLocal(0, Int32)));
+        var nestedBody = Container(nestedBlock);
+        ImmutableArray<TypeRef> nestedLocals = isolated ? [Int32] : [];
+        IrNode nested = localFunction
+            ? new LocalFunctionStatement("Inner", Int32, [], isStatic: isolated,
+                nestedLocals, [], usesUpdatedMemorySafetyRules: false,
+                skipLocalsInit: false, nestedBody)
+            : Use(new Lambda(TypeRef.GenericInstance(TypeRef.CoreLib("System", "Func`1"), [Int32]),
+                [], nestedLocals, [], usesUpdatedMemorySafetyRules: false,
+                skipLocalsInit: false, nestedBody));
+        var outerStore = new StoreLocal(0, Int32, new Constant(1, Int32));
+        var outerReturn = new Return(new LoadLocal(0, Int32));
+        var entry = Block(nested, outerStore, outerReturn);
+        var function = Function(Container(entry), Int32);
+        var nestedNodes = nestedBody.Descendants.ToArray();
+
+        new ReturnSinkingPass().Run(function, PassContext.None);
+
+        Assert.Equal(nestedNodes, nestedBody.Descendants.ToArray());
+        if (isolated)
+        {
+            Assert.DoesNotContain(outerStore, entry.Children);
+            Assert.Equal(1, Assert.IsType<Constant>(
+                Assert.Single(entry.Children.OfType<Return>()).Value).Value);
+        }
+        else
+        {
+            Assert.Contains(outerStore, entry.Children);
+            Assert.Contains(outerReturn, entry.Children);
+        }
+        function.CheckInvariant();
+    }
+
     // Positive control: a pure return accumulator spilled across a try/finally is
     // sunk — the store becomes the try body's return and the trailing temp load
     // disappears. This is the shape every negative below perturbs by one feature.

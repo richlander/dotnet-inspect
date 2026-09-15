@@ -195,6 +195,29 @@ public sealed class PackageSourceResultIdentityTests
     }
 
     [Fact]
+    public void PortableProducerKeyPinsCanonicalCredentialFreeIdentity()
+    {
+        PackageProducerIdentity producer = Producer(
+            "https://feed.example/F/auth/secret/api");
+
+        Assert.Equal(
+            "nfp-1.4f019fd6fa07095b2a70586f55bf56d810e4029648c568069a8ad3c426840630",
+            producer.PortableKey);
+        Assert.True(
+            PackageProducerIdentity.IsCanonicalPortableKey(
+                producer.PortableKey));
+        Assert.False(
+            PackageProducerIdentity.IsCanonicalPortableKey(
+                producer.Key));
+        Assert.False(
+            PackageProducerIdentity.IsCanonicalPortableKey(
+                producer.PortableKey.ToUpperInvariant()));
+        Assert.False(
+            PackageProducerIdentity.IsCanonicalPortableKey(
+                producer.PortableKey[..^1]));
+    }
+
+    [Fact]
     public void ProducerIdentityRedactsPathBeforeKeyAndDisplay()
     {
         const string firstSecret = "alpha-secret";
@@ -400,6 +423,12 @@ public sealed class PackageSourceResultIdentityTests
         Assert.Equal(
             PackageProducerIdentity.NuGetOrg,
             gallery.Source.Producer);
+        Assert.Equal(
+            gallery.Source.Producer.PortableKey,
+            v3.Source.Producer.PortableKey);
+        Assert.True(
+            PackageProducerIdentity.IsCanonicalPortableKey(
+                gallery.Source.Producer.PortableKey));
         Assert.NotSame(
             gallery.Source.Association,
             v3.Source.Association);
@@ -1218,6 +1247,9 @@ public sealed class PackageSourceResultIdentityTests
         PackageProducerIdentity secondProducer = Producer(second);
         Assert.Equal(firstProducer, secondProducer);
         Assert.Equal(firstProducer.Key, secondProducer.Key);
+        Assert.Equal(
+            firstProducer.PortableKey,
+            secondProducer.PortableKey);
         Assert.Equal(firstProducer.Display, secondProducer.Display);
     }
 
@@ -1229,6 +1261,9 @@ public sealed class PackageSourceResultIdentityTests
         PackageProducerIdentity secondProducer = Producer(second);
         Assert.NotEqual(firstProducer, secondProducer);
         Assert.NotEqual(firstProducer.Key, secondProducer.Key);
+        Assert.NotEqual(
+            firstProducer.PortableKey,
+            secondProducer.PortableKey);
         Assert.NotEqual(firstProducer.Display, secondProducer.Display);
     }
 

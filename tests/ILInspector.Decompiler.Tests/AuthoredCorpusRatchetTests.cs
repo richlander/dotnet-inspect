@@ -18,6 +18,7 @@ namespace ILInspector.Decompiler.Tests;
 /// row halving the quality landed green. <see cref="Ratchet_CatchesTheRegressionTheCardTestsMissed"/>
 /// is that exact row, and it must fail here.
 /// </summary>
+[Trait("Speed", "Slow")]
 [Trait("Area", "Corpus")]
 public class AuthoredCorpusRatchetTests
 {
@@ -831,7 +832,7 @@ public class AuthoredCorpusRatchetTests
     /// two orders must not report the same pool.</para>
     /// </summary>
     [Fact]
-    public void Benchmark_IdentifiesThePoolItMeasured_NotThePoolItWasHanded()
+    public async Task Benchmark_IdentifiesThePoolItMeasured_NotThePoolItWasHanded()
     {
         using var pool = new TempPool();
         string original = typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location;
@@ -842,8 +843,8 @@ public class AuthoredCorpusRatchetTests
         string corpus = pool.Write("corpus", "corpus.jsonl", Encoding.UTF8.GetBytes(
             AuthoredCorpusTestData.CorrelatedRow(original)));
 
-        string firstOrder = PoolIdentityOf([first, second], corpus);
-        string secondOrder = PoolIdentityOf([second, first], corpus);
+        string firstOrder = await PoolIdentityOf([first, second], corpus);
+        string secondOrder = await PoolIdentityOf([second, first], corpus);
 
         Assert.Equal(AuthoredCorpusRatchet.PoolDigest([first]), firstOrder);
         Assert.Equal(AuthoredCorpusRatchet.PoolDigest([second]), secondOrder);
@@ -862,7 +863,7 @@ public class AuthoredCorpusRatchetTests
     /// passed.</para>
     /// </summary>
     [Fact]
-    public void Benchmark_CountsAnErasedCorpusRowAsMalformed()
+    public async Task Benchmark_CountsAnErasedCorpusRowAsMalformed()
     {
         using var pool = new TempPool();
         string original = typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location;
@@ -873,8 +874,8 @@ public class AuthoredCorpusRatchetTests
         string intact = pool.Write("intact", "corpus.jsonl", Encoding.UTF8.GetBytes(correlatedRows));
         string erased = pool.Write("erased", "corpus.jsonl", Encoding.UTF8.GetBytes($"{row}\n   \n"));
 
-        using var sound = JsonDocument.Parse(RunForJson([assembly], intact));
-        using var shortened = JsonDocument.Parse(RunForJson([assembly], erased));
+        using var sound = JsonDocument.Parse(await RunForJson([assembly], intact));
+        using var shortened = JsonDocument.Parse(await RunForJson([assembly], erased));
 
         Assert.Equal(0, sound.RootElement.GetProperty("malformedRows").GetInt32());
         Assert.True(sound.RootElement.GetProperty("inputsComplete").GetBoolean());
@@ -910,7 +911,7 @@ public class AuthoredCorpusRatchetTests
     /// never declines to judge whether the measurement happened.
     /// </summary>
     [Fact]
-    public void Benchmark_FailsIntegrityOnAnErasedCorpusRow()
+    public async Task Benchmark_FailsIntegrityOnAnErasedCorpusRow()
     {
         using var pool = new TempPool();
         string original = typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location;
@@ -919,16 +920,16 @@ public class AuthoredCorpusRatchetTests
         string row = AuthoredCorpusTestData.CorrelatedRow(original);
         string erased = pool.Write("erased", "corpus.jsonl", Encoding.UTF8.GetBytes($"{row}\n\n"));
 
-        int exit = AuthoredCorpusBenchmark.Run(
+        int exit = await AuthoredCorpusBenchmark.Run(
             [assembly], erased, json: false, integrityOnly: true, output: new StringWriter());
 
         Assert.Equal(1, exit);
     }
 
     /// <summary>Runs the benchmark for its JSON and reports the pool it identified.</summary>
-    static string PoolIdentityOf(string[] assemblies, string corpusPath)
+    static async Task<string> PoolIdentityOf(string[] assemblies, string corpusPath)
     {
-        using var report = JsonDocument.Parse(RunForJson(assemblies, corpusPath));
+        using var report = JsonDocument.Parse(await RunForJson(assemblies, corpusPath));
         return report.RootElement.GetProperty("poolSha256").GetString()!;
     }
 
@@ -939,10 +940,10 @@ public class AuthoredCorpusRatchetTests
     /// (two threads here) capturing it made these assertions intermittently read another
     /// class's output.
     /// </summary>
-    static string RunForJson(string[] assemblies, string corpusPath)
+    static async Task<string> RunForJson(string[] assemblies, string corpusPath)
     {
         var captured = new StringWriter();
-        AuthoredCorpusBenchmark.Run(assemblies, corpusPath, json: true, integrityOnly: true, output: captured);
+        await AuthoredCorpusBenchmark.Run(assemblies, corpusPath, json: true, integrityOnly: true, output: captured);
         return captured.ToString();
     }
 
@@ -1778,7 +1779,7 @@ public class AuthoredCorpusRatchetTests
     /// correctly the whole time.</para>
     /// </summary>
     [Fact]
-    public void Benchmark_WritesTheContractVerdictToTheCallersWriter()
+    public async Task Benchmark_WritesTheContractVerdictToTheCallersWriter()
     {
         using var pool = new TempPool();
         string original = typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location;
@@ -1787,7 +1788,7 @@ public class AuthoredCorpusRatchetTests
             AuthoredCorpusTestData.CorrelatedRow(original)));
 
         var captured = new StringWriter();
-        AuthoredCorpusBenchmark.Run([assembly], corpus, json: false, integrityOnly: true, output: captured);
+        await AuthoredCorpusBenchmark.Run([assembly], corpus, json: false, integrityOnly: true, output: captured);
 
         Assert.Contains("[integrity-only]", captured.ToString(), StringComparison.Ordinal);
     }
@@ -2142,7 +2143,7 @@ public class AuthoredCorpusRatchetTests
     /// untrustworthy row already in the store.</para>
     /// </summary>
     [Fact]
-    public void Benchmark_EmitsAValidBreakdownARowCanBeBuiltFrom()
+    public async Task Benchmark_EmitsAValidBreakdownARowCanBeBuiltFrom()
     {
         using var pool = new TempPool();
         string original = typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location;
@@ -2150,7 +2151,7 @@ public class AuthoredCorpusRatchetTests
         string corpus = pool.Write("corpus", "corpus.jsonl", Encoding.UTF8.GetBytes(
             AuthoredCorpusTestData.CorrelatedRow(original)));
 
-        using var report = JsonDocument.Parse(RunForJson([assembly], corpus));
+        using var report = JsonDocument.Parse(await RunForJson([assembly], corpus));
         var breakdown = report.RootElement.GetProperty("validBreakdown");
 
         Assert.Equal(
@@ -2514,7 +2515,7 @@ public class AuthoredCorpusRatchetTests
     /// denominator rather than discarding the file.</para>
     /// </summary>
     [Fact]
-    public void Benchmark_ReportsASchemaMalformedCorpusRowRatherThanCrashing()
+    public async Task Benchmark_ReportsASchemaMalformedCorpusRowRatherThanCrashing()
     {
         using var pool = new TempPool();
         string original = typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location;
@@ -2524,14 +2525,14 @@ public class AuthoredCorpusRatchetTests
         string wrongShape = """{"date":"2026-07-26","validPct":56.7,"correct":1576}""";
         string corpus = pool.Write("mixed", "corpus.jsonl", Encoding.UTF8.GetBytes($"{row}\n{wrongShape}\n"));
 
-        using var report = JsonDocument.Parse(RunForJson([assembly], corpus));
+        using var report = JsonDocument.Parse(await RunForJson([assembly], corpus));
 
         Assert.Equal(1, report.RootElement.GetProperty("malformedRows").GetInt32());
         Assert.False(report.RootElement.GetProperty("inputsComplete").GetBoolean());
 
         Assert.Equal(
             1,
-            AuthoredCorpusBenchmark.Run(
+            await AuthoredCorpusBenchmark.Run(
                 [assembly], corpus, json: false, integrityOnly: true, output: new StringWriter()));
     }
 

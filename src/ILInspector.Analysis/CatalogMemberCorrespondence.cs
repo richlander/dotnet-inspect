@@ -594,11 +594,7 @@ public sealed class CatalogMemberCorrespondencePlan
         ResolvedAssemblyReference source,
         MemberRef member)
     {
-        ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(member);
-
-        var initialFailures =
-            ImmutableArray.CreateBuilder<MemberCorrespondenceFailure>();
         bool requiresOpenSignature =
             GenericMemberIdentity.IsGenericType(member.DeclaringType)
             || member.GenericArity > 0
@@ -607,6 +603,22 @@ public sealed class CatalogMemberCorrespondencePlan
                 member.ReturnType)
             || member.ParameterTypes.Any(
                 GenericMemberIdentity.ContainsGenericParameter);
+        return Create(
+            source,
+            member,
+            requiresOpenSignature);
+    }
+
+    internal static CatalogMemberCorrespondencePlan Create(
+        ResolvedAssemblyReference source,
+        MemberRef member,
+        bool requiresOpenSignature)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(member);
+
+        var initialFailures =
+            ImmutableArray.CreateBuilder<MemberCorrespondenceFailure>();
         bool retainedOpenSignatureIsIncomplete =
             member.OpenReturnType is not null
                 ? member.OpenParameterTypes.Length

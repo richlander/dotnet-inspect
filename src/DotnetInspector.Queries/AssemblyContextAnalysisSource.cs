@@ -91,6 +91,8 @@ internal static class AssemblyContextAnalysisSource
                     RetainSelected(selected),
                 AssemblyBindingSelection.Ambiguous ambiguous =>
                     RetainAmbiguous(ambiguous),
+                AssemblyBindingSelection.CompositionRequired required =>
+                    RetainDomain(required.Domain),
                 _ => selection,
             };
 
@@ -121,9 +123,9 @@ internal static class AssemblyContextAnalysisSource
                 shadows.Add(retained);
             }
 
-            return AssemblyBindingSelection.Found(
-                assembly,
-                shadows.MoveToImmutable());
+            return AssemblyBindingCandidateDomain.Create(
+                [assembly, .. shadows])
+                .Finalize([assembly]);
         }
 
         AssemblyBindingSelection RetainAmbiguous(
@@ -145,8 +147,53 @@ internal static class AssemblyContextAnalysisSource
                 assemblies.Add(retained);
             }
 
-            return AssemblyBindingSelection.Multiple(
-                assemblies.MoveToImmutable());
+            var shadows =
+                ImmutableArray.CreateBuilder<ResolvedAssemblyReference>(
+                    ambiguous.ShadowedAssemblies.Length);
+            foreach (ResolvedAssemblyReference shadow
+                in ambiguous.ShadowedAssemblies)
+            {
+                if (!TryRetain(
+                        shadow,
+                        out ResolvedAssemblyReference retained,
+                        out AssemblyBindingSelection failure))
+                {
+                    return failure;
+                }
+                shadows.Add(retained);
+            }
+
+            ImmutableArray<ResolvedAssemblyReference> active =
+                assemblies.MoveToImmutable();
+            return shadows.Count == 0
+                ? AssemblyBindingSelection.Multiple(active)
+                : AssemblyBindingCandidateDomain.Create(
+                    [.. active, .. shadows])
+                    .Finalize(active);
+        }
+
+        AssemblyBindingSelection RetainDomain(
+            AssemblyBindingCandidateDomain domain)
+        {
+            var candidates =
+                ImmutableArray.CreateBuilder<ResolvedAssemblyReference>(
+                    domain.Candidates.Length);
+            foreach (ResolvedAssemblyReference candidate
+                in domain.Candidates)
+            {
+                if (!TryRetain(
+                        candidate,
+                        out ResolvedAssemblyReference retained,
+                        out AssemblyBindingSelection failure))
+                {
+                    return failure;
+                }
+                candidates.Add(retained);
+            }
+
+            return AssemblyBindingSelection.RequireComposition(
+                AssemblyBindingCandidateDomain.Create(
+                    candidates.MoveToImmutable()));
         }
 
         bool TryRetain(

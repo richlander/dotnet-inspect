@@ -19,7 +19,7 @@ main() {
     ensure_dotnet_install
 
     say "installing dotnet-inspect from source..."
-    ensure dotnet-install "$SCRIPT_DIR/src/dotnet-inspect"
+    ensure dotnet-install "$SCRIPT_DIR/src/DotnetInspect.Cli"
 
     say "done"
 }

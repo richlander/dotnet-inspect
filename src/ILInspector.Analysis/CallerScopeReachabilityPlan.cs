@@ -674,9 +674,11 @@ public sealed class CallerScopeReachabilityPlan
             if (selection is AssemblyBindingSelection.Selected selected)
             {
                 var lineage = new ScopeFirstLineage(this, state, selected.Occurrence);
-                selection = AssemblyBindingSelection.FoundOccurrence(
-                    lineage.Issue(selected.Assembly),
-                    selected.ShadowedAssemblies);
+                selection = AssemblyBindingCandidateDomain.Create(
+                    [
+                        selected.Assembly,
+                        .. selected.ShadowedAssemblies,
+                    ]).Finalize(lineage.Issue(selected.Assembly));
             }
 
             return new AssemblyBindingSelectionSnapshot(state.Version, selection);

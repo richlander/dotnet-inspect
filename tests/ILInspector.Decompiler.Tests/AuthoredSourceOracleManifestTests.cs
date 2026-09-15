@@ -8,6 +8,7 @@ using System.Text.Json;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Speed", "Slow")]
 [Trait("Area", "Corpus")]
 public sealed class AuthoredSourceOracleManifestTests
 {
@@ -32,7 +33,7 @@ public sealed class AuthoredSourceOracleManifestTests
     }
 
     [Fact]
-    public void SourceProbe_PurposeBuiltFixtureClearsAllThreeSourceLayers()
+    public async Task SourceProbe_PurposeBuiltFixtureClearsAllThreeSourceLayers()
     {
         const string memberSource = """
             public static int PrinterExactFixture(int value)
@@ -81,7 +82,7 @@ public sealed class AuthoredSourceOracleManifestTests
         var index = ReturnToSenderSourceIndex.FromCorrelatedMembers([member], reader);
 
         ReturnToSenderSourceProbeResult result = Assert.Single(
-            ReturnToSenderSourceProbe.EvaluateWithIndex(
+            await ReturnToSenderSourceProbe.EvaluateWithIndex(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     member.Type,
@@ -1140,7 +1141,7 @@ public sealed class AuthoredSourceOracleManifestTests
     }
 
     [Fact]
-    public void Benchmark_TextAndJsonAgreeOnSourceOracleInventoryFailure()
+    public async Task Benchmark_TextAndJsonAgreeOnSourceOracleInventoryFailure()
     {
         string assembly = typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location;
         string corpus = AuthoredCorpusTestData.WriteCorrelatedCorpus(assembly);
@@ -1167,7 +1168,7 @@ public sealed class AuthoredSourceOracleManifestTests
                     }));
 
             using var text = new StringWriter();
-            int textExit = AuthoredCorpusBenchmark.Run(
+            int textExit = await AuthoredCorpusBenchmark.Run(
                 [assembly],
                 corpus,
                 json: false,
@@ -1175,7 +1176,7 @@ public sealed class AuthoredSourceOracleManifestTests
                 output: text);
 
             using var json = new StringWriter();
-            int jsonExit = AuthoredCorpusBenchmark.Run(
+            int jsonExit = await AuthoredCorpusBenchmark.Run(
                 [assembly],
                 corpus,
                 json: true,
@@ -1217,7 +1218,7 @@ public sealed class AuthoredSourceOracleManifestTests
     }
 
     [Fact]
-    public void Benchmark_ReportsRejectedInventoryAsNotEvaluated()
+    public async Task Benchmark_ReportsRejectedInventoryAsNotEvaluated()
     {
         string assembly = typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location;
         string corpus = AuthoredCorpusTestData.WriteCorrelatedCorpus(assembly);
@@ -1247,7 +1248,7 @@ public sealed class AuthoredSourceOracleManifestTests
                     }));
 
             using var text = new StringWriter();
-            int textExit = AuthoredCorpusBenchmark.Run(
+            int textExit = await AuthoredCorpusBenchmark.Run(
                 [assembly],
                 corpus,
                 json: false,
@@ -1255,7 +1256,7 @@ public sealed class AuthoredSourceOracleManifestTests
                 output: text);
 
             using var json = new StringWriter();
-            int jsonExit = AuthoredCorpusBenchmark.Run(
+            int jsonExit = await AuthoredCorpusBenchmark.Run(
                 [assembly],
                 corpus,
                 json: true,

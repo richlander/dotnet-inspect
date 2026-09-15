@@ -105,6 +105,7 @@ public static class WorkspaceMetadataEvidence
         Acquisition Registration,
         AssemblyReferenceIdentity Identity,
         InertString? Path,
+        InertString? AssetFileName,
         Provenance Provenance,
         DateTime? LastWriteTimeUtc);
 

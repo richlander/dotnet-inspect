@@ -901,7 +901,7 @@ public sealed class CSharpDeclarationWriterTests
                 {
                     Name = "Pick",
                     Kind = "method",
-                    Signature = "DotnetInspector.Tests.SampleColor Pick(DotnetInspector.Tests.SampleColor color = DotnetInspector.Tests.SampleColor.Green)"
+                    Signature = "DotnetInspect.Cli.Tests.SampleColor Pick(DotnetInspect.Cli.Tests.SampleColor color = DotnetInspect.Cli.Tests.SampleColor.Green)"
                 }
             ]
         };
@@ -917,7 +917,7 @@ public sealed class CSharpDeclarationWriterTests
 
         Assert.Equal(
             """
-            using DotnetInspector.Tests;
+            using DotnetInspect.Cli.Tests;
 
             public SampleColor Pick(SampleColor color = SampleColor.Green);
             """,

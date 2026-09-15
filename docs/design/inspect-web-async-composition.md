@@ -58,7 +58,7 @@ The participating owners are:
   [inspect-web facade partition](inspect-web-jsexport-partitioning.md), which
   owns the proposed production module set and one-runtime composition if that
   partition is adopted;
-- the [inspect-web consumer](../../prototypes/inspect-web/README.md), which owns
+- the [inspect-web consumer](../../inspect-web/README.md), which owns
   the implemented browser build, startup sequencing, hosting, and deployment;
   and
 - each feature, which owns input and result meaning, physical work,

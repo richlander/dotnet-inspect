@@ -13,7 +13,7 @@ set -euo pipefail
 # published production facades in a real browser.
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-frontend="$repo_root/prototypes/inspect-web"
+frontend="$repo_root/inspect-web"
 resolver="$repo_root/tools/InspectWebFixtureResolver/InspectWebFixtureResolver.csproj"
 site="${INSPECT_WEB_PACKAGE_ADOPTION_SITE:-$repo_root/artifacts/inspect-web-publish/wwwroot}"
 dotnet=${DOTNET:-dotnet}
@@ -24,7 +24,7 @@ fi
 
 if [[ ! -f "$site/inspect-web-package.js" ]]; then
   echo "Published engine artifact not found at $site." >&2
-  echo "Publish it first (dotnet publish prototypes/inspect-web/engine/InspectWeb.Engine.csproj -c Release --output artifacts/inspect-web-publish)." >&2
+  echo "Publish it first (dotnet publish inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj -c Release --output artifacts/inspect-web-publish)." >&2
   exit 1
 fi
 
@@ -32,14 +32,18 @@ fi
 # references) and prints "<id>\t<absolute-assembly-path>" for each requested ID.
 resolved=$(
   "${resolver_command[@]}" -- \
-    diff-asm.lib-a diff-asm.lib-b analysis.string-literals
+    diff-asm.lib-a diff-asm.lib-b analysis.string-literals \
+    library-api-diff.v1 library-api-diff.v2
 )
 
 liba_dll=$(awk -F'\t' '$1 == "diff-asm.lib-a" { print $2 }' <<<"$resolved")
 libb_dll=$(awk -F'\t' '$1 == "diff-asm.lib-b" { print $2 }' <<<"$resolved")
 literal_dll=$(awk -F'\t' '$1 == "analysis.string-literals" { print $2 }' <<<"$resolved")
+library_diff_v1_dll=$(awk -F'\t' '$1 == "library-api-diff.v1" { print $2 }' <<<"$resolved")
+library_diff_v2_dll=$(awk -F'\t' '$1 == "library-api-diff.v2" { print $2 }' <<<"$resolved")
 
-if [[ -z "$liba_dll" || -z "$libb_dll" || -z "$literal_dll" ]]; then
+if [[ -z "$liba_dll" || -z "$libb_dll" || -z "$literal_dll" \
+  || -z "$library_diff_v1_dll" || -z "$library_diff_v2_dll" ]]; then
   echo "Fixture resolver did not return all cataloged fixture paths." >&2
   echo "$resolved" >&2
   exit 1
@@ -50,6 +54,8 @@ INSPECT_WEB_PACKAGE_ADOPTION_SITE="$site" \
 INSPECT_WEB_PACKAGE_ADOPTION_LIBA_DLL="$liba_dll" \
 INSPECT_WEB_PACKAGE_ADOPTION_LIBB_DLL="$libb_dll" \
 INSPECT_WEB_PACKAGE_ADOPTION_LITERALS_DLL="$literal_dll" \
+INSPECT_WEB_PACKAGE_ADOPTION_LIBRARY_DIFF_V1_DLL="$library_diff_v1_dll" \
+INSPECT_WEB_PACKAGE_ADOPTION_LIBRARY_DIFF_V2_DLL="$library_diff_v2_dll" \
   node_modules/.bin/playwright test \
     --config playwright.package-adoption.config.ts \
     --project=firefox "$@"

@@ -5519,6 +5519,74 @@ public enum CfgULong : ulong { None = 0, All = 18446744073709551615UL }
 public enum CfgFlags : uint { None = 0, Top = 0x80000000u }
 public enum CfgTiny : byte { A = 1, B = 2 }
 
+public sealed class CfgGenericNestedEnumSink<T>
+{
+    enum CompletionPart
+    {
+        None,
+        Attributes = 4,
+        Decoded,
+        Complete,
+    }
+
+    [Flags]
+    enum FlagCaps64 : long
+    {
+        None = 0,
+        Protocol = 512,
+        Interactive = 1024,
+        LoadLocal = 128,
+        Secure = 32768,
+        MultiStatements = 65536,
+        MultiResults = 131072,
+    }
+
+    public void Set() => Complete(CompletionPart.Attributes);
+
+    public void SetUnnamed() => Complete((CompletionPart)3);
+
+    void SetConditional(bool condition) =>
+        Complete(condition ? CompletionPart.Attributes : GetPart());
+
+    static CompletionPart GetPart() => CompletionPart.None;
+
+    void StoreNamed(CompletionPart[] values) => values[0] = CompletionPart.Attributes;
+
+    void StoreUnnamed(CompletionPart[] values) => values[0] = (CompletionPart)3;
+
+    void Complete(CompletionPart part)
+    {
+    }
+
+    public void SetInteger() => CompleteInteger(4);
+
+    void CompleteInteger(int value)
+    {
+    }
+
+    int Accumulate(FlagCaps64 server, bool interactive)
+    {
+        FlagCaps64 caps = FlagCaps64.Protocol
+            | (interactive ? (server & FlagCaps64.Interactive) : FlagCaps64.None)
+            | (server & FlagCaps64.LoadLocal)
+            | FlagCaps64.Secure
+            | (server & FlagCaps64.MultiStatements)
+            | FlagCaps64.MultiResults;
+        return (int)caps;
+    }
+
+    int Switch(CompletionPart part)
+    {
+        return part switch
+        {
+            CompletionPart.Attributes => 1,
+            CompletionPart.Decoded => 2,
+            CompletionPart.Complete => 3,
+            _ => 0,
+        };
+    }
+}
+
 public sealed class CfgNullableTarget
 {
     public int Value;

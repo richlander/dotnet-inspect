@@ -4,7 +4,7 @@
 
 This document defines the architectural owner and implementation target for the
 inspect-web TypeScript semantic-facts adapter. The adapter is implemented in
-`prototypes/inspect-web/scripts/typescript-semantic-facts.ts`; its snapshot,
+`inspect-web/scripts/typescript-semantic-facts.ts`; its snapshot,
 identity, failure, import-isolation, and artifact-isolation properties are
 enforced by the `inspect-web-typescript-semantic-facts` gate described below.
 Actual child-process exit after the upstream close call remains **unverified**
@@ -555,14 +555,14 @@ script. Its gate contains:
 The implementation gate is:
 
 ```bash
-cd prototypes/inspect-web
+cd inspect-web
 npx --yes node@24 --run inspect-web-typescript-semantic-facts
 npx --yes node@24 --run build
 ```
 
 The focused gate is implemented by the unfiltered
-`prototypes/inspect-web/test/typescript-semantic-facts.test.ts` and
-`prototypes/inspect-web/test/typescript-semantic-facts-artifact.test.ts` files.
+`inspect-web/test/typescript-semantic-facts.test.ts` and
+`inspect-web/test/typescript-semantic-facts-artifact.test.ts` files.
 It opens the real inspect-web project and compiled fixtures, exercises the
 public facade and failure seams, scans unstable-package references, audits one
 Vite graph for semantic-tooling exclusion, and proves that exact audited build

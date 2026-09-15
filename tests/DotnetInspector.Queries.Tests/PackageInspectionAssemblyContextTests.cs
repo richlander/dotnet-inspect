@@ -20,7 +20,7 @@ public sealed class PackageInspectionAssemblyContextTests
             content, content.ProducerKey, PackagePayloadOrigin.Download);
         PackageInspectionInput input = PackageInspectionInput.CreateFromPayload(payload);
         PackageInspectionSelection selection = input.SelectAssemblies([new("lib/Sample.dll", null)]);
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         using PackageInspectionAssemblyContext result = await workspace.RealizePackageInspectionAsync(
             selection, cancellationToken: TestContext.Current.CancellationToken);
         var available = Assert.IsType<PackageInspectionAssemblyOutcome.Available>(
@@ -62,7 +62,7 @@ public sealed class PackageInspectionAssemblyContextTests
         PackageInspectionInput input = PackageInspectionInput.CreateFromBinding(binding);
         PackageInspectionSelection selection = input.SelectAssemblies(requested);
         requested[0] = new("not-selected.dll", null);
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         using PackageInspectionAssemblyContext realization =
             await workspace.RealizePackageInspectionAsync(
                 selection, cancellationToken: TestContext.Current.CancellationToken);
@@ -108,7 +108,7 @@ public sealed class PackageInspectionAssemblyContextTests
             .SelectAssemblies([
                 new("lib/Locked.dll", null), new("lib/Missing.dll", null),
                 new("lib/Good.dll", null)]);
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         using PackageInspectionAssemblyContext result = await workspace.RealizePackageInspectionAsync(
             selection, cancellationToken: TestContext.Current.CancellationToken);
 
@@ -138,7 +138,7 @@ public sealed class PackageInspectionAssemblyContextTests
         }
         var content = new Content(("lib/Sample.dll", image));
         var input = PackageInspectionInput.CreateLocal(content, "Selected.Sample", "1.2");
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         using PackageInspectionAssemblyContext result = await workspace.RealizePackageInspectionAsync(
             input.SelectAssemblies([new("lib/Sample.dll", null)]),
             cancellationToken: TestContext.Current.CancellationToken);
@@ -175,7 +175,7 @@ public sealed class PackageInspectionAssemblyContextTests
     {
         byte[] image = Image();
         var content = new Content(("lib/Sample.dll", image));
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         using PackageInspectionAssemblyContext result = await workspace.RealizePackageInspectionAsync(
             PackageInspectionInput.CreateLocal(content).SelectAssemblies([new("lib/Sample.dll", null)]),
             options: new PackageAssemblyContextRealizationOptions
@@ -205,7 +205,7 @@ public sealed class PackageInspectionAssemblyContextTests
         byte[] image = Image();
         var content = new Content(
             ("lib/Large.dll", new byte[image.Length + 1]), ("lib/Small.dll", image));
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         using PackageInspectionAssemblyContext result = await workspace.RealizePackageInspectionAsync(
             PackageInspectionInput.CreateLocal(content).SelectAssemblies(
                 [new("lib/Large.dll", null), new("lib/Small.dll", null)]),
@@ -225,7 +225,7 @@ public sealed class PackageInspectionAssemblyContextTests
     {
         byte[] image = Image();
         var content = new Content(("lib/Sample.dll", image)) { NonSeekable = true };
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         using PackageInspectionAssemblyContext result = await workspace.RealizePackageInspectionAsync(
             PackageInspectionInput.CreateLocal(content).SelectAssemblies([new("lib/Sample.dll", null)]),
             options: new PackageAssemblyContextRealizationOptions
@@ -256,7 +256,7 @@ public sealed class PackageInspectionAssemblyContextTests
         var input = PackageInspectionInput.CreateLocal(content);
         PackageInspectionSelection selection = input.SelectAssemblies(
             [new("lib/First.dll", "net11.0", "LIB"), new("lib/Second.dll", "net11.0", "lib")]);
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         using PackageInspectionAssemblyContext result = await workspace.RealizePackageInspectionAsync(
             selection,
             options: new PackageAssemblyContextRealizationOptions
@@ -288,7 +288,7 @@ public sealed class PackageInspectionAssemblyContextTests
     public async Task ExplicitSelection_CloseWaitsForIndependentGroupsAndRevokesAllArtifacts()
     {
         var content = new Content(("lib/First.dll", Image()), ("tools/Second.dll", Image()));
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         using PackageInspectionAssemblyContext result = await workspace.RealizePackageInspectionAsync(
             PackageInspectionInput.CreateLocal(content).SelectAssemblies(
                 [new("lib/First.dll", null, "lib"), new("tools/Second.dll", null, "tools")]),
@@ -343,7 +343,7 @@ public sealed class PackageInspectionAssemblyContextTests
                 }
             },
         };
-        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        await using InspectionWorkspace workspace = new InspectionWorkspace();
         OperationCanceledException failure = await Assert.ThrowsAnyAsync<OperationCanceledException>(
             async () => await workspace.RealizePackageInspectionAsync(
                 PackageInspectionInput.CreateLocal(content).SelectAssemblies(

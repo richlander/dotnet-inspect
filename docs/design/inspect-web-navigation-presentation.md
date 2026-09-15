@@ -17,8 +17,9 @@ This owner defines:
 
 - the application-scope strip that composes the presentation-owned Query route
   entry with the product-issued Workspace subject entry;
-- the Package, Library, Type, and Member subject hierarchy, the inspected-target
-  rendering, and the adaptive subject and inspector navigation groups;
+- the Package, Library, Type, and Member subject hierarchy, the Browser-local
+  Platform target surface, the inspected-target rendering, and the adaptive
+  subject and inspector navigation groups;
 - the separately presented Workspace subject that owns retained-coordinate
   management;
 - lens-tab rendering, roving-tabindex interaction, and no-effective-lens
@@ -55,6 +56,8 @@ It does not own:
   which remain
   [Inspection Subject Navigation](inspection-subject-navigation.md)'s product
   data model; and
+- shared Platform Scope membership, product-issued Platform subject identity,
+  or Platform facet applicability; and
 - lens membership, identity, labels, summaries, or order, which remain the
   [View Facet Registry](view-facet-registry.md)'s product data model.
 
@@ -87,19 +90,24 @@ owners:
 
 Inspection Subject Navigation continues to own Workspace, Package, Library,
 Type, and Member identity. Inspect Web presents Workspace separately because it
-manages retained Packages, while Package, Library, Type, and Member form the
-progressively narrower active-coordinate subject strip:
+manages retained Packages. Inspect Web also composes the approved Browser-local
+Platform target surface in the same visual position without issuing a shared
+Navigation subject. The visible paths therefore narrow from Package or
+Platform through Library, Type, and Member, while only the Package path belongs
+to the shared Navigation grammar:
 
 - **Package** means one selected package-adapter coordinate.
+- **Platform** means the Browser-local library catalog for one exact selected
+  platform target.
 - **Library** means all admitted libraries or one library in that coordinate.
 - **Type** means one selected type in the active Library subject.
 - **Member** means one selected member of the active Type.
 
-Current Browser platform rows remain working host-local inventory behavior
-outside shared Scope and Navigation. This cutover neither suppresses those rows
-nor relabels them Package, but it does not give them a product-owned subject or
-overview. A future Platform or other structural subject requires its own named
-consumer and focused owner contract.
+Issue #6013 extends the current Browser platform rows with a host-local catalog
+surface outside shared Scope and Navigation. It neither relabels those rows
+Package nor gives them product-owned subject identity or shared facet
+applicability. A future shared Platform structural subject must extend Scope,
+Navigation, and inventory behavior together through its own focused contract.
 
 ### Persistent navigation composition
 
@@ -321,26 +329,36 @@ This model retires Navigation Presentation's allocation ladder, allocation
 buttons, manually retained inline windows, wheel sliding, edge indicators, and
 subject/inspector Short Label, Icon, and Index fallbacks. The implementation
 must remove those consumer paths when it adopts the new model rather than
-keeping a compatibility mode. `SlideStrip` remains a separately owned reusable
-control; this document neither changes its contract nor decides whether that
-control has enough remaining adoption to retain.
+keeping a compatibility mode. The separate reusable windowing control had no
+remaining production adopter after that removal, so
+[#6277](https://github.com/richlander/dotnet-inspect/issues/6277) retired its
+implementation, tests, styles, and stale first-adopter design.
 
-Issue #6158 is the overall end-to-end tracker for the Browser host. Its counted
-path has three focused slices:
+Issue #6158 is the overall end-to-end tracker for this Browser presentation
+replacement. Its counted path has three focused slices:
 
 1. lock this Navigation Presentation contract and its production gates;
-2. implement both adaptive groups in the Browser host and delete the retired
-   Navigation Presentation interaction in the same production slice,
+2. implement both adaptive groups over the Browser's current supported
+   inventories and delete the retired Navigation Presentation interaction in
+   the same production slice,
    [#6276](https://github.com/richlander/dotnet-inspect/issues/6276); and
-3. reconcile the now-unconsumed SlideStrip owner in the separate focused
-   [#6277](https://github.com/richlander/dotnet-inspect/issues/6277), retaining
-   it only with a justified consumer or retiring its implementation and stale
-   first-adopter documentation.
+3. retire the now-unconsumed reusable windowing owner in the separate focused
+   [#6277](https://github.com/richlander/dotnet-inspect/issues/6277).
 
 The second slice completes the user-visible navigation replacement. The third
 closes the existing-architecture retirement plan without broadening this
 owner's contract. This is an existing Browser-specific presentation path, not
 a new shared product substrate or a CLI rendering domain.
+
+This presentation path does not claim the separately owned migration from
+Browser-local inventories to View Facet Registry descriptors and statuses, or
+the Navigation Consumer migration to product-issued actions, generations, and
+result authority. Those remain
+[#5510](https://github.com/richlander/dotnet-inspect/issues/5510) and
+[#5511](https://github.com/richlander/dotnet-inspect/issues/5511) under the
+[#5512](https://github.com/richlander/dotnet-inspect/issues/5512) production
+adoption tracker. They are not prerequisites for retiring the old Browser
+allocation interaction.
 
 ### Inspected target
 
@@ -747,8 +765,78 @@ coordinate or Package Overview.
 Non-package inputs use their product-owned coordinate display instead of
 inventing package/version/TFM fields.
 
-Platform libraries may be present in the workspace, but Platform is not a
-workspace entry or subject.
+## Browser Platform target
+
+Issue #6013 adopts Platform as a distinct host-local target in the existing
+retained Browser Workspace. It does not add shared Scope membership, a
+product-issued Navigation subject, or a generic non-package Root. It is not a
+Package renamed for runtime-pack inputs, another live Workspace, or a new
+Library inspector hierarchy. Existing package-shaped acquisition transport may
+remain internal while Browser target state, controls, history, and presentation
+distinguish Platform from Package.
+
+The production path is Spotlight -> Platform -> Library -> Type -> Member.
+Opening Platform selects its catalog, with no implicit Library or Type.
+Selecting a platform-library search result opens that exact Library with
+Platform as its parent. A search such as `System.Text.Json` can offer both the
+NuGet package and the platform library; source and target labeling distinguish
+the destinations rather than merging names. The
+[Spotlight destination-activation
+owner](inspect-web-spotlight-destination-activation.md) separately supplies
+their current-Workspace or fresh-Workspace effect and opaque action;
+presentation does not infer either from the shared display name.
+
+Platform content owns its target/version control, library-name filter, and
+`Include all libraries` control. It does not expose package version/TFM editors
+or package-only inspectors. The default release line is .NET 11, including
+previews. The platform source supplies the exact version and matching catalog
+under [Version resolution](version-resolution.md#browser-platform-catalog-targets).
+An already-open target does not change when newer versions are discovered.
+
+The default inventory contains libraries represented in the selected
+reference pack. This is an inventory policy, not a request to inspect
+reference bytes: selecting a Library opens its runtime implementation.
+`Include all libraries` expands the inventory to all managed platform
+libraries. It is not the aggregate `All libraries` inspection subject and
+does not grant traversal permission.
+
+Rows consistently distinguish three source-supplied roles:
+
+| Role | Presentation meaning |
+| --- | --- |
+| Facade | A forwarding library, identified with a distinct outline/forwarding mark. |
+| Implementation | An implementation represented in the reference pack, using ordinary library styling. |
+| Private implementation | An implementation outside the reference-pack inventory, with an internal-library mark and secondary styling. |
+
+Role remains distinct from type accessibility. `System.Private.CoreLib` has
+public Types despite its private-implementation platform role. Text or an
+accessible label accompanies the mark; color alone is insufficient. Private
+implementations are selectable, not disabled. A catalog entry without an
+inspectable runtime counterpart instead exposes its actual unavailability.
+
+The small shipped catalog supplies search and browsing before pack acquisition
+or library decoding. Opening Platform may warm the exact runtime archives in
+parallel; typing into Search does not. Catalog rows remain usable while that
+operation runs or fails, with visible progress, failure, and retry. Selecting
+a Library shares acquisition and requests only its existing inspection
+surface. Missing or failed catalog information is not an empty Platform.
+
+Back, Forward, refresh, and shared locations retain the Platform target and
+explicit Library selection. Returning from Library reaches Platform without
+selecting a neighboring library. A Library with no Types still opens its
+Library inspectors. The existing Library selection and consumer
+history/focus contracts continue to apply.
+
+This is the user-approved Browser experience, rendered through the existing
+typed browser UI rather than a new multi-format renderer. #6013 tracks four
+adoption steps: exact catalog/discovery production, host-local Platform target
+and shared Library integration, end-to-end browser adoption with retirement of
+the package-shaped Platform presentation, and separately authorized
+release/site deployment. The generator and catalog tests, engine Platform
+catalog/acquisition tests, and built-frontend Platform/Library browser cases
+provide the respective gates. Shared target-currency transport and a
+product-issued Platform subject remain later adoption work under their
+respective owners.
 
 ## Type navigation
 
@@ -825,37 +913,38 @@ add and pass these named Inspect Web tests:
   `adaptive subject and inspector groups choose one measured presentation`
   covers all four Tabs/Chooser pairs, complete full-label fit, deterministic
   mixed-pair selection by the exact inline-choice-gain score, subject tie-break,
-  empty inventories, no-effective-inspector and Workspace-active
-  no-committed-subject states, equal constrained shares, complete accessible
-  labels under visual elision, open-Chooser pinning, and the absence of
-  allocation controls, compact representations, windows, edge indicators, and
+  empty inventories, no-effective-inspector and no-committed-subject states,
+  open-Chooser pinning, typed action dispatch, and the absence of allocation
+  controls, compact representations, windows, edge indicators, and
   wheel-sliding state.
-- `workspace-titlebar.spec.ts`:
-  `adaptive navigation preserves committed state and focus across fit changes`
-  covers manual activation for both roomy tablists, Tabs-to-Chooser and
+- `adaptive-navigation.spec.ts` covers complete production inventories,
+  deterministic form selection, application-scope yielding, equal constrained
+  shares, complete accessible labels under visual elision, manual activation
+  for both roomy tablists, Tabs-to-Chooser and
   Chooser-to-Tabs focus handoff, an open menu surviving resize, menu
-  cancellation and Tab dismissal, the Workspace-active retained-coordinate
-  handoff with no committed subject, panel role and accessible-name continuity
-  across both replacement directions and menu dismissal, current-item and
-  `Selection required` activation, disabled evidence, same-lifetime
-  stable-identity retention with new action rebinding, asynchronous replacement
-  parking, and rejection of an outgoing generation's menu action or DOM target.
-- `library-hierarchy.spec.ts`:
-  `subject and inspector navigation stays explicit from wide to 390px`
-  exercises the production Browser shell and bindings with deterministic
-  facade results. It covers all-label, mixed, and dual-Chooser layouts;
-  Package-to-Library activation; browsing without activation; explicit lens
-  and subject commits; Escape cancellation; direct 390-pixel entry and reload;
-  no-effective and empty inspector inventories; and unchanged focus, URL, and
-  history during presentation-only transitions.
+  cancellation, outside-pointer and Tab dismissal, the Workspace-active
+  retained-coordinate handoff with no committed subject, and panel role and
+  accessible-name continuity across both replacement directions.
+- `workspace-titlebar.spec.ts` covers same-lifetime stable-identity retention
+  with new action rebinding, asynchronous replacement parking, and rejection
+  of an outgoing generation's menu action or DOM target.
+- `library-hierarchy.spec.ts` exercises the production Browser shell and
+  bindings with deterministic facade results, including Package-to-Library
+  activation, explicit lens and subject commits, direct 390-pixel entry and
+  reload, empty inspector inventories, and unchanged URL and history during
+  presentation-only transitions.
 
-The implementation fixture supplies typed product results through the normal
-navigation boundary. It does not construct a parallel host catalog or bypass
-effect-authority validation merely to observe the renderer.
+The adaptive-presentation gates in `scope-bar.test.ts`,
+`adaptive-navigation.spec.ts`, `workspace-titlebar.spec.ts`, and
+`library-hierarchy.spec.ts` exercise the Browser's current supported
+inventories through its normal rendering boundary. They do not construct a
+parallel host catalog merely to observe the renderer.
 
-These gates are not implemented by this documentation-only design. Until they
-exist and pass, the prose defines the target contract but does not claim
-Inspect Web implementation conformance.
+The descriptor/status, product-action, generation, effect-authority, and
+complete Navigation-result gates above remain pending with #5510 and #5511.
+Until those owners' migrations land, this implementation claims the adaptive
+Browser presentation and retirement contract, not full product Navigation
+descriptor or consumer conformance.
 
 ## Acceptance scenarios
 

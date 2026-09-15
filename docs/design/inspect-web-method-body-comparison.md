@@ -6,14 +6,17 @@ This is the target design for
 [#5963](https://github.com/richlander/dotnet-inspect/issues/5963), the bounded
 Browser adoption of local comparison in
 [#4706](https://github.com/richlander/dotnet-inspect/issues/4706), step 9.
-The feature is implemented through the existing Source facade and the shared
-direct-member query. The focused and published-Wasm gates below cover this
-adopter; broader portable comparison remains separate.
+The shared direct-member query and generated Source-facade operation remain
+implemented. The Browser-owned contextual action, coordinator state, and
+Method Body Diff dialog are retired under
+[#6491](https://github.com/richlander/dotnet-inspect/issues/6491) so the
+unified Compare experience can route detailed evidence to Omni instead.
 
-Inspect Web Method Body Comparison is one focused feature owner. It owns the
-explicit pair interaction, its managed feature projection, and the Method Body
-Diff presentation. It does not own comparison algorithms, physical-method
-resolution, navigation, transport, or operation lifetime.
+This document remains the owner of the managed feature projection and its
+exact-pair evidence. Its former Browser interaction and presentation clauses
+below are historical delivery context, not current UI requirements. It does
+not own comparison algorithms, physical-method resolution, navigation,
+transport, or operation lifetime.
 
 The claim is:
 
@@ -143,7 +146,7 @@ release before completing the managed operation. A removal-requested scope
 cannot become a new comparison context. Package labels that identify multiple
 eligible retained bindings produce visible `ContextUnavailable`, rather than
 choosing a generation. The
-[Browser registry](../../prototypes/inspect-web/README.md#artifact-backed-package-scope-adoption)
+[Browser registry](../../inspect-web/README.md#artifact-backed-package-scope-adoption)
 continues to own admission, binding identity, and asynchronous retirement.
 
 This feature's transport uses an empty `PackageId` to distinguish a retained
@@ -255,9 +258,8 @@ under the new headings.
 | --- | --- |
 | Release `AssemblyContextMethodAddressQueryTests` | Owner-issued module association, MethodDef validation, and typed context failures. |
 | Release `BrowserMethodBodyOperationTests` | Different/same pairs, reference-token drift, explicit accessors, missing/wrong context, original query failures, native body failure, platform retention, protected-use release, removal-requested and ambiguous retained contexts, and coexistence with Source acquisition. |
-| `method-body-comparison.test.ts`, `method-body-diff-view.test.ts` | Explicit submission, immutable pair association, routed-history disposal and late-result suppression, independent native outcomes, text rendering, and native line-operation lowering. |
 | `generate-inspect-web-engine-facade.sh --check`, Release `ProductionFacadeContextTests` | Compiler-derived typed transport in the existing seven-root facade set. |
-| `browser/method-body-production.spec.ts` against published Wasm | Actual shared-query results for the public package and compiled reference/implementation fixture; bodyless/accessor neighbors; dialog selection, keyboard focus, IL disclosure, narrow layout, unchanged navigation, same-document Back/Forward dismissal, and completed underlying Source. |
+| `browser/method-body-production.spec.ts` against published Wasm | Actual generated-facade and shared-query results for the public package and compiled reference/implementation fixture, including bodyless and accessor neighbors. |
 
 The compiled input is `FixtureCatalog.InspectWebMethodBodies`, including its
 `reference` and `package` assets. Browser acceptance substitutes only the

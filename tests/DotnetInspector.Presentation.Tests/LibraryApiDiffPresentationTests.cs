@@ -17,16 +17,16 @@ public sealed class LibraryApiDiffPresentationTests
         new(64, 1_000_000, 1_000_000, int.MaxValue, int.MaxValue, int.MaxValue);
 
     [Fact]
-    public void Create_SameLibrary_ProducesAnEmptyValueComparableDocument()
+    public async Task Create_SameLibrary_ProducesAnEmptyValueComparableDocument()
     {
         string path = FixtureCatalog.LibraryApiDiffV1.AssemblyPath();
 
         LibraryApiDiffPresentationResult.Available first =
             Assert.IsType<LibraryApiDiffPresentationResult.Available>(
-                LibraryApiDiffPresentationAdapter.Create(Compare(path, path)));
+                LibraryApiDiffPresentationAdapter.Create(await Compare(path, path)));
         LibraryApiDiffPresentationResult.Available second =
             Assert.IsType<LibraryApiDiffPresentationResult.Available>(
-                LibraryApiDiffPresentationAdapter.Create(Compare(path, path)));
+                LibraryApiDiffPresentationAdapter.Create(await Compare(path, path)));
 
         Assert.Empty(first.Document.Subjects);
         Assert.Equal(0, first.Summary.ChangedTypeCount);
@@ -40,12 +40,12 @@ public sealed class LibraryApiDiffPresentationTests
     }
 
     [Fact]
-    public void Create_RealDiffFixture_RetainsCompatibilityRowsAndDistinctMembers()
+    public async Task Create_RealDiffFixture_RetainsCompatibilityRowsAndDistinctMembers()
     {
         LibraryApiDiffPresentationResult.Available available =
             Assert.IsType<LibraryApiDiffPresentationResult.Available>(
                 LibraryApiDiffPresentationAdapter.Create(
-                    Compare(
+                    await Compare(
                         FixtureCatalog.DiffV1.AssemblyPath(),
                         FixtureCatalog.DiffV2.AssemblyPath())));
 
@@ -90,12 +90,12 @@ public sealed class LibraryApiDiffPresentationTests
     }
 
     [Fact]
-    public void Create_SpecializedFixture_PreservesTypeTopologyAndCrossTypeCorrespondence()
+    public async Task Create_SpecializedFixture_PreservesTypeTopologyAndCrossTypeCorrespondence()
     {
         LibraryApiDiffPresentationResult.Available available =
             Assert.IsType<LibraryApiDiffPresentationResult.Available>(
                 LibraryApiDiffPresentationAdapter.Create(
-                    Compare(
+                    await Compare(
                         FixtureCatalog.LibraryApiDiffV1.AssemblyPath(),
                         FixtureCatalog.LibraryApiDiffV2.AssemblyPath())));
 
@@ -178,9 +178,9 @@ public sealed class LibraryApiDiffPresentationTests
     }
 
     [Fact]
-    public void Create_IncompleteProjection_ReturnsEndpointSpecificUnavailableEvidence()
+    public async Task Create_IncompleteProjection_ReturnsEndpointSpecificUnavailableEvidence()
     {
-        AssemblyContextApiComparisonResult result = Compare(
+        AssemblyContextApiComparisonResult result = await Compare(
             FixtureCatalog.LibraryApiDiffV1.AssemblyPath(),
             FixtureCatalog.LibraryApiDiffV2.AssemblyPath(),
             new ApiSurfaceProjectionLimits(
@@ -208,7 +208,7 @@ public sealed class LibraryApiDiffPresentationTests
     }
 
     [Fact]
-    public void Create_RejectedBeforeEndpoint_RetainsTheCompleteAfterEndpoint()
+    public async Task Create_RejectedBeforeEndpoint_RetainsTheCompleteAfterEndpoint()
     {
         byte[] healthyBytes =
             File.ReadAllBytes(FixtureCatalog.LibraryApiDiffV2.AssemblyPath());
@@ -216,7 +216,7 @@ public sealed class LibraryApiDiffPresentationTests
         AssemblyReferenceIdentity identity =
             AssemblyReferenceIdentity.FromAssemblyDefinition(reader.GetMetadataReader());
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextParticipant rejectedParticipant = new(
             ResolvedAssemblyReference.Create(
                 identity,
@@ -257,7 +257,7 @@ public sealed class LibraryApiDiffPresentationTests
     }
 
     [Fact]
-    public void Create_DegradedSignature_ReturnsTypedUnavailableEvidence()
+    public async Task Create_DegradedSignature_ReturnsTypedUnavailableEvidence()
     {
         var healthySignature = new BlobBuilder();
         new BlobEncoder(healthySignature).FieldSignature().Object();
@@ -268,7 +268,7 @@ public sealed class LibraryApiDiffPresentationTests
             fieldType = fieldType.SZArray();
         fieldType.Object();
 
-        AssemblyContextApiComparisonResult result = Compare(
+        AssemblyContextApiComparisonResult result = await Compare(
             BuildFieldImage("SignatureComparison", degradedSignature.ToArray()),
             BuildFieldImage("SignatureComparison", healthySignature.ToArray()),
             "SignatureComparison");
@@ -288,9 +288,9 @@ public sealed class LibraryApiDiffPresentationTests
     }
 
     [Fact]
-    public void Create_FailedBeforeRow_RetainsTheCompleteAfterEndpoint()
+    public async Task Create_FailedBeforeRow_RetainsTheCompleteAfterEndpoint()
     {
-        AssemblyContextApiComparisonResult result = Compare(
+        AssemblyContextApiComparisonResult result = await Compare(
             FixtureCatalog.LibraryApiDiffV1.AssemblyPath(),
             FixtureCatalog.LibraryApiDiffV2.AssemblyPath());
         var failedEntry = new AssemblyContextEntry<AssemblyApiSurface>.Failed(
@@ -327,12 +327,12 @@ public sealed class LibraryApiDiffPresentationTests
     }
 
     [Fact]
-    public void Create_DifferentLogicalLibraries_ReturnsTypedRejection()
+    public async Task Create_DifferentLogicalLibraries_ReturnsTypedRejection()
     {
         LibraryApiDiffPresentationResult.Rejected rejected =
             Assert.IsType<LibraryApiDiffPresentationResult.Rejected>(
                 LibraryApiDiffPresentationAdapter.Create(
-                    Compare(
+                    await Compare(
                         FixtureCatalog.DiffV1.AssemblyPath(),
                         FixtureCatalog.LibraryApiDiffV2.AssemblyPath())));
 
@@ -344,9 +344,9 @@ public sealed class LibraryApiDiffPresentationTests
     }
 
     [Fact]
-    public void Create_MissingExactTypeIdentity_ReturnsTypedRejection()
+    public async Task Create_MissingExactTypeIdentity_ReturnsTypedRejection()
     {
-        AssemblyContextApiComparisonResult result = Compare(
+        AssemblyContextApiComparisonResult result = await Compare(
             FixtureCatalog.LibraryApiDiffV1.AssemblyPath(),
             FixtureCatalog.LibraryApiDiffV2.AssemblyPath());
         ApiFindingComparison comparison = Assert.IsType<ApiFindingComparison>(result.Comparison);
@@ -370,9 +370,9 @@ public sealed class LibraryApiDiffPresentationTests
     }
 
     [Fact]
-    public void Create_MultipleCompatibilityRowsForOneMember_CountsTheRelationOnce()
+    public async Task Create_MultipleCompatibilityRowsForOneMember_CountsTheRelationOnce()
     {
-        AssemblyContextApiComparisonResult result = Compare(
+        AssemblyContextApiComparisonResult result = await Compare(
             FixtureCatalog.DiffV1.AssemblyPath(),
             FixtureCatalog.DiffV2.AssemblyPath());
         ApiFindingComparison comparison = Assert.IsType<ApiFindingComparison>(result.Comparison);
@@ -396,7 +396,7 @@ public sealed class LibraryApiDiffPresentationTests
     }
 
     [Fact]
-    public void Create_DelimiterCollidingTypeDisplays_UseDistinctExactIdentifiers()
+    public async Task Create_DelimiterCollidingTypeDisplays_UseDistinctExactIdentifiers()
     {
         byte[] before = BuildDelimiterCollisionImage("Before");
         byte[] after = BuildDelimiterCollisionImage("After");
@@ -404,7 +404,7 @@ public sealed class LibraryApiDiffPresentationTests
         LibraryApiDiffPresentationResult.Available available =
             Assert.IsType<LibraryApiDiffPresentationResult.Available>(
                 LibraryApiDiffPresentationAdapter.Create(
-                    Compare(before, after, "DelimiterCollision")));
+                    await Compare(before, after, "DelimiterCollision")));
 
         ComparisonSubject<LibraryApiTypeDiff>[] dotCollisions =
         [
@@ -435,7 +435,7 @@ public sealed class LibraryApiDiffPresentationTests
     }
 
     [Fact]
-    public void Create_DuplicateMemberAnchors_GetDeterministicOccurrenceIdentifiers()
+    public async Task Create_DuplicateMemberAnchors_GetDeterministicOccurrenceIdentifiers()
     {
         byte[] before = BuildDuplicateMemberImage(includeMethods: true);
         byte[] after = BuildDuplicateMemberImage(includeMethods: false);
@@ -443,11 +443,11 @@ public sealed class LibraryApiDiffPresentationTests
         LibraryApiDiffPresentationResult.Available first =
             Assert.IsType<LibraryApiDiffPresentationResult.Available>(
                 LibraryApiDiffPresentationAdapter.Create(
-                    Compare(before, after, "DuplicateMembers")));
+                    await Compare(before, after, "DuplicateMembers")));
         LibraryApiDiffPresentationResult.Available second =
             Assert.IsType<LibraryApiDiffPresentationResult.Available>(
                 LibraryApiDiffPresentationAdapter.Create(
-                    Compare(before, after, "DuplicateMembers")));
+                    await Compare(before, after, "DuplicateMembers")));
         LibraryApiTypeDiff type = Assert.Single(first.Document.Subjects).Comparison;
 
         Assert.Equal(2, type.Members.Length);
@@ -459,9 +459,9 @@ public sealed class LibraryApiDiffPresentationTests
     }
 
     [Fact]
-    public void Create_ContradictoryStructuredSubject_ReturnsTypedRejection()
+    public async Task Create_ContradictoryStructuredSubject_ReturnsTypedRejection()
     {
-        AssemblyContextApiComparisonResult result = Compare(
+        AssemblyContextApiComparisonResult result = await Compare(
             FixtureCatalog.DiffV1.AssemblyPath(),
             FixtureCatalog.DiffV2.AssemblyPath());
         ApiFindingComparison comparison = Assert.IsType<ApiFindingComparison>(result.Comparison);
@@ -494,9 +494,9 @@ public sealed class LibraryApiDiffPresentationTests
     }
 
     [Fact]
-    public void Create_UnassociatedMemberSubject_ReturnsTypedRejection()
+    public async Task Create_UnassociatedMemberSubject_ReturnsTypedRejection()
     {
-        AssemblyContextApiComparisonResult result = Compare(
+        AssemblyContextApiComparisonResult result = await Compare(
             FixtureCatalog.DiffV1.AssemblyPath(),
             FixtureCatalog.DiffV2.AssemblyPath());
         ApiFindingComparison comparison = Assert.IsType<ApiFindingComparison>(result.Comparison);
@@ -535,9 +535,9 @@ public sealed class LibraryApiDiffPresentationTests
     }
 
     [Fact]
-    public void Create_TypeAdditionRowOnChangedType_ReturnsTypedRejection()
+    public async Task Create_TypeAdditionRowOnChangedType_ReturnsTypedRejection()
     {
-        AssemblyContextApiComparisonResult result = Compare(
+        AssemblyContextApiComparisonResult result = await Compare(
             FixtureCatalog.DiffV1.AssemblyPath(),
             FixtureCatalog.DiffV2.AssemblyPath());
         ApiFindingComparison comparison = Assert.IsType<ApiFindingComparison>(result.Comparison);
@@ -566,9 +566,9 @@ public sealed class LibraryApiDiffPresentationTests
     }
 
     [Fact]
-    public void Create_CrossedMemberTransitionEndpoints_ReturnsTypedRejection()
+    public async Task Create_CrossedMemberTransitionEndpoints_ReturnsTypedRejection()
     {
-        AssemblyContextApiComparisonResult result = Compare(
+        AssemblyContextApiComparisonResult result = await Compare(
             FixtureCatalog.LibraryApiDiffV1.AssemblyPath(),
             FixtureCatalog.LibraryApiDiffV2.AssemblyPath());
         ApiFindingComparison comparison = Assert.IsType<ApiFindingComparison>(result.Comparison);
@@ -607,9 +607,9 @@ public sealed class LibraryApiDiffPresentationTests
     }
 
     [Fact]
-    public void Create_OneSidedRowOnHardChangedMember_ReturnsTypedRejection()
+    public async Task Create_OneSidedRowOnHardChangedMember_ReturnsTypedRejection()
     {
-        AssemblyContextApiComparisonResult result = Compare(
+        AssemblyContextApiComparisonResult result = await Compare(
             FixtureCatalog.LibraryApiDiffV1.AssemblyPath(),
             FixtureCatalog.LibraryApiDiffV2.AssemblyPath());
         ApiFindingComparison comparison = Assert.IsType<ApiFindingComparison>(result.Comparison);
@@ -642,9 +642,9 @@ public sealed class LibraryApiDiffPresentationTests
     }
 
     [Fact]
-    public void Create_DuplicateExactTypeIdentity_ReturnsTypedRejection()
+    public async Task Create_DuplicateExactTypeIdentity_ReturnsTypedRejection()
     {
-        AssemblyContextApiComparisonResult result = Compare(
+        AssemblyContextApiComparisonResult result = await Compare(
             FixtureCatalog.LibraryApiDiffV1.AssemblyPath(),
             FixtureCatalog.LibraryApiDiffV2.AssemblyPath());
         ApiFindingComparison comparison = Assert.IsType<ApiFindingComparison>(result.Comparison);
@@ -675,9 +675,9 @@ public sealed class LibraryApiDiffPresentationTests
     }
 
     [Fact]
-    public void Create_MissingMemberAnchor_ReturnsTypedRejection()
+    public async Task Create_MissingMemberAnchor_ReturnsTypedRejection()
     {
-        AssemblyContextApiComparisonResult result = Compare(
+        AssemblyContextApiComparisonResult result = await Compare(
             FixtureCatalog.LibraryApiDiffV1.AssemblyPath(),
             FixtureCatalog.LibraryApiDiffV2.AssemblyPath());
         ApiFindingComparison comparison = Assert.IsType<ApiFindingComparison>(result.Comparison);
@@ -702,12 +702,12 @@ public sealed class LibraryApiDiffPresentationTests
     }
 
     [Fact]
-    public void Create_RetainsTheRequestedApiSurfaceScope()
+    public async Task Create_RetainsTheRequestedApiSurfaceScope()
     {
         LibraryApiDiffPresentationResult.Available available =
             Assert.IsType<LibraryApiDiffPresentationResult.Available>(
                 LibraryApiDiffPresentationAdapter.Create(
-                    Compare(
+                    await Compare(
                         FixtureCatalog.LibraryApiDiffV1.AssemblyPath(),
                         FixtureCatalog.LibraryApiDiffV2.AssemblyPath(),
                         scope: ApiSurfaceScope.IncludeAll)));
@@ -716,14 +716,14 @@ public sealed class LibraryApiDiffPresentationTests
         Assert.Equal(ApiSurfaceScope.IncludeAll, available.After.Scope);
     }
 
-    static AssemblyContextApiComparisonResult Compare(
+    static async Task<AssemblyContextApiComparisonResult> Compare(
         string beforePath,
         string afterPath,
         ApiSurfaceProjectionLimits? limits = null,
         ApiSurfaceScope scope = ApiSurfaceScope.Public)
     {
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup beforeGroup =
             SinglePathGroup(workspace, beforePath, "Before", policy);
         using AssemblyContextGroup afterGroup =
@@ -737,13 +737,13 @@ public sealed class LibraryApiDiffPresentationTests
             limits ?? GenerousLimits);
     }
 
-    static AssemblyContextApiComparisonResult Compare(
+    static async Task<AssemblyContextApiComparisonResult> Compare(
         byte[] beforeBytes,
         byte[] afterBytes,
         string assemblyName)
     {
         var policy = new TestBindingPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextParticipant beforeParticipant = Participant(
             beforeBytes,
             assemblyName + " Before",

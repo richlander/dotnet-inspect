@@ -55,6 +55,10 @@ public static class FixtureIds
     public const string JsExportUnions = "js-export.unions";
     public const string MetadataAttributeEnums = "metadata.attribute-enums";
     public const string MetadataMemorySafety = "metadata.memory-safety";
+    public const string MetadataTypeDependencyConsumer =
+        "metadata.type-dependency.consumer";
+    public const string MetadataTypeDependencyReference =
+        "metadata.type-dependency.reference";
     public const string DiffV1 = "diff.v1";
     public const string DiffV2 = "diff.v2";
     public const string SourceDiffV1 = "source-diff.v1";
@@ -82,6 +86,7 @@ public static class FixtureIds
     public const string MatchBindingImplementation = "cli.match-binding.implementation";
     public const string AnalysisAsyncSiblingFriend = "analysis.async-sibling.friend";
     public const string AnalysisCallerLoop = "analysis.caller-loop";
+    public const string AnalysisLocalThrows = "analysis.local-throws";
     public const string AnalysisCrossAsmCollision = "analysis.cross-asm-collision";
     public const string AnalysisCrossAsmShape = "analysis.cross-asm-shape";
     public const string AnalysisExceptionBase = "analysis.exception-base";
@@ -179,6 +184,22 @@ public static class FixtureCatalog
         "ILInspector.Metadata.AttributeEnumFixtures.dll",
         Boundaries(FixtureBoundary.CrossAssemblyBoundary),
         "metadata", "custom-attributes", "producer-truth");
+
+    public static readonly FixtureDefinition MetadataTypeDependencyConsumer =
+        Fixture(
+            FixtureIds.MetadataTypeDependencyConsumer,
+            "ILInspector.Metadata.TypeDependencyConsumer",
+            "ILInspector.Metadata.TypeDependencyConsumer.dll",
+            Boundaries(FixtureBoundary.CrossAssemblyBoundary),
+            "metadata", "type-dependency", "consumer");
+
+    public static readonly FixtureDefinition MetadataTypeDependencyReference =
+        Fixture(
+            FixtureIds.MetadataTypeDependencyReference,
+            "ILInspector.Metadata.TypeDependencyReference",
+            "ILInspector.Metadata.TypeDependencyReference.dll",
+            Boundaries(FixtureBoundary.CrossAssemblyBoundary),
+            "metadata", "type-dependency", "reference");
 
     public static readonly FixtureDefinition InspectWebCloneTransport = Fixture(
         FixtureIds.InspectWebCloneTransport,
@@ -474,6 +495,12 @@ public static class FixtureCatalog
         "ILInspector.Analysis.Fixtures",
         "ILInspector.Analysis.Fixtures.dll",
         "analysis", "caller-loop", "allocation");
+
+    public static readonly FixtureDefinition AnalysisLocalThrows = Fixture(
+        FixtureIds.AnalysisLocalThrows,
+        "ILInspector.Analysis.Fixtures",
+        "ILInspector.Analysis.Fixtures.dll",
+        "analysis", "local-throws");
 
     public static readonly FixtureDefinition AnalysisStringLiterals = Fixture(
         FixtureIds.AnalysisStringLiterals,
@@ -881,6 +908,8 @@ public static class FixtureCatalog
         JsExportUnions,
         MetadataAttributeEnums,
         MetadataMemorySafety,
+        MetadataTypeDependencyConsumer,
+        MetadataTypeDependencyReference,
         InspectWebCloneTransport,
         InspectWebMethodBodies,
         InspectWebSourceComparisonV1,
@@ -913,6 +942,7 @@ public static class FixtureCatalog
         AnalysisCallerGraphTargetV2,
         AnalysisAsyncSiblingFriend,
         AnalysisCallerLoop,
+        AnalysisLocalThrows,
         AnalysisStringLiterals,
         AnalysisCrossAsmCollision,
         AnalysisCrossAsmShape,
@@ -1270,6 +1300,10 @@ public static class FixtureCatalog
                 "fixtures/metadata/ILInspector.Metadata.AttributeEnumFixtures",
             "ILInspector.Metadata.MemorySafetyFixtures" =>
                 "fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures",
+            "ILInspector.Metadata.TypeDependencyConsumer" =>
+                "fixtures/metadata/ILInspector.Metadata.TypeDependencyConsumer",
+            "ILInspector.Metadata.TypeDependencyReference" =>
+                "fixtures/metadata/ILInspector.Metadata.TypeDependencyReference",
             "InspectWeb.CloneTransportFixtures" =>
                 "fixtures/inspect-web/InspectWeb.CloneTransportFixtures",
             "InspectWeb.MethodBodyFixtures" => "fixtures/inspect-web/InspectWeb.MethodBodyFixtures",

@@ -22,6 +22,13 @@ handoff tracked by
 slice. The logical Workspace Scope contract is the upper slice in
 [#5701](https://github.com/richlander/dotnet-inspect/pull/5701).
 
+[Artifact Ownership and Borrowing](artifact-ownership-and-borrowing.md) is the
+focused resource-protocol adoption for this owner. It defines resource-free
+content references, current query authority, transferable per-content child
+leases, scoped retained-content borrowing, and child-before-acquisition
+release. This document retains Artifact acquisition, publication, generation,
+and Workspace composition authority.
+
 Fresh Workspace construction and switching, tracked by
 [#6189](https://github.com/richlander/dotnet-inspect/issues/6189), deliberately
 adds no private Artifact candidate. Definitions constructs a new Workspace,
@@ -266,10 +273,9 @@ does not recharge. It never rehashes the mutable source. A persistent
 derived-result cache that keys on that digest must run its cold gate and
 producer over the same snapshot and publish under the snapshot's digest; it may
 not hash a mutable source path, reopen it for production, and hash it again.
-Equal bracketing hashes do not exclude a W-to-S-to-W replacement. This is gated
-for the library effective catalog by `MDP017` in
-[member inspection planning and Metadata
-projection](member-inspection-planning-and-metadata-projection.md).
+Equal bracketing hashes do not exclude a W-to-S-to-W replacement. For the
+library effective catalog this remains unverified and is tracked by
+[#3478](https://github.com/richlander/dotnet-inspect/issues/3478).
 
 Publication atomically commits the sealed catalog, all projected participants,
 the artifact-count charge, and actual retained-byte charges. It releases the
@@ -331,8 +337,8 @@ reaching a lock.
 
 Disposal then disposes published groups. A group may already have an active
 callback that has not performed its first lazy content open. Artifact leases
-therefore outlive `Dispose()` and are released only after every exact dependent
-group reports quiescence. The asynchronous `InspectionWorkspace` records this
+therefore outlive the group's `Dispose()` and are released only after every exact dependent
+group reports quiescence. `InspectionWorkspace` records this
 association from the published `ArtifactSetSession` and its query lease to the
 workspace-owned group objects whose participants carry registrations minted by
 that session. Ownership transfer requires the complete set of current dependent
@@ -387,8 +393,8 @@ concurrent groups. A demand's requested generation is also fixed once it
 arrives; the model does not represent a caller re-deriving a different
 generation when it replans after an incompatible admission terminates.
 
-The admission model checks the design intent stated in the prose above. The
-asynchronous `InspectionWorkspace` now owns the exact
+The admission model checks the design intent stated in the prose above.
+`InspectionWorkspace` now owns the exact
 published-session-to-dependent-group association and disposes the session only
 after all recorded group release receipts complete; the focused group-release
 model checks that shipped interaction. `ArtifactSetSession` still serves one
@@ -699,7 +705,7 @@ Implementation conformance is enforced by these focused gates:
 - `SupplementalAcquisition_LateDiagnosticRemainsVisibleOnTermination`
 - `SupplementalAcquisition_CancellationRemainsCancellation`
 
-Retaining content does not retain authority. The artifact owner issues two
+Retaining content does not retain authority. The artifact owner issues three
 different source-neutral access leases:
 
 - an **admission lease** authorizes the context loader to project sealed
@@ -710,7 +716,13 @@ different source-neutral access leases:
   Neither the group nor its participants retain it;
 - a **query lease** revalidates the current query plan's capabilities and
   source policy before it can select participants, observe binding or
-  correspondence answers, receive content, or use a retained snapshot.
+  correspondence answers, receive content, use a retained snapshot, or request
+  a retained-content child; and
+- a **content lease** is the transferable child ownership obligation for one
+  exact already-selected immutable Artifact. It exposes no catalog, binding,
+  designation, or role-policy operation. Once issued, later query-policy
+  replacement does not revoke it; the Artifact session drains it before
+  releasing source acquisition resources.
 
 Changed, narrowed, or revoked authorization rejects the query before catalog or
 participant selection even when the selected image remains authorized and the
@@ -721,8 +733,10 @@ image is insufficient because catalog membership and binding answers can
 themselves reveal unauthorized candidates.
 
 During construction, only the current admission lease exposes content. After
-group publication, guarded content access rejects that expired lease and
-accepts only a current query lease. An artifact catalog descriptor or
+group publication, a current query lease authorizes selection, query-scoped
+borrowing, and content-child issuance. An already issued content lease
+authorizes later ownership-backed scoped borrowing of only its exact content.
+An artifact catalog descriptor or
 `ResolvedAssemblyReference` cannot bypass the owner with a bare `Func<Stream>`
 or readable path. A path on a target descriptor is inert location evidence, not
 read authority; when a producer genuinely requires a path, the current lease
@@ -732,12 +746,14 @@ separate workspace admission roles. This is a target change from the current
 parameterless
 `ResolvedAssemblyReference.OpenRead` and public readable `Path`.
 
-`ArtifactContentReference` is the compatibility query-time input to a downstream
-content consumer. The artifact owner issues it for one identity in a sealed generation
-and binds that artifact's descriptor and acquisition registration. Role
-and registration observations and retained-content opens revalidate the query
-lease supplied when the reference was issued. The type makes no claim that the
-content is a managed assembly; Metadata owns that decode and identity.
+`ArtifactContentReference` is the resource-free input to a downstream content
+consumer. The artifact owner issues it for one identity in a sealed generation
+and binds that artifact's descriptor, acquisition registration, immutable
+roles, and generation correspondence. It retains no session, lease, callback,
+stream, opener, or reopening capability. Current code still captures a query
+lease as a compatibility implementation; #6647 retires that mismatch. The type
+makes no claim that the content is a managed assembly; Metadata owns that
+decode and identity.
 
 Assembly projection passes the exact acquisition registration and the
 reference's guarded content callback to
@@ -766,14 +782,14 @@ than treating trusted in-process owners as hostile. A stream-only retained
 content registration remains a compatibility facility and explicitly rejects
 scoped byte access; arbitrary openers cannot attest an immutable image.
 
-The synchronous callback convention follows .NET span callbacks: two distinct
-`readonly ref struct` views carry the exact opaque `ArtifactIdentity`, its
-generation, and `ReadOnlySpan<byte>`. Only the artifact owner constructs these
-views. `ArtifactAdmissionContentCallback<TResult>` and
-`ArtifactQueryContentCallback<TResult>` take a scoped view and caller
-cancellation token. Their result type cannot be byref-like. The consumer
-finishes image-local work before returning; retaining a view or borrowed span
-across an asynchronous continuation is not an available operation.
+The synchronous callback convention follows .NET span callbacks:
+phase-specific admission and query views plus the ownership-backed
+content-lease view are `readonly ref struct` values carrying exact Artifact
+correspondence and `ReadOnlySpan<byte>`. Only the Artifact owner constructs
+these views. Their callbacks take a scoped view and caller cancellation token.
+The result type cannot be byref-like. The consumer finishes image-local work
+before returning; retaining a view or borrowed span across an asynchronous
+continuation is not an available operation.
 
 `RetainedArtifactContent.WithAdmissionContent` accepts only admission leases;
 `WithQueryContent` accepts only query leases. Each registers access atomically
@@ -783,8 +799,12 @@ foreign, disposed, revoked, or ended authority produces
 `Accessed.Value` is the consumer's result, including any consumer-owned typed
 rejection. Consumer exceptions retain their instance and type, including
 `UnauthorizedAccessException` and `ObjectDisposedException`; they cannot be
-mistaken for owner rejection. Caller cancellation is observed before access
-and after a normally returning callback, and remains cancellation.
+mistaken for owner rejection. Caller cancellation is observed before access.
+The callback receives the token and preserves cancellation while it runs.
+Normal callback return is the result-ownership commit point: Artifact publishes
+that result without a later cancellation check that could discard an
+independently owned value before transfer or release. This is a target change
+from the current post-callback cancellation check.
 
 Authorization expiry rejects subsequent callbacks, not work already admitted.
 An active callback keeps acquisition leases alive through generation end until
@@ -792,6 +812,13 @@ it unwinds, just as an already-returned compatibility stream does until
 disposal. Callbacks must return; they must not synchronously wait for the
 session's own disposal, which waits for them. No worker thread or background
 execution is required by this contract.
+
+The content-lease path follows the same access-registration rule but validates
+the exact live content child instead of current query policy. Session
+retirement rejects new children, preserves issued children while their owners
+settle, and releases acquisition resources only after those children and their
+admitted callbacks quiesce. The focused contract and stateful model are in
+[Artifact Ownership and Borrowing](artifact-ownership-and-borrowing.md).
 
 `ArtifactSetSession.SealWithProjectionAsync` is the pre-publication integration
 point. After bounded materialization succeeds, it supplies each artifact in
@@ -824,6 +851,7 @@ established by the focused product gates:
 - `ScopedContent_RejectsAuthorityBeforeInvocation`
 - `ScopedContent_ConsumerExceptionsAreNotAuthorizationFailures`
 - `ScopedContent_CancellationRemainsCancellation`
+- `ScopedContent_CallbackReturnCommitsOwnedResultBeforeLateCancellation`
 - `ScopedContent_RequiresImmutableSnapshot`
 - `ScopedContent_RepeatedQueriesDoNotAllocateFullImage`
 - `ScopedContent_ActiveCallbackPinsRelease`
@@ -878,14 +906,16 @@ by later authorized requests without another charge or hash pass. Concurrent
 requests for one artifact share the successful cold computation. Neither
 computation nor reuse opens the original source or changes the catalog.
 
-Cancellation follows scoped-content semantics: it is observed before admission
-and after the synchronous operation, and remains cancellation. Once charged,
-the bounded hash pass completes and memoizes its value even if cancellation is
-requested during it; a cancelled caller does not receive that value, but the
-completed work is not charged again. An admitted operation may finish after
-authorization expires, and pins retained resources until it returns. Charge
-callbacks have the same synchronous lifetime restriction as other content
-callbacks: they must not wait for disposal of their own session.
+The digest is detached resource-free evidence, so this operation deliberately
+adds its own cancellation observation after the synchronous hash pass. Once
+charged, the bounded pass completes and memoizes its value even if cancellation
+is requested during it; a cancelled caller does not receive that value, but the
+completed work is not charged again. This does not restore a generic
+post-callback cancellation check for ownership-bearing results. An admitted
+operation may finish after authorization expires, and pins retained resources
+until it returns. Charge callbacks have the same synchronous lifetime
+restriction as other content callbacks: they must not wait for disposal of
+their own session.
 
 The existing generation-access model supplies the authorization and quiescence
 basis. This operation reuses that protocol rather than adding publication or
@@ -2144,6 +2174,30 @@ The acquired payload result has an internal constructor and get-only
 properties, so ordinary consumers cannot forge a coordinate/content pairing
 or replace either half after acquisition issues it.
 
+PackageHouse compile realization enters the same Root construction through an
+internal receipt-binding primitive. It receives the exact
+`AcquiredPackageSourcePayload` and
+`PackageCompileAssetSelectionReceipt`, revalidates package-id and
+content-generation correspondence, and freezes the receipt's existing
+selection without another selector invocation. The public adapter remains in
+`DotnetInspector.PackageQueries`: its contribution pairs the resulting
+House-agnostic binding with the exact House result and compile receipt rather
+than storing House history on `PackageRootBinding`.
+
+The current realized package-coordinate grammar admits the bounded published
+package-id grammar, the modern NuGet.org producer key, and bounded legacy
+producer keys. Package Source accepts a broader Unicode package-id grammar and
+valid configured HTTP or local producers. Such a package can therefore be
+acquired and selected before Root construction reports that the complete
+coordinate is not representable. The adapter surfaces that state as typed
+no-contribution evidence rather than entering the throwing constructor.
+Extending the portable coordinate and reacquisition currency for every
+owner-issued producer remains
+[#6946](https://github.com/richlander/dotnet-inspect/issues/6946); this adapter
+does not hash, truncate, parse display text, or narrow owner-issued package
+identity to bypass either coordinate owner. Package-id representation remains
+[#6967](https://github.com/richlander/dotnet-inspect/issues/6967).
+
 The content-generation identity is an opaque, credential-free reference token
 for one retained immutable package-content snapshot, owned by
 `IPackageContent`. Every binding over the same content handle shares it. A
@@ -2214,7 +2268,9 @@ is gated by `RidSpecificPackage_SeparatesCompileAndImplementationAssets`.
 
 #### Durable package-content identity adoption
 
-[#5484](https://github.com/richlander/dotnet-inspect/issues/5484) tracks the
+`AcquiredPackagePayload.GetContentDigest` and
+`AcquiredPackageSourcePayload.GetContentDigest` implement
+[#5484](https://github.com/richlander/dotnet-inspect/issues/5484) as the
 durable content-identity prerequisite for the existing CLI
 `PackageInspector -> PackageIndexCache` consumer. The user
 [approved CLI-first production adoption on 2026-09-06](https://github.com/richlander/dotnet-inspect/issues/5484#issuecomment-5560862576).
@@ -2223,22 +2279,96 @@ acquisition remains host-neutral and all existing Browser/Wasm compatibility
 requirements remain in force. No browser persistent-result cache, UI, or
 browser delivery commitment is introduced.
 
-The package-index workstream of
-[#3738](https://github.com/richlander/dotnet-inspect/issues/3738) has two
-remaining production-adoption steps:
+Only an acquisition-issued payload exposes this operation. Its
+construction-controlled content has already passed the package payload
+admission contract; arbitrary `IPackageContent` handles do not expose a public
+digest operation. A successful request returns an owner-issued
+`PackageContentDigest` containing:
 
-1. Acquisition supplies the retained-content identity tracked by #5484,
-   reusing the existing configured authority and acquired-payload carriers.
-2. The CLI producer/cache path adopts that subject under the
-   [package-index contract](package-index-cache.md), retiring the predecessor
-   namespace and establishing its cold/warm-equivalence gate.
+- lowercase hexadecimal SHA-256 over the retained nupkg bytes;
+- the exact process-local `PackageContentGenerationIdentity` whose retained
+  bytes were hashed; and
+- no path, content handle, package coordinate, producer, authority, or
+  credentials.
 
-This is sequencing between owners, not a new definition of either owner's
-internals. The existing extraction result already carries `Authority` and
-`AcquiredPayload`; their presence does not itself supply the durable identity
-or bind a filesystem-scanning producer to one retained subject. The durable
-identity and consumer adoption remain unimplemented. Rendering is unchanged:
-the prerequisite carries typed acquisition evidence, not presentation.
+For filesystem content, immutable store provenance
+`RequiresArchiveTreeMatch` is the eligibility gate. Acquisition issues the
+payload only after admission has verified that such a product-owned extracted
+tree matches the retained archive's paths, sizes, and CRC-32 values. A later
+tree-derived producer may inherit the archive digest only by consuming that
+same acquired payload and checking the returned digest's generation against
+the content it inspects. The digest operation accepts no caller-supplied path
+or stream that could name a different subject.
+
+A legacy product-owned commit that had no source archive hashes the retained
+archive synthesized from its admitted tree. That value identifies the durable
+retained package snapshot; it does not claim to reproduce absent feed bytes.
+
+Foreign global-packages trees never carry that immutable provenance, so they
+cannot issue a digest even when a neighboring retained archive exists.
+Archive-less filesystem content is likewise ineligible. Direct local-package
+extraction and legacy results without `AcquiredPayload` do not gain identity
+through this API. In-memory content hashes its private retained archive and
+therefore remains eligible on Browser/Wasm hosts without adding a persistent
+browser consumer.
+
+An unavailable digest is returned as `null`. It means only that this acquired
+payload cannot establish durable identity now; it is not a durable negative
+observation and must not be persisted or reused for a later acquisition.
+A missing or concurrently unreadable retained filesystem archive is likewise a
+retryable unavailable result and is not memoized. Other failures remain
+visible. Ordinary acquisition does not hash.
+
+The operation is explicit and lazy. The first successful request invokes its
+required `chargeWork` callback with the retained archive length immediately
+before hashing. Callback failure propagates and publishes no value. Successful
+work is memoized on the content-generation identity, so concurrent requests
+and multiple in-memory cache-hit wrappers over one generation share one
+charge, hash pass, and digest object. The synchronous callback must not
+re-enter the operation for the same generation or wait for work that may
+request that generation; direct re-entry fails visibly. Cancellation is
+observed before and after the synchronous pass: cancellation during the pass
+prevents delivery to that caller while preserving the completed value for a
+later request. Filesystem reacquisition may mint another process-local
+generation and therefore perform another charged hash; no digest is persisted
+by acquisition.
+
+`Algorithm` plus `HexValue` is the future durable cache-key component.
+`Generation` is the process-local correspondence check and is never serialized
+or reconstructed. Equal digest bytes do not coalesce generations and do not
+grant authority; the cache owner must still combine this evidence with its
+configured-authority and coordinate subject.
+
+Release gates are:
+
+- `PackageContentDigest_ChargesColdPassAndReusesGenerationValue`;
+- `PackageContentDigest_ChargeFailureDoesNotPublish`;
+- `PackageContentDigest_ReentrantChargeFailsVisibly`;
+- `PackageContentDigest_CancellationAfterChargeMemoizesButCancelsCaller`;
+- `PackageContentDigest_ConcurrentRequestsShareColdPass`;
+- `PackageContentDigest_ReplacementChangesGenerationAndDigestSubject`,
+  including W-to-S-to-W replacement;
+- `PackageContentDigest_ProductOwnedArchiveBindsAdmittedTreeAcrossHosts`;
+- `PackageContentDigest_ForeignGlobalPackagesTreesAreIneligible`;
+- `PackageContentDigest_MissingRetainedArchiveDoesNotPublish`; and
+- `PackageContentDigest_OrdinaryAcquisitionDoesNotHash`.
+
+Existing admission gates
+`ProductOwned_WithoutMarker_StillRequiresArchiveTreeMatch`,
+`ProductOwned_DeletedNupkg_DoesNotAdmitMutatedTree`, and
+`GlobalPackagesShapedTree_IsAdmittedWithoutExactArchiveMatch` establish the
+correspondence and foreign-layout boundary that the digest eligibility rule
+consumes.
+
+The acquisition step in the package-index workstream of
+[#3738](https://github.com/richlander/dotnet-inspect/issues/3738) is now
+complete. One production-adoption step remains: the CLI producer/cache path
+must consume this subject under the
+[package-index contract](package-index-cache.md), retire the predecessor
+namespace, and establish its cold/warm-equivalence gate. This is a handoff
+between owners, not a definition of cache internals. Rendering remains
+unchanged: the prerequisite carries typed acquisition evidence, not
+presentation.
 
 #### Sparse selected-assembly projection
 
@@ -2246,7 +2376,7 @@ the prerequisite carries typed acquisition evidence, not presentation.
 package-adapter projection used by bounded Package Query assembly evaluation.
 Given one acquisition-issued `PackageRootBinding`, one exact canonical
 `PackageCompileAsset` occurrence from that binding's frozen selection, an
-asynchronous candidate workspace, and explicit entry and aggregate
+candidate workspace with awaited close, and explicit entry and aggregate
 retained-image bounds, the adapter projects only that asset into one
 artifact-backed participant.
 
@@ -2326,9 +2456,9 @@ After caller input validation, the package-owned projection outcome is closed:
 - **ArtifactPublicationFailed** preserves the artifact owner's typed
   publication failures.
 
-Null inputs, an invalid bound, or a workspace that is not asynchronous are
-caller contract violations and retain their existing argument or invalid-
-operation exceptions outside this outcome algebra.
+Null inputs or an invalid bound are caller contract violations and retain
+their existing argument exceptions outside this outcome algebra. Every
+Workspace supports this projection under its single awaited lifetime.
 
 The adapter recognizes its own internal selected-entry-unavailable sentinel
 when `TryOpenEntry` returns `false` inside the one materialization callback.
@@ -2450,7 +2580,7 @@ disposal can silently replace the other's evidence on the same failure.
 
 Workspace close is the candidate release boundary. Disposing a realization
 alone does not release its transferred artifact session, so a streaming caller
-uses one candidate-scoped asynchronous workspace and closes it after all query
+uses one candidate-scoped workspace and awaits its close after all query
 callbacks are quiescent. Reusing one workspace across a corpus would retain
 prior candidate artifact sessions and is outside this sparse contract.
 
@@ -2531,7 +2661,7 @@ boundary while creating groups for selected coordinates only.
 
 `InspectionWorkspace.RealizePackageAssemblyContextRolesAsync` is the
 artifact-backed realization for one acquisition-issued `PackageRootBinding`.
-It requires an asynchronous workspace and uses the binding's package
+It uses the binding's package
 coordinate, content-generation identity, and selection identity as the exact
 join currency. The complete distinct union of selected surface and
 implementation assets enters one `ArtifactSetSession`; an asset selected into
@@ -2562,7 +2692,7 @@ transfer to the exact distinct role groups, and workspace close releases them
 only after those groups report quiescence. Failure before transfer attempts
 group, query-lease, and artifact-session cleanup without replacing the primary
 failure. Disposing the returned role realization releases its groups but not
-the artifact session; the asynchronous workspace remains the session owner
+the artifact session; the workspace remains the session owner
 until close. Callers serialize this realization with other workspace group
 admissions because exact ownership transfer cannot be evaluated while a group
 admission is incomplete.
@@ -2599,7 +2729,7 @@ authority reacquire the same immutable payload through the authorized
 legacy acquisition result for compile-role realization. Configured-authority
 payloads retain their actual producer and use explicit inspection selection
 below, rather than being relabeled as legacy content-cache coordinates.
-Both paths realize their input in an asynchronous `InspectionWorkspace`.
+Both paths realize their input in an `InspectionWorkspace` whose close is awaited.
 `PackageCommand_GroupedIntegrationsUseRetainedAuthorizedPayload` gates the
 configured HTTP and local-source handoff through the real command, including
 one HTTP payload acquisition and no local-source HTTP transport.
@@ -2999,18 +3129,23 @@ requests are equal exactly when this owner classifies them as the same logical
 Root. It is not `PackageArtifactRootCorrespondence` and carries no Workspace
 identity.
 
-The request preserves two facts separately:
+The request preserves four facts separately:
 
 - the realized producer-pinned acquisition coordinate, whose acquisition
   framework may be absent for framework-neutral source acquisition; and
-- the normalized selection target framework and runtime identifier that froze
-  the binding's compile-asset selection.
+- the normalized compile target used to reduce reference assets and explicit
+  empty groups; and
+- the normalized implementation-selection target and runtime identifier that
+  froze the binding's implementation universe; and
+- whether an exact compile-target miss invokes compatible implementation
+  selection, including when that selection produces no unique universe.
 
-Keeping them separate is load-bearing. `WorkspaceContextLoader.LoadAsync`
-realizes every assembly in the Root and requires an acquisition target, so it
-cannot by itself express framework-neutral acquisition paired with a real
-selection target; collapsing the two facts would either fail with
-`MissingAcquisitionTarget` or silently select a different asset universe.
+Keeping them separate is load-bearing. Framework-neutral acquisition may pair
+with a real compile target. Compatible implementation selection may instead
+pair a requested compile target with an older implementation target. Collapsing
+either pair, or omitting compatible-selection intent when no unique universe
+exists, would fail with `MissingAcquisitionTarget` or silently select a
+different compile or implementation outcome.
 
 The request carries no generation, selection identity, Workspace identity,
 content, session, lease, callback, opener, path authority, or credential. It is
@@ -3102,21 +3237,26 @@ candidate disposed before the user acts on the result — the owner also issues 
 single opaque token from the request and decodes it back.
 
 The token is this owner's, not a host format: its version tag, field order, and
-encoding are owner-owned, and only the owner's decode reads it. It carries
-exactly the facts the request carries and no content, generation, Workspace
-identity, session, lease, path, source URL, or credential.
+encoding are owner-owned, and only the owner's decode reads it. Current
+`pkgroot3` tokens carry the separate compile and implementation targets plus
+compatible-selection intent. Previous `pkgroot2` tokens infer that intent when
+their two targets differ. Legacy `pkgroot1` tokens decode only with their one
+target applied to both roles. Older tokens re-encode in the current format.
+No form carries content,
+generation, Workspace identity, session, lease, path, source URL, or
+credential.
 
 Decoding is total, because a token can arrive from an untrusted transport. It
-is bounded in length before parsing, requires the exact field count, and
-revalidates every field through the owner's own canonical coordinate and
-request construction, so a malformed, over-long, or forged token is a
-`false` return rather than an exception or a value this owner would not have
-issued. A token that is not already canonical is refused rather than silently
-normalized, so one request has exactly one token. A decoded request is a
-request, **not** an authorization: acquiring the Root it names still passes the
-destination host's own source authorization, transfer policy, and payload
-limits. Host caches, registries, credential handling, and worker transport stay
-outside this owner entirely.
+is bounded in length before parsing, requires the exact field count for its
+version, and revalidates every field through the owner's own canonical
+coordinate and request construction, so a malformed, over-long, or forged
+token is a `false` return rather than an exception or a value this owner would
+not have issued. A current token that is not already canonical is refused
+rather than silently normalized, so one current request has exactly one token.
+A decoded request is a request, **not** an authorization: acquiring the Root it
+names still passes the destination host's own source authorization, transfer
+policy, and payload limits. Host caches, registries, credential handling, and
+worker transport stay outside this owner entirely.
 
 Binding factories use one runtime identifier for acquisition and selection.
 Decoding therefore requires the selection runtime to equal the acquisition
@@ -3145,6 +3285,12 @@ In `PackageRootAcquisitionTests`:
 `Token_RoundTripsExactRequest`, `Token_RejectsMalformedOrNonCanonicalInput`,
 `Token_RejectsSelectionRuntimeNotIssuedByBinding`, and
 `ExplicitRequest_StatesItsTargetContract`.
+
+`PackageAssemblyContextRealizationTests.CompatibleEmptyGroup_ReacquisitionPreservesCompileSelection`
+gates the compatible-selection round trip, including token transport and exact
+empty-group preservation.
+`CompatibleAmbiguousImplementationLayout_ReacquisitionRemainsInvalid` gates
+compatible-selection intent when no unique implementation universe exists.
 
 Acquisition against a live feed over the network is **unverified** in this
 slice: the gates serve exact versions from a cached store and fail the test
@@ -3669,98 +3815,178 @@ membership or order, expansion policy, closure, Navigation focus, browser
 effects, portable schema, arbitrary transaction participants, durable recovery,
 or a second query-access protocol.
 
-#### Fresh Workspace construction and switching
+#### Active Workspace realization cutover
 
-##### Problem and strategy
+##### Owner and exact claim
 
-A saved definition describes one Workspace with `Newtonsoft.Json` and
-`Humanizer.Core` as explicit package Roots and a member from `Humanizer.dll`
-selected. Opening that definition constructs exactly that Workspace. The
-new Workspace is constructed solely from that definition; no other Workspace
-or Workspace definition participates. Once construction succeeds, the host
-makes the new Workspace active and Navigation makes `Humanizer.Core` active in
-the subject strip for the selected member. If another Workspace was active,
-the host has switched from it; otherwise this is initial activation. Failure
-retains the prior host state, including the absence of an active Workspace.
+Artifact Acquisition owns one host-local active-realization authority. It
+associates zero or one active `InspectionWorkspace` with the exact
+resource-free `WorkspacePlan` that constructed it, admits operations to that
+realization, cuts over to one ready replacement, and drains predecessor
+authority through ordinary awaited Workspace close.
 
-Restoration constructs the new Workspace with a fresh
-`InspectionWorkspaceIdentity` and uses the ordinary Artifact, Scope,
-Navigation, and query paths inside it:
+Definitions still owns portable requests and lowering. Workspace Scope still
+owns logical membership and its revisions. Retained hosts still own definition
+selection, history, navigation effects, and replacement policy. This owner
+does not search for a compatible Workspace, retain a selectable live-Workspace
+registry, or transfer resources between realizations.
 
-1. create one fresh Workspace under the restoration attempt's cancellation and
-   deadline;
-2. resolve and publish the complete requested multi-package Root set into that
-   Workspace through ordinary Scope and Artifact publication;
-3. establish the requested subject focus and validate any saved view or query
-   state using ordinary operations in the new Workspace;
-4. return the complete new Workspace for one current-authority switch; or
-5. close it on every failure, refusal, cancellation, expiry, or supersession
-   path.
+##### Association currencies
 
-The retained host owns a collection of published Workspaces and one nullable
-active-Workspace pointer. Successful activation is a VIP-style switch: publish
-the new Workspace into that collection and point the active identity to it in
-one non-yielding action. Any previously active Workspace remains published,
-open, viewable through the Workspace subject, and available for a later switch
-back. Construction completes before this publication and does not consult the
-retained collection.
+One realization uses the existing `InspectionWorkspaceIdentity`; no second
+realization identity is introduced. Its immutable origin association retains
+the exact `WorkspacePlan` supplied at construction. Equal plans create fresh
+Workspace identities and do not transfer authority.
 
-##### Ordinary Workspace construction
+One admitted operation retains this resource-free definition snapshot:
 
-The new Workspace is ordinary. It owns its Roots, occurrence identities,
-artifact sessions, context groups, query leases, budget reservations,
-Navigation session, and mutable owner state under the existing Workspace
-contract. Its published Roots use the ordinary current-query path. Artifact
-Acquisition needs no candidate identity, candidate-specific query admission,
-retained-current Root borrowing, `CandidateOwned` receipt state, or
-complete-restoration publication adapter. Ordinary Root
-preparation/publication and Workspace close remain sufficient. Shared immutable
-storage and package caches remain ordinary implementation details.
+```text
+WorkspaceDefinitionSnapshot
+  Workspace               exact InspectionWorkspaceIdentity
+  Identity                fresh opaque snapshot identity
+  Registrations           exact WorkspaceRegistrationRevision
+  Scope                   exact WorkspaceScopeRevision
+```
 
-Platform/package pruning runs before exact package Root construction. For
-example, `NETStandard.Library@2.0.3` contributes no package Root when the
-registered Platform target subsumes it; its selected API resolves through the
-Platform reference surface and type forwarders. `Humanizer.Core` survives
-pruning and becomes one ordinary Root in the fresh multi-package Workspace.
+The snapshot identity is stable while those exact owner-issued revisions
+remain current and advances when either revision advances. Capturing the pair
+occurs under the Workspace runtime gate. The adjacent Scope snapshot separately
+supplies its exact physical-composition observation; neither definition
+identity nor plan equality authorizes Artifact access.
 
-##### Ownership and bounded coexistence
+The live `WorkspaceRealizationOperationLease` joins the selected realization,
+that definition snapshot, and the corresponding Scope observation. The lease
+itself is authority. Retained identity or snapshot values remain diagnostic
+evidence after release and cannot enter another operation. An adopter holds the
+lease through production of its detached result and does not place the lease,
+Workspace, reader, content, callback, or another resource-bearing value in
+that result.
 
-Definitions owns the complete new-Workspace value and restoration result.
-Artifact Acquisition owns construction, ordinary operation, close, and
-resource drainage for each Workspace. The retained host owns the published
-Workspace collection and nullable active identity, and changes them only under
-current owner-issued effect authority. The CLI creates one ephemeral Workspace
-for one invocation and needs no retained collection.
+The current registration and Scope owners supply the two revision currencies.
+Append-only Add and its definition-snapshot publication remain owned by
+[Workspace Scope and Expansion](workspace-scope-and-expansion.md); that owner
+must compose its future publication with this capture boundary rather than
+introduce another operation generation.
 
-A retained host admits at most one unpublished new Workspace at a time. A newer
-restoration supersedes and closes the older attempt's Workspace before
-beginning another. The product exposes at most one active Workspace; the
-published collection may contain multiple inactive Workspaces. An unpublished
-Workspace is not selectable, rendered, placed in history, or available to
-ordinary host actions.
+##### Candidate, cutover, and drainage
 
-Browser/Wasm adoption must define and gate a host-level construction admission
-and retained-Workspace capacity policy. Published Workspaces remain live until
-the user deletes them; deleting a Workspace removes it from the host collection
-and closes it under the ordinary Artifact lifecycle. Per-Workspace budgets do
-not bound the aggregate retained set. This document makes no process-wide
-peak-memory safety claim.
+At most one unpublished candidate accepts construction work. A candidate has a
+fresh Workspace identity and ordinary private Workspace resources, but no
+active-operation authority. Construction enters through an explicit
+`WorkspaceRealizationConstructionLease`; the caller holds that lease for the
+complete construction operation and does not retain its Workspace afterward.
+Candidate completion closes new construction admission, waits for every
+already-admitted construction lease to release, and then captures one complete
+definition snapshot. A Scope snapshot that still reports unfinished
+preparation is not ready for publication.
 
-The required integration evidence is limited to:
+A newer replacement attempt supersedes the older unpublished candidate,
+closes its construction admission, lets already-admitted construction finish,
+and observes its terminal settlement before publishing another candidate.
+The newer attempt may be cancelled while awaiting that settlement; cancellation
+creates no replacement candidate, does not reopen the retired candidate, and
+does not bypass its continuing settlement.
+Candidate failure, cancellation, expiry, or supersession closes only that
+candidate and leaves the current active realization unchanged. Cancellation
+remains a cancellation outcome for the caller while the candidate's typed
+settlement records cancellation as its retirement reason.
 
-- a failed or superseded restoration closes the new Workspace and leaves the
-  published collection and active pointer unchanged;
-- a successful restoration publishes the exact prepared Workspace once and
-  points the active identity to it;
-- switching back selects an already-published Workspace without reconstructing
-  it;
-- deleting a published Workspace is the operation that removes and closes it;
-- at most one unpublished new Workspace is admitted; and
-- the adopting host enforces its declared retained-Workspace resource policy.
+Successful cutover is one non-yielding transition:
 
-These claims remain **unverified**. They require the Definitions and retained
-host designs before implementation; they do not extend the ordinary Artifact
-Root publication model or require a restoration-candidate TLA+ model.
+1. revalidate the exact current candidate and its ready state;
+2. close predecessor active-operation admission;
+3. select the candidate as the sole active realization; and
+4. consume the candidate's publication authority.
+
+An operation racing this transition is admitted either to the predecessor
+before its admission closes or to the successor after selection. It is never
+admitted to the predecessor afterward. Cutover does not wait for predecessor
+operations, lower query leases, streams, or cleanup.
+
+The predecessor becomes a non-selectable drainage record. Its already-admitted
+operation leases continue against their captured realization and definition
+snapshot. After the final such lease releases, Artifact Acquisition invokes
+ordinary `InspectionWorkspace.CloseAsync()`, which stops lower-level admission
+and awaits group, session, Root, stream, and resource settlement under their
+existing contracts. A later replacement may prepare while earlier
+predecessors drain, but only the selected realization admits new operations.
+The drainage records are settlement evidence, not a live-Workspace registry.
+
+There is no rollback or switch-back authority. Reusing an earlier retained
+definition constructs a fresh realization.
+
+##### Shared immutable resources
+
+Candidate, active, and draining realizations may hold independently releasable
+lower-owner references to the same immutable package payload, content
+generation, source cache entry, or validated derivation. Each realization
+still owns distinct Roots, occurrence identities, binding contexts, query
+leases, reservations, and operation authority.
+
+Closing a predecessor releases only its ownership. It cannot invalidate a
+successor's reference, relabel one content generation as another, or transfer a
+Root or live lease to the successor. Coordinates and equal definitions never
+prove shared content identity. Deduplication, cache validity, aggregate
+reference counting, and final reclamation remain with their existing lower
+owners.
+
+##### Settlement and host progress
+
+Every retired candidate or realization exposes one terminal settlement with
+its exact Workspace identity, retirement reason, complete close report when
+available, and any fault from awaited close. A cleanup failure remains visible
+and does not reactivate a predecessor or prevent a later candidate from
+becoming current. After terminal settlement, the coordinator retains only
+resource-free settlement evidence and no reference to the closed Workspace.
+
+No lock spans construction, construction drainage, snapshot capture, Workspace
+close, or settlement awaits. The cutover region performs bounded validation
+and pointer/authority changes only. Last construction- or operation-lease
+release invokes `CloseAsync()` after leaving the gate; it requires no worker
+thread or blocking wait and is valid for single-threaded Browser/Wasm. Eventual
+drainage assumes admitted construction and active operations release their
+leases and lower-owner close reaches a terminal outcome.
+
+Repeated cutover can temporarily retain several draining predecessors.
+Aggregate replacement admission and memory backpressure are host policy; the
+Browser owner must define a bound before production adoption. The CLI normally
+constructs one realization, admits its operation, and closes the coordinator at
+invocation completion.
+
+The implementation is `WorkspaceRealizationCoordinator`,
+`WorkspaceRealizationConstructionLease`,
+`WorkspaceRealizationOperationLease`, and `WorkspaceDefinitionSnapshot`.
+Existing direct Workspace operations remain compatibility surfaces; only
+adopters that enter construction and active operations through the coordinator
+satisfy the active-realization authority claim.
+
+The focused model under
+[`docs/design/models/workspace-realization-cutover/`](models/workspace-realization-cutover/)
+checks candidate failure and supersession, atomic cutover, post-cutover
+admission refusal, construction admission closure and drainage, exact operation
+association, predecessor drainage, visible settlement failure, and conditional
+single-thread progress.
+
+The corresponding Release gates are:
+
+- `Cutover_StopsPredecessorAdmissionAndDrainsAdmittedOperation`;
+- `CandidateFailure_PreservesActiveRealization`;
+- `CandidateRuntimeFailure_RetiresCandidateAndPreservesActiveRealization`;
+- `Completion_WaitsForAdmittedConstructionAndClosesAdmission`;
+- `CancelledCompletion_ReleasesCaptureAndSettlesCandidate`;
+- `SupersededCompletion_ReportsStaleCandidate`;
+- `ClosedCoordinatorCompletion_ReportsCoordinatorClosed`;
+- `NewCandidate_SupersedesAndSettlesPriorCandidate`;
+- `CancelledCandidateStartWait_DoesNotCreateReplacement`;
+- `SupersededCandidate_DrainsAdmittedConstruction`;
+- `OperationAuthority_RetainsExactDefinitionSnapshot`;
+- `EqualOriginPlan_SharesIntentButNotRealizationAuthority`;
+- `SharedPackageContent_PredecessorSettlementKeepsSuccessorUsable`;
+- `Cutover_RejectsCandidateUntilConstructionCompletes`;
+- `ConcurrentReplacement_NewestIntentCreatesTheCandidate`;
+- `OperationLease_DoubleDisposeDoesNotEndAnotherLease`;
+- `Settlement_PreservesWorkspaceCloseFailure`; and
+- `Close_WaitsForAdmittedOperationsAndReportsEverySettlement`.
 
 ### Workspace identity
 
@@ -3774,8 +4000,8 @@ keys, and display text do not participate in Workspace identity.
 While its state is `Open`, the Workspace supplies live operation authority to
 the [Workspace Scope and Expansion](workspace-scope-and-expansion.md) owner.
 That owner may issue Workspace-bound occurrence identities only while the
-authority remains valid. Synchronous `Dispose()` and asynchronous
-`CloseAsync()` stop new scope-operation authority in the same critical section
+authority remains valid. `CloseAsync()` and `DisposeAsync()` stop new
+scope-operation authority in the same critical section
 that changes the Workspace state to `Closing`. Existing identities remain
 comparable after close, but neither identity nor equality authorizes later
 scope operations, package-content access, or query entry.
@@ -3809,7 +4035,7 @@ exact coordinate-owner facts returned by the source composition.
 
 The identity and close gates remain
 `WorkspaceIdentity_IsStableAndExactPerInstance`,
-`SynchronousClose_StopsOccurrenceIssuanceButKeepsIdentity`, and
+`DisposeAsync_StopsOccurrenceIssuanceButKeepsIdentity`, and
 `AsynchronousClose_StopsOccurrenceIssuanceImmediately`. Existing
 `PackageOccurrence_*` gates and the order, empty-view, repeated-binding, exact
 activation, foreign-view rejection, and closed-Workspace rejection
@@ -3973,6 +4199,10 @@ Several current types are migration inputs, not target precedent:
   `ArtifactContentReference` from an already published session and returns a
   descriptor with public path/opener compatibility surfaces. #5143 owns the
   missing admission-scoped, opener-free projection used by this context.
+- `ArtifactContentReference` still captures `ArtifactSetSession` and
+  `ArtifactQueryLease`; its registration, role, digest, and open operations
+  therefore hide revocable query authority. #6647 owns the resource-free
+  reference and explicit retained-content child migration.
 - `AssemblyContextSourceQueryContext` exposes package-owned `IPdbStore`,
   `IPackageSourceAuthorization`, and `NuGetSourceOptions` even for
   assembly-authored-source queries.
@@ -4024,7 +4254,7 @@ The migration is intentionally incremental:
    source policy in an optional companion.
 5. **Separate workspace realization.** Move package/platform realization out of
    core assembly Queries into optional adapters or companion projects. The
-   asynchronous workspace now owns exact sealed artifact sessions through their
+   workspace now owns exact sealed artifact sessions through their
    dependent-group release receipts; package/platform realization migration and
    multi-session host adoption remain outstanding.
 6. **Adapt package acquisition.** Reuse current package stores, source policy,
@@ -4140,6 +4370,12 @@ The target is complete only when tests equivalent to these exist:
 - `ArtifactDescriptor_ExposesNoUnguardedContentRoute`
 - `ArtifactOpen_RejectsContentSubstitutionAfterAdmission`
 - `ArtifactContentReference_BindsIdentityRegistrationRoleAndContent`
+- `ArtifactContentReference_IsResourceFreeEvidence`
+- `ArtifactContentLease_IssuanceRequiresCurrentQueryAuthority`
+- `ArtifactContentLease_SurvivesQueryAuthorizationReplacement`
+- `ArtifactContentLease_BorrowsOnlyItsExactRetainedContent`
+- `ArtifactSetSession_RetirementDrainsTransferredContentLeases`
+- `ArtifactSetSession_ReleasesAcquisitionAfterContentChildren`
 - `LocalArtifactSnapshot_MutationCannotChangeInspectionBytes`
 - `LocalPathAdmission_ExpectedKindsAndLinksAreShared`
 - `LocalPathAdmission_StableNonRegularEntriesRejectBeforeOpen`

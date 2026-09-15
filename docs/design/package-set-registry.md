@@ -496,10 +496,10 @@ dotnet run tools/PackagePrefixBenchmark.cs -- profile Aspire. 500,1000 3
 Three trials at each take returned all 138 packages with no truncation: median
 Search time was 1.27-1.35 seconds with 11 requests, and median profile time was
 3.86-4.04 seconds with 149 requests. A separate single cold production command,
-`find IResourceBuilder --package-prefix Aspire. -t 1000`, took 120.02 seconds,
+`find IResourceBuilder --package-prefix Aspire. -n 1000`, took 120.02 seconds,
 made 276 HTTP requests, and reported 32 selected packages without inspectable
 assemblies. That command used the fixed 500-package prefix-expansion cap, which
-covers all 138 candidates; `-t 1000` raised only the result-row limit. These
+covers all 138 candidates; `-n 1000` raised only the result-row limit. These
 measurements are neither runtime budgets nor stable performance promises. The
 package count, mixed roles, and assembly-free payloads demonstrate why live
 prefix discovery remains a separate explicit gesture. The audited package set

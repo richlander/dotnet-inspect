@@ -6,8 +6,8 @@ using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using DotnetInspector.Networking;
 using InertText;
+using NetworkAccess;
 using NuGetFetch.Plugins;
 using NuGet.Versioning;
 
@@ -413,6 +413,22 @@ public static partial class PackageSourceClientFactory
     }
 
     /// <summary>
+    /// Adapts the existing desktop source model over a caller-created,
+    /// credential-free transport owned by the returned client.
+    /// </summary>
+    public static IPackageSourceClient Create(
+        PackageSource source,
+        PackageSourceAssociation association,
+        HttpMessageHandler ownedCredentialFreeTransport,
+        NuGetFetchOptions? options = null) =>
+        CreateWithTransport(
+            source,
+            association,
+            ownedCredentialFreeTransport,
+            options,
+            authenticationContext: null);
+
+    /// <summary>
     /// Adapts the existing desktop source model to a typed runtime client with
     /// source-scoped plugin authentication.
     /// </summary>
@@ -568,7 +584,7 @@ public static partial class PackageSourceClientFactory
     /// Creates the built-in Gallery client with an isolated, credential-free
     /// transport owned by the returned client.
     /// </summary>
-    public static INuGetGalleryPackageSourceClient CreateGallery(
+    public static IPackageSourceClient CreateGallery(
         PackageSourceAssociation association,
         NuGetFetchOptions? options = null) =>
         new NuGetGalleryPackageSourceClient(
@@ -583,7 +599,7 @@ public static partial class PackageSourceClientFactory
     /// Creates the built-in Gallery client over a caller-created,
     /// credential-free transport owned by the returned client.
     /// </summary>
-    public static INuGetGalleryPackageSourceClient CreateGallery(
+    public static IPackageSourceClient CreateGallery(
         PackageSourceAssociation association,
         HttpMessageHandler ownedCredentialFreeTransport,
         NuGetFetchOptions? options = null)
@@ -601,7 +617,7 @@ public static partial class PackageSourceClientFactory
             options ?? new NuGetFetchOptions());
     }
 
-    internal static IPackageSourceClient Create(
+    internal static IPackageSourceClient CreateWithTransport(
         PackageSource source,
         PackageSourceAssociation association,
         HttpMessageHandler transport,

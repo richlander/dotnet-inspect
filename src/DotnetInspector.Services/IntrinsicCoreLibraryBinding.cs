@@ -44,7 +44,8 @@ static class IntrinsicCoreLibraryBinding
                 if (selection is AssemblyBindingSelection.Missing)
                     continue;
                 if (selection is AssemblyBindingSelection.Selected
-                    or AssemblyBindingSelection.Ambiguous)
+                    or AssemblyBindingSelection.Ambiguous
+                    or AssemblyBindingSelection.CompositionRequired)
                 {
                     return selection;
                 }

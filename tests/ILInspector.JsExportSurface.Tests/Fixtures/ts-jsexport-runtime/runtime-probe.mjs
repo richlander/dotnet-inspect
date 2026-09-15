@@ -33,6 +33,14 @@ for (
     "boxedCount",
     "boxedWidget",
     "wrappedBlob",
+    "genericRecordInt",
+    "genericRecordWidget",
+    "nullableGenericNested",
+    "genericNestedEnvelope",
+    "wrappedGenericNestedEnvelope",
+    "nullableWrappedGenericNestedEnvelope",
+    "mixedNullableValueEnvelope",
+    "genericNestedChoice",
     "selectionEnvelope",
   ]
 ) {
@@ -81,6 +89,24 @@ const getBoxedWidgetKey =
   facadeSource.match(/"(GetBoxedWidget\.-?\d+)"/)?.[1];
 const getWrappedBlobKey =
   facadeSource.match(/"(GetWrappedBlob\.-?\d+)"/)?.[1];
+const getGenericRecordIntAsyncKey =
+  facadeSource.match(/"(GetGenericRecordIntAsync\.-?\d+)"/)?.[1];
+const getGenericRecordWidgetAsyncKey =
+  facadeSource.match(/"(GetGenericRecordWidgetAsync\.-?\d+)"/)?.[1];
+const getNullableGenericNestedKey =
+  facadeSource.match(/"(GetNullableGenericNested\.-?\d+)"/)?.[1];
+const getGenericNestedEnvelopeKey =
+  facadeSource.match(/"(GetGenericNestedEnvelope\.-?\d+)"/)?.[1];
+const getWrappedGenericNestedEnvelopeKey =
+  facadeSource.match(/"(GetWrappedGenericNestedEnvelope\.-?\d+)"/)?.[1];
+const getNullableWrappedGenericNestedEnvelopeKey =
+  facadeSource.match(
+    /"(GetNullableWrappedGenericNestedEnvelope\.-?\d+)"/,
+  )?.[1];
+const getMixedNullableValueEnvelopeKey =
+  facadeSource.match(/"(GetMixedNullableValueEnvelope\.-?\d+)"/)?.[1];
+const getGenericNestedChoiceKey =
+  facadeSource.match(/"(GetGenericNestedChoice\.-?\d+)"/)?.[1];
 const getSelectionEnvelopeAsyncKey =
   facadeSource.match(/"(GetSelectionEnvelopeAsync\.-?\d+)"/)?.[1];
 const observeValueKey =
@@ -174,6 +200,39 @@ assert.ok(
 assert.ok(
   getWrappedBlobKey,
   "The generated GetWrappedBlob runtime dispatch key was not found.",
+);
+assert.ok(
+  getGenericRecordIntAsyncKey,
+  "The generated GetGenericRecordIntAsync runtime dispatch key was not found.",
+);
+assert.ok(
+  getGenericRecordWidgetAsyncKey,
+  "The generated GetGenericRecordWidgetAsync runtime dispatch key was not found.",
+);
+assert.ok(
+  getNullableGenericNestedKey,
+  "The generated GetNullableGenericNested runtime dispatch key was not found.",
+);
+assert.ok(
+  getGenericNestedEnvelopeKey,
+  "The generated GetGenericNestedEnvelope runtime dispatch key was not found.",
+);
+assert.ok(
+  getWrappedGenericNestedEnvelopeKey,
+  "The generated GetWrappedGenericNestedEnvelope dispatch key was not found.",
+);
+assert.ok(
+  getNullableWrappedGenericNestedEnvelopeKey,
+  "The generated GetNullableWrappedGenericNestedEnvelope dispatch key "
+    + "was not found.",
+);
+assert.ok(
+  getMixedNullableValueEnvelopeKey,
+  "The generated GetMixedNullableValueEnvelope dispatch key was not found.",
+);
+assert.ok(
+  getGenericNestedChoiceKey,
+  "The generated GetGenericNestedChoice runtime dispatch key was not found.",
 );
 assert.ok(
   getSelectionEnvelopeAsyncKey,
@@ -293,6 +352,30 @@ function managedExports(methods = {}) {
               methods.getBoxedWidget ?? (() => unionPayloads.boxedWidget),
             [getWrappedBlobKey]:
               methods.getWrappedBlob ?? (() => unionPayloads.wrappedBlob),
+            [getGenericRecordIntAsyncKey]:
+              methods.getGenericRecordIntAsync
+              ?? (async () => unionPayloads.genericRecordInt),
+            [getGenericRecordWidgetAsyncKey]:
+              methods.getGenericRecordWidgetAsync
+              ?? (async () => unionPayloads.genericRecordWidget),
+            [getNullableGenericNestedKey]:
+              methods.getNullableGenericNested
+              ?? (() => unionPayloads.nullableGenericNested),
+            [getGenericNestedEnvelopeKey]:
+              methods.getGenericNestedEnvelope
+              ?? (() => unionPayloads.genericNestedEnvelope),
+            [getWrappedGenericNestedEnvelopeKey]:
+              methods.getWrappedGenericNestedEnvelope
+              ?? (() => unionPayloads.wrappedGenericNestedEnvelope),
+            [getNullableWrappedGenericNestedEnvelopeKey]:
+              methods.getNullableWrappedGenericNestedEnvelope
+              ?? (() => unionPayloads.nullableWrappedGenericNestedEnvelope),
+            [getMixedNullableValueEnvelopeKey]:
+              methods.getMixedNullableValueEnvelope
+              ?? (() => unionPayloads.mixedNullableValueEnvelope),
+            [getGenericNestedChoiceKey]:
+              methods.getGenericNestedChoice
+              ?? (() => unionPayloads.genericNestedChoice),
             [getSelectionEnvelopeAsyncKey]:
               methods.getSelectionEnvelopeAsync
               ?? (async () => unionPayloads.selectionEnvelope),
@@ -468,6 +551,54 @@ async function freshFacade() {
   // A closed byte[] union argument keeps its Base64 JSON string wire form.
   assert.equal(facade.getWrappedBlob(), "AQID");
   assert.deepEqual(
+    await facade.getGenericRecordIntAsync(),
+    {
+      content: 7,
+      nested: { value: 8 },
+      items: [{ value: 1 }, { value: 2 }],
+      lookup: { missing: 0 },
+      choice: 9,
+    },
+  );
+  assert.deepEqual(
+    await facade.getGenericRecordWidgetAsync("sample"),
+    {
+      content: { name: "sample", count: 10 },
+      nested: { value: { name: "sample", count: 11 } },
+      items: [{ value: { name: "sample", count: 12 } }],
+      lookup: { missing: null },
+      choice: { name: "sample", count: 13 },
+    },
+  );
+  assert.deepEqual(
+    facade.getNullableGenericNested(),
+    { value: null },
+  );
+  assert.deepEqual(
+    facade.getGenericNestedEnvelope(),
+    { item: { value: null } },
+  );
+  assert.deepEqual(
+    facade.getWrappedGenericNestedEnvelope(),
+    {
+      item: { value: null },
+      items: [{ value: null }],
+      lookup: { missing: { value: null } },
+    },
+  );
+  assert.deepEqual(
+    facade.getNullableWrappedGenericNestedEnvelope(),
+    { item: { value: null } },
+  );
+  assert.deepEqual(
+    facade.getMixedNullableValueEnvelope(),
+    { item: { first: null, second: null } },
+  );
+  assert.deepEqual(
+    facade.getGenericNestedChoice(),
+    { value: null },
+  );
+  assert.deepEqual(
     await facade.getSelectionEnvelopeAsync("envelope"),
     {
       result: { name: "envelope", count: 5 },
@@ -501,9 +632,15 @@ async function freshFacade() {
     "envelope:5|first|envelope:6|outcome|kind-0|7/envelope|blob:BAU="
       + "|group:envelope,null",
   );
+  assert.equal(
+    await unionUsage.summarizeGenericRecords(),
+    "7|8|1,2|0|9|sample|11|12|null|13|null|null|null|null|null|null|null|null|null",
+  );
   assert.equal(unionUsage.missingSelectionEntry, null);
   assert.equal(unionUsage.missingMapEntry, null);
   assert.equal(unionUsage.missingGroupEntry, null);
+  assert.equal(unionUsage.missingGenericNestedValue, null);
+  assert.equal(unionUsage.missingGenericNestedChoiceValue, null);
   const observed = [];
   facade.observeValue((value) => {
     observed.push(value);

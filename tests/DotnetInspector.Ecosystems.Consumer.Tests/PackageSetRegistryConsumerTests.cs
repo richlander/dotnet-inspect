@@ -34,7 +34,7 @@ public sealed class PackageSetRegistryConsumerTests
         EcosystemPackDescriptor[] packs = [.. EcosystemPackCatalog.Discover()];
         EcosystemDemoDescriptor[] demos = [.. EcosystemPackCatalog.DiscoverDemos()];
 
-        Assert.Equal(4, packs.Length);
+        Assert.Equal(6, packs.Length);
         Assert.Equal(10, demos.Length);
         Assert.Equal(ProductDemoIds.StjSerializer, demos[0].ScenarioId);
         Assert.Equal(ProductDemoIds.AspireRedisCallGraph, demos[^1].ScenarioId);
@@ -82,6 +82,60 @@ public sealed class PackageSetRegistryConsumerTests
         Assert.Null(platform.PackageSet);
         Assert.False(platform.HasScanner);
         Assert.Equal(3, platform.Demos.Length);
+
+        EcosystemPackDescriptor ai = Assert.IsType<EcosystemPackLookupResult.Known>(
+            EcosystemPackCatalog.Lookup(EcosystemPackIds.AI)).Descriptor;
+        Assert.Equal(
+            [
+                "Microsoft.Extensions.AI",
+                "Microsoft.Extensions.VectorData",
+                "Microsoft.Agents.AI",
+                "ModelContextProtocol",
+            ],
+            ai.NamespaceRoots);
+        Assert.Equal(
+            [
+                "Microsoft.Extensions.AI",
+                "Microsoft.Extensions.AI.Abstractions",
+                "Microsoft.Extensions.VectorData.Abstractions",
+                "Microsoft.Agents.AI",
+                "ModelContextProtocol",
+            ],
+            ai.CorePackages.Select(package => package.PackageId));
+        Assert.Null(ai.PackageSet);
+        Assert.False(ai.HasScanner);
+        Assert.Empty(ai.Demos);
+        Assert.Contains(
+            curated.Members,
+            member => member.PackageId == "Microsoft.Extensions.AI");
+
+        EcosystemPackDescriptor azure = Assert.IsType<EcosystemPackLookupResult.Known>(
+            EcosystemPackCatalog.Lookup(EcosystemPackIds.Azure)).Descriptor;
+        Assert.Equal(
+            [
+                "Azure",
+                "Microsoft.Extensions.Azure",
+            ],
+            azure.NamespaceRoots);
+        Assert.Equal(
+            [
+                "Microsoft.Extensions.Azure",
+                "Azure.AI.OpenAI",
+                "Microsoft.Azure.SignalR",
+                "Aspire.Azure.AI.OpenAI",
+                "Aspire.Hosting.Azure.SignalR",
+                "Azure.Identity",
+                "Azure.Security.KeyVault.Secrets",
+                "Azure.Storage.Blobs",
+                "Azure.Messaging.ServiceBus",
+            ],
+            azure.CorePackages.Select(package => package.PackageId));
+        Assert.Null(azure.PackageSet);
+        Assert.False(azure.HasScanner);
+        Assert.Empty(azure.Demos);
+        Assert.DoesNotContain(
+            curated.Members,
+            member => member.PackageId == "Microsoft.Extensions.Azure");
     }
 
     [Fact]

@@ -41,7 +41,7 @@ failures is unchanged, including when a policy fails after suspension.
 
 This contract does not choose host eviction, cache identity, single-flight, or
 scope lifetime policy. The browser owns those in its
-[workspace retention contract](../../prototypes/inspect-web/README.md).
+[workspace retention contract](../../inspect-web/README.md).
 Archive validation, source authorization, producer continuity, and store
 publication retain their existing owners and behavior.
 

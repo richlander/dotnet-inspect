@@ -30,14 +30,12 @@ development model and rationale. The binding summary:
   user-observable experience.
 - **Design first and state the basis.** Name one normative owner and exact
   claim, then supporting designs, models, constraints, and evidence by role.
-- **Start architectures from production-host adoption.** Every new architecture,
-  capability, or substrate names its consumer and links an end-to-end tracker
-  that enumerates the production-host adoption path and total step count, even
-  when the component is host-neutral. Test infrastructure may treat its harness
-  as the production host. An alternative to an existing architecture must also
-  track that architecture's retirement. Shared product substrate must plan
-  enablement through both CLI and browser/Wasm hosts; single-consumer or
-  single-host scope requires explicit user approval.
+- **Plan every feature through production adoption.** Each feature, architecture,
+  capability, or substrate links an overall plan with a direct path to CLI or
+  website use. A sliced or stacked plan includes a production-consumer adoption
+  slice. Test infrastructure may treat its harness as the production host.
+  Alternatives track retirement; shared substrate plans both CLI and
+  browser/Wasm adoption, while narrower scope requires explicit user approval.
 - **Keep hosts thin.** Put reusable concepts and algorithms in host-neutral
   code. Duplicated host logic triggers a review for a shared abstraction that
   would also benefit another future host.
@@ -55,14 +53,14 @@ development model and rationale. The binding summary:
 - **Bias toward progress and low carrying cost.** Land independently coherent
   slices; never present unfinished behavior as supported or preserve CLI flags
   solely for compatibility. Shipped product skills must match current behavior.
-- **Lead with a demo.** Every PR demonstrates the scenario (a mockup for
-  docs-only PRs) without fitting the implementation only to that example.
+- **Lead with a demo.** Every PR demonstrates the real production-host scenario;
+  shared CLI and Browser/Wasm work shows both C# and TypeScript call sites.
 - **Treat critical review feedback as a design question first.** Ask whether
   the owning design addresses it before repairing code; keep paired design
   work moving quickly when the contract needs clarification.
-- **Use extraordinary pre-work for complicated features.** Corpus evidence,
-  an established oracle, a TLA+ model, or a closely developed specification
-  should bound the contract before implementation.
+- **Ground behavior in real assets.** Features and significant fixes cite a
+  motivating nuget.org package or real repository in their design and normally
+  preserve it in tests; synthetic-only work requires user/operator approval.
 - **Use only approved OpenAI GPT configurations.** In agent harnesses that
   advertise GPT models, never start non-GPT, `Fast`, or extra-high (`xhigh`)
   configurations. This launch prohibition does not invalidate work: observe and
@@ -182,7 +180,7 @@ workflow doc, and PR template — lives in [`docs/README.md`](docs/README.md).
 | Core workspace, query, cache, or safety architecture | `docs/inspection-space.md` |
 | A change crossing subsystem ownership boundaries | `docs/overview.md` |
 | Implementation structure | the relevant section of `docs/architecture.md` |
-| Layering and consumer boundaries | `docs/design/inspection-layers.md` |
+| Layering, consumers, and project families | `docs/design/inspection-layers.md`, `docs/design/library-family-boundaries.md` |
 | Command defaults and disclosure | `docs/design/progressive-disclosure.md` |
 | Output data shapes and style | `docs/design/output-shapes.md`, `docs/design/style-guide.md` |
 | Metadata and API inspection | `docs/design/assembly-inspection-query.md` |
@@ -205,7 +203,7 @@ for the registration mechanics.
 
 For routine development, use production dotnet-inspect
 (`dnx dotnet-inspect -y -- <command>`) — normally current and much faster to
-start than `dotnet run --project src/dotnet-inspect -c Release -- <command>`,
+start than `dotnet run --project src/DotnetInspect.Cli -c Release -- <command>`,
 which is required only when evidence depends on an unmerged change. Full
 rationale:
 [`docs/dev-environment.md`](docs/dev-environment.md#which-dotnet-inspect-to-run).
@@ -257,6 +255,8 @@ over-broad-design recovery procedure live in
   owns command and presentation concerns.
 - Reuse existing typed models, Finding contracts, section schemas, serializers,
   and resolution services before adding parallel abstractions.
+  Completed host-neutral APIs that hand results to hosts expose
+  `InspectionEnvelope<TContent>`; projections preserve Content, Share, and diagnostics.
 - Preserve behavior-safe defaults and progressive disclosure. Network,
   source-content, exhaustive, or otherwise expensive work must remain explicit
   or capability-gated.
@@ -330,22 +330,22 @@ Tests are xUnit executables. **Use `dotnet run`, not `dotnet test`**;
 `dotnet test` silently executes no tests here. Always use Release because
 compiler-generated IL shapes differ in Debug.
 
-Tag a test `[Trait("Speed", "Slow")]` when its cost comes from exhaustive or
-whole-assembly analysis rather than ordinary unit-test setup, so it runs only
-in nightly Deep Inspect, not the PR-blocking fast leg. See
-[Classifying test cost](docs/testing-cost-classification.md) for the
-threshold, placement convention, and existing consumers.
+Classify every new or materially expanded test as PR-fast or
+`[Trait("Speed", "Slow")]`. Tag exhaustive or whole-assembly tests slow;
+otherwise measure suspected slow tests in isolation. Exclude slow tests from
+PR CI only when daily Deep Inspect or a focused pre-merge gate owns them. See
+[Classifying test cost](docs/testing-cost-classification.md) for details.
 
 | Area | Command |
 | --- | --- |
-| CLI and product output | `dotnet run --project tests/dotnet-inspect.Tests -c Release` |
+| CLI and product output | `dotnet run --project tests/DotnetInspect.Cli.Tests -c Release` |
 | Artifact contracts | `dotnet run --project tests/Inspector.Artifacts.Tests -c Release` |
 | Row selection | `dotnet run --project tests/DotnetInspector.RowSelection.Tests -c Release` |
 | Section-row shaping | `dotnet run --project tests/DotnetInspector.Sections.Tests -c Release` |
 | Analysis | `dotnet run --project tests/ILInspector.Analysis.Tests -c Release` |
 | Decompiler | `dotnet run --project tests/ILInspector.Decompiler.Tests -c Release` |
 | C# text | `dotnet run --project tests/CSharpText.Tests -c Release` |
-| Research and additional library suites | See [focused test commands](docs/dev-environment.md#additional-library-suites). |
+| Additional library and host suites | See [focused test commands](docs/dev-environment.md#additional-library-suites). |
 | Inspection queries | `dotnet run --project tests/DotnetInspector.Queries.Tests -c Release` |
 | Shared services | `dotnet run --project tests/DotnetInspector.Services.Tests -c Release` |
 | Metadata and SourceLink | `dotnet run --project tests/ILInspector.Metadata.Tests -c Release` |
@@ -397,24 +397,24 @@ that head, reconcile the feedback publicly, make any resulting fixes, and freeze
 the replacement head. These are the binding invariants; the rest of this
 section and [round orchestration](docs/round-orchestration.md) explain them.
 
-1. **One frozen head per round.** The lock begins at the push and ends only
-   when the round closes (reconciled *and* green) or recovery supersedes the
-   attempt. Do not edit a locked head; fixes belong to the next cycle.
+1. **One frozen head per review attempt.** The lock begins at the push and ends
+   only when the round closes or applicable recovery supersedes the candidate.
+   Do not edit a locked head; fixes belong to the next candidate.
 2. **A candidate includes its effective base.** Integrate twice before pushing
    — once before fixing, once after — because the fix window is long enough for
    `main` to move.
 3. **Base movement alone never invalidates a pushed candidate**, and never
    justifies another round.
-4. **A round that pushes a fix is not review-clean.** Only the replacement head
-   can earn that.
+4. **Every usable fixed-head review spends its round.** A finding-producing round
+   is not review-clean; fixes form the next numbered round.
 5. **Never claim merge readiness from label state alone.** Confirm current-head
    CI and GitHub's live mergeability immediately before every merge attempt.
-6. **A round closes only when reconciled and its applicable gates are green.**
-   For a non-Markdown-only PR, known-red `ci-required` blocks; pending status follows
-   [Bounded status waiting](docs/round-orchestration.md#bounded-status-waiting).
-   At non-boundary rounds, a Markdown-only PR's gate is pre-commit
-   `markdownlint`; do not wait for CI before review. A gate failure requiring an
-   author change restarts the *same* round.
+6. **A round closes only after reconciliation and its applicable gate result.**
+   Green closes normally; a post-review author-change failure closes as failed
+   and advances its repair. Pre-review failure retries the pending round.
+   Pending status follows [Bounded status
+   waiting](docs/round-orchestration.md#bounded-status-waiting); non-boundary
+   Markdown-only rounds substitute pre-commit `markdownlint`.
 7. **Six rounds, then stop** and ask for another block.
 8. **Never merge without explicit user authorization** for that specific PR.
    A recorded exact-head merge authorization satisfies this rule; see the
@@ -427,28 +427,28 @@ definition live in
 [Candidate lifecycle](docs/round-orchestration.md#candidate-lifecycle). The
 essentials: integrate the effective base, make the change, run the focused
 gate, integrate again, push to lock the head, satisfy the eligibility row,
-dispatch reviewers, reconcile publicly, and close only when reconciliation and
-the applicable gates are green.
+dispatch reviewers, reconcile publicly, and close under the applicable
+gate-result transition.
 
 ### Recovery transitions
 
 Applied without waiting for CI; full conditions live in
 [Candidate lifecycle](docs/round-orchestration.md#candidate-lifecycle).
 
-- **Conflict:** supersede, integrate, resolve, push immediately, and restart
-  the same round — or take the exact-head trivial-interaction waiver when
-  eligible.
+- **Conflict:** before a usable review result, supersede and retry the pending
+  round; afterward, recover in the next numbered round — or take the
+  exact-head trivial-interaction waiver when eligible.
 - **Scope violation:** keep the locked head unchanged while the user chooses
   split, abandonment, or an approved broad exception (see
   [Recovering from an over-broad design](docs/design-scope.md#recovering-from-an-over-broad-design)).
-- **Failure requiring an author change:** supersede, push the fix, satisfy the
-  failed-gate row, and restart the same round.
+- **Failure requiring an author change:** pre-review failures retry the pending
+  round; review-driven fixes form the next numbered round.
 - **Cancelled or evidenced transient failure:** keep the lock and retry the
   unchanged head with concrete transient evidence; otherwise treat it as an
   author change.
 
-A superseded attempt spends no round and gets no completion report; carry every
-returned finding forward.
+A candidate superseded before its required review returns a usable result spends
+no round. Once it does, the round is spent; carry every finding forward.
 
 ### Forming a candidate
 

@@ -25,10 +25,10 @@ public sealed class NavigationLensRecommendationTests
             identity,
             new NavigationLensIdentity(first, new ViewFacetId("type.source")));
         Assert.Equal(
-            "root.overview",
+            "workspace.overview",
             new NavigationLensIdentity(
                 first,
-                new ViewFacetId("root.overview")).Facet.Value);
+                new ViewFacetId("workspace.overview")).Facet.Value);
     }
 
     [Fact]
@@ -156,12 +156,12 @@ public sealed class NavigationLensRecommendationTests
         Assert.Null(unavailable.EffectiveLens);
         var crossKindRequest = new NavigationLensIdentity(
             subject,
-            new ViewFacetId("root.overview"));
+            new ViewFacetId("workspace.overview"));
         ViewFacetDescriptor crossKindDescriptor = Option(
-            "root.overview",
-            StructuralSubjectKind.Root,
-            300,
-            ViewFacetRole.RootOverview,
+            "workspace.overview",
+            StructuralSubjectKind.Workspace,
+            100,
+            ViewFacetRole.WorkspaceOverview,
             ViewFacetAvailability.Available.Instance).Descriptor;
         var crossKindResolution =
             new ViewFacetResolution.Inapplicable(crossKindDescriptor);
@@ -178,11 +178,11 @@ public sealed class NavigationLensRecommendationTests
                 new ViewFacetResolution.Unavailable(
                     crossKindDescriptor,
                     ViewFacetUnavailableReason.CapabilityAbsent(
-                        "The root view is unavailable.")),
+                        "The Workspace view is unavailable.")),
                 new ViewFacetResolution.Failed(
                     crossKindDescriptor,
-                    "The root view failed.",
-                    new TestDiagnosticEvidence("root")),
+                    "The Workspace view failed.",
+                    new TestDiagnosticEvidence("workspace")),
             })
         {
             Assert.Throws<ArgumentException>(
@@ -601,21 +601,21 @@ public sealed class NavigationLensRecommendationTests
         StructuralSubjectIdentity Subject,
         ViewFacetRole Role)> SubjectsAndRoles()
     {
+        StructuralSubjectTestData.PackageContext context =
+            StructuralSubjectTestData.Package(PackageCoordinate());
         yield return (
-            StructuralSubjectIdentity.ForRoot(PackageCoordinate()),
+            context.Workspace,
+            ViewFacetRole.WorkspaceOverview);
+        yield return (
+            context.Subject,
             ViewFacetRole.PackageOverview);
         yield return (
-            StructuralSubjectIdentity.ForRoot(PlatformCoordinate()),
-            ViewFacetRole.RootOverview);
-        yield return (
-            StructuralSubjectIdentity.ForRoot(EmbeddedCoordinate()),
-            ViewFacetRole.RootOverview);
-        yield return (
-            StructuralSubjectIdentity.ForAllLibraries(PackageCoordinate()),
+            StructuralSubjectIdentity.ForAllLibraries(context.Subject),
             ViewFacetRole.LibraryReferences);
         yield return (
             StructuralSubjectIdentity.ForLibrary(
-                Library(PackageCoordinate())),
+                context.Subject,
+                Library(context.Subject.Coordinate)),
             ViewFacetRole.LibraryReferences);
         yield return (TypeSubject("Widget"), ViewFacetRole.TypeApi);
         yield return (MemberSubject(), ViewFacetRole.MemberOverview);
@@ -645,8 +645,12 @@ public sealed class NavigationLensRecommendationTests
     static StructuralSubjectIdentity.TypeSubject TypeSubject(string name)
     {
         RealizedMemberCoordinate.Package coordinate = PackageCoordinate();
+        StructuralSubjectIdentity.PackageSubject package =
+            StructuralSubjectTestData.Package(coordinate).Subject;
         return StructuralSubjectIdentity.ForType(
-            StructuralSubjectIdentity.ForLibrary(Library(coordinate)),
+            StructuralSubjectIdentity.ForLibrary(
+                package,
+                Library(coordinate)),
             TypeName("Sample", name));
     }
 
@@ -670,20 +674,6 @@ public sealed class NavigationLensRecommendationTests
             "nuget-org",
             "net11.0",
             runtimeIdentifier: null);
-
-    static RealizedMemberCoordinate.Platform PlatformCoordinate() =>
-        new(
-            "runtime",
-            "11.0.0",
-            "fixture",
-            "net11.0",
-            assembly: null);
-
-    static RealizedMemberCoordinate.Embedded EmbeddedCoordinate() =>
-        new(
-            "lib/sample.dll",
-            new string('a', 64),
-            "Sample");
 
     static WorkspaceContextMember Library(
         RealizedMemberCoordinate.Package coordinate)

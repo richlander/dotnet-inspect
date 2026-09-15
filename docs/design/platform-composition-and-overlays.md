@@ -64,24 +64,18 @@ defines the platform-owned contract for realizing one exact installed
 implementation-platform closure. It is the package-free installed counterpart
 to remotely acquired implementation packs. It does not construct a workspace,
 assign a platform role, or grant core-library trust. The implementation does
-not yet satisfy this contract.
+now lives in `DotnetInspector.Platforms.Installed`; host-neutral manifest
+interpretation is delegated to
+[Platform Manifest Formats](platform-manifest-formats.md).
 
 ### Boundary
 
-`InstalledPlatformRealization` consumes one owner-issued
-`InstalledDotnetHiveIdentity`, one exact case-sensitive
-`InstalledPlatformFamily`, one canonical package-neutral
-`InstalledPlatformVersion`, and the `SharedFrameworkImplementation` layout
-kind.
-
-`InstalledPlatformFamily` is a portable, non-path-bearing value of at most 236
-ASCII bytes. It begins and ends with a letter or decimal digit, otherwise
-contains only letters, digits, `.`, `_`, or `-`, and its first dot-delimited
-component is not case-insensitively `CON`, `PRN`, `AUX`, `NUL`, `COM1` through
-`COM9`, or `LPT1` through `LPT9`. The ceiling keeps
-`<family>.runtimeconfig.json` within the portable 255-byte component limit. No
-path API constructs or normalizes this value before request validation
-succeeds.
+`InstalledImplementationRealization` consumes one owner-issued
+`InstalledDotnetHiveIdentity`, one exact closed root
+`InstalledPlatformFamily`, and one canonical package-neutral
+`PlatformVersion`. The root family maps to `Microsoft.NETCore.App` or
+`Microsoft.AspNetCore.App`; transitive manifests may name any valid
+`PlatformFrameworkName` issued by the format owner.
 
 The optional desktop adapter mints the hive identity from one host-selected
 dotnet root. Discovery and selection precede this contract; realization never
@@ -106,7 +100,9 @@ not fallbacks.
 
 ### Closure contract
 
-The selected framework's manifests are authoritative:
+The selected framework's manifests are authoritative. Their byte-level
+interpretation is owned by
+[Platform Manifest Formats](platform-manifest-formats.md):
 
 - `<family>.runtimeconfig.json`, when present, defines direct shared-framework
   dependencies; a valid configuration with no framework references or a
@@ -125,15 +121,14 @@ This is a manifest-defined installed implementation closure, not launch-time
 effective TPA.
 
 Manifest coordinates remain contained beneath the selected framework
-directory. Manifest bytes are bounded before parsing; `HardenedJson` owns
-malformed-JSON and duplicate-property policy. A runtime-configuration probe,
-open, or read failure other than definitive not-found is a typed failure, not
-an empty dependency set.
+directory. Manifest bytes are bounded before parsing and passed to the format
+owner. A runtime-configuration probe, open, or read failure other than
+definitive not-found is a typed failure, not an empty dependency set.
 
-Every framework name declared by a runtime configuration must construct the
-same `InstalledPlatformFamily` value before dependency path normalization or
-lookup. Invalid declared family text rejects the manifest. A valid root or
-dependency family matches one frozen family-directory entry ordinally and
+Every framework name declared by a runtime configuration must construct a
+`PlatformFrameworkName` before dependency path normalization or lookup.
+Invalid declared name text rejects the manifest. A valid root or dependency
+framework matches one frozen framework-directory entry ordinally and
 case-sensitively rather than inheriting host filesystem case folding.
 
 Each participating dependency-manifest path is a logical asset coordinate. It
@@ -149,7 +144,7 @@ inspection.
 Only reached framework families are inventoried. Each reached family's bounded
 candidate inventory is frozen for the attempt; unrelated families are never
 enumerated. Framework names compare ordinally and case-sensitively.
-`InstalledPlatformVersion` provides SemVer 2 comparison without a package-layer
+`PlatformVersion` provides SemVer 2 comparison without a package-layer
 dependency. Invalid directory names are ignored, but two dependency candidates
 with equal winning precedence reject as ambiguous rather than inheriting
 enumeration order.
@@ -204,7 +199,7 @@ contract neither detects nor proves an attempt-wide atomic filesystem view.
 
 A successful realization is immutable, bound/non-portable, and not an
 interchange format. Each success mints a fresh opaque
-`InstalledPlatformRealizationGenerationIdentity` that binds:
+`InstalledPlatformSourceGeneration` that binds:
 
 - the exact hive, request, reached-family inventories, and selected framework
   graph;
@@ -302,34 +297,20 @@ Later designated/platform arbitration remains covered by the
 TLA+ state model would duplicate those owners rather than test this local,
 deterministic closure function.
 
-The required Release evidence is:
-
-Rejection gates derive their expected reason sets from the declarations so
-both missing and stale cases fail.
-The runtimeconfig-access gate likewise derives its probe, open, and read stages
-from the declared failure set.
-The invalid-capability and invalid-request early-rejection gates exercise the
-complete realization entry point and independently observe adapter invocation,
-path normalization, and filesystem work for every declared reason.
-The invalid-dependency-family gate starts from an acquired root manifest and
-independently observes dependency path normalization and dependency-family
-filesystem work.
-`InstalledPlatformRealization_FrameworkResolutionMatchesHostFxrOracle` covers
-only the deterministic domain shared with hostfxr; product-defined ambiguity
-rules are owned by their rejection gates.
+The required Release evidence is split between the source-specific installed
+suite and the reusable format suite. The installed suite exercises complete
+realization through the public source and adapter entry points; format-reader
+gates are listed in
+[Platform Manifest Formats](platform-manifest-formats.md#evidence-gates).
 
 | Claim | Named gate |
 | --- | --- |
-| Exact root and transitive framework closure | `InstalledPlatformRealization_ExactRootNeverRollsForward`, `InstalledPlatformRealization_AspNetCoreIncludesTransitiveCoreClosure`, `InstalledPlatformRealization_CoreRootUsesOnlyItsTransitiveClosure`, `InstalledPlatformRealization_CoreMembershipMatchesIndependentOracle` |
-| Dependency-free leaf compatibility | `InstalledPlatformRealization_PresentRuntimeConfigWithoutFrameworkReferencesIsValidLeaf`, `InstalledPlatformRealization_MissingRuntimeConfigIsValidLeaf`, `InstalledPlatformRealization_RuntimeConfigAccessFailuresDoNotBecomeLeaf` |
-| Host-compatible dependency resolution | `InstalledPlatformRealization_FrameworkResolutionMatchesHostFxrOracle`, `InstalledPlatformRealization_ReconcilesConvergingFrameworkReferences`, `InstalledPlatformRealization_RejectsEqualPrecedenceReferenceAmbiguity`, `InstalledPlatformRealization_PropagatesLatestVersionPolicyToDependencies`, `InstalledPlatformRealization_PreservesReleaseAndPrereleaseSelection` |
-| Replacement and termination behavior | `InstalledPlatformRealization_LateReferenceReplacesPriorExpansion`, `InstalledPlatformRealization_LaterRestrictionRebuildsWithoutStaleDependency`, `InstalledPlatformRealization_OutcomesBudgetsAndCancellationRemainDistinct` |
-| Manifest authority and deterministic membership | `InstalledPlatformRealization_ManifestRuntimeAssetsAreExact`, `InstalledPlatformRealization_LegacyCoreMembershipMatchesIndependentOracle`, `InstalledPlatformRealization_LegacyRuntimeAssetProjectsToInstalledLeaf`, `InstalledPlatformRealization_ProjectedMemberCoordinateCollisionRejectsAtomically`, `InstalledPlatformRealization_ResolutionAndMembersAreOrderIndependent`, `InstalledPlatformRealization_IgnoresUnreferencedFamilies` |
-| No ambient or fallback authority | `InstalledPlatformRealization_IgnoresAmbientRollForwardOverrides`, `InstalledPlatformRealization_NeverFallsBackOutsideSelectedHiveOrLayout`, `InstalledPlatformRealization_FrameworkFamilyLookupIsOrdinal` |
-| Declared rejection behavior | `InstalledPlatformRealization_InvalidRequestCasesRejectAtomically`, `InstalledPlatformRealization_InvalidAdapterCapabilityCasesRejectAtomically`, `InstalledPlatformRealization_InvalidManifestCasesRejectAtomically`, `InstalledPlatformRealization_InvalidDependencyFamilyRejectsBeforePathOrIo`, `InstalledPlatformRealization_InvalidFrameworkGraphCasesRejectAtomically`, `InstalledPlatformRealization_InvalidMemberCasesRejectAtomically`, `InstalledPlatformRealization_NonSuccessReturnsNoProofOrLiveLease` |
-| Atomic identity and frozen-member handoff | `InstalledPlatformRealization_DuplicateAssemblyIdentityRejectsAtomically`, `InstalledPlatformRealization_MissingOrInvalidDependencyNeverShortensClosure`, `InstalledPlatformRealization_ProofBindsHiveGraphManifestsAndMemberContent`, `InstalledPlatformRealization_GenerationIsFreshAndProofLeaseBound`, `InstalledPlatformRealization_MemberLeaseReturnsExactFrozenSnapshot`, `InstalledPlatformRealization_SourceMutationDoesNotChangeRetainedMember`, `InstalledPlatformRealization_ProofExposesNoRawContentRoute` |
-| Adapter capability bounds | `InstalledPlatformAdapterCapabilities_DeclareFinitePositiveBounds`, `InstalledPlatformRealization_RequestLimitsOnlyNarrowCapability`, `InstalledPlatformRealization_InvalidAdapterCapabilityCasesRejectBeforeAdapterPathOrIo`, `InstalledPlatformRealization_InvalidRequestCasesRejectBeforeAdapterPathOrIo` |
-| Platform and dependency boundaries | `InstalledPlatformComposition_UsesDesktopAdaptersAndRejectsBrowserBeforeIo`, `BrowserPlatformComposition_DoesNotReferenceInstalledDesktopAdapter`, `InstalledPlatformAdapter_NativeAotPublishAndRun`, `InstalledPlatformAdapterClosure_ExcludesPackageAndNuGetImplementations`, `InstalledPlatformAdapterClosure_ExcludesInspectedAssemblyLoading`, `InstalledPlatformAdapter_ExcludesHostFxrInterop` |
+| Exact root and transitive framework closure | `Realize_ExactRootNeverRollsForward`, `Realize_RejectsCaseVariantRootVersion`, `Realize_AspNetCoreIncludesResolvedRuntimeDependency` |
+| General framework graph and reconciliation | `Realize_AppliesFrameworkRollForward`, `Realize_ApplyPatchesFalseKeepsExactPatch`, `Realize_ReconcilesReferencesAndPropagatesHighestPolicy`, `Realize_LateReferenceReplacesPriorExpansion`, `Realize_RejectsFrameworkCycle`, `Realize_RejectsEqualPrecedenceReferencesRegardlessOfOrder`, `Realize_RejectsEqualPrecedenceDependencyCandidates`, `Realize_IgnoresLowerEqualPrecedenceCandidateAmbiguity` |
+| Manifest authority and immutable membership | `Realize_DotNetRuntimeUsesManifestMembershipAndSnapshots`, `Realize_RejectsSelectedDependencyWithoutManifest`, `Realize_RejectsInvalidRuntimeConfigurationUtf8`, `Realize_RejectsProjectedCoordinateCollision`, `Realize_PreflightsAllProjectionCollisionsBeforeMemberIo`, `Realize_RejectsMissingManifestMember`, `Realize_RejectsRootedManifestMemberCoordinate`, `Realize_InvalidMemberPrecedesAssetBudgetRegardlessOfOrder` |
+| Atomic assembly identity | `Realize_RejectsDuplicateAssemblyIdentityAcrossFrameworks` |
+| Bounded and cancelled work | `Realize_ObservesFrameworkDirectoryOnce`, `Realize_ManifestOrderDoesNotChangeTightByteBudget`, `Realize_FrameworkBudgetPrecedesMissingDependencyRegardlessOfOrder`, `Realize_DuplicateFrameworkPrecedesBudgetRegardlessOfOrder`, `Realize_ReturnsIncompleteBeforePublishingPartialClosure`, `Realize_PreservesCancellationBeforeZeroBudgetOutcome` |
+| PlatformHouse adoption | `RealizeImplementation_ProducesAuthoritativeExactTargetContribution`, `EntryPoints_PreserveCancellationBeforeZeroBudgetOutcome` |
 
 ### Non-claims
 

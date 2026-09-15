@@ -336,7 +336,7 @@ METADATA_TESTS=tests/ILInspector.Metadata.Tests/bin/Release/net11.0/ILInspector.
 RUNTIME=artifacts/bin/ILInspector.Decompiler.Fixtures.RuntimeAsync/release/ILInspector.Decompiler.Fixtures.RuntimeAsync.dll
 
 inspect_member() {
-  dotnet run --project src/dotnet-inspect -c Release --no-build -- \
+  dotnet run --project src/DotnetInspect.Cli -c Release --no-build -- \
     member "$1" "$2" --library "$3" \
     -S "Decompiled Source" --bare --tips q
 }
@@ -349,7 +349,7 @@ inspect_member ILInspector.Decompiler.Tests.CfgSampleClass KeywordParam "$CFG"
 inspect_member ILInspector.Decompiler.Tests.CfgSampleClass GreaterAsByte "$CFG"
 inspect_member ILInspector.Decompiler.Tests.NamePreservationSamples StackAllocGenericNameCollision "$CFG"
 
-dotnet run --project src/dotnet-inspect -c Release --no-build -- \
+dotnet run --project src/DotnetInspect.Cli -c Release --no-build -- \
   type ILInspector.Metadata.Tests.TupleSampleClass \
   --library "$METADATA_TESTS" \
   -S "Decompiled Source" --bare --tips q
@@ -436,7 +436,7 @@ new { Id = x, Name = y }
 ```bash
 inspect_member ILInspector.Decompiler.Tests.CfgSampleClass TuplePair "$CFG"
 
-dotnet run --project src/dotnet-inspect -c Release --no-build -- \
+dotnet run --project src/DotnetInspect.Cli -c Release --no-build -- \
   type ILInspector.Metadata.Tests.TupleSampleClass \
   --library "$METADATA_TESTS" \
   -S "Decompiled Source" --bare --tips q
@@ -634,7 +634,7 @@ inspect_member \
   RuntimeAsyncNoAwaitUnsafe \
   "$CFG"
 
-dotnet run --project src/dotnet-inspect -c Release --no-build -- \
+dotnet run --project src/DotnetInspect.Cli -c Release --no-build -- \
   member ILInspector.Decompiler.Tests.CfgSampleClass \
   RuntimeAsyncNoAwaitUnsafe \
   --library "$CFG" \
@@ -738,7 +738,7 @@ inspect_member \
   Number \
   "$CFG"
 
-dotnet run --project src/dotnet-inspect -c Release --no-build -- \
+dotnet run --project src/DotnetInspect.Cli -c Release --no-build -- \
   type ILInspector.Decompiler.Tests.PrimaryCtorSample \
   --library "$CFG" \
   -S "Decompiled Source" --bare --tips q
@@ -882,7 +882,7 @@ inspect_member \
   KeywordNamedIteratorLocal \
   "$CFG"
 
-dotnet run --project src/dotnet-inspect -c Release --no-build -- \
+dotnet run --project src/DotnetInspect.Cli -c Release --no-build -- \
   member \
   CSharpText.Tests.UnicodeIdentifierFixtures \
   CombiningMarkGenericParameter \

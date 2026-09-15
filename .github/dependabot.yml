@@ -8,7 +8,7 @@ version: 2
 # Major updates stay ungrouped: they are the ones that need to be read.
 updates:
   - package-ecosystem: npm
-    directory: /prototypes/inspect-web
+    directory: /inspect-web
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
@@ -51,7 +51,7 @@ updates:
     directories:
       - /
       - /eng/CiChangeDetection
-      - /prototypes/inspect-web/msdl-proxy
+      - /inspect-web/msdl-proxy
     schedule:
       interval: weekly
     open-pull-requests-limit: 5

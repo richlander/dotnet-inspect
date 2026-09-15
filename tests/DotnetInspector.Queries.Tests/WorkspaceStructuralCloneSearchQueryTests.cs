@@ -105,7 +105,7 @@ public sealed class WorkspaceStructuralCloneSearchQueryTests
                 fixture.EcosystemParticipant,
                 StructuralCloneParticipantMembership.Available));
 
-        await using var foreign = InspectionWorkspace.CreateAsynchronous();
+        await using var foreign = new InspectionWorkspace();
         WorkspaceScopeRevision foreignRevision =
             (await ScopeSnapshot(foreign)).Revision;
         Assert.Throws<ArgumentException>(
@@ -2131,7 +2131,7 @@ public sealed class WorkspaceStructuralCloneSearchQueryTests
         internal static async ValueTask<Fixture> CreateAsync()
         {
             InspectionWorkspace workspace =
-                InspectionWorkspace.CreateAsynchronous();
+                new InspectionWorkspace();
             return new Fixture(
                 workspace,
                 (await ScopeSnapshot(workspace)).Revision);

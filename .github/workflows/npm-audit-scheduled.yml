@@ -20,7 +20,7 @@ jobs:
           node-version: '24'
 
       - name: Audit the committed lockfile
-        working-directory: prototypes/inspect-web
+        working-directory: inspect-web
         env:
           npm_config_fetch_timeout: '30000'
         run: bash scripts/audit-dependencies.sh "$RUNNER_TEMP/npm-audit"

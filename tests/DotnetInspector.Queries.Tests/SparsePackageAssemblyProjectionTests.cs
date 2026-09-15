@@ -26,7 +26,7 @@ public sealed class SparsePackageAssemblyProjectionTests
         // projection may add none of its own.
         int enumerationsBeforeProjection = content.EnumerationRequests;
         await using InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
 
         SparsePackageAssemblyProjectionOutcome outcome =
             await workspace.ProjectSelectedPackageAssemblyAsync(
@@ -66,7 +66,7 @@ public sealed class SparsePackageAssemblyProjectionTests
         var content = new TrackingPackageContent((AssetPath, image));
         PackageRootBinding binding = Binding("sparse.provenance", content);
         await using InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
 
         using SparsePackageAssemblyRealization realization =
             await ProjectAsync(workspace, binding, image.LongLength);
@@ -117,7 +117,7 @@ public sealed class SparsePackageAssemblyProjectionTests
             "Sparse.Foreign",
             new TrackingPackageContent((AssetPath, image)));
         await using InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
 
         foreach (PackageCompileAsset rejected in
             new[] { reconstructed, SelectedAsset(foreign) })
@@ -145,7 +145,7 @@ public sealed class SparsePackageAssemblyProjectionTests
         PackageCompileAsset asset = SelectedAsset(binding);
         content.ReplaceGeneration();
         await using InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
 
         Assert.IsType<SparsePackageAssemblyProjectionOutcome.InvalidBinding>(
             await workspace.ProjectSelectedPackageAssemblyAsync(
@@ -168,7 +168,7 @@ public sealed class SparsePackageAssemblyProjectionTests
         var content = new TrackingPackageContent((AssetPath, image));
         PackageRootBinding binding = Binding("Sparse.Budget", content);
         await using InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
 
         SparsePackageAssemblyProjectionOutcome outcome =
             await workspace.ProjectSelectedPackageAssemblyAsync(
@@ -207,7 +207,7 @@ public sealed class SparsePackageAssemblyProjectionTests
         var content = new TrackingPackageContent((AssetPath, image));
         PackageRootBinding binding = Binding("Sparse.Declared", content);
         await using InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
 
         var exceeded =
             Assert.IsType<
@@ -234,7 +234,7 @@ public sealed class SparsePackageAssemblyProjectionTests
         var content = new UnderreportingPackageContent(AssetPath, image);
         PackageRootBinding binding = Binding("Sparse.Observed", content);
         await using InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
 
         var exceeded =
             Assert.IsType<
@@ -264,7 +264,7 @@ public sealed class SparsePackageAssemblyProjectionTests
         };
         PackageRootBinding binding = Binding("Sparse.Missing", content);
         await using InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
 
         var unavailable =
             Assert.IsType<
@@ -290,7 +290,7 @@ public sealed class SparsePackageAssemblyProjectionTests
         };
         PackageRootBinding binding = Binding("Sparse.Publication", content);
         await using InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
 
         var failed =
             Assert.IsType<
@@ -320,7 +320,7 @@ public sealed class SparsePackageAssemblyProjectionTests
         };
         PackageRootBinding binding = Binding("Sparse.Cleanup", content);
         await using InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
 
         var failed =
             Assert.IsType<
@@ -355,7 +355,7 @@ public sealed class SparsePackageAssemblyProjectionTests
         };
         PackageRootBinding binding = Binding("Sparse.Cancel", content);
         await using InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
 
         OperationCanceledException cancelled =
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
@@ -389,7 +389,7 @@ public sealed class SparsePackageAssemblyProjectionTests
         var content = new TrackingPackageContent((AssetPath, image));
         PackageRootBinding binding = Binding("Sparse.Query", content);
         await using InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         using SparsePackageAssemblyRealization realization =
             await ProjectAsync(workspace, binding, image.LongLength);
 
@@ -415,7 +415,7 @@ public sealed class SparsePackageAssemblyProjectionTests
         var content = new TrackingPackageContent((AssetPath, malformed));
         PackageRootBinding binding = Binding("Sparse.Rejected", content);
         await using InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         using SparsePackageAssemblyRealization realization =
             await ProjectAsync(workspace, binding, malformed.LongLength);
 
@@ -452,7 +452,7 @@ public sealed class SparsePackageAssemblyProjectionTests
         var content = new TrackingPackageContent((AssetPath, image));
         PackageRootBinding binding = Binding("Sparse.Lifetime", content);
         await using InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         using SparsePackageAssemblyRealization realization =
             await ProjectAsync(workspace, binding, image.LongLength);
 
@@ -518,6 +518,7 @@ public sealed class SparsePackageAssemblyProjectionTests
         Assert.Equal("tests", request.Coordinate.Producer);
         Assert.Equal("1.0.0", request.Coordinate.Version);
         Assert.Equal(Framework, request.Coordinate.Framework);
+        Assert.Equal(Framework, request.CompileTargetFramework);
         Assert.Equal(Framework, request.SelectionTargetFramework);
         Assert.Equal("linux-x64", request.SelectionRuntimeIdentifier);
 
@@ -535,6 +536,7 @@ public sealed class SparsePackageAssemblyProjectionTests
             .CreateReacquisitionRequest();
         Assert.Null(neutral.Coordinate.Framework);
         Assert.Null(neutral.Coordinate.RuntimeIdentifier);
+        Assert.Equal("netstandard2.0", neutral.CompileTargetFramework);
         Assert.Equal("netstandard2.0", neutral.SelectionTargetFramework);
         Assert.NotEqual(request, neutral);
         AssertResourceFree(neutral);
@@ -558,7 +560,7 @@ public sealed class SparsePackageAssemblyProjectionTests
         PackageRootReacquisitionRequest request =
             binding.CreateReacquisitionRequest();
         await using (InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous())
+            new InspectionWorkspace())
         {
             using SparsePackageAssemblyRealization realization =
                 await ProjectAsync(workspace, binding, image.LongLength);
@@ -577,7 +579,7 @@ public sealed class SparsePackageAssemblyProjectionTests
         Assert.Equal(request, replacement.CreateReacquisitionRequest());
 
         await using InspectionWorkspace reopened =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         using SparsePackageAssemblyRealization second =
             await ProjectAsync(reopened, replacement, image.LongLength);
         Assert.Equal(

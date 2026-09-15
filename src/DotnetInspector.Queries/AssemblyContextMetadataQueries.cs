@@ -4,6 +4,41 @@ using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries;
 
+/// <summary>Declaration-only catalog evidence; no member API projection is performed.</summary>
+public sealed record AssemblyCatalogMetadata(
+    AssemblySurfaceClassification Classification,
+    ImmutableArray<TypeForwarderInfo> Forwarders);
+
+/// <summary>Reads Metadata-owned surface classification over one retained participant.</summary>
+public static class AssemblyContextCatalogMetadataQuery
+{
+    public static AssemblyContextEntry<AssemblyCatalogMetadata> ExecuteParticipant(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant participant) =>
+        AssemblyContextQueryExecutor.ExecuteParticipantOverSnapshot(
+            group,
+            participant,
+            (_, snapshot) =>
+            {
+                AssemblySurfaceClassificationOutcome classification =
+                    AssemblySurfaceClassifier.Classify(
+                        snapshot.RetainAssemblyReference(participant.Assembly));
+                using AssemblyInspectionSession session = AssemblyInspectionSession.Open(snapshot);
+                return classification switch
+                {
+                    AssemblySurfaceClassificationOutcome.Classified classified =>
+                        new AssemblyCatalogMetadata(
+                            classified.Classification,
+                            [.. session.TypeForwarders()]),
+                    AssemblySurfaceClassificationOutcome.Rejected rejected =>
+                        throw new BadImageFormatException(
+                            $"{rejected.Failure.Kind}: {rejected.Failure.Detail}"),
+                    _ => throw new InvalidOperationException(
+                        "Unknown assembly surface classification outcome."),
+                };
+            });
+}
+
 /// <summary>
 /// A bounded row window from one metadata table.
 /// </summary>

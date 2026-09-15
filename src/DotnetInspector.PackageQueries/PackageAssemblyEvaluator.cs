@@ -43,7 +43,7 @@ public static class PackageAssemblyEvaluator
         if (asset is null || context is null)
             throw new InvalidOperationException("A selected package evaluation requires one canonical asset.");
 
-        var workspace = InspectionWorkspace.CreateAsynchronous();
+        var workspace = new InspectionWorkspace();
         PackageAssemblyEvaluationOutcome? outcome = null;
         ExceptionDispatchInfo? primary = null;
         SparsePackageProjectionCleanupReceipt? projectionCleanup = null;

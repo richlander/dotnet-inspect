@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using Inspector.Artifacts;
 using ILInspector.Metadata;
+using DotnetInspector.RoundTripCompilation;
 using Microsoft.CodeAnalysis;
 
 namespace ILInspector.DecompilerHarness;
@@ -17,11 +18,16 @@ public sealed class CompileReferenceContext : IAssemblyReferenceResolver, IAssem
     {
         _set = set;
         Source = set.Source.Assembly;
+        AssemblyReferences = [.. set.References.Select(descriptor => descriptor.Image.Assembly)];
         CompilerReferences = [.. set.References.Select(descriptor =>
-            MetadataReference.CreateFromImage(descriptor.Image.Snapshot.Content, descriptor.Properties))];
+            (PortableExecutableReference)RoundTripCompilationEngine.CreateFrozenReferenceFromRetainedImage(
+                descriptor.Image.Snapshot.Content,
+                descriptor.Image.Location?.ToString(),
+                descriptor.Properties))];
     }
 
     public ResolvedAssemblyReference Source { get; }
+    internal ImmutableArray<ResolvedAssemblyReference> AssemblyReferences { get; }
     public ImmutableArray<PortableExecutableReference> CompilerReferences { get; }
     public AssemblyBindingPolicyVersion Version => _set.BindingVersion;
 

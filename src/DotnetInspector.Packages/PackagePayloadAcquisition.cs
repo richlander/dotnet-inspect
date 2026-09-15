@@ -1,5 +1,4 @@
 using System.Net.Http.Headers;
-using DotnetInspector.Core;
 using InertText;
 using NuGetFetch;
 
@@ -50,6 +49,24 @@ public sealed class AcquiredPackagePayload
     public string ProducerKey { get; }
 
     public PackagePayloadOrigin Origin { get; }
+
+    /// <summary>
+    /// Gets a durable digest for this exact admitted retained-content
+    /// generation, or <c>null</c> when the content cannot establish one.
+    /// </summary>
+    /// <param name="chargeWork">
+    /// Charges the requesting operation for the retained archive byte length
+    /// before its first hash pass. A successful warm request does not charge.
+    /// The callback must not re-enter this operation for the same generation.
+    /// It must not wait for work that may request that generation.
+    /// </param>
+    public PackageContentDigest? GetContentDigest(
+        Action<long> chargeWork,
+        CancellationToken cancellationToken = default) =>
+        PackageContentDigestAcquisition.GetContentDigest(
+            Content,
+            chargeWork,
+            cancellationToken);
 }
 
 /// <summary>The result of acquiring one exact package payload.</summary>
@@ -115,6 +132,24 @@ public sealed class AcquiredPackageSourcePayload
     public string ProducerKey { get; }
 
     public PackagePayloadOrigin Origin { get; }
+
+    /// <summary>
+    /// Gets a durable digest for this exact admitted retained-content
+    /// generation, or <c>null</c> when the content cannot establish one.
+    /// </summary>
+    /// <param name="chargeWork">
+    /// Charges the requesting operation for the retained archive byte length
+    /// before its first hash pass. A successful warm request does not charge.
+    /// The callback must not re-enter this operation for the same generation.
+    /// It must not wait for work that may request that generation.
+    /// </param>
+    public PackageContentDigest? GetContentDigest(
+        Action<long> chargeWork,
+        CancellationToken cancellationToken = default) =>
+        PackageContentDigestAcquisition.GetContentDigest(
+            Content,
+            chargeWork,
+            cancellationToken);
 }
 
 /// <summary>The result of acquiring one exact typed-source package payload.</summary>

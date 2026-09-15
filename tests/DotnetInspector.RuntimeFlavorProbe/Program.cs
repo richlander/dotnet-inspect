@@ -1,5 +1,5 @@
 using System.Runtime.CompilerServices;
-using DotnetInspector;
+using DotnetInspect.Cli;
 
 if (args is not (["CoreCLR" or "NativeAOT"] or ["CoreCLR", "--disable-dynamic-code"]))
 {

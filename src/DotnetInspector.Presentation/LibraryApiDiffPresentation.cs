@@ -56,6 +56,16 @@ public abstract record LibraryApiDiffEndpointIssue
             ? Count
             : throw new ArgumentOutOfRangeException(nameof(Count));
 
+        public ImmutableArray<LibraryApiDiffInspectionFailure> Details { get; init; } = [];
+
+        public bool Equals(InspectionFailures? other)
+            => other is not null
+                && Count == other.Count
+                && PresentationValueEquality.SequenceEqual(Details, other.Details);
+
+        public override int GetHashCode()
+            => HashCode.Combine(Count, PresentationValueEquality.SequenceHashCode(Details));
+
         private protected override void EnsureKnownIssue()
         {
         }
@@ -85,6 +95,16 @@ public abstract record LibraryApiDiffEndpointIssue
         }
     }
 }
+
+/// <summary>Detached, contained Metadata failure evidence for a comparison endpoint.</summary>
+public sealed record LibraryApiDiffInspectionFailure(
+    InertString Operation,
+    int SubjectToken,
+    MetadataTypeNameFailureMechanism Mechanism,
+    InertString Kind,
+    InertString Detail,
+    AssemblyReferenceIdentity? SubjectAssembly,
+    AssemblyReferenceIdentity? DependencyAssembly);
 
 /// <summary>Portable evidence for one independently projected Library API endpoint.</summary>
 public sealed record LibraryApiDiffEndpointSummary
@@ -927,7 +947,21 @@ public static class LibraryApiDiffPresentationAdapter
                     {
                         issues.Add(
                             new LibraryApiDiffEndpointIssue.InspectionFailures(
-                                available.Value.InspectionFailures.Length));
+                                available.Value.InspectionFailures.Length)
+                            {
+                                Details =
+                                [
+                                    .. available.Value.InspectionFailures.Select(failure =>
+                                        new LibraryApiDiffInspectionFailure(
+                                            new InertString(TextPolicy.Field, failure.Operation),
+                                            failure.SubjectToken,
+                                            failure.Mechanism,
+                                            new InertString(TextPolicy.Field, failure.Kind),
+                                            new InertString(TextPolicy.Field, failure.Detail),
+                                            failure.SubjectAssembly,
+                                            failure.DependencyAssembly)),
+                                ],
+                            });
                     }
                     int degradedSignatures = available.Value.Surface.Types.Sum(
                         type => type.Members.Count(

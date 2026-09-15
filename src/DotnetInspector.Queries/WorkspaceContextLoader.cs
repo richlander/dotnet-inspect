@@ -183,6 +183,29 @@ public static class WorkspaceContextLoader
     const string PlatformResolverSource = "NuGet implementation pack";
 
     /// <summary>
+    /// Loads one explicitly selected declaration context and binds its exact
+    /// request to the realization outcome for population capture and lazy
+    /// Workspace locator observation.
+    /// </summary>
+    public static async Task<WorkspaceDeclarationContext> LoadDeclarationContextAsync(
+        InspectionWorkspace workspace,
+        WorkspaceContextInput context,
+        WorkspaceContextLoadOptions options,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(context.Members);
+        cancellationToken.ThrowIfCancellationRequested();
+        var request = context with { Members = context.Members.ToImmutableArray() };
+        int order = workspace.BeginDeclarationContext();
+        WorkspaceContextLoadOutcome outcome = await LoadAsync(
+            workspace, request, options, cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        return workspace.CompleteDeclarationContext(order, request, outcome);
+    }
+
+    /// <summary>
     /// Acquires one package Root without constructing assembly contexts.
     /// Scope publication separately prepares its physical realization.
     /// </summary>
@@ -1771,7 +1794,7 @@ public static class WorkspaceContextLoader
         CancellationToken cancellationToken)
     {
         string family = members[0].Family;
-        PackageAssetSelection selection = PackageAssetSelector.Select(
+        PackageAssetSelection selection = PackageAssetSelector.SelectPlatformPack(
             acquired.Content,
             framework,
             RepresentativeRuntimeIdentifier);
@@ -1828,7 +1851,9 @@ public static class WorkspaceContextLoader
                         () => OpenPackageEntry(
                             acquired.Content,
                             asset.EntryPath),
-                        provenance);
+                        provenance,
+                        lastWriteTimeUtc: null,
+                        assetFileName: asset.FileName);
                 if (assembly is null)
                     continue;
 

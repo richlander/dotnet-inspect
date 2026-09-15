@@ -677,12 +677,13 @@ The status is known inside
 [`HttpRetryHelper`](../../src/DotnetInspector.Packages/HttpRetryHelper.cs), but the signatures
 between there and the caller return `string?` and `List<string>?`, so it cannot be returned
 without changing every one of them. Instead
-[`FeedFailureTelemetry`](../../src/DotnetInspector.Core/FeedFailureTelemetry.cs) follows the
-ambient-scope shape already used by `NetworkTelemetry`: a scope is opened at each command
-boundary that turns those nullable results into an operator-facing answer. Package acquisition
-opens one around each acquisition hop; direct `--version`, `--latest-version`, and `--versions`
-queries open one around the complete query. Nested async work records into the same collector,
-and the "nothing resolved" path consults it before choosing a message.
+[`FeedFailureTelemetry`](../../src/NuGetFetch/FeedFailureTelemetry.cs) uses an
+ambient scope opened at each command boundary that turns those nullable
+results into an operator-facing answer. Package acquisition opens one around
+each acquisition hop; direct `--version`, `--latest-version`, and `--versions`
+queries open one around the complete query. Nested async work records into the
+same collector, and the "nothing resolved" path consults it before choosing a
+message.
 
 The scope is opened per *hop*, inside the tool-wrapper redirect loop, rather than once around
 the whole traversal. Each hop resolves a different package id, so a shared collector would let
@@ -700,15 +701,18 @@ Two further rules keep the message honest:
   overall lookup produced nothing, so if one source 401s and another answers, the successful
   result stands. That is this codebase's answer to the third open design question in #3417.
 
-The phase (`reading the service index`, `listing versions`) is taken from the ambient
-`NetworkTrafficKind`, which the network telemetry scope already tracks, so command boundaries do
-not duplicate the phase labels.
+The collector stores a NuGet-owned `FeedFailurePhase`. Product HTTP helpers
+continue to identify traffic with `NetworkTrafficKind`;
+`DotnetInspector.Packages.FeedFailureRecorder` maps that ambient product
+currency to the NuGet phase at the recording boundary. `NuGetFetch` therefore
+retains useful phase labels without depending on a `DotnetInspector.*`
+assembly.
 
 ### The URL is redacted before it is stored
 
 This message prints a source URL, and some feeds put a credential in one. The URL is passed
-through `NetworkRequestObservation.RedactSensitiveUrlText` on the way *into* the collector
-rather than on the way out to the console — `FeedFailureCollector.Failures` is public, so an
+through `InertText.UrlRedaction` on the way *into* the collector rather than on
+the way out to the console — `FeedFailureCollector.Failures` is public, so an
 unredacted URL sitting in it would already be an exposure.
 
 ```console

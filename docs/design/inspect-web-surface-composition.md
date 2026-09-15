@@ -1,10 +1,11 @@
 # Inspect Web Surface Composition
 
-This document owns browser host page-level composition and placement: which
-working surfaces exist, where they sit relative to navigation, how Unified
-Settings and package-source presentation are placed, how the layout responds
-to viewport size, where the shell-owned Application menu and contextual
-working-surface actions sit, and the data bar and Diagnostics. Internal
+This document owns browser host page-level composition and placement: how Home
+orients and exposes its primary entry, which working surfaces exist, where they
+sit relative to navigation, how Unified Settings and package-source
+presentation are placed, how the layout responds to viewport size, where the
+shell-owned Application menu and contextual working-surface actions sit, and
+the data bar and Diagnostics. Internal
 surface semantics -- the package-query engine, the Annotated Source viewer,
 the Member Diff viewer, shell actions, and package-source registration --
 remain with their existing focused owners; this document places them.
@@ -13,8 +14,10 @@ remain with their existing focused owners; this document places them.
 
 This owner defines:
 
-- which working surfaces exist (Type API, Member API, Type Metadata, Source,
-  Annotated Source, Member Diff, Package query, Diagnostics) and their
+- Home's page-level hierarchy, wide and narrow composition, and relationship to
+  the data bar;
+- which working surfaces exist (Type API, Member API, Type Metadata, Compare,
+  Source, Annotated Source, Member Diff, Package query, Diagnostics) and their
   page-level placement relative to Type/Member navigation;
 - the `/query` route's placement and layout, including placement of its
   per-row `Open in workspace` action;
@@ -42,6 +45,9 @@ It does not own:
 - the Annotated Source viewer's internal disclosure, actions, selection,
   annotation, media, and Escape/focus behavior (owned by
   [Annotated Source viewer interaction](annotated-source-viewer-interaction.md));
+- Compare mode, drill-down rows, evidence disclosure, identity joins, and
+  Explore return state (owned by
+  [Inspect Web Compare Experience](inspect-web-compare-experience.md));
 - Member Diff endpoint acquisition, canonical text, correspondence,
   statistics, payload admission, row rendering, selection, change navigation,
   mode semantics, or action availability (owned by
@@ -74,6 +80,9 @@ This document consumes, without redefining:
   facet catalog from [`package-query-cli.md`](package-query-cli.md);
 - the Annotated Source document model and viewer-local interaction owned by
   [Annotated Source viewer interaction](annotated-source-viewer-interaction.md);
+- the Library, Type, and Member Compare frame, mode, drill-down, detail, and
+  Explore-availability contract owned by
+  [Inspect Web Compare Experience](inspect-web-compare-experience.md);
 - the complete typed Member Diff outcome and optional authorized endpoint
   destinations supplied by
   [Inspect Web source-diff transport](inspect-web-source-diff-transport.md),
@@ -101,6 +110,32 @@ This document consumes, without redefining:
   owned by
   [Inspect Web Navigation
   Presentation](inspect-web-navigation-presentation.md#application-scope-strip).
+
+## Home inspection entry
+
+Home is a routed, full-bleed inspection entry rather than a marketing page,
+package registry, or workbench. Its first useful action is the existing
+Spotlight Search, preceded only by concise product orientation.
+
+At wide widths, orientation, Search, the product-issued Demos entry, and a
+local-processing statement form the primary column. The dotnet-bot mark
+occupies a smaller supporting column. Demos remain visibly subordinate to
+Search and describe their entry as a curated package query.
+
+At narrow widths, the content order is orientation, Search, Demos,
+local-processing statement, and artwork. Home keeps a short introduction, but
+elides the Demos description while retaining its label, action, and catalog
+state. Search and Demos are both visible in the initial 390 by 844 CSS-pixel
+content viewport; artwork never precedes them.
+
+Home does not repeat links already owned by the data bar. The data bar is the
+shared entry for the CLI tool, agent skill, Diagnostics, and Credits. The
+current Home-bar action inventory remains unchanged by this composition.
+
+Loading, catalog-unavailable, query-notice, and long-label states retain the
+same primary hierarchy. They do not replace Search with artwork, turn failure
+into empty success, or create page-level horizontal overflow. Search may
+contain its own horizontal scope-control pressure.
 
 ## Shell navigation and application actions
 
@@ -152,10 +187,10 @@ elision inside its allocation.
 The optional working-surface action region exists only when the active surface
 supplies page-level contextual actions. It is not part of either navigation
 group and does not add items to the Application menu. Source supplies Copy and
-optional Open there; Annotated Source supplies Copy and Explore there; Member
-Diff supplies its mode, change navigation and position, and any authorized
-Before or After Open actions there. The target yields space while the complete
-action group remains visible.
+optional Open plus Explore there; Annotated Source supplies Copy and Explore
+there; Member Diff supplies its mode, change navigation and position, and any
+authorized Before or After Open actions there. The target yields space while
+the complete action group remains visible.
 
 The menu surface is placed in the shared top-level overlay layer, anchored to
 the button's inline end and constrained to the viewport. It may cover the
@@ -185,9 +220,11 @@ never enter the Application menu. Full-area source surfaces use the dedicated
 page-level working-surface action region; result-local surfaces retain their
 actions in the result:
 
-- Source places `Copy` and optional `Open` in the working-surface action region
-  while source content starts at the top of its pane and compact provenance
-  stays attached to the bottom.
+- Source places `Copy`, optional `Open`, and `Explore` in the working-surface
+  action region while source content starts at the top of its pane and compact
+  provenance stays attached to the bottom. `Explore` opens Settings at
+  **Decompiler style** so the complete source presentation options are
+  available; dismissal returns focus to the same Source action.
 - Annotated Source places `Copy` and `Explore` in the working-surface action
   region while product provenance stays attached to the bottom.
 - Member Diff places the viewer-owned mode control, `Previous`, current change
@@ -253,9 +290,10 @@ these named browser tests in `workspace-titlebar.spec.ts`:
 ## Working surfaces
 
 Type API, Member API, Type Metadata, Package Overview, Package Dependencies,
-Library Metadata, Source, Annotated Source, Member Diff, and Diagnostics are
-working surfaces rather than documents inset inside a general page. The
-Metadata Explorer retains its separately owned full-bleed composition.
+Library Metadata, Compare, Source, Annotated Source, Member Diff, and
+Diagnostics are working surfaces rather than documents inset inside a general
+page. The Metadata Explorer retains its separately owned full-bleed
+composition.
 
 The package-query surface's internal query behavior remains owned by
 `package-query-experience.md`; product facet identities, ordering, evidence,
@@ -498,11 +536,43 @@ outcomes remain owned by
 
 Member Call graph retains its inline default and exposes `Explore` in the
 working-surface action row when a graph result is available. Explore places
-the existing interactive result in a full-viewport dialog: a quiet heading,
-selected-member context, and Close above the graph, with scope, legend, and
-Mermaid source remaining accessible as secondary information. The diagram
-takes the remaining space rather than retaining the inline fixed-height card.
-At narrow widths context may elide, but Close and graph controls stay available
+the existing interactive result in a full-viewport dialog. Its shared header
+centers the active subject: graph kind and result summary are quiet metadata,
+the selected overload signature is the primary heading, its package and
+declaring-type path is secondary context, and Close remains a stable action.
+These are structured values supplied by the graph consumer, not strings parsed
+from rendered content. The duplicate inline graph heading and summary do not
+appear in Explore.
+
+The diagram takes the remaining space rather than retaining the inline
+fixed-height card. An untouched graph automatically reframes when its viewport
+changes, including relocation into Explore. Automatic framing uses a 92% inset,
+may enlarge a sparse graph to at most 1.5x, and retains a 0.2x legibility floor.
+Explicit Fit may scale as far as 0.05x to reveal more of the complete bounded
+graph; when that floor still exceeds a narrow viewport, the remaining extent
+stays pannable. Wheel, button, keyboard, or pointer pan/zoom makes the view
+user-adjusted; that exact transform survives later relocation and viewport
+changes until Fit restores automatic framing.
+
+The inspected subject uses the shell-purple family in dark and light themes.
+Other graph roles retain their existing distinct fills, strokes, and availability
+or platform border treatments. Connectors remain subordinate and meet 3:1
+contrast against the canvas in both themes so direction remains readable. Zoom
+in, Zoom out, and Fit remain
+bottom-right canvas actions and form one grouped control rail.
+
+Call graph scope remains below the canvas so secondary interpretation detail
+does not precede the primary spatial content. Every graph then supplies a
+consumer-owned bottom legend outside the transformed viewport, so zoom and pan
+cannot move, crop, or shrink its explanation. Call graph names its member and
+assembly roles plus platform lookup; Type relationships names inspected, base,
+interface, derived, and unavailable types; Package Dependencies names inspected,
+open, and load-on-selection packages. Legend rows wrap at narrow widths and form
+the final interpretation row. Browser-specific Mermaid source remains internal
+to rendering rather than appearing as Call-graph-only inspection evidence. Any
+future source copy or graph export experience requires one deliberate contract
+across Call, Type, and Dependency graphs. Subject and context wrap completely
+rather than truncating or disappearing. Close and graph controls stay available
 without page-level horizontal overflow.
 
 This document owns that placement contract. The existing
@@ -513,8 +583,9 @@ shell focus helper rather than adding a second custom inert-background system.
 Annotated Source's explicit Explore action is the local interaction precedent;
 its separate source-viewer sessions are not needed for a graph placement change.
 
-Opening and closing relocate one live graph, without another query, Mermaid
-mount, or loss of pan/zoom. Fit remains explicit for the larger viewport.
+Opening and closing relocate one live graph without another query or Mermaid
+mount. A pristine view reframes for its new viewport; a user-adjusted view does
+not lose or reset its pan/zoom. Fit remains explicit for full-extent framing.
 Ordinary dismissal returns focus to Explore and keeps the selected member and
 platform descent. Existing result replacement, including theme changes, may
 remount the graph as it does inline. Workspace expansion, platform drill/back,
@@ -532,6 +603,10 @@ notice, graph, and workspace/diagram diagnostics. Package coordinate controls,
 dependency lists, assembly references, and the coordinate footer remain on the
 underlying page. The viewer identifies the inspected package; group buttons
 identify the selected manifest framework independently of the active coordinate.
+The shared header uses the package coordinate as its subject, the active target
+framework as context, and the existing graph-reading guidance as its summary.
+Its bottom legend distinguishes the inspected package, packages already open in
+the Workspace, and packages that load on selection.
 Selecting a group stays in Explore and updates the existing list and graph.
 Closing retains that selection. Pending graph rendering can complete in either
 placement; opening or closing does not restart it.
@@ -553,6 +628,10 @@ Browsable nodes use the shared keyboard activation and drag suppression;
 unavailable types remain non-interactive with an accessible explanation. Type
 activation closes Explore before the existing typed navigation path runs. It
 does not acquire another assembly or reinterpret a display label as identity.
+The shared header uses the selected type as its subject, its package coordinate
+as context, and the existing relationship guidance as its summary.
+Its bottom legend distinguishes the inspected, base, interface, and derived
+roles plus the dashed unavailable state.
 Leaving the selected type, package, framework, assembly, or Metadata inspector
 closes Explore. Same-owner projection loading and failure remain visible in an
 already-open viewer. A replacement without a relationship graph returns to inline
@@ -576,7 +655,12 @@ acquisition, or layout algorithms.
 
 The browser gate covers live DOM and interaction retention across placement
 changes, result replacement, pending completion, no-body/failure visibility,
-dialog focus and dismissal, and narrow geometry. Published Wasm evidence covers
+dialog focus and dismissal, structured header content, pristine and
+user-adjusted resize behavior across wheel, button, keyboard, and pointer
+inputs, bounded sparse-graph enlargement, explicit lower-floor Fit, connector
+contrast, graph-specific legends outside the transform, complete
+narrow-width wrapping, content-first scope placement, and narrow geometry.
+Published Wasm evidence covers
 the production action row and destination navigation. Dependency coverage also
 exercises group changes, empty groups, pending completion, truncation geometry,
 and package navigation/failure. Live platform drill/back evidence is reported
@@ -667,10 +751,31 @@ operation-level compatibility failure remains visible in that operation's
 surface; the Overview warning provides persistent package context rather than
 replacing the failure.
 
-Package content retains the admitted-library inventory and document links. The
-platform library picker remains with the Libraries section. Library rows enter
-the existing Library subject, whose Overview retains kind and namespace
-navigation. Document opening, counts, and ordering retain their semantics.
+Package content retains the admitted-library inventory, comparison targets, and
+document links. At wide inspector widths, the admitted-library inventory owns
+the primary column while comparison targets and package documents share a
+secondary package-resources column. This follows the useful content/resource
+allocation of conventional package-detail pages without adopting their overall
+navigation or adding package facts. At constrained widths, the same complete
+sections return to one ordered stack: Libraries, Documentation, then Comparison
+targets. Package documents precede comparison setup because they describe the
+current package, while comparison choices prepare a later operation. The
+platform library picker remains with the Libraries section.
+Library rows enter the existing Library subject, whose Overview retains kind
+and namespace navigation. At wide inspector widths, Library Overview makes
+Namespaces the primary region and Type kinds a compact secondary region. This
+follows the assembly -> namespace -> type hierarchy used by conventional .NET
+assembly browsers without adopting their tree or workbench chrome. At
+constrained widths, the same sections return to one ordered stack: Namespaces,
+then Type kinds. Libraries with no public types render explicit empty states for
+both sections rather than an empty bordered region. Comparison selection,
+document opening, counts, and ordering retain their semantics.
+`System.Text.Json@10.0.0` is the motivating ordinary package: its admitted
+libraries remain primary while its README and comparison setup stay visible
+without requiring a second scroll through sparse full-width sections. Its main
+library is also the motivating Library Overview: six public namespaces provide
+the primary navigation while five type-kind counts remain a compact secondary
+summary.
 
 The bottom context row preserves the exact package/version and active
 framework. At narrow widths the Libraries (Package) or Types (Library) return
@@ -681,9 +786,29 @@ Long identifiers, asset paths, and document names remain contained without
 page-level horizontal overflow. Many rows scroll inside Overview while its
 header, any controls, and coordinates remain in place.
 
-Overview presents the already-loaded package. Existing acquisition loading,
-failure, and partial-package notices remain in their current host presentation;
-this placement change introduces no independent Overview query or state machine.
+Overview presents the already-loaded package. Changing its selected TFM or
+version keeps the package shell, inspected target, navigation, and data bar
+visible, whether the target is cached or needs acquisition. Only the
+inspector content becomes busy, with a compact text-and-spinner status rather
+than the full-page bot interstitial. Pending content does not publish a new URL
+or expose the previous coordinate's results as the requested coordinate.
+Completion refreshes the content and library navigation from the returned
+package; keyboard focus returns to the initiating coordinate selector. Failure
+restores the previous content and coordinate with the existing visible retry
+notice. Opening a new package retains the acquisition interstitial.
+`System.Text.Json@10.0.0`, switching from `net10.0` to `net9.0`, or to version
+`10.0.1` and back to `10.0.0`, motivates these ordinary same-package interactions.
+The production-composition browser gate in
+`library-hierarchy.spec.ts` covers pending, success, failure/retry, navigation
+away, immediate return to an inspected version, and neighboring initial-package
+loading. No cache-residency preflight is required to choose this presentation.
+Acquisition and partial-package notices otherwise retain their host
+presentation; this introduces no independent Overview query or acquisition
+state machine.
+Package inspector and interim Library-selection preference retention follow the
+current
+[Navigation Browser migration behavior](inspection-subject-navigation.md#status);
+this surface does not define cross-coordinate subject correspondence.
 Empty inventories retain their zero totals and any available package documents.
 Admitted libraries with no public types retain their named Library Overview.
 
@@ -732,9 +857,24 @@ references, and partial workspace warning. Selecting another manifest group
 patches its list and graph in place without changing the surface frame or
 resetting the package coordinate.
 
-The action row also exposes [Graph Explore](#graph-explore), retaining inline
-presentation as the default and the same dependency-group selection in both
-placements.
+The inline graph is a bounded structural preview so the selected group's direct
+NuGet dependency rows enter the initial result viewport. At wide inspector
+widths its viewport is capped at 360px and yields vertical space as the browser
+height contracts so at least the first direct dependency row remains visible at
+ordinary desktop heights, down to a 230px minimum. Constrained inspector widths
+use 240px. This follows
+the useful division in dependency tools between lists for the immediate direct
+answer and graphs for structural exploration, without adopting another
+application's overall model. The action row exposes
+[Graph Explore](#graph-explore), which relocates the same live graph into the
+existing full-area viewport and retains the same dependency-group selection.
+Closing Explore returns that graph to the bounded inline preview. Other graph
+surfaces retain their existing inline sizing.
+
+`Microsoft.Extensions.Hosting@10.0.0` is the motivating graph-heavy package: its
+`net10.0` group has 22 direct NuGet dependencies, whose rows remain visible
+beside the inline graph experience. `System.Text.Json@10.0.0` is the neighboring
+zero-dependency case.
 
 The fixed bottom context row preserves the exact package coordinate and active
 framework. Loading, query failure, no-dependency, no-exact-group, graph
@@ -746,7 +886,7 @@ At narrow widths, the `Types` return control shares the quiet header, controls
 wrap within their row, and header and footer values may elide as complete
 strings. The surface creates no page-level horizontal overflow. This slice
 does not change dependency selection, graph construction or navigation,
-Package Overview, Integrations, Opportunities, Analysis, Package Metadata, or
+Package Overview, Integrations, Analysis, Package Metadata, or
 the Metadata Explorer.
 
 ### Library References
@@ -790,13 +930,54 @@ separate work.
 
 ### Library Integrations
 
-Library Integrations uses a quiet count/state header, an optional platform
-Library selector, one full-area results scroller, and bottom assembly context.
+Library has one **Integrations** inspector with **Integrations** and
+**Opportunities** tabs inside its working surface, following Compare's
+one-inspector/two-modes composition. Integrations shows detected ecosystem
+support; Opportunities shows suggestions for support the Library could adopt.
+Opportunities is not a second persistent inspector or an active standalone
+view facet. Its already-issued canonical facet ID remains known through the
+Registry's existing `Retired` tombstone contract.
+
+The selected tab defaults to Integrations and is session-local presentation
+state in the retained browser Workspace. Changing tabs preserves the selected
+Library. Ordinary Library, Type, and inspector navigation, Back/Forward, and
+returning from a row action retain the current tab. Sharing a Workspace carries
+the Integrations inspector, not its transient tab selection; a fresh session
+opens Integrations. The Browser's removed standalone inspector token follows
+ordinary unknown-lens handling. This does not remove or rename the published
+canonical `library.opportunities` identity or its existing legacy-definition
+mapping; canonical resolution preserves its explicit retired outcome.
+
+Only the selected tab requests its existing scan. Previously obtained results
+remain subject to their existing Library/coordinate freshness checks. Each tab
+retains its own counts, loading, failure, partial, and empty states; changing tabs
+does not combine evidence or infer one scan's outcome from the other.
+
+The tabs use manual activation: Left/Right and Home/End move focus, Enter/Space
+select, and asynchronous result rendering preserves tab focus. The selected tab
+labels the results panel. Both full labels remain available at narrow widths.
+
+The shared frame uses a quiet count/state header, an optional platform Library
+selector, one full-area results scroller, and bottom assembly context.
+The title and count/state share the existing 40px header with right-aligned
+mode tabs, following Compare's shared header. There is no separate tab row.
+Count/state text may elide, with its complete text retained, before either tab
+label loses space. The existing narrow-screen Types control still occupies
+the title's place.
 It replaces the generic Library hero, repeated summary heading/noninteractive
 category chips, and inset signal cards.
 
+The motivating real asset is `Microsoft.Extensions.AI@10.0.0`: examining its
+Dependency Injection and OpenTelemetry entry points, or whether any suggestions
+apply, belongs to the same ecosystem inspection task, not separate navigation
+destinations. [#6651](https://github.com/richlander/dotnet-inspect/issues/6651)
+has one Browser adoption step: compose the existing typed scan renderers under
+the tabs and retire standalone Opportunities navigation. The shared View Facet
+catalog describes the same consolidated inspector; no scanner, acquisition, CLI
+section, or result contract changes.
+
 ```text
-Integrations                             category/signal count or state
+Integrations  count/state                 [Integrations]  Opportunities
 optional platform Library selector
 category headings and full-width signal rows
 Library asset and assembly identity              TFM · package@version
@@ -817,27 +998,32 @@ At narrow widths the existing Types/details control shares the quiet header.
 Category names, signal names/qualifiers, and kind text wrap within the pane.
 Many rows scroll locally while header, selector, and bottom context stay put.
 
-The explicitly approved browser-only presentation scope has
-[one adoption step](https://github.com/richlander/dotnet-inspect/issues/6202):
-wire production Library Integrations to this frame and retire only that
-consumer's old composition. Browser HTML lowering consumes the existing typed
+The original full-area Integrations frame was adopted under
+[#6202](https://github.com/richlander/dotnet-inspect/issues/6202).
+Browser HTML lowering consumes the existing typed
 `BrowserPackageIntegrations` result. References and Metadata supply the local
 layout conventions; this is not a new inspection or rendering architecture.
 
 Focused renderer and production-composition browser gates cover wide/narrow,
 long/many results, state distinctions, Library switching, and platform controls.
 Scan classification, catalog ownership, other lenses, and subject-strip
-interaction remain separate work.
+interaction remain separate work. `inspect-web/test/integration-inspector.test.ts`
+and the Integration tab scenarios in
+`inspect-web/browser/library-hierarchy.spec.ts` gate the consolidated frame,
+single-row header geometry and full tab labels down to 320px, manual activation,
+same-Library mode changes, navigation retention, and an inactive scan settling
+without replacing the selected mode or keyboard focus.
 
-### Library Opportunities
+#### Opportunities tab
 
-Library Opportunities uses a quiet count/state header, an optional platform
-Library selector, one full-area results scroller, and bottom assembly context.
+Opportunities uses the same Integrations frame, an optional platform Library
+selector, one full-area results scroller, and bottom assembly context.
 It replaces the generic Library hero, repeated summary/noninteractive category
 chips, and inset opportunity cards while retaining every live row action.
 
 ```text
-Opportunities                           area/suggestion count or state
+Integrations                            area/suggestion count or state
+Integrations  [Opportunities]
 optional platform Library selector
 compact interaction guidance
 category headings and full-width opportunity rows
@@ -860,10 +1046,9 @@ Category names, API identities, integration-kind text, package names, and search
 hints wrap within the pane. Many rows scroll locally while header, selector, and
 bottom context stay put.
 
-The explicitly approved browser-only presentation scope has
-[one adoption step](https://github.com/richlander/dotnet-inspect/issues/6273):
-wire production Library Opportunities to this frame and retire only that
-consumer's old composition. Browser HTML lowering consumes the existing typed
+The original full-area Opportunities frame was adopted under
+[#6273](https://github.com/richlander/dotnet-inspect/issues/6273); its content is
+now the Opportunities tab. Browser HTML lowering consumes the existing typed
 `BrowserPackageOpportunities` result. Integrations and References supply the
 local layout conventions; this is not a new analysis or rendering architecture.
 
@@ -999,6 +1184,41 @@ result is committed by
 success leaves `/query` for the inspection destination, and failure keeps the
 query route, rows, and request intact.
 
+### Compare
+
+Compare uses one full-area working surface at Library, Type, and Member. The
+quiet surface header contains its Diff/Clone mode control; the row-two
+inspected-target area contains no mode control or duplicated target selector.
+The effective Package-owned target or scope and **Change target** remain inside
+the surface immediately below the header.
+
+At Library and Type, summary metrics and one drill-down inventory consume the
+remaining area. No selected-row detail pane, summary card, or second
+inventory/detail switch is present:
+
+```text
+Library:  metrics | Type rows
+Type:     metrics | [Whole type diff] | Member rows
+```
+
+The bracketed row exists only in Type Diff and only when its immersive
+destination is available. Type Clone has no whole-Type action. Library has no
+Explore action. Activating a Type or Member row changes structural subject
+through the owner-issued Compare transition and leaves the current Diff or
+Clone mode active, as specified by
+[Inspect Web Compare Experience](inspect-web-compare-experience.md).
+
+Member is the detailed-result boundary. Member Diff uses the complete remaining
+area for its summary and optional Explore destination. Member Clone may use a
+candidate inventory plus selected-candidate evidence because both belong to
+one exact Member query; this is not the higher-level Type/Member navigation
+split removed above.
+
+At narrow widths Library and Type keep the same single-list topology and do not
+enter the generic inventory/detail pane swap. The persistent subject and
+inspector groups may independently adapt to Choosers. Member retains the
+existing narrow navigation/detail composition, and Explore remains full-bleed.
+
 ### Source and Annotated Source
 
 Source and Annotated Source use the full area to the right of Type or Member
@@ -1093,8 +1313,10 @@ This browser-only placement is milestone 5 of the six-step adoption path in
 It has one consumer, the Member Diff working surface, and one focused tracker,
 [#5685](https://github.com/richlander/dotnet-inspect/issues/5685). It adds no
 comparison, transport, navigation, or viewer architecture. The existing
-cross-version `Compare authored source` dialog and Method Body Diff remain
-separate experiences; this placement does not retire or redefine either.
+cross-version `Compare authored source` and Method Body Diff contextual
+dialogs are retired under #6491. Their structured managed evidence remains
+available to an owner-issued immersive destination; this placement does not
+redefine that evidence.
 
 [VS Code](https://code.visualstudio.com/docs/sourcecontrol/overview) uses a
 dedicated side-by-side diff editor rather than embedding changed text in its
@@ -1119,8 +1341,8 @@ closed. Changes may apply live, but one Settings component renders each
 owner-issued setting descriptor and dispatches its typed action. Domain owners
 retain validation and state semantics.
 
-Diagnostics is a separate full-bleed experience launched from Settings or
-Spotlight. It is not another settings implementation.
+Diagnostics is a separate full-bleed experience launched from the data bar or
+Settings. It is not another settings implementation or a Spotlight command.
 
 ## Package-source presentation
 
@@ -1215,12 +1437,13 @@ navigation band. It never scrolls or obscures the Application menu.
 
 ## Data bar and Diagnostics
 
-The bottom data bar is one compact product-information line. It does not wrap,
+The bottom data bar is one compact 30 CSS-pixel product-information line. Its
+grid row remains allocated when the notice stack is empty. It does not wrap,
 expand, or host runtime diagnostics:
 
 <!-- markdownlint-disable MD013 -->
 ```text
-dotnet-inspect v0.35.2 · abc1234 · Aug 27, 2026 UTC · Package source: Corporate mirror (pkgs.dev.azure.com/org/_packaging/feed/nuget/v3/index.json) · CLI tool · Agent skill
+dotnet-inspect v0.35.2 · abc1234 · Aug 27, 2026 UTC · Package source: Corporate mirror (pkgs.dev.azure.com/org/_packaging/feed/nuget/v3/index.json) · CLI tool · Agent skill · Diagnostics · Credits
 ```
 <!-- markdownlint-enable MD013 -->
 
@@ -1230,11 +1453,17 @@ The data bar includes:
 - linked short commit;
 - concise UTC build date without a `built` prefix;
 - read-only package producer, or the applicable non-package acquisition kind;
-- the same `CLI tool` link used on Home; and
-- the same `agent skill` link used on Home.
+- `CLI tool`;
+- `Agent skill`;
+- `Diagnostics`; and
+- `Credits`.
 
 On a narrow viewport, the line remains non-wrapping and horizontally scrollable.
 It does not discard the source or promotional actions to fit.
+
+The acquisition owner supplies the compact producer label as display text. The
+data bar renders that label verbatim and does not parse or reconstruct it from
+an endpoint.
 
 The data bar does not contain:
 
@@ -1245,15 +1474,38 @@ The data bar does not contain:
 - an API-surface label; or
 - an expansion toggle.
 
-Diagnostics opens as a full-bleed surface and may include:
+Diagnostics opens at `/diagnostics` as a routed full-bleed surface. The data
+bar and Settings expose the route; Spotlight Commands and the Application menu
+do not. The destination receives focus on its single `Diagnostics` level-one
+heading. Its prominent `Back` control restores the preceding routed surface
+without discarding its retained Workspace. A direct entry falls back to Home.
 
-- runtime and Wasm state;
+The first implemented Diagnostics snapshot contains only evidence already
+issued for the current browser session:
+
+- loading, ready, or failed Browser/Wasm runtime state;
+- download, startup, precompute, and total startup measurements;
+- framework asset count, transferred bytes, and decoded bytes;
+- exact product version, full linked commit, UTC build timestamp, and
+  Browser/Wasm host; and
+- aggregate package, resident-payload, Workspace, and resident-byte cache
+  statistics.
+
+Runtime, build, and package-cache absence or failure remain visible in the same
+route geometry. A cache-statistics failure does not preserve prior counts as an
+undisclosed successful snapshot. Runtime spans the wide layout, with Build and
+Package cache in equal columns below it. The same content becomes one vertical
+scroller on a narrow viewport without page-level horizontal overflow. The
+full-bleed route does not repeat the persistent data bar.
+
+Later owner-adoption work may add:
+
 - network operations and typed failures;
-- exact build provenance;
 - package-source health;
-- candidate and payload cache contents;
+- candidate and payload cache-entry inventory;
 - coordinate, producer, size, and persistence for each cache entry;
-- cache limits and eviction state; and
+- cache limits and eviction state;
+- a support-report copy action; and
 - owner-authorized cache-management actions.
 
 Diagnostics consumes owner-issued data and actions. It does not infer package
@@ -1270,6 +1522,21 @@ rendering, the consumer effect lifecycle, or shell/modal semantics.
 
 An implementation claiming this redesign is complete must satisfy these
 outcomes.
+
+### Home entry acceptance
+
+1. At 1440 by 900 CSS pixels, confirm that orientation, Search, Demos, and the
+   local-processing statement form the primary column, while artwork occupies
+   the smaller supporting column and the data bar remains fixed.
+2. At 390 by 844 CSS pixels, confirm that the short introduction, Search, and
+   Demos are all initially visible, the Demos description is elided, artwork
+   follows the primary entry, and no page-level horizontal overflow appears.
+3. Exercise engine loading, unavailable demos, a query notice, and long labels.
+   Confirm that Search retains its primary geometry, typed status stays
+   visible, and delayed rerenders do not reclaim focus from a user-selected
+   control.
+4. Activate Credits from the data bar on Home and a Workspace surface. Confirm
+   that both use the existing routed Credits entry.
 
 ### Application and contextual action placement
 
@@ -1403,9 +1670,11 @@ with the absence of a synthesized `Default feed` control.
 ### Source working surface
 
 1. Open Type Source with Type navigation visible.
-2. Confirm that the source pane uses all remaining width, Copy and optional
-   Open appear in the working-surface action region, source content begins at
-   the top of the pane, and compact provenance remains attached to its bottom.
+2. Confirm that the source pane uses all remaining width, Copy, optional Open,
+   and Explore appear in the working-surface action region, source content
+   begins at the top of the pane, and compact provenance remains attached to
+   its bottom. Open Explore and confirm that Settings focuses Decompiler style
+   and dismissal returns focus to Explore.
 3. Collapse Type navigation and confirm that source content expands to the full
    viewport width.
 4. Open PDB Source and confirm that no Decompiler style control appears.
@@ -1433,6 +1702,27 @@ with the absence of a synthesized `Default feed` control.
    compact action group, the existing `Members` control swaps inventory and
    detail without changing comparison state, and a viewer-owned responsive
    unified fallback does not overwrite the selected mode.
+
+### Compare working surface
+
+1. Open Library Compare in Diff and Clone. Confirm that the same frame presents
+   summary metrics and Type rows without a selected-Type detail pane or
+   Library-level Explore action, and that removed Diff Types remain visible
+   without an invalid descendant action.
+2. Activate a Library row and confirm that one transition opens the exact Type
+   in Compare with the current mode retained and without briefly rendering the
+   recommended Type lens.
+3. Open Type Compare Diff and confirm that Whole type diff precedes the
+   changed-Member rows only when its destination is available. Confirm that
+   Type Clone contains Member rows and no whole-Type action.
+4. Activate a Type row and confirm that Member Compare opens with the current
+   mode retained. Confirm that detailed evidence begins only at Member.
+5. Repeat Library and Type at a narrow viewport. Confirm that the drill-down
+   inventory remains the only Compare pane, fills the available working area,
+   and creates no page-level horizontal overflow.
+6. Open and close a Member or whole-Type Explore destination. Confirm that the
+   immersive viewer is full-bleed and returns to the originating Compare mode,
+   row, scroll position, and useful focus.
 
 ### Narrow viewport
 
@@ -1486,10 +1776,11 @@ with the absence of a synthesized `Default feed` control.
 ### Data and diagnostics
 
 1. Confirm that version, commit, UTC date, the complete owner-issued compact
-   producer label, CLI tool, and agent skill occupy one non-expanding data-bar
-   line.
+   producer label, CLI tool, agent skill, Diagnostics, and Credits occupy one
+   non-expanding data-bar line.
 2. Confirm that timings, cache counts, runtime readiness, assembly identity,
    and framework do not appear in that line.
-3. Open Diagnostics and confirm that detailed runtime, source, and cache
-   evidence and owner-authorized cache actions appear in the full-bleed
-   surface.
+3. Open Diagnostics from the data bar and Settings, confirm that it is absent
+   from Spotlight Commands and the Application menu, and confirm that detailed
+   runtime, source, and cache evidence and owner-authorized cache actions appear
+   in the full-bleed surface with a visible Back control.

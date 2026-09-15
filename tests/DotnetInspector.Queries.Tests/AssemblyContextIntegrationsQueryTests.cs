@@ -16,7 +16,7 @@ public sealed class AssemblyContextIntegrationsQueryTests
     static Exception? s_callbackFailure;
 
     [Fact]
-    public void SelectedScan_PublicConsumerRunsOncePerParticipantWithoutCaching()
+    public async Task SelectedScan_PublicConsumerRunsOncePerParticipantWithoutCaching()
     {
         var policy = new TestBindingPolicy(new AssemblyBindingPolicyVersion());
         TestAssembly di = TestAssembly.Create(
@@ -32,7 +32,7 @@ public sealed class AssemblyContextIntegrationsQueryTests
             "N.Hidden",
             policy,
             publicType: false);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
             [di.Participant, logging.Participant, empty.Participant]);
         s_scanOrder.Clear();
@@ -78,7 +78,7 @@ public sealed class AssemblyContextIntegrationsQueryTests
     }
 
     [Fact]
-    public void SelectedScan_DifferentBindingsAndFullScanKeepTheirOwnScope()
+    public async Task SelectedScan_DifferentBindingsAndFullScanKeepTheirOwnScope()
     {
         var policy = new TestBindingPolicy(new AssemblyBindingPolicyVersion());
         TestAssembly source = TestAssembly.Create(
@@ -86,7 +86,7 @@ public sealed class AssemblyContextIntegrationsQueryTests
             "Microsoft.Extensions.DependencyInjection.IServiceCollection",
             policy,
             additionalIntegrationTypeName: "Microsoft.Extensions.Logging.CustomLogger");
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group = workspace.CreateAssemblyContextGroup([source.Participant]);
         s_scanOrder.Clear();
         var di = EcosystemIntegrationScannerBinding.Create(SelectDependencyInjection);
@@ -117,7 +117,7 @@ public sealed class AssemblyContextIntegrationsQueryTests
     }
 
     [Fact]
-    public void SelectedScan_CarriesRejectionAndDecodeFailureBesideLaterResults()
+    public async Task SelectedScan_CarriesRejectionAndDecodeFailureBesideLaterResults()
     {
         var policy = new TestBindingPolicy(new AssemblyBindingPolicyVersion());
         TestAssembly rejected = TestAssembly.Create(
@@ -134,7 +134,7 @@ public sealed class AssemblyContextIntegrationsQueryTests
             "SelectedAvailable",
             "Microsoft.Extensions.DependencyInjection.IServiceCollection",
             policy);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
             [rejected.Participant, malformed.Participant, available.Participant]);
         s_scanOrder.Clear();
@@ -156,7 +156,7 @@ public sealed class AssemblyContextIntegrationsQueryTests
     }
 
     [Fact]
-    public void SelectedScan_BudgetRejectionDoesNotInvokeScanner()
+    public async Task SelectedScan_BudgetRejectionDoesNotInvokeScanner()
     {
         var policy = new TestBindingPolicy(new AssemblyBindingPolicyVersion());
         TestAssembly first = TestAssembly.Create(
@@ -167,7 +167,7 @@ public sealed class AssemblyContextIntegrationsQueryTests
             "SelectedBudgetSecond",
             "Microsoft.Extensions.Logging.CustomLogger",
             policy);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
             [first.Participant, second.Participant],
             new AssemblyContextGroupOptions { MaxRetainedImageBytes = first.Bytes.Length });
@@ -189,11 +189,11 @@ public sealed class AssemblyContextIntegrationsQueryTests
     [InlineData("range")]
     [InlineData("overflow")]
     [InlineData("configuration")]
-    public void SelectedScan_PropagatesCallbackFaultsWithoutMisclassifyingThem(string kind)
+    public async Task SelectedScan_PropagatesCallbackFaultsWithoutMisclassifyingThem(string kind)
     {
         var policy = new TestBindingPolicy(new AssemblyBindingPolicyVersion());
         TestAssembly source = TestAssembly.Create("CallbackFault", "N.Source", policy);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group = workspace.CreateAssemblyContextGroup([source.Participant]);
         s_callbackFailure = kind switch
         {
@@ -211,14 +211,14 @@ public sealed class AssemblyContextIntegrationsQueryTests
     }
 
     [Fact]
-    public void SelectedScan_ParticipantExecutionKeepsTheGroupReusable()
+    public async Task SelectedScan_ParticipantExecutionKeepsTheGroupReusable()
     {
         var policy = new TestBindingPolicy(new AssemblyBindingPolicyVersion());
         TestAssembly source = TestAssembly.Create(
             "SelectedReusable",
             "Microsoft.Extensions.DependencyInjection.IServiceCollection",
             policy);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group = workspace.CreateAssemblyContextGroup([source.Participant]);
         s_scanOrder.Clear();
         var binding = EcosystemIntegrationScannerBinding.Create(SelectDependencyInjection);
@@ -268,7 +268,7 @@ public sealed class AssemblyContextIntegrationsQueryTests
         throw s_callbackFailure!;
 
     [Fact]
-    public void RegistryRun_ScansEveryParticipantInOrderAndReusesSnapshots()
+    public async Task RegistryRun_ScansEveryParticipantInOrderAndReusesSnapshots()
     {
         var version = new AssemblyBindingPolicyVersion();
         var policy = new TestBindingPolicy(version);
@@ -285,7 +285,7 @@ public sealed class AssemblyContextIntegrationsQueryTests
             () => acquisitionOrder.Add("logging"),
             additionalIntegrationTypeName:
                 "OpenTelemetry.CustomTracer");
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [
@@ -361,7 +361,7 @@ public sealed class AssemblyContextIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_CarriesAcquisitionFailureBesideLaterResults()
+    public async Task Execute_CarriesAcquisitionFailureBesideLaterResults()
     {
         var version = new AssemblyBindingPolicyVersion();
         var policy = new TestBindingPolicy(version);
@@ -374,7 +374,7 @@ public sealed class AssemblyContextIntegrationsQueryTests
             "AvailableIntegration",
             "Microsoft.Extensions.Logging.CustomLogger",
             policy);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [rejected.Participant, available.Participant]);
@@ -405,7 +405,7 @@ public sealed class AssemblyContextIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_ReportsBudgetExhaustionAsIncompleteEntry()
+    public async Task Execute_ReportsBudgetExhaustionAsIncompleteEntry()
     {
         var version = new AssemblyBindingPolicyVersion();
         var policy = new TestBindingPolicy(version);
@@ -417,7 +417,7 @@ public sealed class AssemblyContextIntegrationsQueryTests
             "SecondIntegration",
             "Microsoft.Extensions.Logging.CustomLogger",
             policy);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [first.Participant, second.Participant],
@@ -441,7 +441,7 @@ public sealed class AssemblyContextIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_ComposesOpportunitiesFromTypedIntegrations()
+    public async Task Execute_ComposesOpportunitiesFromTypedIntegrations()
     {
         var version = new AssemblyBindingPolicyVersion();
         var policy = new TestBindingPolicy(version);
@@ -449,7 +449,7 @@ public sealed class AssemblyContextIntegrationsQueryTests
             "CloudClient",
             "Amazon.S3.AmazonS3Client",
             policy);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup([source.Participant]);
         var scanned = Assert.IsType<AssemblyIntegrationsEntry.Available>(
@@ -512,7 +512,7 @@ public sealed class AssemblyContextIntegrationsQueryTests
     }
 
     [Fact]
-    public void RegistryRun_OpportunityQueryUsesOneImmutableSnapshot()
+    public async Task RegistryRun_OpportunityQueryUsesOneImmutableSnapshot()
     {
         var version = new AssemblyBindingPolicyVersion();
         var policy = new TestBindingPolicy(version);
@@ -522,7 +522,7 @@ public sealed class AssemblyContextIntegrationsQueryTests
             policy,
             additionalIntegrationTypeName:
                 "Amazon.S3.AmazonS3Client");
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup([source.Participant]);
         var registry =
@@ -572,7 +572,7 @@ public sealed class AssemblyContextIntegrationsQueryTests
     }
 
     [Fact]
-    public void OpportunityQuery_CarriesPrerequisiteRejectionBesideAvailableEntry()
+    public async Task OpportunityQuery_CarriesPrerequisiteRejectionBesideAvailableEntry()
     {
         var version = new AssemblyBindingPolicyVersion();
         var policy = new TestBindingPolicy(version);
@@ -585,7 +585,7 @@ public sealed class AssemblyContextIntegrationsQueryTests
             "AvailableOpportunity",
             "Npgsql.NpgsqlConnection",
             policy);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [rejected.Participant, available.Participant]);
@@ -629,7 +629,7 @@ public sealed class AssemblyContextIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_CarriesBroadPresenceBeyondEvidenceRows()
+    public async Task Execute_CarriesBroadPresenceBeyondEvidenceRows()
     {
         var policy = new TestBindingPolicy(
             new AssemblyBindingPolicyVersion());
@@ -637,7 +637,7 @@ public sealed class AssemblyContextIntegrationsQueryTests
             "DependencyInjectionPresence",
             "Microsoft.Extensions.DependencyInjection.CustomThing",
             policy);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [dependencyInjection.Participant]);
@@ -659,7 +659,7 @@ public sealed class AssemblyContextIntegrationsQueryTests
     }
 
     [Fact]
-    public void ExecuteParticipant_DoesNotReleaseTheReusableGroup()
+    public async Task ExecuteParticipant_DoesNotReleaseTheReusableGroup()
     {
         var policy = new TestBindingPolicy(
             new AssemblyBindingPolicyVersion());
@@ -667,7 +667,7 @@ public sealed class AssemblyContextIntegrationsQueryTests
             "ReusableIntegration",
             "Microsoft.Extensions.Logging.CustomLogger",
             policy);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup([integration.Participant]);
 
@@ -684,7 +684,7 @@ public sealed class AssemblyContextIntegrationsQueryTests
     }
 
     [Fact]
-    public void OpportunitiesExecuteParticipant_DoesNotReleaseTheReusableGroup()
+    public async Task OpportunitiesExecuteParticipant_DoesNotReleaseTheReusableGroup()
     {
         var policy = new TestBindingPolicy(
             new AssemblyBindingPolicyVersion());
@@ -692,7 +692,7 @@ public sealed class AssemblyContextIntegrationsQueryTests
             "ReusableOpportunities",
             "Amazon.S3.AmazonS3Client",
             policy);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup([source.Participant]);
 
@@ -711,7 +711,7 @@ public sealed class AssemblyContextIntegrationsQueryTests
     }
 
     [Fact]
-    public void Execute_OpenTelemetryEvidenceDoesNotBroadenLegacyPresence()
+    public async Task Execute_OpenTelemetryEvidenceDoesNotBroadenLegacyPresence()
     {
         var policy = new TestBindingPolicy(
             new AssemblyBindingPolicyVersion());
@@ -719,7 +719,7 @@ public sealed class AssemblyContextIntegrationsQueryTests
             "InternalTelemetryPresence",
             "OpenTelemetry.Internal.CustomTracer",
             policy);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [internalTelemetry.Participant]);

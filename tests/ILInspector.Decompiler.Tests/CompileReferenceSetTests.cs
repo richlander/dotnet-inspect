@@ -183,15 +183,26 @@ public sealed class CompileReferenceSetTests
     [Fact]
     public async Task SourceIsSeparateAndCannotSelectItself()
     {
-        await using var fixture = await Published.Create(SourceBytes(), TargetBytes());
-        CompileReferenceInventory inventory = fixture.Discover(0, 1);
+        byte[] source = SourceBytes();
+        await using var fixture = await Published.Create(source, TargetBytes(), source);
+        CompileReferenceInventory inventory = fixture.Discover(0, 2, 1);
         Assert.Contains(inventory.Source, inventory.Candidates);
+        CompileReferenceImage sourceReplica = Assert.Single(
+            inventory.Candidates,
+            candidate => !ReferenceEquals(candidate.InventoryId, inventory.Source.InventoryId)
+                && candidate.IsSameModuleAs(inventory.Source));
         Rejected(inventory.Select([new(inventory.Source.Identity)], Cancellation),
-            CompileReferenceFailureKind.ReferenceNotFound);
+            CompileReferenceFailureKind.SourceReferenceExcluded);
         Rejected(inventory.Select([new(inventory.Source.Identity, inventory.Source.InventoryId)], Cancellation),
             CompileReferenceFailureKind.SourceReferenceExcluded);
-        CompileReferenceSet set = Ready(inventory.Select([new(inventory.Candidates[1].Identity)], Cancellation));
+        Rejected(inventory.Select([new(inventory.Source.Identity, sourceReplica.InventoryId)], Cancellation),
+            CompileReferenceFailureKind.SourceReferenceExcluded);
+        CompileReferenceImage target = Assert.Single(
+            inventory.Candidates,
+            candidate => !candidate.IsSameModuleAs(inventory.Source));
+        CompileReferenceSet set = Ready(inventory.Select([new(target.Identity)], Cancellation));
         Assert.DoesNotContain(set.References, reference => ReferenceEquals(reference.InventoryId, set.Source.InventoryId));
+        Assert.DoesNotContain(set.References, reference => reference.Image.IsSameModuleAs(set.Source));
         Ready(set.Use(context =>
         {
             Assert.Null(context.Resolve(set.Source.Identity, AssemblyResolutionScope.Any));
@@ -282,7 +293,14 @@ public sealed class CompileReferenceSetTests
             Assert.Same(digest.Value, image.ContentDigest);
             Assert.Same(image.InventoryId, image.ContentDigest.Artifact);
             Assert.Same(fixture.Session.Generation, image.ContentDigest.Generation);
-            using Stream retained = fixture.Session.GetContentReference(image.InventoryId, fixture.Lease).OpenRead();
+            ArtifactContentReference reference =
+                fixture.Session.GetContentReference(
+                    image.InventoryId,
+                    fixture.Lease);
+            using Stream retained =
+                fixture.Session.OpenRead(
+                    reference,
+                    fixture.Lease);
             using var copy = new MemoryStream();
             retained.CopyTo(copy);
             Assert.Equal(copy.ToArray(), image.Snapshot.Content);

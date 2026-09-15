@@ -6,6 +6,31 @@ using System.Security.Cryptography;
 namespace ILInspector.Metadata;
 
 /// <summary>
+/// Owner-issued identity for the managed metadata image represented by a PE.
+/// </summary>
+public abstract record ManagedMetadataIdentity
+{
+    private ManagedMetadataIdentity()
+    {
+    }
+
+    public abstract string Name { get; }
+
+    public sealed record Assembly(AssemblyReferenceIdentity Identity) :
+        ManagedMetadataIdentity
+    {
+        public override string Name => Identity.Name;
+    }
+
+    public sealed record Module(
+        string ModuleName,
+        Guid ModuleVersionId) : ManagedMetadataIdentity
+    {
+        public override string Name => ModuleName;
+    }
+}
+
+/// <summary>
 /// Inspects .NET assemblies to extract PE header info, assembly metadata, and references.
 /// </summary>
 public static class AssemblyInspector
@@ -249,6 +274,35 @@ public static class AssemblyInspector
             () => File.OpenRead(assemblyPath),
             ExtractReferenceIdentities,
             []);
+
+    /// <summary>
+    /// Extracts the assembly or module definition identity from a managed image.
+    /// Returns null when the PE has no admitted managed metadata.
+    /// </summary>
+    public static ManagedMetadataIdentity? ExtractManagedMetadataIdentity(
+        string assemblyPath)
+        => OwnedResourceCleanup.ReadAdmittedPeImage<
+            ManagedMetadataIdentity?>(
+            () => File.OpenRead(assemblyPath),
+            static peReader =>
+            {
+                MetadataReader reader =
+                    MetadataFormatAdmission.GetMetadataReader(peReader);
+                if (reader.IsAssembly)
+                {
+                    return new ManagedMetadataIdentity.Assembly(
+                        AssemblyReferenceIdentity.FromAssemblyDefinition(
+                            reader));
+                }
+
+                ModuleDefinition module = reader.GetModuleDefinition();
+                return new ManagedMetadataIdentity.Module(
+                    reader.GetString(module.Name),
+                    module.Mvid.IsNil
+                        ? Guid.Empty
+                        : reader.GetGuid(module.Mvid));
+            },
+            noMetadataResult: null);
 
     /// <summary>
     /// Extracts assembly references and company name in a single pass.

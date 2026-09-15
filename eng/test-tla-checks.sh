@@ -100,6 +100,19 @@ run_all_check() {
     "$repo/eng/run-tla-checks.sh" --all
 }
 
+assert_selected_dirs() {
+  local output="$1"
+  shift
+  local actual expected
+  actual=$(printf '%s\n' "$output" | sed -n 's/^::group:://p' | LC_ALL=C sort)
+  expected=$(printf '%s\n' "$@" | LC_ALL=C sort)
+  if [ "$actual" != "$expected" ]; then
+    printf 'Unexpected model directory scope.\nExpected:\n%s\nActual:\n%s\n' \
+      "$expected" "$actual" >&2
+    exit 1
+  fi
+}
+
 cd "$fixture"
 
 output=$(
@@ -240,9 +253,91 @@ output=$(
     run_scoped_check
 )
 case "$output" in
+  *"Checked 0 module(s) and 0 configuration(s)"*) ;;
+  *)
+    echo "A manifest-only scope selected unchanged model directories." >&2
+    exit 1
+    ;;
+esac
+if [ -s "$temporary/java.log" ]; then
+  echo "A manifest-only scope invoked the TLA+ tools." >&2
+  exit 1
+fi
+
+# Planned configuration paths carry mapping changes; unchanged entries still
+# undergo complete validation but must not broaden TLC execution.
+printf '%s\n' \
+  'docs/design/models/example/Example.cfg=0' \
+  'docs/models/other/Other.cfg=0' \
+  > "$fixture/eng/tla-expected-exit-codes.txt"
+output=$(
+  printf '%s\0' eng/tla-expected-exit-codes.txt \
+    docs/design/models/example/Example.cfg |
+    run_scoped_check
+)
+case "$output" in
   *"Checked 1 module(s) and 1 configuration(s) (1 exact outcomes"*) ;;
   *)
-    echo "An expected-outcome manifest change did not check its listed configuration." >&2
+    echo "A planned mapping addition did not check exactly one configuration." >&2
+    exit 1
+    ;;
+esac
+assert_selected_dirs "$output" docs/design/models/example
+
+printf '%s\n' \
+  'docs/models/other/Other.cfg=0' \
+  > "$fixture/eng/tla-expected-exit-codes.txt"
+output=$(
+  printf '%s\0' eng/tla-expected-exit-codes.txt \
+    docs/design/models/example/Example.cfg |
+    run_scoped_check
+)
+case "$output" in
+  *"Checked 1 module(s) and 1 configuration(s) (0 exact outcomes"*) ;;
+  *)
+    echo "Removing the last mapping did not check its surviving directory under legacy policy." >&2
+    exit 1
+    ;;
+esac
+assert_selected_dirs "$output" docs/design/models/example
+
+output=$(
+  printf '%s\0' eng/tla-expected-exit-codes.txt \
+    docs/design/models/example/Example.cfg \
+    docs/models/other/Other.cfg \
+    docs/design/models/example/Example.tla |
+    run_scoped_check
+)
+case "$output" in
+  *"Checked 2 module(s) and 2 configuration(s) (1 exact outcomes"*) ;;
+  *)
+    echo "Multiple mapping changes and direct model changes did not select their exact directory union." >&2
+    exit 1
+    ;;
+esac
+assert_selected_dirs "$output" docs/design/models/example docs/models/other
+
+output=$(
+  printf '%s\0' eng/tla-expected-exit-codes.txt \
+    docs/design/models/example/Example.cfg \
+    docs/design/models/foundation/Foundation.tla |
+    run_scoped_check
+)
+assert_selected_dirs "$output" \
+  docs/design/models/example \
+  docs/design/models/foundation \
+  docs/design/models/middle \
+  docs/design/models/top
+
+output=$(
+  printf '%s\0' eng/tla-expected-exit-codes.txt \
+    docs/models/deleted/Deleted.cfg |
+    run_scoped_check
+)
+case "$output" in
+  *"Checked 0 module(s) and 0 configuration(s)"*) ;;
+  *)
+    echo "A removed mapping in a deleted directory selected unrelated work." >&2
     exit 1
     ;;
 esac
@@ -252,7 +347,8 @@ printf '%s\n' \
   > "$fixture/eng/tla-expected-exit-codes.txt"
 printf '%s\n' 13 > docs/design/models/example/Example.exit
 output=$(
-  printf '%s\0' eng/tla-expected-exit-codes.txt |
+  printf '%s\0' eng/tla-expected-exit-codes.txt \
+    docs/design/models/example/Example.cfg |
     run_scoped_check
 )
 case "$output" in
@@ -264,7 +360,8 @@ case "$output" in
 esac
 
 rm -f docs/design/models/example/Example.exit
-if printf '%s\0' eng/tla-expected-exit-codes.txt |
+if printf '%s\0' eng/tla-expected-exit-codes.txt \
+  docs/design/models/example/Example.cfg |
   run_scoped_check >/dev/null 2>&1; then
   echo "An exact semantic outcome mismatch was accepted." >&2
   exit 1
@@ -274,7 +371,8 @@ printf '%s\n' \
   'docs/design/models/example/Example.cfg=0' \
   > "$fixture/eng/tla-expected-exit-codes.txt"
 printf '%s\n' 124 > docs/design/models/example/Example.exit
-if printf '%s\0' eng/tla-expected-exit-codes.txt |
+if printf '%s\0' eng/tla-expected-exit-codes.txt \
+  docs/design/models/example/Example.cfg |
   run_scoped_check >/dev/null 2>&1; then
   echo "A timeout satisfied an exact semantic outcome." >&2
   exit 1
@@ -330,6 +428,23 @@ assert_manifest_rejected_without_java \
 assert_manifest_rejected_without_java \
   "An unsupported expected-outcome path" \
   'README.md=0'
+assert_manifest_rejected_without_java \
+  "A non-canonical expected-outcome path" \
+  'docs/models/other/../other/Other.cfg=0'
+assert_manifest_rejected_without_java \
+  "Whitespace in an expected-outcome mapping" \
+  'docs/models/other/Other.cfg =0'
+
+: > "$temporary/java.log"
+if printf '%s\0' docs/design/models/example/Example.cfg |
+  run_scoped_check >/dev/null 2>&1; then
+  echo "An invalid unchanged mapping outside the selected directory was accepted." >&2
+  exit 1
+fi
+if [ -s "$temporary/java.log" ]; then
+  echo "An invalid unchanged mapping did not fail before Java invocation." >&2
+  exit 1
+fi
 
 rm -f "$fixture/eng/tla-expected-exit-codes.txt"
 : > "$temporary/java.log"

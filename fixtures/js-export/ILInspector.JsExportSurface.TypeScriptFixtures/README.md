@@ -30,6 +30,11 @@ lowering contract in
   in a case signature, such as `T[]`, stays unsupported and lives in
   `ILInspector.JsExportSurface.UnionFixtures`.
 - `SelectionEnvelope` — union-valued members, arrays, and dictionaries.
+- `GenericRecord<TValue>` — a source-generated generic record whose direct,
+  nested-record, array, dictionary, and generic-union members are projected
+  through `TValue`. The fixture exports closed `int` and `WidgetDto`
+  constructions so declaration emission and facade signatures are checked
+  against both scalar and record arguments.
 
 Every union export writes with the source-generated
 `UnionFixtureJsonContext`, so the fixture reaches serialization only. Reading a

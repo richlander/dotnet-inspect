@@ -116,7 +116,7 @@ public class IlAssemblyDiffMetadataGraphSafetyTests
             UseShellExecute = false,
         };
         startInfo.ArgumentList.Add(typeof(IlAssemblyDiffMetadataGraphSafetyTests).Assembly.Location);
-        startInfo.ArgumentList.Add("-method");
+        startInfo.ArgumentList.Add("--filter-method");
         startInfo.ArgumentList.Add($"*{workerMethod}*");
         startInfo.Environment[WorkerVariable] = workerMethod;
 

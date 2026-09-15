@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Text;
 using DotnetInspector.Packages;
+using ILInspector.Metadata;
 using NuGet.Versioning;
 
 namespace DotnetInspector.Queries.Definitions;
@@ -577,6 +578,90 @@ public static class WorkspaceSharePacketTransposer
                 ? NonProjectable("$", ex.Message)
                 : InvalidDefinition("$", ex.Message);
         }
+    }
+
+    public static WorkspaceSharePacketProjectionResult ToPacket(
+        ShareProjectionPlan plan,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        ViewFacetId overview = InspectionViewFacetCatalog.Registry
+            .GetRequiredDescriptor(
+                StructuralSubjectKind.Member,
+                ViewFacetRole.MemberOverview)
+            .Id;
+        if (plan.Facet != overview)
+        {
+            return NonProjectable(
+                "plan.facet",
+                $"Packet v1 cannot project member facet '{plan.Facet.Value}'.");
+        }
+        if (plan.Basis.Source.Package is not { } package)
+        {
+            return NonProjectable(
+                "plan.basis.source",
+                "Packet v1 member scenarios require package provenance.");
+        }
+        if (string.IsNullOrWhiteSpace(plan.Basis.Source.Framework))
+        {
+            return NonProjectable(
+                "plan.basis.source.framework",
+                "Packet v1 member scenarios require one resolved target framework.");
+        }
+        if (plan.Basis.Target.TypeDefinition is not { } type)
+        {
+            return NonProjectable(
+                "plan.basis.target.type",
+                "Packet v1 member scenarios require structured metadata type identity.");
+        }
+
+        var coordinate =
+            new DefinitionMemberCoordinate.PackageCoordinate(
+                package.PackageId,
+                package.PackageVersion,
+                plan.Basis.Source.Framework);
+        var workspace = new WorkspaceDefinition(
+            InspectionDefinitionJson.CurrentSchemaVersion,
+            WorkspaceId,
+            [
+                new WorkspaceContextDefinition(
+                    "g0",
+                    framework: plan.Basis.Source.Framework,
+                    members: [coordinate]),
+            ]);
+        var navigation = new NavigationDefinition(
+            InspectionDefinitionJson.CurrentSchemaVersion,
+            NavigationId,
+            [
+                new NavigationTabDefinition(
+                    "t0",
+                    coordinate: coordinate),
+            ],
+            "t0");
+        var view = new ViewDefinition(
+            InspectionDefinitionJson.CurrentSchemaVersion,
+            ViewId,
+            lens: "api",
+            type: type.ToEscapedFullName(),
+            memberAnchor: plan.Basis.Target.Member.Fingerprint,
+            libraries: [plan.Basis.Source.LibraryKey]);
+        var scenario = new ScenarioDefinition(
+            InspectionDefinitionJson.CurrentSchemaVersion,
+            ScenarioId,
+            workspace: workspace.Id,
+            context: "g0",
+            view: view.Id,
+            navigation: navigation.Id);
+
+        return ToPacket(
+            new WorkspaceSharePacketDefinitionSet(
+                workspace,
+                navigation,
+                view,
+                scenario),
+            cancellationToken);
     }
 
     private static WorkspaceSharePacketProjectionResult? ValidateDefinitionSet(

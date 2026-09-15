@@ -57,7 +57,7 @@ For the test lane:
 
 ```bash
 dotnet build dotnet-inspect.slnx -c Release
-dotnet run --project tests/dotnet-inspect.Tests -c Release
+dotnet run --project tests/DotnetInspect.Cli.Tests -c Release
 source eng/activate-iltools.sh
 dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- --gate no-corpus
 dotnet run --project tests/ILInspector.Analysis.Tests -c Release

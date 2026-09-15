@@ -2654,7 +2654,8 @@ public sealed class SwitchRaisingPass : IIrPass
                 Right: Constant { Value: int offset },
             } binary
             || SwitchTypeFacts.EnumType(function, left) is not { } enumType
-            || function.EnumUnderlyingTypes.GetValueOrDefault(enumType) is not { } underlying
+            || function.EnumUnderlyingTypes.GetValueOrDefault(
+                CoercionRendering.NamedDefinition(enumType)) is not { } underlying
             || TypeFamilies.Of(underlying) != StackFamily.I4
             || !SwitchTypeFacts.StorageMatchesBacking(function, left, enumType, underlying))
         {

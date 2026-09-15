@@ -18,6 +18,7 @@ public class CrossMethodImportSeamTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public void WholeAssemblySweepPattern_WithLocalFunction_UsesImportSeam()
     {
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);

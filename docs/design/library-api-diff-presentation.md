@@ -31,8 +31,10 @@ It does not select or acquire packages, choose comparison targets, match
 libraries, compare API surfaces, classify compatibility, define browser
 transport or interaction, render a text diff, acquire source, or detect clones.
 The first implementation belongs in `DotnetInspector.Presentation`. Its
-immediate adopter is a separately owned Inspect Web facade and Library
-inventory/detail view.
+immediate adopter is the separately owned
+[Inspect Web Compare Experience](inspect-web-compare-experience.md), which uses
+the flat changed-Type inventory for Library drill-down rather than rendering
+selected-Type detail in place.
 
 This design is the contract slice. Its implementation and Browser adoption are
 separate successor changes so neither host transport nor page interaction
@@ -50,37 +52,28 @@ After Package chooses the Diff target, Library needs to answer:
 - whether the complete change population contains breaking, additive, or
   potentially breaking changes.
 
-Those answers are not a mapped text diff. They are a typed inventory and
-master/detail model. Markout becomes directly relevant only after a later
-action opens a declaration or source comparison.
+Those answers are not a mapped text diff. They are a typed changed-Type
+inventory with enough nested evidence for a later Type-scoped projection.
+Markout becomes directly relevant only after an action opens a declaration or
+source comparison.
 
 The intended Browser consumer can present the portable document like this:
 
 ```text
-Library Diff
+Library Compare · Diff
 DiffFixtureSample  v1 -> v2
 
-Changed Types
+Changed Types                                      1 complete
 Breaking  BodyStateSample
-          2 members changed
-          ExistingMethod, AddedMethod
-
-Details
-Type definition: unchanged
-Changes: 1 breaking, 2 additive
-Members changed: 2
-
-Breaking  VirtualRemoved
-Additive  AbstractRemoved
-Additive  MemberAdded
-
-[Open annotated source]
+          2 members changed                        >
 ```
 
 This is a presentation mockup, not a page-layout or wording contract. The
-important point is that one typed document supports both the flat inventory and
-the selected-Type detail without reparsing messages or requesting an eager
-source diff for every Type.
+important point is that Library can render the flat inventory without
+reparsing messages or requesting an eager source diff for every Type. The
+document's nested Type and Member evidence remains available to the
+Type-scoped projection after exact navigation; it does not require an in-place
+Library detail pane.
 
 ## Browser replacement requirement
 
@@ -106,8 +99,9 @@ modal layout, or result-state model.
 
 Package **Comparison targets** remain. They are session-local configuration
 for the replacement Diff and later Clone experiences, not the old result
-surface. Contextual **Compare method bodies** is also a separate operation and
-is not retired by this replacement.
+surface. The contextual **Compare method bodies** action and Method Body Diff
+dialog are retired alongside the authored-Source interaction under #6491.
+Their managed evidence remains available to a later Omni destination.
 
 This document records the downstream replacement requirement but does not own
 its Browser state transitions, interaction retirement, layout, or wording. Those
@@ -448,22 +442,89 @@ producer evidence.
 
 ## Adoption
 
+### Shared terminal and CLI consumer
+
+`LibraryApiDiffInspection.Execute` completes the selected-Library query and
+presentation projection, returning
+`InspectionEnvelope<LibraryApiDiffPresentationResult>`. Its Content is the
+complete available document or the typed unavailable/rejected outcome.
+Endpoint inspection issues retain contained operation, token, mechanism,
+kind, detail, subject assembly, and dependency assembly evidence, not just a
+failure count.
+
+The terminal reports `Share.NonProjectable` at `comparison/endpoints`:
+Workspace Share does not yet represent the comparison's ordered endpoints and
+API scope. A host must not manufacture a replayable Share from one endpoint.
+
+The selected-Library comparison uses Metadata's existing resolution-aware
+generic-constraint extraction with the bounded projection. It records
+unavailable forwarded dependencies before deciding endpoint completeness;
+constraint failure retention spends the same failure/text budget as other
+extraction failures. Declaration-only API-surface queries retain their existing
+metadata-only behavior. The supplied binding policy, not the CLI or this
+presentation adapter, decides the dependency universe.
+
+The CLI adopts this terminal for ordinary API diffs with exactly one acquired
+Library per endpoint, optionally narrowed by Type or compatibility
+classification. It delays legacy surface extraction so the adopted route does
+not build and compare a second surface. One command-scoped Workspace owns the
+two groups. Markout renders host views derived from the complete document;
+existing JSON, detailed rows, Type-summary tables, and name-only output remain
+CLI projections, not serialization of the portable envelope.
+
+This changes three observable outcomes on the adopted route:
+
+- Different logical Libraries are rejected rather than compared by name.
+- Type-definition and member evidence without a compatibility row remains
+  visible as **Other API Changes** or detailed `unclassified` rows. Classification
+  filters never promote that evidence to a breaking or additive verdict.
+- Incomplete endpoints yield no comparison document and return nonzero with
+  **not compared**. Invalid managed-image admission reports on stderr; projected
+  metadata failures remain structured inspection-failure rows in document
+  output.
+
+`System.Text.Json@9.0.0..10.0.0`, `net8.0`, narrowed to
+`JsonSerializerOptions`, is the real-package adoption example: it reports the
+added `Strict` and `AllowDuplicateProperties` properties. The fixture
+version pair additionally demonstrates Type-definition evidence that a
+compatibility-only view previously hid.
+
+This is the user-requested CLI-first consumer slice, not completion of the
+Workspace lifecycle or Browser Compare adoption. Existing aggregate-package,
+member-filter, Analysis Diff, Implementation Diff, Finding Transitions, and
+mixed-section routes remain until their own shared terminals cover their
+different populations and outputs. Realization-coordinator/House acquisition
+adoption remains separate; the CLI does not add a second coordinator or
+replacement lifecycle contract here.
+
+### Browser consumer and remaining delivery
+
 The Library API Diff delivery path is:
 
 1. selected-library API comparison query -- implemented by #6128;
 2. Package-scoped Diff target intent -- implemented by #6161;
 3. this portable Library API diff presentation contract;
 4. the `DotnetInspector.Presentation` adapter implementation; and
-5. a bounded Inspect Web feature facade with its immediate Library
-   inventory/detail consumer, atomically retiring #6076's authored Source
-   comparison interaction under the zero-compatibility plan.
+5. a bounded Inspect Web feature facade with its immediate Library Compare
+   drill-down consumer, atomically retiring #6076's authored Source comparison
+   interaction under the zero-compatibility plan.
 
 Type and Member narrowing reuse the same selected targets but remain later
 consumer slices. **Open annotated source** invokes the existing member
 source-diff path on demand. Clone uses the same Package target-setting
 experience but requires its own producer and payload adapter.
 
-The implementation gate is a focused Release presentation suite covering the
-pathological cases above and the real selected-library query fixture. Browser
-transport and UI gates belong to their successor owner. Until those land, this
-design is prescriptive and its implementation claims are unverified.
+The Release `LibraryApiDiffPresentationTests` gate covers the presentation's
+pathological cases. `LibraryApiDiffInspectionTests` gates equivalent detached
+envelopes from path and pathless-memory images, successful empty results,
+independent endpoint truncation, logical-Library rejection, forwarded
+constraint failures, and their retention limit. `LibraryApiDiffCommandTests`
+and the existing `DiffCommandTests` gate the production CLI consumer, output
+formats, filters, and neighboring legacy routes. The real-package command
+case is marked Slow; deterministic fixture cases remain PR-fast.
+
+The selected-Library query and Metadata bounds suites retain their own
+extraction gates. Browser transport, active-realization leases, and UI
+navigation remain unverified by this slice and belong to their successor
+owners under #5083 and #5865. The Browser successor should call the shared
+terminal rather than reconstructing the Library document in its facade.

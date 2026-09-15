@@ -350,32 +350,40 @@ public static class ApiSurfaceExtractor
             includeCompilerGenerated,
             budget: null,
             constraintResolution);
-        if (constraintResolution.Requests.Count == 0)
-        {
-            AddConstraintResolutionFailure(
-                surface,
-                constraintResolution,
-                source.Identity);
-            return surface;
-        }
+        CompleteConstraintResolution(
+            surface, constraintResolution, source, catalog, bindingPolicy);
+        return surface;
+    }
 
-        using TypeResolutionContext context =
-            catalog.CreateApiSurfaceContext(
-                bindingPolicy,
-                [source],
-                constraintResolution.Requests);
-        constraintResolution.Apply(context);
+    static void CompleteConstraintResolution(
+        ApiSurface surface,
+        TypeParameterConstraintResolution constraintResolution,
+        ResolvedAssemblyReference source,
+        TypeResolutionCatalog catalog,
+        IAssemblyBindingPolicy bindingPolicy,
+        ExtractionBudget? budget = null)
+    {
+        if (constraintResolution.Requests.Count > 0)
+        {
+            using TypeResolutionContext context =
+                catalog.CreateApiSurfaceContext(
+                    bindingPolicy,
+                    [source],
+                    constraintResolution.Requests);
+            constraintResolution.Apply(context);
+        }
         AddConstraintResolutionFailure(
             surface,
             constraintResolution,
-            source.Identity);
-        return surface;
+            source.Identity,
+            budget);
     }
 
     static void AddConstraintResolutionFailure(
         ApiSurface surface,
         TypeParameterConstraintResolution constraintResolution,
-        AssemblyReferenceIdentity subjectAssembly)
+        AssemblyReferenceIdentity subjectAssembly,
+        ExtractionBudget? budget = null)
     {
         foreach (MetadataTypeNameFailure budgetFailure
             in constraintResolution.Plan.RequestBudgetFailures)
@@ -383,7 +391,8 @@ public static class ApiSurfaceExtractor
             TrackConstraintResolutionFailure(
                 surface,
                 budgetFailure,
-                subjectAssembly);
+                subjectAssembly,
+                budget: budget);
         }
 
         foreach (TypeParameterKindClassifier.ResolutionPlan
@@ -394,7 +403,8 @@ public static class ApiSurfaceExtractor
                 surface,
                 resolutionFailure.Failure,
                 subjectAssembly,
-                resolutionFailure.DependencyAssembly);
+                resolutionFailure.DependencyAssembly,
+                budget);
         }
     }
 
@@ -402,7 +412,8 @@ public static class ApiSurfaceExtractor
         ApiSurface surface,
         MetadataTypeNameFailure failure,
         AssemblyReferenceIdentity subjectAssembly,
-        AssemblyReferenceIdentity? dependencyAssembly = null)
+        AssemblyReferenceIdentity? dependencyAssembly = null,
+        ExtractionBudget? budget = null)
     {
         var projected = new ApiSurfaceInspectionFailure(
             ApiSurface.ConstraintResolutionOperation,
@@ -412,6 +423,7 @@ public static class ApiSurfaceExtractor
             failure.Detail,
             subjectAssembly,
             dependencyAssembly);
+        budget?.RetainInspectionFailure(projected);
         var subject = new ApiSurfaceInspectionSubject(
             SourceAssemblyPath: null,
             projected.SubjectToken);
@@ -439,6 +451,36 @@ public static class ApiSurfaceExtractor
         ApiSurfaceExtractionBounds bounds,
         bool typesOnly = false,
         bool includeCompilerGenerated = false)
+        => ExtractBoundedCore(
+            peReader, scope, bounds, typesOnly, includeCompilerGenerated,
+            source: null, catalog: null, bindingPolicy: null);
+
+    internal static ApiSurfaceExtractionResult ExtractBounded(
+        PEReader peReader,
+        ResolvedAssemblyReference source,
+        TypeResolutionCatalog catalog,
+        IAssemblyBindingPolicy bindingPolicy,
+        ApiSurfaceExtractionScope scope,
+        ApiSurfaceExtractionBounds bounds)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(catalog);
+        ArgumentNullException.ThrowIfNull(bindingPolicy);
+        return ExtractBoundedCore(
+            peReader, scope, bounds,
+            typesOnly: false, includeCompilerGenerated: false,
+            source, catalog, bindingPolicy);
+    }
+
+    static ApiSurfaceExtractionResult ExtractBoundedCore(
+        PEReader peReader,
+        ApiSurfaceExtractionScope scope,
+        ApiSurfaceExtractionBounds bounds,
+        bool typesOnly,
+        bool includeCompilerGenerated,
+        ResolvedAssemblyReference? source,
+        TypeResolutionCatalog? catalog,
+        IAssemblyBindingPolicy? bindingPolicy)
     {
         ArgumentNullException.ThrowIfNull(bounds);
         if (!Enum.IsDefined(scope))
@@ -447,13 +489,24 @@ public static class ApiSurfaceExtractor
         try
         {
             var budget = new ExtractionBudget(bounds);
+            TypeParameterConstraintResolution? constraintResolution =
+                source is null ? null : new(
+                    MetadataFormatAdmission.GetMetadataReader(peReader),
+                    source,
+                    catalog!.MaxTypeResolutionRequests);
             ApiSurface surface = Extract(
                 peReader,
                 scope,
                 typesOnly,
                 includeCompilerGenerated,
                 budget,
-                constraintResolution: null);
+                constraintResolution);
+            if (constraintResolution is not null)
+            {
+                CompleteConstraintResolution(
+                    surface, constraintResolution, source!, catalog!,
+                    bindingPolicy!, budget);
+            }
             return new ApiSurfaceExtractionResult.Extracted(
                 surface,
                 budget.MetadataRows,
@@ -1937,7 +1990,6 @@ public static class ApiSurfaceExtractor
         ApiMemberIdentity.PopulateCanonicalIdentities(
             surface,
             budget is null ? null : budget.RetainCommittedText);
-
         return surface;
     }
 
@@ -3032,6 +3084,7 @@ public static class ApiSurfaceExtractor
                     SignatureDecodeStatus = extension.SignatureDecodeStatus,
                     MethodSemantics = extension.MethodSemantics,
                     MetadataToken = extension.MetadataToken,
+                    GenericArity = extension.GenericArity,
                     IsStatic = extension.IsStatic,
                     IsVirtual = extension.IsVirtual,
                     IsAbstract = extension.IsAbstract,
@@ -3804,15 +3857,35 @@ public static class ApiSurfaceExtractor
         var methodName = context.MethodParameters.Count > 0
             ? $"{name}<{string.Join(", ", methodTypeParameters.Select(parameter => parameter.Name))}>"
             : name;
-        // MemberName carries identity (ApiMemberIdentity parses it for docids and
-        // the generic-parameter map), so it keeps the raw metadata spelling; only
-        // the rendered signature is sanitized (issue #3319).
+        // MemberName carries source-level generic spelling used by identity
+        // consumers, so it keeps the raw metadata spelling; only the rendered
+        // signature is sanitized (issue #3319).
         var displayName = context.MethodParameters.Count > 0
             ? $"{SanitizeMemberDisplayName(name)}<{string.Join(", ", methodTypeParameters.Select(parameter => SanitizeIdentifier(parameter.Name)))}>"
             : SanitizeMemberDisplayName(name);
+        IReadOnlyList<string>? xmlDocumentationParameterTypes =
+            TryGetXmlDocumentationNames(
+                treeSignature.ParameterTypes,
+                beforeRetainText);
+        string? xmlDocumentationReturnType = null;
+        if (ApiMemberIdentity.IsConversionOperator(name)
+            && treeSignature.ReturnType.TryGetXmlDocumentationName(
+                out string? exactReturnType))
+        {
+            xmlDocumentationReturnType = exactReturnType;
+        }
+        if (xmlDocumentationReturnType is not null)
+            beforeRetainText?.Invoke(xmlDocumentationReturnType);
         return ($"{returnType} {displayName}({paramStr2})", new ApiSignature
         {
             ExtensionReceiverType = extensionReceiverType,
+            XmlDocumentationParameterTypes =
+                xmlDocumentationParameterTypes,
+            XmlDocumentationReturnType =
+                xmlDocumentationReturnType,
+            XmlDocumentationIsVararg =
+                treeSignature.Header.CallingConvention
+                    == SignatureCallingConvention.VarArgs,
             ReturnType = returnType,
             CanonicalReturnType = canonicalReturnType,
             StructuralReturnType = treeSignature.ReturnType.HasStructuralPayload
@@ -3831,6 +3904,21 @@ public static class ApiSurfaceExtractor
             Parameters = parameterModels
         }, treeSignature.ReturnType.IsDegraded
             || treeSignature.ParameterTypes.Any(parameter => parameter.IsDegraded));
+    }
+
+    static IReadOnlyList<string>? TryGetXmlDocumentationNames(
+        ImmutableArray<TypeNode> types,
+        Action<string>? beforeRetainText)
+    {
+        var names = new string[types.Length];
+        for (int index = 0; index < names.Length; index++)
+        {
+            if (!types[index].TryGetXmlDocumentationName(out string? name))
+                return null;
+            names[index] = name;
+            beforeRetainText?.Invoke(names[index]);
+        }
+        return names;
     }
 
     private static List<string> ReturnParameterAttributes(
@@ -4884,8 +4972,14 @@ public static class ApiSurfaceExtractor
             treeSignature.ReturnType,
             paramHandles,
             beforeDecodeWork);
+        IReadOnlyList<string>? xmlDocumentationParameterTypes =
+            TryGetXmlDocumentationNames(
+                treeSignature.ParameterTypes,
+                beforeRetainText);
         var model = new ApiSignature
         {
+            XmlDocumentationParameterTypes =
+                xmlDocumentationParameterTypes,
             ReturnType = returnType,
             CanonicalReturnType = canonicalReturnType,
             StructuralReturnType = treeSignature.ReturnType.HasStructuralPayload
@@ -5701,6 +5795,9 @@ public static class ApiSurfaceExtractor
         AddText(ref count, signature.ReturnType);
         AddText(ref count, signature.CanonicalReturnType);
         AddText(ref count, signature.StructuralReturnType);
+        if (signature.XmlDocumentationParameterTypes is { } xmlParameters)
+            AddText(ref count, xmlParameters);
+        AddText(ref count, signature.XmlDocumentationReturnType);
         AddText(ref count, signature.ReturnTypeShape);
         AddText(
             ref count,

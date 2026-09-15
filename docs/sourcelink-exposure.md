@@ -270,9 +270,10 @@ operation.
 An over-limit candidate returns typed `PortablePdbRetentionLimitExceeded` and
 performs no catalog read or write; it is not silently treated as `None` and does
 not fall through to another provider. Product effective-discovery construction
-cannot select `SourceLinkReadLimits.Unlimited`. `MDP017` gates near/over limits,
-every provider, the aggregate retained-byte peak, the one digest pass, and the
-same single-threaded Browser/Wasm failure.
+cannot select `SourceLinkReadLimits.Unlimited`. This retention budget is
+unimplemented and ungated; near/over limits, every provider, the aggregate
+retained-byte peak, the one digest pass, and the same single-threaded
+Browser/Wasm failure are tracked by [#3478](https://github.com/richlander/dotnet-inspect/issues/3478) and are unverified.
 
 ## Network and performance policy
 
@@ -330,13 +331,17 @@ network requests.
 - Symbol-package PDB caches are identity-keyed to avoid multi-TFM collisions.
 - Source availability and integrity queries accept an optional host cache;
   filesystem-free hosts may run without one.
-- Positive availability and integrity results are cached permanently only when
-  the provenance grammar establishes an immutable commit-pinned GitHub or Azure
-  DevOps URL. Other availability results retain a TTL; integrity results for
-  unknown hosts and moving or ambiguous selectors are not cached.
+- [Source availability audit](design/source-availability-audit.md) owns
+  availability reuse. Origin-validated positives are permanent only for
+  recognized immutable commit-pinned URLs and otherwise retain a one-day TTL.
+  Non-success results lack final-origin evidence and remain operation-local.
+- [Source integrity audit](design/source-integrity-audit.md) owns checksum
+  classification and reuse. Exact and line-ending-normalized positives are
+  permanent only when the provenance grammar establishes an immutable
+  commit-pinned URL. Mutable positives and failed operations are not cached.
 - The target bare-library effective catalog may persist successful
   package/platform section summaries under its versioned semantic key. The
-  slice-5 successor keys on retained assembly content plus complete typed
+  future #3478 successor keys on retained assembly content plus complete typed
   local-symbol discovery evidence, not the predecessor `sl0`/`sl1` Boolean.
   Input-admission changes bump the category before lookup so prior successful
   catalogs cannot bypass the new gate; this cutover also runs bounded
@@ -344,10 +349,10 @@ network requests.
   digest, admission, discovery, and publication each use their owner-retained
   immutable content; bracketing hashes over a mutable path are insufficient.
   Direct local-file discovery performs neither persistent lookup nor
-  publication, unverified pending
+  publication in that target, unverified pending
   `LocalAssemblyFacts_DoNotEnterACrossRunCache`. Planned type/member
   authorization-dependent outcomes remain operation-local and never consume
-  that catalog.
+  that catalog. This work is not assigned to a type/member migration slice.
 
 Cache reuse must never bypass PDB identity validation.
 

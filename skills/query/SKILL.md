@@ -14,8 +14,10 @@ projection but not `-S` selection. `diff` supports `-D` and `-S` but not
 field/column projection. `timeline` supports section selection and projection
 but not `-D` discovery. `workspace` supports output formats, `--count`, and
 `--rows`, but not discovery, section selection, or field projection.
-Relationship commands render fixed output without `-D` or `-S`. Discover the
-shape first where available, then select and project.
+`depends` supports `-D`, `-S`, categories, row windows, count, and field/column
+projection across its dependency graph and evidence sections. Other
+relationship commands may still expose fixed output. Discover the shape first
+where available, then select and project.
 
 ```bash
 dnx dotnet-inspect -y -- <command>
@@ -121,7 +123,8 @@ kinds and adds `Kind` when multiple kinds have rows.
 ## Discover query capabilities
 
 `-Q` (alias `--query-help`) is structural and does not acquire or inspect a
-target. It is available on `library`, `type`, `member`, `package`, and `find`.
+target. It is available on `library`, `type`, `member`, `package`,
+`package query`, and `find`.
 Use it before constructing filters; displayed columns do not imply support for
 `--where`, `--order-by`, or `--top`.
 
@@ -147,28 +150,35 @@ A known section with no implemented query bindings
 says so; for example, `find -Q Results` does not advertise package facets as
 API-search predicates.
 
-`find -Q Packages` exposes the `facet` equality selector and its product-issued
-Package Query IDs. Use it with patternless `find --package-prefix`:
+`package query -Q Packages` exposes the `facet` equality selector and the
+product-issued Package Query IDs admitted by the CLI:
 
 ```bash
-dnx dotnet-inspect -y -- find -Q Packages --json
-dnx dotnet-inspect -y -- find --package-prefix dotnet-inspect -S Packages \
-  --where "facet=package.query.dotnet-tool" --candidates 5 --matches 5
-dnx dotnet-inspect -y -- find --package-prefix dotnet-inspect --package-content \
-  --where "facet=package.query.dotnet-tool-v2" --candidates 5 --matches 5 --jsonl
+dnx dotnet-inspect -y -- package query -Q Packages --json
+dnx dotnet-inspect -y -- package query Azure.Mcp \
+  --where "facet=package.query.dotnet-tool"
+dnx dotnet-inspect -y -- package query 'dotnet-*' \
+  --where "facet=package.query.dotnet-tool-v2" --take 20 -n 5 --jsonl
 ```
 
 `--where` repeats select product facets, not arbitrary package-field
-expressions. Independent facets are ANDed; compatible tool v1/v2 alternatives
-are ORed. Query rows represent individual packages, with exact versions and
-product-authored evidence. `--candidates` bounds work (default 200) and
-`--matches` bounds semantic matches (default 100), each at most 1,000.
-Package-content facets need `--package-content` and at most 20 candidates;
-the flag sets that conservative default. `--rows` and `--count` operate on
-matched package rows. Count rejects explicit `--matches`; reached budgets and
-failures remain visible. Package Query does not accept `-t`, API-search scopes,
-source overrides, or ranking. Query-execution flags cannot be combined with
-`-Q`.
+expressions. Independent facets are ANDed; the broad tool facet reports CLI v1,
+CLI v2, or unrecognized settings, while compatible tool v1/v2 alternatives are
+ORed. Query rows represent individual packages, with exact versions and
+product-authored evidence. `--take` bounds candidate work, while `-n` and
+`--rows` select final matched-package rows. Without explicit `--take`, a
+simple `-n N` is pushed into execution: direct package rows use an effective
+candidate bound of N, while filtered queries scan until N matches or their
+default candidate bound. Pushdown is capped at 1,000 candidates; larger
+semantic heads remain valid and are applied after bounded execution.
+Selecting a package-content facet is itself approval for archive acquisition
+and permits at most 20 candidates; use
+`--nuspec-only` to reject such a query. `--count` observes selected rows and
+succeeds only when completion or a satisfied finite row selection proves that
+count exact. Reached candidate bounds and failures remain visible.
+Package Query does not
+accept API-search scopes, source overrides, or ranking. Query-execution flags
+cannot be combined with `-Q`.
 
 `library -Q Integrations` describes the ecosystem facet for the whole Integration
 family. All integrations are enabled by default; use
@@ -281,9 +291,10 @@ Prefer built-in limits to shell pipes:
   sliding. `-n N` may still limit the result.
 - `--count` counts rows in one selected table.
 
-Command-specific caps: `-t N` for type/find rows and `-m N` for members.
-Package `--versions` / `--versions-with-feed` and `demo list` use semantic rows.
-`-n N` selects complete items, while `-n N --lines` clips rendered lines.
+`find`, `package query`, package `--versions` / `--versions-with-feed`, and
+`demo list` use semantic rows. `-n N` selects complete items. Package version
+listings and `demo list` also accept `-n N --lines` to clip rendered lines.
 `--rows` on those surfaces accepts only `A..B`, `A..`, and `..B`; `-n` and
 `--rows` compose as stages in argv order. `--head` and `--tail` modify `-n`,
-not the range.
+not the range. On `package query`, `--take N` separately bounds package work
+before semantic row selection.

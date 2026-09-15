@@ -367,12 +367,13 @@ persistent lookup and publication. This target is unverified pending
 `LocalAssemblyFacts_DoNotEnterACrossRunCache` in the
 [assembly image lifetime](assembly-image-lifetime.md) contract.
 
-At the slice-5 cutover a persistent platform or package key includes the
+At the future #3478 cutover, a persistent platform or package key includes the
 resolved path, the digest of an acquisition-owned immutable artifact-content
 snapshot, and typed network-free local-symbol discovery evidence, plus typed
 `LibraryCatalogRouteEvidence`. Scoped discovery does not populate the bare
 catalog, failures are not stored, and a category-version change invalidates
-older semantics.
+older semantics. This cutover is not assigned to a slice in the type/member
+migration plan.
 
 `LibraryCatalogRouteEvidence` is an owner-issued identity for the root subject
 route and every stable route fact consumed by effective discovery, including
@@ -442,7 +443,7 @@ current-category write. Pre/post hashes around a separately reopened mutable
 path are not a substitute because W-to-S-to-W replacement can mislabel the
 successor entry. A supported hit still avoids an assembly `MetadataReader` and
 full discovery. This is one application of the repository-wide
-[persistent-cache cutover rule](../inspection-space.md#corecache); dynamic
+[persistent-cache cutover rule](../inspection-space.md#persistentcache); dynamic
 authorization and liveness still require fresh enforcement rather than a
 version bump.
 

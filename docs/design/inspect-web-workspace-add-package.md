@@ -35,9 +35,11 @@ local definitions. These are consumed contracts, not additional owners.
 - The picker does not offer commands, Types, Members, Platform acquisition,
   Package query, or package removal. Ordinary Search keeps those behaviors.
   Closing or reopening ordinary Search ends the Add purpose.
-- Ordinary Spotlight remains a one-shot Workspace editor. It exposes no
-  **Add to current Workspace** action; multi-package accumulation starts from
-  the Workspace page's explicit Add purpose.
+- Spotlight destination effects are separately owned by
+  [Spotlight destination
+  activation](inspect-web-spotlight-destination-activation.md). This picker
+  remains the unrestricted explicit Add action rather than inheriting
+  Spotlight's coverage policy.
 - Adding a new package preserves existing membership and its order. The first
   package becomes active only when the Workspace was empty; otherwise the
   active coordinate, subject selection, and filters remain unchanged.

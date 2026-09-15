@@ -6,7 +6,7 @@ using NuGetFetch;
 
 namespace DotnetInspector.Queries;
 
-/// <summary>The exact-target-framework selection outcome for declared dependency groups.</summary>
+/// <summary>The target-framework selection outcome for declared dependency groups.</summary>
 public enum PackageDependencyGroupSelectionStatus
 {
     Selected,
@@ -25,7 +25,7 @@ public sealed record DeclaredPackageDependencyGroup(
     ImmutableArray<DeclaredPackageDependency> Dependencies,
     bool IsImplicitManifestGroup = false);
 
-/// <summary>A package manifest's dependency groups and exact-framework selection outcome.</summary>
+/// <summary>A package manifest's dependency groups and target-framework selection outcome.</summary>
 public sealed record PackageDependencyGroups(
     ImmutableArray<DeclaredPackageDependencyGroup> Groups,
     string? RequestedTargetFramework,
@@ -159,7 +159,8 @@ public static class PackageDependencyGroupsQuery
         string packageId,
         string packageVersion,
         string? requestedTargetFramework = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool allowCompatibleFallbackForRequestedTfm = false)
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
@@ -213,7 +214,8 @@ public static class PackageDependencyGroupsQuery
             return new PackageDependencyGroupsResult.Available(
                 ProjectDependencyGroups(
                     ((PackageManifestFactsResult.Available)facts).Value,
-                    requested));
+                    requested,
+                    allowCompatibleFallbackForRequestedTfm));
         }
         catch (Exception ex) when (
             ex is IOException
@@ -227,7 +229,8 @@ public static class PackageDependencyGroupsQuery
 
     internal static PackageDependencyGroups ProjectDependencyGroups(
         PackageManifestFacts facts,
-        string? requestedTargetFramework)
+        string? requestedTargetFramework,
+        bool allowCompatibleFallbackForRequestedTfm = false)
     {
         List<DependencyGroup> mutableGroups =
         [
@@ -252,10 +255,9 @@ public static class PackageDependencyGroupsQuery
             DependencyResolutionService.SelectDependencyGroup(
                 mutableGroups,
                 requestedTargetFramework,
-                allowCompatibleFallbackForRequestedTfm: false);
-        int? selectedGroupIndex = selection.Group is null
-            ? null
-            : mutableGroups?.IndexOf(selection.Group);
+                allowCompatibleFallbackForRequestedTfm);
+        int? selectedGroupIndex =
+            FindSelectedGroupIndex(mutableGroups, selection.Group);
         if (selection.Group is not null && selectedGroupIndex is not >= 0)
         {
             throw new InvalidOperationException(
@@ -280,5 +282,20 @@ public static class PackageDependencyGroupsQuery
                 _ => throw new InvalidOperationException(
                     "Unknown dependency-group selection status."),
             });
+    }
+
+    private static int? FindSelectedGroupIndex(
+        List<DependencyGroup> declaredGroups,
+        DependencyGroup? selectedGroup)
+    {
+        if (selectedGroup is null)
+            return null;
+
+        int index = declaredGroups.IndexOf(selectedGroup);
+        if (index >= 0 || !selectedGroup.IsImplicitManifestGroup)
+            return index;
+
+        return declaredGroups.FindIndex(group =>
+            group.IsImplicitManifestGroup);
     }
 }

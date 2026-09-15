@@ -259,6 +259,12 @@ generic scope. The producer appends to caller-owned call and safety-evidence
 builders so results emitted before a later recoverable metadata failure survive,
 and delegates unsafe-call/opcode classification to `MethodSafetyAnalysis`
 without a second body scan.
+[`MethodThrowAnalysis`](analysis-local-throw-evidence.md) owns opt-in physical
+local-throw evidence. It consumes the shared value provenance and
+acquisition-scoped exception-type qualification, retaining unresolved sites,
+unavailable bodies, and the qualified TypeDef address. It does not reinterpret
+throw counts, construction signals, or declared-source attribution as typed
+throw evidence.
 `MethodAllocationFacts` owns the allocation topic for one decoded body:
 allocation occurrence discovery, allocation-shape classification, escape
 classification, and the private path-context, path-confidence, and
@@ -319,14 +325,37 @@ exception-type assembly projections, and constructs the immutable
 output, while `BuildCallTree_PreservesRecoverableBodyAnalysisFailure` also
 gates partial-result accumulation.
 `LibraryBodyPrimaryMetadataResolver` owns primary-image method identity,
-memory-safety opt-in and unsafe/generated attribute judgments,
+memory-safety caller-contract and generated-attribute judgments,
 token/member/type/field/calli/value-type and delegate facts,
 async-state-machine caching, and the narrow resolver adapters. The assembly
 builder consumes its method identities, while the result accumulator publishes
 the same memory-safety judgment.
-`CallerUnsafeMode_PointerSignatureIsImplicitWhenModuleNotOptedIn` and
-`CallerUnsafeMode_RequiresUnsafeIsExplicitWhenModuleOptedIn` gate the legacy
-and updated-rule states. `LibraryBodyStableReceiverGetterClassifier` owns the
+
+### Primary-image caller-contract normalization
+
+**Owner and claim:** Analysis classifies every primary-image MethodDef caller
+contract from Metadata's normalized `MemorySafetyMetadataIndex`, including
+constructors and property/event accessors. Legacy pointer compatibility maps to
+`Implicit`, an updated explicit contract maps to `Explicit`, and an updated
+pointer-only signature maps to `None`. Unsupported and malformed module markers
+retain their exact module state while Metadata supplies their legacy-compatible
+member result. Conflicting markers and other unavailable module/member evidence
+map to `Unavailable`; they are not counted as propagating methods and do not
+enter leverage, Opaque, or Hollow populations.
+
+The module rules result and per-method contract remain separate typed facts.
+Structural pointer declarations and locals remain body evidence rather than a
+substitute caller contract. This slice does not classify call targets or fields,
+infer inner unsafe contexts, or reconstruct operation meaning.
+
+`CallerUnsafeMode_PointerSignatureIsImplicitWhenModuleNotOptedIn`,
+`CallerUnsafeMode_UsesNormalizedUpdatedContracts`, and
+`CallerUnsafeMode_UnavailableContractIsNotAPropagator` gate the primary-image
+contract. The wider #5254 adoption continues with call targets, fields,
+operation evidence, and inner-unsafe roles before #5270 composes CLI and browser
+audit paths.
+
+`LibraryBodyStableReceiverGetterClassifier` owns the
 narrow PE-backed readonly-field getter judgment and its acquisition-scoped
 cache;
 `OptimizationOpportunities_StableReceiverGetter_IsClassifiedOnce` gates that
@@ -607,7 +636,7 @@ shared services layer used by package/source/TFM infrastructure. Putting
 Research or Decompiler orchestration there would invert the dependency graph and
 pull R2 concerns into lower-layer consumers.
 
-Initial implementations may live in `src/dotnet-inspect/Inspectors/` while the
+Initial implementations may live in `src/DotnetInspect.Cli/Inspectors/` while the
 service shape proves out. If this grows beyond CLI-local orchestration, prefer a
 new high-level inspection/composition project over expanding
 `DotnetInspector.Services`.

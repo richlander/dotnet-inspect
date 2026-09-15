@@ -3,68 +3,53 @@ using ILInspector.Metadata;
 
 namespace ILInspector.Research;
 
-static class AnalysisIndexCache
+/// <summary>
+/// Reuses Analysis indexes within one caller-owned operation or Workspace
+/// realization without retaining process-wide history.
+/// </summary>
+sealed class AnalysisIndexCache
 {
     const int MaxCachedIndexes = 8;
-    static readonly object s_indexLock = new();
-    static readonly List<PathCachedIndex> s_pathIndexes = [];
-    static readonly List<AssemblyCachedIndex> s_assemblyIndexes = [];
-    // Tracks the last confirmed-stable fingerprint per normalized path,
-    // independent of feature/method-token scope and independent of
-    // s_pathIndexes' own eviction. A scoped cache entry answers "can I
-    // reuse a LibraryBodyIndex," which is the wrong question for "has this
-    // path's identity ever disagreed with an earlier observation" -- two
-    // different scopes over the same path are two different reuse
-    // candidates but one and the same path identity. See
-    // docs/design/analysis-index-cache.md's "Surfacing identity changes to
-    // callers".
-    static readonly Dictionary<string, PathFingerprint> s_lastPathFingerprints =
+    readonly object _indexLock = new();
+    readonly List<PathCachedIndex> _pathIndexes = [];
+    readonly List<AssemblyCachedIndex> _assemblyIndexes = [];
+    readonly Dictionary<string, PathFingerprint> _pathFingerprints =
         new(StringComparer.Ordinal);
+    readonly Dictionary<
+        AssemblyAcquisitionRegistration,
+        AssemblyImageSnapshot> _assemblySnapshots =
+        new(ReferenceEqualityComparer.Instance);
 
-    public static LibraryBodyIndex ForPath(string path)
+    public LibraryBodyIndex ForPath(string path)
         => ForPath(
             path,
             ResearchFactRequirements.ForAssembly(
                 LibraryBodyAnalysisFeatures.Default),
-            methodToken: 0,
-            out _);
+            methodToken: 0);
 
-    public static LibraryBodyIndex ForPath(
+    public LibraryBodyIndex ForPath(
         string path,
         ResearchFactRequirements requirements,
         int methodToken)
-        => ForPath(path, requirements, methodToken, out _);
-
-    /// <summary>
-    /// Resolves <paramref name="path"/> the same way as the other overloads, and additionally
-    /// reports whether this result's identity is confirmed continuous with what any earlier
-    /// caller was shown for this same path.
-    /// </summary>
-    /// <param name="identityUnconfirmed">
-    /// <see langword="true"/> when this result should not be treated as confirmed-continuous
-    /// with any earlier observation of <paramref name="path"/> in this process: either a
-    /// previously cached generation for this path was found to no longer match (so a caller
-    /// that saw the earlier generation is now looking at a different one), or this open's own
-    /// bytes could not be confirmed stable for its whole duration (so even a first observation
-    /// carries no confirmed identity to begin with). <see langword="false"/> only when a cache
-    /// hit's fingerprint matched, or a fresh open was internally stable and no earlier cached
-    /// generation for this path disagreed with it.
-    ///
-    /// This cache only reports the fact; deciding whether, or how, to surface it to a user is a
-    /// caller/presentation concern (see docs/design/analysis-index-cache.md's "Surfacing
-    /// identity changes to callers").
-    /// </param>
-    public static LibraryBodyIndex ForPath(
-        string path,
-        ResearchFactRequirements requirements,
-        int methodToken,
-        out bool identityUnconfirmed)
     {
         var fullPath = Path.GetFullPath(path);
-        lock (s_indexLock)
+        lock (_indexLock)
         {
+            bool hadOwnerFingerprint =
+                _pathFingerprints.TryGetValue(
+                    fullPath,
+                    out PathFingerprint ownerFingerprint);
+            if (hadOwnerFingerprint
+                && (!TryGetFingerprint(fullPath, out var currentFingerprint)
+                    || currentFingerprint != ownerFingerprint))
+            {
+                throw new InvalidOperationException(
+                    "The assembly path changed during the Analysis index "
+                    + "owner lifetime.");
+            }
+
             PathCachedIndex? cached =
-                s_pathIndexes.FirstOrDefault(candidate =>
+                _pathIndexes.FirstOrDefault(candidate =>
                     StringComparer.Ordinal.Equals(
                         candidate.Path,
                         fullPath)
@@ -76,55 +61,16 @@ static class AnalysisIndexCache
                             && candidate.MethodToken == methodToken)));
             // A cache hit is only honored when the file's observed length
             // and last-write time still match what was recorded when the
-            // entry was opened. See docs/design/analysis-index-cache.md
-            // ("Path-keyed staleness") -- this is a best-effort heuristic,
-            // not a proof that the bytes are unchanged, but it closes the
-            // gap where a hit silently returned a known-stale index.
+            // entry was opened. This is a best-effort reuse check, not a
+            // durable file identity.
             if (cached is not null
-                && TryGetFingerprint(fullPath, out var currentFingerprint)
-                && currentFingerprint == cached.Fingerprint)
+                && ownerFingerprint == cached.Fingerprint)
             {
-                // A scope-compatible hit still needs to be judged against
-                // the scope-independent identity history, not just its own
-                // entry: a different scope may have confirmed a different
-                // generation of this same path more recently (e.g. a
-                // member-scoped entry surviving from before the file
-                // changed and changed back), in which case this hit's
-                // fingerprint agreeing with *its own* cached entry says
-                // nothing about whether it agrees with the last generation
-                // any caller was actually shown. Treat this reconfirmation
-                // the same way a fresh stable open would: report a change
-                // whenever it disagrees with the last confirmed
-                // fingerprint, then record this fingerprint as the new
-                // last-confirmed one.
-                identityUnconfirmed =
-                    s_lastPathFingerprints.TryGetValue(
-                        fullPath,
-                        out PathFingerprint priorHitFingerprint)
-                    && priorHitFingerprint != currentFingerprint;
-                if (!s_lastPathFingerprints.ContainsKey(fullPath)
-                    && s_lastPathFingerprints.Count >= MaxCachedIndexes)
-                {
-                    s_lastPathFingerprints.Clear();
-                }
-                s_lastPathFingerprints[fullPath] = currentFingerprint;
                 return cached.Index;
             }
-            // What this path's identity was last confirmed to be, tracked
-            // independently of feature/method-token scope and of
-            // s_pathIndexes' own eviction: two different scopes over the
-            // same path are two different reuse candidates, but one and the
-            // same path identity, and this history must survive a reusable
-            // entry being evicted or never having existed for this scope.
-            bool hadPriorFingerprint =
-                s_lastPathFingerprints.TryGetValue(
-                    fullPath,
-                    out PathFingerprint priorFingerprint);
-            if (cached is not null)
-                s_pathIndexes.Remove(cached);
 
-            if (s_pathIndexes.Count >= MaxCachedIndexes)
-                s_pathIndexes.Clear();
+            if (_pathIndexes.Count >= MaxCachedIndexes)
+                _pathIndexes.Clear();
 
             int? scopedToken =
                 requirements.Scope == ResearchAnalysisScope.Member
@@ -153,40 +99,26 @@ static class AnalysisIndexCache
                 hadFingerprintBeforeOpen
                 && hadFingerprintAfterOpen
                 && fingerprintBeforeOpen == fingerprintAfterOpen;
-            if (openWasStable)
+            if (!openWasStable)
             {
-                s_pathIndexes.Add(
-                    new PathCachedIndex(
-                        fullPath,
-                        scopedToken,
-                        index,
-                        fingerprintAfterOpen));
-                if (!s_lastPathFingerprints.ContainsKey(fullPath)
-                    && s_lastPathFingerprints.Count >= MaxCachedIndexes)
-                {
-                    s_lastPathFingerprints.Clear();
-                }
-                s_lastPathFingerprints[fullPath] = fingerprintAfterOpen;
+                throw new InvalidOperationException(
+                    "The assembly path changed while its Analysis index "
+                    + "was being opened.");
             }
-            // Otherwise, the freshly opened index is returned to this caller
-            // but deliberately left uncached: a future request re-opens and
-            // re-verifies from scratch rather than trusting an identity this
-            // open couldn't confirm.
-            //
-            // Report this result as identity-unconfirmed whenever a caller
-            // should not treat it as continuous with anything already known
-            // about this path: this open's own bytes could not be pinned to
-            // one stable generation (!openWasStable), or a stable open
-            // disagrees with the last fingerprint this process confirmed for
-            // this path under *any* scope (hadPriorFingerprint and it
-            // differs). A first-ever observation of this path with a stable
-            // open reports no change, since there is nothing earlier to
-            // have disagreed with. This cache only reports the fact; see
-            // docs/design/analysis-index-cache.md for who acts on it.
-            identityUnconfirmed =
-                !openWasStable
-                || (hadPriorFingerprint
-                    && priorFingerprint != fingerprintAfterOpen);
+            if (hadOwnerFingerprint
+                && fingerprintAfterOpen != ownerFingerprint)
+            {
+                throw new InvalidOperationException(
+                    "The assembly path changed during the Analysis index "
+                    + "owner lifetime.");
+            }
+            _pathFingerprints.TryAdd(fullPath, fingerprintAfterOpen);
+            _pathIndexes.Add(
+                new PathCachedIndex(
+                    fullPath,
+                    scopedToken,
+                    index,
+                    fingerprintAfterOpen));
             return index;
         }
     }
@@ -203,7 +135,7 @@ static class AnalysisIndexCache
         return true;
     }
 
-    public static LibraryBodyIndex ForAssembly(
+    public LibraryBodyIndex ForAssembly(
         ResolvedAssemblyReference assembly)
         => ForAssembly(
             assembly,
@@ -212,7 +144,7 @@ static class AnalysisIndexCache
             methodToken: 0,
             out _);
 
-    public static LibraryBodyIndex ForAssembly(
+    public LibraryBodyIndex ForAssembly(
         ResolvedAssemblyReference assembly,
         out Guid moduleVersionId)
         => ForAssembly(
@@ -222,7 +154,7 @@ static class AnalysisIndexCache
             methodToken: 0,
             out moduleVersionId);
 
-    public static LibraryBodyIndex ForAssembly(
+    public LibraryBodyIndex ForAssembly(
         ResolvedAssemblyReference assembly,
         ResearchFactRequirements requirements,
         int methodToken)
@@ -232,17 +164,17 @@ static class AnalysisIndexCache
             methodToken,
             out _);
 
-    static LibraryBodyIndex ForAssembly(
+    LibraryBodyIndex ForAssembly(
         ResolvedAssemblyReference assembly,
         ResearchFactRequirements requirements,
         int methodToken,
         out Guid moduleVersionId)
     {
         ArgumentNullException.ThrowIfNull(assembly);
-        lock (s_indexLock)
+        lock (_indexLock)
         {
             AssemblyCachedIndex? cached =
-                s_assemblyIndexes.FirstOrDefault(candidate =>
+                _assemblyIndexes.FirstOrDefault(candidate =>
                     ReferenceEquals(
                         candidate.Registration,
                         assembly.Registration)
@@ -258,8 +190,8 @@ static class AnalysisIndexCache
                 return cached.Index;
             }
 
-            if (s_assemblyIndexes.Count >= MaxCachedIndexes)
-                s_assemblyIndexes.Clear();
+            if (_assemblyIndexes.Count >= MaxCachedIndexes)
+                _assemblyIndexes.Clear();
 
             int? scopedToken =
                 requirements.Scope == ResearchAnalysisScope.Member
@@ -269,22 +201,8 @@ static class AnalysisIndexCache
             IReadOnlySet<int>? bodyScope = scopedToken is { } token
                 ? new HashSet<int> { token }
                 : null;
-            AssemblyImageSnapshotResult snapshotResult =
-                AssemblyImageSnapshot.Open(
-                    assembly,
-                    length => length
-                        <= AssemblyImageSnapshot
-                            .DefaultMaxRetainedImageBytes,
-                    static _ => { });
-            AssemblyImageSnapshot snapshot = snapshotResult switch
-            {
-                AssemblyImageSnapshotResult.Ready ready =>
-                    ready.Snapshot,
-                AssemblyImageSnapshotResult.Rejected rejected =>
-                    throw SnapshotFailure(rejected.Failure),
-                _ => throw new InvalidOperationException(
-                    "Unknown assembly snapshot result."),
-            };
+            AssemblyImageSnapshot snapshot =
+                GetAssemblySnapshot(assembly);
             moduleVersionId = snapshot.ModuleVersionId;
             LibraryBodyIndex index =
                 LibraryBodyIndex.OpenFromPrefetchedImage(
@@ -292,7 +210,7 @@ static class AnalysisIndexCache
                     snapshot.Content,
                     requirements.Features,
                     bodyScope: bodyScope);
-            s_assemblyIndexes.Add(
+            _assemblyIndexes.Add(
                 new AssemblyCachedIndex(
                     assembly.Registration,
                     snapshot.ModuleVersionId,
@@ -300,6 +218,36 @@ static class AnalysisIndexCache
                     index));
             return index;
         }
+    }
+
+    AssemblyImageSnapshot GetAssemblySnapshot(
+        ResolvedAssemblyReference assembly)
+    {
+        if (_assemblySnapshots.TryGetValue(
+            assembly.Registration,
+            out AssemblyImageSnapshot? snapshot))
+        {
+            return snapshot;
+        }
+
+        AssemblyImageSnapshotResult snapshotResult =
+            AssemblyImageSnapshot.Open(
+                assembly,
+                length => length
+                    <= AssemblyImageSnapshot
+                        .DefaultMaxRetainedImageBytes,
+                static _ => { });
+        snapshot = snapshotResult switch
+        {
+            AssemblyImageSnapshotResult.Ready ready =>
+                ready.Snapshot,
+            AssemblyImageSnapshotResult.Rejected rejected =>
+                throw SnapshotFailure(rejected.Failure),
+            _ => throw new InvalidOperationException(
+                "Unknown assembly snapshot result."),
+        };
+        _assemblySnapshots.Add(assembly.Registration, snapshot);
+        return snapshot;
     }
 
     static Exception SnapshotFailure(CandidateOpenFailure failure) =>

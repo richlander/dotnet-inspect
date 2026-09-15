@@ -23,7 +23,7 @@ namespace DotnetInspector.Queries.Tests;
 /// descriptor construction, and image access are exercised against real PE
 /// images rather than synthetic bytes.
 /// </summary>
-public sealed class WorkspaceContextLoaderTests
+public sealed partial class WorkspaceContextLoaderTests
 {
     const string Framework = "net10.0";
     const string PackageId = "workspace.sample";
@@ -53,7 +53,7 @@ public sealed class WorkspaceContextLoaderTests
     [Fact]
     public async Task PackageMember_RealizesEveryManagedAssemblyInOneGroup()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         IPackageStore store = await CachedStoreAsync(
             Version,
             LibraryPackage());
@@ -127,7 +127,7 @@ public sealed class WorkspaceContextLoaderTests
     [Fact]
     public async Task PlatformMember_ResolvesFrameworkMatchedVersionAndRealizesContentParticipants()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         var store = new InMemoryPackageStore();
         await store.CommitAsync(
             RuntimePackPackageId,
@@ -214,7 +214,7 @@ public sealed class WorkspaceContextLoaderTests
     public async Task PlatformMember_AssemblyFilterUsesMetadataIdentity()
     {
         string assemblyName = Path.GetFileNameWithoutExtension(CallerPath);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         var store = new InMemoryPackageStore();
         await store.CommitAsync(
             RuntimePackPackageId,
@@ -277,7 +277,7 @@ public sealed class WorkspaceContextLoaderTests
                         File.ReadAllBytes(TargetV2Path)))),
             TestContext.Current.CancellationToken);
         using var client = new HttpClient(new FailingHandler());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         var failed = Failed(
             await WorkspaceContextLoader.LoadAsync(
@@ -320,7 +320,7 @@ public sealed class WorkspaceContextLoaderTests
             new MemoryStream(RuntimePack()),
             TestContext.Current.CancellationToken);
         using var client = new HttpClient(new FailingHandler());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         var loaded = Loaded(
             await WorkspaceContextLoader.LoadAsync(
@@ -363,7 +363,7 @@ public sealed class WorkspaceContextLoaderTests
         var store = new CountingPackageStore(
             new InMemoryPackageStore());
         using var client = new HttpClient(new FailingHandler());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         var failed = Failed(
             await WorkspaceContextLoader.LoadAsync(
@@ -418,7 +418,7 @@ public sealed class WorkspaceContextLoaderTests
             new AlternatingPlatformListingHandler(
                 RuntimePackVersion,
                 nextVersion));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         var failed = Failed(
             await WorkspaceContextLoader.LoadAsync(
@@ -452,7 +452,7 @@ public sealed class WorkspaceContextLoaderTests
         var store = new CountingPackageStore(
             new InMemoryPackageStore());
         using var client = new HttpClient(new FailingHandler());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         var failed = Failed(
             await WorkspaceContextLoader.LoadAsync(
@@ -496,7 +496,7 @@ public sealed class WorkspaceContextLoaderTests
             new MemoryStream(RuntimePack()),
             TestContext.Current.CancellationToken);
         using var client = new HttpClient(new FailingHandler());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         var loaded = Loaded(
             await WorkspaceContextLoader.LoadAsync(
@@ -543,7 +543,7 @@ public sealed class WorkspaceContextLoaderTests
             RuntimePackPackageId,
             "9.0.9");
         using var client = new HttpClient(handler);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         var authorization = new PerPackageAuthorization
         {
             [RuntimePackPackageId] = [FeedA, FeedB],
@@ -600,7 +600,7 @@ public sealed class WorkspaceContextLoaderTests
         using var client = new HttpClient(handler);
         var store = new CountingPackageStore(
             new InMemoryPackageStore());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         var authorization = new PerPackageAuthorization
         {
             [RuntimePackPackageId] = [FeedA, FeedB],
@@ -648,7 +648,7 @@ public sealed class WorkspaceContextLoaderTests
         using var client = new HttpClient(handler);
         var store = new CountingPackageStore(
             new InMemoryPackageStore());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         var authorization = new PerPackageAuthorization
         {
             [RuntimePackPackageId] = [FeedA, FeedB],
@@ -696,7 +696,7 @@ public sealed class WorkspaceContextLoaderTests
             RuntimePackPackageId,
             RuntimePackVersion);
         using var client = new HttpClient(handler);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         var authorization = new PerPackageAuthorization
         {
             [RuntimePackPackageId] = [FeedA, FeedB],
@@ -751,7 +751,7 @@ public sealed class WorkspaceContextLoaderTests
                         File.ReadAllBytes(EmbeddedPath)))),
             TestContext.Current.CancellationToken);
         using var client = new HttpClient(new FailingHandler());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         var loaded = Loaded(
             await WorkspaceContextLoader.LoadAsync(
@@ -797,7 +797,7 @@ public sealed class WorkspaceContextLoaderTests
         var store = new CountingPackageStore(
             new InMemoryPackageStore());
         using var client = new HttpClient(new FailingHandler());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         var failed = Failed(
             await WorkspaceContextLoader.LoadAsync(
@@ -831,7 +831,7 @@ public sealed class WorkspaceContextLoaderTests
     {
         using var client = new HttpClient(
             new PlatformListingHandler("9.0.9", "11.0.0"));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         var failed = Failed(
             await WorkspaceContextLoader.LoadAsync(
@@ -864,7 +864,7 @@ public sealed class WorkspaceContextLoaderTests
             new MemoryStream(RuntimePack()),
             TestContext.Current.CancellationToken);
         using var client = new HttpClient(new FailingHandler());
-        using var firstWorkspace = new InspectionWorkspace();
+        await using var firstWorkspace = new InspectionWorkspace();
         var first = Loaded(
             await WorkspaceContextLoader.LoadAsync(
                 firstWorkspace,
@@ -885,7 +885,7 @@ public sealed class WorkspaceContextLoaderTests
             .. first.Members.Select(member => member.Realized),
         ];
 
-        using var secondWorkspace = new InspectionWorkspace();
+        await using var secondWorkspace = new InspectionWorkspace();
         var second = Loaded(
             await WorkspaceContextLoader.LoadRealizedAsync(
                 secondWorkspace,
@@ -916,7 +916,7 @@ public sealed class WorkspaceContextLoaderTests
             TestContext.Current.CancellationToken);
         var store = new EntryCountingPackageStore(inner);
         using var client = new HttpClient(new FailingHandler());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         var loaded = Loaded(
             await WorkspaceContextLoader.LoadRealizedAsync(
@@ -961,7 +961,7 @@ public sealed class WorkspaceContextLoaderTests
             new MemoryStream(RuntimePack()),
             TestContext.Current.CancellationToken);
         using var client = new HttpClient(new FailingHandler());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         var failed = Failed(
             await WorkspaceContextLoader.LoadRealizedAsync(
@@ -999,7 +999,7 @@ public sealed class WorkspaceContextLoaderTests
     public async Task RealizedPlatformCoordinate_WithUnauthorizedProducerFailsTyped()
     {
         using var client = new HttpClient(new FailingHandler());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         var failed = Failed(
             await WorkspaceContextLoader.LoadRealizedAsync(
@@ -1031,7 +1031,7 @@ public sealed class WorkspaceContextLoaderTests
         var store = new CountingPackageStore(
             new InMemoryPackageStore());
         using var client = new HttpClient(new FailingHandler());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         var failed = Failed(
             await WorkspaceContextLoader.LoadRealizedAsync(
@@ -1070,7 +1070,7 @@ public sealed class WorkspaceContextLoaderTests
         var store = new CountingPackageStore(
             new InMemoryPackageStore());
         using var client = new HttpClient(new FailingHandler());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         var failed = Failed(
             await WorkspaceContextLoader.LoadAsync(
@@ -1100,7 +1100,7 @@ public sealed class WorkspaceContextLoaderTests
     [Fact]
     public async Task PackageBoundary_ProjectsLoadedPackageAsGroupAndNode()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         IPackageStore store = await CachedStoreAsync(
             Version,
             LibraryPackage());
@@ -1145,7 +1145,7 @@ public sealed class WorkspaceContextLoaderTests
     public async Task PackageBoundary_KeepsEffectiveTargetAcrossAssetFallback()
     {
         const string RequestedFramework = "net11.0";
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         IPackageStore store = await CachedStoreAsync(
             Version,
             Archive(
@@ -1189,7 +1189,7 @@ public sealed class WorkspaceContextLoaderTests
     [Fact]
     public async Task Group_BindsAnInContextReferenceToItsOwnDescriptor()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         IPackageStore store = await CachedStoreAsync(
             Version,
             LibraryPackage());
@@ -1247,7 +1247,7 @@ public sealed class WorkspaceContextLoaderTests
             new MemoryStream(LibraryPackage()),
             TestContext.Current.CancellationToken);
         var store = new EntryCountingPackageStore(inner);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using var client = new HttpClient(new FailingHandler());
 
         var loaded = Loaded(
@@ -1278,7 +1278,7 @@ public sealed class WorkspaceContextLoaderTests
     public async Task Group_DisposalRevokesItsSnapshotBackedDescriptors()
     {
         InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         try
         {
             IPackageStore store = await CachedStoreAsync(
@@ -1314,7 +1314,7 @@ public sealed class WorkspaceContextLoaderTests
     [Fact]
     public async Task Group_RetentionBudgetFailureCreatesNoGroup()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         IPackageStore store = await CachedStoreAsync(
             Version,
             LibraryPackage());
@@ -1345,7 +1345,7 @@ public sealed class WorkspaceContextLoaderTests
     public async Task MixedPackageAndEmbeddedMembers_ShareOneGroup()
     {
         byte[] embedded = File.ReadAllBytes(EmbeddedPath);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         IPackageStore store = await CachedStoreAsync(
             Version,
             LibraryPackage());
@@ -1393,7 +1393,7 @@ public sealed class WorkspaceContextLoaderTests
     [Fact]
     public async Task MemberTarget_IsInheritedFromTheContext()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         IPackageStore store = await CachedStoreAsync(
             Version,
             RuntimeSpecificPackage());
@@ -1433,7 +1433,7 @@ public sealed class WorkspaceContextLoaderTests
     [Fact]
     public async Task MemberTarget_MayRestateTheContextTarget()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         IPackageStore store = await CachedStoreAsync(
             Version,
             LibraryPackage());
@@ -1461,7 +1461,7 @@ public sealed class WorkspaceContextLoaderTests
     [Fact]
     public async Task ConflictingTargets_CreateNoGroup()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         IPackageStore store = await CachedStoreAsync(
             Version,
             LibraryPackage());
@@ -1493,7 +1493,7 @@ public sealed class WorkspaceContextLoaderTests
     [Fact]
     public async Task PackageMemberWithoutAFramework_ReportsAMissingTarget()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         IPackageStore store = await CachedStoreAsync(
             Version,
             LibraryPackage());
@@ -1518,7 +1518,7 @@ public sealed class WorkspaceContextLoaderTests
     [Fact]
     public async Task EmptyContext_CreatesNoGroup()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using var client = new HttpClient(new FailingHandler());
 
         WorkspaceContextLoadOutcome outcome =
@@ -1538,7 +1538,7 @@ public sealed class WorkspaceContextLoaderTests
     public async Task FloatingMember_UsesTheListingAwareVersionPolicy()
     {
         byte[] nupkg = LibraryPackage();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using var client = new HttpClient(
             new ListingHandler(nupkg, listedVersion: "1.5.0"));
 
@@ -1575,7 +1575,7 @@ public sealed class WorkspaceContextLoaderTests
     [Fact]
     public async Task ExactPin_SelectsAnUnlistedVersionWithoutDiscovery()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         IPackageStore store = await CachedStoreAsync(
             "2.0.0",
             LibraryPackage());
@@ -1612,7 +1612,7 @@ public sealed class WorkspaceContextLoaderTests
         byte[] nupkg = LibraryPackage();
         var store = new InMemoryPackageStore();
         var transferPolicy = new RecordingTransferPolicy();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using var client = new HttpClient(new PayloadHandler(nupkg, Version));
 
         var loaded = Loaded(
@@ -1659,7 +1659,7 @@ public sealed class WorkspaceContextLoaderTests
     {
         byte[] nupkg = RuntimePack();
         var declaredPolicy = new RecordingTransferPolicy();
-        using var declaredWorkspace = new InspectionWorkspace();
+        await using var declaredWorkspace = new InspectionWorkspace();
         using var declaredClient = new HttpClient(
             new PayloadHandler(
                 nupkg,
@@ -1694,7 +1694,7 @@ public sealed class WorkspaceContextLoaderTests
                 declared.Members[0].Realized);
 
         var realizedPolicy = new RecordingTransferPolicy();
-        using var realizedWorkspace = new InspectionWorkspace();
+        await using var realizedWorkspace = new InspectionWorkspace();
         using var realizedClient = new HttpClient(
             new PayloadHandler(
                 nupkg,
@@ -1724,7 +1724,7 @@ public sealed class WorkspaceContextLoaderTests
         handler.Serve(FeedA, "alpha.package", "1.0.0", CallerPackage());
         handler.Serve(FeedB, "bravo.package", "1.0.0", TargetPackage());
         using var client = new HttpClient(handler);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         var loaded = Loaded(
             await WorkspaceContextLoader.LoadAsync(
@@ -1800,7 +1800,7 @@ public sealed class WorkspaceContextLoaderTests
             new MemoryStream(nupkg),
             TestContext.Current.CancellationToken);
         using var client = new HttpClient(handler);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         WorkspaceContextLoadOutcome outcome =
             await WorkspaceContextLoader.LoadAsync(
@@ -1842,7 +1842,7 @@ public sealed class WorkspaceContextLoaderTests
     {
         using var client = new HttpClient(new FailingHandler());
         var store = new CountingPackageStore(new InMemoryPackageStore());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         WorkspaceContextLoadOutcome outcome =
             await WorkspaceContextLoader.LoadAsync(
@@ -1894,7 +1894,7 @@ public sealed class WorkspaceContextLoaderTests
         async Task<RealizedMemberCoordinate.Package> RealizeAsync(
             PackageSource feed)
         {
-            using var workspace = new InspectionWorkspace();
+            await using var workspace = new InspectionWorkspace();
             var loaded = Loaded(
                 await WorkspaceContextLoader.LoadAsync(
                     workspace,
@@ -1935,7 +1935,7 @@ public sealed class WorkspaceContextLoaderTests
             Framework,
             runtimeIdentifier: null);
 
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         var loaded = Loaded(
             await WorkspaceContextLoader.LoadRealizedAsync(
                 workspace,
@@ -1985,7 +1985,7 @@ public sealed class WorkspaceContextLoaderTests
             Framework,
             runtimeIdentifier: null);
 
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         WorkspaceContextLoadOutcome outcome =
             await WorkspaceContextLoader.LoadRealizedAsync(
                 workspace,
@@ -2030,7 +2030,7 @@ public sealed class WorkspaceContextLoaderTests
             Framework,
             runtimeIdentifier: null);
 
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         WorkspaceContextLoadOutcome outcome =
             await WorkspaceContextLoader.LoadRealizedAsync(
                 workspace,
@@ -2076,7 +2076,7 @@ public sealed class WorkspaceContextLoaderTests
             Framework,
             runtimeIdentifier: null);
 
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         WorkspaceContextLoadOutcome outcome =
             await WorkspaceContextLoader.LoadRealizedAsync(
                 workspace,
@@ -2123,7 +2123,7 @@ public sealed class WorkspaceContextLoaderTests
             Framework,
             runtimeIdentifier: null);
 
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         WorkspaceContextLoadOutcome outcome =
             await WorkspaceContextLoader.LoadRealizedAsync(
                 workspace,
@@ -2160,7 +2160,7 @@ public sealed class WorkspaceContextLoaderTests
             Framework,
             runtimeIdentifier: null);
 
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         var loaded = Loaded(
             await WorkspaceContextLoader.LoadRealizedAsync(
                 workspace,
@@ -2188,7 +2188,7 @@ public sealed class WorkspaceContextLoaderTests
         using var client = new HttpClient(new FailingHandler());
         var provider = new StubEmbeddedContent(embedded);
 
-        using var first = new InspectionWorkspace();
+        await using var first = new InspectionWorkspace();
         var loaded = Loaded(
             await WorkspaceContextLoader.LoadAsync(
                 first,
@@ -2215,7 +2215,7 @@ public sealed class WorkspaceContextLoaderTests
         Assert.Equal(3, realized.Length);
         Assert.Equal(2, realized.Distinct().Count());
 
-        using var second = new InspectionWorkspace();
+        await using var second = new InspectionWorkspace();
         var reloaded = Loaded(
             await WorkspaceContextLoader.LoadRealizedAsync(
                 second,
@@ -2264,7 +2264,7 @@ public sealed class WorkspaceContextLoaderTests
     {
         IPackageStore store = await CachedStoreAsync(Version, LibraryPackage());
         using var client = new HttpClient(new FailingHandler());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         WorkspaceContextLoadOutcome outcome =
             await WorkspaceContextLoader.LoadRealizedAsync(
@@ -2296,7 +2296,7 @@ public sealed class WorkspaceContextLoaderTests
     public async Task RealizedLoad_WithNoMembers_CreatesNoGroup()
     {
         using var client = new HttpClient(new FailingHandler());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         WorkspaceContextLoadOutcome outcome =
             await WorkspaceContextLoader.LoadRealizedAsync(
@@ -2324,7 +2324,7 @@ public sealed class WorkspaceContextLoaderTests
     {
         using var client = new HttpClient(new FailingHandler());
         var store = new CountingPackageStore(new InMemoryPackageStore());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         WorkspaceContextLoadOutcome outcome =
             await WorkspaceContextLoader.LoadAsync(
@@ -2366,7 +2366,7 @@ public sealed class WorkspaceContextLoaderTests
         var store = new CountingPackageStore(
             new InMemoryPackageStore());
         using var client = new HttpClient(new FailingHandler());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         var failed = Failed(
             await WorkspaceContextLoader.LoadAsync(
@@ -2437,7 +2437,7 @@ public sealed class WorkspaceContextLoaderTests
         {
             using var client = new HttpClient(new FailingHandler());
             var store = new CountingPackageStore(inner);
-            using var workspace = new InspectionWorkspace();
+            await using var workspace = new InspectionWorkspace();
 
             WorkspaceContextLoadOutcome outcome =
                 await WorkspaceContextLoader.LoadAsync(
@@ -2477,7 +2477,7 @@ public sealed class WorkspaceContextLoaderTests
     {
         byte[] nupkg = LibraryPackage();
         var store = new InMemoryPackageStore();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using var client = new HttpClient(new PayloadHandler(nupkg, Version));
 
         WorkspaceContextLoadOutcome outcome =
@@ -2508,7 +2508,7 @@ public sealed class WorkspaceContextLoaderTests
     [Fact]
     public async Task UnavailablePackage_CreatesNoGroup()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using var client = new HttpClient(new NotFoundHandler());
 
         WorkspaceContextLoadOutcome outcome =
@@ -2531,7 +2531,7 @@ public sealed class WorkspaceContextLoaderTests
     [Fact]
     public async Task PackageWithoutApplicableAssets_CreatesNoGroup()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         IPackageStore store = await CachedStoreAsync(
             Version,
             Archive(("lib/net481/Sample.dll", File.ReadAllBytes(TargetPath))));
@@ -2557,7 +2557,7 @@ public sealed class WorkspaceContextLoaderTests
     [Fact]
     public async Task PackageAssetWithoutManagedMetadata_IsNotAnAssembly()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         IPackageStore store = await CachedStoreAsync(
             Version,
             Archive(
@@ -2591,7 +2591,7 @@ public sealed class WorkspaceContextLoaderTests
         // assembly sits beside it. Pinning the blast radius in both directions
         // is the point: the single-asset gates cannot distinguish scoping from
         // non-scoping.
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         IPackageStore store = await CachedStoreAsync(
             Version,
             Archive(
@@ -2626,7 +2626,7 @@ public sealed class WorkspaceContextLoaderTests
         // The base swallowed this inside CreateFromStreamIfManaged and loaded
         // the member as though the package were intact. That success-shaped
         // skip is what this contract removes, so the change is pinned here.
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         IPackageStore store = await CachedStoreAsync(
             Version,
             Archive(
@@ -2659,7 +2659,7 @@ public sealed class WorkspaceContextLoaderTests
     public async Task UnsupportedPackageAsset_CreatesTypedFailure()
     {
         byte[] unsupported = CreateUnsupportedMetadataImage();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         IPackageStore store = await CachedStoreAsync(
             Version,
             Archive(("lib/net10.0/Unsupported.dll", unsupported)));
@@ -2688,7 +2688,7 @@ public sealed class WorkspaceContextLoaderTests
     public async Task MalformedPackageAsset_PreservesExactReason()
     {
         byte[] malformed = CreateMalformedMetadataRootImage();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         IPackageStore store = await CachedStoreAsync(
             Version,
             Archive(("lib/net10.0/Malformed.dll", malformed)));
@@ -2729,7 +2729,7 @@ public sealed class WorkspaceContextLoaderTests
                     ("runtimes/linux-x64/lib/net10.0/Unsupported.dll",
                         CreateUnsupportedMetadataImage()))),
             TestContext.Current.CancellationToken);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using var client = new HttpClient(
             new PlatformListingHandler(RuntimePackVersion));
 
@@ -2769,7 +2769,7 @@ public sealed class WorkspaceContextLoaderTests
                     ("runtimes/linux-x64/lib/net10.0/Malformed.dll",
                         malformed))),
             TestContext.Current.CancellationToken);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using var client = new HttpClient(
             new PlatformListingHandler(RuntimePackVersion));
 
@@ -2802,7 +2802,7 @@ public sealed class WorkspaceContextLoaderTests
     public async Task EmbeddedMemberWithoutAHostProvider_IsUnavailable()
     {
         byte[] embedded = File.ReadAllBytes(EmbeddedPath);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using var client = new HttpClient(new FailingHandler());
 
         WorkspaceContextLoadOutcome outcome =
@@ -2825,7 +2825,7 @@ public sealed class WorkspaceContextLoaderTests
     public async Task MissingEmbeddedContent_CreatesNoGroup()
     {
         byte[] embedded = File.ReadAllBytes(EmbeddedPath);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using var client = new HttpClient(new FailingHandler());
 
         WorkspaceContextLoadOutcome outcome =
@@ -2853,7 +2853,7 @@ public sealed class WorkspaceContextLoaderTests
         byte[] embedded = File.ReadAllBytes(EmbeddedPath);
         byte[] tampered = [.. embedded];
         tampered[^1] ^= 0xFF;
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using var client = new HttpClient(new FailingHandler());
 
         WorkspaceContextLoadOutcome outcome =
@@ -2879,7 +2879,7 @@ public sealed class WorkspaceContextLoaderTests
     public async Task EmbeddedNameMismatch_CreatesNoGroup()
     {
         byte[] embedded = File.ReadAllBytes(EmbeddedPath);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using var client = new HttpClient(new FailingHandler());
 
         WorkspaceContextLoadOutcome outcome =
@@ -2917,7 +2917,7 @@ public sealed class WorkspaceContextLoaderTests
     public async Task MalformedEmbeddedContent_CreatesNoGroup()
     {
         byte[] malformed = CreateMalformedMetadataRootImage();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using var client = new HttpClient(new FailingHandler());
 
         WorkspaceContextLoadOutcome outcome =
@@ -2948,7 +2948,7 @@ public sealed class WorkspaceContextLoaderTests
     public async Task UnsupportedEmbeddedContent_CreatesTypedFailure()
     {
         byte[] unsupported = CreateUnsupportedMetadataImage();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using var client = new HttpClient(new FailingHandler());
 
         WorkspaceContextLoadFailure failure = Assert.Single(
@@ -2982,7 +2982,7 @@ public sealed class WorkspaceContextLoaderTests
     public async Task OversizedEmbeddedContent_CreatesNoGroup()
     {
         byte[] embedded = File.ReadAllBytes(EmbeddedPath);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using var client = new HttpClient(new FailingHandler());
 
         WorkspaceContextLoadOutcome outcome =
@@ -3018,7 +3018,7 @@ public sealed class WorkspaceContextLoaderTests
         string declaredName)
     {
         byte[] embedded = File.ReadAllBytes(EmbeddedPath);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using var client = new HttpClient(new FailingHandler());
         var provider = new StubEmbeddedContent(embedded);
 
@@ -3057,7 +3057,7 @@ public sealed class WorkspaceContextLoaderTests
         string contentRef)
     {
         byte[] embedded = File.ReadAllBytes(EmbeddedPath);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using var client = new HttpClient(new FailingHandler());
         var provider = new StubEmbeddedContent(embedded);
 
@@ -3087,7 +3087,7 @@ public sealed class WorkspaceContextLoaderTests
     public async Task UppercaseEmbeddedDigest_IsRejected()
     {
         byte[] embedded = File.ReadAllBytes(EmbeddedPath);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using var client = new HttpClient(new FailingHandler());
         var provider = new StubEmbeddedContent(embedded);
 
@@ -3126,7 +3126,7 @@ public sealed class WorkspaceContextLoaderTests
         var handler = new PerFeedHandler();
         handler.Serve(FeedA, underscoreId, Version, TargetPackage());
         using var client = new HttpClient(handler);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         var loaded = Loaded(
             await WorkspaceContextLoader.LoadAsync(
@@ -3168,7 +3168,7 @@ public sealed class WorkspaceContextLoaderTests
         string selected)
     {
         byte[] nupkg = TargetPackage();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using var client = new HttpClient(
             new ListingHandler(nupkg, listedVersion: selected));
 
@@ -3248,7 +3248,7 @@ public sealed class WorkspaceContextLoaderTests
 
         async Task<RealizedMemberCoordinate> RealizeAsync(string framework)
         {
-            using var workspace = new InspectionWorkspace();
+            await using var workspace = new InspectionWorkspace();
             var loaded = Loaded(
                 await WorkspaceContextLoader.LoadAsync(
                     workspace,
@@ -3280,7 +3280,7 @@ public sealed class WorkspaceContextLoaderTests
         using var client = new HttpClient(new FailingHandler());
         var store = new CountingPackageStore(new InMemoryPackageStore());
         var authorization = new RecordingAuthorization();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         WorkspaceContextLoadOutcome outcome =
             await WorkspaceContextLoader.LoadAsync(
@@ -3326,7 +3326,7 @@ public sealed class WorkspaceContextLoaderTests
         byte[] embedded = File.ReadAllBytes(EmbeddedPath);
         var provider = new StubEmbeddedContent(embedded);
         using var client = new HttpClient(new FailingHandler());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         WorkspaceContextLoadOutcome outcome =
             await WorkspaceContextLoader.LoadAsync(
@@ -3383,7 +3383,7 @@ public sealed class WorkspaceContextLoaderTests
     {
         IPackageStore store = await CachedStoreAsync(Version, LibraryPackage());
         using var client = new HttpClient(new FailingHandler());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         var loaded = Loaded(
             await WorkspaceContextLoader.LoadAsync(
@@ -3420,7 +3420,7 @@ public sealed class WorkspaceContextLoaderTests
         IPackageStore store = await CachedStoreAsync(Version, LibraryPackage());
         using var client = new HttpClient(new FailingHandler());
         var counting = new CountingPackageStore(store);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         WorkspaceContextLoadOutcome outcome =
             await WorkspaceContextLoader.LoadAsync(
@@ -3459,7 +3459,7 @@ public sealed class WorkspaceContextLoaderTests
     {
         IPackageStore store = await CachedStoreAsync(Version, LibraryPackage());
         using var client = new HttpClient(new FailingHandler());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         var loaded = Loaded(
             await WorkspaceContextLoader.LoadAsync(
@@ -3491,7 +3491,7 @@ public sealed class WorkspaceContextLoaderTests
     public async Task EquivalentFloatingDuplicates_CollapseToOneAcquisition()
     {
         byte[] nupkg = LibraryPackage();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using var client = new HttpClient(
             new ListingHandler(nupkg, listedVersion: "1.5.0"));
 
@@ -3533,7 +3533,7 @@ public sealed class WorkspaceContextLoaderTests
         IPackageStore store = await CachedStoreAsync(Version, LibraryPackage());
         using var client = new HttpClient(new FailingHandler());
         var counting = new CountingPackageStore(store);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         WorkspaceContextLoadOutcome outcome =
             await WorkspaceContextLoader.LoadAsync(
@@ -3562,7 +3562,7 @@ public sealed class WorkspaceContextLoaderTests
     public async Task RealizedDuplicatesFromDifferentProducers_CreateNoGroup()
     {
         using var client = new HttpClient(new FailingHandler());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         WorkspaceContextLoadOutcome outcome =
             await WorkspaceContextLoader.LoadRealizedAsync(
@@ -3596,7 +3596,7 @@ public sealed class WorkspaceContextLoaderTests
         byte[] embedded = File.ReadAllBytes(EmbeddedPath);
         var provider = new StubEmbeddedContent(embedded);
         using var client = new HttpClient(new FailingHandler());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         WorkspaceContextLoadOutcome outcome =
             await WorkspaceContextLoader.LoadAsync(
@@ -3639,7 +3639,7 @@ public sealed class WorkspaceContextLoaderTests
                 ($"lib/{Framework}/{Path.GetFileName(TargetPath)}", target),
                 ($"lib/{Framework}/copies/{Path.GetFileName(TargetPath)}", target)));
         using var client = new HttpClient(new FailingHandler());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         WorkspaceContextLoadOutcome outcome =
             await WorkspaceContextLoader.LoadAsync(
@@ -3680,7 +3680,7 @@ public sealed class WorkspaceContextLoaderTests
                 ($"lib/{Framework}/original.dll", target),
                 ($"lib/{Framework}/equivalent.dll", equivalent)));
         using var client = new HttpClient(new FailingHandler());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         WorkspaceContextLoadOutcome outcome =
             await WorkspaceContextLoader.LoadAsync(
@@ -3706,7 +3706,7 @@ public sealed class WorkspaceContextLoaderTests
         handler.Serve(FeedA, "alpha.package", Version, TargetPackage());
         handler.Serve(FeedB, "bravo.package", Version, TargetPackage());
         using var client = new HttpClient(handler);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         WorkspaceContextLoadOutcome outcome =
             await WorkspaceContextLoader.LoadAsync(
@@ -3751,7 +3751,7 @@ public sealed class WorkspaceContextLoaderTests
                 ($"lib/{Framework}/v2/{Path.GetFileName(TargetPath)}",
                     File.ReadAllBytes(TargetV2Path))));
         using var client = new HttpClient(new FailingHandler());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         var loaded = Loaded(
             await WorkspaceContextLoader.LoadAsync(
@@ -3804,7 +3804,7 @@ public sealed class WorkspaceContextLoaderTests
                 ($"lib/net-1.0/{Path.GetFileName(TargetPath)}",
                     File.ReadAllBytes(TargetPath))));
         using var client = new HttpClient(new FailingHandler());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         WorkspaceContextLoadOutcome outcome =
             await WorkspaceContextLoader.LoadAsync(
@@ -3832,7 +3832,7 @@ public sealed class WorkspaceContextLoaderTests
     public async Task FloatingMember_WithOnlyPrereleases_CreatesNoGroup()
     {
         byte[] nupkg = TargetPackage();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using var client = new HttpClient(
             new ListingHandler(nupkg, listedVersion: "9.0.0-preview.2"));
 
@@ -3860,7 +3860,7 @@ public sealed class WorkspaceContextLoaderTests
     public async Task FloatingMember_WithOnlyPrereleases_LoadsWhenIncluded()
     {
         byte[] nupkg = TargetPackage();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using var client = new HttpClient(
             new ListingHandler(nupkg, listedVersion: "9.0.0-preview.2"));
 
@@ -3898,7 +3898,7 @@ public sealed class WorkspaceContextLoaderTests
             "9.0.0-preview.2",
             TargetPackage());
         using var client = new HttpClient(new FailingHandler());
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         var loaded = Loaded(
             await WorkspaceContextLoader.LoadAsync(
@@ -4031,7 +4031,7 @@ public sealed class WorkspaceContextLoaderTests
     [Fact]
     public async Task Load_ObservesCancellation()
     {
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         using var client = new HttpClient(new FailingHandler());
         using var cancellation = new CancellationTokenSource();
         await cancellation.CancelAsync();

@@ -85,7 +85,7 @@ which differences are intentional policy.
 
 `ILInspector.MetadataPrimitives` is currently an SRM-only leaf with no project
 references. `LayeringTests.MetadataPrimitives_RemainsLeaf` in
-`tests/dotnet-inspect.Tests` gates that property.
+`tests/DotnetInspect.Cli.Tests` gates that property.
 
 ```text
                      ILInspector.MetadataPrimitives
@@ -238,16 +238,16 @@ read `Rejections`, which carries the typed path-to-mechanism pairing. That
 type overrides `Message` so each mechanism is rendered exactly once, beside
 its own path, rather than repeated by the base type's inner-message list.
 
-Acquisition owners call it before exposing metadata sessions. Public or
-reusable `PEReader` entry points that can bypass those owners call it directly.
-That closure includes `AssemblyImage`, `PdbContext`, Decompiler
-`MetadataSource`, `MetadataImageInspector`, every `MetadataTableProjector`
+Adopted acquisition owners call it before exposing metadata sessions. Public
+or reusable `PEReader` entry points within those owners call it directly. The
+current closure includes `AssemblyImage`, `PdbContext`,
+`MetadataImageInspector`, every `MetadataTableProjector`
 table/row/reference/heap operation, and the defensive
 `MethodSemanticsRowReader` leaf check. `MDP017` in
 [member inspection planning and Metadata
 projection](design/member-inspection-planning-and-metadata-projection.md) gates
-the inventory, reader independence, bounded root work, typed failure, and
-no-work-before-reject properties.
+that adopted inventory, reader independence, bounded root work, typed failure,
+and no-work-before-reject properties.
 
 The classifier's primitive-local contract is implemented and gated by
 `MetadataImageFormatClassifierTests` and
@@ -289,6 +289,16 @@ the remaining edges: those still depend on the decoder and resolver contracts.
 How a command presents a scan that carries rejections is a separate, CLI-owned
 concern, owned by [Uncertified scan results](design/uncertified-scan-results.md);
 today `depends` is its only adopter.
+
+The retained-descriptor population entry point applies the same staged
+candidate indexing and graph construction to acquisition-issued
+`ResolvedAssemblyReference` values. Candidate outcomes remain ordered and are
+joined by `AssemblyAcquisitionRegistration`; successful outcomes carry no
+reader or stream capability, while rejected outcomes carry
+`CandidateOpenFailure`. A miss is certified only when every selected
+participant completed. If no participant survives, the population result is
+unavailable rather than a type-absence claim. The path entry point preserves
+its compatibility exception behavior while sharing the same scanning core.
 
 **Known limit: decoding is not complete metadata validation.** A generic
 parameter outside its enclosing type's context can decode to a synthesized

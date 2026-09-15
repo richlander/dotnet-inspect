@@ -199,14 +199,17 @@ metadata and evidence sections in one request. Companion schema discovery
 On `find`, `-S` accepts query companions only; ordinary data-section selection
 remains unsupported.
 
-Performance descriptors consume the same filterable/sortable field catalogs
-and value-domain rules as argument binding. Body Shapes consumes the exact
-product-owned C# body-kind vocabulary; library candidate-filter composition is
-distinct from the narrower type/member contract. Top Leverage and package
-facets are not advertised merely because similarly named data or core
-descriptors exist. Future package-query CLI adoption must register its actual
-bindings, preserving the distinction between Gallery source orders and row
-rankings.
+Performance Triage descriptors project canonical field names, predicate
+comparisons, and field ordering/Top support directly from the executable row
+schema used by argument binding. The CLI projection owns only value-domain
+labels, accepted-value display, copyable examples, and the allow list of named
+orders exposed as CLI bindings; an internal executable named order is not
+advertised automatically. Body Shapes consumes the exact product-owned C# body
+kind vocabulary; library candidate-filter composition is distinct from the
+narrower type/member contract. Top Leverage and package facets are not
+advertised merely because similarly named data or core descriptors exist.
+Future package-query CLI adoption must register its actual bindings, preserving
+the distinction between Gallery source orders and row rankings.
 
 Markout lowers the typed metadata into ordinary section tables. Markdown,
 plain text, table, TSV, and JSONL use the existing projection path.
@@ -221,22 +224,25 @@ for named discovery. Detailed output adds copyable examples; ordinary output
 keeps the compact facet/operator/value table.
 
 `QueryDiscoveryTests` is the Release gate for scoped mode separation,
-acquisition-free requests with missing targets, exact owner-accepted bindings,
-Body Shapes composition, category/alias/glob resolution, companion visibility,
-explicit empty capability state, structured JSON, projection, and metadata
-row windows/counts. The boundary cases include a real-looking missing target
-and a core package facet catalog with no executable CLI binding: neither may
-turn capability discovery into target acquisition or advertise deferred work.
+acquisition-free requests with missing targets, executable-schema-derived
+Performance Triage capabilities, exact owner-accepted bindings, Body Shapes
+composition, category/alias/glob resolution, companion visibility, explicit
+empty capability state, structured JSON, projection, and metadata row
+windows/counts. The boundary cases include a changed executable field
+capability, a real-looking missing target, and a core package facet catalog
+with no executable CLI binding: none may require a parallel capability edit,
+turn discovery into target acquisition, or advertise deferred work.
 
 ## Network and source capabilities
 
 Package acquisition and symbol/source acquisition are separate.
 
-In the Browser package query, selecting a product-issued package-content facet
-is the explicit package-acquisition gesture. The product planner caps that
-request at 20 candidates, and execution requires the host to supply an
+In Browser and CLI Package Query, selecting a product-issued package-content
+facet is the explicit package-acquisition gesture. The product planner caps
+that request at 20 candidates, and execution requires the host to supply an
 `IPackageQueryContentProvider`; merely discovering that an archive is
-available grants no authority to open it.
+available grants no authority to open it. The CLI's `--nuspec-only` option
+rejects a planned package-content facet before acquisition.
 
 Capability-bearing gestures carry **request provenance**, not authority.
 Argument parsing retains the user's original verbosity, explicit
@@ -332,17 +338,19 @@ dotnet-inspect library System.Private.CoreLib -S "Async*" --rows 11..20
   windows. An upstream-bounded source may return Count only when it proves
   exact completion for the logical request; a provider, work, page, time, or
   memory cap is not semantic selection and must remain disclosed rather than
-  becoming a corpus total. Bare `package search`'s default provider and merged
-  caps remain non-semantic, so Count requires exact completion evidence for the
-  full candidate set rather than reporting `20`; an explicit `-n 20` is
-  semantic `Head(20)` and may prove the exact result `20` without exhausting
-  the tail. A Rows request may still render the capped search rows with their
-  bound incompleteness disclosure; that does not make the cap semantic or
-  Count-sufficient.
+  becoming a corpus total. `package query`'s candidate `--take` remains
+  non-semantic, so Count requires exact completion evidence for the authorized
+  candidate population rather than reporting the work ceiling; an explicit
+  `-n 20` is semantic `Head(20)`. Without explicit `--take`, Package Query may
+  push a lone Head into direct candidate or filtered match execution; reaching
+  that derived Head is complete for the selected rows rather than a candidate
+  truncation. A Rows request may still render rows from an explicitly
+  candidate-bounded query with its incompleteness disclosure; that does not
+  make the candidate cap semantic or Count-sufficient.
 - `-n N` and numeric shorthand such as `-6` limit declared items independently
-  within each row set after filtering and ordering. Bare `package search` uses
-  a default provider and global merged-row cap of 20; an explicit N sets both
-  caps to N.
+  within each row set after filtering and ordering. `package query` keeps this
+  semantic selection separate from explicit `--take`; without explicit
+  `--take`, a lone Head may be delegated into query execution.
 - `--tail` takes items from the end.
 - `--rows` selects absolute stable row ranges such as `11..20`, `11+10`, or
   `11..`; it carries no count-only form.

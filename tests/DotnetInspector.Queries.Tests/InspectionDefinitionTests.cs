@@ -1,7 +1,10 @@
 using System.Text;
 using System.Text.Json;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
+using DotnetInspector.QueriesConsumer;
+using NuGetFetch;
 
 namespace DotnetInspector.Queries.Tests;
 
@@ -289,9 +292,254 @@ public class InspectionDefinitionTests
         Assert.True(resolved.CreatesAssemblyContextGroup);
         Assert.Equal("c", resolved.SelectedContextName);
         Assert.Single(resolved.Contexts);
+        Assert.Same(
+            WorkspaceDefinitionConsumer.GetPlan(resolved),
+            resolved.WorkspacePlan);
         Assert.IsType<WorkspaceMemberCoordinate.PackageMember>(resolved.SelectedContext!.Members[0]);
         Assert.Equal("T", resolved.View!.Type);
         Assert.Equal(0, resolved.Navigation!.FocusIndex);
+    }
+
+    [Fact]
+    public async Task ResolveScenario_LowersSupportedContextsIntoReusableWorkspacePlan()
+    {
+        const string json = """
+            {
+              "schemaVersion": 1,
+              "kind": "workspace",
+              "id": "workspace",
+              "contexts": [
+                {
+                  "name": "package",
+                  "framework": "net10.0",
+                  "rid": "linux-x64",
+                  "members": [
+                    {
+                      "kind": "package",
+                      "id": "System.Text.Json",
+                      "version": "10.0.0",
+                      "framework": "net10.0",
+                      "rid": "linux-x64"
+                    }
+                  ]
+                },
+                {
+                  "name": "platform",
+                  "framework": "net10.0",
+                  "members": [
+                    {
+                      "kind": "platform",
+                      "family": "runtime",
+                      "assembly": "System.Text.Json",
+                      "version": "10.0.0",
+                      "framework": "net10.0"
+                    },
+                    {
+                      "kind": "embedded",
+                      "contentRef": "assemblies/Neighbor.dll",
+                      "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                      "declaredName": "Neighbor"
+                    }
+                  ]
+                }
+              ]
+            }
+            """;
+        var definition = Assert.IsType<WorkspaceDefinition>(
+            InspectionDefinitionJson.Parse(json));
+        var registry = new InspectionDefinitionRegistry();
+        registry.Add(definition);
+        registry.Add(new ScenarioDefinition(
+            1,
+            "scenario",
+            workspace: "workspace",
+            context: "package"));
+
+        ResolvedScenario resolved = registry.ResolveScenario("scenario");
+        WorkspacePlan plan = WorkspaceDefinitionConsumer.GetPlan(resolved);
+        var programmaticPlan = new WorkspacePlan(
+            [],
+            [
+                new WorkspaceContextInput
+                {
+                    Framework = "net10.0",
+                    RuntimeIdentifier = "linux-x64",
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Package(
+                            "System.Text.Json",
+                            "10.0.0",
+                            "net10.0",
+                            "linux-x64"),
+                    ],
+                },
+                new WorkspaceContextInput
+                {
+                    Framework = "net10.0",
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Platform(
+                            "runtime",
+                            "System.Text.Json",
+                            "10.0.0",
+                            "net10.0"),
+                        WorkspaceMemberCoordinate.Embedded(
+                            "assemblies/Neighbor.dll",
+                            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                            "Neighbor"),
+                    ],
+                },
+            ]);
+
+        Assert.Same(definition, resolved.Workspace);
+        Assert.Empty(plan.Registrations);
+        Assert.Equal(programmaticPlan.Contexts.Length, plan.Contexts.Length);
+        for (int i = 0; i < programmaticPlan.Contexts.Length; i++)
+        {
+            AssertContextInputEqual(programmaticPlan.Contexts[i], plan.Contexts[i]);
+            Assert.Same(plan.Contexts[i], resolved.Contexts[i].Input);
+            Assert.Same(plan.Contexts[i].Members, resolved.Contexts[i].Members);
+        }
+        Assert.Same(plan.Contexts[0], resolved.SelectedContext!.Input);
+
+        InspectionWorkspace first =
+            WorkspaceDefinitionConsumer.CreateWorkspace(resolved);
+        WorkspaceRegistrationRevision firstRevision =
+            Assert.IsType<WorkspaceRegistrationReadResult.Available>(
+                first.GetRegistrationSnapshot()).Revision;
+        Assert.Same(plan, firstRevision.Plan);
+
+        await first.DisposeAsync();
+        await using InspectionWorkspace second =
+            WorkspaceDefinitionConsumer.CreateWorkspace(resolved);
+        WorkspaceRegistrationRevision secondRevision =
+            Assert.IsType<WorkspaceRegistrationReadResult.Available>(
+                second.GetRegistrationSnapshot()).Revision;
+        Assert.Same(plan, secondRevision.Plan);
+        Assert.NotSame(firstRevision.Workspace, secondRevision.Workspace);
+        Assert.Equal(2, plan.Contexts.Length);
+    }
+
+    [Fact]
+    public async Task ResolveScenario_EqualDefinitionsRetainExactAssociationAndFreshIdentity()
+    {
+        WorkspaceDefinition firstDefinition = Definition("workspace");
+        WorkspaceDefinition secondDefinition = Definition("other");
+        WorkspaceDefinition equalDefinition = Definition("workspace");
+        ResolvedScenario first = Resolve(firstDefinition, "first");
+        ResolvedScenario second = Resolve(secondDefinition, "second");
+        ResolvedScenario equal = Resolve(equalDefinition, "equal");
+
+        Assert.Equal(
+            InspectionDefinitionJson.Serialize(firstDefinition),
+            InspectionDefinitionJson.Serialize(equalDefinition));
+        Assert.Same(firstDefinition, first.Workspace);
+        Assert.Same(secondDefinition, second.Workspace);
+        Assert.Same(equalDefinition, equal.Workspace);
+
+        InspectionWorkspace firstWorkspace =
+            WorkspaceDefinitionConsumer.CreateWorkspace(first);
+        WorkspaceRegistrationRevision firstRevision = Current(firstWorkspace);
+        await firstWorkspace.DisposeAsync();
+        await using InspectionWorkspace secondWorkspace =
+            WorkspaceDefinitionConsumer.CreateWorkspace(second);
+        await using InspectionWorkspace equalWorkspace =
+            WorkspaceDefinitionConsumer.CreateWorkspace(equal);
+        WorkspaceRegistrationRevision secondRevision = Current(secondWorkspace);
+        WorkspaceRegistrationRevision equalRevision = Current(equalWorkspace);
+
+        Assert.Same(first.WorkspacePlan, firstRevision.Plan);
+        Assert.Same(second.WorkspacePlan, secondRevision.Plan);
+        Assert.Same(equal.WorkspacePlan, equalRevision.Plan);
+        Assert.NotSame(firstRevision.Workspace, secondRevision.Workspace);
+        Assert.NotSame(firstRevision.Workspace, equalRevision.Workspace);
+        Assert.NotSame(secondRevision.Workspace, equalRevision.Workspace);
+        Assert.Equal("workspace", first.Workspace!.Id);
+        Assert.Equal("workspace", equal.Workspace!.Id);
+
+        static WorkspaceDefinition Definition(string id) =>
+            new(
+                1,
+                id,
+                [
+                    new WorkspaceContextDefinition(
+                        "context",
+                        framework: "net10.0",
+                        members:
+                        [
+                            new DefinitionMemberCoordinate.PackageCoordinate(
+                                "System.Text.Json",
+                                "10.0.0",
+                                "net10.0"),
+                        ]),
+                ]);
+
+        static ResolvedScenario Resolve(
+            WorkspaceDefinition definition,
+            string scenarioId)
+        {
+            var registry = new InspectionDefinitionRegistry();
+            registry.Add(definition);
+            registry.Add(new ScenarioDefinition(
+                1,
+                scenarioId,
+                workspace: definition.Id));
+            return registry.ResolveScenario(scenarioId);
+        }
+
+        static WorkspaceRegistrationRevision Current(
+            InspectionWorkspace workspace) =>
+            Assert.IsType<WorkspaceRegistrationReadResult.Available>(
+                workspace.GetRegistrationSnapshot()).Revision;
+    }
+
+    [Fact]
+    public async Task ResolveScenario_DefersTargetValidationToPlanInvocation()
+    {
+        var registry = new InspectionDefinitionRegistry();
+        registry.Add(new WorkspaceDefinition(
+            1,
+            "workspace",
+            [
+                new WorkspaceContextDefinition(
+                    "context",
+                    framework: "net10.0",
+                    members:
+                    [
+                        new DefinitionMemberCoordinate.PackageCoordinate(
+                            "System.Text.Json",
+                            "10.0.0",
+                            "net9.0"),
+                    ]),
+            ]));
+        registry.Add(new ScenarioDefinition(
+            1,
+            "scenario",
+            workspace: "workspace"));
+
+        WorkspacePlan plan =
+            WorkspaceDefinitionConsumer.GetPlan(
+                registry.ResolveScenario("scenario"));
+        Assert.Single(plan.Contexts);
+
+        using var client = new HttpClient(new UnexpectedHandler());
+        var failed = Assert.IsType<
+            WorkspacePackageRootAcquisitionOutcome.Failed>(
+                await WorkspaceContextLoader.AcquirePackageRootAsync(
+                    plan.Contexts[0],
+                    new WorkspaceContextLoadOptions
+                    {
+                        HttpClient = client,
+                        SourceAuthorization = new UnexpectedAuthorization(),
+                        PackageStore = new InMemoryPackageStore(),
+                    },
+                    TestContext.Current.CancellationToken));
+
+        Assert.Contains(
+            failed.Failures,
+            failure => failure.Kind
+                == WorkspaceContextLoadFailureKind
+                    .ConflictingAcquisitionTarget);
     }
 
     [Fact]
@@ -313,6 +561,7 @@ public class InspectionDefinitionTests
 
         var resolved = registry.ResolveScenario("source-only");
         Assert.False(resolved.CreatesAssemblyContextGroup);
+        Assert.Null(resolved.WorkspacePlan);
         Assert.Empty(resolved.Contexts);
         Assert.Null(resolved.SelectedContext);
         Assert.Equal("bundle:doc", resolved.Scenario.Input);
@@ -1080,5 +1329,32 @@ public class InspectionDefinitionTests
         Assert.Equal(expected.Count, actual.Count);
         for (var i = 0; i < expected.Count; i++)
             Assert.Equal(expected[i], actual[i]);
+    }
+
+    private sealed class UnexpectedAuthorization
+        : IPackageSourceAuthorization
+    {
+        public PackageSourceAuthorization AuthorizeSourcesFor(
+            string packageId) =>
+            throw new InvalidOperationException(
+                "Target validation must precede source authorization.");
+    }
+
+    private sealed class UnexpectedHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException(
+                "Target validation must precede network access.");
+    }
+
+    private static void AssertContextInputEqual(
+        WorkspaceContextInput expected,
+        WorkspaceContextInput actual)
+    {
+        Assert.Equal(expected.Framework, actual.Framework);
+        Assert.Equal(expected.RuntimeIdentifier, actual.RuntimeIdentifier);
+        Assert.Equal(expected.Members, actual.Members);
     }
 }

@@ -62,7 +62,7 @@ public static class AssemblyOnlyInspector
         ResolvedAssemblyReference assembly =
             ResolvedAssemblyReference.CreateFromArtifactIfManaged(
                 artifactRegistration,
-                content.OpenRead,
+                () => artifacts.OpenRead(content, lease),
                 AssemblyResolutionProvenance.Local(
                     "artifact-session"))
             ?? throw new BadImageFormatException(

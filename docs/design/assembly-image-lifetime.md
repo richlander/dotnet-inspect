@@ -16,7 +16,8 @@ Persistent derived-result ownership remains split. Each result's cache owner
 defines its complete semantic key and reuse policy;
 [artifact acquisition](artifact-acquisition-and-workspaces.md#artifactsetsession)
 supplies any content digest from retained bytes; and
-[CoreCache](../inspection-space.md#corecache) supplies infrastructure plus the
+[PersistentCache](../inspection-space.md#persistentcache) supplies
+infrastructure plus the
 repository-wide cutover constraints. This document neither replaces nor
 weakens those contracts.
 
@@ -193,7 +194,7 @@ correspondence between artifacts.
 Reader-local and session-local caches end with their image generation.
 
 Persistent derived-result caches follow the contract in
-[inspection-space.md](../inspection-space.md#corecache): the result owner
+[inspection-space.md](../inspection-space.md#persistentcache): the result owner
 defines the semantic key, acquisition computes any content digest over retained
 immutable bytes, and the cold gate, producer, and publication use that same
 snapshot. The immutable nuget.org coordinate scopes reacquisition and
@@ -290,14 +291,14 @@ The default `effective-v28` library catalog currently persists facts for direct
 local-file inspection across tool runs. Its key includes the resolved path and
 a SHA-256 digest computed during a separate source open. That rejects ordinary
 stable replacement builds, but it does not prove that the later cold producer
-read the hashed bytes; the source can change between opens. `MDP017` already
-owns the retained-snapshot cutover for that pre-existing cache correctness
-gap.
+read the hashed bytes; the source can change between opens. The
+retained-snapshot cutover for that pre-existing cache correctness gap is
+unverified and tracked by [#3478](https://github.com/richlander/dotnet-inspect/issues/3478).
 
 The implementation must disable or remove that cross-run cache route for local
 subjects rather than carry its separate-process direct-file requirements into
-the successor cache. Package and platform routes retain `MDP017`'s digest and
-snapshot contract. This PR records the mismatch; it does not change shipping
+the successor cache. Package and platform routes retain that digest and snapshot
+contract. This PR records the mismatch; it does not change shipping
 cache behavior.
 
 ## Required gates

@@ -34,7 +34,9 @@ public static class UnsafeLeverage
             .ToDictionary(group => group.Key, group => group.Select(c => c.Caller.MetadataToken).Distinct().Count());
 
         return methods
-            .Where(method => method.CallerUnsafeMode != CallerUnsafeMode.None)
+            .Where(method =>
+                CallerUnsafeModeFacts.RequiresUnsafe(
+                    method.CallerUnsafeMode))
             .Select(method => new UnsafeMethodLeverage(
                 method,
                 callersByToken.GetValueOrDefault(method.MetadataToken),

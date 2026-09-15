@@ -12,6 +12,7 @@ public enum AssemblyBindingFailureKind
     InvalidPolicyResult,
     InvalidBindingOrigin,
     RequestBudgetExceeded,
+    InvalidCompositionResult,
 }
 
 /// <summary>
@@ -288,6 +289,160 @@ public sealed class AssemblyBindingRequest
 }
 
 /// <summary>
+/// One complete, deterministically ordered set of identity-eligible binding
+/// candidates awaiting an adjacent arbitration decision.
+/// </summary>
+public sealed class AssemblyBindingCandidateDomain
+{
+    readonly ImmutableDictionary<
+        AssemblyAcquisitionRegistration,
+        ResolvedAssemblyReference> _candidatesByRegistration;
+
+    AssemblyBindingCandidateDomain(
+        ImmutableArray<ResolvedAssemblyReference> candidates,
+        ImmutableDictionary<
+            AssemblyAcquisitionRegistration,
+            ResolvedAssemblyReference> candidatesByRegistration)
+    {
+        Candidates = candidates;
+        _candidatesByRegistration = candidatesByRegistration;
+    }
+
+    /// <summary>
+    /// Creates a complete domain in the identity owner's deterministic evidence
+    /// order.
+    /// </summary>
+    public static AssemblyBindingCandidateDomain Create(
+        ImmutableArray<ResolvedAssemblyReference> candidates)
+    {
+        if (candidates.IsDefaultOrEmpty)
+        {
+            throw new ArgumentException(
+                "A binding candidate domain requires at least one candidate.",
+                nameof(candidates));
+        }
+
+        var byRegistration = ImmutableDictionary.CreateBuilder<
+            AssemblyAcquisitionRegistration,
+            ResolvedAssemblyReference>(
+                ReferenceEqualityComparer.Instance);
+        foreach (ResolvedAssemblyReference candidate in candidates)
+        {
+            if (candidate is null)
+            {
+                throw new ArgumentException(
+                    "A binding candidate domain cannot contain null descriptors.",
+                    nameof(candidates));
+            }
+            if (!byRegistration.TryAdd(
+                    candidate.Registration,
+                    candidate))
+            {
+                throw new ArgumentException(
+                    "A binding candidate domain cannot repeat an acquisition registration.",
+                    nameof(candidates));
+            }
+        }
+
+        return new AssemblyBindingCandidateDomain(
+            candidates,
+            byRegistration.ToImmutable());
+    }
+
+    /// <summary>
+    /// Gets every identity-eligible descriptor in the issuing owner's
+    /// deterministic evidence order.
+    /// </summary>
+    public ImmutableArray<ResolvedAssemblyReference> Candidates { get; }
+
+    /// <summary>
+    /// Finalizes one nonempty set of highest-precedence contenders.
+    /// </summary>
+    public AssemblyBindingSelection Finalize(
+        ImmutableArray<ResolvedAssemblyReference> contenders) =>
+        FinalizeCore(contenders, selectedOccurrence: null);
+
+    /// <summary>
+    /// Finalizes one selected contender while preserving its policy-issued
+    /// continuation.
+    /// </summary>
+    public AssemblyBindingSelection Finalize(
+        AssemblyBindingOccurrence contender)
+    {
+        ArgumentNullException.ThrowIfNull(contender);
+        return FinalizeCore([contender.Assembly], contender);
+    }
+
+    AssemblyBindingSelection FinalizeCore(
+        ImmutableArray<ResolvedAssemblyReference> contenders,
+        AssemblyBindingOccurrence? selectedOccurrence)
+    {
+        if (contenders.IsDefaultOrEmpty)
+            return InvalidComposition();
+
+        var activeRegistrations =
+            new HashSet<AssemblyAcquisitionRegistration>(
+                ReferenceEqualityComparer.Instance);
+        foreach (ResolvedAssemblyReference contender in contenders)
+        {
+            if (contender is null
+                || !_candidatesByRegistration.TryGetValue(
+                    contender.Registration,
+                    out ResolvedAssemblyReference? candidate)
+                || !ReferenceEquals(candidate, contender)
+                || !activeRegistrations.Add(
+                    contender.Registration))
+            {
+                return InvalidComposition();
+            }
+        }
+
+        var active =
+            ImmutableArray.CreateBuilder<ResolvedAssemblyReference>(
+                contenders.Length);
+        var inactive =
+            ImmutableArray.CreateBuilder<ResolvedAssemblyReference>(
+                Candidates.Length - contenders.Length);
+        foreach (ResolvedAssemblyReference candidate in Candidates)
+        {
+            (activeRegistrations.Contains(candidate.Registration)
+                    ? active
+                    : inactive)
+                .Add(candidate);
+        }
+
+        if (active.Count == 1)
+        {
+            AssemblyBindingOccurrence occurrence =
+                selectedOccurrence
+                ?? AssemblyBindingOccurrence.Seed(active[0]);
+            if (!ReferenceEquals(
+                    occurrence.Assembly,
+                    active[0]))
+            {
+                return InvalidComposition();
+            }
+
+            return AssemblyBindingSelection.Finalized(
+                occurrence,
+                inactive.MoveToImmutable());
+        }
+
+        if (selectedOccurrence is not null)
+            return InvalidComposition();
+
+        return AssemblyBindingSelection.Finalized(
+            active.MoveToImmutable(),
+            inactive.MoveToImmutable());
+    }
+
+    static AssemblyBindingSelection InvalidComposition() =>
+        AssemblyBindingSelection.Invalid(
+            new AssemblyBindingFailure(
+                AssemblyBindingFailureKind.InvalidCompositionResult));
+}
+
+/// <summary>
 /// The descriptor-level answer returned by
 /// <see cref="IAssemblyBindingPolicy"/> during context discovery. Selections
 /// contain acquisition descriptors; Metadata later interns them into
@@ -300,35 +455,34 @@ public abstract class AssemblyBindingSelection
     }
 
     /// <summary>
-    /// Returns one selected acquisition descriptor and optional descriptors
-    /// retained as inactive shadow evidence.
+    /// Returns one selected acquisition descriptor with no inactive shadow
+    /// evidence.
     /// </summary>
     public static AssemblyBindingSelection Found(
-        ResolvedAssemblyReference assembly,
-        ImmutableArray<ResolvedAssemblyReference> shadowedAssemblies = default)
+        ResolvedAssemblyReference assembly)
     {
         ArgumentNullException.ThrowIfNull(assembly);
         return FoundOccurrence(
-            AssemblyBindingOccurrence.Seed(assembly),
-            shadowedAssemblies);
+            AssemblyBindingOccurrence.Seed(assembly));
     }
 
     /// <summary>Retains the selection issuer's occurrence unchanged.</summary>
     public static AssemblyBindingSelection FoundOccurrence(
-        AssemblyBindingOccurrence occurrence,
-        ImmutableArray<ResolvedAssemblyReference> shadowedAssemblies = default)
+        AssemblyBindingOccurrence occurrence)
     {
         ArgumentNullException.ThrowIfNull(occurrence);
-        if (shadowedAssemblies.IsDefault)
-            shadowedAssemblies = [];
-        if (shadowedAssemblies.Any(static shadow => shadow is null))
-        {
-            throw new ArgumentException(
-                "Shadow evidence cannot contain null descriptors.",
-                nameof(shadowedAssemblies));
-        }
+        return new Selected(occurrence, []);
+    }
 
-        return new Selected(occurrence, shadowedAssemblies);
+    /// <summary>
+    /// Reports a complete identity-eligible domain that requires one adjacent
+    /// arbitration owner.
+    /// </summary>
+    public static AssemblyBindingSelection RequireComposition(
+        AssemblyBindingCandidateDomain domain)
+    {
+        ArgumentNullException.ThrowIfNull(domain);
+        return new CompositionRequired(domain);
     }
 
     /// <summary>
@@ -371,7 +525,7 @@ public abstract class AssemblyBindingSelection
             throw new ArgumentException(
                 "An ambiguous selection cannot contain null candidates.",
                 nameof(assemblies));
-        return new Ambiguous(assemblies);
+        return new Ambiguous(assemblies, []);
     }
 
     /// <summary>Reports an invalid request or policy response.</summary>
@@ -403,6 +557,33 @@ public abstract class AssemblyBindingSelection
     }
 
     /// <summary>
+    /// Validates a final policy answer before Metadata interns or freezes any
+    /// candidate.
+    /// </summary>
+    public static AssemblyBindingSelection ValidateForMetadataRequest(
+        AssemblyBindingRequest request,
+        AssemblyBindingSelection? selection)
+    {
+        AssemblyBindingSelection validated =
+            ValidateForRequest(request, selection);
+        return validated is CompositionRequired
+            ? Invalid(
+                new AssemblyBindingFailure(
+                    AssemblyBindingFailureKind.InvalidCompositionResult))
+            : validated;
+    }
+
+    internal static AssemblyBindingSelection Finalized(
+        AssemblyBindingOccurrence occurrence,
+        ImmutableArray<ResolvedAssemblyReference> shadowedAssemblies) =>
+        new Selected(occurrence, shadowedAssemblies);
+
+    internal static AssemblyBindingSelection Finalized(
+        ImmutableArray<ResolvedAssemblyReference> assemblies,
+        ImmutableArray<ResolvedAssemblyReference> shadowedAssemblies) =>
+        new Ambiguous(assemblies, shadowedAssemblies);
+
+    /// <summary>
     /// A policy selection containing one descriptor and inactive shadow
     /// evidence.
     /// </summary>
@@ -422,6 +603,19 @@ public abstract class AssemblyBindingSelection
         {
             get;
         }
+    }
+
+    /// <summary>
+    /// A complete identity-eligible candidate domain awaiting an adjacent
+    /// arbitration owner.
+    /// </summary>
+    public sealed class CompositionRequired : AssemblyBindingSelection
+    {
+        internal CompositionRequired(
+            AssemblyBindingCandidateDomain domain) =>
+            Domain = domain;
+
+        public AssemblyBindingCandidateDomain Domain { get; }
     }
 
     /// <summary>A policy selection with no matching descriptor.</summary>
@@ -453,10 +647,18 @@ public abstract class AssemblyBindingSelection
     public sealed class Ambiguous : AssemblyBindingSelection
     {
         internal Ambiguous(
-            ImmutableArray<ResolvedAssemblyReference> assemblies) =>
+            ImmutableArray<ResolvedAssemblyReference> assemblies,
+            ImmutableArray<ResolvedAssemblyReference> shadowedAssemblies)
+        {
             Assemblies = assemblies;
+            ShadowedAssemblies = shadowedAssemblies;
+        }
 
         public ImmutableArray<ResolvedAssemblyReference> Assemblies { get; }
+        public ImmutableArray<ResolvedAssemblyReference> ShadowedAssemblies
+        {
+            get;
+        }
     }
 
     /// <summary>A policy selection rejected as invalid.</summary>
@@ -610,8 +812,8 @@ public sealed class AssemblyReferenceBindingPolicy : IAssemblyBindingPolicy
 /// Catalog-interned binding result stored in a frozen
 /// <see cref="TypeResolutionContext"/>. Unlike
 /// <see cref="AssemblyBindingSelection"/>, successful and ambiguous arms carry
-/// catalog candidates. A resolved outcome retains descriptor-level shadow
-/// evidence without interning it as active candidates. Policies cannot
+/// catalog candidates. Resolved and ambiguous outcomes retain descriptor-level
+/// shadow evidence without interning it as active candidates. Policies cannot
 /// construct these outcomes.
 /// </summary>
 public abstract class AssemblyBindingOutcome
@@ -685,10 +887,18 @@ public abstract class AssemblyBindingOutcome
     public sealed class Ambiguous : AssemblyBindingOutcome
     {
         internal Ambiguous(
-            ImmutableArray<ResolvedAssemblyCandidate> candidates) =>
+            ImmutableArray<ResolvedAssemblyCandidate> candidates,
+            ImmutableArray<ResolvedAssemblyReference> shadowedAssemblies)
+        {
             Candidates = candidates;
+            ShadowedAssemblies = shadowedAssemblies;
+        }
 
         public ImmutableArray<ResolvedAssemblyCandidate> Candidates { get; }
+        public ImmutableArray<ResolvedAssemblyReference> ShadowedAssemblies
+        {
+            get;
+        }
     }
 
     /// <summary>The binding request or policy result was invalid.</summary>

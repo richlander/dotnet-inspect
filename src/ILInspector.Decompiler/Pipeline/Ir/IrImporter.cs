@@ -88,7 +88,8 @@ public static class IrImporter
                 return CrashFunction(
                     method.Name,
                     method.DeclaringType.Name,
-                    ex);
+                    ex,
+                    SafeMemorySafetyMode(source));
             }
         }
 
@@ -111,7 +112,8 @@ public static class IrImporter
             return CrashFunction(
                 method.Name,
                 exactName.ToEscapedFullName(),
-                ex);
+                ex,
+                SafeMemorySafetyMode(source));
         }
     }
 
@@ -191,7 +193,11 @@ public static class IrImporter
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            return CrashFunction(methodName, typeFullName, ex);
+            return CrashFunction(
+                methodName,
+                typeFullName,
+                ex,
+                SafeMemorySafetyMode(source));
         }
     }
 
@@ -328,8 +334,16 @@ public static class IrImporter
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             return reader is null
-                ? CrashFunction("<method>", "<type>", ex)
-                : CrashFunction(SafeName(reader, methodHandle), SafeTypeName(reader, methodHandle), ex);
+                ? CrashFunction(
+                    "<method>",
+                    "<type>",
+                    ex,
+                    SafeMemorySafetyMode(source))
+                : CrashFunction(
+                    SafeName(reader, methodHandle),
+                    SafeTypeName(reader, methodHandle),
+                    ex,
+                    SafeMemorySafetyMode(source));
         }
     }
 
@@ -425,7 +439,11 @@ public static class IrImporter
                 }
                 catch (Exception ex) when (ex is not OutOfMemoryException)
                 {
-                    function = CrashFunction(memberName, typeName, ex);
+                    function = CrashFunction(
+                        memberName,
+                        typeName,
+                        ex,
+                        SafeMemorySafetyMode(source));
                 }
                 yield return (typeName, memberName, function);
             }
@@ -453,7 +471,11 @@ public static class IrImporter
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
-                return IrImporter.CrashFunction(MethodName, TypeName, ex);
+                return IrImporter.CrashFunction(
+                    MethodName,
+                    TypeName,
+                    ex,
+                    SafeMemorySafetyMode(source));
             }
         }
     }
@@ -564,7 +586,11 @@ public static class IrImporter
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
-                function = CrashFunction(candidate.MethodName, candidate.TypeName, ex);
+                function = CrashFunction(
+                    candidate.MethodName,
+                    candidate.TypeName,
+                    ex,
+                    SafeMemorySafetyMode(source));
             }
             yield return (candidate.TypeName, candidate.MethodName, function);
         }
@@ -606,7 +632,11 @@ public static class IrImporter
         string Key,
         int OverloadIndex = 0);
 
-    static IrFunction CrashFunction(string methodName, string typeName, Exception ex)
+    static IrFunction CrashFunction(
+        string methodName,
+        string typeName,
+        Exception ex,
+        MemorySafetyModeDecision memorySafetyMode)
     {
         var block = new Block(0);
         var container = new BlockContainer();
@@ -615,11 +645,36 @@ public static class IrImporter
         var function = new IrFunction(methodName, TypeRef.Definition("", "", typeName), signature, [], container)
         {
             MethodKind = ClassifyMethodKind(methodName),
+            MemorySafetyMode = memorySafetyMode,
         };
         block.Add(new ExpressionStatement(new UnsupportedNode(0, "(importer crash)", $"{ex.GetType().Name}: {ex.Message}")));
         function.Diagnostics.Add(new DecompilerDiagnostic(
             DiagnosticIds.InternalError, $"importer crash: {ex.GetType().Name}: {ex.Message}"));
         return function;
+    }
+
+    static MemorySafetyModeDecision SafeMemorySafetyMode(
+        MetadataSource? source)
+    {
+        try
+        {
+            return source?.MemorySafetyMode
+                ?? Unavailable("metadata source is unavailable");
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return Unavailable(
+                $"memory-safety metadata acquisition failed: "
+                    + $"{ex.GetType().Name}: {ex.Message}");
+        }
+
+        static MemorySafetyModeDecision Unavailable(string detail)
+            => new MemorySafetyModeDecision.Unavailable(
+                new MemorySafetyRulesResult.Unavailable(
+                    new MemorySafetyMetadataFailure(
+                        MemorySafetyMetadataFailureKind.Malformed,
+                        detail),
+                    []));
     }
 
     internal static GenericScope CallerScope(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
@@ -644,11 +699,7 @@ public static class IrImporter
             Regions = method.Body.Handlers,
             LocalNames = method.Body.LocalNames,
             LocalDeclaredInNestedScope = method.Body.LocalDeclaredInNestedScope,
-            UsesUpdatedMemorySafetyRules = source.SimulateNewRules
-                || source.MemorySafety.Rules is MemorySafetyRulesResult.Available
-                {
-                    State: MemorySafetyRulesState.Updated,
-                },
+            MemorySafetyMode = source.MemorySafetyMode,
             SkipLocalsInit = method.Body.SkipLocalsInit,
             CompilerGenerated = method.CompilerGenerated,
             DeclaringTypeCompilerGenerated = method.DeclaringTypeCompilerGenerated,
@@ -3099,10 +3150,10 @@ public static class IrImporter
                 callerScope,
                 source.MemorySafety),
             resolveMemorySafety: true);
-        bool callerUsesUpdatedRules = source.SimulateNewRules
-            || source.MemorySafety.Rules is MemorySafetyRulesResult.Available
+        bool callerUsesUpdatedRules = source.MemorySafetyMode
+            is MemorySafetyModeDecision.Available
             {
-                State: MemorySafetyRulesState.Updated,
+                Mode: MemorySafetyMode.Updated,
             };
         bool legacyShapeRequiresUnsafe = field.FixedBuffer is null
             && UnsafeAwaitOperand.ContainsPointer(field.Type);

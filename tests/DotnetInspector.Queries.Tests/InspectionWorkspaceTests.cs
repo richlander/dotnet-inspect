@@ -9,10 +9,10 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class InspectionWorkspaceTests
 {
     [Fact]
-    public void GroupAccess_IsLazyAndReusesOneImmutableSnapshot()
+    public async Task GroupAccess_IsLazyAndReusesOneImmutableSnapshot()
     {
         TestAssembly source = TestAssembly.Create();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [source.Participant]);
@@ -45,22 +45,39 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
-    public void ReturnedSpan_RemainsSafeAfterWorkspaceDisposal()
+    public async Task ReturnedSpan_RemainsSafeAfterWorkspaceDisposal()
     {
         TestAssembly source = TestAssembly.Create();
-        var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [source.Participant]);
+        using var spanReady = new ManualResetEventSlim();
+        using var workspaceClosed = new ManualResetEventSlim();
+        CancellationToken cancellationToken = TestContext.Current.CancellationToken;
 
-        AssemblyImageSpanResult result =
-            group.GetAssemblyImageSpan(source.Assembly);
-        Assert.True(result.IsAvailable);
-        byte first = result.Content[0];
+        Task<bool> retainedSpan = StartConcurrent(() =>
+        {
+            AssemblyImageSpanResult result =
+                group.GetAssemblyImageSpan(source.Assembly);
+            Assert.True(result.IsAvailable);
+            byte first = result.Content[0];
+            spanReady.Set();
+            workspaceClosed.Wait(cancellationToken);
+            Assert.Equal(first, result.Content[0]);
+            return true;
+        });
 
-        workspace.Dispose();
-
-        Assert.Equal(first, result.Content[0]);
+        try
+        {
+            Assert.True(spanReady.Wait(TimeSpan.FromSeconds(10), cancellationToken));
+            await workspace.DisposeAsync();
+        }
+        finally
+        {
+            workspaceClosed.Set();
+        }
+        Assert.True(await retainedSpan);
         Assert.Equal(0, group.RetainedImageBytes);
         Assert.Throws<ObjectDisposedException>(
             () => group.UseAssemblyImage(
@@ -69,10 +86,10 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
-    public void Snapshot_IsIsolatedFromTheMutableSource()
+    public async Task Snapshot_IsIsolatedFromTheMutableSource()
     {
         TestAssembly source = TestAssembly.Create();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [source.Participant]);
@@ -91,7 +108,7 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
-    public void RetainedReference_RemainsSnapshotBackedAfterWorkspaceDisposal()
+    public async Task RetainedReference_RemainsSnapshotBackedAfterWorkspaceDisposal()
     {
         TestAssembly source = TestAssembly.Create();
         var workspace = new InspectionWorkspace();
@@ -106,7 +123,7 @@ public sealed class InspectionWorkspaceTests
         byte first = source.Bytes[0];
 
         source.Bytes[0] ^= 0xff;
-        workspace.Dispose();
+        await workspace.DisposeAsync();
 
         Assert.Same(source.Assembly.Registration, retained.Registration);
         Assert.Same(source.Assembly.Provenance, retained.Provenance);
@@ -117,13 +134,14 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
-    public void DisposalInsideCallback_DoesNotRevokeActiveView()
+    public async Task DisposalInsideCallback_DoesNotRevokeActiveView()
     {
         TestAssembly source = TestAssembly.Create();
         var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [source.Participant]);
+        Task<InspectionWorkspaceCloseReport>? close = null;
 
         AssemblyImageAccessResult<byte> result =
             group.UseAssemblyImage(
@@ -131,7 +149,8 @@ public sealed class InspectionWorkspaceTests
                 image =>
                 {
                     byte first = image.Content[0];
-                    workspace.Dispose();
+                    close = workspace.CloseAsync();
+                    Assert.False(close.IsCompleted);
                     Assert.Equal(
                         source.Bytes.Length,
                         group.RetainedImageBytes);
@@ -142,6 +161,8 @@ public sealed class InspectionWorkspaceTests
             source.Bytes[0],
             Assert.IsType<
                 AssemblyImageAccessResult<byte>.Available>(result).Value);
+        Assert.NotNull(close);
+        await close;
         Assert.Equal(0, group.RetainedImageBytes);
     }
 
@@ -149,7 +170,7 @@ public sealed class InspectionWorkspaceTests
     public async Task ConcurrentDisposal_DoesNotRevokeActiveView()
     {
         TestAssembly source = TestAssembly.Create();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [source.Participant]);
@@ -174,9 +195,11 @@ public sealed class InspectionWorkspaceTests
             entered.Wait(
                 TimeSpan.FromSeconds(10),
                 cancellationToken));
+        Task<InspectionWorkspaceCloseReport> close;
         try
         {
-            workspace.Dispose();
+            close = workspace.CloseAsync();
+            Assert.False(close.IsCompleted);
             Assert.Equal(
                 source.Bytes.Length,
                 group.RetainedImageBytes);
@@ -187,6 +210,7 @@ public sealed class InspectionWorkspaceTests
         }
 
         AssemblyImageAccessResult<byte> result = await access;
+        await close;
         Assert.Equal(
             source.Bytes[0],
             Assert.IsType<
@@ -201,7 +225,7 @@ public sealed class InspectionWorkspaceTests
     {
         TestAssembly blocked = TestAssembly.Create();
         TestAssembly available = TestAssembly.Create();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [blocked.Participant, available.Participant]);
@@ -246,10 +270,10 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
-    public void ImageBudgetFailure_IsTypedAndCached()
+    public async Task ImageBudgetFailure_IsTypedAndCached()
     {
         TestAssembly source = TestAssembly.Create();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [source.Participant],
@@ -285,7 +309,7 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
-    public void NullStream_IsReportedAsUnreadable()
+    public async Task NullStream_IsReportedAsUnreadable()
     {
         TestAssembly source = TestAssembly.Create();
         ResolvedAssemblyReference assembly =
@@ -295,7 +319,7 @@ public sealed class InspectionWorkspaceTests
                 static () => null!,
                 AssemblyResolutionProvenance.Local(
                     "workspace null-stream test"));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [
@@ -314,7 +338,7 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
-    public void DescriptorIdentityMismatch_IsReportedAsInvalidImage()
+    public async Task DescriptorIdentityMismatch_IsReportedAsInvalidImage()
     {
         TestAssembly source = TestAssembly.Create();
         ResolvedAssemblyReference assembly =
@@ -329,7 +353,7 @@ public sealed class InspectionWorkspaceTests
                     writable: false),
                 AssemblyResolutionProvenance.Local(
                     "workspace identity-mismatch test"));
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [
@@ -348,7 +372,7 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
-    public void RejectedAcquisition_ReleasesReservedBudget()
+    public async Task RejectedAcquisition_ReleasesReservedBudget()
     {
         TestAssembly invalidSource = TestAssembly.Create();
         TestAssembly validSource = TestAssembly.Create();
@@ -370,7 +394,7 @@ public sealed class InspectionWorkspaceTests
             new AssemblyContextParticipant(
                 invalidAssembly,
                 MissingBindingPolicy.Instance);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [invalidParticipant, validSource.Participant],
@@ -394,7 +418,7 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
-    public void StreamDisposalFailure_ReleasesReservedBudget()
+    public async Task StreamDisposalFailure_ReleasesReservedBudget()
     {
         TestAssembly failingSource = TestAssembly.Create();
         TestAssembly validSource = TestAssembly.Create();
@@ -410,7 +434,7 @@ public sealed class InspectionWorkspaceTests
             new AssemblyContextParticipant(
                 failingAssembly,
                 MissingBindingPolicy.Instance);
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [failingParticipant, validSource.Participant],
@@ -429,11 +453,11 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
-    public void ImageBudget_IsCumulativeAcrossParticipants()
+    public async Task ImageBudget_IsCumulativeAcrossParticipants()
     {
         TestAssembly first = TestAssembly.Create();
         TestAssembly second = TestAssembly.Create();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [first.Participant, second.Participant],
@@ -462,7 +486,7 @@ public sealed class InspectionWorkspaceTests
     {
         TestAssembly first = TestAssembly.Create();
         TestAssembly second = TestAssembly.Create();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [first.Participant, second.Participant],
@@ -514,11 +538,11 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
-    public void GroupRejectsAssemblyOutsideItsParticipantSet()
+    public async Task GroupRejectsAssemblyOutsideItsParticipantSet()
     {
         TestAssembly source = TestAssembly.Create();
         TestAssembly other = TestAssembly.Create();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [source.Participant]);
@@ -532,28 +556,31 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
-    public void DisposalDuringParticipantEnumeration_PreventsGroupPublication()
+    public async Task DisposalDuringParticipantEnumeration_PreventsGroupPublication()
     {
         TestAssembly source = TestAssembly.Create();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
+        Task<InspectionWorkspaceCloseReport>? close = null;
 
         IEnumerable<AssemblyContextParticipant> Participants()
         {
-            workspace.Dispose();
+            close = workspace.CloseAsync();
             yield return source.Participant;
         }
 
         Assert.Throws<ObjectDisposedException>(
             () => workspace.CreateAssemblyContextGroup(
                 Participants()));
+        Assert.NotNull(close);
+        await close;
     }
 
     [Fact]
-    public void GroupRejectsMixedBindingPolicySnapshots()
+    public async Task GroupRejectsMixedBindingPolicySnapshots()
     {
         TestAssembly first = TestAssembly.Create();
         TestAssembly second = TestAssembly.Create();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
 
         Assert.Throws<ArgumentException>(
             () => workspace.CreateAssemblyContextGroup(
@@ -566,7 +593,7 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
-    public void OwnedResourceFailure_DoesNotRetainSnapshots()
+    public async Task OwnedResourceFailure_DoesNotRetainSnapshots()
     {
         TestAssembly source = TestAssembly.Create();
         var workspace = new InspectionWorkspace();
@@ -577,16 +604,18 @@ public sealed class InspectionWorkspaceTests
             group.GetAssemblyImageSpan(source.Assembly).IsAvailable);
         group.RegisterOwnedResource(new ThrowingResource());
 
-        Assert.Throws<AggregateException>(workspace.Dispose);
+        InspectionWorkspaceCloseReport report = await workspace.CloseAsync();
+        Assert.False(Assert.IsType<InspectionWorkspaceDirectGroupCloseResult>(
+            Assert.Single(report.Groups)).Succeeded);
 
         Assert.Equal(0, group.RetainedImageBytes);
     }
 
     [Fact]
-    public void OwnedResources_AreDisposedBeforeSnapshots()
+    public async Task OwnedResources_AreDisposedBeforeSnapshots()
     {
         TestAssembly source = TestAssembly.Create();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [source.Participant]);
@@ -595,7 +624,7 @@ public sealed class InspectionWorkspaceTests
         var resource = new RetainedImageAssertingResource(group);
         group.RegisterOwnedResource(resource);
 
-        workspace.Dispose();
+        await workspace.DisposeAsync();
 
         Assert.True(resource.IsDisposed);
         Assert.Equal(0, group.RetainedImageBytes);
@@ -605,23 +634,26 @@ public sealed class InspectionWorkspaceTests
     public async Task AsyncParticipantRelease_PreservesOwnedResourceDisposalOrder()
     {
         TestAssembly source = TestAssembly.Create();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [source.Participant]);
         var resource = new RetainedImageAssertingResource(group);
         group.RegisterOwnedResource(resource);
+        Task<InspectionWorkspaceCloseReport>? close = null;
 
         AssemblyImageAccessResult<int> result =
             await group.UseAndReleaseAssemblySessionAsync(
                 source.Assembly,
                 (_, _) =>
                 {
-                    workspace.Dispose();
+                    close = workspace.CloseAsync();
                     return Task.FromResult(1);
                 });
 
         Assert.IsType<AssemblyImageAccessResult<int>.Available>(result);
+        Assert.NotNull(close);
+        await close;
         Assert.True(resource.IsDisposed);
         Assert.Equal(0, group.RetainedImageBytes);
     }
@@ -631,7 +663,7 @@ public sealed class InspectionWorkspaceTests
     {
         TestAssembly source = TestAssembly.Create();
         InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         using var enumerationEntered = new ManualResetEventSlim();
         using var enumerationResume = new ManualResetEventSlim();
         CancellationToken cancellationToken =
@@ -676,7 +708,7 @@ public sealed class InspectionWorkspaceTests
     public async Task WorkspaceClose_NoGroupFailureSettlesAdmissionWithoutCleanupEntry()
     {
         InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         using var enumerationEntered = new ManualResetEventSlim();
         using var enumerationResume = new ManualResetEventSlim();
         CancellationToken cancellationToken =
@@ -724,7 +756,7 @@ public sealed class InspectionWorkspaceTests
         TestAssembly first = TestAssembly.Create();
         TestAssembly second = TestAssembly.Create();
         InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         AssemblyContextGroup firstGroup =
             workspace.CreateAssemblyContextGroup(
                 [first.Participant]);
@@ -793,7 +825,7 @@ public sealed class InspectionWorkspaceTests
         ArtifactAssembly artifact =
             await CreateArtifactAssemblyAsync();
         InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [
@@ -844,9 +876,9 @@ public sealed class InspectionWorkspaceTests
         ArtifactAssembly second =
             await CreateArtifactAssemblyAsync();
         InspectionWorkspace firstWorkspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         InspectionWorkspace secondWorkspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         AssemblyContextGroup firstGroup =
             firstWorkspace.CreateAssemblyContextGroup(
                 [
@@ -911,7 +943,7 @@ public sealed class InspectionWorkspaceTests
         ArtifactAssembly artifact =
             await CreateArtifactAssemblyAsync();
         InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         AssemblyContextGroup initialGroup =
             workspace.CreateAssemblyContextGroup(
                 [
@@ -958,7 +990,7 @@ public sealed class InspectionWorkspaceTests
             await CreateArtifactAssemblyAsync(
                 throwOnLeaseDisposal: true);
         InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [
@@ -985,7 +1017,7 @@ public sealed class InspectionWorkspaceTests
         ArtifactAssembly artifact =
             await CreateArtifactAssemblyAsync();
         InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         var participation =
             new ControlledWorkspaceParticipation(
                 throwOnCloseResult: true);
@@ -1031,7 +1063,7 @@ public sealed class InspectionWorkspaceTests
         ArtifactAssembly artifact =
             await CreateArtifactAssemblyAsync();
         InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         var participation =
             new ControlledWorkspaceParticipation(
                 releaseOnRequest: false,
@@ -1086,7 +1118,7 @@ public sealed class InspectionWorkspaceTests
         ArtifactAssembly artifact =
             await CreateArtifactAssemblyAsync();
         InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         var participation =
             new ControlledWorkspaceParticipation(
                 throwOnReleaseRequest: true);
@@ -1150,7 +1182,7 @@ public sealed class InspectionWorkspaceTests
         TestAssembly firstSource = TestAssembly.Create();
         TestAssembly secondSource = TestAssembly.Create();
         InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         AssemblyContextGroup firstGroup =
             workspace.CreateAssemblyContextGroup(
                 [firstSource.Participant]);
@@ -1195,23 +1227,23 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
-    public async Task WorkspaceDispose_CompatibilityUsesSharedReleaseAuthority()
+    public async Task WorkspaceDispose_AwaitsSharedReleaseAuthorityAndRetainsFailures()
     {
         TestAssembly source = TestAssembly.Create();
         InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [source.Participant]);
         group.RegisterOwnedResource(new ThrowingResource());
 
-        Assert.Throws<InvalidOperationException>(workspace.Dispose);
         Assert.True(
             group.GetAssemblyImageSpan(source.Assembly).IsAvailable);
         group.Dispose();
 
-        InspectionWorkspaceCloseReport report =
-            await workspace.CloseAsync();
+        await workspace.DisposeAsync();
+        InspectionWorkspaceCloseReport report = await workspace.CloseAsync();
+        Assert.Same(report, workspace.CloseReport);
 
         Assert.False(
             Assert.IsType<
@@ -1219,34 +1251,33 @@ public sealed class InspectionWorkspaceTests
                     Assert.Single(report.Groups))
                 .Succeeded);
 
-        TestAssembly synchronousSource = TestAssembly.Create();
-        using var synchronousWorkspace = new InspectionWorkspace();
-        Assert.Throws<InvalidOperationException>(
-            () =>
-            {
-                _ = synchronousWorkspace.CloseAsync();
-            });
-        AssemblyContextGroup synchronousGroup =
-            synchronousWorkspace.CreateAssemblyContextGroup(
-                [synchronousSource.Participant]);
-        synchronousGroup.RegisterOwnedResource(
-            new ThrowingResource());
-        Assert.Throws<AggregateException>(
-            synchronousWorkspace.Dispose);
-
-        TestAssembly asyncCompatibilitySource =
-            TestAssembly.Create();
-        var asyncCompatibilityWorkspace =
-            new InspectionWorkspace();
-        AssemblyContextGroup asyncCompatibilityGroup =
-            asyncCompatibilityWorkspace.CreateAssemblyContextGroup(
-                [asyncCompatibilitySource.Participant]);
-
-        await asyncCompatibilityWorkspace.DisposeAsync();
-
         Assert.Throws<ObjectDisposedException>(
-            () => asyncCompatibilityGroup.GetAssemblyImageSpan(
-                asyncCompatibilitySource.Assembly));
+            () => group.GetAssemblyImageSpan(source.Assembly));
+    }
+
+    [Fact]
+    public async Task AwaitUsing_PreservesBodyFailureAndRetainsCleanupReport()
+    {
+        TestAssembly source = TestAssembly.Create();
+        var workspace = new InspectionWorkspace();
+        var bodyFailure = new NotSupportedException("Inspection body failed.");
+
+        NotSupportedException observed = await Assert.ThrowsAsync<NotSupportedException>(async () =>
+        {
+            await using (workspace)
+            {
+                AssemblyContextGroup group =
+                    workspace.CreateAssemblyContextGroup([source.Participant]);
+                group.RegisterOwnedResource(new ThrowingResource());
+                throw bodyFailure;
+            }
+        });
+
+        Assert.Same(bodyFailure, observed);
+        InspectionWorkspaceCloseReport report = await workspace.CloseAsync();
+        Assert.Same(report, workspace.CloseReport);
+        Assert.False(Assert.IsType<InspectionWorkspaceDirectGroupCloseResult>(
+            Assert.Single(report.Groups)).Succeeded);
     }
 
     [Fact]
@@ -1264,7 +1295,7 @@ public sealed class InspectionWorkspaceTests
             SynchronizationContext.SetSynchronizationContext(
                 creationContext);
             workspace =
-                InspectionWorkspace.CreateAsynchronous();
+                new InspectionWorkspace();
             group = workspace.CreateAssemblyContextGroup(
                 [source.Participant]);
         }
@@ -1318,7 +1349,7 @@ public sealed class InspectionWorkspaceTests
     {
         TestAssembly directSource = TestAssembly.Create();
         await using InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         AssemblyContextGroup direct =
             workspace.CreateAssemblyContextGroup(
                 [directSource.Participant]);
@@ -1367,7 +1398,7 @@ public sealed class InspectionWorkspaceTests
     public async Task WorkspaceClose_ExistingCoordinatedLeaseRemainsUsableUntilOwnerRelease()
     {
         await using InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         PackageRootBinding binding =
             PackageAssemblyContextCompletionTests.SharedBinding(
                 "Workspace.Existing.Lease");
@@ -1412,7 +1443,7 @@ public sealed class InspectionWorkspaceTests
     public async Task WorkspaceClose_OwnerFirstReleaseDeactivatesRegistrationAndRetainsReport()
     {
         await using InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         PackageRootBinding binding =
             PackageAssemblyContextCompletionTests.SharedBinding(
                 "Workspace.Owner.First");
@@ -1446,7 +1477,7 @@ public sealed class InspectionWorkspaceTests
     public async Task WorkspaceClose_CoordinatedLateGroupsCommitHistoryBeforeOwnerRelease()
     {
         await using InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
+            new InspectionWorkspace();
         PackageRootBinding binding =
             PackageAssemblyContextCompletionTests.SeparateBinding(
                 "Workspace.Late.Coordinated");
@@ -1502,7 +1533,7 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
-    public void ConcurrentDisposal_AfterAsyncCallbackEnds_PreservesOwnedResourceDisposalOrder()
+    public async Task ConcurrentDisposal_AfterAsyncCallbackEnds_PreservesOwnedResourceDisposalOrder()
     {
         TestAssembly source = TestAssembly.Create();
         var workspace = new InspectionWorkspace();
@@ -1560,6 +1591,7 @@ public sealed class InspectionWorkspaceTests
                 TimeSpan.FromSeconds(10),
                 cancellationToken));
 
+        Task<InspectionWorkspaceCloseReport> close;
         lock (imageLoadGate)
         {
             callbackResume.Set();
@@ -1573,18 +1605,19 @@ public sealed class InspectionWorkspaceTests
                         != 0,
                     TimeSpan.FromSeconds(10)));
 
-            workspace.Dispose();
+            close = workspace.CloseAsync();
             Assert.True(group.RetainedImageBytes > 0);
         }
 
         Assert.True(operation.Join(TimeSpan.FromSeconds(10)));
+        await close;
         Assert.Null(operationFailure);
         Assert.True(resource.IsDisposed);
         Assert.Equal(0, group.RetainedImageBytes);
     }
 
     [Fact]
-    public void WorkspaceDisposal_ContinuesAfterAGroupFails()
+    public async Task WorkspaceDisposal_ContinuesAfterAGroupFails()
     {
         TestAssembly first = TestAssembly.Create();
         TestAssembly second = TestAssembly.Create();
@@ -1601,7 +1634,12 @@ public sealed class InspectionWorkspaceTests
             laterGroup.GetAssemblyImageSpan(second.Assembly).IsAvailable);
         failingGroup.RegisterOwnedResource(new ThrowingResource());
 
-        Assert.Throws<AggregateException>(workspace.Dispose);
+        InspectionWorkspaceCloseReport report = await workspace.CloseAsync();
+        Assert.Equal(2, report.Groups.Length);
+        Assert.False(Assert.IsType<InspectionWorkspaceDirectGroupCloseResult>(
+            report.Groups[0]).Succeeded);
+        Assert.True(Assert.IsType<InspectionWorkspaceDirectGroupCloseResult>(
+            report.Groups[1]).Succeeded);
 
         Assert.Equal(0, failingGroup.RetainedImageBytes);
         Assert.Equal(0, laterGroup.RetainedImageBytes);
@@ -1612,16 +1650,16 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
-    public void CallbackFailure_IsPreservedWhenDeferredDisposalAlsoFails()
+    public async Task CallbackFailure_IsPreservedWhenDeferredDisposalAlsoFails()
     {
         TestAssembly source = TestAssembly.Create();
-        using var workspace = new InspectionWorkspace();
+        await using var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [source.Participant]);
         group.RegisterOwnedResource(new ThrowingResource());
 
-        AggregateException failure = Assert.Throws<AggregateException>(
+        NotSupportedException failure = Assert.Throws<NotSupportedException>(
             () => group.UseContext<int>(
                 () =>
                 {
@@ -1630,12 +1668,12 @@ public sealed class InspectionWorkspaceTests
                         "Synthetic callback failure.");
                 }));
 
+        Assert.Equal("Synthetic callback failure.", failure.Message);
+        InspectionWorkspaceCloseReport report = await workspace.CloseAsync();
+        Exception? cleanupFailure = Assert.IsType<InspectionWorkspaceDirectGroupCloseResult>(
+            Assert.Single(report.Groups)).Failure;
         IReadOnlyCollection<Exception> failures =
-            failure.Flatten().InnerExceptions;
-        Assert.Contains(
-            failures,
-            ex => ex is NotSupportedException
-                && ex.Message == "Synthetic callback failure.");
+            Assert.IsType<AggregateException>(cleanupFailure).Flatten().InnerExceptions;
         Assert.Contains(
             failures,
             ex => ex is InvalidOperationException
@@ -1804,7 +1842,7 @@ public sealed class InspectionWorkspaceTests
         ResolvedAssemblyReference assembly =
             ResolvedAssemblyReference.CreateFromArtifactIfManaged(
                 content.Registration,
-                content.OpenRead,
+                () => session.OpenRead(content, queryLease),
                 AssemblyResolutionProvenance.Local(
                     "artifact workspace test"))
             ?? throw new InvalidOperationException(
@@ -1907,7 +1945,8 @@ public sealed class InspectionWorkspaceTests
             return new InspectionWorkspaceCoordinatedGroupCloseResult<
                 string>(
                     registrationIndex,
-                    "released");
+                    "released",
+                    succeeded: true);
         }
     }
 
