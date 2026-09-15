@@ -1003,9 +1003,30 @@ public static partial class StructuralCloneAnalysis
                 decodedSignature.ParameterTypes.Length,
                 decodedSignature.ReturnType.IsVoid);
 
-            MethodBodyBlock body =
-                image.GetMethodBody(definition.RelativeVirtualAddress);
-            if (!body.ExceptionRegions.IsEmpty)
+            MethodBodyReadResult bodyRead = MethodBodySource.Read(
+                image,
+                MetadataTokens.GetToken(method.Handle));
+            if (bodyRead is not MethodBodyReadResult.Available availableBody)
+            {
+                string reason = bodyRead switch
+                {
+                    MethodBodyReadResult.NoBody =>
+                        "The method definition has no IL body.",
+                    MethodBodyReadResult.Unavailable unavailable =>
+                        $"Method-body evidence is unavailable "
+                        + $"({unavailable.Reason.GetType().Name}).",
+                    _ => "Method-body evidence has an unknown result.",
+                };
+                return BodyProduction.NotCompleted(
+                    StructuralCloneDisposition.Failed,
+                    new StructuralCloneBlocker(
+                        StructuralCloneBlockerKind.MetadataReadFailure,
+                        side,
+                        reason),
+                    measurements);
+            }
+            MethodBodyData bodyData = availableBody.Body;
+            if (bodyData.ExceptionRegionCatalog.HasExceptionRegions)
             {
                 return BodyProduction.NotCompleted(
                     StructuralCloneDisposition.Unsupported,
@@ -1014,7 +1035,9 @@ public static partial class StructuralCloneAnalysis
                         side,
                         "Exception-handling bodies are outside the first-slice contract."));
             }
-            int bodyBytes = body.GetILReader().Length;
+            MethodBodyBlock body =
+                image.GetMethodBody(definition.RelativeVirtualAddress);
+            int bodyBytes = bodyData.IL.Length;
             measurements = new BodyMeasurements(
                 bodyBytes,
                 InstructionCount: 0,
@@ -1140,7 +1163,8 @@ public static partial class StructuralCloneAnalysis
                     GenericScope.Empty);
             }
 
-            MethodInstructions instructions = MethodInstructions.Decode(body);
+            MethodInstructions instructions =
+                MethodInstructions.Decode(bodyData);
             measurements = BodyMeasurements.From(
                 instructions,
                 locals.Length,
