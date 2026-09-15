@@ -132,7 +132,7 @@ public sealed partial class WorkspaceContextLoaderTests
             new (string, string?)[] { (Producer(FeedA), "net10.0"), (Producer(FeedB), "net10.0"), (Producer(FeedA), "net9.0") },
             candidates.Select(candidate =>
             {
-                var origin = Assert.IsType<RealizedMemberCoordinate.Package>(candidate.Observation.Realized);
+                var origin = Assert.IsType<RealizedMemberCoordinate.Package>(ContextOrigin(candidate.Observation).Realized);
                 return (origin.Producer, origin.Framework);
             }));
         var permuted = Locate(CaptureDeclarations(workspace, [.. contexts]),
@@ -238,7 +238,8 @@ public sealed partial class WorkspaceContextLoaderTests
         Assert.False(failedEmpty.Answers[0].IsRealizationComplete);
         Assert.True(failedEmpty.Answers[0].IsEvaluationComplete);
         Assert.Equal(WorkspaceContextLoadFailureKind.EmptyContext,
-            Assert.Single(Assert.Single(failedEmpty.Population.Contexts).Failures).Kind);
+            Assert.IsType<WorkspaceDeclarationFailure.ContextLoad>(
+                Assert.Single(Assert.Single(failedEmpty.Population.Contexts).Failures)).Failure.Kind);
         WorkspaceDeclarationContext healthy = await LocatorContext(workspace,
             LocatorImage("Healthy", metadata => LocatorDefinition(metadata, "N", "Widget")));
         var mixed = Locate(CaptureDeclarations(workspace, healthy, failed),
@@ -318,7 +319,7 @@ public sealed partial class WorkspaceContextLoaderTests
             LocatorImage("Healthy", metadata => LocatorDefinition(metadata, "N", "Widget")));
         WorkspaceDeclarationPopulation population = CaptureDeclarations(workspace, context);
         var result = Locate(population, new TypeDeclarationLocatorRequest.Pattern("*"));
-        Loaded(context.Outcome).Group.Dispose();
+        ContextLoaded(context).Group.Dispose();
         var released = Locate(population, new TypeDeclarationLocatorRequest.Pattern("*"));
         Assert.Equal(WorkspaceDeclarationPopulationFailure.ContextUnavailable,
             Assert.IsType<TypeDeclarationLocatorMemberOutcome.Unavailable>(Assert.Single(released.Members)).Failure);
@@ -355,8 +356,8 @@ public sealed partial class WorkspaceContextLoaderTests
                     WorkspaceMemberCoordinate.Platform("runtime", "System.Private.CoreLib", "10.0.10"),
                 ],
             }, options, TestContext.Current.CancellationToken);
-        Assert.IsType<WorkspaceContextLoadOutcome.Loaded>(package.Outcome);
-        Assert.IsType<WorkspaceContextLoadOutcome.Loaded>(platform.Outcome);
+        _ = ContextLoaded(package);
+        _ = ContextLoaded(platform);
         var result = Locate(CaptureDeclarations(workspace, platform, package),
             new TypeDeclarationLocatorRequest.Exact(LocatorName("System.Text.Json", "JsonSerializer")),
             new TypeDeclarationLocatorRequest.Exact(LocatorName("System", "Object")));
@@ -390,7 +391,7 @@ public sealed partial class WorkspaceContextLoaderTests
             Options(client, await CachedStoreAsync(Version,
                 Archive([.. images.Select((image, index) => ($"lib/{Framework}/part{index}.dll", image))]))),
             TestContext.Current.CancellationToken);
-        Assert.IsType<WorkspaceContextLoadOutcome.Loaded>(context.Outcome);
+        _ = ContextLoaded(context);
         return context;
     }
 

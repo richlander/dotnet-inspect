@@ -10,7 +10,8 @@ the Find handoff portion of
 the new query contract. This map owns no participating component's internals.
 
 Metadata inventories, the Workspace's explicit-context population projection,
-the cold locator, and the resident facade over that input are implemented
+the cold locator, the resident facade, and explicit package-backed reference
+population admission are implemented
 prerequisites. Existing
 Find, Type, Member, Platform routing, and Spotlight behavior remain supported
 as before. Other population producers and host adoption are still pending; no
@@ -31,10 +32,10 @@ inside the Workspace owner.
 | 1 | [#6852](https://github.com/richlander/dotnet-inspect/issues/6852), Reverse Type-Declaration Locator: this contract and map. | Design review only; not product support. |
 | 2 | [#6847](https://github.com/richlander/dotnet-inspect/issues/6847), Source Selection: settle exact Library coordinates for local assemblies and project outputs in its coordinate owner. | Project and Local arms preserve source domain without paths, generations, or pseudo-Package/Platform provenance. |
 | 3 | [#6848](https://github.com/richlander/dotnet-inspect/issues/6848), Metadata: [borrowed declaration inventories](type-forwarding-resolution.md#detached-declaration-inventory) through `AssemblyInspectionSession.TypeDeclarations()`. | Implemented Metadata prerequisite: detached structured names, kinds, public/all views, and whole-inventory rejection; not yet locator or host adoption. |
-| 4 | [#6845](https://github.com/richlander/dotnet-inspect/issues/6845), [Workspace Live Locator](workspace-live-locator.md): [explicit context projection](workspace-live-locator.md#implemented-explicit-context-projection) and its [resident facade](workspace-live-locator.md#implemented-resident-context-facade) are implemented; other producers remain pending. | Coherent first-use observation, reuse without rescanning immutable evidence, receipt-pinned vectors and owner-governed close are gated for declaration contexts. Artifact Root/Scope, reference-view and local/project adapters still need their owner-issued associations. |
+| 4 | [#6845](https://github.com/richlander/dotnet-inspect/issues/6845), [Workspace Live Locator](workspace-live-locator.md): [explicit context projection](workspace-live-locator.md#implemented-explicit-context-projection), its [resident facade](workspace-live-locator.md#implemented-resident-context-facade), and [#7077](https://github.com/richlander/dotnet-inspect/issues/7077)'s [package-backed reference admission](workspace-live-locator.md#implemented-reference-population-admission) are implemented; other producers remain pending. | Coherent first-use observation, occurrence-based reuse, receipt-pinned vectors and owner-governed close cover context-loader and package-backed reference populations. Artifact Root/Scope, installed-reference and local/project adapters still need their owner-issued associations. |
 | 5 | [#6849](https://github.com/richlander/dotnet-inspect/issues/6849), Queries: [cold reverse locator](reverse-type-declaration-locator.md#implemented-cold-query) over the implemented Workspace population input. | Implemented always-vector coordinate-plus-origin answers, deterministic outcomes and Release gates; additional population producers remain step 4 adoption, not inferred source authority. |
 | 6 | [#6846](https://github.com/richlander/dotnet-inspect/issues/6846), Sections: [adopt the locator result's row unit and structured multi-format projection](output-shapes.md#reverse-type-declaration-locator-projection). | Implemented typed answer row sets, source-generated JSON, common Markout lowering, and mandatory coverage/failure disclosure independent of selected candidate rows. |
-| 7 | [#6844](https://github.com/richlander/dotnet-inspect/issues/6844), CLI Find: the implemented exact-Package/explicit-Platform-Library path uses the live facade in a short-lived Workspace; Type and Member consume the selected observation through exact typed handoff. | Implemented locate-once workflow, separate fallback requests, downstream limits, typed JSON coverage, and automatic Platform routing parity. Other source adapters remain explicit follow-up scope. |
+| 7 | [#6844](https://github.com/richlander/dotnet-inspect/issues/6844), CLI Find: the implemented exact-Package/explicit-Platform-Library path uses the live facade in a short-lived Workspace; Type and Member consume representable selected observations through exact typed handoff. | Implemented locate-once workflow, separate fallback requests, downstream limits, presentation-compatible Markdown and root-array JSON, and exact Package handoff. Locator evidence remains internal to Find; other source and exact Platform reopening adapters remain explicit follow-up scope. |
 | 8 | [#6851](https://github.com/richlander/dotnet-inspect/issues/6851), Inspect Web: retain the same live facade across admitted additions and consume selected Type/Member context. | Browser/Wasm Find-after-append and navigation use typed data, not displayed names; portable sharing remains owner-governed. |
 | 9 | [#6850](https://github.com/richlander/dotnet-inspect/issues/6850), Platform discovery in Services: retire or narrow `PlatformTypeCatalog` after its consumers migrate. | No duplicated general reverse scan; retain acquisition/probing/naming and Spotlight's static filename population. |
 
@@ -65,9 +66,9 @@ context associations.
 The step 7 adapter submits the already parsed patterns as
 `TypeDeclarationLocatorRequest.Pattern` values through the shared resident
 facade, preserving the resulting candidate's `Coordinate`, `Name`, `Kind`,
-and `Observation` through step 6's rows and selected Type/Member handoff.
-It must not flatten the result into today's display-only `TypeSearchResult`
-and then reconstruct an identity. Existing direct/prefix/similarity
+and `Observation` through the internal operation result and selected
+Type/Member handoff. It must not later reconstruct identity from the
+established display row. Existing direct/prefix/similarity
 classification, source authorization and defaults remain Find-owned; any
 fallback is a separately identified request, and `FindOptions.Limit` cannot
 silently stand in for the query's inventory-read bound.
@@ -76,6 +77,9 @@ The remaining production step is step 8's TypeScript consumer of the same
 typed operation, followed by step 9's duplicate Platform lookup retirement.
 Additional source producers remain independently owned adapter work rather
 than a claim that the first CLI slice migrated every Find source.
+The completed common inspection supplies `InspectionEnvelope<TContent>` at
+the step 8 host boundary rather than nesting envelopes around prerequisite
+queries. That service envelope is not the CLI Find JSON document.
 
 ## Rendering handoff
 
@@ -84,18 +88,19 @@ coordinate, origin, and one observation context; different origins or contexts
 are separate choices, not a grouped coordinate with an implicit winner.
 L2 adopts one row per candidate entry and uses the source owner's safe origin
 display. Markout is the default common Markdown/table lowering substrate under
-[Output shapes](output-shapes.md). Typed JSON preserves the coordinate union,
-structured name, declaration kind, origin, observation context and coverage.
-Its candidate array remains an array for zero, one, and many entries.
-Projected JSON/JSONL/TSV are display projections, not replacement identity
-codecs or permission to select a preferred source.
+[Output shapes](output-shapes.md). The common Sections typed JSON preserves
+the coordinate union, structured name, declaration kind, origin, observation
+context and coverage. Its candidate array remains an array for zero, one, and
+many entries. Find keeps that envelope internal and retains its established
+root result array. Projected JSON/JSONL/TSV are display projections, not
+replacement identity codecs or permission to select a preferred source.
 
 The Sections adoption must choose supported loss-aware lowerings under
 [Projected JSON](projected-json.md), preserve mandatory incomplete-result
 disclosure even for zero candidate rows, and distinguish output row selection
-from upstream work. Copyable CLI commands are presentation generated from typed
-selection. They must either preserve its exact context through an owner codec
-or visibly decline; parsing displayed columns is not a reopening path.
+from upstream work. A selected CLI handoff must preserve exact context through
+an owner-issued route or remain unavailable; parsing displayed columns is not
+a reopening path.
 
 The browser may bypass Markout for interactive candidate selection and
 navigation only: the input remains the same typed L1/L2 result, and the final
