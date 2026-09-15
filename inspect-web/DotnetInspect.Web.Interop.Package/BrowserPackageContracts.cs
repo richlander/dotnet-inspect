@@ -650,6 +650,7 @@ public sealed record BrowserPackageDependencies(
     string ActiveFramework,
     string? Assembly,
     BrowserPackageDependencyGroup[] DependencyGroups,
+    BrowserPackageDependencyDeclarationFailure[] DeclarationFailures,
     BrowserAssemblyReferenceResult AssemblyReferences,
     string? DependencyGroupError,
     BrowserCompileLibraryAvailability CompileLibrary);
@@ -668,6 +669,85 @@ public sealed record BrowserPackageDependencyGroup(
 public sealed record BrowserPackageDependency(
     string Id,
     string VersionRange);
+
+[JsonConverter(typeof(JsonStringEnumConverter<
+    BrowserPackageDependencyDeclarationFailureKind>))]
+public enum BrowserPackageDependencyDeclarationFailureKind
+{
+    ConflictingPackageDeclaration,
+    InvalidPackageDeclaration,
+    RestoredProject,
+    AuthoredProject,
+    AuthoredProjectUnresolvedSyntax,
+}
+
+public sealed record BrowserPackageDependencyDeclarationFailure(
+    BrowserPackageDependencyDeclarationFailureKind Kind,
+    string? Framework,
+    string? Package,
+    int? SourceOccurrenceCount);
+
+public sealed record BrowserPackagePruningRequest(
+    int SchemaVersion,
+    string Family,
+    string TargetFramework,
+    string PlatformVersion,
+    BrowserPackagePruningSupply[] Supplies);
+
+public sealed record BrowserPackagePruningSupply(
+    string Pack,
+    string Family,
+    string Package,
+    string Version);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackagePruningCompletion>))]
+public enum BrowserPackagePruningCompletion
+{
+    Complete,
+    Partial,
+    Failed,
+    NotApplicable,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackagePruningDisposition>))]
+public enum BrowserPackagePruningDisposition
+{
+    PlatformDelegation,
+    PackageRetained,
+    CandidateUnavailable,
+    NotEvaluated,
+}
+
+public sealed record BrowserPackagePruningResult(
+    int SchemaVersion,
+    string Package,
+    string Version,
+    string TargetFramework,
+    string? SelectedFramework,
+    string Family,
+    string PlatformVersion,
+    BrowserPackagePruningCompletion Completion,
+    BrowserPackagePruningRow[] Rows,
+    BrowserPackageDependencyDeclarationFailure[] DeclarationFailures,
+    BrowserPackagePruningSummary Summary,
+    string? Message);
+
+public sealed record BrowserPackagePruningRow(
+    string Package,
+    string RequestedRange,
+    string? CandidateVersion,
+    string? PlatformSuppliedVersion,
+    BrowserPackagePruningDisposition Disposition,
+    string Reason);
+
+public sealed record BrowserPackagePruningSummary(
+    int Declarations,
+    int Evaluated,
+    int Delegated,
+    int Retained,
+    int NotEvaluated,
+    int Failed,
+    int DeclarationFailures);
 
 public sealed record BrowserAssemblyReference(
     string Name,
@@ -730,6 +810,8 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPackageQueryCancellation))]
 [JsonSerializable(typeof(BrowserPackageQueryMatchCreditResponse))]
 [JsonSerializable(typeof(BrowserPackageDependencies))]
+[JsonSerializable(typeof(BrowserPackagePruningRequest))]
+[JsonSerializable(typeof(BrowserPackagePruningResult))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]
 [JsonSerializable(typeof(BrowserWorkspacePackageOccurrenceView))]
 [JsonSerializable(typeof(BrowserWorkspacePackageOccurrenceActivation))]

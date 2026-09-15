@@ -10,7 +10,9 @@ using System.Text;
 using System.Xml;
 using System.Text.Json;
 using DotnetInspector.Ecosystems;
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
+using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Services;
@@ -5166,6 +5168,379 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             BrowserCompileLibraryStatus.Selected,
             dependencies.CompileLibrary.Status);
+        Assert.Empty(dependencies.DeclarationFailures);
+    }
+
+    [Fact]
+    public async Task PackageDependencyConflictsRemainVisibleInDependenciesAndPruning()
+    {
+        string packageId = $"Browser.Pruning.Conflict.{Guid.NewGuid():N}";
+        const string dependencyId = "Browser.Pruning.Conflicting.Child";
+        byte[] image = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] nupkg = PackageWithManifest(
+            image,
+            $"lib/net11.0/{packageId}.dll",
+            $"""
+             <package>
+               <metadata>
+                 <id>{packageId}</id>
+                 <version>1.0.0</version>
+                 <dependencies>
+                   <group targetFramework="net11.0">
+                     <dependency id="{dependencyId}" version="[1.0.0]" />
+                     <dependency id="{dependencyId.ToLowerInvariant()}" version="[2.0.0]" />
+                   </group>
+                 </dependencies>
+               </metadata>
+             </package>
+             """);
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                nupkg,
+                fromCache: false));
+
+        BrowserPackageDependencies dependencies =
+            Assert.IsType<BrowserPackageDependencies>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryPackageDependencies(
+                        packageId,
+                        "1.0.0",
+                        "net11.0",
+                        $"{packageId}.dll"),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageDependencies));
+
+        BrowserPackageDependencyGroup group =
+            Assert.Single(dependencies.DependencyGroups);
+        Assert.True(group.IsActive);
+        Assert.Empty(group.Dependencies);
+        BrowserPackageDependencyDeclarationFailure dependencyFailure =
+            Assert.Single(dependencies.DeclarationFailures);
+        Assert.Equal(
+            BrowserPackageDependencyDeclarationFailureKind
+                .ConflictingPackageDeclaration,
+            dependencyFailure.Kind);
+        Assert.Equal("net11.0", dependencyFailure.Framework);
+        Assert.Equal(dependencyId.ToLowerInvariant(), dependencyFailure.Package);
+        Assert.Equal(2, dependencyFailure.SourceOccurrenceCount);
+
+        var request = new BrowserPackagePruningRequest(
+            1,
+            "Microsoft.NETCore.App",
+            "net11.0",
+            "11.0.0",
+            []);
+        BrowserPackagePruningResult pruning =
+            Assert.IsType<BrowserPackagePruningResult>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryPackagePruning(
+                        packageId,
+                        "1.0.0",
+                        "net11.0",
+                        JsonSerializer.Serialize(
+                            request,
+                            BrowserPackageJsonContext.Default
+                                .BrowserPackagePruningRequest)),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackagePruningResult));
+
+        Assert.Equal(
+            BrowserPackagePruningCompletion.Failed,
+            pruning.Completion);
+        Assert.Empty(pruning.Rows);
+        Assert.Single(pruning.DeclarationFailures);
+        Assert.Equal(1, pruning.Summary.DeclarationFailures);
+    }
+
+    [Fact]
+    public async Task PackagePruning_PreservesCompatibleSelectionAndSeparatesCandidateFromSupply()
+    {
+        string packageId = $"Browser.Pruning.Compatible.{Guid.NewGuid():N}";
+        const string delegatedPackage = "Browser.Pruning.Delegated";
+        const string retainedPackage = "Browser.Pruning.Retained";
+        byte[] image = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] nupkg = PackageWithManifest(
+            image,
+            $"lib/net8.0/{packageId}.dll",
+            $"""
+             <package>
+               <metadata>
+                 <id>{packageId}</id>
+                 <version>1.0.0</version>
+                 <dependencies>
+                   <group targetFramework="net8.0">
+                     <dependency id="{delegatedPackage}" version="[4.3.1]" />
+                     <dependency id="{retainedPackage}" version="[4.3.2]" />
+                   </group>
+                 </dependencies>
+               </metadata>
+             </package>
+             """);
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                nupkg,
+                fromCache: false));
+        var request = new BrowserPackagePruningRequest(
+            1,
+            "Microsoft.NETCore.App",
+            "net11.0",
+            "11.0.0",
+            [
+                new(
+                    "netcore.app",
+                    "Microsoft.NETCore.App",
+                    delegatedPackage,
+                    "4.3.2"),
+                new(
+                    "netcore.app",
+                    "Microsoft.NETCore.App",
+                    retainedPackage,
+                    "4.3.1"),
+            ]);
+
+        BrowserPackagePruningResult result =
+            Assert.IsType<BrowserPackagePruningResult>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryPackagePruning(
+                        packageId,
+                        "1.0.0",
+                        "net11.0",
+                        JsonSerializer.Serialize(
+                            request,
+                            BrowserPackageJsonContext.Default
+                                .BrowserPackagePruningRequest)),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackagePruningResult));
+
+        Assert.Equal("net11.0", result.TargetFramework);
+        Assert.Equal("net8.0", result.SelectedFramework);
+        Assert.Equal(BrowserPackagePruningCompletion.Complete, result.Completion);
+        Assert.Empty(result.DeclarationFailures);
+        Assert.Equal(2, result.Summary.Evaluated);
+        Assert.Equal(1, result.Summary.Delegated);
+        Assert.Equal(1, result.Summary.Retained);
+        BrowserPackagePruningRow delegated =
+            Assert.Single(
+                result.Rows,
+                row => row.Package == delegatedPackage);
+        Assert.Equal("4.3.1", delegated.CandidateVersion);
+        Assert.Equal("4.3.2", delegated.PlatformSuppliedVersion);
+        Assert.Equal(
+            BrowserPackagePruningDisposition.PlatformDelegation,
+            delegated.Disposition);
+        BrowserPackagePruningRow retained =
+            Assert.Single(
+                result.Rows,
+                row => row.Package == retainedPackage);
+        Assert.Equal("4.3.2", retained.CandidateVersion);
+        Assert.Equal("4.3.1", retained.PlatformSuppliedVersion);
+        Assert.Equal(
+            BrowserPackagePruningDisposition.PackageRetained,
+            retained.Disposition);
+    }
+
+    [Fact]
+    public async Task PackagePruning_NoSelectedDependencyGroupIsNotApplicable()
+    {
+        string packageId = $"Browser.Pruning.NoGroup.{Guid.NewGuid():N}";
+        byte[] image = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] nupkg = PackageWithManifest(
+            image,
+            $"lib/net11.0/{packageId}.dll",
+            $"""
+             <package>
+               <metadata>
+                 <id>{packageId}</id>
+                 <version>1.0.0</version>
+                 <dependencies>
+                   <group targetFramework="net12.0">
+                     <dependency id="Browser.Pruning.Child" version="[1.0.0]" />
+                   </group>
+                 </dependencies>
+               </metadata>
+             </package>
+             """);
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                nupkg,
+                fromCache: false));
+        var request = new BrowserPackagePruningRequest(
+            1,
+            "Microsoft.NETCore.App",
+            "net11.0",
+            "11.0.0",
+            []);
+
+        BrowserPackagePruningResult result =
+            Assert.IsType<BrowserPackagePruningResult>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryPackagePruning(
+                        packageId,
+                        "1.0.0",
+                        "net11.0",
+                        JsonSerializer.Serialize(
+                            request,
+                            BrowserPackageJsonContext.Default
+                                .BrowserPackagePruningRequest)),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackagePruningResult));
+
+        Assert.Equal(
+            BrowserPackagePruningCompletion.NotApplicable,
+            result.Completion);
+        Assert.Empty(result.Rows);
+        Assert.Empty(result.DeclarationFailures);
+        Assert.Contains(
+            "no dependency group",
+            Assert.IsType<string>(result.Message),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task PackagePruning_RejectsMismatchedTargetAndSupplyFamily()
+    {
+        var mismatchedTarget = new BrowserPackagePruningRequest(
+            1,
+            "Microsoft.NETCore.App",
+            "net10.0",
+            "10.0.0",
+            []);
+        var mismatchedSupply = new BrowserPackagePruningRequest(
+            1,
+            "Microsoft.NETCore.App",
+            "net11.0",
+            "11.0.0",
+            [
+                new(
+                    "aspnetcore.app",
+                    "Microsoft.NETCore.App",
+                    "Browser.Pruning.Child",
+                    "1.0.0"),
+            ]);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => PackageExports.QueryPackagePruning(
+                "Ignored.Package",
+                "1.0.0",
+                "net11.0",
+                JsonSerializer.Serialize(
+                    mismatchedTarget,
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackagePruningRequest)));
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => PackageExports.QueryPackagePruning(
+                "Ignored.Package",
+                "1.0.0",
+                "net11.0",
+                JsonSerializer.Serialize(
+                    mismatchedSupply,
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackagePruningRequest)));
+    }
+
+    [Fact]
+    public async Task PackagePruning_CandidateIncompletionRemainsVisible()
+    {
+        string packageId = $"Browser.Pruning.Incomplete.{Guid.NewGuid():N}";
+        const string dependencyId = "Browser.Pruning.Child";
+        byte[] image = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] nupkg = PackageWithManifest(
+            image,
+            $"lib/net11.0/{packageId}.dll",
+            $"""
+             <package>
+               <metadata>
+                 <id>{packageId}</id>
+                 <version>1.0.0</version>
+                 <dependencies>
+                   <group targetFramework="net11.0">
+                     <dependency id="{dependencyId}" version="[1.0.0]" />
+                   </group>
+                 </dependencies>
+               </metadata>
+             </package>
+             """);
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                nupkg,
+                fromCache: false));
+        BrowserPackageCoordinate coordinate =
+            await BrowserPackageWorkspace.ResolveAsync(
+                packageId,
+                "1.0.0",
+                "net11.0",
+                TestContext.Current.CancellationToken);
+        PackageDependencyEvidenceRoot root =
+            await PackageExports.PackageDependencyEvidenceAsync(coordinate);
+        PackageDependencyEvidenceDeclarationResult.Available declarations =
+            Assert.IsType<
+                PackageDependencyEvidenceDeclarationResult.Available>(
+                    root.Declaration);
+        PackageDependencyEvidenceGroup selectedGroup =
+            Assert.Single(
+                declarations.Groups,
+                group => group.Identity == root.Selection.SelectedGroup);
+        var request = new BrowserPackagePruningRequest(
+            1,
+            "Microsoft.NETCore.App",
+            "net11.0",
+            "11.0.0",
+            []);
+        PlatformPruneInventory inventory =
+            PlatformPruneInventory.FromExactFamily(
+                new PlatformPruneTarget(
+                    request.Family,
+                    request.TargetFramework,
+                    NuGet.Versioning.NuGetVersion.Parse(
+                        request.PlatformVersion)),
+                []);
+        PackageHouseTargetContext target =
+            PackageHouseTargetContext.Exact(
+                request.TargetFramework,
+                platformTarget: new PlatformFamilyTarget(
+                    PlatformFamily.DotNetRuntime,
+                    PlatformTargetFramework.Parse(
+                        request.TargetFramework),
+                    PlatformVersion.Parse(request.PlatformVersion)));
+        using var operation = new NuGetOperationContext(
+            TimeSpan.FromSeconds(5),
+            TimeSpan.FromSeconds(5),
+            TestContext.Current.CancellationToken);
+
+        BrowserPackagePruningResult result =
+            await PackageExports.EvaluatePruningAsync(
+                coordinate,
+                request,
+                root,
+                selectedGroup,
+                target,
+                inventory,
+                new IncompletePinnedCandidateSource(),
+                operation,
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(BrowserPackagePruningCompletion.Failed, result.Completion);
+        BrowserPackagePruningRow row = Assert.Single(result.Rows);
+        Assert.Equal(dependencyId, row.Package);
+        Assert.Null(row.CandidateVersion);
+        Assert.Equal(
+            BrowserPackagePruningDisposition.CandidateUnavailable,
+            row.Disposition);
+        Assert.Equal("PinnedAuthorization", row.Reason);
+        Assert.Equal(1, result.Summary.Failed);
+        Assert.Equal(0, result.Summary.DeclarationFailures);
     }
 
     [Fact]
@@ -9665,6 +10040,32 @@ public sealed partial class BrowserEngineBoundaryTests
                 RequestTimeout = TimeSpan.FromMinutes(1),
                 OperationTimeout = TimeSpan.FromMinutes(1),
             });
+
+    sealed class IncompletePinnedCandidateSource :
+        IPackageDependencyCandidateSource
+    {
+        public ValueTask<PackageAcquisitionCandidateResult>
+            ResolvePinnedCandidateAsync(
+            PackageSourceCoordinate coordinate,
+            CancellationToken cancellationToken = default,
+            NuGetOperationContext? operationContext = null)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(
+                new PackageAcquisitionCandidateResult(
+                    PackageAcquisitionCandidateResultState.Incomplete,
+                    null,
+                    []));
+        }
+
+        public Task<PackageVersionDiscoveryResult>
+            DiscoverDependencyVersionsAsync(
+            string packageId,
+            CancellationToken cancellationToken = default,
+            NuGetOperationContext? operationContext = null) =>
+            throw new InvalidOperationException(
+                "Pinned candidate resolution must not discover versions.");
+    }
 
     sealed class PlatformVersionHandler(
         string packageId,

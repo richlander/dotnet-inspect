@@ -17,6 +17,8 @@ export interface PackagePerformanceTarget {
 export interface PackageViewBindingActions
   extends PackageDependencyBindingActions {
   onDependencyGroupSelect: (index: number) => void;
+  onPruningEvaluate: () => void;
+  onPruningFamilySelect: (family: string) => void;
   onGraphTypeSelect: (typeId: string) => void;
   onKindJump: (kind: string) => void;
   onLibraryScopeSelect: (
@@ -91,6 +93,12 @@ export function bindPackageView(
     button.addEventListener(
       "click",
       () => actions.onDependencyGroupSelect(Number(button.dataset.depGroup))));
+  root.querySelectorAll<HTMLSelectElement>("[data-pruning-family]").forEach(select =>
+    select.addEventListener(
+      "change",
+      () => actions.onPruningFamilySelect(select.value)));
+  root.querySelectorAll<HTMLElement>("[data-pruning-evaluate]").forEach(button =>
+    button.addEventListener("click", actions.onPruningEvaluate));
   bindPackageDependencyList(root, actions);
   root.querySelectorAll<HTMLElement>("[data-kind-jump]").forEach(button =>
     button.addEventListener(
