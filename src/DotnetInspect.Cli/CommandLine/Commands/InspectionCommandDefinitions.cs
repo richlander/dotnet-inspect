@@ -255,6 +255,7 @@ public static class InspectionCommandDefinitions
         };
         var findingOption = new Option<string?>("--finding") { Description = "Finding Transitions producer: api.type, api.member, api.attribute, analysis.allocation, or analysis.call-site" };
         var legendOption = new Option<bool>("--legend") { Description = "Show legend explaining change symbols" };
+        var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json or --envelope)" };
 
         diffCommand.Arguments.Add(argsArg);
         diffCommand.Options.Add(packageOption);
@@ -278,15 +279,40 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(repoOption);
         diffCommand.Options.Add(findingOption);
         diffCommand.Options.Add(legendOption);
+        diffCommand.Options.Add(compactOption);
         opts.AddOutputOptionsTo(diffCommand);
         opts.AddNuGetOptionsTo(diffCommand);
         diffCommand.Options.Add(opts.Discover);
         diffCommand.Options.Add(opts.Tree);
         diffCommand.Options.Add(opts.Select);
+        opts.AddEnvelopeOptionTo(
+            diffCommand,
+            opts.Discover, opts.Select, opts.Verbosity, opts.Rows,
+            opts.Limit, opts.Head, opts.Tail,
+            typeFilterOption, memberFilterOption, nameOnlyOption,
+            breakingOption, additiveOption, changedOption,
+            allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption,
+            repoOption, findingOption, legendOption);
+        diffCommand.Validators.Add(result =>
+        {
+            if (!result.GetValue(opts.Envelope))
+                return;
+
+            bool explicitSource =
+                result.GetValue(packageOption) is not null
+                || result.GetValue(platformOption) is not null
+                || result.GetValue(libraryOption) is not null;
+            int positionalCount = result.GetValue(argsArg)?.Length ?? 0;
+            if (positionalCount > (explicitSource ? 0 : 1))
+            {
+                result.AddError(
+                    "--envelope cannot be combined with positional type filters.");
+            }
+        });
 
         var commandArgs = new DiffOptionsParser.DiffCommandArgs(
             argsArg, packageOption, platformOption, libraryOption, frameworkOption, tfmOption, allOption,
-            typeFilterOption, memberFilterOption, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption, changedOption, allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption, findingOption, legendOption, repoOption);
+            typeFilterOption, memberFilterOption, opts.NoHeaders, nameOnlyOption, breakingOption, additiveOption, changedOption, allocRegressionsOption, pdbSourceOption, legacyAuthoredSourceOption, findingOption, legendOption, repoOption, compactOption);
 
         diffCommand.SetAction(async (parseResult, ct) =>
         {

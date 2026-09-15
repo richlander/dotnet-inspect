@@ -52,13 +52,14 @@ the [subject-owned Diff adoption](command-transition-model.md#envelope-complete-
 The envelope owner's proposed
 [service-evidence enrichment](inspection-envelope.md#service-evidence-enrichment)
 adds a typed companion without changing that content boundary. Its planned
-`--evidence-envelope` consumer is additional adoption work for #6719, not a
+`--evidence-envelope` consumer is separate adoption work in #7117, not a
 new rung in this ladder or an already available output option.
 
 ### Implementation status
 
-Baseline transport is adopted only by positional `depends <type>`.
-That operation registers `result_kind` `type-dependencies` at
+Baseline transport is adopted by positional `depends <type>` and ordinary
+Library API Diff with exactly one Library per endpoint.
+The dependency operation registers `result_kind` `type-dependencies` at
 `schema_version` `1` and uses one host-neutral
 `TypeDependencySectionJsonContext` for both Content-only `--json` and the
 Content subtree of `--envelope`.
@@ -78,12 +79,30 @@ The common writer buffers both JSON forms before stdout commit. Service-issued
 empty or non-success Content retains its exit policy; acquisition failure
 without a result emits no manufactured envelope.
 
-Asset-mode `depends`, all other commands, Discover, Count,
+Library API Diff registers `library-api-diff` at schema version `1` and uses
+the host-neutral `LibraryApiDiffJsonContext` for both unprojected `--json` and
+`--envelope.content`. Its root `outcome` is `available`, `unavailable`, or
+`rejected`; Available retains its `document`, and non-success cases retain
+numeric `kind` and both endpoint summaries. Presentation-owned properties
+remain camelCase, and the nested `ComparisonDocument` retains its owner-issued
+snake_case properties. Enums remain numeric and native nulls, arrays, numbers,
+and booleans are preserved.
+
+This replaces the former unprojected CLI `{changes: ...}` JSON view.
+Explicit Type/classification filters, section selection, and other admitted
+presentation controls still request projected JSON. They are incompatible
+with `--envelope`, as are non-API modes and multi-Library endpoints. `--all`
+remains a service API-scope input; `--compact` controls whitespace for either
+JSON boundary. Rendered-line clipping is rejected for complete Content JSON.
+Share remains the service-issued `NonProjectable` at `comparison/endpoints`.
+
+Asset-mode `depends`, other commands, Discover, Count,
 `--evidence-envelope`, optional evidence capture from
-[#7117](https://github.com/richlander/dotnet-inspect/issues/7117), and Library
-Diff remain unadopted. Library Diff follows through the common writer;
+[#7117](https://github.com/richlander/dotnet-inspect/issues/7117), and complete
+Browser baseline transport remain unadopted.
 [#7126](https://github.com/richlander/dotnet-inspect/issues/7126) separately
-owns command cutover, and #6719 remains open for the rest of the rollout.
+owns command cutover. These two concrete Content registrations complete the
+baseline transport rollout in #6719, not those separate adoption efforts.
 
 The adoption also closes two shared Content-serialization prerequisites.
 `AssemblyResolutionProvenance` serializes its six existing cases with owner
@@ -103,6 +122,13 @@ The adopting Release gate assignments are:
 - [`InspectionEnvelopeOutputTests.cs`](../../tests/DotnetInspect.Cli.Tests/InspectionEnvelopeOutputTests.cs)
   owns framing, ordered diagnostics, serialization-failure buffering, and
   deferred Share after host metrics.
+- [`LibraryApiDiffEnvelopeCommandTests.cs`](../../tests/DotnetInspect.Cli.Tests/LibraryApiDiffEnvelopeCommandTests.cs)
+  owns the real System.Text.Json paired JSON scenario, native Content,
+  empty success, rejection, admission, formatting, and acquisition failure.
+  Its Microsoft.NETCore.App.Ref pair owns resolved multi-Library rejection;
+  both real-package cases are also run by the daily slow CLI suite.
+- [`LibraryApiDiffJsonTests.cs`](../../tests/DotnetInspector.Presentation.Tests/LibraryApiDiffJsonTests.cs)
+  owns complete Outcome and endpoint-issue serialization and round trips.
 - [`AssemblyResolutionProvenanceJsonTests.cs`](../../tests/ILInspector.Metadata.Tests/AssemblyResolutionProvenanceJsonTests.cs)
   owns round-trip coverage for all six provenance cases.
 - [`BrowserEngineBoundaryTypeDependencyTests.cs`](../../inspect-web/DotnetInspect.Web.Tests/BrowserEngineBoundaryTypeDependencyTests.cs)
@@ -229,7 +255,7 @@ This is schema identification, not a version-negotiation option or a promise
 to retain obsolete serializers.
 
 The registered adopter identity is `type-dependencies` for
-`TypeDependencySectionResult`. The planned second identity is
+`TypeDependencySectionResult`. The second adopted identity is
 `library-api-diff` for `LibraryApiDiffOutcome`. An Outcome's Available,
 Rejected, or other case does not change `result_kind`; its own discriminator
 remains inside `content`. Another operation with a different content contract,
