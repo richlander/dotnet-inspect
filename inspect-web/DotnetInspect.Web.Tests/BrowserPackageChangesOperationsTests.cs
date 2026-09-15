@@ -12,6 +12,38 @@ namespace DotnetInspect.Web.Tests;
 public sealed class BrowserPackageChangesOperationsTests
 {
     [Fact]
+    public void PackageSets_ProjectProductOrderWithoutMembership()
+    {
+        BrowserPackageChangesPackageSetCatalog catalog =
+            BrowserPackageChangesOperations.PackageSets();
+
+        Assert.Equal(
+            BrowserPackageChangesOperations.PackageSetCatalogVersion,
+            catalog.Version);
+        Assert.NotEmpty(catalog.PackageSets);
+        Assert.Equal(
+            catalog.PackageSets.OrderBy(packageSet => packageSet.Order),
+            catalog.PackageSets);
+        Assert.All(
+            catalog.PackageSets,
+            packageSet =>
+            {
+                Assert.StartsWith("package-set.", packageSet.Id);
+                Assert.False(string.IsNullOrWhiteSpace(packageSet.Title));
+                Assert.False(string.IsNullOrWhiteSpace(packageSet.Summary));
+            });
+
+        string json = JsonSerializer.Serialize(
+            catalog,
+            BrowserPackageJsonContext.Default
+                .BrowserPackageChangesPackageSetCatalog);
+        Assert.DoesNotContain(
+            "\"members\"",
+            json,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void ResolvePlan_UsesOnlyRegisteredPackageSetsAndPairedIntervals()
     {
         var clock = new FixedTimeProvider(

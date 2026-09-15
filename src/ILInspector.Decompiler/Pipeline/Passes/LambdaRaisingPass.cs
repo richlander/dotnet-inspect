@@ -300,9 +300,21 @@ public sealed class LambdaRaisingPass : IIrPass
         out IReadOnlyCollection<string> readFields)
     {
         readFields = [];
-        var body = RaisedBody(creation, context);
+        if (!context.TryEnterCrossMethodPipeline(creation.Method, out var scope))
+            return null;
+        using var pipelineScope = scope;
+        var body = scope.Import();
         if (body is null)
             return null;
+
+        scope.Run(body, IrPasses.CapturingLambdaPreparation);
+        bool allowLocals = CapturesAreArgumentOnly(captures.Values);
+        // The inliner indexes places within one function. Do not introduce outer
+        // local indices or another nested pool into this additional opportunity.
+        bool completeAfterSubstitution = allowLocals
+            && !body.Descendants.Any(node => node is Lambda or LocalFunctionStatement);
+        if (!completeAfterSubstitution)
+            scope.Run(body, IrPasses.CapturingLambdaCompletion);
 
         var thisReads = body.Descendants.OfType<LoadArgument>().Where(a => a.Index == 0).ToList();
         if (!thisReads.All(a => a.Parent is LoadField field
@@ -322,11 +334,14 @@ public sealed class LambdaRaisingPass : IIrPass
                 load.ReplaceWith(value.Clone());
         }
 
+        if (completeAfterSubstitution)
+            scope.Run(body, IrPasses.CapturingLambdaCompletion);
+
         return Finish(
             creation,
             body,
             provenance,
-            allowLocals: CapturesAreArgumentOnly(captures.Values),
+            allowLocals,
             CapturedBinderNames(readFields, captures, RootFunction(creation)));
     }
 

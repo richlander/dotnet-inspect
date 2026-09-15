@@ -2443,17 +2443,17 @@ Definition records and product demos (this slice):
   unverified.
   `CommittedScenarioSelectorResolverTests.Resolve_WorkspaceFocusRetainsExactMemberContextAndDormantRows`,
   `Resolve_PackageFocusProducesOneActivationAndInactiveExactInput`,
+  `Resolve_OmittedPackageContextMaterializesExactPackage`,
   `Resolve_SameLibraryIdentityAcrossOccurrencesStaysOccurrenceLocal`,
   `Resolve_RejectsMissingAmbiguousAndForeignPackageFacts`,
   `Resolve_SelectorCardinalityFailuresAreTyped`,
   `Resolve_IncompleteTypeInventoryIsNotReportedAsMissing`,
   `Resolve_ProjectedMemberCannotEscapeItsExactDeclaringType`, and
   `Resolve_AllLibrariesRequiresOneLibraryButPackageContextDoesNot` gate
-  runtime selector resolution, exact occurrence association, atomic typed
-  failure, incomplete-inventory disclosure, and contiguous retained paths.
-  End-to-end Navigation restoration for subjectless and Workspace-subject
-  direct-Package rows with omitted portable context remains unverified under
-  #7049.
+  runtime selector resolution, exact occurrence association, omitted
+  direct-Package context materialization for subjectless and Workspace-subject
+  rows, atomic typed failure, incomplete-inventory disclosure, and contiguous
+  retained paths.
   `ProductDemoSourceBindingTests` gates source shape, exactly-once source
   invocation per resolve, exact scenario resolution, section admission, and
   visible failures.

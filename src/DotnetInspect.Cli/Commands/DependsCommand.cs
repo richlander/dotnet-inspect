@@ -19,9 +19,14 @@ namespace DotnetInspect.Cli.Commands;
 /// </summary>
 public partial class DependsCommand
 {
+    private static readonly InspectionEnvelopeJsonContract<TypeDependencySectionResult>
+        TypeDependencyJson = new(
+            "type-dependencies",
+            1,
+            TypeDependencySectionJsonContext.Default.TypeDependencySectionResult);
+
     /// <summary>
-    /// Returned when the target type was not found so the command boundary can
-    /// report a type-specific diagnostic.
+    /// Preserves type-miss exit mapping independently of scan uncertainty.
     /// </summary>
     internal const int TypeNotFoundExitCode = 2;
 
@@ -141,11 +146,9 @@ public partial class DependsCommand
                 options,
                 logger,
                 cancellationToken,
-                options.ShareFormat is not null
-                    ? typeName => DependsShareProjection.ProjectType(
-                        options,
-                        typeName)
-                    : null);
+                typeName => DependsShareProjection.ProjectType(
+                    options,
+                    typeName));
 
             // A rejected participant scopes to itself and leaves the rest of
             // the scan intact, but the resulting graph is uncertified: it may
@@ -154,6 +157,19 @@ public partial class DependsCommand
             // partial graph nor a "not found" is reported as certified.
             WriteRejectionWarnings(result.Diagnostics);
             bool uncertified = result.Diagnostics.Count > 0;
+            bool serviceJson =
+                options.EnvelopeOutput
+                || (options.JsonOutput && !options.Tree && !options.Count && !emptyQuietSelection);
+            if (serviceJson
+                && result.Envelope is { } envelope
+                && !InspectionEnvelopeOutput.TryWrite(
+                    envelope,
+                    TypeDependencyJson,
+                    options.EnvelopeOutput,
+                    options.CompactJson))
+            {
+                return new TypeDependsOutcome(1, uncertified);
+            }
             if (!result.IsAvailable)
             {
                 if (uncertified)
@@ -168,6 +184,9 @@ public partial class DependsCommand
             {
                 // Report the absence as an absence and carry the uncertainty
                 // alongside it.
+                CommandError.Write(
+                    $"Type '{options.TargetType}' not found in the specified scope.");
+                NamespacePrefixHints.WriteIfLikelyNamespacePrefix(options.TargetType);
                 return WithTypeShare(
                     result,
                     options,
@@ -185,7 +204,7 @@ public partial class DependsCommand
                     + $"{rowFailure.Failure.AvailableCount} rows.");
                 return WithTypeShare(result, options, 1, uncertified);
             }
-            if (emptyQuietSelection)
+            if (emptyQuietSelection || serviceJson)
                 return WithTypeShare(result, options, 0, uncertified);
 
             DependencyGraphDocument document =
