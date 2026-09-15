@@ -1451,7 +1451,8 @@ public class PackageCommand
             PackageHouseResult settlement = await composition.SettleVersionAsync(
                 new PackageVersionSelectionRequest.AlwaysLatest(
                     packageId, options.IncludePrerelease),
-                options.SourceOptions);
+                options.SourceOptions,
+                context.Logger.Log);
             if (settlement is not PackageHouseResult.Settled)
             {
                 WriteVersionSettlementFailure(packageId, packageReference, settlement);

@@ -13,6 +13,7 @@ public sealed partial class DesktopPackageSourceComposition
     public async Task<PackageHouseResult> SettleVersionAsync(
         PackageVersionSelectionRequest selection,
         NuGetSourceOptions? sourceOptions = null,
+        Action<string>? log = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(selection);
@@ -25,7 +26,8 @@ public sealed partial class DesktopPackageSourceComposition
             sourceOptions,
             payloadAcquisition: null,
             cancellationToken,
-            requiredProducerKey: null).ConfigureAwait(false);
+            requiredProducerKey: null,
+            log).ConfigureAwait(false);
         return settlement.Result;
     }
 
@@ -211,7 +213,8 @@ public sealed partial class DesktopPackageSourceComposition
         NuGetSourceOptions? sourceOptions,
         PackagePayloadAcquisitionPlan? payloadAcquisition,
         CancellationToken cancellationToken,
-        string? requiredProducerKey)
+        string? requiredProducerKey,
+        Action<string>? log = null)
     {
         PackageSourceOperationLease sourceOperation =
             IssueHouseOperation(cancellationToken);
@@ -221,7 +224,8 @@ public sealed partial class DesktopPackageSourceComposition
             sourceOptions,
             payloadAcquisition,
             sourceOperation,
-            requiredProducerKey);
+            requiredProducerKey,
+            log);
     }
 
     private PackageSourceOperationLease IssueHouseOperation(
@@ -237,7 +241,8 @@ public sealed partial class DesktopPackageSourceComposition
         NuGetSourceOptions? sourceOptions,
         PackagePayloadAcquisitionPlan? payloadAcquisition,
         PackageSourceOperationLease sourceOperation,
-        string? requiredProducerKey)
+        string? requiredProducerKey,
+        Action<string>? log = null)
     {
         PackageSourceOperationLease? unsettledOperation =
             sourceOperation;
@@ -267,7 +272,8 @@ public sealed partial class DesktopPackageSourceComposition
                 new SinglePackageAuthorization(
                     packageId,
                     authorization),
-                payloadAcquisition);
+                payloadAcquisition,
+                log);
             Task<PackageHouseSettlement> execution =
                 house.ExecuteAsync(
                     request,

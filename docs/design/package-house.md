@@ -44,10 +44,13 @@ queries also consume House selecting `Settle` through
 `DesktopPackageSourceComposition.SettleVersionAsync`. They render the exact
 version from its resolution receipt and preserve source listing evidence for
 feed projections; the command no longer chooses the latest row itself.
+Requested `--verbose` source-fetch progress still flows to stderr through the
+settlement's optional discovery callback.
 `System.Text.Json` is the motivating production package. The
 `SourceScopedRoutingTests.LatestVersionSettlement_*` cases cover the detached
-receipt and explicit prerelease boundary, while the existing latest-version,
-source-failure, listing, and rendering cases preserve neighboring behavior.
+receipt, requested progress, and explicit prerelease boundary, while the
+existing latest-version, source-failure, listing, and rendering cases preserve
+neighboring behavior.
 This is payload-free adoption: ordinary version listings, pinned and range
 queries, offline behavior, Browser settlement, and package-content/Workspace
 adoption remain separate slices.

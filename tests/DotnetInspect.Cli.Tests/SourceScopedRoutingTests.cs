@@ -673,7 +673,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
             result = await composition.SettleVersionAsync(
                 selection,
                 new NuGetSourceOptions { Sources = [local] },
-                TestContext.Current.CancellationToken);
+                cancellationToken: TestContext.Current.CancellationToken);
         }
 
         var settled = Assert.IsType<PackageHouseResult.Settled>(result);
@@ -687,6 +687,38 @@ public sealed class SourceScopedRoutingTests : IDisposable
         Assert.Single(receipt.Candidate.Authorities);
         Assert.Null(settled.Evidence.Acquisition);
         Assert.Null(settled.Evidence.Realization);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task LatestVersionSettlement_PreservesRequestedProgress(
+        bool latestAlias, bool verbose)
+    {
+        const string PackageName = "System.Text.Json";
+        const string Version = "8.0.5";
+        var (exit, output, error, requests) = await RunOnlineVersionFeedCommandAsync(
+            PackageName, Version,
+            ["package", latestAlias ? $"{PackageName}@latest" : PackageName,
+                latestAlias ? "--versions" : "--latest-version", "--source", SecondSource,
+                .. verbose ? new[] { "--verbose" } : []]);
+
+        Assert.Equal(0, exit);
+        Assert.Equal(Version, output.Trim());
+        if (verbose)
+        {
+            string progress = Assert.Single(
+                error.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries));
+            Assert.StartsWith("Fetching versions from ", progress);
+            Assert.Contains(SecondSource, progress);
+        }
+        else
+        {
+            Assert.Empty(error);
+        }
+        Assert.Contains($"{SecondFlatContainer}{PackageName.ToLowerInvariant()}/index.json", requests);
     }
 
     [Theory]
