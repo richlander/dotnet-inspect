@@ -1582,6 +1582,31 @@ public sealed partial class DirectCallDefinitionResolutionTests
                         TestContext.Current.CancellationToken));
     }
 
+    static DirectCallDefinitionResolutionOutcome.Completed
+        ResolveOwnershipFixture(ImmutableArray<byte> image)
+    {
+        byte[] bytes = image.ToArray();
+        LibraryBodyIndex index =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "MalformedOwnershipFlowFixtures.dll",
+                image,
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                () => new MemoryStream(bytes, writable: false),
+                AssemblyResolutionProvenance.Local(
+                    "malformed direct-call definition test"))!;
+        return Assert.IsType<
+            DirectCallDefinitionResolutionOutcome.Completed>(
+                DirectCallDefinitionResolver.Resolve(
+                    new AssemblyDependencyResolver(
+                        new AssemblyDependencyResolutionOptions(
+                            OwnershipFixturePath)),
+                    [new CatalogCallGraphParticipant(index, assembly)],
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+    }
+
     static DirectCallDefinitionResolutionOutcome.Completed Resolve(
         SyntheticParticipant participant,
         DirectCallDefinitionResolutionLimits? limits = null) =>

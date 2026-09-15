@@ -625,10 +625,27 @@ internal static class ResourceEffectOccurrenceBinder
                             .CallbackContract);
                     return null;
                 }
+                int delegateArity = type.GetGenericParameters().Count;
                 ImmutableArray<TypeRef> typeArguments =
                     delegateType.Kind == TypeRefKind.GenericInstance
                         ? delegateType.TypeArguments
                         : [];
+                if (typeArguments.Length != delegateArity
+                    || !GenericParametersAreInRange(
+                        signature.ReturnType,
+                        delegateArity,
+                        methodArity: 0)
+                    || signature.ParameterTypes.Any(parameter =>
+                        !GenericParametersAreInRange(
+                            parameter,
+                            delegateArity,
+                            methodArity: 0)))
+                {
+                    FailUnsupported(
+                        ResourceEffectOccurrenceBindingGapKind
+                            .CallbackContract);
+                    return null;
+                }
                 ImmutableArray<TypeRef> parameters =
                 [
                     .. signature.ParameterTypes.Select(parameter =>
@@ -1189,6 +1206,36 @@ internal static class ResourceEffectOccurrenceBinder
                 return null;
             }
             return resolved;
+        }
+
+        static bool GenericParametersAreInRange(
+            TypeRef type,
+            int typeArity,
+            int methodArity)
+        {
+            if (type.Kind == TypeRefKind.GenericParameter)
+            {
+                return type.GenericParameterIndex >= 0
+                    && type.GenericParameterIndex < typeArity;
+            }
+            if (type.Kind == TypeRefKind.MethodGenericParameter)
+            {
+                return type.GenericParameterIndex >= 0
+                    && type.GenericParameterIndex < methodArity;
+            }
+            if (type.ElementType is not null
+                && !GenericParametersAreInRange(
+                    type.ElementType,
+                    typeArity,
+                    methodArity))
+            {
+                return false;
+            }
+            return type.TypeArguments.All(argument =>
+                GenericParametersAreInRange(
+                    argument,
+                    typeArity,
+                    methodArity));
         }
 
         static bool TryBuildExactSignatureType(

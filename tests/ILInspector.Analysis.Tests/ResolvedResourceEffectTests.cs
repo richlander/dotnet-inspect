@@ -1,4 +1,8 @@
 using System.Collections.Immutable;
+using System.Buffers.Binary;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 
 using DotnetInspector.Services;
 using ILInspector.Metadata;
@@ -940,6 +944,89 @@ public sealed partial class DirectCallDefinitionResolutionTests
     }
 
     [Fact]
+    public void CallbackContractRejectsOutOfRangeDelegateGenericParameter()
+    {
+        ImmutableArray<byte> image =
+            MalformedBindingCallbackImage();
+        DirectCallDefinitionResolutionOutcome.Completed calls =
+            ResolveOwnershipFixture(image);
+        DirectCallDefinitionResolution.Resolved apply =
+            Assert.Single(
+                calls.Results
+                    .OfType<DirectCallDefinitionResolution.Resolved>(),
+                result =>
+                    result.Call.Caller.Name == "BindMalformedCallback"
+                    && result.Definition.Member.Name == "Apply");
+        AssemblyReferenceIdentity identity = apply.Definition.Assembly;
+        var assembly = new ResourceAssemblySelector(
+            identity.Name,
+            identity.PublicKeyToken,
+            ResourceAssemblyVersionPolicy.Exact(identity.Version!));
+        ResourceEffectGenericVariable variable =
+            new(ResourceEffectGenericVariableKind.Type, 0);
+        ResourceEffectGenericVariable extraVariable =
+            new(ResourceEffectGenericVariableKind.Type, 1);
+        ResourceTypeExpression.Variable value = new(variable);
+        ResourceTypeExpression.Variable extra = new(extraVariable);
+        var callback = new ResourceTypeExpression.Named(
+            assembly,
+            "Ownership",
+            [new ResourceTypeNameSegment("BindingCallback", 1)],
+            [value]);
+        var owner = new ResourceTypeExpression.Named(
+            assembly,
+            "Ownership",
+            [new ResourceTypeNameSegment("BindingOwnerWithExtra", 2)],
+            [value, extra]);
+        var outcome = new ResourceTypeExpression.Named(
+            assembly,
+            "Ownership",
+            [new ResourceTypeNameSegment("BindingOutcome", 0)]);
+        var target = new ResourceEffectTargetSelector.Member(
+            new ResourceEffectMemberSelector(
+                owner,
+                "Apply",
+                ResourceEffectMemberKind.Method,
+                isStatic: false,
+                genericArity: 0,
+                ResourceEffectCallingConvention.Default,
+                hasThis: true,
+                explicitThis: false,
+                [
+                    new ResourceEffectParameterSelector(
+                        value,
+                        ResourceEffectRefKind.Value),
+                    new ResourceEffectParameterSelector(
+                        callback,
+                        ResourceEffectRefKind.Value),
+                ],
+                outcome));
+        ResourceEffectAdmission admission = AdmitModels(
+            Model(
+                "example.malformed-callback-generic",
+                target,
+                new ResourceEffect.Callback(
+                    new ResourceEffectLocation.Parameter(1),
+                    new ResourceBorrowScope.Callback(1),
+                    ResourceCallbackExecution.Synchronous,
+                    ResourceCallbackCardinality.ExactlyOnce)));
+
+        ResourceEffectResolutionOutcome.Incomplete incomplete =
+            Assert.IsType<ResourceEffectResolutionOutcome.Incomplete>(
+                ResolveEffects(admission, calls));
+
+        Assert.Contains(
+            incomplete.Gaps,
+            gap =>
+                gap.Kind
+                    == ResourceEffectResolutionGapKind
+                        .OccurrenceUnsupported
+                && gap.OccurrenceGap?.Kind
+                    == ResourceEffectOccurrenceBindingGapKind
+                        .CallbackContract);
+    }
+
+    [Fact]
     public void MissingExactOutcomeTypeIsIncomplete()
     {
         DirectCallDefinitionResolutionOutcome.Completed calls =
@@ -1260,6 +1347,74 @@ public sealed partial class DirectCallDefinitionResolutionTests
                             Kind: null,
                             Correspondence: null,
                             Observation: null),
+                        [Provenance(model.Value, 4)]),
+                ]));
+
+        Assert.IsType<ResourceEffectResolutionOutcome.Complete>(
+            ResolveEffects(admission, calls));
+    }
+
+    [Fact]
+    public void EmptyOperationSlotKindIntersectionDoesNotConflictWithIndependence()
+    {
+        DirectCallDefinitionResolutionOutcome.Completed calls =
+            ResolveOwnershipFixture();
+        DirectCallDefinitionResolution.Resolved apply =
+            Assert.Single(
+                calls.Results
+                    .OfType<DirectCallDefinitionResolution.Resolved>(),
+                result =>
+                    result.Call.Caller.Name == "BindOccurrenceReferences"
+                    && result.Definition.Member.Name == "Apply");
+        ResourceEffectTargetSelector target =
+            OccurrenceBindingModel(apply).TypedDeclarations[0].Target;
+        ResourceEffectGenericVariable variable =
+            new(ResourceEffectGenericVariableKind.Type, 0);
+        ResourceKindIdentity first = new("example.independent-first");
+        ResourceKindIdentity second = new("example.independent-second");
+        ResourceKindReference firstKind = new(first, [variable]);
+        ResourceKindReference secondKind = new(second, [variable]);
+        ResourceEffectLocation.OperationSlot slot = new(
+            new ResourceEffectLocation.Parameter(0),
+            firstKind);
+        var model = new ResourceEffectModelIdentity(
+            "example.independent-empty-domain");
+        ResourceEffectAdmission admission = AdmitModels(
+            new ResourceEffectModelDefinition(
+                ResourceEffectLanguageIdentity.Version1,
+                model,
+                [
+                    new ResourceKindDefinition(
+                        first,
+                        arity: 1,
+                        [Provenance(model.Value, 0)]),
+                    new ResourceKindDefinition(
+                        second,
+                        arity: 1,
+                        [Provenance(model.Value, 1)]),
+                ],
+                [],
+                [
+                    new ResourceEffectTypedDeclaration(
+                        target,
+                        new ResourceEffect.Consume(
+                            new ResourceEffectLocation.Parameter(0),
+                            slot,
+                            firstKind),
+                        [Provenance(model.Value, 2)]),
+                    new ResourceEffectTypedDeclaration(
+                        target,
+                        new ResourceEffect.Move(
+                            slot,
+                            new ResourceEffectLocation.Parameter(0),
+                            new ResourceEffectCompletion.NormalReturn(),
+                            secondKind),
+                        [Provenance(model.Value, 3)]),
+                    new ResourceEffectTypedDeclaration(
+                        target,
+                        new ResourceEffect.Independent(
+                            slot,
+                            new ResourceEffectLocation.Parameter(0)),
                         [Provenance(model.Value, 4)]),
                 ]));
 
@@ -1828,6 +1983,87 @@ public sealed partial class DirectCallDefinitionResolutionTests
                 rejected.Diagnostics.Select(diagnostic =>
                     diagnostic.Diagnostic.Message.ToString())));
         throw new InvalidOperationException("Unreachable after Assert.Fail.");
+    }
+
+    static ImmutableArray<byte> MalformedBindingCallbackImage()
+    {
+        byte[] image = File.ReadAllBytes(OwnershipFixturePath);
+        using var stream = new MemoryStream(image, writable: false);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        TypeDefinitionHandle callback = reader.TypeDefinitions.Single(
+            handle =>
+            {
+                TypeDefinition type = reader.GetTypeDefinition(handle);
+                return reader.StringComparer.Equals(
+                        type.Namespace,
+                        "Ownership")
+                    && reader.StringComparer.Equals(
+                        type.Name,
+                        "BindingCallback`1");
+            });
+        MethodDefinitionHandle invoke = reader
+            .GetTypeDefinition(callback)
+            .GetMethods()
+            .Single(handle => reader.StringComparer.Equals(
+                reader.GetMethodDefinition(handle).Name,
+                "Invoke"));
+        BlobHandle signature =
+            reader.GetMethodDefinition(invoke).Signature;
+        int blob = MetadataStreamOffset(
+                image,
+                pe.PEHeaders.MetadataStartOffset,
+                "#Blob")
+            + MetadataTokens.GetHeapOffset(signature);
+        Assert.Equal(6, image[blob]);
+        Assert.True(
+            image.AsSpan(blob + 1, 6)
+                .SequenceEqual(
+                    new byte[]
+                    {
+                        0x20,
+                        0x01,
+                        0x13,
+                        0x00,
+                        0x13,
+                        0x00,
+                    }));
+        image[blob + 4] = 0x01;
+        image[blob + 6] = 0x01;
+        return ImmutableArray.Create(image);
+    }
+
+    static int MetadataStreamOffset(
+        byte[] image,
+        int metadataRoot,
+        string streamName)
+    {
+        int versionLength = BinaryPrimitives.ReadInt32LittleEndian(
+            image.AsSpan(metadataRoot + 12, 4));
+        int position = metadataRoot + 16
+            + ((versionLength + 3) & ~3);
+        int streamCount = BinaryPrimitives.ReadUInt16LittleEndian(
+            image.AsSpan(position + 2, 2));
+        position += 4;
+        for (int i = 0; i < streamCount; i++)
+        {
+            int offset = BinaryPrimitives.ReadInt32LittleEndian(
+                image.AsSpan(position, 4));
+            position += 8;
+            int nameStart = position;
+            while (image[position] != 0)
+                position++;
+            string name = System.Text.Encoding.ASCII.GetString(
+                image,
+                nameStart,
+                position - nameStart);
+            position = (position + 4) & ~3;
+            if (name == streamName)
+                return metadataRoot + offset;
+        }
+
+        throw new BadImageFormatException(
+            $"Metadata stream {streamName} was not found.");
     }
 
     static ResourceDeclarationProvenance Provenance(

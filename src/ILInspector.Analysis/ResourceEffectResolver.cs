@@ -662,6 +662,7 @@ public static class ResourceEffectResolver
                         independenceEffect,
                         value.Source,
                         value.Target,
+                        value.Kind,
                         otherEffect,
                         independence)
                     || (value.Lender is not null
@@ -669,6 +670,7 @@ public static class ResourceEffectResolver
                             independenceEffect,
                             value.Lender,
                             value.Target,
+                            value.Kind,
                             otherEffect,
                             independence)),
                 ResourceEffect.Derive value =>
@@ -676,6 +678,7 @@ public static class ResourceEffectResolver
                         independenceEffect,
                         value.Source,
                         value.Target,
+                        null,
                         otherEffect,
                         independence),
                 ResourceEffect.Pass value =>
@@ -683,6 +686,7 @@ public static class ResourceEffectResolver
                         independenceEffect,
                         value.Source,
                         value.Target,
+                        null,
                         otherEffect,
                         independence),
                 ResourceEffect.Move value =>
@@ -690,6 +694,7 @@ public static class ResourceEffectResolver
                         independenceEffect,
                         value.Source,
                         value.Target,
+                        value.Kind,
                         otherEffect,
                         independence),
                 ResourceEffect.Consume value =>
@@ -697,6 +702,7 @@ public static class ResourceEffectResolver
                         independenceEffect,
                         value.Source,
                         value.Target,
+                        value.Kind,
                         otherEffect,
                         independence),
                 ResourceEffect.Accept value =>
@@ -704,6 +710,7 @@ public static class ResourceEffectResolver
                         independenceEffect,
                         value.Source,
                         value.Target,
+                        value.Kind,
                         otherEffect,
                         independence),
                 ResourceEffect.Acquire value =>
@@ -712,6 +719,7 @@ public static class ResourceEffectResolver
                         independenceEffect,
                         value.Lender,
                         value.Target,
+                        value.Kind,
                         otherEffect,
                         independence),
                 _ => false,
@@ -721,9 +729,16 @@ public static class ResourceEffectResolver
             ResolvedResourceEffect independenceEffect,
             ResourceEffectLocation source,
             ResourceEffectLocation target,
+            ResourceKindReference? kind,
             ResolvedResourceEffect otherEffect,
             ResourceEffect.Independent independence) =>
-            otherEffect.Binding.Location(source).CanonicalKey
+            KindDomainsOverlap(
+                KindDomain(
+                    independenceEffect,
+                    independence.Source,
+                    declared: null),
+                KindDomain(otherEffect, source, kind))
+            && otherEffect.Binding.Location(source).CanonicalKey
                 == independenceEffect.Binding
                     .Location(independence.Source).CanonicalKey
             && otherEffect.Binding.Location(target).CanonicalKey

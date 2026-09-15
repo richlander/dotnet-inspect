@@ -210,6 +210,10 @@ public static class Entry
         return owner.Apply(42, static value => value);
     }
 
+    public static BindingOutcome InvokeMalformedCallback() =>
+        new BindingOwnerWithExtra<byte, int>()
+            .BindMalformedCallback(42);
+
     public static byte BindCollapsedResourceKinds() =>
         new BindingGenericOwner<byte>().Apply<byte>(1, 2);
 
@@ -307,6 +311,18 @@ public sealed class BindingOwner<T>
         ChildCount++;
         return new BindingRejectedOutcome();
     }
+}
+
+public sealed class BindingOwnerWithExtra<T, TExtra>
+{
+    public BindingOutcome BindMalformedCallback(T child) =>
+        Apply(child, static value => value);
+
+    public BindingOutcome Apply(T child, BindingCallback<T> callback) =>
+        new BindingRejectedOutcome
+        {
+            ReturnedChild = callback(child),
+        };
 }
 
 public sealed class BindingBox<T>
