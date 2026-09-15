@@ -197,6 +197,13 @@ Host-neutral schemas remain resource-free, NativeAOT-compatible, and
 serializable without executable closures, live readers, streams, leases,
 services, or host UI objects.
 
+The active subject-owned Diff plan in
+[#7051](https://github.com/richlander/dotnet-inspect/pull/7051)
+provides the first multi-kind serialization pressure: endpoint Diff, temporal
+History, and Package version Count must cross both the public CLI envelope
+transport and the Browser boundary without collapsing their different semantic
+extents into one undifferentiated result shape.
+
 ## Events and pages
 
 Progressive events and completed content serve different purposes.
@@ -267,29 +274,33 @@ Content, Share, and diagnostic composition. Each inspection owner retains:
 - event, paging, and host-adapter behavior.
 
 [#7054](https://github.com/richlander/dotnet-inspect/issues/7054) is the
-end-to-end tracker. Adoption has four planned steps:
+end-to-end tracker. Adoption has five planned steps:
 
 1. Lock this pattern and connect it to the envelope, shared-inspection, and
    output-shape guidance.
-2. Let Package Query adopt the pattern in one focused owner change, replacing
+2. Let the subject-owned Diff work in #7051 adopt the pattern for endpoint
+   comparison, temporal History, and Package version Count. Its focused owners
+   retain their existing semantics while the CLI and Browser consume the same
+   complete envelopes.
+3. Let Package Query adopt the pattern in one focused owner change, replacing
    its completed event-array content with an owner-issued Document or Outcome
    while preserving progressive events separately. The CLI and Browser consume
    the same envelope content; their transport and presentation remain
    host-owned.
-3. Let assembly-semantic Find adopt the pattern in a separate focused owner
+4. Let assembly-semantic Find adopt the pattern in a separate focused owner
    change, distinguishing individual Find Results from any composed Document
    and carrying the same envelope content to its CLI and Browser consumers.
-4. Inventory the remaining public envelope content types and file separate
+5. Inventory the remaining public envelope content types and file separate
    owner-scoped migrations where a name or schema conflicts with this contract.
    Close the tracker when each retained boundary is classified and both
    production hosts consume the applicable shared content.
 
-Each adoption identifies a real package scenario and its own gates. The first
-two adopters already have production CLI and Browser paths, so the pattern does
-not depend on a speculative host. A migration changes names or schema only when
-required by that owner's focused design. A bare collection or terminal event
-history is migration evidence, not permission for this pattern document to
-redesign the producing operation.
+Each adoption identifies a real package scenario and its own gates. The named
+adopters already have planned or implemented CLI and Browser paths, so the
+pattern does not depend on a speculative host. A migration changes names or
+schema only when required by that owner's focused design. A bare collection or
+terminal event history is migration evidence, not permission for this pattern
+document to redesign the producing operation.
 
 CLI presentation continues through each adopter's established Markout path.
 Inspect Web consumes the same typed content through its generated serialization
