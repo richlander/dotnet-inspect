@@ -46,7 +46,7 @@ acquisition, resolution, or activation succeeds.
 - every Workspace identity belongs to at most one restoration attempt;
 - only `Activated` carries a Workspace value;
 - an activation retains its exact request, plan, and Workspace association;
-- compatibility returns before construction;
+- unsupported requests fail before construction;
 - context evidence remains in exact declaration order;
 - stale completion cannot activate; and
 - every closed non-install Workspace is cleaned exactly once.
@@ -65,11 +65,11 @@ Every configuration is pinned in `eng/tla-expected-exit-codes.txt`.
 | `BrokenWrongAssociation.cfg` | 12 | Activation cannot pair a foreign Workspace |
 | `BrokenStaleActivation.cfg` | 12 | A superseded attempt cannot activate |
 | `BrokenEvidenceOrder.cfg` | 12 | Context evidence cannot be reordered |
-| `BrokenCompatibilityConstruction.cfg` | 12 | Compatibility constructs no Workspace |
+| `BrokenRejectedConstruction.cfg` | 12 | A rejected request constructs no Workspace |
 | `BrokenDoubleCleanup.cfg` | 12 | Non-install cleanup is one-shot |
 | `BrokenNeverCleanup.cfg` | 13 | Omitting host cleanup defeats liveness |
 | `ReachabilityActivation.cfg` | 12 | Exact activation is reachable |
-| `ReachabilityCompatibility.cfg` | 12 | Pre-construction compatibility is reachable |
+| `ReachabilityRejection.cfg` | 12 | Pre-construction rejection is reachable |
 | `ReachabilityFailureCleanup.cfg` | 12 | Failure cleanup is reachable |
 | `ReachabilitySupersessionCleanup.cfg` | 12 | Supersession cleanup is reachable |
 

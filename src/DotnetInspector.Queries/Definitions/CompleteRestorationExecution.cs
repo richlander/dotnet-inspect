@@ -358,19 +358,6 @@ public abstract record CompleteRestorationResult<TActivation>
         public CompleteWorkspaceActivation Workspace { get; }
     }
 
-    public sealed record LegacyCompatibilityRequired :
-        CompleteRestorationResult<TActivation>
-    {
-        internal LegacyCompatibilityRequired(
-            CompleteRestorationLegacyCompatibility compatibility)
-            : base(compatibility.Intent, compatibility.Request)
-        {
-            Compatibility = compatibility;
-        }
-
-        public CompleteRestorationLegacyCompatibility Compatibility { get; }
-    }
-
     public sealed record Failed : CompleteRestorationResult<TActivation>
     {
         internal Failed(
@@ -434,11 +421,6 @@ public static class CompleteRestorationCoordinator
 
         switch (preparation)
         {
-            case CompleteRestorationPreparationResult
-                .LegacyCompatibilityRequired compatibility:
-                return new CompleteRestorationResult<TActivation>
-                    .LegacyCompatibilityRequired(
-                        compatibility.Compatibility);
             case CompleteRestorationPreparationResult.Failed failed:
                 return new CompleteRestorationResult<TActivation>.Failed(
                     preparation.Intent,

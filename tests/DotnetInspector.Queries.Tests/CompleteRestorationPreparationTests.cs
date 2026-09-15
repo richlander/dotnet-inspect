@@ -30,7 +30,7 @@ public sealed class CompleteRestorationPreparationTests
     }
 
     [Fact]
-    public void LibraryScopedVersion1Definition_UsesCompatibilityBeforeConstruction()
+    public void LibraryScopedVersion1Definition_FailsWithoutQueryOwnerMigration()
     {
         InspectionDefinitionRegistry registry = Version1Registry(
             new ViewDefinition(
@@ -41,18 +41,15 @@ public sealed class CompleteRestorationPreparationTests
                 libraries: ["System.Text.Json"]));
         var authority = new TestIntentAuthority();
 
-        var compatibility = Assert.IsType<
-            CompleteRestorationPreparationResult
-                .LegacyCompatibilityRequired>(
-                    WorkspaceDefinitionConsumer.PrepareRestoration(
-                        registry,
-                        "scenario",
-                        authority));
+        var failed = Assert.IsType<CompleteRestorationPreparationResult.Failed>(
+            WorkspaceDefinitionConsumer.PrepareRestoration(
+                registry,
+                "scenario",
+                authority));
 
-        Assert.Same(authority.Identity, compatibility.Intent);
-        Assert.Equal(
-            ["System.Text.Json"],
-            compatibility.Compatibility.Plan.View!.Libraries);
+        Assert.Same(authority.Identity, failed.Intent);
+        Assert.IsType<CompleteRestorationFailure.LegacyLoweringFailed>(
+            failed.Failure);
     }
 
     [Fact]
@@ -105,6 +102,73 @@ public sealed class CompleteRestorationPreparationTests
             WorkspaceDefinitionConsumer.PrepareRestoration(
                 registry,
                 "query-scenario",
+                new TestIntentAuthority()));
+
+        Assert.IsType<CompleteRestorationFailure.LegacyLoweringFailed>(
+            failed.Failure);
+    }
+
+    [Fact]
+    public void Version1DefinitionWithoutNavigation_FailsInsteadOfHandoff()
+    {
+        var registry = new InspectionDefinitionRegistry();
+        registry.Add(Workspace(InspectionDefinitionSchema.Version1));
+        registry.Add(new ScenarioDefinition(
+            InspectionDefinitionSchema.Version1,
+            "scenario",
+            workspace: "workspace",
+            context: "context"));
+
+        var failed = Assert.IsType<CompleteRestorationPreparationResult.Failed>(
+            WorkspaceDefinitionConsumer.PrepareRestoration(
+                registry,
+                "scenario",
+                new TestIntentAuthority()));
+
+        Assert.IsType<CompleteRestorationFailure.LegacyLoweringFailed>(
+            failed.Failure);
+    }
+
+    [Fact]
+    public void FocusedNonPackageVersion1Definition_FailsInsteadOfHandoff()
+    {
+        var registry = new InspectionDefinitionRegistry();
+        registry.Add(new WorkspaceDefinition(
+            InspectionDefinitionSchema.Version1,
+            "workspace",
+            [
+                new WorkspaceContextDefinition(
+                    "context",
+                    members:
+                    [
+                        new DefinitionMemberCoordinate.PlatformCoordinate(
+                            "runtime",
+                            Framework: "net10.0"),
+                    ]),
+            ]));
+        registry.Add(new NavigationDefinition(
+            InspectionDefinitionSchema.Version1,
+            "navigation",
+            [
+                new NavigationTabDefinition(
+                    "platform",
+                    coordinate:
+                        new DefinitionMemberCoordinate.PlatformCoordinate(
+                            "runtime",
+                            Framework: "net10.0")),
+            ],
+            "platform"));
+        registry.Add(new ScenarioDefinition(
+            InspectionDefinitionSchema.Version1,
+            "scenario",
+            workspace: "workspace",
+            context: "context",
+            navigation: "navigation"));
+
+        var failed = Assert.IsType<CompleteRestorationPreparationResult.Failed>(
+            WorkspaceDefinitionConsumer.PrepareRestoration(
+                registry,
+                "scenario",
                 new TestIntentAuthority()));
 
         Assert.IsType<CompleteRestorationFailure.LegacyLoweringFailed>(

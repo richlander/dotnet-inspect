@@ -132,28 +132,6 @@ public sealed record CompleteRestorationPlan
     public CompleteRestorationRecipe Recipe { get; }
 }
 
-/// <summary>
-/// Exact version-1 composition handed to the existing compatibility executor.
-/// </summary>
-public sealed record CompleteRestorationLegacyCompatibility
-{
-    internal CompleteRestorationLegacyCompatibility(
-        CompleteRestorationIntentIdentity intent,
-        CompleteRestorationRequestBasis request,
-        LegacyCompatibilityDefinitionPlan plan)
-    {
-        Intent = intent ?? throw new ArgumentNullException(nameof(intent));
-        Request = request ?? throw new ArgumentNullException(nameof(request));
-        Plan = plan ?? throw new ArgumentNullException(nameof(plan));
-    }
-
-    public CompleteRestorationIntentIdentity Intent { get; }
-
-    public CompleteRestorationRequestBasis Request { get; }
-
-    public LegacyCompatibilityDefinitionPlan Plan { get; }
-}
-
 /// <summary>Typed non-activation evidence from complete restoration.</summary>
 public abstract record CompleteRestorationFailure
 {
@@ -381,19 +359,6 @@ public abstract record CompleteRestorationPreparationResult
         public CompleteRestorationPlan Plan { get; }
     }
 
-    public sealed record LegacyCompatibilityRequired :
-        CompleteRestorationPreparationResult
-    {
-        internal LegacyCompatibilityRequired(
-            CompleteRestorationLegacyCompatibility compatibility)
-            : base(compatibility.Intent, compatibility.Request)
-        {
-            Compatibility = compatibility;
-        }
-
-        public CompleteRestorationLegacyCompatibility Compatibility { get; }
-    }
-
     public sealed record Failed : CompleteRestorationPreparationResult
     {
         internal Failed(
@@ -580,6 +545,27 @@ public static class CompleteRestorationPreparation
                             "Definition schema version 1 query presets require "
                                 + "a registered query-owner migration."));
                 }
+                if (version1.Scenario.Navigation is not { } navigation
+                    || navigation.FocusTab.Coordinate
+                        is not WorkspaceMemberCoordinate.PackageMember)
+                {
+                    return new CompleteRestorationPreparationResult.Failed(
+                        authority.Identity,
+                        request,
+                        new CompleteRestorationFailure.LegacyLoweringFailed(
+                            "Complete restoration requires a focused direct-"
+                                + "Package schema version 1 navigation."));
+                }
+                if (version1.Scenario.View?.Libraries.Count > 0)
+                {
+                    return new CompleteRestorationPreparationResult.Failed(
+                        authority.Identity,
+                        request,
+                        new CompleteRestorationFailure.LegacyLoweringFailed(
+                            "Definition schema version 1 Library scope "
+                                + "requires a registered query-owner "
+                                + "migration."));
+                }
                 return new CompleteRestorationPreparationResult.Ready(
                     new CompleteRestorationPlan(
                         authority.Identity,
@@ -590,14 +576,6 @@ public static class CompleteRestorationPreparation
                             version1.Scenario)));
             case InspectionDefinitionScenarioPreparationResult.Version1:
                 return FailedWorkspaceFree(authority.Identity, request);
-            case InspectionDefinitionScenarioPreparationResult
-                .LegacyCompatibilityRequired compatibility:
-                return new CompleteRestorationPreparationResult
-                    .LegacyCompatibilityRequired(
-                        new CompleteRestorationLegacyCompatibility(
-                            authority.Identity,
-                            request,
-                            compatibility.Plan));
             default:
                 throw new InvalidOperationException(
                     "Unknown definition preparation result.");

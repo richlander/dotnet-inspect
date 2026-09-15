@@ -8,7 +8,7 @@ ASSUME Fault \in {
     "WrongAssociation",
     "StaleActivation",
     "WrongEvidenceOrder",
-    "CompatibilityConstruct",
+    "RejectedConstruct",
     "DoubleCleanup",
     "NeverCleanup"
 }
@@ -21,7 +21,7 @@ NoWorkspace == 0
 Phases == {
     "Unused",
     "Admitted",
-    "Compatibility",
+    "Rejected",
     "Constructing",
     "Resolving",
     "Ready",
@@ -31,7 +31,7 @@ Phases == {
     "Superseded"
 }
 
-ResultKinds == {"None", "Activated", "Compatibility", "Failed", "Superseded"}
+ResultKinds == {"None", "Activated", "Failed", "Superseded"}
 PendingKinds == {"None", "Failed", "Superseded"}
 
 Request(t) == <<"Request", t>>
@@ -87,17 +87,17 @@ StartRequest(t) ==
     /\ UNCHANGED <<workspace, usedWorkspaces, evidence, result, pending,
                    cleanupCount, activatedWhileCurrent, witnesses>>
 
-ReturnCompatibility(t) ==
+RejectRequest(t) ==
     /\ phase[t] = "Admitted"
     /\ t = current
-    /\ phase' = [phase EXCEPT ![t] = "Compatibility"]
+    /\ phase' = [phase EXCEPT ![t] = "Rejected"]
     /\ result' =
         [result EXCEPT ![t] =
-            [kind |-> "Compatibility",
+            [kind |-> "Failed",
              request |-> request[t],
              plan |-> plan[t],
              workspace |-> NoWorkspace]]
-    /\ witnesses' = witnesses \cup {"Compatibility"}
+    /\ witnesses' = witnesses \cup {"Rejection"}
     /\ UNCHANGED <<current, request, plan, workspace, usedWorkspaces,
                    evidence, pending, cleanupCount, activatedWhileCurrent>>
 
@@ -105,8 +105,8 @@ BeginConstruction(t, w) ==
     /\ w \notin usedWorkspaces
     /\ \/ /\ phase[t] = "Admitted"
           /\ t = current
-       \/ /\ Fault = "CompatibilityConstruct"
-          /\ phase[t] = "Compatibility"
+       \/ /\ Fault = "RejectedConstruct"
+          /\ phase[t] = "Rejected"
     /\ phase' = [phase EXCEPT ![t] = "Constructing"]
     /\ workspace' = [workspace EXCEPT ![t] = w]
     /\ usedWorkspaces' = usedWorkspaces \cup {w}
@@ -208,7 +208,7 @@ Cleanup(t) ==
 
 Next ==
     \/ \E t \in Attempts : StartRequest(t)
-    \/ \E t \in Attempts : ReturnCompatibility(t)
+    \/ \E t \in Attempts : RejectRequest(t)
     \/ \E t \in Attempts, w \in Workspaces : BeginConstruction(t, w)
     \/ \E t \in Attempts : AppendEvidence(t)
     \/ \E t \in Attempts : CompletePreparation(t)
@@ -228,7 +228,7 @@ TypeOK ==
     /\ current \in 0..2
     /\ usedWorkspaces \subseteq Workspaces
     /\ witnesses \subseteq {
-        "Compatibility", "Failure", "Supersession", "Activation", "Cleanup"}
+        "Rejection", "Failure", "Supersession", "Activation", "Cleanup"}
     /\ \A t \in Attempts :
         /\ phase[t] \in Phases
         /\ workspace[t] \in Workspaces \cup {NoWorkspace}
@@ -255,9 +255,9 @@ ActivatedAssociationIsExact ==
             /\ result[t].plan = plan[t]
             /\ result[t].workspace = workspace[t]
 
-CompatibilityConstructsNothing ==
+RejectedRequestConstructsNothing ==
     \A t \in Attempts :
-        result[t].kind = "Compatibility" =>
+        result[t].kind = "Failed" /\ pending[t] = "None" =>
             workspace[t] = NoWorkspace
 
 EvidenceOrderIsDeterministic ==
@@ -279,7 +279,7 @@ Safety ==
     /\ FreshWorkspaceAssociation
     /\ OnlyActivatedCarriesWorkspace
     /\ ActivatedAssociationIsExact
-    /\ CompatibilityConstructsNothing
+    /\ RejectedRequestConstructsNothing
     /\ EvidenceOrderIsDeterministic
     /\ StaleCompletionIsRefused
     /\ CleanupIsExactlyOnce
@@ -288,13 +288,13 @@ ClosingSettles ==
     \A t \in Attempts : phase[t] = "Closing" ~> phase[t] = "Closed"
 
 ActivationReachable == "Activation" \in witnesses
-CompatibilityReachable == "Compatibility" \in witnesses
+RejectionReachable == "Rejection" \in witnesses
 FailureCleanupReachable == {"Failure", "Cleanup"} \subseteq witnesses
 SupersessionCleanupReachable ==
     {"Supersession", "Cleanup"} \subseteq witnesses
 
 NotActivationReachable == ~ActivationReachable
-NotCompatibilityReachable == ~CompatibilityReachable
+NotRejectionReachable == ~RejectionReachable
 NotFailureCleanupReachable == ~FailureCleanupReachable
 NotSupersessionCleanupReachable == ~SupersessionCleanupReachable
 

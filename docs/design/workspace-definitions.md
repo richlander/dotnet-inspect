@@ -1449,7 +1449,7 @@ defaults a field.
 
 Definition schema version 1 and packet format 1 remain supported contracts,
 but they never acquire Registry semantics in place. Decode first produces an
-unchanged source-identified version-1 semantic plan. The compatibility adapter
+unchanged source-identified version-1 semantic plan. The legacy lowerer
 maps its closed lens/section table to a candidate Registry ID when the table
 produces one and resolves its source-specific structural selectors after
 coordinate realization. It then submits only that exact ID and resolved
@@ -1464,12 +1464,12 @@ record grammar. A legacy token is never submitted to the Registry, and
 Workspace Definitions never reads or duplicates a facet's private execution
 binding.
 
-The initial complete-restoration adoption keeps definition-v1 views carrying
-`library` or `libraries` on the typed `LegacyCompatibilityRequired` path
-before construction, preserving their existing context-scoped adapter.
-Packet-v1 Library scope enters direct-Package lowering because it is bound to
-the active coordinate; until its query-owner migration exists, that path fails
-visibly with `LegacyLoweringFailed` rather than discarding the scope.
+Complete restoration has one Definitions-owned path. A version-1 request
+either lowers into its exact runtime recipe or fails visibly before
+construction. Workspace-backed input without focused direct-Package navigation,
+definition-v1 `library` or `libraries`, packet-v1 Library scope, and query state
+without its required owner migration return `LegacyLoweringFailed`; none is
+forwarded to a second executor.
 
 The version dispatch matrix is closed:
 
@@ -1511,7 +1511,7 @@ The lowerer uses this closed, scope-aware table:
 | definition `section`, exact Member | `Call Graph` | Member, `member.call-graph` |
 
 The packet rows name exact Browser tokens; the final two rows name the exact
-legacy `ProductDemoSections` values. They are compatibility mappings, not
+legacy `ProductDemoSections` values. They are source-format mappings, not
 Registry aliases. Case variation, whitespace, labels, qualified Browser hash
 spellings such as `pkg:dependencies`, CLI aliases, and values absent from this
 table fail with `LegacyLoweringFailed`.
@@ -1521,7 +1521,7 @@ version 2 requires. Strict decode therefore preserves every selector and its
 source kind in an unresolved legacy plan rather than pretending it already
 contains a version-2 subject.
 
-For packet v1, the compatibility adapter matches `type` against the exact
+For packet v1, the legacy lowerer matches `type` against the exact
 `BrowserTypeSurface.Id` values issued for the realized active coordinate. An
 unqualified key corresponds to one metadata definition only while unique; a
 duplicate-name surface uses its issued assembly-qualified key. For definition
@@ -1539,7 +1539,7 @@ resolve inside that Library and Type. A definition-only `memberKey` paired with
 that stable selector is validation evidence: it must equal the exact legacy
 group key issued for the resolved Member, then is discarded. A `memberKey`
 without an anchor or signature cannot mint a version-2 Member and returns
-`LegacyLoweringFailed`. This compatibility resolution does not ask Navigation
+`LegacyLoweringFailed`. This legacy resolution does not ask Navigation
 to recommend a substitute.
 
 A `section` applicable to the resolved subject is the effective facet. An exact
@@ -1775,10 +1775,6 @@ CompleteRestorationResult<TActivation>
                          opaque current result and effect authority
     OwnerEvidence        ordered complete evidence
     Activation           TActivation; host-owned unpublished lifetime
-  LegacyCompatibilityRequired
-    IntentToken
-    RequestBasis
-    LegacyPlan           exact source-identified semantic plan
   Failed
     IntentToken
     RequestBasis
@@ -1792,10 +1788,9 @@ evidence follows deterministic plan order, not asynchronous completion order.
 `Activated` is the only arm carrying `TActivation`. Its
 `WorkspaceIdentity` proves which fresh Workspace the detached activation
 snapshot describes but does not transfer a borrowed Workspace or construction
-lease. `LegacyCompatibilityRequired`, `Failed`, and `Superseded` carry no
-Workspace lifetime value and grant no host publication authority. The trusted
-host adapter must return the exact callback-issued activation rather than
-reconstructing one from host state.
+lease. `Failed` and `Superseded` carry no Workspace lifetime value and grant no
+host publication authority. The trusted host adapter must return the exact
+callback-issued activation rather than reconstructing one from host state.
 
 This result is a lifecycle-coordination outcome containing unpublished host
 authority, not the detached content value of a completed inspection, so it is
@@ -2175,13 +2170,9 @@ Definition records and product demos (this slice):
   ordinary `InspectionWorkspace(WorkspacePlan)` API.
   `ResolvedWorkspaceContext.Input` retains its exact context in that plan.
   `PrepareScenario` additionally dispatches same-version graphs without
-  constructing a Workspace: workspace-free and direct-Package-focused
-  version-1 graphs retain the existing resolution except that a
-  definition-v1 view carrying `library` or `libraries` uses the typed
-  compatibility handoff until its query-owner migration exists;
-  workspace-backed no-navigation or focused non-Package version-1 graphs also
-  return `LegacyCompatibilityRequired`, and schema-version-2 graphs return the
-  exact validated `CommittedScenarioDefinitionSet`;
+  constructing a Workspace: every version-1 graph retains the existing
+  `ResolvedScenario` path, and schema-version-2 graphs return the exact
+  validated `CommittedScenarioDefinitionSet`;
 - schema-version-2 `CommittedNavigationDefinition` and
   `CommittedViewDefinition` records implement the required nullable focus,
   leading Workspace row, ordered per-tab state, Workspace/Package subject
@@ -2201,11 +2192,12 @@ Definition records and product demos (this slice):
   not construct, publish, activate, or close a Workspace and does not resolve
   Registry applicability;
 - `CompleteRestorationPreparation` admits packet or definition input under one
-  exact host intent, performs bounded version dispatch, returns version-1
-  compatibility before construction, and otherwise produces one immutable
-  `CompleteRestorationPlan` containing the exact `WorkspacePlan` and unresolved
-  source-specific recipe. Unsupported version-1 query migrations and packet-v1
-  Library-scope migrations fail visibly rather than dropping state;
+  exact host intent, performs bounded version dispatch, and produces one
+  immutable `CompleteRestorationPlan` containing the exact `WorkspacePlan` and
+  unresolved source-specific recipe. Workspace-backed version-1 input without
+  focused direct-Package navigation, unsupported query migrations, and packet
+  or definition Library scope fail visibly before construction rather than
+  transferring to another executor or dropping state;
 - `CompleteRestorationCoordinator` invokes one trusted host construction
   continuation, loads contexts in plan order, deduplicates Package Roots by
   owner-issued logical request, replaces Scope once, resolves every direct
@@ -2254,8 +2246,8 @@ Definition records and product demos (this slice):
   `PrepareScenario_RejectsDecoratedNonPackageRows`,
   `PrepareScenario_RejectsMixedVersionsAndQueryReferences`,
   `PrepareScenario_RejectsInvalidContextBeforeVersionDispatch`,
-  `PrepareScenario_LegacyCompatibilityRejectsDuplicateTabIds`,
-  `PrepareScenario_WorkspaceBackedVersion1WithoutNavigationUsesCompatibility`,
+  `PrepareScenario_Version1RejectsDuplicateTabIds`,
+  `PrepareScenario_WorkspaceBackedVersion1WithoutNavigationKeepsVersion1Path`,
   `PrepareScenario_WorkspaceFreeVersion1KeepsExistingPath`,
   `PrepareScenario_ValidatesReachedCatalogVersions`,
   `PrepareScenario_RetainsBaseAndOverlayCatalogs`,
@@ -2263,7 +2255,7 @@ Definition records and product demos (this slice):
   `Parse_RequiresNullableFocusAndCanonicalPortableIdentity`,
   `Version2ProjectionToPacketFormat1_IsNonProjectable`,
   `Version1PacketProjectionRejectsMixedSchemaVersions`, and
-  `PrepareScenario_FocusedNonPackageVersion1ReturnsCompatibilityHandoff`
+  `PrepareScenario_FocusedNonPackageVersion1KeepsVersion1Path`
   gate the query-free composition boundaries while
   `Json_SchemaVersion1SpellingRemainsUnchanged` preserves the version-1
   writer contract.
@@ -2278,7 +2270,7 @@ Definition records and product demos (this slice):
   runtime selector resolution, exact occurrence association, atomic typed
   failure, incomplete-inventory disclosure, and contiguous retained paths.
   `CompleteRestorationPreparationTests` gates resource-free version dispatch,
-  exact plan association, pre-construction compatibility, absent query-owner
+  exact plan association, pre-construction rejection, absent query-owner
   migration, and supersession.
   `CompleteRestorationExecutionTests` gates exact unpublished activation,
   duplicate logical Package Roots, subject-less Package recommendation,
@@ -2289,7 +2281,7 @@ Definition records and product demos (this slice):
   The
   `workspace-definitions-complete-restoration` TLA+ model checks fresh
   Workspace identity, exact request/plan/Workspace association, ordered
-  evidence, compatibility before construction, stale completion refusal,
+  evidence, rejection before construction, stale completion refusal,
   activation-only authority, and exactly-once cleanup. Its complete safety and
   liveness configurations, six mutation controls, and four reachability
   witnesses are pinned in `eng/tla-expected-exit-codes.txt`;

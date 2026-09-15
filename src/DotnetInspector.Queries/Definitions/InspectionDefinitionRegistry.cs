@@ -119,30 +119,6 @@ public sealed class InspectionDefinitionRegistry
                 CreateCommittedScenario(records));
         }
 
-        if (scenario.Workspace is not null)
-        {
-            NavigationDefinition? navigation =
-                records.Navigation as NavigationDefinition;
-            ViewDefinition? view = records.View as ViewDefinition;
-            NavigationTabDefinition? focused = navigation?.Tabs.First(
-                tab => tab.Id == navigation.Focus);
-            if (focused?.Coordinate
-                    is not DefinitionMemberCoordinate.PackageCoordinate
-                || view?.Libraries.Count > 0)
-            {
-                return new InspectionDefinitionScenarioPreparationResult
-                    .LegacyCompatibilityRequired(
-                        new LegacyCompatibilityDefinitionPlan(
-                            scenario,
-                            records.Workspace as WorkspaceDefinition,
-                            records.Query as QueryDefinition,
-                            view,
-                            navigation,
-                            focused,
-                            records.Catalogs));
-            }
-        }
-
         return new InspectionDefinitionScenarioPreparationResult.Version1(
             ResolveVersion1Scenario(scenario));
     }
@@ -645,24 +621,7 @@ public abstract record InspectionDefinitionScenarioPreparationResult
     public sealed record Version2(
         CommittedScenarioDefinitionSet Definitions)
         : InspectionDefinitionScenarioPreparationResult;
-
-    public sealed record LegacyCompatibilityRequired(
-        LegacyCompatibilityDefinitionPlan Plan)
-        : InspectionDefinitionScenarioPreparationResult;
 }
-
-/// <summary>
-/// Exact schema-version-1 composition retained for a compatibility executor
-/// when the focused navigation source is not a direct Package coordinate.
-/// </summary>
-public sealed record LegacyCompatibilityDefinitionPlan(
-    ScenarioDefinition Scenario,
-    WorkspaceDefinition? Workspace,
-    QueryDefinition? Query,
-    ViewDefinition? View,
-    NavigationDefinition? Navigation,
-    NavigationTabDefinition? FocusedTab,
-    IReadOnlyList<CatalogDefinition> Catalogs);
 
 /// <summary>
 /// Strictly composed schema-version-2 records before runtime selector

@@ -492,7 +492,7 @@ public sealed class InspectionDefinitionV2Tests
     }
 
     [Fact]
-    public void PrepareScenario_FocusedNonPackageVersion1ReturnsCompatibilityHandoff()
+    public void PrepareScenario_FocusedNonPackageVersion1KeepsVersion1Path()
     {
         var registry = new InspectionDefinitionRegistry();
         var workspace = new WorkspaceDefinition(
@@ -528,19 +528,18 @@ public sealed class InspectionDefinitionV2Tests
         registry.Add(navigation);
         registry.Add(scenario);
 
-        var handoff = Assert.IsType<
-            InspectionDefinitionScenarioPreparationResult
-                .LegacyCompatibilityRequired>(
-                    registry.PrepareScenario(scenario.Id));
+        var prepared =
+            Assert.IsType<InspectionDefinitionScenarioPreparationResult.Version1>(
+                registry.PrepareScenario(scenario.Id));
 
-        Assert.Same(scenario, handoff.Plan.Scenario);
-        Assert.Same(workspace, handoff.Plan.Workspace);
-        Assert.Same(navigation, handoff.Plan.Navigation);
-        Assert.Same(navigation.Tabs[0], handoff.Plan.FocusedTab);
+        Assert.Equal(scenario.Id, prepared.Scenario.ScenarioId);
+        Assert.Same(workspace, prepared.Scenario.Workspace);
+        Assert.IsType<WorkspaceMemberCoordinate.PlatformMember>(
+            prepared.Scenario.Navigation!.FocusTab.Coordinate);
     }
 
     [Fact]
-    public void PrepareScenario_LibraryScopedVersion1ReturnsCompatibilityHandoff()
+    public void PrepareScenario_LibraryScopedVersion1KeepsVersion1Path()
     {
         var registry = new InspectionDefinitionRegistry();
         WorkspaceDefinition workspace = Workspace(
@@ -572,17 +571,16 @@ public sealed class InspectionDefinitionV2Tests
         registry.Add(view);
         registry.Add(scenario);
 
-        var handoff = Assert.IsType<
-            InspectionDefinitionScenarioPreparationResult
-                .LegacyCompatibilityRequired>(
-                    registry.PrepareScenario(scenario.Id));
+        var prepared =
+            Assert.IsType<InspectionDefinitionScenarioPreparationResult.Version1>(
+                registry.PrepareScenario(scenario.Id));
 
-        Assert.Same(view, handoff.Plan.View);
-        Assert.Same(navigation.Tabs[0], handoff.Plan.FocusedTab);
+        Assert.Same(view, prepared.Scenario.View);
+        Assert.Equal("package", prepared.Scenario.Navigation!.FocusTabId);
     }
 
     [Fact]
-    public void PrepareScenario_LegacyCompatibilityRejectsDuplicateTabIds()
+    public void PrepareScenario_Version1RejectsDuplicateTabIds()
     {
         var registry = new InspectionDefinitionRegistry();
         WorkspaceDefinition workspace = Workspace(
@@ -618,7 +616,7 @@ public sealed class InspectionDefinitionV2Tests
     }
 
     [Fact]
-    public void PrepareScenario_WorkspaceBackedVersion1WithoutNavigationUsesCompatibility()
+    public void PrepareScenario_WorkspaceBackedVersion1WithoutNavigationKeepsVersion1Path()
     {
         var registry = new InspectionDefinitionRegistry();
         WorkspaceDefinition workspace = Workspace(
@@ -630,14 +628,12 @@ public sealed class InspectionDefinitionV2Tests
         registry.Add(workspace);
         registry.Add(scenario);
 
-        var handoff = Assert.IsType<
-            InspectionDefinitionScenarioPreparationResult
-                .LegacyCompatibilityRequired>(
-                    registry.PrepareScenario(scenario.Id));
+        var prepared =
+            Assert.IsType<InspectionDefinitionScenarioPreparationResult.Version1>(
+                registry.PrepareScenario(scenario.Id));
 
-        Assert.Same(workspace, handoff.Plan.Workspace);
-        Assert.Null(handoff.Plan.Navigation);
-        Assert.Null(handoff.Plan.FocusedTab);
+        Assert.Same(workspace, prepared.Scenario.Workspace);
+        Assert.Null(prepared.Scenario.Navigation);
         Assert.Equal(
             scenario.Id,
             registry.ResolveScenario(scenario.Id).ScenarioId);
