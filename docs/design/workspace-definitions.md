@@ -1548,17 +1548,20 @@ remains the independently selected binding context.
 - `r` is the optional retained descendant selector and is forbidden when `t`
   is `null` or names a group tuple. Its closed property order is `k`, optional
   `l`, optional `y`, then exactly one optional `m` or `s`. `k` is
-  `all-libraries`, `library`, `type`, or `member`; the remaining fields
-  project the corresponding long-form `context` selector. `l` is the compact
-  `PortableLibraryIdentity` tuple `[name,version,culture,publicKeyToken]`; it
-  has exactly four slots with the same scalar grammar as the long form. `y` is
-  the exact `MetadataTypeDefinitionName.ToEscapedFullName()` projection of the
-  long-form `context.type`. Decode treats it as a bounded identity string and
-  requires exactly one Type in the resolved `l` Library whose structured name
-  emits that exact ordinal spelling; it does not split delimiters or
-  reconstruct segments. Absence on a direct Package-tuple entry denotes
-  Package-only retained context. A group-tuple entry has no retained-context
-  semantics.
+  `package`, `all-libraries`, `library`, `type`, or `member`; the remaining
+  fields project the corresponding long-form `context` selector. `package`
+  carries no remaining field and projects exact `{"kind":"package"}` context.
+  `l` is the compact `PortableLibraryIdentity` tuple
+  `[name,version,culture,publicKeyToken]`; it has exactly four slots with the
+  same scalar grammar as the long form. `y` is the exact
+  `MetadataTypeDefinitionName.ToEscapedFullName()` projection of the long-form
+  `context.type`. Decode treats it as a bounded identity string and requires
+  exactly one Type in the resolved `l` Library whose structured name emits that
+  exact ordinal spelling; it does not split delimiters or reconstruct
+  segments. Absence on a direct Package-tuple entry denotes Package-only
+  retained context only for an absent or Workspace subject. A Package subject
+  requires explicit `r:{"k":"package"}`. A group-tuple entry has no
+  retained-context semantics.
 - `u` is the structural subject request. Its only property is `k`, whose value
   is `workspace` or `package`. The leading null-coordinate entry requires
   `workspace`. A coordinate entry applies the same subject/context
@@ -2174,8 +2177,10 @@ Implementation must add, at minimum:
   `PortableLibraryIdentity` equality and canonical ordering, structured
   `MetadataTypeDefinitionName` equality, exact compact
   `ToEscapedFullName()` matching, nesting-versus-literal-delimiter collision
-  vectors, required null-coordinate Workspace state, nullable `a`, retained
-  selector/subject compatibility, direct-Package-only non-null focus,
+  vectors, required null-coordinate Workspace state, nullable `a`, explicit
+  `r.k = package` round-trip for a Package subject, rejection of omitted `r`
+  with that subject, retained selector/subject compatibility,
+  direct-Package-only non-null focus,
   null-Workspace rejection of `l` and Library-scope-requiring queries,
   undecorated dormant group rows, every outer and per-query bound, and
   cancellation before each query bind;
