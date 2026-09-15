@@ -2,10 +2,18 @@
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-scratch=$(mktemp -d)
+scratch="$repo_root/artifacts/ts-jsexport-typescript-test"
+rm -rf "$scratch"
+mkdir -p "$scratch"
 trap 'rm -rf "$scratch"' EXIT
 
 dotnet_root=${DOTNET_ROOT:-$(dirname "$(command -v dotnet)")}
+dotnet_exe="$dotnet_root/dotnet"
+if [[ ! -x "$dotnet_exe" ]]; then
+  echo "The selected .NET executable was not found at $dotnet_exe." >&2
+  exit 1
+fi
+
 dotnet_dts=$(
   find "$dotnet_root/packs/Microsoft.NETCore.App.Runtime.Mono.browser-wasm" \
     -path '*/runtimes/browser-wasm/native/dotnet.d.ts' \
@@ -18,17 +26,17 @@ if [[ -z "$dotnet_dts" ]]; then
   exit 1
 fi
 
-tsc=${TSC:-"$repo_root/prototypes/inspect-web/node_modules/.bin/tsc"}
+tsc=${TSC:-"$repo_root/inspect-web/node_modules/.bin/tsc"}
 if [[ ! -x "$tsc" ]]; then
-  echo "TypeScript compiler not found at $tsc; run npm ci in prototypes/inspect-web." >&2
+  echo "TypeScript compiler not found at $tsc; run npm ci in inspect-web." >&2
   exit 1
 fi
 
-fixture_project="$repo_root/tests/ILInspector.JsExportSurface.TypeScriptFixtures/ILInspector.JsExportSurface.TypeScriptFixtures.csproj"
-fixture_dll="$repo_root/tests/ILInspector.JsExportSurface.TypeScriptFixtures/bin/Release/net11.0/ILInspector.JsExportSurface.TypeScriptFixtures.dll"
+fixture_project="$repo_root/fixtures/js-export/ILInspector.JsExportSurface.TypeScriptFixtures/ILInspector.JsExportSurface.TypeScriptFixtures.csproj"
+fixture_dll="$repo_root/artifacts/bin/ILInspector.JsExportSurface.TypeScriptFixtures/release/ILInspector.JsExportSurface.TypeScriptFixtures.dll"
 
-dotnet build "$fixture_project" -c Release --nologo >/dev/null
-dotnet run \
+"$dotnet_exe" build "$fixture_project" -c Release --nologo >/dev/null
+"$dotnet_exe" run \
   --project "$repo_root/src/ts-jsexport" \
   -c Release \
   -- \
@@ -52,6 +60,263 @@ const transformed: boolean = transformValue(
 void transformed;
 TS
 
+cat > "$scratch/union-usage.ts" <<'TS'
+import {
+  getBoxedCount,
+  getBoxedWidget,
+  getCollectionSelection,
+  getDefaultSelection,
+  getFlagSelection,
+  getGenericRecordIntAsync,
+  getGenericRecordWidgetAsync,
+  getGenericNestedEnvelope,
+  getGenericNestedChoice,
+  getKindSelection,
+  getMixedNullableValueEnvelope,
+  getNullableGenericNested,
+  getNullableWrappedGenericNestedEnvelope,
+  getOutcomeSelection,
+  getSelectionEnvelopeAsync,
+  getWrappedGenericNestedEnvelope,
+  getWidgetSelection,
+  getWrappedBlob,
+} from "./facade.js";
+import type {
+  Boxed,
+  CollectionSelection,
+  FlagSelection,
+  GenericRecord,
+  GenericNested,
+  GenericNestedEnvelope,
+  GenericNestedChoice,
+  KindSelection,
+  MixedNullableValueEnvelope,
+  NullableWrappedGenericNestedEnvelope,
+  OutcomeSelection,
+  SelectionEnvelope,
+  WrappedGenericNestedEnvelope,
+  WidgetDto,
+  WidgetKind,
+  WidgetSelection,
+  Wrapped,
+} from "./facade.js";
+
+// Reference entries in union-case collections stay nullable, so the consumer
+// narrows them instead of asserting presence.
+type SelectionEntries = Extract<CollectionSelection, ReadonlyArray<unknown>>;
+type SelectionMap = Extract<
+  CollectionSelection,
+  Readonly<Record<string, unknown>>
+>;
+type GroupEntries = Extract<SelectionEnvelope["group"], ReadonlyArray<unknown>>;
+
+export const missingSelectionEntry: SelectionEntries[number] = null;
+export const missingMapEntry: SelectionMap[string] = null;
+export const missingGroupEntry: GroupEntries[number] = null;
+export const missingGenericNestedValue:
+  GenericNested<string | null>["value"] = null;
+export const missingGenericNestedChoiceValue:
+  Extract<GenericNestedChoice, { readonly value: unknown }>["value"] = null;
+
+function isEntryArray(
+  selection: CollectionSelection,
+): selection is SelectionEntries {
+  return Array.isArray(selection);
+}
+
+export function describeCollection(selection: CollectionSelection): string {
+  if (selection === null) {
+    return "none";
+  }
+  if (typeof selection === "number") {
+    return `count-${selection}`;
+  }
+  if (isEntryArray(selection)) {
+    const entries: SelectionEntries = selection;
+    return entries
+      .map((entry) => (entry === null ? "null" : entry.name))
+      .join(",");
+  }
+  const named: SelectionMap = selection;
+  return Object.keys(named)
+    .map((key) => {
+      const entry: WidgetDto | null = named[key] ?? null;
+      return `${key}=${entry === null ? "null" : entry.name}`;
+    })
+    .join(",");
+}
+
+export function describeGroup(group: SelectionEnvelope["group"]): string {
+  if (group === null) {
+    return "none";
+  }
+  if (typeof group === "string") {
+    return group;
+  }
+  return `group:${group
+    .map((entry) => (entry === null ? "null" : entry.name))
+    .join(",")}`;
+}
+
+export function describeSelection(selection: WidgetSelection): string {
+  if (selection === null) {
+    return "none";
+  }
+  if (typeof selection === "string") {
+    return selection;
+  }
+  const widget: WidgetDto = selection;
+  return `${widget.name}:${widget.count}`;
+}
+
+export function describeFlag(flag: FlagSelection): string {
+  if (flag === null) {
+    return "none";
+  }
+  if (typeof flag === "boolean") {
+    return flag ? "true" : "false";
+  }
+  return flag.name;
+}
+
+export function describeOutcome(outcome: OutcomeSelection): string {
+  if (typeof outcome === "boolean") {
+    return outcome ? "yes" : "no";
+  }
+  return describeSelection(outcome);
+}
+
+export function describeKind(kind: KindSelection): string {
+  if (kind === null) {
+    return "none";
+  }
+  if (typeof kind === "string") {
+    return kind;
+  }
+  const declared: WidgetKind = kind;
+  return `kind-${declared}`;
+}
+
+export function describeBoxed(
+  count: Boxed<number>,
+  widget: Boxed<WidgetDto>,
+): string {
+  const left = count === null
+    ? "none"
+    : typeof count === "string" ? count : count.toFixed(0);
+  const right = widget === null
+    ? "none"
+    : typeof widget === "string" ? widget : widget.name;
+  return `${left}/${right}`;
+}
+
+export function selectWidget(widget: WidgetDto): WidgetSelection {
+  return widget;
+}
+
+// A closed byte[] union argument lowers to the Base64 wire string, so the
+// alias's own number alternative stays distinguishable from it.
+export function describeBlob(blob: Wrapped<string>): string {
+  if (blob === null) {
+    return "none";
+  }
+  if (typeof blob === "number") {
+    return `count-${blob}`;
+  }
+  return `blob:${blob}`;
+}
+
+export function probeSelections(): string {
+  const selection: WidgetSelection = getWidgetSelection(true);
+  const missing: WidgetSelection = getDefaultSelection();
+  return [
+    describeSelection(selection),
+    describeSelection(missing),
+    describeSelection(null),
+    describeFlag(getFlagSelection(true)),
+    describeOutcome(getOutcomeSelection(false)),
+    describeKind(getKindSelection(true)),
+    describeBoxed(getBoxedCount(11), getBoxedWidget("boxed")),
+    describeSelection(selectWidget({ name: "literal", count: 9 })),
+    describeBlob(getWrappedBlob()),
+    describeCollection(getCollectionSelection(0)),
+    describeCollection(getCollectionSelection(1)),
+    describeCollection(getCollectionSelection(3)),
+  ].join("|");
+}
+
+export async function summarizeEnvelope(): Promise<string> {
+  const envelope: SelectionEnvelope =
+    await getSelectionEnvelopeAsync("envelope");
+  const items: ReadonlyArray<WidgetSelection> = envelope.items;
+  const first: WidgetSelection | undefined = items[0];
+  const named: WidgetSelection | undefined = envelope.byName["named"];
+  return [
+    describeSelection(envelope.result),
+    describeSelection(first ?? null),
+    describeSelection(named ?? null),
+    describeOutcome(envelope.outcome),
+    describeKind(envelope.kind),
+    describeBoxed(envelope.count, envelope.widget),
+    describeBlob(envelope.blob),
+    describeGroup(envelope.group),
+  ].join("|");
+}
+
+export async function summarizeGenericRecords(): Promise<string> {
+  const numbers: GenericRecord<number> = await getGenericRecordIntAsync();
+  const widgets: GenericRecord<WidgetDto | null> =
+    await getGenericRecordWidgetAsync("sample");
+  const nullable: GenericNested<string | null> =
+    getNullableGenericNested();
+  const envelope: GenericNestedEnvelope = getGenericNestedEnvelope();
+  const wrappedEnvelope: WrappedGenericNestedEnvelope =
+    getWrappedGenericNestedEnvelope();
+  const nullableWrappedEnvelope: NullableWrappedGenericNestedEnvelope =
+    getNullableWrappedGenericNestedEnvelope();
+  const mixedNullableValueEnvelope: MixedNullableValueEnvelope =
+    getMixedNullableValueEnvelope();
+  const nestedChoice: GenericNestedChoice = getGenericNestedChoice();
+  return [
+    numbers.content,
+    numbers.nested.value,
+    numbers.items.map(item => item.value).join(","),
+    numbers.lookup["missing"],
+    numbers.choice,
+    widgets.content?.name ?? "null",
+    widgets.nested.value?.count ?? "null",
+    widgets.items[0]?.value?.count ?? "null",
+    widgets.lookup["missing"]?.name ?? "null",
+    typeof widgets.choice === "object" && widgets.choice !== null
+      ? widgets.choice.count
+      : "unexpected",
+    nullable.value ?? "null",
+    envelope.item.value ?? "null",
+    wrappedEnvelope.item === null
+      || typeof wrappedEnvelope.item === "number"
+      ? wrappedEnvelope.item
+      : wrappedEnvelope.item.value ?? "null",
+    wrappedEnvelope.items === null
+      || typeof wrappedEnvelope.items === "number"
+      ? wrappedEnvelope.items
+      : wrappedEnvelope.items[0]?.value ?? "null",
+    wrappedEnvelope.lookup === null
+      || typeof wrappedEnvelope.lookup === "number"
+      ? wrappedEnvelope.lookup
+      : wrappedEnvelope.lookup["missing"]?.value ?? "null",
+    nullableWrappedEnvelope.item === null
+      || typeof nullableWrappedEnvelope.item === "number"
+      ? nullableWrappedEnvelope.item
+      : nullableWrappedEnvelope.item.value ?? "null",
+    mixedNullableValueEnvelope.item.first ?? "null",
+    mixedNullableValueEnvelope.item.second ?? "null",
+    nestedChoice === null || typeof nestedChoice === "number"
+      ? nestedChoice
+      : nestedChoice.value ?? "null",
+  ].join("|");
+}
+TS
+
 cat > "$scratch/tsconfig.json" <<'JSON'
 {
   "compilerOptions": {
@@ -68,7 +333,7 @@ cat > "$scratch/tsconfig.json" <<'JSON'
     "types": [],
     "verbatimModuleSyntax": true
   },
-  "include": ["facade.ts", "callback-usage.ts"]
+  "include": ["facade.ts", "callback-usage.ts", "union-usage.ts"]
 }
 JSON
 cp "$dotnet_dts" "$scratch/dotnet.d.ts"
@@ -84,9 +349,17 @@ cp \
   "$repo_root/tests/ILInspector.JsExportSurface.Tests/Fixtures/ts-jsexport-runtime/dotnet.js" \
   "$scratch/out/dotnet.js"
 printf '{ "type": "module" }\n' > "$scratch/out/package.json"
+"$dotnet_exe" run \
+  "$repo_root/tests/ILInspector.JsExportSurface.Tests/Fixtures/ts-jsexport-runtime/union-payloads.cs" \
+  -c Release \
+  -- \
+  "$scratch/union-payloads.json" \
+  >/dev/null
 node \
   "$repo_root/tests/ILInspector.JsExportSurface.Tests/Fixtures/ts-jsexport-runtime/runtime-probe.mjs" \
-  "$scratch/out/facade.js"
+  "$scratch/out/facade.js" \
+  "$scratch/union-payloads.json" \
+  "$scratch/out/union-usage.js"
 
 expect_compile_failure() {
   local name=$1
@@ -167,5 +440,130 @@ expect_callback_compile_failure \
   void-action-callback \
   'const observe = \(value: number\): undefined =>' \
   'const observe = (value: number): void =>'
+
+expect_union_facade_compile_failure() {
+  local name=$1
+  local expression=$2
+  local replacement=$3
+  local scope=$4
+  local mutation="$scratch/$name"
+  mkdir "$mutation"
+  cp \
+    "$scratch/dotnet.d.ts" \
+    "$scratch/tsconfig.json" \
+    "$scratch/union-usage.ts" \
+    "$mutation/"
+  sed -E "/$scope/ s/$expression/$replacement/" \
+    "$scratch/facade.ts" > "$mutation/facade.ts"
+  if cmp -s "$scratch/facade.ts" "$mutation/facade.ts"; then
+    echo "$name mutation did not change the generated source." >&2
+    exit 1
+  fi
+  if "$tsc" -p "$mutation/tsconfig.json" >/dev/null 2>&1; then
+    echo "$name mutation unexpectedly compiled." >&2
+    exit 1
+  fi
+}
+
+expect_union_usage_compile_failure() {
+  local name=$1
+  local expression=$2
+  local replacement=$3
+  local mutation="$scratch/$name"
+  mkdir "$mutation"
+  cp \
+    "$scratch/dotnet.d.ts" \
+    "$scratch/tsconfig.json" \
+    "$scratch/facade.ts" \
+    "$mutation/"
+  sed -E "s/$expression/$replacement/" \
+    "$scratch/union-usage.ts" > "$mutation/union-usage.ts"
+  if cmp -s "$scratch/union-usage.ts" "$mutation/union-usage.ts"; then
+    echo "$name mutation did not change union usage." >&2
+    exit 1
+  fi
+  if "$tsc" -p "$mutation/tsconfig.json" >/dev/null 2>&1; then
+    echo "$name mutation unexpectedly compiled." >&2
+    exit 1
+  fi
+}
+
+expect_union_facade_compile_failure \
+  union-null-alternative \
+  ' \| null' \
+  '' \
+  '^export type WidgetSelection'
+expect_union_facade_compile_failure \
+  union-dto-case \
+  'WidgetDto \| string' \
+  'string' \
+  '^export type WidgetSelection'
+expect_union_facade_compile_failure \
+  union-closed-generic-argument \
+  'Boxed<number>' \
+  'Boxed<string>' \
+  '^export function getBoxedCount'
+expect_union_facade_compile_failure \
+  generic-record-closed-argument \
+  'GenericRecord<number>' \
+  'GenericRecord<string>' \
+  '^export async function getGenericRecordIntAsync'
+expect_union_facade_compile_failure \
+  generic-record-direct-reference-null \
+  'GenericNested<string \| null>' \
+  'GenericNested<string>' \
+  '^export function getNullableGenericNested'
+expect_union_facade_compile_failure \
+  generic-record-union-reference-null \
+  'GenericNested<string \| null>' \
+  'GenericNested<string>' \
+  '^export type GenericNestedChoice'
+expect_union_facade_compile_failure \
+  union-closed-byte-array-argument \
+  'Wrapped<string>' \
+  'Wrapped<number>' \
+  '^export function getWrappedBlob'
+
+expect_union_facade_compile_failure \
+  union-collection-entry-null \
+  'ReadonlyArray<WidgetDto \| null>' \
+  'ReadonlyArray<WidgetDto>' \
+  '^export type CollectionSelection'
+expect_union_facade_compile_failure \
+  union-collection-map-entry-null \
+  'Record<string, WidgetDto \| null>' \
+  'Record<string, WidgetDto>' \
+  '^export type CollectionSelection'
+expect_union_facade_compile_failure \
+  union-closed-generic-container-entry-null \
+  'WidgetDto \| null' \
+  'WidgetDto' \
+  '^  readonly group:'
+
+expect_union_usage_compile_failure \
+  union-case-narrowing \
+  'typeof selection === "string"' \
+  'typeof selection === "number"'
+expect_union_usage_compile_failure \
+  union-readonly-array-snapshot \
+  'const first: WidgetSelection \| undefined = items\[0\];' \
+  'const first: WidgetSelection | undefined = (items[0] = null);'
+expect_union_usage_compile_failure \
+  union-readonly-member-snapshot \
+  'const items: ReadonlyArray<WidgetSelection> = envelope.items;' \
+  'const items: ReadonlyArray<WidgetSelection> = (envelope.items = []);'
+expect_union_usage_compile_failure \
+  union-alternative-mismatch \
+  'describeKind\(getKindSelection\(true\)\)' \
+  'describeFlag(getKindSelection(true))'
+expect_union_usage_compile_failure \
+  union-closed-generic-mismatch \
+  'describeBoxed\(getBoxedCount\(11\), getBoxedWidget\("boxed"\)\)' \
+  'describeBoxed(getBoxedWidget("boxed"), getBoxedCount(11))'
+
+expect_union_usage_compile_failure \
+  generic-record-closed-mismatch \
+  'numbers: GenericRecord<number>' \
+  'numbers: GenericRecord<WidgetDto>'
 
 echo "ts-jsexport TypeScript compiler gates passed."

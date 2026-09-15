@@ -22,11 +22,11 @@ static class ResourceExtractor
 
     public static List<string> ExtractAll(PEReader peReader, string outputDirectory)
     {
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return [];
         ArgumentException.ThrowIfNullOrWhiteSpace(outputDirectory);
 
-        var reader = peReader.GetMetadataReader();
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         var resourcesDirectory = peReader.PEHeaders.CorHeader!.ResourcesDirectory;
         if (resourcesDirectory.Size == 0)
             return [];

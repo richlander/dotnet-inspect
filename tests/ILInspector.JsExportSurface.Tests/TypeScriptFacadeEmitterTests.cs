@@ -67,7 +67,7 @@ public sealed class TypeScriptFacadeEmitterTests
             RuntimeModule);
 
         Assert.Contains(
-            """import { dotnet, type RuntimeAPI } from "./_framework/dotnet.js";""",
+            """import { dotnet } from "./_framework/dotnet.js";""",
             source,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -330,11 +330,6 @@ public sealed class TypeScriptFacadeEmitterTests
             RuntimeModule);
 
         Assert.Contains(
-            "$initialization = Promise.resolve()\n"
-                + "      .then($initializeRuntimeCore)",
-            source,
-            StringComparison.Ordinal);
-        Assert.Contains(
             "$initializationFailure = { error };\n"
                 + "        throw error;",
             source,
@@ -351,7 +346,18 @@ public sealed class TypeScriptFacadeEmitterTests
                 "throw $notInitializedError;",
                 StringSplitOptions.None).Length - 1);
         Assert.Contains(
-            "export function initializeRuntime(): Promise<void>",
+            "export function initializeRuntime(\n"
+                + "  runtime?: JsExportRuntime | PromiseLike<JsExportRuntime>,\n"
+                + "): Promise<void>",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function createRuntime(): Promise<JsExportRuntime>",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            ".then(() => runtime === undefined ? createRuntime() : runtime)\n"
+                + "      .then($initializeRuntimeCore)",
             source,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -575,6 +581,204 @@ public sealed class TypeScriptFacadeEmitterTests
     }
 
     [Fact]
+    public void Emit_ProjectsGenericRecordDeclarationsAndClosedJsonRoots()
+    {
+        string path = typeof(global::ILInspector.JsExportSurface.TypeScriptFixtures
+            .TypeScriptFixtureExports).Assembly.Location;
+        global::ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildSurface(path);
+
+        string source = TypeScriptFacadeEmitter.Emit(surface, RuntimeModule);
+
+        Assert.Contains(
+            """
+            export interface GenericNested<T0> {
+              readonly value: T0;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface GenericRecord<T0> {
+              readonly content: T0;
+              readonly nested: GenericNested<T0>;
+              readonly items: ReadonlyArray<GenericNested<T0>>;
+              readonly lookup: Readonly<Record<string, T0>>;
+              readonly choice: Boxed<T0>;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export async function getGenericRecordIntAsync(): "
+                + "Promise<GenericRecord<number>>",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export async function getGenericRecordWidgetAsync(name: string): "
+                + "Promise<GenericRecord<WidgetDto | null>>",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function getNullableGenericNested(): "
+                + "GenericNested<string | null>",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface GenericNestedEnvelope {
+              readonly item: GenericNested<string | null>;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function getGenericNestedEnvelope(): "
+                + "GenericNestedEnvelope",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface WrappedGenericNestedEnvelope {
+              readonly item: Wrapped<GenericNested<string | null>>;
+              readonly items: Wrapped<ReadonlyArray<GenericNested<string | null> | null>>;
+              readonly lookup: Wrapped<Readonly<Record<string, GenericNested<string | null> | null>>>;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function getWrappedGenericNestedEnvelope(): "
+                + "WrappedGenericNestedEnvelope",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface GenericNestedValue<T0> {
+              readonly value: T0;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface NullableWrappedGenericNestedEnvelope {
+              readonly item: Wrapped<GenericNestedValue<string | null> | null>;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function getNullableWrappedGenericNestedEnvelope(): "
+                + "NullableWrappedGenericNestedEnvelope",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface NullablePair<T0, T1> {
+              readonly first: T0;
+              readonly second: T1;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface MixedNullableValueEnvelope {
+              readonly item: NullablePair<number | null, string | null>;
+            }
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function getMixedNullableValueEnvelope(): "
+                + "MixedNullableValueEnvelope",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export type GenericNestedChoice = "
+                + "GenericNested<string | null> | number | null;",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function getGenericNestedChoice(): "
+                + "GenericNestedChoice",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_ReportsUnregisteredGenericRecordConstruction()
+    {
+        var record = new ApiType
+        {
+            Namespace = "Fixture",
+            Name = "GenericRecord",
+            Kind = "class",
+            TypeParameters = [new TypeParameter { Name = "TValue" }],
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    HasGetter = true,
+                    IndexParameterCount = 0,
+                    ReturnType = "Missing<TValue>",
+                },
+            ],
+        };
+        var diagnostics = new TypeScriptGenerationDiagnostics();
+        string source = DtsEmitter.Emit(
+            new global::ILInspector.JsExportSurface.JsExportSurface
+            {
+                Records = [record],
+            },
+            diagnostics);
+
+        Assert.Contains("readonly Value: unknown;", source, StringComparison.Ordinal);
+        Assert.Contains(
+            diagnostics.UnmappedTypes,
+            diagnostic => diagnostic.CSharpType == "Missing<TValue>");
+    }
+
+    [Fact]
+    public void Emit_ReportsOpenGenericRecordUseWithoutWireShape()
+    {
+        var record = new ApiType
+        {
+            Namespace = "Fixture",
+            Name = "GenericRecord",
+            Kind = "class",
+            TypeParameters = [new TypeParameter { Name = "TValue" }],
+        };
+        var diagnostics = new TypeScriptGenerationDiagnostics();
+        _ = DtsEmitter.Emit(
+            new global::ILInspector.JsExportSurface.JsExportSurface
+            {
+                AssemblyIdentity = AssemblyIdentity(),
+                Records = [record],
+                Functions =
+                [
+                    new JsExportFunction
+                    {
+                        DeclaringType = "Fixture.Exports",
+                        Name = "Get",
+                        RuntimeDispatchKey = "Get.1",
+                        ReturnType = "string",
+                        ReturnWireType = "Fixture.GenericRecord<TValue>",
+                    },
+                ],
+            },
+            diagnostics);
+
+        Assert.Contains(
+            diagnostics.UnmappedTypes,
+            diagnostic => diagnostic.CSharpType == "TValue");
+    }
+
+    [Fact]
     public void Emit_ReservesModuleInteropNamesAndParsesNullableJsonEnvelope()
     {
         global::ILInspector.JsExportSurface.JsExportSurface surface =
@@ -739,6 +943,9 @@ public sealed class TypeScriptFacadeEmitterTests
                         StringComparison.Ordinal))
                 .Where(line =>
                     !line.StartsWith(
+                        "export function createRuntime(",
+                        StringComparison.Ordinal)
+                    && !line.StartsWith(
                         "export function initializeRuntime(",
                         StringComparison.Ordinal)
                     && !line.StartsWith(
@@ -827,7 +1034,8 @@ public sealed class TypeScriptFacadeEmitterTests
             .. source.Split('\n')
                 .Where(line => line.StartsWith(
                     "export interface ",
-                    StringComparison.Ordinal)),
+                    StringComparison.Ordinal))
+                .Where(line => line != "export interface JsExportRuntime {"),
         ];
         Assert.Equal(2, declarations.Length);
         Assert.Equal(2, declarations.Distinct(StringComparer.Ordinal).Count());
@@ -966,6 +1174,11 @@ public sealed class TypeScriptFacadeEmitterTests
             Name = "Promise",
             Kind = "class",
         };
+        var runtimeType = new ApiType
+        {
+            Name = "JsExportRuntime",
+            Kind = "class",
+        };
         var runtimeApiType = new ApiType
         {
             Name = "RuntimeAPI",
@@ -979,13 +1192,18 @@ public sealed class TypeScriptFacadeEmitterTests
                     new Version(1, 0, 0, 0),
                     culture: null,
                     publicKeyToken: null),
-                Records = [promiseType, runtimeApiType],
+                Records = [promiseType, runtimeType, runtimeApiType],
                 Functions =
                 [
                     Function(
                         "Fixture.Exports",
                         "InitializeRuntime",
                         "InitializeRuntime.1",
+                        "void"),
+                    Function(
+                        "Fixture.Exports",
+                        "CreateRuntime",
+                        "CreateRuntime.2",
                         "void"),
                 ],
             };
@@ -995,21 +1213,32 @@ public sealed class TypeScriptFacadeEmitterTests
             RuntimeModule);
 
         Assert.Equal(
-            2,
+            3,
             source.Split(
                 "export interface type_",
                 StringSplitOptions.None).Length - 1);
-        Assert.DoesNotContain(
-            "export interface RuntimeAPI",
-            source,
-            StringComparison.Ordinal);
         Assert.Equal(
             1,
             source.Split(
-                "export function initializeRuntime(): Promise<void>",
+                "export interface JsExportRuntime {",
+                StringSplitOptions.None).Length - 1);
+        Assert.Equal(
+            1,
+            source.Split(
+                "export function createRuntime(",
+                StringSplitOptions.None).Length - 1);
+        Assert.Equal(
+            1,
+            source.Split(
+                "export function initializeRuntime(",
+                StringSplitOptions.None).Length - 1);
+        Assert.Equal(
+            2,
+            source.Split(
+                "export function operation_",
                 StringSplitOptions.None).Length - 1);
         Assert.Contains(
-            "export function operation_",
+            "function $ownDataProperty(value: unknown, key: string): unknown",
             source,
             StringComparison.Ordinal);
     }
@@ -1059,7 +1288,7 @@ public sealed class TypeScriptFacadeEmitterTests
         Assert.Equal(
             1,
             source.Split(
-                "export function initializeRuntime(): Promise<void>",
+                "export function initializeRuntime(",
                 StringSplitOptions.None).Length - 1);
         Assert.Contains(
             "function $ownDataProperty(value: unknown, key: string): unknown",
@@ -1313,6 +1542,7 @@ public sealed class TypeScriptFacadeEmitterTests
             .Where(line =>
                 line.StartsWith("export interface ", StringComparison.Ordinal)
                 || line.StartsWith("export type ", StringComparison.Ordinal))
+            .Where(line => line != "export interface JsExportRuntime {")
             .Select(line => line.Split(' ', StringSplitOptions.RemoveEmptyEntries)[2]),
     ];
 

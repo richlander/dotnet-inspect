@@ -7,9 +7,12 @@
 
 ## Status
 
-Design-only and unverified until the named gates in this document land. The
-operation and work-budget types named below are planned owner-issued surfaces,
-not current product APIs.
+`SignatureOccurrenceDecoder.Decode(PEReader, EntityHandle)` implements the
+single-signature operation for MethodDef, FieldDef, and PropertyDef handles.
+Its closed result contains either named occurrences or a typed rejection.
+The decoder-owned source closure is enforced by the structural gates named
+under [Enforcement obligation](#enforcement-obligation), with explicit imported
+framework and mechanical-guard boundaries.
 
 ## Contract
 
@@ -22,12 +25,43 @@ is bounded, and what a gate must do to enforce it.
 
 ### Owner
 
-The planned signature decode inside `ILInspector.Metadata` owns this contract:
+The signature decode inside `ILInspector.Metadata` owns this contract:
 `SignatureOccurrenceProvider` and the work budget it charges. This document is
-the owning document for that future surface.
+the owning document for that surface.
 
 This contract does not govern acquisition, binding policy, forwarding
 semantics, the evidence model, or anything outside a single signature decode.
+
+### Consumers and adoption
+
+The tools compile-back planner needs named occurrences and typed decode
+rejection before it can apply its own declaration and reference obligations.
+The [tools closure contract](csharp-member-recompilation.md#closure-requirements)
+owns that consumption; resolving a name, establishing accessibility, and
+admitting an artifact are not decoder operations.
+
+The user explicitly approved **tools-first** scope on 2026-09-04, with
+CLI/Wasm adoption deferred. The
+[approval record](https://github.com/richlander/dotnet-inspect/issues/4885#issuecomment-5547620754)
+does not approve a platform-specific dependency: the Metadata implementation
+retains the repository's portability constraints.
+
+The end-to-end [adoption tracker #5890](https://github.com/richlander/dotnet-inspect/issues/5890)
+names `tools/DecompilerHarness` as the production host and counts **two steps**:
+
+1. [#4885](https://github.com/richlander/dotnet-inspect/issues/4885) implements
+   bounded single-signature decoding and its immediate pinned-census evidence
+   consumer. Its gates and baseline describe the decoder, not tools admission.
+2. Tools signature-closure planning consumes the decoder's named occurrences
+   and typed rejection, retiring superseded signature traversal/aggregate
+   expectations on that path. Its independently owned prerequisites remain
+   explicit unavailable/declined outcomes until implemented.
+
+This count covers decoder adoption, not the entire compile-back architecture.
+The tracker stays open until the tools integration lands; a passing census is
+not evidence of that integration. No CLI or browser feature is claimed merely
+because the library is portable. The existing tools rendering boundary is
+unchanged; this operation returns structured evidence, not rendered output.
 
 ### What goes wrong without a bound
 
@@ -65,8 +99,10 @@ observe that one callback read a megabyte. The code reads as bounded and is not.
 
 The ceilings therefore need two justifications, and each answers a different
 failure. They must sit far enough above real artifacts that no legitimate
-signature is refused, which the census establishes: the largest real decode
-consumed 1,182 ledger units against a ceiling of 262,144. And they must bind on
+signature is refused. Evidence for the implementation requires its complete,
+versioned baseline. The historical census supplies initial magnitude
+evidence only for the charges it recorded: the largest observed decode recorded
+1,182 ledger units against a ceiling of 262,144. And the ceilings must bind on
 the quantity that actually grows, which is what the classification below is
 for.
 
@@ -159,15 +195,14 @@ and pricing before materializing is not available. Projected strings arise only
 from Windows Metadata, which `AGENTS.md` excludes as an unsupported input
 format.
 
-That exclusion is **not currently enforced on the decode path**.
-`MetadataImageFormatClassifier` can refuse Windows Metadata, but this decode
-path does not call it; adoption is tracked by #4877, and
-`docs/metadata-primitives.md` states that the classifier's existence alone does
-not close the entry-point inventory. Until a caller admits images through a
-`SupportedEcma335` result, the allocation-free pricing claim above holds for
-physical entries and is **unverified** for the repository's decode entry points
-as a whole. A decode that admitted Windows Metadata would need this quantity
-reclassified, because its price could not be read before it was paid.
+The new facade calls `MetadataImageFormatClassifier` before constructing an SRM
+reader and proceeds only on `SupportedEcma335`.
+`SignatureOccurrenceDecoderTests` gates its format admission. The classifier
+does not replace the acquisition owner's cost of obtaining the metadata block.
+This is adoption by this entry point, not closure of the repository-wide
+inventory tracked by #4877. The allocation-free pricing claim remains scoped
+to physical entries; a decode that admitted Windows Metadata would need this
+quantity reclassified, because its price could not be read before it was paid.
 
 The concrete contrast at a Class B site is therefore:
 
@@ -239,12 +274,169 @@ The census below reports the observed maxima this ceiling must clear; a change
 that raises it must state why a legitimate signature needed more, not merely
 that an input was rejected.
 
-### Measured bounds
+### Versioned evidence contracts
 
-A ceiling is a claim about real artifacts, so it is set from a census rather
-than from judgement. This one decoded every method, field, and property
-signature in two corpora with all three budgets removed, recording what each
-decode consumed.
+This harness follows the
+[DecompilerHarness corpus model](../../tools/DecompilerHarness/README.md):
+the **schema version** describes serialized shape, while a separate
+**contract version** describes what the measurements mean. This is an
+evidence-contract transition, not a new decoder bounding invariant or an
+exception to its enforcement requirements.
+
+| Contract | Evidence | Comparison policy |
+| --- | --- | --- |
+| V1, historical | Unmerged measurement build; incomplete charging and platform provenance | Preserve as historical evidence, not a V2 baseline |
+| V2, current | Production-bounded operation; both TypeRef walks, TypeDef walks, guard array counts, and flag-based key classification; explicit input manifest | Establish a new baseline and compare only compatible V2 runs |
+
+The user approved this versioned model on 2026-09-04. V2 establishes its own
+fully identified baseline rather than requiring a reconstruction of V1's
+underspecified platform inputs. V1 is not rewritten or relabeled as a successful
+V2 run. Its exactly reproduced package inputs establish content continuity,
+not measurement compatibility.
+
+The initial V2 [input manifest](../data/signature-decode/v2/manifest.json) and
+[baseline report](../data/signature-decode/v2/baseline.json) are retained with
+the contract, so future comparisons do not depend on recovering a session's
+temporary files.
+
+Reports carry `schemaVersion: 1` and `contractVersion: 2`.
+`SignatureOccurrenceCensusContract.CurrentVersion` names the measurement
+contract; missing versions are treated as **unknown V0**, never defaulted to
+the current contract. The historical V1 label does not imply that its original
+artifacts carried a machine-readable version.
+
+Changing the measured population rule, units, charging coverage, treatment of
+refused work, or enforcement policy requires an explicit contract-version
+decision. A schema change independently versions the file shape. Merely
+changing which input binaries are measured creates a new corpus fingerprint,
+not a new measurement contract. An implementation optimization may change
+actual measured work under the same contract; a version change is not a way to
+hide that movement. As in the existing corpus harness, version checks cannot
+detect every semantic change automatically: the author must reason about and
+document whether a change preserves measurement meaning.
+
+The optional baseline comparison rejects an unknown or different contract,
+unsupported schema, incomplete or unbounded evidence, different tier inputs,
+different ceilings, or a baseline with refusals. Input comparability uses each
+tier's content fingerprint and population, not the manifest's incidental
+serialization or product binary hash. Different product builds are the reason
+to compare compatible runs. A changed signature population also fails rather
+than yielding a misleading delta.
+`SignatureOccurrenceCensusContractTests` gates compatibility; the opt-in census
+uses that gate before decoding against a configured baseline.
+
+### Current bounded census (V2)
+
+The first production-path census keeps all three ceilings enabled. It observes
+the decoder rather than replacing its budget checks. The operation preserves
+duplicate occurrences, including nested generic arguments and optional-modifier
+contents; `Participates` distinguishes emitted-signature requirements without
+discarding decode failures. A local TypeDef occurrence retains its source
+`PEReader` identity and token. No binding, accessibility, or tools-admission
+conclusion follows from a decoded result.
+
+| Corpus | Assemblies | Signatures | Rejected | Input fingerprint |
+| --- | ---: | ---: | ---: | --- |
+| Original pinned packages, content-deduplicated | 431 | 2,387,301 | 0 | `776fd357c28d39124bba1c1d19e858692e2ecbddc23baff8caf02059a1dde97e` |
+| Explicit Linux-x64 preview-6 runtime/reference roots | 623 | 464,336 | 0 | `3681d83fab3bbe97993d4337d9134d1dcb94da78de7e30a73bcd80e787a575c3` |
+| Combined | 1,054 | 2,851,637 | 0 | |
+
+The package input fingerprint and signature population reproduce the historical
+package tier exactly. **The platform tier is a new, explicitly described
+population, not a reproduction of the historical 490 inputs.** The historical
+record omitted exact root membership and RID. Neither removing the ASP.NET
+runtime root nor removing its reference root reproduces the historical digest,
+although both happen to produce 490 inputs. No count-based substitution is
+accepted as input-identity evidence.
+
+| Budget | Ceiling | Package maximum | Platform maximum |
+| --- | ---: | ---: | ---: |
+| Provider nodes | 65,536 | 72 | 70 |
+| Occurrence copies | 524,288 | 194 | 134 |
+| Work ledger | 262,144 | 1,900 | 1,621 |
+
+This implementation does not cache projections. Its observed ledger margin is
+about 138x for these inputs, not a guarantee about all signatures or other
+implementations. Its copy count is not interchangeable with the historical
+implementation's aggregation count.
+
+The largest single and per-decode observations across these two tiers are:
+
+| Quantity | Largest single charge | Largest per decode |
+| --- | ---: | ---: |
+| Type-name component characters, including charged delimiters | 138 | 1,097 |
+| TypeRef name-projection chain | 3 | 22 |
+| TypeRef terminal-scope chain | 3 | 22 |
+| TypeDef declaring chain | 5 | 24 |
+| Guard array sizes | 0 | 0 |
+| Guard array lower bounds | 3 | 3 |
+| AssemblyRef name bytes | 58 | 621 |
+| AssemblyRef culture bytes | 0 | 0 |
+| AssemblyRef token bytes | 8 | 176 |
+| AssemblyRef full-key bytes | 0 | 0 |
+| ModuleRef name bytes | 0 | 0 |
+| TypeSpec bytes | 0 | 0 |
+
+Zero magnitude is not necessarily an unvisited path: the guard observed 77
+array shapes, all with zero explicit sizes. Full keys, ModuleRef names, and
+TypeSpec re-entry were not encountered; focused fixtures exercise them instead.
+The full-key/token split follows `AssemblyFlags.PublicKey`, not observed length.
+
+#### Running the bounded census
+
+`eng/prepare-signature-decode-corpus.cs` acquires all `lib/**/*.dll` inputs from
+the 100 pinned package versions, checks the selected-primary-assembly pins,
+and records archive hashes separately. It enumerates these four platform roots
+at `11.0.0-preview.6.26359.118`: `shared/Microsoft.NETCore.App`,
+`shared/Microsoft.AspNetCore.App`, `packs/Microsoft.NETCore.App.Ref/ref/net11.0`,
+and `packs/Microsoft.AspNetCore.App.Ref/ref/net11.0`, with the version component
+between the pack name and `ref`. The measured runtime target is
+`.NETCoreApp,Version=v11.0/linux-x64`.
+
+Use the repository-selected SDK. The input root below must contain those
+preview-6 packs; it is independent of the SDK running the preparation tool.
+
+```bash
+dotnet run -c Release eng/prepare-signature-decode-corpus.cs -- \
+  <preview-6-dotnet-root> <new-corpus-directory>
+DOTNET_INSPECT_SIGNATURE_CORPUS=<corpus-directory> \
+  dotnet run --project tests/ILInspector.Metadata.Tests -c Release -- \
+  -method '*PinnedCorpus_DecodesEverySignatureWithinProductionBudgets'
+```
+
+The manifest records every logical input and content hash. A tier fingerprint is
+SHA-256 over ordinal-sorted lowercase file SHA-256 values, each followed by LF.
+The opt-in, slow census verifies those hashes and tier fingerprints before
+reporting consumption. Its `signature-decode-census.json` retains every refusal,
+per-assembly populations, budget distributions, every quantity's charge count,
+largest charge, per-decode histogram, maximum witness, and product binary
+hashes. A refusal fails the census after the complete report is written.
+An explicitly configured missing corpus fails instead of skipping.
+
+For a comparison, preserve the first V2 report and set
+`DOTNET_INSPECT_SIGNATURE_BASELINE=<saved-report.json>` alongside
+`DOTNET_INSPECT_SIGNATURE_CORPUS`. A compatible run records the baseline report
+hash and each budget's previous maximum and maximum delta. These deltas are
+observations, not a new maximum-ratchet gate: production ceilings and zero
+refusals remain the acceptance criteria. Incompatible versions or inputs are
+rejected, not silently migrated or compared. Establishing a new contract's
+baseline is an explicit run without a prior-contract baseline.
+
+Usage counters exclude refused charges; quantity observations include the
+first refused attempt. Array counts come from the actual pre-decode guard,
+including a refused nonnegative count, without scanning further for reporting.
+The internal observation overload changes no guard grammar, ceiling, or
+admission policy. `SignatureBlobGuardTests.ArrayMeasurements_PreserveAdmissionAndPartialScan`
+and `SignatureOccurrenceDecoderTests.GuardArrayAllowance_IsIndependentOfProviderNodeBudget`
+gate that observation and its separation from provider nodes.
+
+### Historical measurements (V1)
+
+The original magnitude evidence came from the unmerged #5027 implementation,
+not the current product decoder. That measurement build decoded every method,
+field, and property signature in two corpora with its three budgets removed.
+The disclosures below preserve the limits of that historical evidence; the
+bounded census above is the current implementation's measurement.
 
 | Corpus | Assemblies | Decodes | Ordered SHA-256 of inputs |
 | --- | ---: | ---: | --- |
@@ -272,7 +464,7 @@ within one decode:
 | Quantity | Largest single | Largest per decode | Charges | Per-item cap |
 | --- | ---: | ---: | ---: | --- |
 | Type name characters | 175 | 1,078 | 2,574,175 | 4,096 |
-| Resolution-scope chain length | 3 | 19 | 1,465,380 | 256 |
+| Resolution-scope chain length | 3 | *19 (partial)* | *1,465,380 (partial)* | 256 |
 | Declaring-type chain length | *unmeasured* | *unmeasured* | *unmeasured* | 256 |
 | Array shape bounds | *unmeasured* | *unmeasured* | *unmeasured* | guard allowance |
 | `AssemblyRef` name storage | 58 | 292 | 1,232,837 | none |
@@ -284,14 +476,21 @@ within one decode:
 Three quantities are unmeasured, for three different reasons, and none is
 measured at zero.
 
-The declaring-type chain is unmeasured because the census measures what the
-instrumented build charged, and that build charges the chain length only on the
-`TypeRef` resolution-scope path. A conforming implementation charges it on the
-`TypeDef` path too, so the ledger figures above are a **lower bound** for a
-conforming decode, understated by at most one charge per declaring-chain node
-per projected nested name. The per-walk cap still holds unconditionally: the
-walk reads into caller-owned storage of exactly `MaxRelationshipNodes` entries
-and is refused beyond it.
+The chain-walk evidence is incomplete on both named-type paths. Projecting a
+`TypeRef` made two identical resolution-scope walks: the name reader walked the
+chain to project the full name, then terminal-scope projection walked it again.
+The instrumented build charged only the second walk. The largest single value
+of 3 is therefore valid per walk, but the per-decode total, charge count, and
+work-ledger figures include only one of the two walks.
+
+Projecting a `TypeDef` walked its declaring chain to build the full name and
+charged none of it, so that quantity is entirely unmeasured. The ledger figures
+are lower bounds on what the historical decodes would have charged under the
+complete cost model at that build's projection frequency. They are not a
+minimum for every future implementation, because caching may change that
+frequency. The per-walk cap still holds unconditionally: each walk reads into
+caller-owned storage of exactly `MaxRelationshipNodes` entries and is refused
+beyond it.
 
 Array shape bounds are unmeasured because of *where* they are enforced.
 `SignatureBlobGuard` charges the declared size and lower-bound counts against
@@ -316,20 +515,25 @@ Two results set the ceilings, for the measured quantities. Every measured
 Class A quantity stays far below its cap -- the longest single type name
 observed is 175 characters against a 4,096 ceiling, and the longest
 resolution-scope chain is 3 against 256 -- so the caps constrain nothing real.
-And no decode approached any of the three instrumented budgets, which is what
-makes those budgets available to bound repetition rather than typical cost.
-That statement does not extend to the guard's separate shape allowance.
+Across the quantities it measured, no observed decode approached any of the
+three instrumented budgets. That is initial evidence for ceilings intended to
+bound repetition rather than typical cost, not a complete margin claim; it
+does not cover either omitted chain-walk charge or the guard's separate shape
+allowance.
 
 The headroom column divides each ceiling by a measured maximum, so where the
 maximum is understated the ratio is an **upper bound on headroom**, not
-guaranteed headroom. This affects the work ledger, the one budget the
-declaring-type chain would charge. Its guaranteed floor is obtained by assuming
-the worst unmeasured case: every occurrence copy in the largest observed decode
-projects a nested name whose declaring chain runs to the full
-`MaxRelationshipNodes` cap. That is `1,182 + 158 * 256 = 41,630` against a
-262,144 ceiling, or roughly **6.3x** guaranteed, against 222x measured. The
-conclusion that the ledger is not the binding constraint survives, but only the
-6.3x figure is load-bearing until the charge is added and the census re-run.
+guaranteed headroom. This affects the work ledger, which the omitted chain
+walks would charge. No guaranteed headroom follows from the historical result:
+deriving one would require both complete charging and an assumption about how
+often an implementation projects a named type, but this design specifies no
+caching strategy. The
+1,182-unit maximum is therefore only a lower bound for the historical decodes
+at the measurement build's projection frequency, not evidence that the ledger
+cannot bind legitimate input. V2 must charge every chain walk and measure its
+explicitly identified baseline; that complete measurement establishes its
+initial observed work-ledger margin. It does not retroactively complete V1's
+measurements or reconstruct V1's platform inputs.
 
 The last three rows were never exercised, and no probe below drives the culture
 or `ModuleRef` name paths. That is a statement about the corpus, not about
@@ -343,11 +547,12 @@ reached through a custom modifier, where `TypeDefOrRefOrSpecEncoded` admits a
 
 #### What the census cannot show
 
-The census bounds the Class A quantities it measured. It does not bound the two
-Class A quantities disclosed above as unmeasured: each is structurally bounded
-by its guard, but neither has an observed margin. And it cannot bound Class B
-at all, because the largest Class B value in any corpus is a fact about the
-authors who happened to produce it.
+The census supplies observed bounds only for the Class A charges it recorded.
+It records one of the two `TypeRef` resolution-scope walks, and it does not
+observe the two Class A quantities disclosed above as unmeasured: each is
+structurally bounded by its guard, but neither has an observed margin. It
+cannot bound Class B at all, because the largest Class B value in any corpus is
+a fact about the authors who happened to produce it.
 
 A single method taking no parameters, whose one `TypeRef` is scoped to an
 `AssemblyRef` carrying a full public key, consumes ledger units equal to that
@@ -361,12 +566,12 @@ key's size:
 | 1,048,576 | 1,048,585 | **4.0x** |
 | 16,777,216 | 16,777,225 | **64.0x** |
 
-Every real decode measured stayed under 1,182 units. One author-chosen field
-reaches four orders of magnitude beyond that, from an artifact small enough to
-mail, and it scales linearly with no upper limit. This is the entire reason the
-ledger exists and the reason charging must precede a Class B read: no census,
-however large, would have predicted the fourth row, and no count of callbacks
-would observe it.
+Every real decode measured recorded at most 1,182 units. One author-chosen
+field reaches four orders of magnitude beyond that incomplete historical
+maximum, from an artifact small enough to mail, and it scales linearly with no
+upper limit. This is the entire reason the ledger exists and the reason charging
+must precede a Class B read: no census, however large, would have predicted the
+fourth row, and no count of callbacks would observe it.
 
 The `TypeSpec` probe shows the contrasting Class A shape. Charged units track
 the blob exactly, and the pre-existing guard, not the ledger, rejects the
@@ -385,35 +590,37 @@ and the ledger's role for this quantity is bounding how many times a shared
 
 #### Reproducing
 
-Both corpora are pinned. The platform tier is the installed runtime and
-reference packs at the stated version. The third-party tier is every `lib/`
+The historical record pins package versions and a platform version, but does
+not preserve the platform's exact root membership or RID. The third-party tier
+is every `lib/`
 assembly of the package versions in `docs/data/nuget-top-packages.lock.json`,
 fetched from nuget.org and deduplicated by content; ten of those packages ship
 no `lib/` assembly and contribute nothing. The digests above are over the
 ordered per-file SHA-256 of the inputs, so a corpus that drifts is detectable
 rather than silently different.
 
-The census is a measurement build, not product code: it replaces the three
-budget checks with accumulators, tags each charge site by caller line, and
-decodes every member signature in each input. Rebuild it by instrumenting
-`SignatureOccurrenceWorkBudget`. A change that alters what a decode charges
-must re-run it, because the observed maxima are the only evidence that the
-ceilings clear real artifacts.
+The historical measurement build replaced three budget checks with
+accumulators and tagged each charge site by caller line. It is not a recipe
+for modifying the current decoder. Use the bounded census above when changing
+what the current implementation charges, preserving its production ceilings.
+The original package inputs are reproduced; the platform identity limitation
+remains explicit rather than being hidden inside a claimed baseline rerun.
 
 A census run also checks that every charge the instrumented build *made* was
 accounted for: charges that no classified site accounts for are recorded
 against an unmapped bucket, which was zero across all 2,750,623 decodes. A
 non-zero unmapped count means the table above is missing a quantity.
 
-That check has a blind spot, and two of the three unmeasured quantities above
-fell into it. The unmapped bucket sees only charges that execute. The
-declaring-type chain is never charged on one path, and array shape bounds are
-charged by the guard before the accumulators start; neither produces an
-unmapped entry, because neither produces an entry at all. A zero unmapped count
-therefore does not establish that the closed set is complete; it establishes
-only that the charges the build made were classified. The `PublicKeyOrToken`
-split is unmeasured for an unrelated reason -- that charge executed and was
-mapped, but the census did not record the flag that separates the classes.
+That check has a blind spot, and both omitted chain walks plus the array-shape
+allowance fell into it. The unmapped bucket sees only charges that reach its
+accumulators. The first `TypeRef` walk and the `TypeDef` declaring-chain walk
+executed without a charge, while array shape bounds were charged by the guard
+before the accumulators started; none produced an unmapped entry. A zero
+unmapped count therefore does not establish that the closed set is complete; it
+establishes only that the charges the build made were classified. The
+`PublicKeyOrToken` split is unmeasured for an unrelated reason -- that charge
+executed and was mapped, but the census did not record the flag that separates
+the classes.
 
 The pricing costs in *The two classes of cost* are measured separately and need
 no product code. Emit an assembly whose single `AssemblyRef` carries a name and
@@ -456,18 +663,35 @@ satisfy all of the following.
 A gate that does not meet these obligations is named and documented for the
 property it actually checks.
 
-No gate meeting these obligations exists yet, so this property is currently
-**unverified**; building one is implementation work, not part of this contract.
+`SignatureOccurrenceMaterializationTests` supplies two cooperating Release gates:
 
-The obligations describe a division of labor that gate would complete. A gate
-establishes that every site is classified. The census records any charge no
-classified site accounts for. Neither closes the set: a gate cannot see a
-quantity the contract never named, and a census cannot see work the
-implementation never charges -- including work the corpus reaches constantly,
-and work a separate enforcement point charges before the accumulators start.
-Completeness of the closed set is therefore **unverified**, and establishing it
-requires deriving the inventory from the source rather than from what a run
-happened to charge.
+- `DecoderEffectInventory_IsClosedAndIncludesTransitiveSourceBodies` follows
+  the decoder/provider roots through source-defined helpers, constructors,
+  accessors, initializers, delegates, and collection/array construction.
+  `SignatureOccurrenceMaterializationInventory` classifies each materializing
+  site and its multiplicity. Unknown effects fail by default; charge-helper
+  bodies are not exempt.
+- `ClassBRawReads_AreDominatedByExactStorageChargesThroughHelpers` follows
+  reader, handle, and raw-storage-price provenance through the actual helper
+  chain to `GetString` and `GetBlobBytes`. The matching charge must dominate
+  each read on every admitted path, cannot be reused by another materialization,
+  and must select token versus full-key accounting from the same row's flag.
+  Unproved helper entries and projection flows fail rather than being trusted.
+
+The gate is deliberately specific to this decoder, not a general C# analyzer.
+Its explicit imports are SRM/framework effects, the independently owned
+MetadataPrimitives admission/name/traversal contracts, and compiler lowering.
+It does not re-prove those implementations. `SignatureOccurrenceDecoderTests`,
+`SignatureBlobGuardTests`, `MetadataTypeNameBudgetTests`, and
+`ProviderSignatureDecodeBoundaryTests` exercise the consumed bounds and their
+decoder wiring. The source audit cannot convert an incorrect imported contract
+into a sound one.
+
+This inventory is derived from reachable source effects, not from charge sites
+that happened to execute in the corpus. The V2 census complements it with
+observed quantities and explicit refusals; a zero or unvisited metric alone
+still does not establish completeness. A newly introduced quantity must extend
+the cost model, source classification, and applicable gates together.
 
 ### Failure is visible and attributed
 
@@ -500,6 +724,5 @@ not bound. The ledger refuses; a threshold only notices.
 - Does not specify how a bound magnitude becomes a Finding, or any audit
   surface, which is #5074. The rule above constrains such a threshold; it does
   not design one.
-- Does not claim any existing gate is conforming. The obligations above are the
-  standard against which gates are to be judged, including gates already
-  written.
+- Does not claim the source audit independently proves imported framework,
+  mechanical-guard, or compiler implementations.

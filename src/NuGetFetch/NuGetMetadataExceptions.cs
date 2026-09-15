@@ -36,6 +36,16 @@ internal sealed class NuGetRedirectLimitExceededException()
 internal sealed class NuGetRegistrationResourceLimitExceededException(
     string message) : IOException(message);
 
+internal sealed class NuGetCatalogResourceLimitExceededException(
+    string message) : IOException(message);
+
+internal sealed class NuGetCatalogRequestLimitExceededException()
+    : IOException(
+        "NuGet Catalog traffic exceeded the aggregate HTTP-attempt limit.");
+
+internal sealed class NuGetCatalogStalePageException(
+    string message) : InvalidOperationException(message);
+
 /// <summary>
 /// Thrown when a NuGet metadata response body does not complete within its configured
 /// body-phase timeout.

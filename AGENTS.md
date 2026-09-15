@@ -30,12 +30,12 @@ development model and rationale. The binding summary:
   user-observable experience.
 - **Design first and state the basis.** Name one normative owner and exact
   claim, then supporting designs, models, constraints, and evidence by role.
-- **Start capabilities from named consumers.** Every new capability or
-  substrate identifies its consumer in the specification and issue, links an
-  overall end-to-end tracker, and may land its consumer in a later slice.
-  Shared substrate must benefit and plan enablement through both the CLI and
-  browser/Wasm hosts; a single-consumer or single-host substrate requires
-  explicit user approval from the start.
+- **Plan every feature through production adoption.** Each feature, architecture,
+  capability, or substrate links an overall plan with a direct path to CLI or
+  website use. A sliced or stacked plan includes a production-consumer adoption
+  slice. Test infrastructure may treat its harness as the production host.
+  Alternatives track retirement; shared substrate plans both CLI and
+  browser/Wasm adoption, while narrower scope requires explicit user approval.
 - **Keep hosts thin.** Put reusable concepts and algorithms in host-neutral
   code. Duplicated host logic triggers a review for a shared abstraction that
   would also benefit another future host.
@@ -53,22 +53,28 @@ development model and rationale. The binding summary:
 - **Bias toward progress and low carrying cost.** Land independently coherent
   slices; never present unfinished behavior as supported or preserve CLI flags
   solely for compatibility. Shipped product skills must match current behavior.
-- **Lead with a demo.** Every PR demonstrates the scenario (a mockup for
-  docs-only PRs) without fitting the implementation only to that example.
+- **Lead with a demo.** Every PR demonstrates the real production-host scenario;
+  shared CLI and Browser/Wasm work shows both C# and TypeScript call sites.
 - **Treat critical review feedback as a design question first.** Ask whether
   the owning design addresses it before repairing code; keep paired design
   work moving quickly when the contract needs clarification.
-- **Use extraordinary pre-work for complicated features.** Corpus evidence,
-  an established oracle, a TLA+ model, or a closely developed specification
-  should bound the contract before implementation.
+- **Ground behavior in real assets.** Features and significant fixes cite a
+  motivating nuget.org package or real repository in their design and normally
+  preserve it in tests; synthetic-only work requires user/operator approval.
+- **Use only approved OpenAI GPT configurations.** In agent harnesses that
+  advertise GPT models, never start non-GPT, `Fast`, or extra-high (`xhigh`)
+  configurations. This launch prohibition does not invalidate work: observe and
+  use results from agents mistakenly started with a prohibited configuration.
+  Default to GPT-5.6 Sol; use GPT-6 Astra for complex reviews, or GPT-5.6 Terra
+  or Luna for relatively simple reviews.
 - **Hot-start requested work through PR and review.** Agents may branch,
   commit, push, open the PR, and dispatch eligible rounds without separate
   approval; merge remains separately authorized.
 - **Use the Markdown fast path.** For Markdown-only PRs at non-boundary rounds,
   `markdownlint` replaces `ci-required` as the pre-review and per-round gate.
 - **Use bounded adversarial review to find design and implementation gaps.**
-  Every non-trivial change gets two seats; repeated findings are evidence to
-  revisit design, and six rounds ends the current review block.
+  Every non-trivial change gets one GPT reviewer; repeated findings are
+  evidence to revisit design, and six rounds ends the current review block.
 - **Keep security work inside the repository threat model.** Focus on
   untrusted internet-origin data and construction-time containment, not local
   or intra-repository actors unless an owning design explicitly opts in.
@@ -93,18 +99,12 @@ This section is tmux-specific and applies only inside a tmux pane — check
 `[ -n "$TMUX" ]` first; outside tmux there is no window to name or option to
 attach state to, so skip it entirely. Each window name must identify its work
 item, domain, and purpose; its pane title reports current activity, while
-window options carry structured state. Full mechanics live in
-[Agent session state](docs/agent-session-state.md).
+window options carry structured state. Full naming, pane-title, and state-
+publishing mechanics (exact commands, `@agent_state` fields, `blocked` vs.
+`waiting`) live in [Agent session state](docs/agent-session-state.md).
 
-- **Name the window** `PR <number> | <Domain> | <Short description>`, or
-  `Issue <number> | <Domain> | <Short description>` before a PR exists. Keep
-  Domain to one or two words, omit machine and tmux coordinates, and always
-  target `"${TMUX_PANE:?}"`.
-- **Update the pane title** with concise current activity, always targeting
-  `"${TMUX_PANE:?}"`. Accept Copilot's startup title only as the initial
-  fallback; replace it at the start of work, after every resume, and at
-  meaningful phase changes with
-  `tmux select-pane -t "${TMUX_PANE:?}" -T "<theme>: <current activity>"`.
+- **Name the window and title the pane**, always targeting `"${TMUX_PANE:?}"`,
+  at the start of work, after every resume, and at meaningful phase changes.
 - **Announce PR identity** — the literal token `PR #<number>` or `PR <number>`,
   plus branch or expected head — at the start of work, after every resume, and
   at every round start. Round completions use the
@@ -113,16 +113,9 @@ window options carry structured state. Full mechanics live in
   as normal visible output first; only after it appears in the session log may
   you open an approval prompt containing just the concise decision question and
   answer labels — never the report, checkpoint, or evidence itself.
-- **Publish `@agent` and `@agent_state`** after every state change, each as its
-  own single command (never inside `if`/`&&`/a loop). `@agent_state` carries
-  `theme`, `head`, and `pr`/`issue`, plus `round`, `reviews`, `blocked`,
-  `waiting`, and `rec` (`continue`, `wait`, `merge`, `split`, `approve`,
-  `stop`); clear both when the window no longer owns the work. `blocked` names
-  an issue/PR a person can act on; `waiting` names tool-evaluable predicates
-  (`check:<name>`, `checks`, `merge`, `review`).
-- **Signal `HELP`** with a persistent state plus one best-effort
-  `tmux display-message` nudge when blocked on a human decision; clear it once
-  the decision arrives.
+- **Publish `@agent`/`@agent_state`** after every state change; clear both
+  only when the window no longer owns the work. **Signal `HELP`** when
+  blocked on a human decision; clear only `HELP` once the decision arrives.
 
 ### Keep the review-clean label current
 
@@ -187,7 +180,7 @@ workflow doc, and PR template — lives in [`docs/README.md`](docs/README.md).
 | Core workspace, query, cache, or safety architecture | `docs/inspection-space.md` |
 | A change crossing subsystem ownership boundaries | `docs/overview.md` |
 | Implementation structure | the relevant section of `docs/architecture.md` |
-| Layering and consumer boundaries | `docs/design/inspection-layers.md` |
+| Layering, consumers, and project families | `docs/design/inspection-layers.md`, `docs/design/library-family-boundaries.md` |
 | Command defaults and disclosure | `docs/design/progressive-disclosure.md` |
 | Output data shapes and style | `docs/design/output-shapes.md`, `docs/design/style-guide.md` |
 | Metadata and API inspection | `docs/design/assembly-inspection-query.md` |
@@ -210,7 +203,7 @@ for the registration mechanics.
 
 For routine development, use production dotnet-inspect
 (`dnx dotnet-inspect -y -- <command>`) — normally current and much faster to
-start than `dotnet run --project src/dotnet-inspect -c Release -- <command>`,
+start than `dotnet run --project src/DotnetInspect.Cli -c Release -- <command>`,
 which is required only when evidence depends on an unmerged change. Full
 rationale:
 [`docs/dev-environment.md`](docs/dev-environment.md#which-dotnet-inspect-to-run).
@@ -262,6 +255,8 @@ over-broad-design recovery procedure live in
   owns command and presentation concerns.
 - Reuse existing typed models, Finding contracts, section schemas, serializers,
   and resolution services before adding parallel abstractions.
+  Completed host-neutral APIs that hand results to hosts expose
+  `InspectionEnvelope<TContent>`; projections preserve Content, Share, and diagnostics.
 - Preserve behavior-safe defaults and progressive disclosure. Network,
   source-content, exhaustive, or otherwise expensive work must remain explicit
   or capability-gated.
@@ -271,8 +266,8 @@ over-broad-design recovery procedure live in
   presentation as separate concerns. Do not infer one from display text when a
   typed identity exists.
 - Put independently compiled inspected test inputs under `fixtures/<owner>/`;
-  keep test infrastructure under `tests/` and production code under `src/`.
-  Follow [`docs/fixture-governance.md`](docs/fixture-governance.md).
+  keep test executables and infrastructure under `tests/`, and production code
+  under `src/`. Follow [`docs/fixture-governance.md`](docs/fixture-governance.md).
 - Use inclusive terminology: "allow list"/"deny list", never
   "whitelist"/"blacklist" (match casing and word form, e.g. `allowList`,
   "deny-listed").
@@ -325,23 +320,34 @@ selection (`command -v dotnet`, `dotnet --version`) before installing one or
 changing `PATH`. If `dotnet` is centrally installed, stop and ask before
 replacing or shadowing it. Follow `README.md#repository-development-sdk`.
 
+The primary dependencies are the .NET SDK, `Microsoft.CodeAnalysis.CSharp`,
+and Markout. For major dependency updates, check all three; update the .NET SDK
+and `Microsoft.CodeAnalysis.CSharp` together.
+
 Build the normal graph with `dotnet build dotnet-inspect.slnx -c Release`.
 
 Tests are xUnit executables. **Use `dotnet run`, not `dotnet test`**;
 `dotnet test` silently executes no tests here. Always use Release because
 compiler-generated IL shapes differ in Debug.
 
+Classify every new or materially expanded test as PR-fast or
+`[Trait("Speed", "Slow")]`. Tag exhaustive or whole-assembly tests slow;
+otherwise measure suspected slow tests in isolation. Exclude slow tests from
+PR CI only when daily Deep Inspect or a focused pre-merge gate owns them. See
+[Classifying test cost](docs/testing-cost-classification.md) for details.
+
 | Area | Command |
 | --- | --- |
-| CLI and product output | `dotnet run --project src/dotnet-inspect.Tests -c Release` |
-| Artifact contracts | `dotnet run --project src/DotnetInspector.Artifacts.Tests -c Release` |
-| Row selection | `dotnet run --project src/DotnetInspector.RowSelection.Tests -c Release` |
-| Section-row shaping | `dotnet run --project src/DotnetInspector.Sections.Tests -c Release` |
-| Analysis | `dotnet run --project src/ILInspector.Analysis.Tests -c Release` |
-| Decompiler | `dotnet run --project src/ILInspector.Decompiler.Tests -c Release` |
+| CLI and product output | `dotnet run --project tests/DotnetInspect.Cli.Tests -c Release` |
+| Artifact contracts | `dotnet run --project tests/Inspector.Artifacts.Tests -c Release` |
+| Row selection | `dotnet run --project tests/DotnetInspector.RowSelection.Tests -c Release` |
+| Section-row shaping | `dotnet run --project tests/DotnetInspector.Sections.Tests -c Release` |
+| Analysis | `dotnet run --project tests/ILInspector.Analysis.Tests -c Release` |
+| Decompiler | `dotnet run --project tests/ILInspector.Decompiler.Tests -c Release` |
 | C# text | `dotnet run --project tests/CSharpText.Tests -c Release` |
-| Inspection queries | `dotnet run --project src/DotnetInspector.Queries.Tests -c Release` |
-| Shared services | `dotnet run --project src/DotnetInspector.Services.Tests -c Release` |
+| Additional library and host suites | See [focused test commands](docs/dev-environment.md#additional-library-suites). |
+| Inspection queries | `dotnet run --project tests/DotnetInspector.Queries.Tests -c Release` |
+| Shared services | `dotnet run --project tests/DotnetInspector.Services.Tests -c Release` |
 | Metadata and SourceLink | `dotnet run --project tests/ILInspector.Metadata.Tests -c Release` |
 | Metadata rendering and `mdi` | `dotnet run --project tests/DotnetInspector.MetadataRendering.Tests -c Release` |
 
@@ -391,24 +397,24 @@ that head, reconcile the feedback publicly, make any resulting fixes, and freeze
 the replacement head. These are the binding invariants; the rest of this
 section and [round orchestration](docs/round-orchestration.md) explain them.
 
-1. **One frozen head per round.** The lock begins at the push and ends only
-   when the round closes (reconciled *and* green) or recovery supersedes the
-   attempt. Do not edit a locked head; fixes belong to the next cycle.
+1. **One frozen head per review attempt.** The lock begins at the push and ends
+   only when the round closes or applicable recovery supersedes the candidate.
+   Do not edit a locked head; fixes belong to the next candidate.
 2. **A candidate includes its effective base.** Integrate twice before pushing
    — once before fixing, once after — because the fix window is long enough for
    `main` to move.
 3. **Base movement alone never invalidates a pushed candidate**, and never
    justifies another round.
-4. **A round that pushes a fix is not review-clean.** Only the replacement head
-   can earn that.
+4. **Every usable fixed-head review spends its round.** A finding-producing round
+   is not review-clean; fixes form the next numbered round.
 5. **Never claim merge readiness from label state alone.** Confirm current-head
    CI and GitHub's live mergeability immediately before every merge attempt.
-6. **A round closes only when reconciled and its applicable gates are green.**
-   For a non-Markdown-only PR, known-red `ci-required` blocks; pending status follows
-   [Bounded status waiting](docs/round-orchestration.md#bounded-status-waiting).
-   At non-boundary rounds, a Markdown-only PR's gate is pre-commit
-   `markdownlint`; do not wait for CI before review. A gate failure requiring an
-   author change restarts the *same* round.
+6. **A round closes only after reconciliation and its applicable gate result.**
+   Green closes normally; a post-review author-change failure closes as failed
+   and advances its repair. Pre-review failure retries the pending round.
+   Pending status follows [Bounded status
+   waiting](docs/round-orchestration.md#bounded-status-waiting); non-boundary
+   Markdown-only rounds substitute pre-commit `markdownlint`.
 7. **Six rounds, then stop** and ask for another block.
 8. **Never merge without explicit user authorization** for that specific PR.
    A recorded exact-head merge authorization satisfies this rule; see the
@@ -421,28 +427,28 @@ definition live in
 [Candidate lifecycle](docs/round-orchestration.md#candidate-lifecycle). The
 essentials: integrate the effective base, make the change, run the focused
 gate, integrate again, push to lock the head, satisfy the eligibility row,
-dispatch reviewers, reconcile publicly, and close only when reconciliation and
-the applicable gates are green.
+dispatch reviewers, reconcile publicly, and close under the applicable
+gate-result transition.
 
 ### Recovery transitions
 
 Applied without waiting for CI; full conditions live in
 [Candidate lifecycle](docs/round-orchestration.md#candidate-lifecycle).
 
-- **Conflict:** supersede, integrate, resolve, push immediately, and restart
-  the same round — or take the exact-head trivial-interaction waiver when
-  eligible.
+- **Conflict:** before a usable review result, supersede and retry the pending
+  round; afterward, recover in the next numbered round — or take the
+  exact-head trivial-interaction waiver when eligible.
 - **Scope violation:** keep the locked head unchanged while the user chooses
   split, abandonment, or an approved broad exception (see
   [Recovering from an over-broad design](docs/design-scope.md#recovering-from-an-over-broad-design)).
-- **Failure requiring an author change:** supersede, push the fix, satisfy the
-  failed-gate row, and restart the same round.
+- **Failure requiring an author change:** pre-review failures retry the pending
+  round; review-driven fixes form the next numbered round.
 - **Cancelled or evidenced transient failure:** keep the lock and retry the
   unchanged head with concrete transient evidence; otherwise treat it as an
   author change.
 
-A superseded attempt spends no round and gets no completion report; carry every
-returned finding forward.
+A candidate superseded before its required review returns a usable result spends
+no round. Once it does, the round is spent; carry every finding forward.
 
 ### Forming a candidate
 
@@ -491,21 +497,19 @@ as a normal round), and **merge conflict requiring semantic resolution**
 | Tier | Requirement |
 | --- | --- |
 | Trivial | No review. State why the change is trivial. |
-| Everything else | **GPT-5.6 Sol**, always, plus one other roster reviewer (Claude Opus or Gemini Pro). |
+| Everything else | **GPT-5.6 Sol** by default, one seat. |
 
-When uncertain, use the standard round. Second-seat selection by prior clean
-count lives in
-[Reviewer roster](docs/round-orchestration.md#reviewer-roster). A MAI-Code
-quick read on unsettled work is neither tier: it gets no isolated worktree or
-fixed head and satisfies no review tier — label its findings as early
-feedback, since the settled PR still requires its full round.
+Use GPT-6 Astra for complex changes. GPT-5.6 Terra or Luna may review relatively
+simple changes that still require review. Full selection and substitution rules
+live in [Reviewer roster](docs/round-orchestration.md#reviewer-roster); dispatch
+IDs live in [Agent model mapping](docs/agent-models.md).
 
 ### Running the round
 
 Start every reviewer prompt with the complete canonical
 [adversarial-review prompt](docs/adversarial-review-prompt.md); do not omit,
-paraphrase, reorder, or precede it with domain instructions. Append the same
-self-contained candidate instructions for every seat, directly or with the
+paraphrase, reorder, or precede it with domain instructions. Append the
+self-contained candidate instructions for the seat, directly or with the
 optional [fill-in template](docs/templates/adversarial-review-prompt.md). Follow
 [running a round](docs/round-orchestration.md#running-a-round) for mechanics
 and reporting.
@@ -553,8 +557,10 @@ owns the full contract and the inspect-web hosting pointer.
   `ci-required` unless parallel review is approved or conflict recovery applies.
   Query GitHub status only when the round cadence requires it; follow
   [GitHub status queries](docs/github-status-queries.md)'s bounded waiting
-  instead of polling. If an hour passes without an authored change while an
-  independent gate hasn't started, fix the sequencing or record the blocker.
+  instead of polling. During a bounded wait, fetch the live base and locally
+  test each new tip for conflicts; never report budget exhaustion without
+  checking the final tip. If an hour passes without an authored change while
+  an independent gate hasn't started, fix the sequencing or record the blocker.
 - `ci-required` is this repository's aggregate merge gate
   (`.github/workflows/ci.yml`): it passes only when the aggregate itself
   concludes `success`, and a missing aggregate is not green. Never require a

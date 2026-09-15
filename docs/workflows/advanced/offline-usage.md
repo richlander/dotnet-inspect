@@ -64,7 +64,9 @@ dotnet-inspect type --package System.CommandLine@2.0.3 Command \
 ```
 
 ```expect
-# System.CommandLine.Command (System.CommandLine 2.0.3)
+# System.CommandLine.Command
+Package: System.CommandLine
+Version: 2.0.3
 Source: NuGet
 ```
 

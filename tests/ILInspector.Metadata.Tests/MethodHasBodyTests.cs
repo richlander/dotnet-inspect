@@ -122,7 +122,7 @@ public class MethodHasBodyTests
                 publicOnly: true));
     }
 
-    static string? FindReferenceAssembly()
+    internal static string? FindReferenceAssembly()
     {
         // dotnet/packs/Microsoft.NETCore.App.Ref/<version>/ref/<tfm>/System.Runtime.dll
         var runtimeDir = Path.GetDirectoryName(CoreLibPath);

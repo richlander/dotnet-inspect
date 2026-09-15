@@ -1,0 +1,83 @@
+using InertText;
+using NuGetFetch;
+
+namespace DotnetInspector.Packages;
+
+public sealed partial class DesktopPackageSourceComposition
+{
+    /// <summary>
+    /// Authorizes one caller-pinned exact coordinate without enumerating peer
+    /// versions or acquiring payload bytes.
+    /// </summary>
+    public PackageAcquisitionCandidateResult ResolvePinnedCandidate(
+        PackageSourceCoordinate coordinate,
+        NuGetSourceOptions? sourceOptions = null,
+        CancellationToken cancellationToken = default,
+        NuGetOperationContext? operationContext = null) =>
+        PackageSourceSettlementCompatibility.Run(
+            _sourceLease,
+            generation => ResolvePinnedCandidateCore(
+                generation, coordinate, sourceOptions, cancellationToken, operationContext));
+
+    private PackageAcquisitionCandidateResult ResolvePinnedCandidateCore(
+        PackageSourceSettlementGeneration generation,
+        PackageSourceCoordinate coordinate,
+        NuGetSourceOptions? sourceOptions,
+        CancellationToken cancellationToken = default,
+        NuGetOperationContext? operationContext = null)
+    {
+        ArgumentNullException.ThrowIfNull(coordinate);
+        cancellationToken = operationContext?.ResolveInvocationToken(
+            cancellationToken) ?? cancellationToken;
+        var failures = new List<PackageAuthorityFailure>();
+        try
+        {
+            PackageSourceAuthorization authorization =
+                AuthorizeSourcesForCore(
+                coordinate.PackageId,
+                sourceOptions,
+                () =>
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    operationContext?.ThrowIfExpired();
+                },
+                failures);
+            PackageAcquisitionCandidate? candidate =
+                authorization.Authorities.Count == 0
+                    ? null
+                    : generation.CreatePinnedCandidate(
+                        coordinate,
+                        authorization.Authorities);
+            return new PackageAcquisitionCandidateResult(
+                candidate is null
+                    ? PackageAcquisitionCandidateResultState.Denied
+                    : PackageAcquisitionCandidateResultState.Resolved,
+                candidate,
+                authorization.Failures);
+        }
+        catch (NuGetOperationTimeoutException)
+        {
+            failures.Add(
+                new PackageAuthorityFailure(
+                    InertString.Empty,
+                    PackageAuthorityFailureKind.Timeout,
+                    "The package candidate operation deadline expired before authorization completed.")
+                {
+                    Timeout = operationContext is null
+                        ? null
+                        : new(
+                            PackageSourceTimeoutKind.Operation,
+                            operationContext.OperationTimeout),
+                });
+            return new PackageAcquisitionCandidateResult(
+                PackageAcquisitionCandidateResultState.Incomplete,
+                candidate: null,
+                failures);
+        }
+        catch (OperationCanceledException)
+            when (cancellationToken.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(cancellationToken);
+        }
+    }
+}

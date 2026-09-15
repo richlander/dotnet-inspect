@@ -2,9 +2,8 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-using DotnetInspector.Core;
 using DotnetInspector.Services;
-using ILInspector.Findings;
+using Inspector.Findings;
 
 namespace ILInspector.DecompilerHarness;
 
@@ -17,10 +16,10 @@ namespace ILInspector.DecompilerHarness;
 /// complete portable-PDB MethodDef to primary-document mapping <em>before</em> acquiring
 /// any source, intersects that mapping with the real-method targets, attempts each
 /// eligible target, and evaluates the captured rows through the same source-oracle
-/// evaluator the enrolled gate uses. Each immutable file identity — the
+/// evaluator the enrolled gate uses. Each checksum-pinned file identity — the
 /// <c>(sourceUrl, checksumAlgorithm, checksum)</c> triple — is then Enrolled,
 /// Qualified, Rejected, or Unevaluable, and the qualifying files are ranked greedily by
-/// how many syntax features they add on top of an already VERIFIED enrolled-oracle
+/// how many syntax features they add on top of an accepted enrolled-oracle
 /// benchmark report.</para>
 ///
 /// <para><strong>Why the denominator comes from the PDB.</strong> Deriving file
@@ -32,8 +31,8 @@ namespace ILInspector.DecompilerHarness;
 /// rejected candidate and a source fetch that did not answer are typed data and leave the
 /// exit code at zero. Only measurement integrity fails the run: no usable assembly or
 /// target, a failed PDB mapping census, an evaluation count or correlation mismatch, a
-/// baseline report that is not a verified enrolled-oracle report, or a run in which no
-/// checksum-identified file was evaluated at all.</para>
+/// baseline report that does not carry accepted enrolled-oracle evidence, or a run in
+/// which no checksum-identified file was evaluated at all.</para>
 ///
 /// <para><strong>Scope honesty.</strong> Qualification is eligible-method completeness
 /// for the scanned assembly set, not a claim that every C# declaration in the file was
@@ -44,13 +43,14 @@ namespace ILInspector.DecompilerHarness;
 static class SourceOracleCandidateLedger
 {
     /// <summary>The candidate ledger's own report schema version.</summary>
-    public const int LedgerVersion = 1;
+    public const int LedgerVersion = 2;
 
     // ---------------------------------------------------------------- identities
 
     /// <summary>
-    /// One immutable source-file identity. The same triple the enrolled source-oracle
-    /// manifest registers, so a candidate promoted out of this ledger keys identically.
+    /// One checksum-pinned source-file identity. The same triple the enrolled
+    /// source-oracle manifest registers, so a candidate promoted out of this ledger keys
+    /// identically.
     /// </summary>
     internal readonly record struct FileIdentity(
         string SourceUrl,
@@ -209,7 +209,10 @@ static class SourceOracleCandidateLedger
     /// <summary>A file's verdict for the scanned assembly set.</summary>
     internal enum CandidateStatus
     {
-        /// <summary>The exact commit-pinned source URL is already in the verified baseline.</summary>
+        /// <summary>
+        /// The file qualifies now, and its recognized immutable source URL is already in
+        /// the accepted baseline.
+        /// </summary>
         Enrolled,
 
         /// <summary>Every eligible target is Printer exact at the supported version.</summary>
@@ -272,14 +275,16 @@ static class SourceOracleCandidateLedger
     // -------------------------------------------------------------------- baseline
 
     /// <summary>
-    /// The verified enrolled-oracle benchmark report the ranking is incremental to.
-    /// Provenance and digest only: no local path is carried into the candidate report.
+    /// The accepted enrolled-oracle benchmark evidence the ranking is incremental to.
+    /// Provenance and text digest are retained, but no local path is carried into the
+    /// candidate report.
     /// </summary>
     internal sealed record Baseline(
         string Digest,
         string Date,
         string Commit,
         string SourceStateAtBuild,
+        bool SourceRevisionMatchesHead,
         bool SourceDirty,
         string? CorpusSha256,
         string? PoolSha256,
@@ -301,6 +306,7 @@ static class SourceOracleCandidateLedger
         [property: JsonRequired] string Date,
         [property: JsonRequired] string Commit,
         [property: JsonRequired] string SourceStateAtBuild,
+        [property: JsonRequired] bool SourceRevisionMatchesHead,
         [property: JsonRequired] bool SourceDirty,
         [property: JsonRequired] string? CorpusSha256,
         [property: JsonRequired] string? PoolSha256,
@@ -366,7 +372,7 @@ static class SourceOracleCandidateLedger
     // ------------------------------------------------------------------ pure build
 
     /// <summary>
-    /// Judges every immutable file identity in <paramref name="input"/> and ranks the
+    /// Judges every checksum-pinned file identity in <paramref name="input"/> and ranks the
     /// qualifying ones by incremental syntax coverage over
     /// <paramref name="baseline"/>.
     ///
@@ -425,6 +431,7 @@ static class SourceOracleCandidateLedger
             .Select(file =>
                 file.Status == CandidateStatus.Qualified
                     && enrolledSourceUrls.Contains(file.File.SourceUrl)
+                    && SourceLinkUrls.IsImmutable(file.File.SourceUrl)
                         ? file with { Status = CandidateStatus.Enrolled }
                         : file)
             .ToList();
@@ -454,6 +461,7 @@ static class SourceOracleCandidateLedger
             .ThenBy(report => report.Rank ?? 0)
             .ThenBy(report => report.Status, StringComparer.Ordinal)
             .ThenBy(report => report.SourceUrl, StringComparer.Ordinal)
+            .ThenBy(report => report.ChecksumAlgorithm, StringComparer.Ordinal)
             .ThenBy(report => report.Checksum, StringComparer.Ordinal)
             .ToArray();
 
@@ -471,6 +479,7 @@ static class SourceOracleCandidateLedger
                 baseline.Date,
                 baseline.Commit,
                 baseline.SourceStateAtBuild,
+                baseline.SourceRevisionMatchesHead,
                 baseline.SourceDirty,
                 baseline.CorpusSha256,
                 baseline.PoolSha256,
@@ -706,8 +715,8 @@ static class SourceOracleCandidateLedger
     // ------------------------------------------------------------- baseline intake
 
     /// <summary>
-    /// Reads the baseline authored-corpus benchmark report and accepts it only when it is
-    /// a <em>verified</em> enrolled-oracle result.
+    /// Reads the baseline authored-corpus benchmark report and accepts it only when it
+    /// carries the required enrolled-oracle measurement evidence.
     ///
     /// <para>The baseline is the benchmark report, not the manifest, and the distinction
     /// is the whole point: a manifest declares what someone expects to be enrolled, while
@@ -745,9 +754,9 @@ static class SourceOracleCandidateLedger
     }
 
     /// <summary>
-    /// The verification contract, separated from the file read so it is directly
-    /// testable: every rejection below is a way an unverified report could otherwise be
-    /// mistaken for enrolled evidence.
+    /// The acceptance contract, separated from the file read so it is directly testable:
+    /// every rejection below is a way an incomplete or contradictory report could
+    /// otherwise be mistaken for enrolled evidence.
     /// </summary>
     internal static bool TryParseBaseline(
         string text,
@@ -967,6 +976,7 @@ static class SourceOracleCandidateLedger
             report.Date,
             report.Commit,
             report.SourceStateAtBuild,
+            report.SourceRevisionMatchesHead,
             report.SourceDirty,
             report.CorpusSha256,
             report.PoolSha256,
@@ -991,7 +1001,7 @@ static class SourceOracleCandidateLedger
     /// the portable PDB before any source is acquired.
     ///
     /// <para>Primary selection matches
-    /// <see cref="PdbSourceAcquisition.AcquireMemberAsync"/> exactly —
+    /// <see cref="PdbSourceHouse.AcquireMemberAsync"/> exactly —
     /// <c>IsPrimaryDocument</c> descending, then <c>DocumentRowId</c> — because a census
     /// that picked a different document than acquisition would attribute a member's
     /// result to a file the acquisition never read.</para>
@@ -1114,7 +1124,7 @@ static class SourceOracleCandidateLedger
     /// <summary>
     /// The single document a mapping points at, or <see langword="null"/> when the
     /// portable PDB does not identify one uniquely. Mirrors
-    /// <c>PdbSourceAcquisition.SelectMappedDocument</c>, which is internal to the
+    /// <c>PdbSourceHouse.SelectMappedDocument</c>, which is internal to the
     /// services assembly.
     /// </summary>
     static SourceDocumentObservation? SelectMappedDocument(
@@ -1226,15 +1236,13 @@ static class SourceOracleCandidateLedger
 
     // ------------------------------------------------------------------- execution
 
-    public static int Run(
+    public static Task<int> Run(
         IReadOnlyList<string> assemblies,
         string baselineReportPath,
         bool json,
         IReadOnlyList<string>? repositoryPaths = null,
         TextWriter? output = null)
-        => RunAsync(assemblies, baselineReportPath, json, repositoryPaths, output)
-            .GetAwaiter()
-            .GetResult();
+        => RunAsync(assemblies, baselineReportPath, json, repositoryPaths, output);
 
     static async Task<int> RunAsync(
         IReadOnlyList<string> assemblies,
@@ -1271,7 +1279,7 @@ static class SourceOracleCandidateLedger
 
         HttpClientFactory.Initialize(new HttpClientFactoryOptions());
         using var httpClient = HttpClientFactory.CreateClient();
-        var fetcher = new SourceFetcher(HttpClientFactory.SharedUntrustedFetch);
+        var fetcher = new SourceFetch(HttpClientFactory.SharedUntrustedFetch);
 
         var scanned = new List<ScannedAssembly>();
         var members = new List<CensusMember>();
@@ -1351,7 +1359,7 @@ static class SourceOracleCandidateLedger
     static async Task<bool> ScanAssemblyAsync(
         string assemblyPath,
         HttpClient httpClient,
-        SourceFetcher fetcher,
+        SourceFetch fetcher,
         IReadOnlyList<string>? repositoryPaths,
         List<ScannedAssembly> scanned,
         List<CensusMember> members,
@@ -1418,10 +1426,8 @@ static class SourceOracleCandidateLedger
         {
             await AuthoredRebuildFidelity.AcquirePdbAsync(source, httpClient);
         }
-        catch (Exception ex) when (ex is HttpRequestException
-            or IOException
-            or TaskCanceledException
-            or InvalidOperationException)
+        catch (Exception ex) when (
+            AuthoredRebuildFidelity.IsPdbAcquisitionFailure(ex))
         {
             Console.Error.WriteLine(
                 $"Could not acquire a portable PDB for '{assemblyPath}' "
@@ -1520,11 +1526,9 @@ static class SourceOracleCandidateLedger
         if (captured.Count == 0)
             return true;
 
-        if (!AuthoredCorpusSourceEvaluator.TryEvaluate(
-                assemblyPath,
-                captured,
-                out IReadOnlyList<AuthoredSourceOracleManifest.EvaluatedRow> rows,
-                out string? evaluationError))
+        var (rows, evaluationError) =
+            await AuthoredCorpusSourceEvaluator.EvaluateAsync(assemblyPath, captured);
+        if (evaluationError is not null)
         {
             Console.Error.WriteLine(evaluationError);
             return false;

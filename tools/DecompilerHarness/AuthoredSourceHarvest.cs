@@ -2,9 +2,8 @@ using System.Reflection.PortableExecutable;
 using System.Reflection.Metadata;
 using System.Text.Json;
 
-using DotnetInspector.Core;
 using DotnetInspector.Services;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Metadata;
 
 namespace ILInspector.DecompilerHarness;
@@ -133,7 +132,7 @@ static class AuthoredSourceHarvest
 
         HttpClientFactory.Initialize(new HttpClientFactoryOptions());
         using var httpClient = HttpClientFactory.CreateClient();
-        var fetcher = new SourceFetcher(HttpClientFactory.SharedUntrustedFetch);
+        var fetcher = new SourceFetch(HttpClientFactory.SharedUntrustedFetch);
 
         var libraries = new List<LibraryState>();
         try
@@ -273,11 +272,8 @@ static class AuthoredSourceHarvest
             ownershipTransferred = true;
             return state;
         }
-        catch (Exception ex) when (ex is HttpRequestException
-            or IOException
-            or TaskCanceledException
-            or InvalidOperationException
-            or BadImageFormatException)
+        catch (Exception ex) when (
+            AuthoredRebuildFidelity.IsPdbAcquisitionFailure(ex))
         {
             Console.Error.WriteLine(
                 $"Warning: harvest skipped '{assemblyPath}' opening SourceLink ({ex.GetType().Name}: {ex.Message}).");
@@ -296,7 +292,7 @@ static class AuthoredSourceHarvest
     static async Task<HarvestAttempt> TryHarvestAsync(
         LibraryState library,
         RealMethodTargetEnumerator.RealMethodTarget candidate,
-        SourceFetcher fetcher,
+        SourceFetch fetcher,
         bool evil,
         IReadOnlyList<string>? repositoryPaths)
         => await TryHarvestAsync(
@@ -322,7 +318,7 @@ static class AuthoredSourceHarvest
         SourceLinkService source,
         HarvestIdentity identity,
         RealMethodTargetEnumerator.RealMethodTarget candidate,
-        SourceFetcher fetcher,
+        SourceFetch fetcher,
         bool evil,
         IReadOnlyList<string>? repositoryPaths)
     {
@@ -338,7 +334,7 @@ static class AuthoredSourceHarvest
         PdbMemberSourceInspection authored;
         try
         {
-            authored = await PdbSourceAcquisition.AcquireMemberAsync(
+            authored = await PdbSourceHouse.AcquireMemberAsync(
                 source,
                 candidate.MetadataToken,
                 candidate.Method,

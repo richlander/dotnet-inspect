@@ -34,6 +34,14 @@ public abstract record AssemblyIntegrationsEntry(
         EcosystemIntegrationPresence Presence)
         : AssemblyIntegrationsEntry(Subject);
 
+    /// <summary>
+    /// The selected scanner produced its rows, without claiming full presence or Census coverage.
+    /// </summary>
+    public sealed record Selected(
+        AssemblyContextSubject Subject,
+        ImmutableArray<EcosystemIntegrationSignalInfo> EcosystemSignals)
+        : AssemblyIntegrationsEntry(Subject);
+
     /// <summary>The participant's immutable image could not be acquired.</summary>
     public sealed record Rejected(
         AssemblyContextSubject Subject,

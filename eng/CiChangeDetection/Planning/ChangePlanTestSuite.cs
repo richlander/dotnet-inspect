@@ -38,6 +38,7 @@ internal static class ChangePlanTestSuite
             AssertSerialization(repository, policy);
             AssertStrictDeserialization(repository, policy);
             AssertTlaScope(repository, policy);
+            AssertTlaManifestFixtures(scratch);
             AssertGitFixtures(scratch, repository);
             AssertRenameProvenanceFixtures(scratch);
             AssertCommandBoundary(scratch);
@@ -62,58 +63,81 @@ internal static class ChangePlanTestSuite
 
     /// <summary>
     /// Pure routing canaries. Each entry pins the exact raw selections for one
-    /// classifier rule or first-match exclusion.
+    /// routing rule or first-match exclusion.
     /// </summary>
     /// <param name="policy">The loaded routing policy.</param>
     private static void AssertRoutingCanaries(ChangeRoutingPolicy policy)
     {
         (string Path, string Selected)[] canaries =
         [
-            ("eng/ci-detect-changes.sh",
-                "code,csharpdiff,decompiler,docs,ildiff,ilroundtrip,"
-                + "packaging,shipped,web,skills,tla"),
-            ("src/NetworkDestinationPolicy.cs", "code,decompiler,shipped,web"),
-            ("src/UnionPolyfill.cs", "code,decompiler,shipped,web"),
-            ("src/dotnet-inspect/Program.cs", "code,shipped"),
+            ("src/NetworkAccess/NetworkDestinationPolicy.cs",
+                "code,decompiler,shipped,web"),
+            ("src/UnionPolyfill.cs",
+                "code,decompiler,shipped,web"),
+            ("src/DotnetInspect.Cli/Program.cs", "code,shipped"),
             ("src/ILInspector.Decompiler/Raise.cs",
                 "code,csharpdiff,decompiler,shipped,web"),
             ("src/ILInspector.Metadata/Reader.cs",
                 "code,decompiler,ilroundtrip,shipped,web"),
-            ("src/DotnetInspector.Core/Core.cs",
+            ("src/DotnetInspector.Cache/PersistentCache.cs",
                 "code,decompiler,ilroundtrip,shipped,web"),
-            ("src/dotnet-inspect/dotnet-inspect.csproj",
+            ("src/DotnetInspector.Sections/InspectionEnvelope.cs",
+                "code,ilroundtrip,shipped,web"),
+            ("src/UntrustedDocuments/HardenedJson.cs",
+                "code,decompiler,ilroundtrip,shipped,web"),
+            ("src/DotnetInspect.Cli/DotnetInspect.Cli.csproj",
                 "code,packaging,shipped"),
             ("src/Directory.Build.props",
                 "code,csharpdiff,decompiler,ildiff,ilroundtrip,packaging,"
                 + "shipped"),
-            ("src/DotnetInspector.Queries.Tests/Q.cs", "code,decompiler"),
+            ("tests/DotnetInspector.Queries.Tests/Q.cs",
+                "code"),
+            ("tests/DotnetInspector.Cache.Tests/C.cs",
+                "code"),
+            ("tests/DotnetInspector.Packages.Tests/P.cs",
+                "code"),
+            ("tests/UntrustedDocuments.Tests/U.cs",
+                "code"),
             ("fixtures/diff/DiffFixtures.V1/F.cs",
                 "code,csharpdiff,decompiler,ildiff"),
             ("fixtures/diff/DiffFixtures.V2/F.cs",
                 "code,csharpdiff,decompiler,ildiff"),
             ("fixtures/shared/DotnetInspector.Fixtures/BodyShapeFixture.cs",
-                "code,decompiler"),
+                "code"),
             ("tests/ILInspector.MetadataPrimitives.PlatformProbe/P.cs",
-                "code,decompiler,web"),
-            ("tests/DotnetInspector.Artifacts.Local.PlatformProbe/P.cs",
-                "code,decompiler,web"),
-            ("tests/ILInspector.JsExportSurface.TypeScriptFixtures/F.ts",
-                "code,decompiler,web"),
+                "code,web"),
+            ("tests/Inspector.Artifacts.Local.PlatformProbe/P.cs",
+                "code,web"),
+            ("fixtures/js-export/ILInspector.JsExportSurface.TypeScriptFixtures/F.ts",
+                "code,web"),
+            ("fixtures/js-export/ILInspector.JsExportSurface.Fixtures/F.cs",
+                "code"),
             ("tests/ILInspector.JsExportSurface.Tests/Fixtures/"
-                + "ts-jsexport-runtime/R.ts", "code,decompiler,web"),
+                + "ts-jsexport-runtime/R.ts", "code,web"),
             ("tests/DotnetInspector.ILRoundtrip.Tests/T.cs",
-                "code,decompiler,ilroundtrip"),
+                "code,ilroundtrip"),
+            ("tests/DecompilerHarness.Tests/Closure.cs",
+                "code,decompiler"),
             ("tests/Other/T.cs", "code,decompiler"),
             ("tools/DecompilerHarness/Notes.md", "docs"),
             ("tools/DecompilerHarness/Baseline.txt", "decompiler,docs"),
-            ("tools/DecompilerHarness/Harness.cs", "code,decompiler"),
-            ("tools/CSharpDiffHarness/H.cs", "csharpdiff,decompiler"),
-            ("tools/IlDiffHarness/H.cs", "decompiler,ildiff"),
-            ("tools/DiffHarnessCommon/C.cs", "csharpdiff,decompiler,ildiff"),
+            ("tools/DecompilerHarness/Harness.cs",
+                "code,decompiler"),
+            ("tools/CatalogChangeBenchmark.cs",
+                "code,decompiler"),
+            ("tools/CSharpDiffHarness/H.cs",
+                "csharpdiff"),
+            ("tools/IlDiffHarness/H.cs", "ildiff"),
+            ("tools/DiffHarnessCommon/C.cs",
+                "csharpdiff,ildiff"),
             ("eng/test-ci-change-detection.cs", "code"),
             ("eng/inspect-web-gate-projects.txt", "code,docs,web"),
-            ("eng/CiChangeDetection/PromotionWorkflowContract.cs", "code,web"),
-            ("eng/CiChangeDetection/DetectionTestSuite.cs", "code"),
+            ("eng/CiChangeDetection/PromotionWorkflowContract.cs",
+                "code,web"),
+            ("eng/CiChangeDetection/Planning/ChangeRoutingPolicy.cs",
+                "code"),
+            ("eng/CiChangeDetection/Planning/ChangePlanTestSuite.cs",
+                "code"),
             ("eng/package-fixtures/a.nupkg", "code"),
             ("eng/package-manifest-corpus.json", "code"),
             ("eng/verify-package-manifest-corpus.cs", "code"),
@@ -123,21 +147,34 @@ internal static class ChangePlanTestSuite
             ("eng/prepare-decompiler-pr-corpus.sh", "code"),
             ("eng/prepare-authored-source-oracles.sh", "code"),
             ("eng/report-decompiler-opt-in-corpus-drift.sh", "code"),
-            ("eng/prepare-decompiler-package-sweep.cs", "code"),
+            ("eng/prepare-decompiler-package-sweep.cs",
+                "code"),
             ("eng/prepare-evil-corpus.sh", "code"),
             ("docs/data/nuget-top-packages.lock.json", "code,docs"),
             ("docs/data/nuget-top-packages.json", "code,docs"),
             ("eng/restore-iltools.sh", "code"),
             ("eng/activate-iltools.sh", "code"),
             ("eng/test-ts-jsexport-context-aot.sh", "code"),
+            ("eng/test-runtime-flavor.sh", "code"),
             ("eng/run-method-semantics-platform-probe.sh", "code,web"),
             ("eng/run-local-path-admission-platform-probe.sh", "code,web"),
-            ("eng/test-ts-jsexport-typescript.sh", "web"),
-            ("eng/generate-inspect-web-multi-facade-canary.sh", "web"),
-            ("eng/test-inspect-web-multi-facade-canary.sh", "web"),
+            ("eng/test-ts-jsexport-typescript.sh",
+                "web,web-comprehensive"),
+            ("eng/generate-inspect-web-multi-facade-canary.sh",
+                "web,web-comprehensive"),
+            ("eng/test-inspect-web-multi-facade-canary.sh",
+                "web,web-comprehensive"),
+            ("eng/generate-inspect-web-managed-operation-bridge-canary.sh",
+                "web,web-comprehensive"),
+            ("eng/test-inspect-web-managed-operation-bridge-canary.sh",
+                "web,web-comprehensive"),
+            ("eng/test-inspect-web-package-adoption-gate.sh", "web"),
+            ("eng/test-inspect-web-published-application.sh", "web"),
+            ("eng/test-inspect-web-source-comparison-gate.sh", "web"),
             ("eng/validate-inspect-web-promotion.cs", "web"),
             ("eng/validate-inspect-web-promotion.sh", "web"),
-            ("eng/generate-inspect-web-engine-facade.sh", "web"),
+            ("eng/generate-inspect-web-engine-facade.sh",
+                "web,web-comprehensive"),
             ("eng/InspectWebAsyncLoweringReceipt.targets",
                 "code,csharpdiff,decompiler,ildiff,ilroundtrip,web"),
             ("eng/verify-inspect-web-async-deployment.sh", "web"),
@@ -150,9 +187,10 @@ internal static class ChangePlanTestSuite
             ("eng/decompiler-gate-known-red.txt", "decompiler,docs"),
             ("eng/decompiler-gate-skip-projects.txt", "decompiler,docs"),
             ("eng/restore-ilassembler.sh", "code,ilroundtrip"),
-            ("prototypes/inspect-web/README.md", "docs"),
-            ("prototypes/inspect-web/index.html", "web"),
-            ("prototypes/annotated-source-viewer/app.js", "web"),
+            ("inspect-web/README.md", "docs"),
+            ("inspect-web/index.html", "web"),
+            ("prototypes/annotated-source-viewer/app.js",
+                "web"),
             ("Directory.Build.props",
                 "code,csharpdiff,decompiler,ildiff,ilroundtrip,packaging,"
                 + "shipped,web"),
@@ -167,11 +205,17 @@ internal static class ChangePlanTestSuite
             ("global.json", "decompiler,packaging,shipped"),
             (".github/workflows/ci.yml",
                 "code,csharpdiff,decompiler,ildiff,packaging,shipped,web,"
-                + "skills,tla"),
-            (".github/workflows/release.yml", "code,packaging"),
-            (".github/workflows/deploy-inspect-web.yml", "web"),
-            (".github/workflows/deploy-inspect-web-coreclr.yml", "web"),
-            (".github/workflows/promote-inspect-web.yml", "web"),
+                + "web-comprehensive,skills,tla"),
+            (".github/workflows/deep-inspect.yml",
+                "code,web,web-comprehensive"),
+            (".github/workflows/release.yml",
+                "code,packaging"),
+            (".github/workflows/deploy-inspect-web.yml",
+                "web"),
+            (".github/workflows/deploy-inspect-web-coreclr.yml",
+                "web"),
+            (".github/workflows/promote-inspect-web.yml",
+                "web"),
             (".github/workflows/other.yml", "code"),
             (".markdownlint.yaml", "docs"),
             ("docs/.markdownlint-cli2.jsonc", "docs"),
@@ -189,6 +233,7 @@ internal static class ChangePlanTestSuite
             ("eng/tla-module-overrides.txt", "docs,tla"),
             ("eng/tla-expected-exit-codes.txt", "docs,tla"),
             ("docs/design/models/m/README.md", "docs"),
+            ("misc/notes.rst", ""),
         ];
 
         foreach ((string path, string selected) in canaries)
@@ -203,21 +248,36 @@ internal static class ChangePlanTestSuite
             }
         }
 
-        // A change set is the union of its records, and the classifier owner
-        // is absorbing.
+        foreach (string path in new[]
+        {
+            "src/ts-jsexport/Program.cs",
+            "src/ILInspector.JsExportSurface/JsExportSurface.cs",
+            "src/ILInspector.TypeScriptGeneration/TypeScriptGeneration.cs",
+            "inspect-web/multi-facade-canary/Alpha/Exports.cs",
+            "inspect-web/managed-operation-bridge-canary/Bridge/Exports.cs",
+            "inspect-web/scripts/verify-multi-facade-canary.ts",
+            "inspect-web/scripts/verify-managed-operation-bridge-canary.ts",
+            "inspect-web/DotnetInspect.Web/InspectWebJsExportContext.cs",
+            "inspect-web/DotnetInspect.Web.Core/BrowserManagedOperationBridge.cs",
+            "inspect-web/DotnetInspect.Web.Core/BrowserManagedSharedProducer.cs",
+            "inspect-web/DotnetInspect.Web.Core/BrowserManagedEpochWorkReporter.cs",
+            "inspect-web/DotnetInspect.Web.Core/BrowserManagedEpochWorkRegistration.cs",
+        })
+        {
+            RoutingSelections actual = policy.Route(Evidence(path));
+            if (!actual.Web || !actual.WebComprehensive)
+            {
+                throw new InvalidOperationException(
+                    $"{path} did not select comprehensive inspect-web validation.");
+            }
+        }
+
+        // A change set is the union of its records.
         if (Render(policy.Route(Evidence("README.md", "src/a/b.cs")))
             != "code,decompiler,docs,shipped")
         {
             throw new InvalidOperationException(
                 "Multi-record routing did not union its records.");
-        }
-
-        if (Render(policy.Route(
-            Evidence("README.md", "eng/ci-detect-changes.sh")))
-            != Render(RoutingSelections.All))
-        {
-            throw new InvalidOperationException(
-                "The classifier owner did not select every validation.");
         }
     }
 
@@ -248,7 +308,7 @@ internal static class ChangePlanTestSuite
 
             // A missing inspect-web inventory broadens `web` to every src
             // change rather than narrowing it.
-            if (Render(policy.Route(Evidence("src/dotnet-inspect/Program.cs")))
+            if (Render(policy.Route(Evidence("src/DotnetInspect.Cli/Program.cs")))
                 != "code,decompiler,shipped,web")
             {
                 throw new InvalidOperationException(
@@ -257,7 +317,7 @@ internal static class ChangePlanTestSuite
             }
 
             // A missing decompiler skip inventory exempts nothing.
-            if (!policy.Route(Evidence("src/dotnet-inspect/Program.cs"))
+            if (!policy.Route(Evidence("src/DotnetInspect.Cli/Program.cs"))
                 .Decompiler)
             {
                 throw new InvalidOperationException(
@@ -266,7 +326,7 @@ internal static class ChangePlanTestSuite
 
             PlanningResult result = ChangePlanner.Compose(
                 Provenance(PlanEventKind.PullRequestSyntheticCandidate),
-                Evidence("src/dotnet-inspect/Program.cs"),
+                Evidence("src/DotnetInspect.Cli/Program.cs"),
                 policy);
             if (result.Plan.Diagnostics.Count != 2
                 || !result.Plan.Validations.Test)
@@ -326,6 +386,7 @@ internal static class ChangePlanTestSuite
             ValidationSelections selections =
                 ValidationSelections.FromRouting(all, kind);
             if (!(selections.Test
+                && selections.RepositoryGuards
                 && !selections.DependencyPolicy
                 && selections.CSharpDiffSmoke
                 && selections.DecompilerGates
@@ -335,6 +396,7 @@ internal static class ChangePlanTestSuite
                 && selections.Pack
                 && selections.BuildNet10
                 && selections.InspectWeb
+                && selections.InspectWebComprehensive
                 && selections.SkillGate
                 && selections.Tla))
             {
@@ -347,6 +409,7 @@ internal static class ChangePlanTestSuite
         ValidationSelections pushed =
             ValidationSelections.FromRouting(all, PlanEventKind.Push);
         if (pushed.Test
+            || pushed.RepositoryGuards
             || !pushed.DependencyPolicy
             || pushed.CSharpDiffSmoke
             || pushed.DecompilerGates
@@ -360,18 +423,49 @@ internal static class ChangePlanTestSuite
                 "A push selected a pre-merge validation.");
         }
 
-        if (!pushed.Markdownlint || !pushed.InspectWeb || !pushed.Tla)
+        if (!pushed.Markdownlint
+            || !pushed.InspectWeb
+            || pushed.InspectWebComprehensive
+            || !pushed.Tla)
         {
             throw new InvalidOperationException(
                 "A push dropped an ungated validation.");
         }
 
-        // A neighbouring documentation-only candidate selects documentation
-        // validation and no content gate.
+        RoutingSelections directOwner = policy.Route(Evidence(
+            "inspect-web/scripts/verify-managed-operation-bridge-canary.ts"));
+        foreach (PlanEventKind kind in new[]
+        {
+            PlanEventKind.PullRequestSyntheticCandidate,
+            PlanEventKind.MergeGroup,
+        })
+        {
+            ValidationSelections directPreMerge =
+                ValidationSelections.FromRouting(directOwner, kind);
+            if (!directPreMerge.InspectWeb
+                || !directPreMerge.InspectWebComprehensive)
+            {
+                throw new InvalidOperationException(
+                    $"Direct inspect-web owner change lost comprehensive {kind} validation.");
+            }
+        }
+
+        ValidationSelections directPush =
+            ValidationSelections.FromRouting(directOwner, PlanEventKind.Push);
+        if (!directPush.InspectWeb || directPush.InspectWebComprehensive)
+        {
+            throw new InvalidOperationException(
+                "Direct inspect-web owner push did not retain only the fast backstop.");
+        }
+
+        // A neighbouring documentation-only candidate selects only
+        // documentation validation. The always-run changes job owns the
+        // repository-wide line-ending guard.
         ValidationSelections docsOnly = ValidationSelections.FromRouting(
             policy.Route(Evidence("docs/design/ci-change-plan.md")),
             PlanEventKind.PullRequestSyntheticCandidate);
         if (!docsOnly.Markdownlint
+            || docsOnly.RepositoryGuards
             || docsOnly.Test
             || docsOnly.DecompilerGates
             || docsOnly.InspectWeb
@@ -379,6 +473,26 @@ internal static class ChangePlanTestSuite
         {
             throw new InvalidOperationException(
                 "A documentation-only candidate selected a content gate.");
+        }
+
+        ValidationSelections csharpSource =
+            ValidationSelections.FromRouting(
+                policy.Route(Evidence("src/NuGetFetch/PackageSource.cs")),
+                PlanEventKind.PullRequestSyntheticCandidate);
+        if (!csharpSource.RepositoryGuards || !csharpSource.Test)
+        {
+            throw new InvalidOperationException(
+                "A C# source candidate did not select the repository guards.");
+        }
+
+        ValidationSelections emptyPreMerge =
+            ValidationSelections.FromRouting(
+                policy.Route(ChangeEvidence.Create([])),
+                PlanEventKind.MergeGroup);
+        if (emptyPreMerge.RepositoryGuards || emptyPreMerge.Test)
+        {
+            throw new InvalidOperationException(
+                "An empty pre-merge candidate selected a content gate.");
         }
     }
 
@@ -395,7 +509,9 @@ internal static class ChangePlanTestSuite
             "eng/restore-ilassembler.sh",
             "src/ILInspector.Metadata/Reader.cs",
             "src/ILInspector.MetadataPrimitives/P.cs",
-            "src/DotnetInspector.Core/Core.cs",
+            "src/DotnetInspector.Cache/PersistentCache.cs",
+            "src/DotnetInspector.Sections/InspectionEnvelope.cs",
+            "src/UntrustedDocuments/HardenedJson.cs",
             "Directory.Build.props",
             "Directory.Build.targets",
             "dotnet-inspect.sln",
@@ -414,6 +530,7 @@ internal static class ChangePlanTestSuite
             PlanRefusalCategory.PlanSerialization,
             () => new ValidationSelections(
                 test: false,
+                repositoryGuards: false,
                 dependencyPolicy: false,
                 cSharpDiffSmoke: false,
                 decompilerGates: false,
@@ -423,6 +540,7 @@ internal static class ChangePlanTestSuite
                 pack: false,
                 buildNet10: false,
                 inspectWeb: false,
+                inspectWebComprehensive: false,
                 skillGate: false,
                 tla: false));
     }
@@ -522,7 +640,7 @@ internal static class ChangePlanTestSuite
             policy);
 
         const string Golden =
-            "{\"schemaVersion\":2,\"status\":\"planned\",\"provenance\":"
+            "{\"schemaVersion\":6,\"status\":\"planned\",\"provenance\":"
             + "{\"kind\":\"pullRequestSyntheticCandidate\",\"baseObjectId\":"
             + "\"1111111111111111111111111111111111111111\","
             + "\"candidateObjectId\":"
@@ -530,11 +648,13 @@ internal static class ChangePlanTestSuite
             + "{\"recordCount\":2,\"sha256\":"
             + "\"e2942177c268e91967eeb66ed6c48b8e8e426158f30a8f3371de8322"
             + "439a2a05\"},\"validations\":{\"test\":false,"
+            + "\"repositoryGuards\":false,"
             + "\"dependencyPolicy\":false,"
             + "\"csharpDiffSmoke\":false,\"decompilerGates\":false,"
             + "\"markdownlint\":true,\"ilDiffSmoke\":false,"
             + "\"ilRoundTrip\":false,\"pack\":false,\"buildNet10\":false,"
-            + "\"inspectWeb\":false,\"skillGate\":false,\"tla\":true},"
+            + "\"inspectWeb\":false,\"inspectWebComprehensive\":false,"
+            + "\"skillGate\":false,\"tla\":true},"
             + "\"scopes\":{\"tla\":{\"artifact\":\"ci-plan-tla-paths0\","
             + "\"framing\":\"pathBytesNulTerminated\",\"recordCount\":1,"
             + "\"sha256\":\"c2965478b65cc2a4d5329c0634d39a072c6d0adf0669a2"
@@ -630,12 +750,12 @@ internal static class ChangePlanTestSuite
                     "\"status\": \"planned\"")),
             ("non-canonical property order",
                 text.Replace(
-                    "{\"schemaVersion\":2,\"status\":\"planned\"",
-                    "{\"status\":\"planned\",\"schemaVersion\":2")),
+                    "{\"schemaVersion\":6,\"status\":\"planned\"",
+                    "{\"status\":\"planned\",\"schemaVersion\":6")),
             ("escaped member name",
                 text.Replace("schemaVersion", "schema\\u0056ersion")),
             ("non-canonical number",
-                text.Replace("\"schemaVersion\":2", "\"schemaVersion\":2e0")),
+                text.Replace("\"schemaVersion\":6", "\"schemaVersion\":6e0")),
             ("control character", $"\n{text}"),
             ("truncated document", text[..^1]),
             ("unknown member",
@@ -643,13 +763,13 @@ internal static class ChangePlanTestSuite
             ("missing member", text.Replace(",\"diagnostics\":[]", "")),
             ("duplicate member",
                 text.Replace(
-                    "\"schemaVersion\":2",
-                    "\"schemaVersion\":2,\"schemaVersion\":2")),
+                    "\"schemaVersion\":6",
+                    "\"schemaVersion\":6,\"schemaVersion\":6")),
             ("mistyped boolean", text.Replace("\"test\":false", "\"test\":0")),
             ("mistyped count",
                 text.Replace("\"recordCount\":1", "\"recordCount\":\"1\"")),
             ("unsupported version",
-                text.Replace("\"schemaVersion\":2", "\"schemaVersion\":3")),
+                text.Replace("\"schemaVersion\":6", "\"schemaVersion\":5")),
             ("unsupported status",
                 text.Replace("\"planned\"", "\"refused\"")),
             ("invalid digest",
@@ -660,6 +780,10 @@ internal static class ChangePlanTestSuite
                 text.Replace(BaseObjectId, new string('0', 40))),
             ("broken invariant",
                 text.Replace("\"ilRoundTrip\":false", "\"ilRoundTrip\":true")),
+            ("broken inspect-web invariant",
+                text.Replace(
+                    "\"inspectWebComprehensive\":false",
+                    "\"inspectWebComprehensive\":true")),
             ("unsupported diagnostic",
                 text.Replace("\"diagnostics\":[]", "\"diagnostics\":[\"x\"]")),
             ("malformed descriptor",
@@ -719,25 +843,44 @@ internal static class ChangePlanTestSuite
                 + "valid zero-record scope.");
         }
 
-        // Model content enters the scope in input order; infrastructure and
-        // unrelated paths do not.
+        // The manifest remains validation input even with no mapping changes.
+        PlanningResult manifest = ChangePlanner.Compose(
+            Provenance(PlanEventKind.PullRequestSyntheticCandidate),
+            Evidence("eng/tla-expected-exit-codes.txt"),
+            policy,
+            changedOutcomePaths: []);
+        if (!manifest.HasTlaScope
+            || Encoding.UTF8.GetString(manifest.TlaScopeBytes)
+                != "eng/tla-expected-exit-codes.txt\0"
+            || manifest.Plan.TlaScope?.RecordCount != 1)
+        {
+            throw new InvalidOperationException(
+                "The TLA+ exact-outcome manifest did not enter its scope.");
+        }
+
+        // Consumer inputs enter the scope in plan order; pure infrastructure
+        // and unrelated paths do not.
         PlanningResult mixed = ChangePlanner.Compose(
             Provenance(PlanEventKind.PullRequestSyntheticCandidate),
             Evidence(
                 "docs/models/b/Second.cfg",
                 "eng/run-tla-checks.sh",
+                "eng/tla-expected-exit-codes.txt",
                 "docs/design/models/a/First.TLA",
                 "README.md"),
-            policy);
+            policy,
+            changedOutcomePaths: []);
         if (!mixed.HasTlaScope
             || Encoding.UTF8.GetString(mixed.TlaScopeBytes)
-                != "docs/models/b/Second.cfg\0docs/design/models/a/First.TLA\0"
-            || mixed.Plan.TlaScope?.RecordCount != 2
+                != "docs/models/b/Second.cfg\0"
+                    + "eng/tla-expected-exit-codes.txt\0"
+                    + "docs/design/models/a/First.TLA\0"
+            || mixed.Plan.TlaScope?.RecordCount != 3
             || mixed.Plan.TlaScope.Artifact != "ci-plan-tla-paths0"
             || mixed.Plan.TlaScope.Framing != "pathBytesNulTerminated")
         {
             throw new InvalidOperationException(
-                "The TLA+ scope did not contain exactly its model content.");
+                "The TLA+ scope did not contain exactly its consumer inputs.");
         }
 
         // No TLA+ selection means no descriptor at all.
@@ -796,6 +939,171 @@ internal static class ChangePlanTestSuite
                     new ChangeRecord(ChangeStatus.Modified, oversizedPath),
                 ]),
                 policy));
+    }
+
+    private static void AssertTlaManifestFixtures(string scratch)
+    {
+        // PR-fast reproduction of #6919: new retained-workspace mappings must
+        // not select unchanged research-workspace mappings.
+        const string Retained =
+            "docs/design/models/inspect-web-retained-workspace-realization/Safety.cfg";
+        const string Research =
+            "docs/design/models/research-workspace-target-composition/BrokenUnavailableInvocation.cfg";
+        const string Other = "docs/models/other/Other.cfg";
+        const string Unchanged = $"{Research}=12\n";
+        (string Name, string? Before, string? After, string[] Affected)[] cases =
+        [
+            ("addition", Unchanged,
+                $"{Retained}=0\n{Unchanged}", [Retained]),
+            ("last mapping removal", $"{Retained}=0\n{Unchanged}",
+                Unchanged, [Retained]),
+            ("value change", $"{Retained}=0\n{Unchanged}",
+                $"{Retained}=13\n{Unchanged}", [Retained]),
+            ("multiple directories", $"{Retained}=0\n{Unchanged}",
+                $"{Other}=0\n{Retained}=13\n{Unchanged}", [Retained, Other]),
+            ("mapping rename", $"{Retained}=0\n{Unchanged}",
+                $"{Other}=0\n{Unchanged}", [Retained, Other]),
+            ("comments only", $"{Retained}=0\n{Unchanged}",
+                $"# Updated explanation\n\n{Retained}=0\n{Unchanged}", []),
+            ("ordering only", $"{Retained}=0\n{Unchanged}",
+                $"{Unchanged}{Retained}=0\n", []),
+            ("final newline only", $"{Retained}=0\n{Unchanged}",
+                $"{Retained}=0\n{Unchanged.TrimEnd('\n')}", []),
+            ("remove every mapping", $"{Retained}=0\n{Unchanged}",
+                "# No exact outcomes\n", [Retained, Research]),
+            ("add manifest", null, $"{Retained}=0\n", [Retained]),
+            ("delete manifest", $"{Retained}=0\n", null, [Retained]),
+        ];
+
+        foreach (var test in cases)
+        {
+            using GitFixtureRepository fixture =
+                GitFixtureRepository.Create(scratch);
+            foreach (string path in new[] { Retained, Research, Other })
+            {
+                fixture.Write(path, "SPECIFICATION Spec\n");
+            }
+
+            if (test.Before is not null)
+            {
+                fixture.Write(TlaManifestChanges.ManifestPath, test.Before);
+            }
+
+            string baseCommit = fixture.CommitAll("base");
+            if (test.After is null)
+            {
+                fixture.Remove(TlaManifestChanges.ManifestPath);
+            }
+            else
+            {
+                fixture.Write(TlaManifestChanges.ManifestPath, test.After);
+            }
+
+            string candidate = fixture.CommitAll(test.Name);
+            string expected = TlaManifestChanges.ManifestPath + "\0"
+                + string.Concat(test.Affected.Select(path => path + "\0"));
+            foreach (PlanEventKind kind in new[]
+            {
+                PlanEventKind.PullRequestSyntheticCandidate,
+                PlanEventKind.Push,
+                PlanEventKind.MergeGroup,
+            })
+            {
+                PlanningResult result = ChangePlanner.Plan(
+                    fixture.Root, kind, baseCommit, candidate);
+                AssertManifestScope(result, expected, test.Name);
+                if (result.Plan.Input.RecordCount != 1)
+                {
+                    throw new InvalidOperationException(
+                        "Derived mapping paths changed the Git input count.");
+                }
+            }
+        }
+
+        using (GitFixtureRepository fixture =
+            GitFixtureRepository.Create(scratch))
+        {
+            fixture.Write(Retained, "SPECIFICATION Spec\n");
+            fixture.Write(Research, "SPECIFICATION Spec\n");
+            fixture.Write(TlaManifestChanges.ManifestPath,
+                $"{Retained}=0\n{Research}=0\n");
+            _ = fixture.CommitAll("ancestor");
+            fixture.Write(TlaManifestChanges.ManifestPath,
+                $"{Retained}=0\n{Unchanged}");
+            string baseCommit = fixture.CommitAll("moved base");
+            fixture.Write(TlaManifestChanges.ManifestPath,
+                $"{Retained}=13\n{Unchanged}");
+            string immediateParent = fixture.CommitAll("mapping changed");
+            fixture.Write(Retained, "SPECIFICATION UpdatedSpec\n");
+            fixture.Write("docs/models/direct/Direct.tla", "module\n");
+            string candidate = fixture.CommitAll("model changed");
+
+            // Push/merge-group base is not necessarily the immediate parent.
+            string expected = Retained + "\0docs/models/direct/Direct.tla\0"
+                + TlaManifestChanges.ManifestPath + "\0";
+            foreach (PlanEventKind kind in new[]
+            {
+                PlanEventKind.Push, PlanEventKind.MergeGroup,
+            })
+            {
+                AssertManifestScope(
+                    ChangePlanner.Plan(
+                        fixture.Root, kind, baseCommit, candidate),
+                    expected, "exact endpoints and direct-path deduplication");
+            }
+
+            AssertManifestScope(
+                ChangePlanner.Plan(
+                    fixture.Root, PlanEventKind.PullRequestSyntheticCandidate,
+                    immediateParent, candidate),
+                Retained + "\0docs/models/direct/Direct.tla\0",
+                "unchanged manifest at the current PR base");
+        }
+
+        foreach (string invalid in new[]
+        {
+            $"{Retained}\n",
+            $"{Retained}=\n",
+            $"{Retained}=0\n{Retained}=13\n",
+            "docs/models/../other/Other.cfg=0\n",
+            "docs/models/other/nested/Other.cfg=0\n",
+            "docs/models/other/Other.tla=0\n",
+        })
+        {
+            AssertRefusal(null,
+                () => TlaManifestChanges.Compare([], Utf8(invalid)),
+                "unusable mapping evidence");
+        }
+
+        byte[] rawPath = [.. Utf8("docs/models/raw/"), 0xFF, .. Utf8(".cfg")];
+        IReadOnlyList<byte[]> rawChanges = TlaManifestChanges.Compare(
+            [.. rawPath, .. Utf8("=0\n")],
+            [.. rawPath, .. Utf8("=13\n")]);
+        if (rawChanges.Count != 1
+            || !rawChanges[0].AsSpan().SequenceEqual(rawPath))
+        {
+            throw new InvalidOperationException(
+                "Manifest mapping comparison reinterpreted path bytes.");
+        }
+    }
+
+    private static void AssertManifestScope(
+        PlanningResult result,
+        string expected,
+        string description)
+    {
+        if (!result.Plan.Validations.Tla
+            || !result.HasTlaScope
+            || Encoding.UTF8.GetString(result.TlaScopeBytes) != expected
+            || result.Plan.TlaScope?.RecordCount
+                != expected.Count(character => character == '\0')
+            || result.Plan.TlaScope.Sha256
+                != Digest.LowercaseSha256(result.TlaScopeBytes))
+        {
+            throw new InvalidOperationException(
+                $"Incorrect TLA manifest scope for {description}: "
+                + Encoding.UTF8.GetString(result.TlaScopeBytes));
+        }
     }
 
     private static void AssertGitFixtures(string scratch, string repository)
@@ -1333,8 +1641,7 @@ internal static class ChangePlanTestSuite
 
     /// <summary>
     /// Pins the file-based entrypoint to this assembly's public façade. The
-    /// entrypoint is not routed by the legacy classifier, so this gate is what
-    /// keeps it from drifting away from the planner it publishes.
+    /// gate keeps the shim from drifting away from the planner it publishes.
     /// </summary>
     /// <param name="repository">The repository root directory.</param>
     private static void AssertEntrypointContract(string repository)
@@ -1428,6 +1735,11 @@ internal static class ChangePlanTestSuite
         if (selections.Web)
         {
             selected.Add("web");
+        }
+
+        if (selections.WebComprehensive)
+        {
+            selected.Add("web-comprehensive");
         }
 
         if (selections.Skills)

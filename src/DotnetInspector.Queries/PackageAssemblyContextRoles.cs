@@ -406,7 +406,7 @@ public sealed class PackageAssemblyContextRoles : IDisposable
         return result;
     }
 
-    sealed class RoleBindingPolicy(
+    internal sealed class RoleBindingPolicy(
         ImmutableArray<ResolvedAssemblyReference> assemblies)
         : IAssemblyBindingPolicy
     {

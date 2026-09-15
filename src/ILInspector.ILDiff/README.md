@@ -17,5 +17,5 @@ boundary.
 Run its executable xUnit suite in Release:
 
 ```bash
-dotnet run --project src/ILInspector.ILDiff.Tests -c Release
+dotnet run --project tests/ILInspector.ILDiff.Tests -c Release
 ```

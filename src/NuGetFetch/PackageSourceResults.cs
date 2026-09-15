@@ -1,6 +1,8 @@
 using System.Collections;
 using System.Net;
 using System.Runtime.CompilerServices;
+using System.Security.Cryptography;
+using System.Text;
 using InertText;
 
 namespace NuGetFetch;
@@ -90,6 +92,13 @@ public sealed class PackageSourceAssociation
 public sealed class PackageProducerIdentity
     : IEquatable<PackageProducerIdentity>
 {
+    const string PortableKeyPrefix = "nfp-1.";
+    const int PortableKeyLength = 70;
+
+    static readonly UTF8Encoding StrictUtf8 = new(
+        encoderShouldEmitUTF8Identifier: false,
+        throwOnInvalidBytes: true);
+
     internal PackageProducerIdentity(
         object ownerCapability,
         string key,
@@ -98,11 +107,22 @@ public sealed class PackageProducerIdentity
         PackageSourceClientFactory.RequireOwnerCapability(ownerCapability);
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         Key = key;
+        PortableKey = CreatePortableKey(key);
         Display = display;
     }
 
     /// <summary>Gets the opaque, versioned producer key.</summary>
     public string Key { get; }
+
+    /// <summary>
+    /// Gets the bounded, credential-free token for portable producer
+    /// correspondence.
+    /// </summary>
+    /// <remarks>
+    /// The token grants no source authority. Consumers compare it only with
+    /// tokens issued from producer identities authorized by the current host.
+    /// </remarks>
+    public string PortableKey { get; }
 
     /// <summary>Gets the inert diagnostic producer display.</summary>
     public InertString Display { get; }
@@ -110,6 +130,16 @@ public sealed class PackageProducerIdentity
     /// <summary>Gets the canonical NuGet.org producer.</summary>
     public static PackageProducerIdentity NuGetOrg =>
         PackageSourceClientFactory.NuGetOrgProducer;
+
+    /// <summary>
+    /// True when <paramref name="value"/> uses the current portable producer
+    /// token grammar.
+    /// </summary>
+    public static bool IsCanonicalPortableKey(string? value) =>
+        value is { Length: PortableKeyLength }
+        && value.StartsWith(PortableKeyPrefix, StringComparison.Ordinal)
+        && value.AsSpan(PortableKeyPrefix.Length).IndexOfAnyExcept(
+            "0123456789abcdef") < 0;
 
     /// <inheritdoc/>
     public bool Equals(PackageProducerIdentity? other) =>
@@ -133,6 +163,12 @@ public sealed class PackageProducerIdentity
         PackageProducerIdentity? left,
         PackageProducerIdentity? right) =>
         !(left == right);
+
+    static string CreatePortableKey(string key)
+    {
+        byte[] digest = SHA256.HashData(StrictUtf8.GetBytes(key));
+        return PortableKeyPrefix + Convert.ToHexStringLower(digest);
+    }
 }
 
 /// <summary>
@@ -669,6 +705,8 @@ public sealed class PackageSourceOperationResult<T>
     {
         PackageSourceClientFactory.RequireOwnerCapability(ownerCapability);
         if (typeof(T) != typeof(PackageSearchResult)
+            && typeof(T) != typeof(NuGetCatalogPage)
+            && typeof(T) != typeof(NuGetCatalogPackageReceipt)
             && typeof(T) != typeof(PackageVersionResult)
             && typeof(T) != typeof(PackageSourceManifest)
             && typeof(T) != typeof(PackageSourcePayload))
@@ -698,7 +736,7 @@ public sealed class PackageSourceOperationResult<T>
 /// <summary>
 /// Issues immutable results for one runtime package source.
 /// </summary>
-public sealed class PackageSourceResultFactory
+public sealed partial class PackageSourceResultFactory
 {
     private readonly object _ownerCapability;
     private readonly object _issuer = new();
@@ -1479,6 +1517,25 @@ internal static class PackageSourceOperation
             cancellationToken,
             operationContext);
 
+    public static Task<
+        PackageSourceOperationResult<NuGetCatalogPackageReceipt>>
+        CaptureCatalogPackageReceiptAsync(
+            PackageSourceResultFactory factory,
+            PackageSourceCoordinate coordinate,
+            Func<Task<NuGetCatalogPackageReceipt>> operation,
+            NuGetOperationDeadline operationDeadline,
+            CancellationToken cancellationToken,
+            NuGetOperationContext? operationContext = null) =>
+        CaptureAsync(
+            operation,
+            value => factory.SucceededCatalogPackageReceipt(
+                value,
+                operationDeadline),
+            kind => factory.FailedCatalogPackageReceipt(coordinate, kind),
+            allowNotFound: false,
+            cancellationToken,
+            operationContext);
+
     private static async Task<PackageSourceOperationResult<T>> CaptureAsync<T>(
         Func<Task<T>> operation,
         Func<T, PackageSourceOperationResult<T>> succeeded,
@@ -1510,7 +1567,7 @@ internal static class PackageSourceOperation
         }
     }
 
-    private static bool TryClassify(
+    internal static bool TryClassify(
         Exception exception,
         bool allowNotFound,
         out PackageSourceFailureKind kind)
@@ -1527,11 +1584,15 @@ internal static class PackageSourceOperation
                 PackageSourceFailureKind.ResponseRejected,
             NuGetRedirectLimitExceededException
                 or NuGetRegistrationResourceLimitExceededException
+                or NuGetCatalogResourceLimitExceededException
+                or NuGetCatalogRequestLimitExceededException
+                or NuGetCatalogDecodedByteLimitExceededException
                 or LocalPackageSourceLimitExceededException =>
                 PackageSourceFailureKind.ResponseRejected,
             NuGetSourceCapabilityUnavailableException =>
                 PackageSourceFailureKind.Unsupported,
             NuGetSourceResponseException
+                or NuGetCatalogStalePageException
                 or System.Text.Json.JsonException
                 or InvalidDataException =>
                 PackageSourceFailureKind.InvalidResponse,
@@ -1570,10 +1631,14 @@ internal static class PackageSourceOperation
             or NuGetMetadataResponseTooLargeException
             or NuGetRedirectLimitExceededException
             or NuGetRegistrationResourceLimitExceededException
+            or NuGetCatalogResourceLimitExceededException
+            or NuGetCatalogRequestLimitExceededException
+            or NuGetCatalogDecodedByteLimitExceededException
             or LocalPackageSourceLimitExceededException
             or LocalPackageSourceNotFoundException
             or NuGetSourceCapabilityUnavailableException
             or NuGetSourceResponseException
+            or NuGetCatalogStalePageException
             or System.Text.Json.JsonException
             or InvalidDataException
             or HttpRequestException

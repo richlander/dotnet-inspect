@@ -107,6 +107,35 @@ public class AssemblyReferenceBindingPolicyTests
     }
 
     [Fact]
+    public void Select_PreservesMetadataAdmissionFailuresAcrossCachedRequests()
+    {
+        Exception[] failures =
+        [
+            new UnsupportedMetadataFormatException(),
+            new MalformedMetadataRootException(
+                MetadataRootMalformedReason.InvalidSignature),
+        ];
+
+        foreach (Exception failure in failures)
+        {
+            var policy = new AssemblyReferenceBindingPolicy(
+                new RecordingResolver((_, _) => throw failure));
+            AssemblyBindingRequest request = Request(
+                AssemblyBindingTarget.Reference(Reference));
+
+            Exception first = Assert.Throws(
+                failure.GetType(),
+                () => policy.Select(request));
+            Exception second = Assert.Throws(
+                failure.GetType(),
+                () => policy.Select(request));
+
+            Assert.Same(failure, first);
+            Assert.Same(failure, second);
+        }
+    }
+
+    [Fact]
     public void CoreLibrary_IsUnavailableThroughReferenceResolverAdapter()
     {
         var resolver = new RecordingResolver((_, _) => null);
@@ -195,7 +224,9 @@ public class AssemblyReferenceBindingPolicyTests
                 frameworkVersion: null,
                 "shadow"));
         var resolver = new RecordingResolverPolicy(
-            _ => AssemblyBindingSelection.Found(selected, [shadow]));
+            _ => AssemblyBindingCandidateDomain.Create(
+                [selected, shadow])
+                .Finalize([selected]));
         var policy = new AssemblyReferenceBindingPolicy(resolver);
 
         var result = Assert.IsType<AssemblyBindingSelection.Selected>(

@@ -6,19 +6,33 @@ This document defines the target worker-runtime host and protocol for
 [issue #5093](https://github.com/richlander/dotnet-inspect/issues/5093).
 The user approved its inspect-web-only host scope on 2026-09-02. Implementation
 under [issue #5418](https://github.com/richlander/dotnet-inspect/issues/5418)
-is dependency-ordered and partial: the descriptor-safe two-stage wire codec
-foundation is implemented under the focused
-`inspect-web-worker-envelope-validation` sub-gate without allocating epoch or
-operation authority. The runtime core, browser binding, responsiveness, and
-final gates named below remain required.
+is dependency-ordered and partial. The descriptor-safe two-stage wire codec,
+shared runtime core, host authority, and complete base TypeScript protocol
+gate are implemented under `inspect-web-worker-envelope-validation` and
+`inspect-web-worker-protocol`. The browser binding additionally connects a real
+module `Worker`, the current generated facade set, and native lifecycle inputs
+under `inspect-web-worker-browser-binding`. Its explicit diagnostic consumer
+uses the existing managed async-lowering canary. It does not route current UI
+features through the Worker. Bootstrap now registers the managed epoch-work
+reporter and the typed Type Source operation before readiness. The page-side
+Type Source producer adapter is prepared but has no production caller.
+Production feature adoption, full lifecycle coverage, responsiveness evidence,
+and the
+remaining browser gates named below are still required.
 
 Its finite state models establish only the abstract properties recorded with
-those models. The engine-to-browser event-stream contract is now defined by
-[the async event-stream owner](engine-browser-async-event-stream.md). Durable
-worker event batches remain a later residual blocked on
-[#5570](https://github.com/richlander/dotnet-inspect/issues/5570) and the
-relevant [#5419](https://github.com/richlander/dotnet-inspect/issues/5419)
-managed handoff.
+those models. The engine-to-browser event-stream contract is defined by
+[the async event-stream owner](engine-browser-async-event-stream.md). The
+Worker's bounded `Events` handoff supplies transport to the implemented
+publication path from
+[#5570](https://github.com/richlander/dotnet-inspect/issues/5570).
+Feature adapters can compose it with the complete managed nonterminal
+callback from [#5419](https://github.com/richlander/dotnet-inspect/issues/5419).
+The operation-addressed typed control protocol is implemented under
+[#6376](https://github.com/richlander/dotnet-inspect/issues/6376), with Package
+Query match-credit replenishment as its first named consumer. Concrete feature
+adoption remains separate; transport and control support do not move Package
+Query or Source into the Worker.
 
 ## Decision
 
@@ -33,6 +47,8 @@ The host:
 - holds activated operation starts until one consumer-owned bootstrap barrier
   fulfills and the worker reports matching readiness;
 - exchanges only closed, versioned, validated messages;
+- carries at most one outstanding typed feature control per accepted operation,
+  with an exact acknowledgment before the compact operation record can retire;
 - retains bounded replay evidence through sequence high-water marks and active
   records rather than completed-operation tombstones;
 - accounts for task-loop evidence, accepted operations, and managed epoch-work
@@ -83,6 +99,30 @@ worker-local caches are lost. Planned restart produces
 `canceled("worker-restarted")`; an unexpected startup, crash, worker-declared,
 protocol, or watchdog loss produces a boundary failure.
 
+### Bounded operation control
+
+An accepted operation may expose one feature-owned typed control. The page
+addresses a request to the operation-authority ID; the Worker adapter resolves
+that ID to the retained full operation reference and permits at most one
+outstanding request. A concurrent request fails visibly as busy rather than
+creating an unbounded queue.
+
+The Worker processes control requests in the same serialized command lane as
+Start, Cancel, and Probe. The feature handler returns either an acknowledged
+typed result or `not-active`; invocation alone never claims that the feature
+accepted the control. Cancellation, physical settlement, boundary closure, and
+`not-active` close further control admission. Restart and disposal close local
+control admission when their source-event cutoff is queued, even though earlier
+arrived source events still dispatch before that cutoff. An already posted request remains
+a response obligation and may be acknowledged after settlement, while the
+compact operation record retains only the exact correlation and result
+decoder needed to validate that response.
+
+This control is not an operation start, progress event, durable event, or
+terminal result. Its first consumer is Package Query match-credit
+replenishment, whose credit amount and managed linearization remain
+feature-owned.
+
 ### Shared physical work
 
 Managed work that outlives its final operation wrapper can retain the epoch
@@ -127,6 +167,8 @@ This document owns:
 - worker creation and one current worker realm per runtime host;
 - page-lifetime worker-epoch identity and non-reuse;
 - the closed main-to-worker and worker-to-main protocol;
+- operation-addressed control sequencing, validation, acknowledgment, response
+  obligations, and compact-record retention;
 - validation and ordering of worker messages;
 - the worker-side operation dispatch catalog, liveness declarations, and
   idle-compatible producer-class capabilities;
@@ -298,10 +340,33 @@ One runtime host has at most one live epoch. Creation commits the epoch and
 both the source object and epoch; matching message text from another source is
 stale.
 
+The host reserves one start transition before invoking the bootstrap encoder
+or any other consumer-supplied creation callout. A nested `start()` therefore
+rejects as `epoch-active` rather than constructing a competing realm. The host
+rechecks terminal disposal after each pre-commit callout. If disposal occurred,
+the outer start rejects as `host-disposed`; a transport already created but not
+installed is terminated before return. Disposal subscription cleanup remains
+reserved through that pre-commit transition; if the unowned transport cannot be
+terminated, the host reports the failure without claiming cleanup completion.
+Once the epoch is installed, reentrant
+disposal or failure uses ordinary hard termination, and the outer start cannot
+return a success-shaped epoch after any closure has committed, including a
+bounded draining closure that retains physical work.
+
+Installing the epoch before transport binding gives bind-time failures an
+authoritative source and token, but does not authorize Worker protocol input
+before initialization dispatch begins. A current-source message delivered
+synchronously by `bind()` fails the partial epoch as protocol-invalid. The host
+marks initialization dispatch immediately before calling `send(Initialize)`,
+so a synchronous response from inside that send follows the ordinary startup
+protocol.
+
 The first main-to-worker envelope supplies the protocol version, epoch token,
-structured-clone-safe bootstrap input, and the expected idle-heartbeat policy.
-The worker validates that envelope before beginning the consumer-owned
-bootstrap operation. A duplicate initialization envelope is an epoch protocol
+structured-clone-safe bootstrap input, the expected idle-heartbeat interval,
+and the total idle allowance after host scheduling tolerance. The worker
+validates that its producer-class registry uses that exact total allowance
+before beginning the consumer-owned bootstrap operation. A mismatch is visible
+startup failure. A duplicate initialization envelope is an epoch protocol
 failure.
 
 The bootstrap operation owns its concrete steps. This runtime owner requires
@@ -320,37 +385,191 @@ failure, not a partially compatible realm.
 Worker creation starts one non-renewable active-time startup budget. Only a
 matching `Ready` received before the budget is exhausted succeeds. The handler
 compares the active-time deadline before opening the epoch; matching readiness
-at or after exhaustion closes the partial realm as startup failure. Heartbeats
-or probe acknowledgments received before matching `Ready` are protocol-invalid
-and immediately close the partial realm as described below; they cannot renew,
-reset, or satisfy that budget. Lifecycle suspension and a detected main-loop
-discontinuity pause active elapsed time; they preserve the remaining budget
-rather than grant a fresh one.
+at or after exhaustion closes the partial realm as startup failure. Matching
+readiness ends the startup budget before the host flushes held starts; time
+spent in synchronous start-send callbacks cannot retroactively expire
+successful readiness. Heartbeats or probe acknowledgments received before
+matching `Ready` are protocol-invalid and immediately close the partial realm
+as described below; they cannot renew, reset, or satisfy that budget.
+Lifecycle suspension and a detected main-loop discontinuity pause active
+elapsed time; they preserve the remaining budget rather than grant a fresh one.
 
 Startup rejection or budget exhaustion closes admission, terminates the
 partial realm, reports unexpected startup failure for every activated held
 producer, quiesces those producers after termination, and closes the epoch.
+
+### Browser binding
+
+The native binding uses a module Worker and retains one exact source binding
+for its message, error, and messageerror listeners. Detachment removes those
+listeners before native termination. A browser `error` event does not prove
+physical destruction: it reports a worker-message failure, and ordinary
+termination remains the destruction barrier.
+
+Both the page and Worker use the same seven generated facade modules and
+consumer-owned bootstrap coordinator. A Worker does not inherit the page's
+import map. The consumer's published runtime loader therefore resolves the
+SDK-selected fingerprinted runtime module directly; it must neither depend on
+document import-map state nor publish an unhashed framework alias. This is
+consumer artifact addressing, not a second facade-generation mechanism or
+runtime initialization policy.
+
+Native active time pauses while any visibility, page-hide, or freeze
+suspension remains in effect. Resume clears only its corresponding suspension.
+A clock read or timer notification that detects a scheduling gap reports
+recovery before the host judges deadlines. That gap preserves the remaining
+startup, command-response, and drain budgets and gives the existing
+post-readiness watchdog its recovery interval.
+
+The binding's diagnostic operation invokes the existing generated
+`asyncLoweringCanary` export and declares unbounded managed execution.
+Bootstrap also registers the managed epoch-work reporter. Adopting feature
+operations remains a later handoff; the diagnostic operation does not create
+shared producers.
+
+### Managed reporter registration
+
+The production bootstrap fulfills only after the engine's generated facade
+set and entry point are ready and the host facade has registered its managed
+reporter. A registration rejection is startup failure, never partial readiness.
+Closure during either asynchronous startup step prevents late registration.
+
+The Worker and its main-thread receiver share one producer-class recipe.
+The initial managed class is `managed-shared-producer`, with an `unbounded`
+allowance: no structural return bound has been established for its future
+feature producers. The Worker supplies its serialized allowance to the managed
+registration as opaque data. A start callback must echo that exact issued
+value before the realm applies its existing class, sequence, and allowance
+validation. The realm supplies the epoch token. Neither this adapter nor the
+managed registration allocates another work sequence or interprets a feature
+result.
+
+The host facade exposes registration, stop-and-drain, and unregister through
+the existing generated module. Its Core registration holder provides the
+source that feature brokers may explicitly opt into later. A holder registers
+only once per realm, including after normal unregister; a new managed sequence
+space requires a new realm. The existing sender remains the owner of callback
+retention, active leases, fault records, and terminal drainage.
+
+Worker-declared failure closes adapter admission immediately. Starts rejected
+by the realm and transport exceptions throw back through the synchronous
+managed callback and follow the existing epoch-failure path. Finishes for
+previously admitted leases remain usable while draining. Cleanup is scheduled
+after the callback stack unwinds, rather than reentering a managed export from
+a managed callback. It stops managed admission, awaits drainage, and attempts
+unregister even when the drained reporter reports a retained failure. Repeated
+cleanup requests share that one result. Hard `Worker.terminate()` remains the
+separate physical release boundary and does not wait for managed cleanup.
+
+`engine-worker-epoch-work.test.ts`, included in
+`inspect-web-worker-protocol`, gates bootstrap ordering, failed registration,
+late startup closure, the Worker-issued allowance, visible callback rejection,
+and stop/drain/unregister ordering using the product bootstrap and realm.
+`BrowserManagedEpochWorkRegistrationTests` gates the actual managed holder in
+Release. The existing real-Worker browser gate exercises registration and
+normal cleanup through the generated production facade, alongside restart and
+partial startup failure. These gates do not stand in for a feature's shared
+producer adoption or responsiveness evidence.
 
 ## Operation adapter
 
 The worker producer adapter implements operation authority's two-phase
 preparation contract.
 
+The runtime host is generic only in bootstrap and runtime diagnostic data.
+Each operation registration is independently generic in its input, value,
+error, operation diagnostic, progress, durable event, and preparation-error types, and owns
+one closed, total boundary-error table keyed by every
+`WorkerRuntimeFailureKind`. Runtime diagnostic detail remains on the one epoch
+failure callback rather than requiring a fallible per-operation conversion
+during closure. The host erases feature types only behind a private record of
+closed callbacks and data after registration; one operation kind cannot widen
+another kind's returned adapter or select its payload codecs.
+
 Preparation synchronously:
 
 1. rejects if no starting or ready epoch accepts assignments;
-2. validates the operation reference, operation kind, feature adapter, and
-   structured-clone-safe input without retaining the producer sink on failure;
-3. creates one prepared binding with an already-usable cancellation endpoint;
+2. validates the operation reference, operation kind, and feature adapter
+   without retaining the producer sink on failure;
+3. reserves the operation sequence before invoking the input encoder, so a
+   nested preparation cannot activate a later assignment ahead of it;
+4. records one epoch-visible prepared lifetime before invoking the input
+   encoder, so reentrant epoch closure cannot overtake a successful or rejected
+   preparation;
+5. validates and encodes the structured-clone-safe input;
+6. creates one prepared binding with an already-usable cancellation endpoint;
    and
-4. retains no worker or sink state until activation.
+7. retains the sink and encoded payload only inside that binding, without
+   creating an assigned operation record or calling the Worker until
+   activation.
 
-Abandoning a prepared binding is synchronous and resource-free. Activating it
-installs one epoch-assigned record before any worker callout can be observed.
-Activation while the epoch is starting places the record in the held queue.
-Activation while ready posts `Start`. If the epoch closed between preparation
-and activation, activation reports that committed closure verbatim through the
-already-installed sink: planned restart reports
+Prepared reservations form one sequence-ordered lane across operation
+sessions. Activation waits behind every earlier unresolved preparation.
+Activation of the earlier binding assigns it before later activated bindings;
+rejection or abandonment releases its reservation as a legal sequence gap and
+unblocks later assignments. Cancellation of an activated binding waiting in
+that lane retains the first reason and applies it immediately after assignment.
+Reservation consumes the identity sequence even when encoding rejects or
+throws, or the binding is abandoned; operation authority never reuses those
+page-issued identities.
+
+Operation authority resolves every prepared binding through `activate()` or
+`abandon()` before the corresponding `start()` call returns. An intentionally
+unresolved prepared binding therefore blocks later assignments and realm
+release by contract rather than being force-abandoned by epoch termination.
+
+The prepared Type Source registration consumes the existing Source operation
+without changing its feature meaning. Its page encoder copies only package ID,
+version, framework, assembly, type identity, and serialized taste from the
+callback-bearing page request. The Worker invokes the generated
+`queryTypeSource` with the authority-issued operation ID and maps its versioned
+managed result to the protocol's succeeded, expected or unexpected failed, or
+canceled settlement. Keyed cancellation calls the generated
+`cancelTypeSourceQuery`; `Requested` and `AlreadyRequested` acknowledge a
+running operation, while `NotActive` does not. Every generated DTO is validated
+before use.
+
+The request codec admits at most 64 Ki characters across its six fields. The
+result codec admits 32,000,000 source-text characters, choosing the same
+magnitude as the browser API-surface retained-text budget, and 64 Ki characters
+across provenance, provider, URL, and PDB-limitation text. An oversized
+managed result becomes one unexpected operation failure rather than truncating
+the value or failing the Worker realm. Malformed generated result structure
+likewise becomes one unexpected operation failure; a malformed cancellation
+acknowledgment cannot be represented by the control protocol and fails the
+Worker boundary. Type Source has no nonterminal payload, so its progress codec
+rejects every value and its liveness allowance is unbounded. These are protocol
+and liveness bounds, not a responsiveness claim.
+
+An operation with feature control registers a separate bounded request encoder,
+Worker decoder and handler, acknowledgment decoder, local-request error
+mapping, and boundary-error table. Only the returned control-capable adapter
+can issue that operation kind's control. It resolves a page-issued operation ID
+to a retained record created by the same registration instance; it does not
+expose or reconstruct the operation sequence.
+
+The adapter reserves a positive per-operation control sequence and its one
+outstanding slot before calling the request encoder. Rejected or throwing
+encoding consumes that sequence without posting a message. A reentrant request
+therefore fails visibly as `control-busy`; the runtime retains no
+pending-request queue. The adapter revalidates epoch, record, and control-port
+authority after the encoder returns before posting. A normal
+acknowledgment decodes the feature result, while `not-active` closes the
+control port. Cancellation and closure also close the port. A posted request
+survives physical settlement as a response obligation, and its exact
+acknowledgment can complete after settlement without reopening the port or
+regaining publication authority.
+
+Abandoning a prepared binding synchronously releases its retained state and
+prepared lifetime without assigning Worker work. Once an activated binding
+reaches the head of the prepared lane, it installs one epoch-assigned record
+before any worker callout can be observed, delivers any already committed
+closure and quiescence, and only then releases the prepared lifetime.
+At the head of that lane, activation while the epoch is starting places the
+record in the held queue, while activation when ready posts `Start`. If the
+epoch closed before the binding reaches the head, activation reports that
+committed closure verbatim through the already-installed sink: planned restart
+reports
 `Canceled("worker-restarted")`, while unexpected closure reports its boundary
 failure. Both paths report quiescence and do not throw.
 
@@ -358,12 +577,26 @@ Held records are ordered by operation sequence. A held cancellation removes
 the record without sending `Start` or `Cancel`, reports the supplied canceled
 outcome, and reports quiescence. Matching readiness posts every remaining held
 start in sequence order before the ready epoch accepts a new warm activation.
+A response delivered synchronously by `send(Start)` during that internal flush
+uses the ordinary post-readiness operation and control protocol. The host keeps
+the flush barrier closed to warm activation until every held start has been
+posted; it does not misclassify a response to an already-posted start as
+pre-readiness traffic.
+If posting one held start synchronously commits epoch closure, every later
+record still in the held queue is known never to have reached the Worker. The
+host fixes all assigned logical outcomes first, publishes the one runtime
+failure, and only then records those never-posted records as physically closed,
+reports quiescence, and releases their retained state. They do not consume the
+drain budget while the already-posted record supplies the remaining physical
+release evidence.
 A held record never becomes an accepted worker record merely because the realm
 became ready; it remains awaiting the worker's explicit `Accepted` response.
 
 Admission stops synchronously when an epoch enters draining. Preparation then
 rejects new work, while already prepared bindings either abandon or activate
-into the committed epoch closure.
+into the committed epoch closure. Hard termination may destroy the Worker
+before that choice, but realm release waits until every such binding has
+abandoned or completed activation callbacks.
 
 ## Closed worker protocol
 
@@ -391,11 +624,17 @@ decode likewise performs no global cross-operation payload selection: the
 operation reference selects the active record and its result, error,
 diagnostic, or progress codecs.
 
+Protocol version 3 adds the closed `Control` and `ControlAcknowledged`
+variants to version 2's `Events` transport. Peers must agree on the exact
+version; an older peer is not silently treated as supporting durable delivery
+or operation control.
+
 The main-to-worker inventory is:
 
 ```text
-Initialize(bootstrap, idleHeartbeatInterval)
+Initialize(bootstrap, idleHeartbeatInterval, idleAllowanceMilliseconds)
 Start(operation, kind, payload)
+Control(operation, controlSequence, payload)
 Cancel(operation, reason)
 Probe(probeSequence)
 ```
@@ -408,7 +647,10 @@ StartupFailed(diagnostic)
 Accepted(operation, allowance)
 Rejected(operation, error, diagnostic)
 CancelAcknowledged(operation, running | not-active)
+ControlAcknowledged(operation, controlSequence,
+  acknowledged(payload) | not-active)
 Progress(operation, payload)
+Events(operation, entries)
 Settled(operation,
   Succeeded(result)
   | Failed(expected | unexpected, error, diagnostic)
@@ -425,25 +667,94 @@ can construct it only after the generated managed Promise fulfills and the
 managed bridge has therefore crossed its operation-resource release barrier.
 The main adapter processes one valid `Settled` by:
 
-1. reporting an unexpected diagnostic when its failure kind requires one;
-2. reporting the terminal result; and
-3. reporting quiescence.
+1. atomically reporting the terminal failure and its unexpected diagnostic
+   through `reportUnexpectedTerminal` when that failure kind applies, or
+   reporting the ordinary terminal result otherwise; and
+2. reporting quiescence.
 
-Those remain separate operation-authority signals, but no wire state can lose
-one after receiving the other. `Rejected` is the exclusive never-accepted
-alternative and proves that no operation-scoped worker or managed resource was
-admitted; the adapter reports its failure and quiescence together.
+The atomic operation-authority call commits terminal authority before its
+synchronous diagnostic observer can reenter operation APIs. `Rejected` is the
+exclusive never-accepted alternative and proves that no operation-scoped
+worker or managed resource was admitted; the adapter reports its failure and
+quiescence together.
+
+`Control` is valid only for an operation kind that registered feature-control
+support. It carries the exact operation reference, a positive safe
+`controlSequence`, and a bounded feature request payload.
+`ControlAcknowledged` echoes that correlation and carries the handler's closed
+`acknowledged` or `not-active` result. `not-active` means that this request did
+not take effect; it does not imply terminal settlement. Successfully invoking
+the handler is not acknowledgment.
 
 Promise rejection from the managed facade is not a `Failed` managed result. It
 is a worker boundary failure and begins unexpected epoch draining because the
 worker can no longer prove that the operation boundary remains usable.
+
+### Durable nonterminal delivery
+
+`Events` carries one nonempty batch of at most 64 entries. Each entry is
+`Progress(payload)` or `Durable(payload)`; the feature owns the durable union,
+including its Item and ItemFailure distinctions. There is no terminal entry.
+The existing single-progress message remains an advisory-only path.
+
+The operation reference selects that registration's progress and durable
+codecs. Structural decoding bounds the entry count and constructs closed entry
+records before any feature codec runs. Every entry then satisfies its selected
+owner's explicit payload budget before any entry reaches a producer sink. The
+count bound and per-entry budgets bound a decoded batch; this is not a claim
+of transport backpressure or bounded total feature output.
+
+An accepted Worker invocation has one synchronous batch handoff. It posts the
+batch immediately, in supplied order, without retaining a partial batch or
+coalescing entries. The feature's managed stream adapter retains ownership of
+batch formation, producer-suspension flushing, credit, and cancellation
+checkpoints under the async event-stream contract. A singleton batch is valid.
+The Worker does not wait for a batch to fill or for managed settlement before
+posting it.
+
+All operation messages use the same ordered Worker channel. `Accepted`
+precedes the first event; every posted event batch precedes that invocation's
+`Settled`, including canceled or failed settlement. A boundary failure remains
+epoch failure, not an invented successful completion. Batches admitted before
+an observer reenters operation APIs retain their order; reentrancy does not
+let a later message overtake the current batch's remaining handoffs.
+
+The main adapter hands each entry to `reportProgress` or `reportDurable` in
+order. Those operation-authority ports alone decide current-view publication.
+Logical cancellation, supersession, or a throwing observer may suppress later
+publication but do not grant the transport permission to reorder durable
+entries or turn them into advisory progress. This transport does not reserve
+publication authority for a whole batch.
+
+Immediate host closure revokes remaining batch handoffs under the existing
+hard-termination rules. Unlike logical feature cancellation, this commits the
+producer's terminal closure, so later entries must not reach its sink. The
+enclosing producer-callout barrier still delays quiescence and realm release
+until the current handoff returns.
+
+Event batches have the existing progress message's protocol-state rules:
+they require an accepted, physically open operation, are stale across an old
+epoch, and do not establish task-loop liveness. Malformed or over-budget
+current-epoch batches fail the epoch before publishing a partial batch.
+Operation-resource release still depends on managed settlement or realm
+destruction, not receipt of the last event.
+
+The immediate consumer is Package Query's future Worker adapter under #5987;
+this closes the separately owned durable transport milestone before the
+single-runtime production cutover. It does not move Package Query, adopt its
+credit controls, or activate a second runtime. The existing protocol and
+envelope gates enforce the implementation contract. The focused
+[event-ordering model](models/inspect-web-worker-events/README.md) bounds the
+transport-order claim independently of feature publication and managed
+lifetime.
 
 ## Admission, ordering, and replay
 
 The worker retains:
 
 - one highest received operation sequence;
-- one active map keyed by operation ID and sequence; and
+- one active map keyed by operation ID and sequence, including each active
+  record's highest received control sequence; and
 - no completed-operation tombstones.
 
 A `Start` whose sequence is not strictly greater than the received high-water
@@ -459,18 +770,29 @@ epoch. Historical operation-ID uniqueness remains an operation-authority
 precondition; the runtime does not retain every completed opaque ID to
 re-prove it.
 
+For an active operation, `Control` requires a control-capable registration and
+a control sequence strictly greater than that record's high-water mark.
+Duplicate or non-increasing active control sequences fail the epoch. A future
+operation sequence also fails the epoch. A structurally valid nonfuture
+operation reference absent from the active map receives `not-active`: without
+completed-operation tombstones, the Worker cannot distinguish every historical
+reference from an invented one and does not claim that proof.
+
 A valid start installs its protocol record and sends `Accepted` before invoking
 managed code. `Accepted` means the operation passed worker admission. The same
 serialized Start command then synchronously enters the managed bridge before a
 later command can run. The worker checks that the operation kind's registered
 allowance exactly matches the advertised allowance. The main host performs the
-same comparison against its feature adapter. A mismatch fails the epoch and
-uses the registered allowance while draining; it never silently narrows the
-liveness set.
+same comparison against its feature adapter. A matching operation identity and
+sequence records physical acceptance before that comparison. A mismatch then
+fails the epoch and uses the host registration's allowance while draining, so
+a later valid settlement can still release the realm naturally; it never
+silently narrows the liveness set or erases evidence that managed execution was
+admitted.
 
-`Progress` and `Settled` are legal only after `Accepted`. `Rejected` is legal
+`Progress`, `Events`, and `Settled` are legal only after `Accepted`. `Rejected` is legal
 only before acceptance. Duplicate acceptance, rejection after acceptance,
-progress before acceptance, duplicate settlement, and any current-epoch
+progress or events before acceptance, duplicate settlement, and any current-epoch
 operation message for an absent record fail the epoch. These are explicit
 receive outcomes, not absent transitions that an implementation may treat as
 ignored input.
@@ -493,13 +815,15 @@ The main adapter sends at most one `Cancel` for an assigned record. It sends
 none for a held start settled before readiness. Main-to-worker message ordering
 ensures a posted `Start` precedes its posted `Cancel`.
 
-The worker processes `Start`, `Cancel`, and `Probe` through one serialized
-protocol-command lane. A command cannot let the next command begin until it
-has committed its required immediate response:
+The worker processes `Start`, `Control`, `Cancel`, and `Probe` through one
+serialized protocol-command lane. A command cannot let the next command begin
+until it has committed its required immediate response:
 
 - `Start` commits `Accepted` or `Rejected`, invokes an accepted facade function
   without awaiting its returned Promise in the lane, and attaches settlement
   handling outside the lane;
+- `Control` commits `ControlAcknowledged` after its feature handler returns
+  `acknowledged` or `not-active`;
 - `Cancel` commits `CancelAcknowledged` after its keyed managed cancellation
   call completes; and
 - `Probe` commits `ProbeAcknowledged`.
@@ -525,26 +849,50 @@ arrive while the wire record is still accepted when managed settlement has
 sealed cancellation but has not yet crossed the release barrier. The main host
 retains the record until its `Rejected` or `Settled` closure also arrives.
 
+The main host closes feature-control admission when the operation authority's
+read-only cancellation state records a reason, physical closure arrives,
+`not-active` is acknowledged, or the epoch closes. It rechecks that state both
+before encoding and before posting, so the authority commit closes admission
+even during its synchronous feature callout while actual cancellation
+forwarding still follows that callout. The Worker closes admission when
+cancellation begins or operation settlement starts. Closure rejects later
+local requests without posting them. It does not erase a request already
+posted: that exact response remains mandatory and may arrive after `Settled`.
+If the Worker declares epoch failure after invoking a control handler, new
+commands remain refused but that already-invoked handler may still emit its
+exact acknowledgment while the realm drains. Realm destruction suppresses it.
+The main host drops the authority cancellation state at physical release.
+
 No cancellation acknowledgment can commit while the operation is still
 awaiting its `Accepted` or `Rejected` response.
 
 The main protocol record is released when:
 
 - `Rejected` or `Settled` has arrived; and
-- the one cancellation acknowledgment has arrived when `Cancel` was sent.
+- the one cancellation acknowledgment has arrived when `Cancel` was sent; and
+- every posted control acknowledgment has arrived.
 
 After physical closure, the sink and payload are released even when a compact
-control-response record must remain for a pending acknowledgment. No feature
-observer or managed callback is retained by that record.
+control-response record must remain for a pending acknowledgment. That record
+retains the operation reference, exact control sequence, bounded result
+decoder, and pending caller completion needed to validate and deliver the
+response. It retains no operation sink, start payload, progress callback,
+durable-event callback, or managed callback.
 
 Missing responses are not inferred from elapsed operation duration. A bounded
 control-response grace can cause the host to post a `Probe` after an
-unanswered `Start` or `Cancel`. That probe snapshots the exact earlier response
-obligations it covers. The serialized command lane delays its acknowledgment
+unanswered `Start`, `Control`, or `Cancel`. That probe snapshots the exact
+earlier response obligations it covers. The serialized command lane delays its acknowledgment
 until every earlier command has completed its response-commit point. If a
 covered required response is still absent when the matching
 `ProbeAcknowledged` arrives, the handler completed without its contractually
 required response; the epoch enters bounded unexpected draining.
+
+Completing the readiness flush evaluates response obligations already due at
+that transition, including grace that elapsed while a held `Start` was posted
+synchronously. A response dispatched during the flush retires its obligation
+normally. This evaluation preserves the fresh post-readiness watchdog origin;
+startup and flush time do not age that watchdog.
 
 A covered response that arrives before the probe acknowledgment retires its
 obligation normally. The acknowledgment still retires the probe and does not
@@ -561,7 +909,27 @@ posting order. An immediate response for one of those commands while that same
 probe remains outstanding therefore proves that the lane passed the probe
 without committing `ProbeAcknowledged`. The host records `control-response`
 failure and begins bounded draining before treating that later response as
-liveness evidence. A matching acknowledgment or other register retirement
+liveness evidence. The valid response still commits its physical meaning:
+acceptance records admission, rejection records never-admitted closure, and a
+cancellation acknowledgment records release progress. Those transitions
+permit later settlement or acknowledgment to drain naturally but do not renew
+task-loop evidence. The host dispatches every Worker source event through one
+epoch-local FIFO, including decoded envelopes, structural decode failures, and
+browser `error` and `messageerror` events. An event received reentrantly during
+response, terminal, diagnostic, progress, or quiescence callbacks joins the
+same queue behind every earlier arrival and cannot start a nested drain.
+Data-derived decode facts are captured when the event arrives; phase-dependent
+startup versus post-readiness classification is selected when that FIFO item
+dispatches. Physical browser crash is the sole destruction override and does
+not wait behind the FIFO. This serialization preserves cross-operation
+multiplexing, prevents a same-record settlement or
+cancellation acknowledgment from being rejected against the record's
+pre-response phase, and prevents a later probe acknowledgment from overtaking
+an earlier command response. A reentrant restart or disposal request with
+earlier queued source events appends one cutoff marker: those earlier events
+dispatch first, then the cutoff revokes later queued source authority and hard
+terminates the epoch. A matching
+acknowledgment or other register retirement
 discharges every mark for that probe; it cannot accuse a response that arrives
 after the register has moved to a later probe. This proof uses local posting
 order and the response's existing operation correlation; it does not add a
@@ -746,17 +1114,40 @@ post-readiness `EpochFailed`, which permits bounded draining of admitted
 managed work and epoch-work leases.
 
 Other than `StartupFailed` and a mismatched `Ready` echo, any current-source
-message or protocol fault before matching readiness uses the same immediate
-partial-realm closure mechanics while retaining its specific `worker-message`
-or `protocol` failure kind. Bounded unexpected draining is reserved for faults
-committed after matching readiness.
+message or protocol fault while still waiting for matching readiness uses the
+same immediate partial-realm closure mechanics while retaining its specific
+`worker-message` or `protocol` failure kind. Matching readiness ends that
+classification before held-start flushing begins. Faults committed during the
+flush or later use bounded unexpected draining.
 
 Entering draining atomically refuses new assignments and fixes the exact
 closure kind and diagnostic identity.
-Every still-pending assigned producer receives one physical closure:
+The host first seals that logical closure on every still-pending assigned
+record without invoking a producer sink. It then uses operation authority's
+two-phase terminal publication contract: call `commitTerminal` for every
+sealed record, retain every returned publication capability, and only then
+exercise those capabilities. Observer failure or diagnostic reentrancy from
+one publication therefore sees every sibling outcome as final. Every
+still-pending assigned producer receives one physical closure:
 
 - planned restart reports `Canceled("worker-restarted")`; or
-- unexpected failure reports one boundary failure and diagnostic.
+- unexpected failure reports one boundary failure.
+
+The unexpected epoch diagnostic is reported once through the runtime failure
+observer after all publication capabilities have been exercised. Per-operation
+unexpected-terminal diagnostics remain reserved for an operation's own
+unexpected `Settled` result; multiplying one realm failure across every
+operation diagnostic observer would reintroduce cross-operation authority and
+duplicate the same boundary evidence.
+
+A synchronous physical `Settled` or `Rejected` received while those committed
+publications are being exercised records physical closure but cannot report
+quiescence, release the retained sink, or retire the record until every
+operation in the closure snapshot has published. Physical response reentrancy
+therefore cannot erase a sibling publication capability or let realm release
+overtake a committed terminal event. A synchronous `CancelAcknowledged`
+following that physical response records the acknowledgment but remains under
+the same deferred-retirement barrier.
 
 Ordinary success, failure, progress, or cancellation messages arriving after
 that commit cannot replace the fixed closure. They may still prove physical
@@ -767,6 +1158,15 @@ replace the first committed cause, diagnostic, or producer outcomes. A worker
 crash during draining proves that the realm is already gone, so the host closes
 and releases immediately while preserving that first cause and those outcomes
 rather than waiting for the remaining drain budget.
+
+A worker that has declared epoch failure refuses new starts, cancellation
+commands, probes, and epoch-work leases. Settlement callbacks and
+epoch-work-finish calls for work admitted before that declaration still emit
+their physical release evidence. A control handler invoked before the
+declaration likewise emits its exact acknowledgment after returning; this
+retires the preexisting response obligation but cannot replace the committed
+failure or admit another command. These responses permit the main host to
+release the failed realm naturally.
 
 A live failed realm receives one bounded active-time drain budget. It may
 release accepted operations and epoch-work leases naturally. It is terminated
@@ -788,10 +1188,65 @@ Hard termination:
 4. releases held, active, control-response, probe, and epoch-work records; and
 5. reports quiescence for every assigned producer not already quiescent.
 
+Clock unsubscription, lifecycle unsubscription, and transport detachment are
+fallible external callbacks. Each failure reports one callback diagnostic but
+cannot interrupt the remaining mandatory cleanup steps. In particular, a
+throwing detach callback cannot prevent the host from attempting
+`Worker.terminate()` or permit `realmReleased` before that attempt. Detach and
+termination errors are reported only after both mandatory callbacks have been
+attempted, and replacement startup remains reserved through that physical
+shutdown barrier.
+
+Binding is also an epoch-visible lifetime. If a synchronous bind-time event
+closes the epoch before `bind()` returns its detach capability, logical
+authority is revoked immediately, but detach, termination, finalization, and
+realm release wait for that return. The host then attempts detach before
+termination under the ordinary shutdown barrier.
+
+Successful return from `Worker.terminate()` is the host's ordinary evidence
+that physical destruction completed. A browser worker crash event
+independently establishes that the realm is already gone, whether it arrives
+before or after a failed termination attempt. The host still attempts detach
+and `Worker.terminate()` cleanup when the crash arrives first, but a throwing
+termination call cannot revoke that destruction evidence or block finalization,
+realm release, and replacement startup. Without crash-established physical
+loss, a termination throw leaves the epoch unreleased, refuses replacement
+startup, and, for disposal, retains its clock and lifecycle subscriptions
+rather than claiming that teardown completed. Every termination throw remains
+a callback diagnostic. A detach failure does not block release when either
+destruction proof exists.
+
+If hard termination is requested reentrantly from a producer-sink callout,
+steps 1-3 remain immediate unless an ordinary current-source event has already
+arrived behind the event being dispatched. In that case restart or disposal
+appends the cutoff behind the earlier arrival. Operation quiescence, record
+release, and realm release wait until the outermost epoch producer callout
+returns and the enclosing closure-publication transition completes. For
+unexpected closure, that transition includes publishing every committed
+operation outcome and the one runtime failure, so the old epoch's
+`realmReleased` callback cannot precede its runtime failure callback. The host
+counts producer callback lifetime around every sink invocation, including
+terminal, diagnostic, progress, cancellation, and quiescence publication.
+
 No worker message or managed callback can be delivered through this host after
 revocation. Realm release claims that worker code and operation-scoped
 callbacks can no longer run. It does not claim immediate browser-process
 memory reclamation.
+
+Prepared bindings are operation-authority-owned and are not force-abandoned by
+hard termination. The Worker may already be destroyed, but `realmReleased`
+remains deferred until every epoch-visible prepared lifetime either abandons or
+activates into the committed closure and finishes its terminal and quiescence
+callbacks. A replacement epoch may start while that old-epoch notification is
+deferred; the later notification retains the old epoch token.
+
+Disposing the runtime host is terminal. It closes any current epoch, revokes
+its clock and lifecycle subscriptions, and rejects every later epoch start
+rather than creating work whose deadlines can no longer be evaluated.
+Failure from one subscription's unsubscribe callback does not prevent revoking
+the other subscription. Disposal closes operation admission and physically
+terminates the current epoch before invoking either unsubscribe callback, so a
+cleanup diagnostic cannot activate work in the disposing realm.
 
 Creating a replacement worker is explicit retry policy. It allocates a new
 epoch and new operation assignments. Messages and identities from the old
@@ -905,7 +1360,9 @@ as a separate second stage with exact failure paths. It does not select a
 feature adapter, allocate host identity, construct closure or idle-compatible
 authority, implement runtime state, or satisfy `inspect-web-worker-protocol`.
 
-`inspect-web-worker-protocol` is a Release TypeScript gate and must include:
+`inspect-web-worker-protocol` is the complete base Release TypeScript gate. It
+uses injected worker-like transport, active-time and lifecycle signals, and
+deterministic scheduling rather than a real browser worker. It includes:
 
 - own-property narrowing of every envelope from `unknown`, with malformed,
   inherited, accessor-backed, oversized, unsafe-integer, wrong-version, and
@@ -913,15 +1370,50 @@ authority, implement runtime state, or satisfy `inspect-web-worker-protocol`.
 - positive safe-integer epoch-token allocation, exact token equality, no
   page-lifetime reuse or wrap, visible exhaustion, and authority requiring both
   the current token and exact bound worker source, including same-token
-  different-worker and same-worker wrong-token negatives;
+  different-worker and same-worker wrong-token negatives, with exact-source
+  invalid traffic failing rather than producing stale diagnostics;
+- synchronous `Initialize` send failure rejecting the epoch start after
+  preserving failure reporting, realm release, and token non-reuse;
+- bind-time `Ready` failing before initialization dispatch, synchronous
+  responses from inside `send(Initialize)` remaining legal, and any closure
+  committed by that send preventing a success-shaped start result even while
+  physical epoch work keeps the failed realm draining;
+- bootstrap encoding reserving start ownership before callout, with reentrant
+  start rejecting as `epoch-active` and reentrant disposal rejecting the outer
+  start as `host-disposed` without creating a post-disposal epoch;
+- terminal host disposal rejecting later starts after closing the current
+  realm and lifecycle subscriptions;
+- heterogeneous main and fake-worker operation catalogs whose independently
+  typed registrations retain narrow producer adapters, per-operation boundary
+  mappings and diagnostic codecs, and fail closed on an absent record while
+  another differently typed kind remains live;
 - preparation, abandonment, activation, held starts, sequence-order readiness
-  flush without warm-start overtaking, held cancellation,
+  flush without warm-start overtaking, synchronous `Accepted` delivery from an
+  emitted held start during that flush, repeated response-driven yields
+  resuming every remaining held start in sequence, startup-budget completion at
+  matching readiness before synchronous flush work, overdue response grace
+  evaluated at flush completion without aging the watchdog or probing a
+  not-yet-due or already-retired response, held cancellation,
   `StartupFailed`-driven startup closure, and activation after a committed
   close preserving planned-restart cancellation versus unexpected boundary
-  failure without posting `Start`;
+  failure without posting `Start`, including cross-session preparation
+  reentrancy that preserves assignment order and queued cancellation plus
+  same-session replacement and encoder rejection that release sequence gaps;
 - current-source malformed or protocol-invalid messages before `Ready`
   immediately closing the partial realm with their specific failure kind,
-  while the corresponding post-readiness faults use bounded draining;
+  while the corresponding post-readiness faults use bounded draining,
+  closure sealing followed by commit-all and publish-all operation authority,
+  including a first terminal feature observer that throws and whose diagnostic
+  observer attempts to cancel a committed sibling and requests termination:
+  sibling cancellation is a no-op, both selected boundary outcomes remain
+  final, exactly one runtime failure publishes, and old-epoch `realmReleased`
+  follows that runtime failure, plus synchronous sibling `Settled` and
+  `Rejected` responses that cannot erase the sibling's committed publication
+  or quiescence, including a following `CancelAcknowledged` that cannot retire
+  the physically closed sibling before publication completes;
+- worker-declared failure refusing new work while later settlement and
+  epoch-work-finish callbacks for already-admitted work continue to emit
+  physical release evidence for natural failed-realm draining;
 - strictly increasing operation sequences with legal gaps, high-water replay
   rejection after record release, a valid newer sequence for a fresh ID,
   active duplicate IDs consuming that sequence before failure, no silent
@@ -931,28 +1423,54 @@ authority, implement runtime state, or satisfy `inspect-web-worker-protocol`.
   never-accepted closure, exact registered allowance comparison, and explicit
   fail-closed receipt tests for duplicate acceptance, rejection after
   acceptance, progress before acceptance, duplicate settlement, absent-record
-  messages, including an absent ID while another record remains live;
+  messages, including an absent ID while another record remains live, plus
+  allowance-mismatched physical acceptance followed by natural settlement and
+  realm release during failed draining for both warm admission and synchronous
+  held-start flushing;
 - atomic `Settled` mapping to diagnostic, terminal, and quiescence call order;
+- bounded mixed progress/durable batches, complete payload validation before
+  publication, ordered handoff before settlement, per-event authority
+  suppression, and callback revocation after physical settlement or realm loss;
 - managed Promise rejection entering epoch failure rather than becoming a
   feature result;
 - running cancellation, `not-active` race validation, one acknowledgment,
   closure-before-record-release, and compact post-settlement acknowledgment
   retention;
-- unanswered start and cancellation requests where matching probe
+- operation-addressed feature controls with bounded request and acknowledgment
+  codecs, exact registration ownership, one-outstanding busy rejection,
+  reentrant encoding with nested control, cancellation, immediate epoch
+  closure, and deferred restart or disposal cutoff,
+  active-sequence replay and future-reference rejection, honest `not-active`
+  for absent nonfuture references, handler acknowledgment versus
+  `not-active`, cancellation and settlement closing admission, settlement
+  before acknowledgment, compact-record retirement, unsupported active
+  registrations, malformed results, and boundary closure with an outstanding
+  response obligation;
+- unanswered start, control, and cancellation requests where matching probe
   acknowledgment from the serialized command lane proves a missing covered
   response and begins bounded draining, a later serialized response proving a
   missing probe acknowledgment, heartbeats alone preserving that outstanding
   register without manufacturing proof, exact immutable command-record marks
   that a later command cannot overwrite, deferred probe dispatch that cannot
-  stall after the older register retires, plus asynchronous cancellation that
-  cannot be overtaken by a later probe;
+  stall after the older register retires, main-loop recovery preserving every
+  unresolved command's remaining active-time grace, plus asynchronous
+  cancellation that cannot be overtaken by a later probe, and a physically
+  valid later response applying admission, rejection, or cancellation-release
+  state after proving the missing acknowledgment so draining can complete,
+  same-record physical evidence deferred until its triggering response commits,
+  nested cross-operation response replay preserving FIFO order, a probe
+  acknowledgment unable to overtake an earlier acceptance, and malformed data
+  plus browser `error` and `messageerror` events unable to overtake an earlier
+  reentrant progress callback or be erased by a later reentrant restart or
+  disposal cutoff;
 - probe-sequence monotonicity, matching, exhaustion, duplicate, future, and
   stale acknowledgment cases, including retirement of the maximum safe
   sequence entering `probe-exhaustion` draining rather than leaving a degraded
   epoch;
 - worker and main-side epoch-work high-water and active-set validation,
   unmatched or duplicate finish, allowance mismatch, and release on epoch
-  close;
+  close, including delayed physical admission and work-start messages during
+  draining remaining eligible only to prove later settlement or finish;
 - an initial operation transferring an anticipated shared producer to an
   epoch-work lease before quiescence, lease release followed by a feature-owned
   fixture retaining epoch-local cache state, a later ordinary operation
@@ -961,17 +1479,49 @@ authority, implement runtime state, or satisfy `inspect-web-worker-protocol`.
   continued admission and no feature-result reinterpretation;
 - the first committed closure retaining its exact failure kind, diagnostic
   identity, and producer outcomes when a different protocol, worker-message,
-  worker-declared, or worker-crash fault arrives during draining;
+  worker-declared, or worker-crash fault arrives during draining, with
+  post-readiness worker `error` and `messageerror` permitting natural
+  operation and epoch-work release before the bounded fallback, including
+  synchronous faults during the post-`Ready` held-start flush and immediate
+  quiescence for later never-posted held starts after closure publication;
 - registered idle-compatible producer classes receiving opaque capabilities,
-  with unregistered or over-budget classes requiring epoch-work leases;
+  with separately constructed equivalent main and worker registries accepting
+  legitimate leases, initialization rejecting a worker registry configured for
+  a different total idle allowance, and unregistered classes, unknown
+  allowances, or over-budget classes failing or requiring epoch-work leases as
+  appropriate;
 - current-epoch invalid ordering as protocol failure and old-epoch messages as
   stale no-ops;
-- failure-complete sink notification and record release when adapter callbacks
-  throw; and
+- failure-complete sink notification and record release when sink callbacks
+  throw, compiler-complete boundary-error tables that require no closure-time
+  mapper callout, clock and lifecycle unsubscribe plus transport-detach
+  failures that cannot admit disposed work or a replacement before physical
+  termination, direct reentrant starts from detach or terminate callbacks
+  rejecting until that barrier completes, disposal reentered from teardown
+  and disposal during pre-commit transport creation deferring subscription
+  cleanup through successful termination, cleanup diagnostics observing the
+  completed barrier, bind-time closure retaining the returned detach capability
+  before teardown and release, termination failure without independent crash
+  evidence withholding realm release, replacement, and disposal subscription
+  cleanup, crash-established physical loss surviving a throwing cleanup call,
+  disposal during a throwing creation call retaining `host-disposed` as the
+  returned classification, and preserved realm-release ordering, plus
+  synchronous fake-worker admission aborting before invocation when its
+  response reentrantly terminates the realm; and
 - a neighboring browser-native producer proving operation authority does not
   depend on the worker adapter.
 
-`inspect-web-worker-lifecycle` is a Release browser gate and must include:
+`inspect-web-worker-browser-binding` is the first Release browser sub-gate. It
+uses the product-published client, module Worker, seven generated facades, and
+actual .NET runtime. It covers cold and warm managed calls, idle heartbeats,
+one decompiled Type Source result through the prepared typed adapter, explicit
+replacement with a new epoch, native termination, failed bootstrap, and a
+stalled Wasm initialization while page input remains available. Its focused
+TypeScript cases cover overlapping lifecycle suspensions, initial hidden state,
+scheduling-gap recovery before deadline reads, and subscription cleanup. It is
+not the complete lifecycle or managed CPU responsiveness gate.
+
+`inspect-web-worker-lifecycle` is the complete Release browser gate and must include:
 
 - cold and warm bootstrap through the consumer-owned barrier;
 - responsive JavaScript with permanently stalled .NET initialization;
@@ -1016,11 +1566,20 @@ authority, implement runtime state, or satisfy `inspect-web-worker-protocol`.
   partial realm as `protocol`, while worker `error` and `messageerror` retain
   `worker-message`;
 - planned restart cancellation versus unexpected boundary failure;
+- multi-record closure sealing before any producer or runtime callback, with a
+  callback for one record unable to cancel or replace a sibling's fixed
+  outcome;
+- unexpected `Settled` publication using the atomic operation-authority sink,
+  including diagnostic-reentrant cancellation;
 - a later fault during draining preserving the first committed cause and
   outcomes, plus a crash during draining closing immediately without waiting
   for the drain deadline;
 - preparation followed by epoch closure before activation, preserving planned
-  versus unexpected classification;
+  versus unexpected classification, with activation or abandonment completing
+  before `realmReleased`;
+- terminal-observer reentrant restart revoking the Worker immediately while
+  deferring quiescence, record release, and `realmReleased` until the active
+  producer callout returns;
 - bounded failed draining with early natural release and deadline hard
   termination;
 - source revocation and no message, progress callback, managed callback, or
@@ -1030,11 +1589,35 @@ authority, implement runtime state, or satisfy `inspect-web-worker-protocol`.
   is destroyed; and
 - explicit replacement-worker creation with stale old-epoch events.
 
+`inspect-web-worker-cpu-isolation` is a focused Release real-browser sub-gate.
+It runs a fixed-count deterministic managed checksum operation in the published
+Worker and uses absolute page and Worker timestamps to establish that a real
+input event and two animation-frame callbacks occur after managed entry and
+before managed completion. An existing async-lowering operation runs beside
+the checksum without setting its work size or any liveness bound. The same gate
+also proves same-epoch diagnostic cache retention, planned restart
+cancellation as `worker-restarted`, native old-Worker closure, watchdog
+classification of silent unexpected Worker loss, explicit replacement, and
+cache reset in each replacement epoch.
+
+This sub-gate establishes page input and a render opportunity during pinned
+managed CPU work, plus hard realm release and diagnostic epoch-cache
+revocation. Animation-frame callbacks are not painted-pixel evidence. The
+sub-gate does not provide feature progress, cooperative cancellation,
+supersession, production composition, or the complete
+`inspect-web-worker-responsiveness` claim.
+
 `inspect-web-worker-responsiveness` is a Release real-browser gate. It runs
 pinned managed CPU work in the worker while asserting document paint and input
 on the main thread. It includes one neighboring operation not used to tune any
 bound, progress, cooperative cancellation, supersession, planned restart,
 unexpected worker loss, and worker-local cache loss across epochs.
+
+The focused
+[Worker-controls model](models/inspect-web-worker-controls/README.md) checks
+the abstract admission-closure, exact-correlation, response-obligation, and
+compact-record-retention properties. It does not replace the executable
+protocol gate or prove feature-owned control semantics.
 
 ## Migration
 
@@ -1042,20 +1625,39 @@ Implementation proceeds without moving operation authority or feature meaning
 into the runtime host:
 
 1. introduce the descriptor-safe wire codec under
-   `inspect-web-worker-envelope-validation`;
-2. add the fake-worker runtime core, host authority, and complete
-   `inspect-web-worker-protocol` gate;
-3. adapt the current generated facade bootstrap behind the consumer-owned
-   bootstrap operation;
-4. move one long-running source or package inspection through a typed worker
-   operation adapter;
-5. connect keyed cancellation, progress, managed settlement, and epoch-work
+   `inspect-web-worker-envelope-validation` (**implemented**);
+2. add the shared runtime core, host authority, and complete
+   `inspect-web-worker-protocol` gate (**implemented**);
+3. adapt the current generated facade bootstrap, including managed reporter
+   registration and lifetime, behind the consumer-owned bootstrap operation
+   (**implemented** with the protocol and browser-binding sub-gates);
+4. add durable event batches (**implemented**) consuming #5570 and the
+   complete managed nonterminal handoff in #5826 under #5419, before moving the
+   existing Package Query stream;
+5. add operation-addressed typed feature control with bounded codecs, one
+   outstanding request, exact acknowledgment, and compact-record retention
+   (**implemented**) for later Package Query match-credit adoption;
+6. prepare the existing source operation's typed worker adapter for the
+   [single-runtime client cutover](inspect-web-jsexport-partitioning.md#page-facing-engine-client)
+   (**implemented** without a production caller);
+7. connect keyed cancellation, progress, managed settlement, and epoch-work
    reporting through their existing owners;
-6. prove real-browser responsiveness and hard realm release;
-7. migrate additional feature adapters only after each declares its own
-   payload and liveness policy; and
-8. add durable event batches only after #5566, #5570, and #5419 supply their
-   prerequisite contracts.
+8. prove real-browser responsiveness and hard realm release; and
+9. migrate additional feature lifecycle adapters only after each declares its
+   own payload and liveness policy.
+
+These nine production-host adoption steps are tracked by #5418 under #4937
+and #4571, with composition handoffs mapped by #5095. The first feature
+consumer is the existing source operation in
+issue #5420, not a duplicate feature. Steps 4-8 must be satisfied before the
+client's production cutover lands: event transport, control transport, adapter
+preparation, lifecycle connection, and browser evidence are prerequisites, not work deferred until after
+activation. The client owner activates the required bindings and retires direct
+main-thread managed dispatch together. Step 9 is subsequent feature lifecycle
+adoption, not permission to retain a second runtime. The approved
+inspect-web-only scope does not imply a CLI runtime migration. Typed feature
+results continue to reach their existing rendering owners; this binding adds
+no rendering or format-lowering domain.
 
 The implementation starts from the official .NET 11 Web Worker hosting pattern
 but replaces stringly method invocation with the generated inspect-web facade

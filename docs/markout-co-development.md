@@ -77,9 +77,9 @@ not — see the footgun below.
 Three projects reference the package, and each one that must move needs both
 lines:
 
-- `src/dotnet-inspect/dotnet-inspect.csproj`
+- `src/DotnetInspect.Cli/DotnetInspect.Cli.csproj`
 - `src/DotnetInspector.MetadataRendering/DotnetInspector.MetadataRendering.csproj`
-- `src/ILInspector.Decompiler.Tests/ILInspector.Decompiler.Tests.csproj`
+- `tests/ILInspector.Decompiler.Tests/ILInspector.Decompiler.Tests.csproj`
 
 `ILInspector.Decompiler.Tests` also consumes `Markout.Templates`, which is a
 separate package with its own version.
@@ -123,7 +123,7 @@ error CS0534: 'TypeViewContext' does not implement inherited abstract member
 'MarkoutSerializerContext.GetSchemaInfo<T>()'
 ```
 
-Everything under `src/dotnet-inspect/Views/` depends on generated output, so
+Everything under `src/DotnetInspect.Cli/Views/` depends on generated output, so
 this appears dozens of times at once.
 
 **Markout's transitive constraints move with Markout.** Markout depends on

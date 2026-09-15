@@ -1,6 +1,6 @@
-using DotnetInspector.Artifacts;
-using DotnetInspector.Artifacts.Local;
-using DotnetInspector.Artifacts.Workspaces;
+using Inspector.Artifacts;
+using Inspector.Artifacts.Local;
+using Inspector.Artifacts.Workspaces;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.AssemblyOnlyHost.Fixture;
@@ -62,7 +62,7 @@ public static class AssemblyOnlyInspector
         ResolvedAssemblyReference assembly =
             ResolvedAssemblyReference.CreateFromArtifactIfManaged(
                 artifactRegistration,
-                content.OpenRead,
+                () => artifacts.OpenRead(content, lease),
                 AssemblyResolutionProvenance.Local(
                     "artifact-session"))
             ?? throw new BadImageFormatException(

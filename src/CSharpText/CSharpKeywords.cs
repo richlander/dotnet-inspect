@@ -35,6 +35,6 @@ internal static class CSharpKeywords
 
     private static readonly HashSet<string> s_declarationContextual = new(StringComparer.Ordinal)
     {
-        "await", "file", "init", "record", "required", "scoped",
+        "await", "closed", "file", "init", "record", "required", "scoped",
     };
 }

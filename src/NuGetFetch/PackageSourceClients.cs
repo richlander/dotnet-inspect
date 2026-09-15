@@ -1,12 +1,13 @@
 using System.Buffers.Binary;
 using System.Globalization;
 using System.Net;
+using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using DotnetInspector.Networking;
 using InertText;
+using NetworkAccess;
 using NuGetFetch.Plugins;
 using NuGet.Versioning;
 
@@ -50,6 +51,9 @@ public enum PackageSourceCapabilities
 
     /// <summary>Exact bounded package-manifest acquisition.</summary>
     Manifest = 1 << 4,
+
+    /// <summary>Bounded NuGet V3 Catalog acquisition.</summary>
+    Catalog = 1 << 5,
 }
 
 /// <summary>
@@ -294,6 +298,27 @@ public interface IPackageSourceClient : IDisposable
         CancellationToken cancellationToken = default,
         NuGetOperationContext? operationContext = null);
 
+    /// <summary>
+    /// Enumerates ordered prefix-search pages on demand. The default returns
+    /// the existing bounded search as one page. A failed page ends the sequence;
+    /// truncation belongs to the final page, not intermediate pages.
+    /// </summary>
+    async IAsyncEnumerable<PackageSourceOperationResult<PackageSearchResult>>
+        SearchByPrefixPagesAsync(
+            string prefix,
+            int take = 100,
+            bool prerelease = false,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default,
+            NuGetOperationContext? operationContext = null)
+    {
+        yield return await SearchByPrefixAsync(
+            prefix,
+            take,
+            prerelease,
+            cancellationToken,
+            operationContext).ConfigureAwait(false);
+    }
+
     /// <summary>Gets the versions reported for a package ID.</summary>
     Task<PackageSourceOperationResult<PackageVersionResult>> GetVersionsAsync(
         string packageId,
@@ -386,6 +411,22 @@ public static partial class PackageSourceClientFactory
             options ?? new NuGetFetchOptions(),
             source.Credential);
     }
+
+    /// <summary>
+    /// Adapts the existing desktop source model over a caller-created,
+    /// credential-free transport owned by the returned client.
+    /// </summary>
+    public static IPackageSourceClient Create(
+        PackageSource source,
+        PackageSourceAssociation association,
+        HttpMessageHandler ownedCredentialFreeTransport,
+        NuGetFetchOptions? options = null) =>
+        CreateWithTransport(
+            source,
+            association,
+            ownedCredentialFreeTransport,
+            options,
+            authenticationContext: null);
 
     /// <summary>
     /// Adapts the existing desktop source model to a typed runtime client with
@@ -576,7 +617,7 @@ public static partial class PackageSourceClientFactory
             options ?? new NuGetFetchOptions());
     }
 
-    internal static IPackageSourceClient Create(
+    internal static IPackageSourceClient CreateWithTransport(
         PackageSource source,
         PackageSourceAssociation association,
         HttpMessageHandler transport,
@@ -691,6 +732,13 @@ public static partial class PackageSourceClientFactory
                 throw new InvalidOperationException(
                     "The custom package source client did not expose the bound source identity.");
             }
+
+            if (client.Capabilities.HasFlag(
+                    PackageSourceCapabilities.Catalog))
+            {
+                throw new InvalidOperationException(
+                    "Custom package source clients cannot advertise the Catalog capability.");
+            }
         }
         catch (Exception validationFailure)
         {
@@ -728,6 +776,7 @@ public static partial class PackageSourceClientFactory
 
         HttpMessageHandler handler = transport
             ?? CreateV3TransportHandler(source, isBrowser);
+        handler = new NuGetCatalogAttemptHandler(handler);
         if (authenticationContext is not null)
         {
             handler = authenticationContext.Bind(handler);
@@ -1064,6 +1113,29 @@ internal sealed class CustomPackageSourceClientAdapter
         return outcome;
     }
 
+    public async IAsyncEnumerable<PackageSourceOperationResult<PackageSearchResult>>
+        SearchByPrefixPagesAsync(
+            string prefix,
+            int take = 100,
+            bool prerelease = false,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default,
+            NuGetOperationContext? operationContext = null)
+    {
+        await foreach (PackageSourceOperationResult<PackageSearchResult> outcome
+            in _client.SearchByPrefixPagesAsync(
+                prefix,
+                take,
+                prerelease,
+                cancellationToken,
+                operationContext).ConfigureAwait(false))
+        {
+            _results.ValidateSearchOutcome(outcome);
+            yield return outcome;
+            if (outcome.Failure is not null)
+                yield break;
+        }
+    }
+
     public async Task<PackageSourceOperationResult<PackageVersionResult>>
         GetVersionsAsync(
             string packageId,
@@ -1185,7 +1257,8 @@ internal sealed class CustomPackageSourceClientAdapter
     }
 }
 
-internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
+internal sealed partial class NuGetV3PackageSourceClient
+    : INuGetCatalogPackageSourceClient
 {
     private readonly PackageSourceResultFactory _results;
     private readonly Uri _endpoint;
@@ -1217,7 +1290,8 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
         PackageSourceCapabilities.Search
         | PackageSourceCapabilities.VersionEnumeration
         | PackageSourceCapabilities.Manifest
-        | PackageSourceCapabilities.PackagePayload;
+        | PackageSourceCapabilities.PackagePayload
+        | PackageSourceCapabilities.Catalog;
 
     public async Task<PackageSourceOperationResult<PackageSearchResult>> SearchAsync(
         string query,

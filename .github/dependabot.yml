@@ -8,7 +8,7 @@ version: 2
 # Major updates stay ungrouped: they are the ones that need to be read.
 updates:
   - package-ecosystem: npm
-    directory: /prototypes/inspect-web
+    directory: /inspect-web
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
@@ -38,8 +38,9 @@ updates:
   # `/` expands dotnet-inspect.slnx, and 17 tracked projects are outside that
   # solution, so the two that matter are listed explicitly:
   #
-  #   eng/CiChangeDetection     opts out of central package management and pins
-  #                             YamlDotNet inline, so `/` governs nothing here.
+  #   eng/CiChangeDetection     the only referrer of the centrally managed
+  #                             YamlDotNet version; `/` does not discover this
+  #                             standalone project.
   #   inspect-web/msdl-proxy    the only referrer of the three
   #                             Microsoft.Azure.Functions.Worker* versions, and
   #                             it is deployed by the inspect-web workflows.
@@ -50,7 +51,7 @@ updates:
     directories:
       - /
       - /eng/CiChangeDetection
-      - /prototypes/inspect-web/msdl-proxy
+      - /inspect-web/msdl-proxy
     schedule:
       interval: weekly
     open-pull-requests-limit: 5

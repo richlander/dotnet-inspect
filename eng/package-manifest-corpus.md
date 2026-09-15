@@ -27,8 +27,8 @@ coordinates, hashes, and complete declared coverage, and exercise hash and
 oracle disagreement failures without downloading any package content:
 
 ```bash
-dotnet run --project src/DotnetInspector.Queries.Tests -c Release -- \
-  -method '*PackageManifestCorpusTests*'
+dotnet run --project tests/DotnetInspector.Queries.Tests -c Release -- \
+  --filter-method '*PackageManifestCorpusTests*'
 ```
 
 Live verification is explicit:

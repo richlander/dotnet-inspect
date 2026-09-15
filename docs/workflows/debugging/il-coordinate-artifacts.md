@@ -28,7 +28,7 @@ test "$("$INSPECT" --version)" = "$DOTNET_INSPECT_WORKFLOW_VERSION"
 export COORD_WORKFLOW="$PWD/artifacts/workflows/il-coordinate-artifacts"
 rm -rf "$COORD_WORKFLOW"
 mkdir -p "$COORD_WORKFLOW"
-dotnet build src/dotnet-inspect.Tests -c Release -p:PublishAot=false
+dotnet build tests/DotnetInspect.Cli.Tests -c Release -p:PublishAot=false
 ```
 
 Generate three coordinate artifact files from the test assembly:
@@ -45,7 +45,7 @@ cat > "$COORD_WORKFLOW/create.cs" <<'EOF'
 #pragma warning disable IL2026, IL2075
 using System.Reflection;
 
-var assemblyPath = Path.GetFullPath("artifacts/bin/dotnet-inspect.Tests/release/dotnet-inspect.Tests.dll");
+var assemblyPath = Path.GetFullPath("artifacts/bin/DotnetInspect.Cli.Tests/release/DotnetInspect.Cli.Tests.dll");
 var assembly = Assembly.LoadFile(assemblyPath);
 
 MethodInfo Method(string typeName, string methodName)
@@ -68,17 +68,17 @@ int FindOpcode(MethodInfo method, byte opcode)
     throw new InvalidOperationException($"opcode 0x{opcode:X2} not found in {method.Name}");
 }
 
-var memberCalls = Method("DotnetInspector.Tests.MemberCallsFixture", "CallsInterfaceItem");
+var memberCalls = Method("DotnetInspect.Cli.Tests.MemberCallsFixture", "CallsInterfaceItem");
 var memberCallsToken = memberCalls.MetadataToken;
 var interfaceCallOffset = FindOpcode(memberCalls, 0x6F); // callvirt
 var interfaceReturnAddress = interfaceCallOffset + 5;
 
-var semantic = Method("DotnetInspector.Tests.SemanticFactsFixture", "AllSignals");
+var semantic = Method("DotnetInspect.Cli.Tests.SemanticFactsFixture", "AllSignals");
 var semanticToken = semantic.MetadataToken;
 var allocationOffset = FindOpcode(semantic, 0x8D); // newarr
 var virtualCallOffset = FindOpcode(semantic, 0x6F); // callvirt
 
-var unsafeMethod = Method("DotnetInspector.Tests.SemanticFactsFixture", "UnsafeAs");
+var unsafeMethod = Method("DotnetInspect.Cli.Tests.SemanticFactsFixture", "UnsafeAs");
 var unsafeToken = unsafeMethod.MetadataToken;
 var unsafeCallOffset = FindOpcode(unsafeMethod, 0x28); // call
 
@@ -120,7 +120,7 @@ Explain these debugger IL coordinates from my crash dump.
 
 ```bash
 "$INSPECT" library \
-  artifacts/bin/dotnet-inspect.Tests/release/dotnet-inspect.Tests.dll \
+  artifacts/bin/DotnetInspect.Cli.Tests/release/DotnetInspect.Cli.Tests.dll \
   --il-offsets "$COORD_WORKFLOW/debugger.coords" \
   --markdown --tips q
 ```
@@ -288,7 +288,7 @@ Explain these profiler sample coordinates without doing a full triage.
 
 ```bash
 "$INSPECT" library \
-  artifacts/bin/dotnet-inspect.Tests/release/dotnet-inspect.Tests.dll \
+  artifacts/bin/DotnetInspect.Cli.Tests/release/DotnetInspect.Cli.Tests.dll \
   --il-offsets "$COORD_WORKFLOW/profiler.coords" \
   --markdown --tips q
 ```
@@ -315,7 +315,7 @@ Explain this analyzer artifact and keep bad lines visible.
 
 ```bash
 "$INSPECT" library \
-  artifacts/bin/dotnet-inspect.Tests/release/dotnet-inspect.Tests.dll \
+  artifacts/bin/DotnetInspect.Cli.Tests/release/DotnetInspect.Cli.Tests.dll \
   --il-offsets "$COORD_WORKFLOW/analyzer.coords" \
   --markdown --tips q
 ```

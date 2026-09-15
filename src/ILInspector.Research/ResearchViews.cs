@@ -5,9 +5,9 @@ using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Instructions;
-using ILInspector.Text;
+using Inspector.Text;
 
 namespace ILInspector.Research;
 
@@ -386,14 +386,20 @@ public static partial class ResearchViews
     static ResearchAssemblyContext? ResolveAssemblyContext(
         IrFunction imported,
         ResearchFactRequirements requirements)
-        => requirements.Scope != ResearchAnalysisScope.None
-            && imported.AssemblyPath is { Length: > 0 } path
-            ? ResearchAssemblyContextCache.ForIndex(
-                AnalysisIndexCache.ForPath(
-                    path,
-                    requirements,
-                    imported.MetadataToken))
-            : null;
+    {
+        if (requirements.Scope == ResearchAnalysisScope.None
+            || imported.AssemblyPath is not { Length: > 0 } path)
+        {
+            return null;
+        }
+
+        var indexes = new AnalysisIndexCache();
+        return ResearchAssemblyContextCache.ForIndex(
+            indexes.ForPath(
+                path,
+                requirements,
+                imported.MetadataToken));
+    }
 
     public static IReadOnlyList<IAnnotation> CollectFacts(
         MetadataSource source, IrFunction imported, ResearchFactRegistry? registry = null)

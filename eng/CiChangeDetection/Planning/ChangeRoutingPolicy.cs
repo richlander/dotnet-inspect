@@ -4,13 +4,13 @@ namespace CiChangeDetection.Planning;
 
 /// <summary>
 /// The planner's path and event routing policy. Every repository path rule
-/// that decides whether a CI validation applies lives here, ported from
-/// <c>eng/ci-detect-changes.sh</c> including its first-match <c>case</c>
-/// semantics, in which <c>*</c> crosses <c>/</c>.
+/// that decides whether a CI validation applies lives here. Patterns retain
+/// the repository routing convention in which <c>*</c> crosses <c>/</c>.
 /// </summary>
 internal sealed class ChangeRoutingPolicy
 {
-    private const string DetectionScript = "eng/ci-detect-changes.sh";
+    private const string TlaExpectedExitCodes =
+        TlaManifestChanges.ManifestPath;
 
     private readonly ProjectInventory? webProjects;
     private readonly ProjectInventory? decompilerSkipProjects;
@@ -86,11 +86,6 @@ internal sealed class ChangeRoutingPolicy
         RoutingState state = default;
         foreach (ChangeRecord record in evidence.Records)
         {
-            if (BytePattern.Matches(record.Path, DetectionScript))
-            {
-                return RoutingSelections.All;
-            }
-
             RoutePath(record.Path, ref state);
         }
 
@@ -104,6 +99,7 @@ internal sealed class ChangeRoutingPolicy
 
         return new RoutingSelections(
             state.Code,
+            state.RepositoryGuards,
             state.CSharpDiff,
             state.Decompiler,
             state.Docs,
@@ -112,19 +108,27 @@ internal sealed class ChangeRoutingPolicy
             state.Packaging,
             state.Shipped,
             state.Web,
+            state.WebComprehensive,
             state.Skills,
             state.Tla);
     }
 
     /// <summary>
-    /// Reports whether a path is TLA+ model content, as distinct from the TLA+
-    /// infrastructure paths that also select the lane. Only model content
-    /// enters the scoped path corpus.
+    /// Reports whether a path is scoped input consumed by the TLA+ runner, as
+    /// distinct from infrastructure paths that only select the lane.
     /// </summary>
     /// <param name="path">The raw path bytes.</param>
-    /// <returns>True when the path is a TLA+ module or configuration.</returns>
-    internal static bool IsTlaModelContent(ReadOnlySpan<byte> path)
+    /// <returns>
+    /// True for model content or the exact-outcome manifest whose changed
+    /// entries select model directories.
+    /// </returns>
+    internal static bool IsTlaScopedInput(ReadOnlySpan<byte> path)
     {
+        if (BytePattern.Matches(path, TlaExpectedExitCodes))
+        {
+            return true;
+        }
+
         ReadOnlySpan<byte> folded = BytePattern.AsciiFold(path);
         return BytePattern.MatchesAny(
             folded,
@@ -144,15 +148,19 @@ internal sealed class ChangeRoutingPolicy
         BytePattern.MatchesAny(
             path,
             ".github/workflows/ci.yml",
-            DetectionScript,
             "eng/run-tla-checks.sh",
             "eng/test-tla-checks.sh",
             "eng/tla-module-overrides.txt",
-            "eng/tla-expected-exit-codes.txt")
-        || IsTlaModelContent(path);
+            TlaExpectedExitCodes)
+        || IsTlaScopedInput(path);
 
     private void RoutePath(ReadOnlySpan<byte> path, ref RoutingState state)
     {
+        if (BytePattern.Matches(path, "*.cs"))
+        {
+            state.RepositoryGuards = true;
+        }
+
         if (IsWebProjectPath(path))
         {
             state.Code = true;
@@ -169,11 +177,39 @@ internal sealed class ChangeRoutingPolicy
             state.Tla = true;
         }
 
+        if (SelectsInspectWebComprehensive(path))
+        {
+            state.Web = true;
+            state.WebComprehensive = true;
+        }
+
         RouteDecompiler(path, ref state);
         RouteIlRoundtrip(path, ref state);
         RoutePackaging(path, ref state);
         RouteShipped(path, ref state);
     }
+
+    private static bool SelectsInspectWebComprehensive(
+        ReadOnlySpan<byte> path) =>
+        BytePattern.MatchesAny(
+            path,
+            ".github/workflows/ci.yml",
+            ".github/workflows/deep-inspect.yml",
+            "eng/generate-inspect-web-engine-facade.sh",
+            "eng/generate-inspect-web-multi-facade-canary.sh",
+            "eng/test-inspect-web-multi-facade-canary.sh",
+            "eng/generate-inspect-web-managed-operation-bridge-canary.sh",
+            "eng/test-inspect-web-managed-operation-bridge-canary.sh",
+            "eng/test-ts-jsexport-typescript.sh",
+            "src/ILInspector.JsExportSurface/*",
+            "src/ILInspector.TypeScriptGeneration/*",
+            "src/ts-jsexport/*",
+            "inspect-web/multi-facade-canary/*",
+            "inspect-web/managed-operation-bridge-canary/*",
+            "inspect-web/scripts/verify-multi-facade-canary.ts",
+            "inspect-web/scripts/verify-managed-operation-bridge-canary.ts",
+            "inspect-web/DotnetInspect.Web/InspectWebJsExportContext.cs",
+            "inspect-web/DotnetInspect.Web.Core/BrowserManaged*");
 
     private static void RouteLanes(
         ReadOnlySpan<byte> path,
@@ -181,7 +217,6 @@ internal sealed class ChangeRoutingPolicy
     {
         if (BytePattern.MatchesAny(
             path,
-            "src/NetworkDestinationPolicy.cs",
             "src/UnionPolyfill.cs"))
         {
             state.Code = true;
@@ -191,19 +226,19 @@ internal sealed class ChangeRoutingPolicy
         {
             state.Code = true;
         }
-        else if (BytePattern.Matches(path, "fixtures/*"))
-        {
-            state.Code = true;
-        }
         else if (BytePattern.MatchesAny(
             path,
             "tests/ILInspector.MetadataPrimitives.PlatformProbe/*",
-            "tests/DotnetInspector.Artifacts.Local.PlatformProbe/*",
-            "tests/ILInspector.JsExportSurface.TypeScriptFixtures/*",
+            "tests/Inspector.Artifacts.Local.PlatformProbe/*",
+            "fixtures/js-export/ILInspector.JsExportSurface.TypeScriptFixtures/*",
             "tests/ILInspector.JsExportSurface.Tests/Fixtures/ts-jsexport-runtime/*"))
         {
             state.Code = true;
             state.Web = true;
+        }
+        else if (BytePattern.Matches(path, "fixtures/*"))
+        {
+            state.Code = true;
         }
         else if (BytePattern.Matches(path, "tests/*"))
         {
@@ -217,7 +252,10 @@ internal sealed class ChangeRoutingPolicy
             // Documentation and text fixtures under the harness stay off the
             // code lane.
         }
-        else if (BytePattern.Matches(path, "tools/DecompilerHarness/*"))
+        else if (BytePattern.MatchesAny(
+            path,
+            "tools/DecompilerHarness/*",
+            "tools/CatalogChangeBenchmark.cs"))
         {
             state.Code = true;
         }
@@ -258,6 +296,7 @@ internal sealed class ChangeRoutingPolicy
             "docs/data/nuget-top-packages.json",
             "eng/restore-iltools.sh",
             "eng/activate-iltools.sh",
+            "eng/test-runtime-flavor.sh",
             "eng/test-ts-jsexport-context-aot.sh"))
         {
             state.Code = true;
@@ -275,6 +314,11 @@ internal sealed class ChangeRoutingPolicy
             "eng/test-ts-jsexport-typescript.sh",
             "eng/generate-inspect-web-multi-facade-canary.sh",
             "eng/test-inspect-web-multi-facade-canary.sh",
+            "eng/generate-inspect-web-managed-operation-bridge-canary.sh",
+            "eng/test-inspect-web-managed-operation-bridge-canary.sh",
+            "eng/test-inspect-web-package-adoption-gate.sh",
+            "eng/test-inspect-web-published-application.sh",
+            "eng/test-inspect-web-source-comparison-gate.sh",
             "eng/validate-inspect-web-promotion.cs",
             "eng/validate-inspect-web-promotion.sh",
             "eng/generate-inspect-web-engine-facade.sh",
@@ -296,14 +340,14 @@ internal sealed class ChangeRoutingPolicy
         {
             state.Code = true;
         }
-        else if (BytePattern.Matches(path, "prototypes/inspect-web/*.md"))
+        else if (BytePattern.Matches(path, "inspect-web/*.md"))
         {
-            // Markdown under the browser prototype is documentation, not a
+            // Markdown under the Inspect Web workspace is documentation, not a
             // browser build input.
         }
         else if (BytePattern.MatchesAny(
             path,
-            "prototypes/inspect-web/*",
+            "inspect-web/*",
             "prototypes/annotated-source-viewer/*"))
         {
             state.Web = true;
@@ -448,6 +492,12 @@ internal sealed class ChangeRoutingPolicy
         {
             state.Decompiler = true;
         }
+        else if (BytePattern.Matches(
+            path,
+            "tests/DecompilerHarness.Tests/*"))
+        {
+            state.Decompiler = true;
+        }
         else if (BytePattern.MatchesAny(
                 path,
                 "fixtures/*",
@@ -469,7 +519,9 @@ internal sealed class ChangeRoutingPolicy
             "tests/DotnetInspector.ILRoundtrip.Tests/*",
             "eng/restore-ilassembler.sh",
             "src/ILInspector.Metadata*",
-            "src/DotnetInspector.Core/*",
+            "src/DotnetInspector.Cache/*",
+            "src/DotnetInspector.Sections/*",
+            "src/UntrustedDocuments/*",
             "*.props",
             "*.targets",
             "*.sln",
@@ -485,7 +537,7 @@ internal sealed class ChangeRoutingPolicy
     {
         if (BytePattern.MatchesAny(
             path,
-            "src/dotnet-inspect/dotnet-inspect.csproj",
+            "src/DotnetInspect.Cli/DotnetInspect.Cli.csproj",
             "Directory.Build.props",
             "Directory.Build.targets",
             "Directory.Packages.props",
@@ -540,6 +592,7 @@ internal sealed class ChangeRoutingPolicy
     private struct RoutingState
     {
         internal bool Code;
+        internal bool RepositoryGuards;
         internal bool CSharpDiff;
         internal bool Decompiler;
         internal bool Docs;
@@ -548,6 +601,7 @@ internal sealed class ChangeRoutingPolicy
         internal bool Packaging;
         internal bool Shipped;
         internal bool Web;
+        internal bool WebComprehensive;
         internal bool Skills;
         internal bool Tla;
     }

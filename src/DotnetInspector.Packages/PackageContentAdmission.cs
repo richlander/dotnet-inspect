@@ -327,6 +327,10 @@ internal static class PackageContentAdmission
         HashSet<string> expectedDirs = new(pathComparer);
         try
         {
+            string fullRoot = Path.GetFullPath(root);
+            string rootPrefix = Path.EndsInDirectorySeparator(fullRoot)
+                ? fullRoot
+                : fullRoot + Path.DirectorySeparatorChar;
             using var zip = new ZipArchive(
                 new MemoryStream(archive, writable: false),
                 ZipArchiveMode.Read);
@@ -357,9 +361,10 @@ internal static class PackageContentAdmission
                 archiveFiles.Add(relative);
                 RememberDirectoryParents(expectedDirs, relative);
 
-                string onDisk = Path.Combine(
-                    root,
-                    relative.Replace('/', Path.DirectorySeparatorChar));
+                string onDisk = Path.GetFullPath(relative, fullRoot);
+                if (!onDisk.StartsWith(rootPrefix, PathComparison))
+                    return false;
+
                 if (!File.Exists(onDisk) || IsReparsePoint(onDisk))
                     return false;
 

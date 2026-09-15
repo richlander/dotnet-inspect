@@ -414,7 +414,7 @@ The two directions compose, and the transition runs one way:
 ```text
 match A --similar          discover ranked candidates
   -> match A B             pairwise relation for one selected candidate
-  -> match A B --implementation   decompiled drill-down for that pair
+  -> match A B --body             C#/IL body drill-down for that pair
 ```
 
 Discovery ranks; it does not decide. A rank is a selection step, so the output

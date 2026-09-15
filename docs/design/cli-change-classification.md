@@ -174,10 +174,6 @@ for classification.
 Compatibility mechanisms are currently distributed rather than registered in
 one manifest:
 
-- hidden `api` is a terminal compatibility shim. It writes replacements for
-  `type` and `member` to stderr and returns non-zero without performing the old
-  operation. It predates the agent-first policy and has only a parse gate; if
-  removed, the change must decide whether `api` remains reserved;
 - `--authored-source` and the `Original Source` selector are hidden
   compatibility-only aliases for `--pdb-source` and `PDB Source`. No
   independent current-interface rationale is recorded, so their disposition
@@ -189,25 +185,29 @@ one manifest:
 - visible library `--references` and `--dependencies`, plus package
   `--dependencies`, identify themselves as legacy aliases. Their independent
   current utility and removal status are likewise **unverified**;
-- valued `--head N` and `--tail N` inputs have a focused pre-parse guard because
+- unadopted valued `--head N` and `--tail N` inputs have a focused pre-parse guard because
   the current boolean option would otherwise leave the count to bind as a
   positional target. The `--tail N` outcome is gated; the symmetric `--head N`
-  outcome is implemented but **unverified**;
+  outcome is implemented but **unverified**. Adopted presence-only row
+  modifiers use [common option-value validation](cli-option-value-validation.md)
+  and its zero-arity diagnostic instead;
 - removed `package --readme` receives replacement guidance at the package parse
   boundary. No independent current-input ambiguity is recorded, so the special
-  diagnostic's current-policy justification is **unverified**; and
-- removed top-level command names `audit` and `source` remain reserved because
-  releasing them would send the same bare tokens through implicit target
-  resolution. The `source` outcome is gated; the `audit` product-entry
-  reservation outcome is **unverified**. `list` and `ls` are also reserved, but
-  no independent current-interface rationale for those bare tokens is
-  recorded, so their reservation is **unverified** under this policy.
+  diagnostic's current-policy justification is **unverified**;
+- removed top-level command names `api`, `audit`, and `source` remain reserved
+  because releasing them would send the same bare tokens through implicit
+  target resolution. The `api` and `source` outcomes are gated; the `audit`
+  product-entry reservation outcome is **unverified**. `list` and `ls` are also
+  reserved, but no independent current-interface rationale for those bare
+  tokens is recorded, so their reservation is **unverified** under this
+  policy.
 
 Existing gates prove parts of those behaviors:
 
-- `CommandLineTests.ApiCommand_Deprecated_ParsesCorrectly` proves only that the
-  hidden `api` command still parses. Its stderr text and non-zero execution
-  outcome are unverified.
+- `CommandLineTests.ApiCommand_IsRemovedButReserved` proves that `api` is
+  unregistered and remains reserved.
+- `CommandExecutionTests.ApiCommand_RemovedFromRoot` proves the removed `api`
+  token fails as a command rather than entering implicit target routing.
 - `DiffOptionsParserTests.PdbSourceOption_AndLegacyAlias_EnablePdbSource` and
   command execution tests prove selected compatibility-only aliases still
   reach canonical behavior.

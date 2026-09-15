@@ -131,6 +131,12 @@ public sealed class PluginAuthenticationContext
 
     internal bool HasCredentialSources => _provider.HasCredentialSources;
 
+    internal static bool CanScopeProviderQuery(Uri providerQueryUri)
+    {
+        ArgumentNullException.ThrowIfNull(providerQueryUri);
+        return ResourceScope.TryCreate(providerQueryUri, out _);
+    }
+
     internal bool IsBoundTo(PackageSourceAssociation association) =>
         ReferenceEquals(_association, association);
 

@@ -71,9 +71,14 @@ The package file sections all expose package-relative paths and uncompressed byt
 
 **Why `Package files` is not in `-v:d`:** Files are structural layout data (what the package contains on disk), not identity metadata (what the package is). Mixing structural content into the identity view conflates two different concerns. The `--path`/`-S "Package files"` file-resolution view is the correct entry point for structural exploration.
 
-### `api` Command
+### `type` and `member` Commands
 
-The `api` command extracts the public API surface from a library. Its default view is *type identity*: kind, modifiers, source URL, and member tables.
+The `type` command discovers types and inspects type identity. The `member`
+command inspects a type's members. Together they expose the public API surface
+of a library.
+
+When either route renders one resolved type, verbosity expands that type's
+identity and members:
 
 **Verbosity levels (identity):**
 
@@ -132,7 +137,6 @@ When a lens has multiple possible rendering modes, the default should be the mos
 | `package` | Package Info, Statistics, Dependencies, Vulnerabilities | `--path`, `-S "Package README file" --print`, `--versions`, `-S Signals` |
 | `project` | — | `-S Skills`, `-S Skills --paths`, `-S Skills --print` |
 | `type`/`member` | Type/member identity and sectioned evidence | `-S "Source Files" --print --row N`, `-S "Source Locations" --print --row N`, `-S "PDB Source" --print` |
-| `api` | Type fields, Members table | `--docs`, `--samples`, `--table`, `--tsv` |
 | `library` | Library info, PE headers | `--sourcelink`, `--references` |
 | `platform` | Framework listing | (delegates to `library` when given a name) |
 | `type` | Type shape | (single view, verbosity controls depth) |

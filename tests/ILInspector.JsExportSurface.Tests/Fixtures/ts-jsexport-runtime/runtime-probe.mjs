@@ -2,12 +2,54 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-if (process.argv.length !== 3) {
-  throw new Error("Usage: node runtime-probe.mjs <generated-facade.js>");
+if (process.argv.length !== 5) {
+  throw new Error(
+    "Usage: node runtime-probe.mjs <generated-facade.js> "
+      + "<union-payloads.json> <union-usage.js>",
+  );
 }
 
 const facadeUrl = pathToFileURL(process.argv[2]);
 const facadeSource = readFileSync(process.argv[2], "utf8");
+// Real source-generated System.Text.Json output captured from the compiled
+// producer fixture by union-payloads.cs.
+const unionPayloads = JSON.parse(readFileSync(process.argv[3], "utf8"));
+const unionUsageUrl = pathToFileURL(process.argv[4]);
+for (
+  const name of [
+    "widgetSelectionDto",
+    "widgetSelectionString",
+    "defaultSelection",
+    "flagSelectionTrue",
+    "flagSelectionWidget",
+    "outcomeNested",
+    "outcomeBoolean",
+    "kindDeclared",
+    "kindString",
+    "collectionArray",
+    "collectionMap",
+    "collectionNumber",
+    "collectionDefault",
+    "boxedCount",
+    "boxedWidget",
+    "wrappedBlob",
+    "genericRecordInt",
+    "genericRecordWidget",
+    "nullableGenericNested",
+    "genericNestedEnvelope",
+    "wrappedGenericNestedEnvelope",
+    "nullableWrappedGenericNestedEnvelope",
+    "mixedNullableValueEnvelope",
+    "genericNestedChoice",
+    "selectionEnvelope",
+  ]
+) {
+  assert.equal(
+    typeof unionPayloads[name],
+    "string",
+    `The producer fixture did not supply the ${name} union payload.`,
+  );
+}
 const configureHostKey =
   facadeSource.match(/"(ConfigureHost\.-?\d+)"/)?.[1];
 const echoKey = facadeSource.match(/"(Echo\.-?\d+)"/)?.[1];
@@ -23,10 +65,50 @@ const getKeywordMapAsyncKey =
   facadeSource.match(/"(GetKeywordMapAsync\.-?\d+)"/)?.[1];
 const getBlobAsyncKey =
   facadeSource.match(/"(GetBlobAsync\.-?\d+)"/)?.[1];
+const getHiddenTypeJsonIncludeAsyncKey =
+  facadeSource.match(/"(GetHiddenTypeJsonIncludeAsync\.-?\d+)"/)?.[1];
 const getNullableWidgetAsyncKey =
   facadeSource.match(/"(GetNullableWidgetAsync\.-?\d+)"/)?.[1];
 const getJsonElementKey =
   facadeSource.match(/"(GetJsonElement\.-?\d+)"/)?.[1];
+const getWidgetSelectionKey =
+  facadeSource.match(/"(GetWidgetSelection\.-?\d+)"/)?.[1];
+const getDefaultSelectionKey =
+  facadeSource.match(/"(GetDefaultSelection\.-?\d+)"/)?.[1];
+const getFlagSelectionKey =
+  facadeSource.match(/"(GetFlagSelection\.-?\d+)"/)?.[1];
+const getOutcomeSelectionKey =
+  facadeSource.match(/"(GetOutcomeSelection\.-?\d+)"/)?.[1];
+const getKindSelectionKey =
+  facadeSource.match(/"(GetKindSelection\.-?\d+)"/)?.[1];
+const getCollectionSelectionKey =
+  facadeSource.match(/"(GetCollectionSelection\.-?\d+)"/)?.[1];
+const getBoxedCountKey =
+  facadeSource.match(/"(GetBoxedCount\.-?\d+)"/)?.[1];
+const getBoxedWidgetKey =
+  facadeSource.match(/"(GetBoxedWidget\.-?\d+)"/)?.[1];
+const getWrappedBlobKey =
+  facadeSource.match(/"(GetWrappedBlob\.-?\d+)"/)?.[1];
+const getGenericRecordIntAsyncKey =
+  facadeSource.match(/"(GetGenericRecordIntAsync\.-?\d+)"/)?.[1];
+const getGenericRecordWidgetAsyncKey =
+  facadeSource.match(/"(GetGenericRecordWidgetAsync\.-?\d+)"/)?.[1];
+const getNullableGenericNestedKey =
+  facadeSource.match(/"(GetNullableGenericNested\.-?\d+)"/)?.[1];
+const getGenericNestedEnvelopeKey =
+  facadeSource.match(/"(GetGenericNestedEnvelope\.-?\d+)"/)?.[1];
+const getWrappedGenericNestedEnvelopeKey =
+  facadeSource.match(/"(GetWrappedGenericNestedEnvelope\.-?\d+)"/)?.[1];
+const getNullableWrappedGenericNestedEnvelopeKey =
+  facadeSource.match(
+    /"(GetNullableWrappedGenericNestedEnvelope\.-?\d+)"/,
+  )?.[1];
+const getMixedNullableValueEnvelopeKey =
+  facadeSource.match(/"(GetMixedNullableValueEnvelope\.-?\d+)"/)?.[1];
+const getGenericNestedChoiceKey =
+  facadeSource.match(/"(GetGenericNestedChoice\.-?\d+)"/)?.[1];
+const getSelectionEnvelopeAsyncKey =
+  facadeSource.match(/"(GetSelectionEnvelopeAsync\.-?\d+)"/)?.[1];
 const observeValueKey =
   facadeSource.match(/"(ObserveValue\.-?\d+)"/)?.[1];
 const transformValueKey =
@@ -71,12 +153,91 @@ assert.ok(
   "The generated GetBlobAsync runtime dispatch key was not found.",
 );
 assert.ok(
+  getHiddenTypeJsonIncludeAsyncKey,
+  "The generated GetHiddenTypeJsonIncludeAsync runtime dispatch key "
+    + "was not found.",
+);
+assert.ok(
   getNullableWidgetAsyncKey,
   "The generated GetNullableWidgetAsync runtime dispatch key was not found.",
 );
 assert.ok(
   getJsonElementKey,
   "The generated GetJsonElement runtime dispatch key was not found.",
+);
+assert.ok(
+  getWidgetSelectionKey,
+  "The generated GetWidgetSelection runtime dispatch key was not found.",
+);
+assert.ok(
+  getDefaultSelectionKey,
+  "The generated GetDefaultSelection runtime dispatch key was not found.",
+);
+assert.ok(
+  getFlagSelectionKey,
+  "The generated GetFlagSelection runtime dispatch key was not found.",
+);
+assert.ok(
+  getOutcomeSelectionKey,
+  "The generated GetOutcomeSelection runtime dispatch key was not found.",
+);
+assert.ok(
+  getKindSelectionKey,
+  "The generated GetKindSelection runtime dispatch key was not found.",
+);
+assert.ok(
+  getCollectionSelectionKey,
+  "The generated GetCollectionSelection runtime dispatch key was not found.",
+);
+assert.ok(
+  getBoxedCountKey,
+  "The generated GetBoxedCount runtime dispatch key was not found.",
+);
+assert.ok(
+  getBoxedWidgetKey,
+  "The generated GetBoxedWidget runtime dispatch key was not found.",
+);
+assert.ok(
+  getWrappedBlobKey,
+  "The generated GetWrappedBlob runtime dispatch key was not found.",
+);
+assert.ok(
+  getGenericRecordIntAsyncKey,
+  "The generated GetGenericRecordIntAsync runtime dispatch key was not found.",
+);
+assert.ok(
+  getGenericRecordWidgetAsyncKey,
+  "The generated GetGenericRecordWidgetAsync runtime dispatch key was not found.",
+);
+assert.ok(
+  getNullableGenericNestedKey,
+  "The generated GetNullableGenericNested runtime dispatch key was not found.",
+);
+assert.ok(
+  getGenericNestedEnvelopeKey,
+  "The generated GetGenericNestedEnvelope runtime dispatch key was not found.",
+);
+assert.ok(
+  getWrappedGenericNestedEnvelopeKey,
+  "The generated GetWrappedGenericNestedEnvelope dispatch key was not found.",
+);
+assert.ok(
+  getNullableWrappedGenericNestedEnvelopeKey,
+  "The generated GetNullableWrappedGenericNestedEnvelope dispatch key "
+    + "was not found.",
+);
+assert.ok(
+  getMixedNullableValueEnvelopeKey,
+  "The generated GetMixedNullableValueEnvelope dispatch key was not found.",
+);
+assert.ok(
+  getGenericNestedChoiceKey,
+  "The generated GetGenericNestedChoice runtime dispatch key was not found.",
+);
+assert.ok(
+  getSelectionEnvelopeAsyncKey,
+  "The generated GetSelectionEnvelopeAsync runtime dispatch key "
+    + "was not found.",
 );
 assert.ok(
   observeValueKey,
@@ -146,12 +307,78 @@ function managedExports(methods = {}) {
                 blobs: ["AQ==", null],
                 blobsByName: { none: null },
               })),
+            [getHiddenTypeJsonIncludeAsyncKey]:
+              methods.getHiddenTypeJsonIncludeAsync
+              ?? (async () => JSON.stringify({ public: "public" })),
             [getNullableWidgetAsyncKey]:
               methods.getNullableWidgetAsync
               ?? (async (name) => JSON.stringify({ name, count: 1 })),
             [getJsonElementKey]:
               methods.getJsonElement
               ?? (() => JSON.stringify({ value: "json" })),
+            [getWidgetSelectionKey]:
+              methods.getWidgetSelection
+              ?? ((widget) => (widget
+                ? unionPayloads.widgetSelectionDto
+                : unionPayloads.widgetSelectionString)),
+            [getDefaultSelectionKey]:
+              methods.getDefaultSelection
+              ?? (() => unionPayloads.defaultSelection),
+            [getFlagSelectionKey]:
+              methods.getFlagSelection
+              ?? ((flag) => (flag
+                ? unionPayloads.flagSelectionTrue
+                : unionPayloads.flagSelectionWidget)),
+            [getOutcomeSelectionKey]:
+              methods.getOutcomeSelection
+              ?? ((nested) => (nested
+                ? unionPayloads.outcomeNested
+                : unionPayloads.outcomeBoolean)),
+            [getKindSelectionKey]:
+              methods.getKindSelection
+              ?? ((declared) => (declared
+                ? unionPayloads.kindDeclared
+                : unionPayloads.kindString)),
+            [getCollectionSelectionKey]:
+              methods.getCollectionSelection
+              ?? ((choice) => [
+                unionPayloads.collectionArray,
+                unionPayloads.collectionMap,
+                unionPayloads.collectionNumber,
+              ][choice] ?? unionPayloads.collectionDefault),
+            [getBoxedCountKey]:
+              methods.getBoxedCount ?? (() => unionPayloads.boxedCount),
+            [getBoxedWidgetKey]:
+              methods.getBoxedWidget ?? (() => unionPayloads.boxedWidget),
+            [getWrappedBlobKey]:
+              methods.getWrappedBlob ?? (() => unionPayloads.wrappedBlob),
+            [getGenericRecordIntAsyncKey]:
+              methods.getGenericRecordIntAsync
+              ?? (async () => unionPayloads.genericRecordInt),
+            [getGenericRecordWidgetAsyncKey]:
+              methods.getGenericRecordWidgetAsync
+              ?? (async () => unionPayloads.genericRecordWidget),
+            [getNullableGenericNestedKey]:
+              methods.getNullableGenericNested
+              ?? (() => unionPayloads.nullableGenericNested),
+            [getGenericNestedEnvelopeKey]:
+              methods.getGenericNestedEnvelope
+              ?? (() => unionPayloads.genericNestedEnvelope),
+            [getWrappedGenericNestedEnvelopeKey]:
+              methods.getWrappedGenericNestedEnvelope
+              ?? (() => unionPayloads.wrappedGenericNestedEnvelope),
+            [getNullableWrappedGenericNestedEnvelopeKey]:
+              methods.getNullableWrappedGenericNestedEnvelope
+              ?? (() => unionPayloads.nullableWrappedGenericNestedEnvelope),
+            [getMixedNullableValueEnvelopeKey]:
+              methods.getMixedNullableValueEnvelope
+              ?? (() => unionPayloads.mixedNullableValueEnvelope),
+            [getGenericNestedChoiceKey]:
+              methods.getGenericNestedChoice
+              ?? (() => unionPayloads.genericNestedChoice),
+            [getSelectionEnvelopeAsyncKey]:
+              methods.getSelectionEnvelopeAsync
+              ?? (async () => unionPayloads.selectionEnvelope),
             [observeValueKey]:
               methods.observeValue
               ?? ((callback) => callback(42)),
@@ -287,7 +514,133 @@ async function freshFacade() {
     await facade.getNullableWidgetAsync("nullable"),
     { name: "nullable", count: 1 },
   );
+  assert.deepEqual(
+    await facade.getHiddenTypeJsonIncludeAsync(),
+    { public: "public" },
+  );
   assert.deepEqual(facade.getJsonElement(), { value: "json" });
+  assert.deepEqual(
+    facade.getWidgetSelection(true),
+    { name: "selected", count: 2 },
+  );
+  assert.equal(facade.getWidgetSelection(false), "fallback");
+  assert.equal(facade.getDefaultSelection(), null);
+  assert.equal(facade.getFlagSelection(true), true);
+  assert.deepEqual(
+    facade.getFlagSelection(false),
+    { name: "flagged", count: 3 },
+  );
+  assert.equal(facade.getOutcomeSelection(true), "nested");
+  assert.equal(facade.getOutcomeSelection(false), true);
+  assert.equal(facade.getKindSelection(true), 1);
+  assert.equal(facade.getKindSelection(false), "unknown");
+  // A producer can write null into a non-nullable-annotated reference array,
+  // so the lowered entry type stays nullable.
+  assert.deepEqual(
+    facade.getCollectionSelection(0),
+    [{ name: "listed", count: 10 }, null],
+  );
+  assert.deepEqual(
+    facade.getCollectionSelection(1),
+    { present: { name: "mapped", count: 11 }, absent: null },
+  );
+  assert.equal(facade.getCollectionSelection(2), 12);
+  assert.equal(facade.getCollectionSelection(3), null);
+  assert.equal(facade.getBoxedCount(11), 11);
+  assert.deepEqual(facade.getBoxedWidget("boxed"), { name: "boxed", count: 4 });
+  // A closed byte[] union argument keeps its Base64 JSON string wire form.
+  assert.equal(facade.getWrappedBlob(), "AQID");
+  assert.deepEqual(
+    await facade.getGenericRecordIntAsync(),
+    {
+      content: 7,
+      nested: { value: 8 },
+      items: [{ value: 1 }, { value: 2 }],
+      lookup: { missing: 0 },
+      choice: 9,
+    },
+  );
+  assert.deepEqual(
+    await facade.getGenericRecordWidgetAsync("sample"),
+    {
+      content: { name: "sample", count: 10 },
+      nested: { value: { name: "sample", count: 11 } },
+      items: [{ value: { name: "sample", count: 12 } }],
+      lookup: { missing: null },
+      choice: { name: "sample", count: 13 },
+    },
+  );
+  assert.deepEqual(
+    facade.getNullableGenericNested(),
+    { value: null },
+  );
+  assert.deepEqual(
+    facade.getGenericNestedEnvelope(),
+    { item: { value: null } },
+  );
+  assert.deepEqual(
+    facade.getWrappedGenericNestedEnvelope(),
+    {
+      item: { value: null },
+      items: [{ value: null }],
+      lookup: { missing: { value: null } },
+    },
+  );
+  assert.deepEqual(
+    facade.getNullableWrappedGenericNestedEnvelope(),
+    { item: { value: null } },
+  );
+  assert.deepEqual(
+    facade.getMixedNullableValueEnvelope(),
+    { item: { first: null, second: null } },
+  );
+  assert.deepEqual(
+    facade.getGenericNestedChoice(),
+    { value: null },
+  );
+  assert.deepEqual(
+    await facade.getSelectionEnvelopeAsync("envelope"),
+    {
+      result: { name: "envelope", count: 5 },
+      items: ["first", null],
+      byName: {
+        named: { name: "envelope", count: 6 },
+        missing: null,
+      },
+      outcome: "outcome",
+      kind: 0,
+      declaredKind: 1,
+      count: 7,
+      widget: { name: "envelope", count: 8 },
+      group: [{ name: "envelope", count: 9 }, null],
+      blob: "BAU=",
+    },
+  );
+
+  // The compiled union consumer imports the unsuffixed facade module, so it
+  // needs its own initialization under the same configured scenario.
+  const sharedFacade = await import(facadeUrl.href);
+  await sharedFacade.initializeRuntime();
+  const unionUsage = await import(unionUsageUrl.href);
+  assert.equal(
+    unionUsage.probeSelections(),
+    "selected:2|none|none|true|yes|kind-1|11/boxed|literal:9|blob:AQID"
+      + "|listed,null|present=mapped,absent=null|none",
+  );
+  assert.equal(
+    await unionUsage.summarizeEnvelope(),
+    "envelope:5|first|envelope:6|outcome|kind-0|7/envelope|blob:BAU="
+      + "|group:envelope,null",
+  );
+  assert.equal(
+    await unionUsage.summarizeGenericRecords(),
+    "7|8|1,2|0|9|sample|11|12|null|13|null|null|null|null|null|null|null|null|null",
+  );
+  assert.equal(unionUsage.missingSelectionEntry, null);
+  assert.equal(unionUsage.missingMapEntry, null);
+  assert.equal(unionUsage.missingGroupEntry, null);
+  assert.equal(unionUsage.missingGenericNestedValue, null);
+  assert.equal(unionUsage.missingGenericNestedChoiceValue, null);
   const observed = [];
   facade.observeValue((value) => {
     observed.push(value);

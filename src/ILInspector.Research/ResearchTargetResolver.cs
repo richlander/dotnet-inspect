@@ -277,7 +277,7 @@ public static class ResearchTargetResolver
                         selection as ResearchExactAddressMemberSelection;
                     ResearchTargetRequest targetRequest = new(
                         new ResearchTargetRequestId(domain.Id, input.Id),
-                        selection.DeclaringTypeFullName,
+                        selection.DeclaringType,
                         selection.Selector,
                         selection.Kind,
                         exact?.Address,
@@ -450,9 +450,11 @@ public static class ResearchTargetResolver
             {
                 reader = source.Reader;
                 ResearchTargetInputValidationEvidence evidence =
-                    CaptureInputEvidence(reader, occurrence);
+                    ResearchInputImageValidation.Capture(reader, occurrence);
                 SetInputEvidence(requests, evidence);
-                if (ValidateImage(evidence, occurrence) is
+                if (ResearchInputImageValidation.Validate(
+                        evidence,
+                        occurrence) is
                     ResearchTargetDiagnosticKind invalid)
                 {
                     Terminate(requests, invalid);
@@ -502,116 +504,70 @@ public static class ResearchTargetResolver
         }
     }
 
-    /// <summary>
-    /// Validates that the live image, the acquisition descriptor, and the
-    /// Analysis body index all name the same assembly and the same module.
-    /// </summary>
-    static ResearchTargetInputValidationEvidence CaptureInputEvidence(
-        MetadataReader reader,
-        ImplementationComparisonInputOccurrence occurrence)
-    {
-        bool isAssembly = reader.IsAssembly;
-        AssemblyReferenceIdentity? identity = isAssembly
-            ? AssemblyReferenceIdentity.FromAssemblyDefinition(reader)
-            : null;
-        Guid moduleVersionId =
-            reader.GetGuid(reader.GetModuleDefinition().Mvid);
-        return new ResearchTargetInputValidationEvidence(
-            ReadFailed: false,
-            isAssembly,
-            identity,
-            moduleVersionId,
-            occurrence.Assembly.Registration.ModuleVersionId,
-            reader.MethodDefinitions.Count,
-            Surface: null);
-    }
-
-    static ResearchTargetDiagnosticKind? ValidateImage(
-        ResearchTargetInputValidationEvidence evidence,
-        ImplementationComparisonInputOccurrence occurrence)
-    {
-        LibraryBodyModuleIdentity analysis = occurrence.BodyIndex.ModuleIdentity;
-        if (!evidence.IsAssembly)
-            return ResearchTargetDiagnosticKind.StandaloneModule;
-        if (analysis.AssemblyIdentity is null)
-            return ResearchTargetDiagnosticKind.AssemblyIdentityMismatch;
-
-        AssemblyReferenceIdentity live = evidence.LiveAssemblyIdentity!;
-        if (!AssemblyReferenceIdentity.EquivalentComparer.Equals(
-                live,
-                occurrence.Assembly.Identity)
-            || !AssemblyReferenceIdentity.EquivalentComparer.Equals(
-                live,
-                analysis.AssemblyIdentity))
-        {
-            return ResearchTargetDiagnosticKind.AssemblyIdentityMismatch;
-        }
-
-        return evidence.LiveModuleVersionId == analysis.ModuleVersionId
-                && (evidence.ArtifactModuleVersionId is not Guid artifact
-                    || artifact == evidence.LiveModuleVersionId)
-            ? null
-            : ResearchTargetDiagnosticKind.ModuleIdentityMismatch;
-    }
-
     static ResearchTargetOutcome ResolveRequest(
         PlannedRequest planned,
         ApiSurface surface,
         MetadataReader reader,
         LibraryBodyModuleIdentity module)
     {
-        string intent = planned.Request.DeclaringTypeFullName;
+        MetadataTypeDefinitionName intent = planned.Request.DeclaringType;
+        TypeDeclarationResult declaration =
+            MetadataTypeDeclarationProbe.Probe(reader, intent);
+        // Final validation derives its expectation from a separate normalized
+        // result without reopening the staged input.
+        planned.ValidationDeclaration =
+            MetadataTypeDeclarationProbe.Probe(reader, intent);
+        switch (declaration)
+        {
+            case TypeDeclarationResult.Forwarded:
+                return Unavailable(
+                    ResearchTargetDiagnosticKind.DeclaringTypeForwarded);
+            case TypeDeclarationResult.Ambiguous:
+                return Failed(
+                    ResearchTargetDiagnosticKind.DeclaringTypeAmbiguous);
+            case TypeDeclarationResult.ExportedFromModule:
+            case TypeDeclarationResult.Rejected:
+                return Failed(
+                    ResearchTargetDiagnosticKind.IncompleteMetadataSurface);
+            case TypeDeclarationResult.Missing:
+                if (FindPotentiallyCoveringFailure(
+                    surface,
+                    intent.ToMetadataFullName(),
+                    memberAbsence: false) is not null)
+                {
+                    return Failed(
+                        ResearchTargetDiagnosticKind.IncompleteMetadataSurface);
+                }
+
+                return new ResearchTargetOutcome.NotFound(
+                    metadataDiagnostic: null,
+                    new ResearchTargetDiagnostic(
+                        ResearchTargetDiagnosticKind.DeclaringTypeAbsent),
+                    candidates: []);
+            case TypeDeclarationResult.Defined:
+                break;
+            default:
+                throw new InvalidOperationException(
+                    "Unknown Metadata declaration result.");
+        }
+
+        var defined = (TypeDeclarationResult.Defined)declaration;
         List<ApiType> declaringTypes =
         [
             .. surface.Types.Where(
-                candidate => string.Equals(
-                    MetadataFullName(candidate),
-                    intent,
-                    StringComparison.Ordinal)),
+                candidate =>
+                    candidate.MetadataToken == defined.Definition.Value),
         ];
-        int forwarders = surface.TypeForwarders.Count(
-            forwarder => string.Equals(
-                MetadataFullName(forwarder),
-                intent,
-                StringComparison.Ordinal));
-        int failedTypeDefinitions =
-            CountFailedTypeDefinitions(surface, intent);
-        bool nestedUnderForwarder = surface.TypeForwarders.Any(
-            forwarder => IsNestedUnder(
-                intent,
-                MetadataFullName(forwarder)));
-        int exactDeclarations =
-            declaringTypes.Count + forwarders + failedTypeDefinitions;
-        if (exactDeclarations > 1
-            || (declaringTypes.Count + failedTypeDefinitions != 0
-                && nestedUnderForwarder))
+        if (declaringTypes.Count != 1)
         {
             return Failed(
-                ResearchTargetDiagnosticKind.DeclaringTypeAmbiguous);
-        }
-
-        if (declaringTypes.Count == 0)
-        {
-            if (forwarders == 1 || nestedUnderForwarder)
-            {
-                return Unavailable(
-                    ResearchTargetDiagnosticKind.DeclaringTypeForwarded);
-            }
-
-            if (FindPotentiallyCoveringFailure(
-                    surface,
-                    intent,
-                    memberAbsence: false) is not null)
-            {
-                return Failed(
-                    ResearchTargetDiagnosticKind.IncompleteMetadataSurface);
-            }
-
-            return new ResearchTargetOutcome.NotFound(
-                metadataDiagnostic: null,
-                new ResearchTargetDiagnostic(
-                    ResearchTargetDiagnosticKind.DeclaringTypeAbsent),
-                candidates: []);
+                declaringTypes.Count == 0
+                    && FindPotentiallyCoveringFailure(
+                        surface,
+                        intent.ToMetadataFullName(),
+                        memberAbsence: false) is not null
+                    ? ResearchTargetDiagnosticKind.IncompleteMetadataSurface
+                    : ResearchTargetDiagnosticKind.ResolutionFailed);
         }
 
         ApiType declaring = declaringTypes[0];
@@ -630,7 +586,7 @@ public static class ResearchTargetResolver
                     == ResearchTargetOutcomeKind.NotFound
                 && FindPotentiallyCoveringFailure(
                     surface,
-                    intent,
+                    intent.ToMetadataFullName(),
                     memberAbsence: true) is not null)
             {
                 return Failed(
@@ -762,17 +718,6 @@ public static class ResearchTargetResolver
                         && failure.OwningTypeDefinition is not null)
                     || MayAffectType(failure, declaringTypeFullName)));
 
-    static int CountFailedTypeDefinitions(
-        ApiSurface surface,
-        string declaringTypeFullName)
-        => surface.InspectionFailures.Count(
-            failure =>
-                failure.OwningTypeDefinition is { } owner
-                && string.Equals(
-                    owner.ToMetadataFullName(),
-                    declaringTypeFullName,
-                    StringComparison.Ordinal));
-
     static bool MayAffectType(
         ApiSurfaceInspectionFailure failure,
         string declaringTypeFullName)
@@ -897,17 +842,6 @@ public static class ResearchTargetResolver
             (MethodDefinitionHandle)entity);
     }
 
-    static string MetadataFullName(ApiType type)
-        => type.DefinitionName?.ToMetadataFullName() ?? type.FullName;
-
-    static string MetadataFullName(TypeForwarder forwarder)
-        => forwarder.DefinitionName?.ToMetadataFullName() ?? forwarder.TypeName;
-
-    static bool IsNestedUnder(string candidate, string potentialRoot)
-        => candidate.Length > potentialRoot.Length
-            && candidate.StartsWith(potentialRoot, StringComparison.Ordinal)
-            && candidate[potentialRoot.Length] == '.';
-
     static void Terminate(
         IReadOnlyList<PlannedRequest> requests,
         ResearchTargetDiagnosticKind kind)
@@ -997,7 +931,7 @@ public static class ResearchTargetResolver
             scopes.Add(
                 new ResearchTargetScope(
                     scope.Id,
-                    scope.Selection.DeclaringTypeFullName,
+                    scope.Selection.DeclaringType,
                     scope.Selection.Selector,
                     scope.Selection.Kind,
                     domains.MoveToImmutable()));
@@ -1026,6 +960,7 @@ public static class ResearchTargetResolver
                         planned.Input,
                         planned.Role,
                         planned.InputEvidence,
+                        planned.ValidationDeclaration,
                         planned.DeclaringType,
                         planned.MetadataResolution,
                         planned.TargetResolutionFailed,
@@ -1090,6 +1025,8 @@ public static class ResearchTargetResolver
 
         public ResearchTargetInputValidationEvidence? InputEvidence { get; set; }
 
+        public TypeDeclarationResult? ValidationDeclaration { get; set; }
+
         public ApiType? DeclaringType { get; set; }
 
         public MemberTargetResolution? MetadataResolution { get; set; }
@@ -1109,6 +1046,7 @@ internal sealed record ResearchTargetValidationEvidence(
     ResearchAdmittedInput Input,
     ResearchTargetInputRole Role,
     ResearchTargetInputValidationEvidence? InputEvidence,
+    TypeDeclarationResult? ValidationDeclaration,
     ApiType? DeclaringType,
     MemberTargetResolution? MetadataResolution,
     bool TargetResolutionFailed,

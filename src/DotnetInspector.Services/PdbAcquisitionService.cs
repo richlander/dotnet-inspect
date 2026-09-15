@@ -3,6 +3,20 @@ using ILInspector.Metadata;
 
 namespace DotnetInspector.Services;
 
+/// <summary>A typed failure to read or retain verified Portable PDB store content.</summary>
+public sealed class PdbStoreAcquisitionException : IOException
+{
+    internal PdbStoreAcquisitionException(
+        PortablePdbStoreFailureKind storeFailure,
+        Exception? innerException = null)
+        : base(
+            PdbAcquisitionService.DescribeStoreFailure(storeFailure),
+            innerException)
+        => StoreFailure = storeFailure;
+
+    public PortablePdbStoreFailureKind StoreFailure { get; }
+}
+
 /// <summary>
 /// Acquires a matching portable PDB for an already-open metadata context.
 /// </summary>
@@ -98,22 +112,54 @@ public static class PdbAcquisitionService
 
         if (result is PortablePdbAcquisitionResult.Acquired acquired)
         {
-            string? localPath = acquired.Pdb.LocalPath;
-            Stream stream =
-                await acquired.Pdb.OpenReadAsync(
-                    cancellationToken).ConfigureAwait(false);
-            context.LoadPdbFromStream(
-                stream,
-                "Symbol Package",
-                acquired.Pdb.SymbolServer,
-                localPath,
-                throwOnReadFailure: true);
+            try
+            {
+                string? localPath = acquired.Pdb.LocalPath;
+                Stream stream =
+                    await acquired.Pdb.OpenReadAsync(
+                        cancellationToken).ConfigureAwait(false);
+                context.LoadPdbFromStream(
+                    stream,
+                    "Symbol Package",
+                    acquired.Pdb.SymbolServer,
+                    localPath,
+                    throwOnReadFailure: true);
+            }
+            catch (IOException exception)
+            {
+                throw new PdbStoreAcquisitionException(
+                    PortablePdbStoreFailureKind.ReadFailed,
+                    exception);
+            }
+            catch (UnauthorizedAccessException exception)
+            {
+                throw new PdbStoreAcquisitionException(
+                    PortablePdbStoreFailureKind.ReadFailed,
+                    exception);
+            }
+        }
+        else if (result.StoreFailure is { } storeFailure)
+        {
+            throw new PdbStoreAcquisitionException(storeFailure);
         }
         else if (result.WindowsPdbDetected)
         {
             context.WindowsPdbDetected = true;
         }
     }
+
+    internal static string DescribeStoreFailure(
+        PortablePdbStoreFailureKind storeFailure)
+        => storeFailure switch
+        {
+            PortablePdbStoreFailureKind.ReadFailed =>
+                "The PDB store could not read cached Portable PDB content.",
+            PortablePdbStoreFailureKind.InvalidCachedContent =>
+                "The PDB store returned malformed or mismatched cached content.",
+            PortablePdbStoreFailureKind.PublicationNotRetained =>
+                "The PDB store did not retain verified Portable PDB content.",
+            _ => "The PDB store could not provide verified Portable PDB content.",
+        };
 
     public static Task AcquireAsync(
         PdbContext context,

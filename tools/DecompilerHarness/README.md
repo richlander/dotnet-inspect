@@ -200,7 +200,7 @@ managed product assemblies, so rare annotated nodes are more likely to be
 exercised over real IR while the input set stays reproducible:
 
 ```bash
-dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
+dotnet build src/DotnetInspect.Cli -c Release -p:PublishAot=false
 bash eng/prepare-decompiler-assertion-corpus.sh /tmp/assertion-corpus.txt
 mapfile -t assemblies < /tmp/assertion-corpus.txt
 dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
@@ -279,17 +279,38 @@ frontier. Shape frontiers record both the accepted current shape and the desired
 frontier shape. ReturnToSender catalog rows can also carry body-scoped fragment
 expectations; those match only the decompiled target body, not the reconstructed
 type shell, so metadata scaffolding cannot satisfy a target-body assertion.
-`--source-correspondence-census` is an alias for the source probe when the task
-is source-fidelity triage rather than RTS compile-back triage. Its `--json`
-payload includes `source_correspondence_findings`: stable Finding-style rows
-keyed by member stable selector when available. Each row carries a descriptor ID
-such as `source.correspondence.valid_different.known_taste`, a coarse category
+`--source-correspondence-census` is the live-source form of the probe. For every
+selected target, it uses the portable PDB to acquire the complete authored file
+from its recorded local path, a repeatable `--repo <path>` local clone, or
+SourceLink, in that order. The checksum-verified member slice enters a
+comparison-only source index; PDB correspondence cannot authorize RTS fault
+attribution and does not change the compile-back verdict
+(`PdbMappedSourceIndex_IsIneligibleForFaultAttribution` gates that boundary).
+Acquisition is
+reported beside that verdict as `complete`, `absent`, or `failed`. Absence is a
+measured skip, while acquisition or body-extraction failure exits non-zero.
+RTS-invalid rows remain census data and do not fail this live-source mode; the
+fixture probe retains its existing RTS-invalid exit gate.
+
+Its `--json` payload includes `source_correspondence_findings`: stable
+Finding-style rows keyed by member stable selector when available. Each row
+carries a descriptor ID such as
+`source.correspondence.valid_different.known_taste`, a coarse category
 (`ignorable`, `not-yet-raised-sugar`, `structuring-residue`,
 `semantic-opcode-diff`, `semantic-operand-diff`, `invalid`, or `unclassified`),
 the source file name, and whether fidelity-diff evidence is attached. The
-finding projection intentionally
-uses source file names rather than absolute source paths so the census can be
-shared without leaking local checkout paths.
+finding projection intentionally uses source file names rather than absolute
+source paths so the census can be shared without leaking local checkout paths.
+Stored reports count authored-body matches separately from bodyless declarations,
+which remain context rather than a higher-is-better correspondence metric
+(`SourceCorrespondenceReport_TracksBodylessRowsAsContext` gates the split).
+For example:
+
+```bash
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  --source-correspondence-census --json --cap 500 \
+  --repo /path/to/runtime System.Private.CoreLib.dll
+```
 
 `--authored-rebuild-fidelity` is the SourceLink-backed second oracle. It
 checksum-verifies the authored body, substitutes it into the same final RTS
@@ -299,11 +320,27 @@ reports deterministic-build and portable-PDB option/reference context
 separately. `SourceAbsent` is missing evidence; `SourceFailed` is an acquisition
 or integrity failure.
 
+The [lane-specific rebuild-context
+contract](../../docs/design/fact-planned-compile-back-harness.md#authored-source-rebuild-fidelity)
+reports separate recorded-versus-effective evidence from each actual
+compilation. Compiler/options, reference identity, generator context, and
+project context distinguish agreement, difference, unknown evidence, and
+inspection failure. A source failure cannot borrow B's context for an A
+compilation that never ran. Omitted PDB options stay unknown, and independently
+available option records are retained even when reference metadata is missing.
+This is not proof of a reproduced build: normalized authored IL exactness,
+checksum agreement, and determinism remain independent observations.
+
+The text report counts both lanes independently and limits examples, not
+retained evidence. `AuthoredBuildContextTests` gates these outcomes in Release,
+including actual local-source acquisition and the bounded text projection.
+
 ### Authored-source correspondence corpus (offline benchmark)
 
 `--authored-rebuild-fidelity` and `--source-correspondence-census` resolve
-authored source live through SourceLink, so they need network access and report
-`SourceUnavailable` whenever a library has no SourceLink. The authored-source
+authored source at run time. The census can avoid SourceLink network access when
+the recorded local path exists or a matching commit is available through
+`--repo`; otherwise both modes may require the network. The authored-source
 correspondence corpus removes that variability: a vendored JSONL where each row
 is a real method identity plus a checksum-verified authored member body captured
 at harvest time. Benchmark runs over it are fully offline and, because every row
@@ -329,9 +366,14 @@ dotnet run --project tools/DecompilerHarness -c Release -- \
   $(cat /tmp/corpus-assemblies.txt)
 ```
 
-`--repo <path>` (repeatable) makes harvest read each target's authored source
-from a local git clone instead of the network, arbitrated by the same PDB
-checksum, falling back to the network on any mismatch or miss. Pointing it at
+For `--package` inputs, the harness carries the resolved package ID and version
+into portable-PDB acquisition so the package's `.snupkg` participates before
+symbol-server fallback.
+
+`--repo <path>` (repeatable) makes harvest, drift verification, candidate
+discovery, and the live source-correspondence census read each target's authored
+source from a local git clone instead of the network, arbitrated by the same PDB
+checksum and falling back to the network on any mismatch or miss. Pointing it at
 this checkout resolves the dotnet-inspect self-corpus rows entirely from local
 git: those assemblies come from the pinned `dotnet-inspect.any` package
 (`prepare-decompiler-corpus.sh`), whose SourceLink targets this repository, so
@@ -482,7 +524,7 @@ the ones that produce no candidate.
 assembly the ledger reads the complete portable-PDB MethodDef-to-document
 mapping through `SourceLinkFindings.InspectMemberSources` and
 `InspectSourceDocuments`, selects each MethodDef's primary document exactly as
-`PdbSourceAcquisition.AcquireMemberAsync` does (`IsPrimaryDocument` descending,
+`PdbSourceHouse.AcquireMemberAsync` does (`IsPrimaryDocument` descending,
 then `DocumentRowId`), and intersects that mapping with the real-method targets.
 A file's denominator is therefore never inferred from the rows that happened to
 harvest successfully. That distinction is the reason this mode exists: a full
@@ -502,13 +544,17 @@ eligible-method completeness for the exact scanned assembly set; it is **not** a
 claim that every C# declaration in the file was checked. A file with no eligible
 target is rejected structurally rather than qualifying vacuously.
 
-Each immutable file identity — the `(sourceUrl, checksumAlgorithm, checksum)`
+Each checksum-pinned file identity — the `(sourceUrl, checksumAlgorithm, checksum)`
 triple the manifest registers, grouped across assemblies and marked
 `sharedAcrossAssemblies` when more than one module maps it — is:
 
-- **Enrolled** — its exact commit-pinned source URL is already present in the
-  verified baseline, so it remains visible but is not ranked as a next
-  candidate.
+- **Enrolled** — it qualifies in the current run, and its exact source URL is
+  already present in the accepted baseline and is commit-pinned under the
+  product's recognized SourceLink provenance grammar. It remains visible but
+  is not ranked as a next candidate. A mutable or unknown-host URL is not
+  enough to establish cross-run enrollment correspondence, and a currently
+  rejected or unevaluable file retains that verdict rather than being
+  relabeled.
 - **Qualified** — every eligible target has a captured record, evaluates
   `ValidMatch`, is `PrinterExact` `Exact` at the supported printer comparison
   version, and its Printer body parses for the syntax inventory.
@@ -569,11 +615,17 @@ rejected.
 inventory entries. The
 candidate report records the baseline's provenance, digest, and feature set —
 never its local path.
+Baseline cleanliness is disclosed rather than admitted: a dirty baseline or one
+whose build revision did not match the then-current checkout may still supply a
+passing measured feature set. The ledger preserves those facts, including
+`sourceRevisionMatchesHead`, so the operator can distinguish measurement
+consistency from repository reproducibility.
 
 Qualified files are then ranked greedily and deterministically: starting from
 the baseline's observed features, repeatedly take the remaining qualified file
 covering the most currently uncovered features, breaking ties on total feature
-count descending, eligible-target count descending, then source URL ordinal.
+count descending, eligible-target count descending, source URL ordinal,
+checksum algorithm ordinal, and checksum ordinal.
 Each pick records its `rank` and `incrementalFeatures` and updates the covered
 set, so a file's gain reflects the picks before it and zero-gain files rank
 after every positive-gain file.
@@ -581,13 +633,16 @@ after every positive-gain file.
 `GreedyRanking_BreaksTiesDeterministically` are the named gates.
 
 **Exit code.** Candidate rejection and transient source unavailability are typed
-data and exit 0. The run fails only on measurement integrity: no usable assembly
-or real-method target, a failed PDB mapping census, an evaluation count or
-correlation mismatch, an invalid or unverified baseline report, or a run in
-which no checksum-identified file was evaluated at all.
+data and exit 0. The supplied assembly set is all-or-nothing for measurement
+integrity: an unreadable assembly, duplicate module identity, absent real-method
+target, or failed complete PDB census in any input refuses the run rather than
+publishing a ranking for the remainder. An evaluation count or correlation
+mismatch, an unaccepted baseline report, or a run in which no
+checksum-identified file was evaluated also refuses the run.
 
-**Durable output.** The `--json` report carries identities, checksums, counts,
-typed reason codes, outcomes, feature names, and member identities only.
+**Archiveable output.** The version-2 `--json` report carries identities,
+checksums, counts, typed reason codes, outcomes, feature names, member
+identities, and disclosed current and baseline provenance only.
 Assembly provenance is content-derived; path-derived labels such as a parent
 directory interpreted as a target framework are excluded. The report never
 carries an authored body, a Printer body, a diff, or a local path;
@@ -598,14 +653,17 @@ it classifies and serializes. The text card is the same data: input and
 denominator totals, status counts, the rejection-family and reason histograms,
 the baseline feature count, the ranked candidates with gain, total, and member
 counts, and the explicit unevaluable and unmapped counts. Data goes to stdout
-and diagnostics to stderr.
+and diagnostics to stderr. No parser or complete-report verifier promotes an
+archived candidate report into a new baseline or enrollment authorization; the
+omitted source, PDB, and baseline bodies prevent replaying its verdicts from the
+report alone.
 
 ```bash
 bash eng/restore-authored-source-corpus.sh
 bash eng/prepare-authored-source-oracles.sh /tmp/source-oracle-assemblies.txt
 mapfile -t oracle_assemblies < /tmp/source-oracle-assemblies.txt
 
-# 1. Produce the verified enrolled baseline the ranking is incremental to.
+# 1. Produce the accepted measured baseline the ranking is incremental to.
 dotnet run --project tools/DecompilerHarness -c Release -- \
   --benchmark-authored-corpus external/authored-source-corpus/oracle/corpus.jsonl \
   --source-oracle-manifest external/authored-source-corpus/oracle/manifest.json \
@@ -826,8 +884,7 @@ difficulty profile is selection/analysis metadata the oracle ignores.
 The sweep also answers questions about a pin file without acquiring anything:
 
 ```bash
-dotnet run -p:NoWarn=NU1507 -p:NuGetAudit=false \
-  eng/prepare-decompiler-package-sweep.cs -- \
+dotnet run eng/prepare-decompiler-package-sweep.cs -- \
   --validate-pin docs/data/nuget-top-packages.lock.json
 ```
 
@@ -844,8 +901,7 @@ short at exit 1.
 It also names the rules it applies, one per line:
 
 ```bash
-dotnet run -p:NoWarn=NU1507 -p:NuGetAudit=false \
-  eng/prepare-decompiler-package-sweep.cs -- --list-pin-rules
+dotnet run eng/prepare-decompiler-package-sweep.cs -- --list-pin-rules
 ```
 
 `EvilPoolPinTests` holds each of those rules with a tampered pin file and asserts the
@@ -893,28 +949,61 @@ plus dotnet-inspect's own assemblies — and compares the run against
 lane tracks fully-raised rate,
 `structuring: conditional-branch`, forward-merge structuring stops
 (`cond-target-past-region` + `forward-branch-not-region-exit`), Full malformed
-output, semantic validity defects, compile-back fidelity defects, and pass bugs.
+output, semantic validity defects, native RTS fidelity defects, and pass bugs.
 The validity and fidelity caps are per assembly so the sensor samples every
 corpus member at bounded cost without adding that cost to every PR. When you
-want to compare a baseline cap with a larger exploratory cap, repeat
-`--corpus-fidelity-cap` (or use a comma-separated list) and the harness prints a
-fidelity coverage series with the same per-bucket failure breakdown for each cap. The fidelity sample records useful compile-back outcomes (`Exact`, `OpcodeDiff`, and `OperandDiff`) while surfacing unavailable comparisons and recompile- and context-failure buckets for triage. Each Deep Inspect census run
+want to compare native RTS caps, run separate invocations so each cutover
+snapshot retains its complete independently selected ledger. The explicit
+legacy `compile-back` oracle still accepts repeated or comma-separated caps for
+temporary coverage-series comparisons. The real-world baseline uses
+independently selected native RTS outcomes
+(`Exact`, `OpcodeDiff`, and `OperandDiff`) while surfacing unavailable
+comparisons and recompile- and context-failure buckets for triage. It retains
+legacy compile-back only as per-row reference evidence; legacy success cannot
+replace a native result. Each Deep Inspect census run
 uploads the current JSON snapshot as an artifact so
 trends can be compared without scraping logs.
 
-Use `--corpus-fidelity-oracle rts-parity` (`return-to-sender` and `rts` remain
-aliases) to run the fidelity sample through RTS instead of the default
-compile-back oracle. The transition mode first selects the same bounded target
-population as compile-back, including getters, setters, constructors, and
-ordinary methods, then records native RTS outcomes under the existing method
-identity and fidelity-status contract. Snapshots name this mode `rts-parity`;
-diffing snapshots from different modes is rejected rather than presenting
-incomparable fidelity movement.
+Completeness runs in all three corpus profiles use the open metadata source for
+sibling-body import and type-disjointness evidence, as product decompilation
+does. The opt-in profile also records per-pass changes for feature coverage;
+the other profiles remain unstaged. This parity is limited to completeness:
+validity and fidelity measurements retain their own pipeline configuration.
 
-The RTS cap is therefore a parity population: methods the default oracle checked
-as `Exact`, `OpcodeDiff`, or `OperandDiff`, re-evaluated through RTS. The report classifies each
-target as rescued, same, or worse and records the compile-back reference status
-beside the native RTS result. Corpus parity deliberately disables RTS's
+The default corpus fidelity oracle is `rts-native`: it independently selects
+the target population and runs native RTS without a compile-back floor or a
+legacy reference pass. The daily Deep Inspect real-world census explicitly
+selects `rts-cutover`, which runs legacy compile-back afterward on the same
+stable identities and retains both verdicts in its paired baseline ledger.
+Direct `--fidelity-check` and compile-back fixture gates are unchanged; they
+remain explicit consumers until later #6199 adoption and retirement slices.
+
+Use `--corpus-fidelity-oracle compile-back` for explicit legacy coverage
+comparisons or when replaying a baseline that still owns the legacy oracle. The
+PR quick, classic state-machine, and net11 opt-in baselines remain pinned this
+way until their own measured migration slices.
+
+Use `--corpus-fidelity-oracle rts-native` (`return-to-sender`, `rts`, and
+`native-rts` are aliases) for routine independently selected native evidence.
+It hash-selects exactly the requested cap from the corpus method inventory,
+runs native RTS with its compile-back floor disabled, and emits no
+`FidelityReference` rows or paired cutover metrics. A native run accepts at most
+one distinct positive `--corpus-fidelity-cap`; run separate invocations for cap
+comparisons so each snapshot retains its complete member ledger.
+
+Use `--corpus-fidelity-oracle rts-parity` for the legacy-selected transition
+population. It first selects the same bounded target population as compile-back,
+including getters, setters, constructors, and ordinary methods, then records
+native RTS outcomes under the existing method identity and fidelity-status
+contract. Snapshots name this mode `rts-parity`; diffing snapshots from
+different modes is rejected rather than presenting incomparable fidelity
+movement.
+
+The parity cap is therefore a legacy-selected population: methods for which
+compile-back returned `Exact`, `OpcodeDiff`, or `OperandDiff`, re-evaluated
+through RTS. The report classifies each target as rescued, same, or worse and
+records the compile-back reference status beside the native RTS result. Corpus
+parity deliberately disables RTS's
 compile-back floor so compile-back evidence cannot rewrite the RTS verdict.
 Because compile-back selects this population before RTS runs, `NotFullMethods`
 is structurally zero and failure buckets describe only the selected parity
@@ -945,6 +1034,34 @@ on any `rts-parity` run to enforce the gate; a row present in the manifest but n
 longer failing is reported as `resolved` so the manifest can be trimmed on the
 next regeneration.
 
+Use `--corpus-fidelity-oracle rts-cutover` (`return-to-sender-cutover` is an
+alias) for scheduled paired cutover evidence. Unlike
+`rts-parity`, this mode hash-selects exactly the requested cap from the corpus
+method inventory before either compiler oracle runs. Native RTS runs first with
+its compile-back floor disabled; legacy compile-back then evaluates the same
+stable member identities only as reference evidence. A cutover run accepts at
+most one distinct positive `--corpus-fidelity-cap`; run separate invocations
+for cap comparisons so each snapshot retains its complete member ledger.
+
+The snapshot records every selected native status, the matching legacy status,
+module MVIDs, repository revision and source state captured when the harness was
+built, Roslyn compiler identity, runtime and platform. Cutover metrics separate
+exact losses from availability losses and report the corresponding gains,
+same-status rows, and any compile-back floor applications. Missing native or
+legacy target output remains an explicit `ContextFail`; legacy success cannot
+admit a target or replace the native result. Expected native assembly-context
+failures are retained as `ContextFail` for every selected member in that
+assembly, so the corpus run continues and exposes the matching legacy
+outcomes. The run fails when an assembly cannot supply the exact requested
+eligible-method cap or an unexpected native failure occurs.
+
+The daily and manually dispatched Deep Inspect `census` lane uses this
+native-first mode for the baseline-gated real-world sensor and retains
+`corpus-snapshot.json` plus the bounded text report. Routine corpus runs use
+`rts-native` instead, so legacy compile-back comparison executes only when this
+paired mode is explicitly selected. Standalone fidelity and the explicitly
+pinned legacy consumers remain separate cutover work.
+
 Standalone `--fidelity-check` reports also print bounded examples for every
 non-success bucket: opcode and operand diffs include canonical opcode streams,
 unavailable comparisons include their failure detail, and recompile and context
@@ -954,7 +1071,7 @@ example headings say whether they show every row or only the first N of the
 bucket.
 
 ```bash
-dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
+dotnet build src/DotnetInspect.Cli -c Release -p:PublishAot=false
 bash eng/prepare-decompiler-corpus.sh /tmp/corpus-assemblies.txt
 mapfile -t assemblies < /tmp/corpus-assemblies.txt
 dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
@@ -963,8 +1080,24 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --quality-diff-card \
   --compile-cap 4000 \
   --corpus-fidelity-cap 50 \
+  --corpus-fidelity-oracle rts-cutover \
   --max-examples 3
 ```
+
+The initial native baseline was generated by Deep Inspect run
+[`34780782921`](https://github.com/richlander/dotnet-inspect/actions/runs/34780782921)
+at source revision `8229245510a0e39c495f96c25cb252b08901cb85`.
+Matched compile-back control run
+[`34780784222`](https://github.com/richlander/dotnet-inspect/actions/runs/34780784222)
+used the same product revision and produced identical non-fidelity evidence and
+identical native cutover pairs.
+It independently selected 700 methods: native RTS made 520 available while the
+legacy reference made 417 available. The paired ledger records 43 exact losses
+and 44 availability losses, including 36 legacy-`Exact` rows that are native
+`RecompileFail` or `ContextFail`; it also records 105 exact gains and 147
+availability gains. These losses are explicit starting debt, not an allowed
+fallback or an aggregate offset: baseline comparison blocks increases and
+retains every native/legacy pair for review.
 
 The cap-50 baseline also incorporates the structured validity classification
 already shipped in #2684. Its 39 `CS0161` rows were previously hidden by the
@@ -1147,7 +1280,10 @@ base=$(git merge-base origin/main HEAD)
 dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --diff-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json \
   --diff-corpus-baseline-ref "$base" \
-  --quality-diff-card
+  --quality-diff-card \
+  --compile-cap 4000 \
+  --corpus-fidelity-cap 50 \
+  --corpus-fidelity-oracle rts-cutover
 ```
 
 `--diff-corpus-baseline-ref` reads the same repository-relative baseline path
@@ -1192,6 +1328,7 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --quality-diff-card \
   --compile-cap 25 \
   --corpus-fidelity-cap 25 \
+  --corpus-fidelity-oracle compile-back \
   --max-examples 3
 
 bash eng/report-decompiler-opt-in-corpus-drift.sh
@@ -1231,26 +1368,35 @@ rates; this is a first published census (successor to the earlier "0/21"
 classic-async gap), not yet a broad real-world quality target.
 
 ```bash
-dotnet build src/ILInspector.Decompiler.Fixtures.ClassicStateMachines -c Release
+dotnet build fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicStateMachines -c Release
 dotnet run --project tools/DecompilerHarness -c Release -- \
   artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll \
   --corpus-profile classic-state-machines \
   --diff-corpus-baseline tools/DecompilerHarness/corpus/classic-state-machines-baseline.json \
+  --corpus-fidelity-oracle compile-back \
   --max-examples 10
 ```
 
 **Render A/B** (`--emit-render-ab` / `--render-ab`): the before/after text
 oracle for raise and printer changes. The first run writes a versioned,
-method-keyed JSON baseline containing each rendered body and its typed async,
-unsafe, and await-syntax declaration context; the second run compares the
+method-keyed JSON baseline containing each rendered body, its typed async,
+unsafe, and await-syntax declaration context, and the product-issued structural
+C# projection with physical method provenance; the second run compares the
 current render against that baseline and reports changed, added, and removed
-methods. Body-only baselines predate the semantic-context contract and are
+methods. The projection omits the source document's interleaved IL and unrelated
+facts while retaining the C# nodes and IL-origin correspondence required by
+`CSharpStructuralDiffDocument`. Raised renders carry the same sibling-body
+import and metadata type-disjointness capabilities as product rendering;
+`RenderAbMatchesMetadataBackedProductProjection` gates both the
+disjointness-proving and non-proving compiler fixtures. Baselines predating
+either the semantic declaration context or product structural documents are
 rejected with a regeneration instruction rather than measured with current-head
-facts. Changed methods are classified on two axes:
+facts. Changed methods are classified on three axes:
 
 - spelling: `structural`, `paren-equivalent`, or `unparsed`;
 - semantic validity over the changed set only: `valid->valid`,
-  `invalid->valid`, `valid->invalid`, or `invalid->invalid`.
+  `invalid->valid`, `valid->invalid`, or `invalid->invalid`;
+- product structural correspondence: `complete`, `partial`, or `unavailable`.
 
 The semantic lane wraps each changed body with its own recorded declaration
 context while sharing the matched method's signature and binding closure, then
@@ -1259,6 +1405,33 @@ parse, such as `1++`, without paying a corpus-wide compile cost. A
 `valid->invalid` transition is a semantic regression; expression-moving PRs
 should report the semantic line explicitly, e.g. `A/B: 55 changed (40
 paren-equivalent, 15 structural; semantic: 0 valid->invalid)`.
+
+For every changed body, Render A/B passes the stored A document and freshly
+issued B document to `CSharpStructuralDiffDocument`. Selected examples render
+through the same `StructuralReview` Markdown path as standalone
+`--structural-review`; unsupported or ambiguous correspondence stays visibly
+partial. Replay acquires B documents only for methods whose rendered body
+changed. Both runs must inspect the same immutable assembly bytes: structural
+correspondence deliberately rejects a rebuilt input with a different MVID or
+method-body fingerprint. Add `--emit-render-ab-structural-diffs <directory>` to
+retain every changed method as one strict, replayable structural-diff JSON
+document plus a deterministic manifest. The directory must be absent or empty,
+preventing stale artifacts from being mistaken for current evidence:
+
+```bash
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  path/to/input.dll \
+  --render-ab artifacts/render-ab-base.json \
+  --emit-render-ab-structural-diffs artifacts/render-ab-structural
+
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  --structural-review \
+  artifacts/render-ab-structural/0001.structural-diff.json
+```
+
+Structural review explains which product nodes were added, removed, changed, or
+moved; it does not decide that B is correct or better. Semantic validity,
+compile-back fidelity, and adversarial review remain independent evidence.
 
 Add `--emit-corpus-delta <file>` with `--diff-corpus-baseline` to write the
 changed per-method rows as JSON. The quality card stays compact and names the
@@ -1289,8 +1462,8 @@ in-closure failures before building a scoped emitter.
 
 To deliberately rebaseline after reviewed corpus movement, run the same command
 with `--emit-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json`.
-For a quick before/after coverage sweep, repeat `--corpus-fidelity-cap` (for
-example `--corpus-fidelity-cap 3 --corpus-fidelity-cap 10`).
+For a quick native before/after coverage sweep, run one invocation per
+`--corpus-fidelity-cap` so each result retains the complete cutover ledger.
 
 The corpus includes the repo's own assemblies, which grow as unrelated code
 lands, so a baseline captured earlier can disagree with the current run on
@@ -1366,7 +1539,7 @@ When a card shows capped changed rows, use
 to select the matching PR commit and regenerate the full local delta.
 
 ```bash
-dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
+dotnet build src/DotnetInspect.Cli -c Release -p:PublishAot=false
 bash eng/prepare-decompiler-pr-corpus.sh /tmp/pr-corpus-assemblies.txt
 mapfile -t assemblies < /tmp/pr-corpus-assemblies.txt
 dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
@@ -1375,6 +1548,7 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --corpus-method-cap 100 \
   --compile-cap 0 \
   --corpus-fidelity-cap 0 \
+  --corpus-fidelity-oracle compile-back \
   --max-examples 3
 ```
 
@@ -1439,12 +1613,14 @@ bring-down instrument, not a regression wall — build them and point
 `--library-report` at them. `AsyncLoweringFixtureMatrixTests` gates only the
 shared-source and physical-lowering contract. The first axis compiles the exact
 same `AsyncFixtures.cs` through
-`src/ILInspector.Decompiler.Fixtures.ClassicAsync` (`runtime-async=off`) and
-`src/ILInspector.Decompiler.Fixtures.RuntimeAsync` (`runtime-async=on`):
+`fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicAsync`
+(`runtime-async=off`) and
+`fixtures/decompiler/ILInspector.Decompiler.Fixtures.RuntimeAsync`
+(`runtime-async=on`):
 
 ```bash
-dotnet build src/ILInspector.Decompiler.Fixtures.ClassicAsync -c Release
-dotnet build src/ILInspector.Decompiler.Fixtures.RuntimeAsync -c Release
+dotnet build fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicAsync -c Release
+dotnet build fixtures/decompiler/ILInspector.Decompiler.Fixtures.RuntimeAsync -c Release
 dotnet run --project tools/DecompilerHarness -c Release -- --library-report \
   artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicAsync/release/ILInspector.Decompiler.Fixtures.ClassicAsync.dll \
   artifacts/bin/ILInspector.Decompiler.Fixtures.RuntimeAsync/release/ILInspector.Decompiler.Fixtures.RuntimeAsync.dll
@@ -1462,8 +1638,8 @@ runtime-async implementation flag.
 The second axis is the old/new memory-safety pair:
 
 ```bash
-dotnet build src/ILInspector.Decompiler.Fixtures.LegacyUnsafe -c Release
-dotnet build src/ILInspector.Decompiler.Fixtures.NewUnsafe -c Release
+dotnet build fixtures/decompiler/ILInspector.Decompiler.Fixtures.LegacyUnsafe -c Release
+dotnet build fixtures/decompiler/ILInspector.Decompiler.Fixtures.NewUnsafe -c Release
 dotnet run --project tools/DecompilerHarness -c Release -- --library-report \
   artifacts/bin/ILInspector.Decompiler.Fixtures.LegacyUnsafe/release/ILInspector.Decompiler.Fixtures.LegacyUnsafe.dll \
   artifacts/bin/ILInspector.Decompiler.Fixtures.NewUnsafe/release/ILInspector.Decompiler.Fixtures.NewUnsafe.dll
@@ -1479,10 +1655,11 @@ both assemblies are 8/8 full and fully raised, with no unsupported patterns.
 `RequiresUnsafeAttribute` resolution and optimistic `--simulate-new-rules`
 diagnostics.
 
-The checked-arithmetic axis is `src/ILInspector.Decompiler.Fixtures.CheckedArithmetic`:
+The checked-arithmetic axis is
+`fixtures/decompiler/ILInspector.Decompiler.Fixtures.CheckedArithmetic`:
 
 ```bash
-dotnet build src/ILInspector.Decompiler.Fixtures.CheckedArithmetic -c Release
+dotnet build fixtures/decompiler/ILInspector.Decompiler.Fixtures.CheckedArithmetic -c Release
 dotnet run --project tools/DecompilerHarness -c Release -- --library-report \
   artifacts/bin/ILInspector.Decompiler.Fixtures.CheckedArithmetic/release/ILInspector.Decompiler.Fixtures.CheckedArithmetic.dll
 ```
@@ -1531,6 +1708,12 @@ would also change the classic switch/iterator lowering shapes themselves)
 remains a candidate next axis.
 
 **Validity check** (`--validity-check`): the *validity* check — `--gaps` is *completeness*, `--fidelity-check` is *fidelity*, this is *does it even compile*. The pipeline guarantees by construction only that it never crashes and never silently fabricates (unrepresentable IL becomes a visible `/* … */` comment and drops fidelity to `Partial`) — **not** that the rendered text is valid C#. This mode measures the gap: each body is wrapped in a method shell carrying its real signature (return type, generic parameters with their `where` constraints reconstructed from metadata, parameters, so locals/params/type-params and `this` all bind — without the constraints a constrained generic-math call like `byte.TryConvertFromTruncating<TOther>` spuriously fails CS0314), then (1) parsed — a parse error is unambiguously a decompiler defect; (2) checked for statement legality (the CS0201 rule — a bare cast/expression statement parses but isn't valid); (3) bound against the runtime references. Diagnostics are bucketed by code with the member/type-**visibility** codes (the shell can't see the real declaring type's fields/methods) filtered as noise, so genuine defects stand out — `CS0193` (`*`-deref of a managed ref), `CS0175` (`base(...)` rendered as a statement), `CS1620` (an `out` argument not marked `out`), `CS0165` (a local used before the decompiler assigned it). Reported split by fidelity: a `Partial` method is *expected* to carry invalid fragments; a **`Full` method that fails to compile is the real "claimed good but isn't" signal** and the prioritized fix docket. Compiler-generated members are excluded (their metadata names aren't valid identifiers). `--compile-cap N` bounds the (slow) semantic-binding pass; `--compile-cap all` runs an exhaustive binding sweep. Capped reports print how many eligible `Full` methods were actually compiled and label semantic findings as per-sample, not corpus-wide.
+
+Validity renders through the same metadata-backed first product projection:
+sibling-method import is available to cross-method raises, and the assembly's
+type-disjointness oracle is available to guarded pattern raises. The lowered
+selector keeps its intentionally reduced pass set while retaining sibling
+import; it does not broaden lowered raising with a separate disjointness seam.
 
 Shell-noise classification uses diagnostic IDs, source spans, syntax, and
 semantic symbols rather than localized diagnostic prose. If a supported
@@ -1653,6 +1836,19 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
 **Lowered view** (`--lowered`): a render selector, orthogonal to the dump sub-modes above, that lowers the *altitude* of the emitted C# rather than projecting a different analysis. It runs `IrPasses.Lowered` — the shipped pipeline minus the cosmetic statement-sugar passes (`for`/`foreach`, `lock`, `++`/`--`) — so the output is the decompiler's SharpLab "lowered C#": valid, recompilable C# at a lower level (`while` loops, explicit temps, explicit `Monitor.Enter`/`Exit`). It applies to `--dump` (with facts comments), `--validity-check --lowered` (its compile rate), and `--fidelity-check --lowered` (its contract body roundtrip).
 
 **Simulate new rules** (`--simulate-new-rules`, with `--dump`): the optimistic memory-safety render selector — another render dial orthogonal to the dump sub-modes, but it changes *which unsafe contexts are emitted* rather than the C# altitude. By default the printer is conservative: it emits explicit `unsafe { }` blocks only for a module that opted into the `updated-memory-safety-rules` feature (a module-level `MemorySafetyRulesAttribute`), so legacy output is byte-identical. With this flag it forces new-rules rendering on for *any* input, wrapping the operations the new rules would require even in a legacy module. It only recovers contexts the binary still records — IL-visible ops (`*p`, `calli`, `stackalloc`+`SkipLocalsInit`), pointer-in-signature calls, and a cross-assembly `[RequiresUnsafe]` callee (the attribute lives in the opted-in callee's assembly, read through the shared `MetadataContext`). A legacy same-assembly pointerless `unsafe` method leaves no trace, so simulate honestly emits no block for it. The conservative vs. optimistic contract and its recoverability limits are [docs/design/memory-safety-modes.md](../../docs/design/memory-safety-modes.md).
+
+The plain stage dump, `--dump --diff`, and `--dump --steps` / `--step-limit`
+supply sibling-body import and type-disjointness evidence from the open metadata
+source. Their different presentation does not remove those raising capabilities.
+Step ordinals belong to the current recording and can change when additional
+raises become available. Replay to the pattern-switch rewrite's ordinal stops
+before that rewrite; advancing one step includes it. The Release gates
+`Harness_DumpSteps_MatchesMetadataBackedStages`,
+`Harness_DumpSteps_ReplaysPatternSwitchBoundary`, and `StepperTests` cover the
+stepped capability wiring and that replay boundary. This does not imply
+capability parity for every diagnostic sub-mode or audit every pass's step
+placement; broader work remains in
+[#5876](https://github.com/richlander/dotnet-inspect/issues/5876).
 
 **Pass impact** (`--pass-impact [pass]`): the corpus-wide *inverse* of `--dump --diff`. `--diff` answers "for this method, what did each pass do"; `--pass-impact` answers "for this pass, which methods does it change" — its blast radius across an assembly. With no pass named it prints a histogram (each pass and the count of methods it altered, the "which passes carry the load" roadmap); with a pass name it lists every method that pass changed. Add `--show-diff` to print each changed method's per-pass hunk beneath it. `--cap N` stops the sweep after `N` methods — a full-CoreLib stage sweep is not free, so cap it for a quick read. A pass that runs more than once in the pipeline (`typed-constants`, `expression-inlining`) counts a method once if any occurrence changed it.
 
@@ -1878,7 +2074,7 @@ dotnet run --project tools/DecompilerHarness -c Release -- \
 
 # Compile-back (semantic fidelity): decompile -> recompile -> compare IL.
 # Tight loop over the purpose-built fixture corpus:
-dotnet build src/ILInspector.Decompiler.Tests -c Release
+dotnet build tests/ILInspector.Decompiler.Tests -c Release
 dotnet run --project tools/DecompilerHarness -c Release -- --fidelity-check \
   artifacts/bin/ILInspector.Decompiler.Tests/release/ILInspector.Decompiler.Tests.dll
 # Focus one type, dump the units that fail to recompile:
@@ -1967,7 +2163,7 @@ dotnet run --project tools/DecompilerHarness -c Release -- \
   /path/to/System.Private.CoreLib.dll --bind-check --max-examples 20
 
 # Which whole source files could be enrolled in the source oracle next, ranked by
-# the new C# syntax each one adds over a VERIFIED enrolled benchmark report.
+# the new C# syntax each one adds over an accepted measured benchmark report.
 dotnet run --project tools/DecompilerHarness -c Release -- \
   --source-oracle-candidates \
   --baseline-source-oracle-report /tmp/source-oracle-baseline.json \

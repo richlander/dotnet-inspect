@@ -30,11 +30,11 @@ foundational repository infrastructure rather than product behavior.
 
 ## Problem
 
-The current change detector has grown into a policy engine without a single
-typed boundary. `eng/ci-detect-changes.sh` acquires paths, validates API
-responses and Git streams, evaluates job rules, reads policy manifests, and
-enforces implications among eleven outputs. Separate workflow and domain-job
-logic can still establish another candidate relation or reinterpret paths.
+The former change detector had grown into a policy engine without a single
+typed boundary. It acquired paths, validated API responses and Git streams,
+evaluated job rules, read policy manifests, and enforced implications among
+eleven outputs. Separate workflow and domain-job logic could establish another
+candidate relation or reinterpret paths.
 
 PR #5347 demonstrated the concrete consequence. GitHub's pull-request Files
 API described merge-base-to-PR-head paths, while the checked-out workflow
@@ -42,8 +42,8 @@ validated the current synthetic merge candidate. A base-branch rename made
 those path sets disagree, so TLA+ scheduling had to recompute its decision from
 the candidate that the job actually checked.
 
-Structural tests make the current behavior safer, but they do not remove the
-distributed ownership that caused the mismatch.
+Structural tests made that behavior safer, but did not remove the distributed
+ownership that caused the mismatch.
 
 ## Boundary
 
@@ -91,9 +91,9 @@ endpoints must resolve to themselves as commits, so a tag or tree object is
 refused rather than peeled.
 
 A push event without a usable before-tree endpoint therefore refuses instead
-of preserving the legacy classifier's conservative over-run. The aggregate
-gate keeps that refusal visible and blocking until a separately designed
-provenance case supplies an exact replacement endpoint.
+of conservatively over-running. The aggregate gate keeps that refusal visible
+and blocking until a separately designed provenance case supplies an exact
+replacement endpoint.
 
 "The checked candidate" is a checked condition, not an assumption: the
 repository's `HEAD^{commit}` object ID must equal the candidate endpoint. A
@@ -141,19 +141,35 @@ refusals rather than skipped records.
 Exact path corpora do not travel through GitHub's textual job-output channel.
 When a domain job needs scoped paths, the planner produces a bounded evidence
 file. The file is a NUL-terminated sequence of exact path-byte records, in
-plan input order. A path need not exist in the candidate tree: deletion
+the scope's defined order. A path need not exist in the candidate tree: deletion
 evidence remains meaningful. Change status is not part of a scoped record
 unless the consuming contract separately requires it. A scope file is bounded
 to at most 16 MiB; an overflow is a refusal, never a truncated corpus.
 
-Scoped evidence carries the content a consumer validates, not the triggers
-that made the validation relevant. The TLA+ scope therefore contains only
-changed paths matching the planner's TLA+ model-content rules — `.tla` and
-`.cfg` files under `docs/models/` or `docs/design/models/`, matched with
-ASCII case-insensitive extensions — and never the TLA+ infrastructure paths
-that also select the lane. An infrastructure-only selection consequently
-produces a true selection with a valid zero-record scope file, which the
-planner still writes.
+Scoped evidence carries inputs the consumer interprets, not paths that merely
+make the validation relevant. The TLA+ scope therefore contains changed paths
+matching the planner's TLA+ model-content rules — `.tla` and `.cfg` files under
+`docs/models/` or `docs/design/models/`, matched with ASCII case-insensitive
+extensions — plus `eng/tla-expected-exit-codes.txt`, in plan input order.
+When that manifest changes, the planner compares its mappings at the same exact
+base and candidate endpoints. Added, removed, or value-changed mappings append
+their configuration paths in byte order, without repeating a path already in
+the scope. These are affected configuration paths, not additional changed-file
+records; the plan's input digest remains the original Git change evidence.
+Comments and record ordering do not change mappings. Only a recorded manifest
+addition or deletion supplies an empty endpoint image; failure to acquire a
+required image refuses planning. Mapping parsing preserves path and value bytes
+and refuses malformed, duplicate, or unsupported configuration paths.
+
+The manifest path alone selects no model execution. The runner continues to
+validate the complete current manifest, even when its mapping delta is empty.
+It interprets each affected configuration path like a directly changed `.cfg`:
+select the surviving model directory, including after its last exact-outcome
+mapping is removed, and skip a directory that no longer exists. Model-file
+selection and SANY's semantic transitive-consumer selection are unchanged.
+Other TLA+ infrastructure paths select the lane without entering the scope.
+Such an infrastructure-only selection consequently produces a true selection
+with a valid zero-record scope file, which the planner still writes.
 
 The plan descriptor binds the file to:
 
@@ -192,6 +208,28 @@ focused consumer rebuilds and checks the composed Release graph after merge;
 pull-request and merge-group candidates instead run the same policy inside
 their selected pre-merge test job.
 
+A validation's selection set must cover its entire scan set. The line-ending
+guard scans the complete tracked working tree, so the always-run `changes` job
+executes it directly before publishing a plan. It does not need a conditional
+plan field or a second job that repeats checkout and test-host construction.
+
+The legacy package-source identity guard scans C# files under every
+non-excluded top-level source root. Any changed `*.cs` path therefore selects
+`repositoryGuards` for pull-request and merge-group candidates, independently
+of ordinary project ownership. Documentation-only candidates cannot change
+that scan set and do not select the focused guard job. Issue
+[#6597](https://github.com/richlander/dotnet-inspect/issues/6597) records the
+measured latency that motivated this split.
+
+`inspectWeb` selects the fast, parallel Browser/Wasm PR topology.
+`inspectWebComprehensive` is a narrower pre-merge selection for changes to the
+generated-facade tooling, multi-facade canary, managed-operation bridge canary,
+or their direct owners. It implies `inspectWeb` and selects the same complete
+version-invariance, mutation, and Mono/CoreCLR modes that run in the daily Deep
+Inspect `inspect-web` lane. Push events retain the fast post-merge backstop;
+scheduled comprehensive evidence is owned by Deep Inspect rather than inferred
+from a push change set.
+
 Two conservative inventory policies are current and named. When
 `eng/inspect-web-gate-projects.txt` is missing or malformed, every `src`
 change broadens to the Browser/Wasm lane. When
@@ -207,6 +245,11 @@ hold each manifest to the evaluated Release project closure.
 Inventory roots are unique canonical repository-relative lines. A duplicate
 root makes the inventory malformed even though the legacy shell reader would
 tolerate it; the conservative policy above then applies.
+
+CodeQL does not consume the change plan. Its daily workflow analyzes Actions,
+C#, and JavaScript/TypeScript unconditionally against the default branch.
+Keeping the whole-program analyzer outside pull-request CI preserves alert
+publication while removing a rarely-changing signal from the merge gate.
 
 Jobs and named in-job validation units consume selections, not paths.
 Domain-specific interpretation begins only after routing. For example, the
@@ -234,7 +277,7 @@ Conceptually:
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 6,
   "status": "planned",
   "provenance": {
     "kind": "pullRequestSyntheticCandidate",
@@ -247,6 +290,7 @@ Conceptually:
   },
   "validations": {
     "test": true,
+    "repositoryGuards": true,
     "dependencyPolicy": false,
     "markdownlint": false,
     "ilRoundtrip": true,
@@ -270,13 +314,13 @@ Path corpora and refusal diagnostics remain outside the plan.
 Concretely, the serialized plan is one compact UTF-8 JSON object containing
 only printable ASCII, with deterministic property order, lower camel member
 names, no newline, and lowercase digests. Its `validations` member always
-carries every field — `test`, `dependencyPolicy`, `csharpDiffSmoke`,
-`decompilerGates`, `markdownlint`, `ilDiffSmoke`, `ilRoundTrip`, `pack`,
-`buildNet10`,
-`inspectWeb`, `skillGate`, and `tla` — so a consumer never distinguishes
-"false" from "absent". `ilRoundTrip` implies `test` as a construction
-invariant. A scope descriptor names its artifact, record framing, record
-count, and digest; the TLA+ artifact is `ci-plan-tla-paths0`. The plan
+carries every field — `test`, `repositoryGuards`, `dependencyPolicy`,
+`csharpDiffSmoke`, `decompilerGates`, `markdownlint`, `ilDiffSmoke`,
+`ilRoundTrip`, `pack`, `buildNet10`, `inspectWeb`, `skillGate`, and `tla`, so a
+consumer never distinguishes "false" from "absent". `ilRoundTrip` implies
+`test` as a construction invariant. A scope descriptor names its artifact,
+record framing, record count, and digest; the TLA+ artifact is
+`ci-plan-tla-paths0`. The plan
 publisher writes scoped evidence and then the single plan line only after the
 serialized bytes have been re-parsed and revalidated by the strict plan
 reader, so a plan a consumer would reject never reaches one.
@@ -327,6 +371,14 @@ is not `planned`, or an unsupported schema version. A planner step that does
 not publish a valid plan fails the producer job rather than synthesizing
 fallback selections.
 
+When a selected validation has scoped evidence, the producer uploads the exact
+planner-owned file under the descriptor's artifact name. The consumer
+downloads that named artifact and verifies the descriptor's fixed identity,
+record framing, record count, and SHA-256 before passing the file to the
+validation. Missing, substituted, truncated, or inconsistent evidence fails
+the consumer; it never triggers an independent diff, an empty scope, or a
+whole-repository fallback.
+
 A matrix, if later planned, is another bounded plan field produced by the same
 operation. Matrix jobs do not contribute competing planner outputs because
 GitHub does not guarantee matrix execution order and duplicate output names
@@ -375,6 +427,19 @@ The repository deliberately diverges from:
 
 ## Evidence
 
+Issue [#6930](https://github.com/richlander/dotnet-inspect/issues/6930) is
+motivated by PR [#6919](https://github.com/richlander/dotnet-inspect/pull/6919),
+whose manifest at commit
+[`5b1bc66a290dfabb450670614d9573c135de365b`](https://github.com/richlander/dotnet-inspect/blob/5b1bc66a290dfabb450670614d9573c135de365b/eng/tla-expected-exit-codes.txt)
+added retained-workspace outcomes but selected unrelated model directories.
+The planner's PR-fast Git fixtures preserve that shape: one changed directory
+beside unchanged mappings, plus additions, removals, value changes, multi-owner
+changes, and comment/order-only edits. `eng/test-tla-checks.sh` gates the
+consumer's directory union, surviving-directory removal behavior, and complete
+manifest validation before Java invocation. The production host is the existing
+CI planner/artifact/runner pipeline; this change adopts the delta in that host
+in one slice without changing TLC verdict or timeout policy.
+
 The contract-defining pathological fixture is a base rename that moves a
 PR-authored edit into a gated path in the synthetic candidate while the PR
 Files API-like path remains outside it. Planning must select the gate. The
@@ -393,18 +458,19 @@ The planner implementation gate must also cover:
 - unavailable endpoint trees;
 - malformed or truncated changed-path evidence;
 - policy-data absence and invalidity;
+- exact-outcome manifest changes entering TLA+ scoped evidence so the runner
+  checks every model directory the changed manifest names;
 - every job-level and named in-job validation rule, event rule, and cross-field
   implication as planner values;
 - an oversized plan or scoped-evidence descriptor;
-- effective validation-selection parity with the combined existing classifier
-  and workflow routing when both receive the same event and changed-path
-  corpus;
+- every raw routing rule and effective event mapping as planner-native values;
 - the deliberate provenance change from API or event approximations to exact
   candidate endpoints;
 - the deliberate failure-contract change from all-true recovery to a blocking
   refusal; and
 - a neighboring docs-only candidate that selects documentation validation
-  without unrelated content gates.
+  without content gates, while the always-run producer retains the
+  repository-wide line-ending guard.
 
 Workflow-adoption evidence separately demonstrates that GitHub accepts the
 workflow, the non-matrix producer publishes exactly one compact plan, and
@@ -413,18 +479,21 @@ event or path policy. Review checks the fail-closed publication boundary,
 execution-local conditions such as matrix placement, and aggregate handling of
 a planner job that fails, is skipped, is cancelled, or never starts.
 
-The repository intentionally does not parse workflow YAML to pin the projection
-text or reimplement GitHub expression semantics. The actual PR workflow run and
-adversarial review are the wiring evidence, while planner values and aggregate
-result safety remain persistently gated. Consequently, the absence of
-arbitrary future duplicate routing expressions is specified and review-owned,
-not claimed as a persistently enforced repository invariant.
+The workflow contract parses YAML to pin consumers to their intended
+`validations.*` projections and reject independently routed consumer steps. It
+does not reimplement GitHub expression semantics. The actual PR workflow run
+and adversarial review are the execution evidence, while planner values and
+aggregate result safety remain persistently gated. Consequently, the absence
+of arbitrary future duplicate routing expressions outside covered consumers
+is specified and review-owned, not claimed as a persistently enforced
+repository invariant.
 
 The demo is one planner invocation for the #5347 rename-into-model fixture. Its
-plan selects TLA+ and its scoped evidence contains the planner-assigned changed
-paths; the TLA+ consumer still owns model-directory validation. The neighboring
-inverse fixture produces `tla: false`. A provenance failure produces a visible
-refusal rather than an empty or all-false plan.
+plan selects TLA+, and the TLA+ job verifies and consumes the planner-assigned
+changed paths while retaining ownership of model-directory validation. The
+neighboring inverse fixture produces `tla: false`. An infrastructure-only TLA+
+change transports a valid zero-record scope. A provenance or scope-integrity
+failure remains visible rather than becoming an empty or all-false result.
 
 ### Staged verification
 
@@ -434,23 +503,23 @@ serialization, plan publisher, and command boundary are implemented behind
 which constructs plans through the production planner rather than a
 harness-built substitute. That gate covers the routing canaries and
 first-match exclusions, event semantics, the `ilRoundTrip` implication,
-effective-selection parity against the legacy shell classifier for every
-scenario where both receive the same event and changed-path corpus, real
-temporary Git repository fixtures including the #5347 rename fixtures, raw
-parser fixtures with invalidly encoded path bytes, the refusal contract, and
-deterministic serialization with strict deserialization rejection.
+real temporary Git repository fixtures including the #5347 rename fixtures,
+raw parser fixtures with invalidly encoded path bytes, the refusal contract,
+and deterministic serialization with strict deserialization rejection.
 
 The workflow consumes the planner's compact JSON as its sole
 candidate-relevance output and projects `validations.*` fields for job and
 named in-job selection. GitHub workflow parsing and the live CI run demonstrate
 that transport and projection wiring; the repository does not add a custom
-workflow-expression gate. Scoped-evidence consumption remains **unverified**:
-the TLA+ job is selected by the plan but still acquires its paths independently
-until adoption slice 3.
+workflow-expression gate. The workflow contract verifies that selected TLA+
+scope evidence is uploaded under the plan's artifact identity, downloaded by
+the consumer, checked against the plan's framing, record count, and SHA-256,
+and passed directly to the scoped TLA+ runner without another candidate diff.
+The live CI run demonstrates the artifact actions and cross-job transport.
 
 ## Adoption sequence
 
-Adoption proceeds in focused slices:
+Adoption completed in focused slices:
 
 1. Implement the planner types, path-evidence reader, routing policy, canonical
    serialization, and effective-selection parity harness without making it
@@ -459,7 +528,7 @@ Adoption proceeds in focused slices:
    an explicit evidence directory, and whose gate is
    `dotnet run eng/test-ci-change-detection.cs`. Before workflow adoption, that
    gate pinned the entrypoint shim to the planner façade independently of the
-   legacy classifier.
+   then-current workflow detector.
 2. The workflow's change-planning job consumes the planner and replaces
    candidate-relevance conditions with mechanical plan projections. Existing
    event gates and named in-job selectors are planner validation fields;
@@ -467,10 +536,12 @@ Adoption proceeds in focused slices:
    owns the intentional exact-candidate provenance and blocking-refusal
    changes. GitHub workflow parsing, live execution, and review provide its
    wiring evidence rather than a repository-owned YAML expression evaluator.
-3. Move each scoped-path consumer, beginning with TLA+, to planner-produced
-   evidence and remove its independent provenance and path acquisition.
-4. Remove the legacy shell classifier and obsolete structural seams only after
-   parity and all planned consumers have transferred.
+3. Move each scoped-path consumer to planner-produced evidence and remove its
+   independent provenance and path acquisition. TLA+ is the plan's only
+   current scoped consumer: the producer uploads its bounded scope, and the job
+   verifies the descriptor and exact bytes before invoking the scoped runner.
+4. Remove the legacy shell classifier and obsolete parity seams after the
+   authoritative workflow and planned scoped consumers have transferred.
 
 Each slice names its own adopting owner and gate. The design does not authorize
 a single PR to rewrite every CI consumer.

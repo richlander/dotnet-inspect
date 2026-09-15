@@ -5,7 +5,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 using ILInspector.ControlFlow;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 
@@ -146,6 +146,7 @@ internal sealed class LibraryMethodAnalysisResult
     public ImmutableArray<FieldStoreFact> FieldStores;
     public ImmutableArray<FieldLoadFact> FieldLoads;
     public ImmutableArray<MethodReturnFlow> ReturnFlows;
+    public MethodLocalThrowEvidence? LocalThrows;
     // Reachable whole-value writes or unrecognized by-ref escapes of this
     // method's current instance, consumed only by the assembly-level proof.
     public ImmutableArray<int> CurrentInstanceMutations;
@@ -185,7 +186,8 @@ internal enum UnsafeCallProbeResult
 /// resolver owns metadata-dependent judgments and adapters.
 /// </summary>
 internal sealed class LibraryMethodAnalysisRunner(
-    ILibraryMethodAnalysisInfrastructure infrastructure)
+    ILibraryMethodAnalysisInfrastructure infrastructure,
+    LibraryBodyExceptionTypeClassifier? exceptionTypes = null)
 {
     readonly ILibraryMethodAnalysisInfrastructure _infrastructure =
         infrastructure;
@@ -545,6 +547,13 @@ internal sealed class LibraryMethodAnalysisRunner(
             LibraryBodyAnalysisFeatures.OwnershipFlow);
         bool includeJsonWireContractFlow = plan.Includes(
             LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        bool includeLocalThrows = plan.Includes(
+            LibraryBodyAnalysisFeatures.LocalThrows);
+        LibraryBodyExceptionTypeClassifier? localExceptionTypes =
+            includeLocalThrows
+                ? exceptionTypes ?? throw new InvalidOperationException(
+                    "Local throws require exception-type qualification.")
+                : null;
         IReadOnlySet<int>? bodyScope = plan.MethodScope;
         Func<TypeRef, bool>? bodyTypeScope = plan.TypeScope;
         IReadOnlySet<int>? requestedMethodScope =
@@ -564,7 +573,16 @@ internal sealed class LibraryMethodAnalysisRunner(
             RequiresCompleteFieldAccessCensus =
                 includeJsonWireContractFlow
                 && !plan.IsScoped,
+            LocalThrows = includeLocalThrows
+                ? new MethodLocalThrowEvidence.Unavailable(
+                    MetadataTokens.GetToken(methodHandle),
+                    LocalThrowUnavailableReason.AnalysisFailed,
+                    [])
+                : null,
         };
+        ImmutableArray<LocalThrowSite>.Builder? localThrowSites =
+            includeLocalThrows ? ImmutableArray.CreateBuilder<LocalThrowSite>() : null;
+        bool isReferenceAssembly = false;
         var evidence =
             ImmutableArray.CreateBuilder<UnsafeEvidence>();
         var calls =
@@ -607,6 +625,17 @@ internal sealed class LibraryMethodAnalysisRunner(
             result.HasCaller = true;
             result.Caller = caller;
             result.Token = caller.MetadataToken;
+            if (localExceptionTypes is not null)
+            {
+                isReferenceAssembly = localExceptionTypes.IsReferenceAssembly;
+                if (isReferenceAssembly)
+                {
+                    result.LocalThrows = new MethodLocalThrowEvidence.Unavailable(
+                        caller.MetadataToken,
+                        LocalThrowUnavailableReason.ReferenceAssembly,
+                        []);
+                }
+            }
             // Tally the unsafe mode for every method, including bodiless
             // extern/abstract members (P/Invokes are a major source).
             result.Mode = caller.CallerUnsafeMode;
@@ -618,7 +647,8 @@ internal sealed class LibraryMethodAnalysisRunner(
                 declarationSafety.HasUnsafeApiMember;
             bool hasUnsafeSignature =
                 declarationSafety.HasUnsafeSignature;
-            if (caller.CallerUnsafeMode != CallerUnsafeMode.None
+            if (CallerUnsafeModeFacts.RequiresUnsafe(
+                    caller.CallerUnsafeMode)
                 || hasUnsafeApiMember)
             {
                 result.IsLeverage = true;
@@ -627,6 +657,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                 || !HasManagedIlBody(
                     methodDefinition.ImplAttributes))
             {
+                SetLocalThrowUnavailable(LocalThrowUnavailableReason.NoManagedBody);
                 result.RequiresCompleteFieldAccessCensus =
                     false;
                 if (includeAsyncSiblingOpportunities
@@ -660,6 +691,7 @@ internal sealed class LibraryMethodAnalysisRunner(
             if (bodyScope is not null
                 && !bodyScope.Contains(caller.MetadataToken))
             {
+                SetLocalThrowUnavailable(LocalThrowUnavailableReason.ScopeExcluded);
                 return result;
             }
             bool directlySelectedType =
@@ -683,7 +715,10 @@ internal sealed class LibraryMethodAnalysisRunner(
                     && (!mappedEvidence
                         || !sourceTypes.Any(
                             bodyTypeScope)))
+                {
+                    SetLocalThrowUnavailable(LocalThrowUnavailableReason.ScopeExcluded);
                     return result;
+                }
             }
             MethodIdentity? opportunityDeclaredMethod = null;
             MethodIdentity? unresolvedOpportunityOwner = null;
@@ -946,7 +981,15 @@ internal sealed class LibraryMethodAnalysisRunner(
                     fieldLoads: fieldLoads,
                     currentInstanceMutations:
                         currentInstanceMutations,
-                    returnFlows: returnFlows);
+                    returnFlows: returnFlows,
+                    localThrows: isReferenceAssembly ? null : localThrowSites,
+                    qualifyExceptionType: localExceptionTypes is null
+                        ? null : localExceptionTypes.Qualify);
+                if (localThrowSites is not null && !isReferenceAssembly)
+                {
+                    result.LocalThrows = new MethodLocalThrowEvidence.Inspected(
+                        caller, localThrowSites.ToImmutable());
+                }
                 result.FieldAccessCensusComplete =
                     result.RequiresCompleteFieldAccessCensus;
             }
@@ -1159,8 +1202,27 @@ internal sealed class LibraryMethodAnalysisRunner(
             result.CurrentInstanceMutations =
                 currentInstanceMutations?.ToImmutable() ?? [];
             result.ReturnFlows = returnFlows?.ToImmutable() ?? [];
+            if (result.LocalThrows is MethodLocalThrowEvidence.Unavailable
+                { Reason: LocalThrowUnavailableReason.AnalysisFailed } failed)
+            {
+                result.LocalThrows = failed with
+                {
+                    Sites = localThrowSites?.ToImmutable() ?? [],
+                    Detail = result.Diagnostic?.Message
+                        ?? "Method analysis did not reach local-throw projection.",
+                };
+            }
         }
         return result;
+
+        void SetLocalThrowUnavailable(LocalThrowUnavailableReason reason)
+        {
+            if (includeLocalThrows && !isReferenceAssembly)
+            {
+                result.LocalThrows = new MethodLocalThrowEvidence.Unavailable(
+                    MetadataTokens.GetToken(methodHandle), reason, []);
+            }
+        }
     }
 
     LibraryMethodAnalysisResult AnalyzeLeakTriageMethod(

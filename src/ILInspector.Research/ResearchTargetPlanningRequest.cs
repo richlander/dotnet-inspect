@@ -50,15 +50,15 @@ public abstract class ResearchMemberSelectionOccurrence
 {
     private protected ResearchMemberSelectionOccurrence(
         ResearchComparisonQuestionId question,
-        string declaringTypeFullName,
+        MetadataTypeDefinitionName declaringType,
         MemberTargetSelector selector,
         ResearchTargetRequestKind kind)
     {
         ArgumentNullException.ThrowIfNull(question);
-        ArgumentException.ThrowIfNullOrWhiteSpace(declaringTypeFullName);
+        ArgumentNullException.ThrowIfNull(declaringType);
         ArgumentNullException.ThrowIfNull(selector);
         Question = question;
-        DeclaringTypeFullName = declaringTypeFullName;
+        DeclaringType = declaringType;
         Selector = selector;
         Kind = kind;
     }
@@ -67,12 +67,12 @@ public abstract class ResearchMemberSelectionOccurrence
     public ResearchComparisonQuestionId Question { get; }
 
     /// <summary>
-    /// The exact declaring-type full name this selection intends. Metadata
-    /// selection runs only against a type definition whose metadata full name
-    /// equals this value; no prefix, suffix, case-insensitive, or display
-    /// spelling recovers it.
+    /// The exact structured declaring-type name this selection intends.
     /// </summary>
-    public string DeclaringTypeFullName { get; }
+    public MetadataTypeDefinitionName DeclaringType { get; }
+
+    /// <summary>The flattened metadata spelling of <see cref="DeclaringType"/>.</summary>
+    public string DeclaringTypeFullName => DeclaringType.ToMetadataFullName();
 
     /// <summary>The exact typed Metadata selector.</summary>
     public MemberTargetSelector Selector { get; }
@@ -94,11 +94,11 @@ public sealed class ResearchCarriedMemberSelection :
 {
     public ResearchCarriedMemberSelection(
         ResearchComparisonQuestionId question,
-        string declaringTypeFullName,
+        MetadataTypeDefinitionName declaringType,
         MemberTargetSelector selector)
         : base(
             question,
-            declaringTypeFullName,
+            declaringType,
             selector,
             ResearchTargetRequestKind.Carried)
     {
@@ -123,13 +123,13 @@ public sealed class ResearchExactAddressMemberSelection :
     public ResearchExactAddressMemberSelection(
         ResearchComparisonQuestionId question,
         ResearchAdmittedInput input,
-        string declaringTypeFullName,
+        MetadataTypeDefinitionName declaringType,
         MemberTargetSelector selector,
         MetadataMethodAddress address,
         ResearchTargetRelationshipRole assertedRole)
         : base(
             question,
-            declaringTypeFullName,
+            declaringType,
             selector,
             ResearchTargetRequestKind.ExactAddress)
     {

@@ -422,13 +422,16 @@ a network origin or resource scope does not create context association.
 Feed-advertised metadata cannot mint or replace the context reference.
 
 The configured-authority owner supplies one provider-query URI when it creates
-the context. That URI is the canonical configured service-index endpoint
-selected by the owner's alias decision, retained privately by the context
-solely for `GetAuthenticationCredentials`. Every authorized challenge for the
-context queries the plugin with that URI, including when an advertised resource
-or redirect target supplies the first challenge. The concrete challenge target
-never becomes provider lookup identity and feed-advertised metadata cannot
-replace it. Provider-query identity does not authorize a target.
+the context. That URI retains the exact configured service-index spelling
+selected by the owner's alias decision, including raw path and query spelling,
+solely for `GetAuthenticationCredentials`. Parsing the URI to establish
+resource scope must not replace that provider-query spelling. Every authorized
+challenge for the context queries the plugin with that exact URI, including
+when an advertised resource or redirect target supplies the first challenge.
+The concrete challenge target never becomes provider lookup identity and
+feed-advertised metadata cannot replace it. Provider-query identity does not
+authorize a target. NuGet.Client's JSON URI serialization likewise emits the
+URI's original string rather than its normalized presentation.
 
 The configured service-index endpoint establishes the context's
 credential-resource scope. For ordinary hosts the scope is the endpoint's URI
@@ -538,6 +541,9 @@ The target is unverified until Release gates establish:
   a provider that answers only for the configured service-index URI is queried
   with that URI, and the resulting credential is replayed only to the
   authorized resource;
+- `CredentialRequestPreservesOriginalSourceSpelling`: raw-distinct configured
+  service-index spellings remain distinct in plugin protocol requests rather
+  than collapsing through parsed-URI presentation;
 - `SharedAssociationPipelinesShareAuthenticationContext`: two V3 pipelines
   constructed with the same `PackageSourceAssociation` share credential
   publication and coalesce concurrent challenges into one provider
@@ -671,12 +677,13 @@ The status is known inside
 [`HttpRetryHelper`](../../src/DotnetInspector.Packages/HttpRetryHelper.cs), but the signatures
 between there and the caller return `string?` and `List<string>?`, so it cannot be returned
 without changing every one of them. Instead
-[`FeedFailureTelemetry`](../../src/DotnetInspector.Core/FeedFailureTelemetry.cs) follows the
-ambient-scope shape already used by `NetworkTelemetry`: a scope is opened at each command
-boundary that turns those nullable results into an operator-facing answer. Package acquisition
-opens one around each acquisition hop; direct `--version`, `--latest-version`, and `--versions`
-queries open one around the complete query. Nested async work records into the same collector,
-and the "nothing resolved" path consults it before choosing a message.
+[`FeedFailureTelemetry`](../../src/NuGetFetch/FeedFailureTelemetry.cs) uses an
+ambient scope opened at each command boundary that turns those nullable
+results into an operator-facing answer. Package acquisition opens one around
+each acquisition hop; direct `--version`, `--latest-version`, and `--versions`
+queries open one around the complete query. Nested async work records into the
+same collector, and the "nothing resolved" path consults it before choosing a
+message.
 
 The scope is opened per *hop*, inside the tool-wrapper redirect loop, rather than once around
 the whole traversal. Each hop resolves a different package id, so a shared collector would let
@@ -694,15 +701,18 @@ Two further rules keep the message honest:
   overall lookup produced nothing, so if one source 401s and another answers, the successful
   result stands. That is this codebase's answer to the third open design question in #3417.
 
-The phase (`reading the service index`, `listing versions`) is taken from the ambient
-`NetworkTrafficKind`, which the network telemetry scope already tracks, so command boundaries do
-not duplicate the phase labels.
+The collector stores a NuGet-owned `FeedFailurePhase`. Product HTTP helpers
+continue to identify traffic with `NetworkTrafficKind`;
+`DotnetInspector.Packages.FeedFailureRecorder` maps that ambient product
+currency to the NuGet phase at the recording boundary. `NuGetFetch` therefore
+retains useful phase labels without depending on a `DotnetInspector.*`
+assembly.
 
 ### The URL is redacted before it is stored
 
 This message prints a source URL, and some feeds put a credential in one. The URL is passed
-through `NetworkRequestObservation.RedactSensitiveUrlText` on the way *into* the collector
-rather than on the way out to the console — `FeedFailureCollector.Failures` is public, so an
+through `InertText.UrlRedaction` on the way *into* the collector rather than on
+the way out to the console — `FeedFailureCollector.Failures` is public, so an
 unredacted URL sitting in it would already be an exposure.
 
 ```console
@@ -827,7 +837,7 @@ valid credentials, it can serve the requested resource instead of redirecting to
 
 ## Tests
 
-Two tiers, in `src/NuGetFetch.Tests`:
+Two tiers, in `tests/NuGetFetch.Tests`:
 
 - **Hermetic**, no network and no real plugin binary, runs in PR CI:
   - `CredentialMechanismTests` pins every row of the ranking table above.
@@ -861,7 +871,7 @@ Two tiers, in `src/NuGetFetch.Tests`:
 CI runs the offline tier only:
 
 ```bash
-dotnet run --project src/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
+dotnet run --project tests/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
 ```
 
 The live tier needs a private feed, which CI and fork PRs do not have. To run it locally, mint a
@@ -872,7 +882,7 @@ PAT:
 export DOTNET_INSPECT_TEST_AZDO_FEED=https://pkgs.dev.azure.com/ORG/PROJECT/_packaging/FEED/nuget/v3/index.json
 export DOTNET_INSPECT_TEST_AZDO_TOKEN=$(az account get-access-token \
   --resource 499b84ac-1321-427f-aa17-267ca6975798 --query accessToken -o tsv)
-dotnet run --project src/NuGetFetch.Tests -c Release -- --filter-trait "Network=Live"
+dotnet run --project tests/NuGetFetch.Tests -c Release -- --filter-trait "Network=Live"
 ```
 
 The token is read from the environment and never written to a config file.

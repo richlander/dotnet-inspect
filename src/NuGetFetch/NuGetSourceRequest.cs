@@ -171,6 +171,20 @@ internal static class NuGetSourceRequest
             escapedPath);
     }
 
+    internal static bool CanProjectEndpoint(Uri endpoint)
+    {
+        ArgumentNullException.ThrowIfNull(endpoint);
+        try
+        {
+            _ = ProjectEndpoint(endpoint);
+            return true;
+        }
+        catch (NuGetSourceResponseException)
+        {
+            return false;
+        }
+    }
+
     internal static string EndpointUrl(Uri endpoint)
     {
         ArgumentNullException.ThrowIfNull(endpoint);

@@ -5,6 +5,7 @@ using System.Text;
 using System.Xml;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
+using DotnetInspector.SourceSelection;
 using InertText;
 using NuGetFetch;
 
@@ -15,6 +16,7 @@ public enum PackageQueryFacetTier
 {
     Nuspec,
     PackageContent,
+    SearchMetadata,
 }
 
 /// <summary>One product-owned package-query facet.</summary>
@@ -53,7 +55,7 @@ public sealed record PackageQueryRequest(
     string Prefix,
     IReadOnlyCollection<string>? FacetIds = null,
     int MaximumCandidates = PackageQuery.DefaultMaximumCandidates,
-    int MaximumMatches = PackageQuery.DefaultMaximumMatches,
+    int? MaximumMatches = PackageQuery.DefaultMaximumMatches,
     bool IncludePrerelease = false);
 
 /// <summary>Why a package-query request could not become an executable plan.</summary>
@@ -68,6 +70,7 @@ public enum PackageQueryRequestFailureReason
     DuplicateFacet,
     IncompatibleFacets,
     PackageContentCandidateLimitExceeded,
+    InvalidPackageInput,
 }
 
 /// <summary>
@@ -94,6 +97,8 @@ public sealed record PackageQueryRequestFailure
     {
         PackageQueryRequestFailureReason.InvalidPrefix =>
             "The package-query prefix is invalid.",
+        PackageQueryRequestFailureReason.InvalidPackageInput =>
+            "Enter a package ID or a literal package-ID prefix followed by one '*'.",
         PackageQueryRequestFailureReason.InvalidCandidateLimit =>
             $"The package-query candidate limit must be between 1 and {PackageProfileQuery.MaximumPackageLimit}.",
         PackageQueryRequestFailureReason.InvalidMatchLimit =>
@@ -136,8 +141,9 @@ public sealed class PackageQueryPlan
         InertString prefixEvidence,
         ImmutableArray<PackageQueryFacetDefinition> definitions,
         int maximumCandidates,
-        int maximumMatches,
-        bool includePrerelease)
+        int? maximumMatches,
+        bool includePrerelease,
+        SourceSelector? packageInput = null)
     {
         Prefix = prefix;
         PrefixEvidence = prefixEvidence;
@@ -146,31 +152,56 @@ public sealed class PackageQueryPlan
         MaximumCandidates = maximumCandidates;
         MaximumMatches = maximumMatches;
         IncludePrerelease = includePrerelease;
+        PackageInput = packageInput;
     }
 
     public InertString Prefix { get; }
     public ImmutableArray<PackageQueryFacetDescriptor> Facets { get; }
     public int MaximumCandidates { get; }
-    public int MaximumMatches { get; }
+    public int? MaximumMatches { get; }
     public bool IncludePrerelease { get; }
+    public SourceSelector? PackageInput { get; }
 
     internal InertString PrefixEvidence { get; }
     internal ImmutableArray<PackageQueryFacetDefinition> Definitions { get; }
 }
+
+/// <summary>Whether evidence describes the query input or an inspected package.</summary>
+public enum PackageQueryEvidenceScope
+{
+    Package,
+    Query,
+}
+
+/// <summary>A complete observed item count and bounded inert display previews.</summary>
+public sealed record PackageQueryEvidenceSummary(
+    int Count,
+    ImmutableArray<InertString> Preview);
 
 /// <summary>One product-authored explanation for a package-query match.</summary>
 public sealed record PackageQueryEvidence(
     string Id,
     InertString Text)
 {
+    public PackageQueryEvidenceScope Scope { get; init; }
+    public PackageQueryEvidenceSummary? Summary { get; init; }
     public string Value => Text.ToString();
 }
 
 /// <summary>One package that satisfied every selected package-query facet.</summary>
 public sealed record PackageQueryMatch(
-    PackageProfileMatch Package,
+    PackageQueryPackage Package,
     PackageQueryFacetTier Tier,
-    ImmutableArray<PackageQueryEvidence> Evidence);
+    ImmutableArray<PackageQueryEvidence> Evidence)
+{
+    public PackageQueryMatch(
+        PackageProfileMatch Package,
+        PackageQueryFacetTier Tier,
+        ImmutableArray<PackageQueryEvidence> Evidence)
+        : this(new PackageQueryPackage(Package), Tier, Evidence)
+    {
+    }
+}
 
 /// <summary>The stage at which one package-query item failed.</summary>
 public enum PackageQueryFailureKind
@@ -202,6 +233,7 @@ public enum PackageQueryCompletionKind
     SourcePageLimitReached,
     ClientPageLimitReached,
     Failed,
+    ExactPackageComplete,
 }
 
 /// <summary>Terminal accounting for one package-query stream.</summary>
@@ -209,11 +241,14 @@ public sealed record PackageQuerySummary(
     InertString Prefix,
     PackageSourceResultIdentity Source,
     int CandidateLimit,
-    int MatchLimit,
+    int? MatchLimit,
     int Candidates,
     int Matches,
     int Failures,
-    PackageQueryCompletionKind Completion);
+    PackageQueryCompletionKind Completion)
+{
+    public int? SourceCandidates { get; init; }
+}
 
 /// <summary>A bounded checkpoint in package-query work.</summary>
 public sealed record PackageQueryProgress(
@@ -264,33 +299,51 @@ public abstract record PackageQueryContentResult
 public interface IPackageQueryContentProvider
 {
     ValueTask<PackageQueryContentResult> GetContentAsync(
-        PackageProfileMatch package,
+        PackageQueryPackage package,
+        CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// Optional progress sink for a host that presents Package Query events while
+/// the completed inspection envelope is being produced.
+/// </summary>
+public interface IPackageQueryEventObserver
+{
+    ValueTask ObserveAsync(
+        PackageQueryEvent queryEvent,
         CancellationToken cancellationToken);
 }
 
 internal sealed record PackageQueryFacetDefinition(
     PackageQueryFacetDescriptor Descriptor,
-    Func<PackageProfileMatch, bool> MatchesManifest,
-    Func<PackageProfileMatch, InertString> Evidence,
+    Func<PackageQueryPackage, bool> MatchesManifest,
+    Func<PackageQueryPackage, PackageContentFacts?, PackageQueryFacetEvidence> Evidence,
     Func<PackageContentFacts, bool>? MatchesPackageContent = null);
 
+internal sealed record PackageQueryFacetEvidence(
+    InertString Text,
+    PackageQueryEvidenceSummary? Summary = null);
+
 internal sealed record PackageContentFacts(
-    bool HasSkillDocument,
+    PackageQueryEvidenceSummary? SkillDocuments,
     string? ToolSettingsVersion);
 
 /// <summary>
 /// Plans and executes product-owned manifest and package-content facets over a
 /// bounded package profile without loading inspected assemblies.
 /// </summary>
-public static class PackageQuery
+public static partial class PackageQuery
 {
     public const int DefaultMaximumCandidates = 200;
     public const int DefaultMaximumMatches = 100;
     public const int MaximumPackageContentCandidates = 20;
     public const int MaximumFacetIdLength = 100;
     public const int MaximumToolSettingsBytes = 64 * 1024;
+    public const int MaximumEvidencePreviewItems = 3;
+    public const int MaximumEvidencePreviewCharacters = 160;
 
     public const string PrefixEvidenceId = "package.query.scope.prefix";
+    public const string ExactPackageEvidenceId = "package.query.scope.exact-package";
     public const string VerifiedFacetId = "package.query.source-verified";
     public const string ToolFacetId = "package.query.dotnet-tool";
     public const string ToolV1FacetId = "package.query.dotnet-tool-v1";
@@ -313,22 +366,26 @@ public static class PackageQuery
                 "The package source reports a verified package identity.",
                 100,
                 PackageQueryFacetTier.Nuspec),
-            static match => match.Verified,
-            static _ => Evidence(
+            static match => match.Verified == true,
+            static (_, _) => Describe(
                 "The package source reports this package as verified.")),
         new(
             new PackageQueryFacetDescriptor(
                 ToolFacetId,
                 ".NET Tool",
-                "The package manifest declares the .NET tool package type.",
+                "Downloads the package and inspects its .NET tool CLI format.",
                 200,
-                PackageQueryFacetTier.Nuspec,
+                PackageQueryFacetTier.PackageContent,
                 ToolSelectionGroupId,
                 ToolDisplayGroupId,
                 ".NET tool format"),
-            static match => match.Manifest.IsToolPackage,
-            static _ => Evidence(
-                "The package manifest declares a .NET tool package.")),
+            static match => match.RequiredManifest.IsToolPackage,
+            static (_, content) => DescribeToolFormat(
+                (content
+                    ?? throw new InvalidOperationException(
+                        ".NET tool evidence requires package-content facts."))
+                    .ToolSettingsVersion),
+            static _ => true),
         new(
             new PackageQueryFacetDescriptor(
                 ToolV1FacetId,
@@ -342,9 +399,8 @@ public static class PackageQuery
             {
                 CombinesWithinSelectionGroup = true,
             },
-            static match => match.Manifest.IsToolPackage,
-            static _ => Evidence(
-                "DotnetToolSettings.xml declares the portable .NET tool v1 format."),
+            static match => match.RequiredManifest.IsToolPackage,
+            static (_, _) => DescribeToolFormat("1"),
             static content => content.ToolSettingsVersion == "1"),
         new(
             new PackageQueryFacetDescriptor(
@@ -359,9 +415,8 @@ public static class PackageQuery
             {
                 CombinesWithinSelectionGroup = true,
             },
-            static match => match.Manifest.IsToolPackage,
-            static _ => Evidence(
-                "DotnetToolSettings.xml declares the RID-specific .NET tool v2 format."),
+            static match => match.RequiredManifest.IsToolPackage,
+            static (_, _) => DescribeToolFormat("2"),
             static content => content.ToolSettingsVersion == "2"),
         new(
             new PackageQueryFacetDescriptor(
@@ -371,17 +426,8 @@ public static class PackageQuery
                 300,
                 PackageQueryFacetTier.Nuspec,
                 DependencySelectionGroupId),
-            static match => DependencyCount(match) > 0,
-            static match =>
-            {
-                int dependencies = DependencyCount(match);
-                int groups = NonEmptyDependencyGroupCount(match);
-                return Evidence(
-                    $"The package manifest declares {dependencies.ToString(CultureInfo.InvariantCulture)} "
-                    + $"{Pluralize(dependencies, "dependency", "dependencies")} across "
-                    + $"{groups.ToString(CultureInfo.InvariantCulture)} target-framework "
-                    + $"{Pluralize(groups, "group", "groups")}.");
-            }),
+            static match => HasDependencies(match),
+            static (match, _) => DescribeDependencies(match)),
         new(
             new PackageQueryFacetDescriptor(
                 NoDependenciesFacetId,
@@ -390,9 +436,8 @@ public static class PackageQuery
                 400,
                 PackageQueryFacetTier.Nuspec,
                 DependencySelectionGroupId),
-            static match => DependencyCount(match) == 0,
-            static _ => Evidence(
-                "The package manifest declares no dependencies.")),
+            static match => !HasDependencies(match),
+            static (match, _) => DescribeDependencies(match)),
         new(
             new PackageQueryFacetDescriptor(
                 MillionDownloadsFacetId,
@@ -401,8 +446,8 @@ public static class PackageQuery
                 500,
                 PackageQueryFacetTier.Nuspec),
             static match => match.TotalDownloads >= 1_000_000,
-            static match => Evidence(
-                $"The package source reports {match.TotalDownloads.ToString("N0", CultureInfo.InvariantCulture)} total downloads.")),
+            static (match, _) => Describe(
+                $"The package source reports {match.TotalDownloads?.ToString("N0", CultureInfo.InvariantCulture)} total downloads.")),
         new(
             new PackageQueryFacetDescriptor(
                 EmbeddedReadmeFacetId,
@@ -411,8 +456,8 @@ public static class PackageQuery
                 600,
                 PackageQueryFacetTier.Nuspec),
             static match => !string.IsNullOrWhiteSpace(
-                match.Manifest.ReadmeFile),
-            static _ => Evidence(
+                match.RequiredManifest.ReadmeFile),
+            static (_, _) => Describe(
                 "The package manifest declares an embedded README file.")),
         new(
             new PackageQueryFacetDescriptor(
@@ -422,9 +467,13 @@ public static class PackageQuery
                 700,
                 PackageQueryFacetTier.PackageContent),
             static _ => true,
-            static _ => Evidence(
-                "The package contains a skills/SKILL.md document."),
-            static content => content.HasSkillDocument),
+            static (_, content) => DescribeItems(
+                content?.SkillDocuments
+                    ?? throw new InvalidOperationException(
+                        "Skill-document evidence requires its package-content inventory."),
+                "skill document",
+                "skill documents"),
+            static content => content.SkillDocuments is { Count: > 0 }),
     ];
 
     static readonly IReadOnlyDictionary<string, PackageQueryFacetDefinition>
@@ -468,16 +517,34 @@ public static class PackageQuery
                 value: request.MaximumCandidates);
         }
 
-        if (request.MaximumMatches
-            is <= 0 or > PackageProfileQuery.MaximumPackageLimit)
+        return PlanCore(
+            Evidence(prefix),
+            Evidence(prefixEvidence),
+            request.FacetIds,
+            request.MaximumCandidates,
+            request.MaximumMatches,
+            request.IncludePrerelease);
+    }
+
+    static PackageQueryPlanResult PlanCore(
+        InertString prefix,
+        InertString scopeEvidence,
+        IReadOnlyCollection<string>? facetIds,
+        int maximumCandidates,
+        int? maximumMatches,
+        bool includePrerelease,
+        SourceSelector? packageInput = null)
+    {
+        if (maximumMatches is int matchLimit
+            && matchLimit is <= 0 or > PackageProfileQuery.MaximumPackageLimit)
         {
             return Rejected(
                 PackageQueryRequestFailureReason.InvalidMatchLimit,
-                value: request.MaximumMatches);
+                value: matchLimit);
         }
 
         IReadOnlyCollection<string> requested =
-            request.FacetIds ?? [];
+            facetIds ?? [];
         if (requested.Count > Definitions.Length)
         {
             return Rejected(PackageQueryRequestFailureReason.TooManyFacets);
@@ -537,7 +604,7 @@ public static class PackageQuery
                 incompatible.Select(definition =>
                     definition.Descriptor.Id));
         }
-        if (request.MaximumCandidates > MaximumPackageContentCandidates
+        if (maximumCandidates > MaximumPackageContentCandidates
             && selected.Any(definition =>
                 definition.Descriptor.Tier
                     == PackageQueryFacetTier.PackageContent))
@@ -545,21 +612,21 @@ public static class PackageQuery
             return Rejected(
                 PackageQueryRequestFailureReason
                     .PackageContentCandidateLimitExceeded,
-                value: request.MaximumCandidates);
+                value: maximumCandidates);
         }
 
         return new PackageQueryPlanResult.Accepted(
             new PackageQueryPlan(
-                Evidence(prefix),
-                Evidence(prefixEvidence),
+                prefix,
+                scopeEvidence,
                 selected,
-                request.MaximumCandidates,
-                request.MaximumMatches,
-                request.IncludePrerelease));
+                maximumCandidates,
+                maximumMatches,
+                includePrerelease,
+                packageInput));
     }
 
-    /// <summary>Executes and materializes one validated package query.</summary>
-    public static async ValueTask<ImmutableArray<PackageQueryEvent>>
+    internal static async ValueTask<ImmutableArray<PackageQueryEvent>>
         ExecuteToArrayAsync(
             IPackageSourceClient source,
             PackageQueryPlan plan,
@@ -568,17 +635,15 @@ public static class PackageQuery
             source,
             plan,
             contentProvider: null,
+            observer: null,
             cancellationToken).ConfigureAwait(false);
 
-    /// <summary>
-    /// Executes and materializes one validated package query with the explicit
-    /// package-content capability required by package-content facets.
-    /// </summary>
-    public static async ValueTask<ImmutableArray<PackageQueryEvent>>
+    internal static async ValueTask<ImmutableArray<PackageQueryEvent>>
         ExecuteToArrayAsync(
             IPackageSourceClient source,
             PackageQueryPlan plan,
             IPackageQueryContentProvider? contentProvider,
+            IPackageQueryEventObserver? observer,
             CancellationToken cancellationToken = default)
     {
         var events = ImmutableArray.CreateBuilder<PackageQueryEvent>();
@@ -589,12 +654,18 @@ public static class PackageQuery
             cancellationToken).ConfigureAwait(false))
         {
             events.Add(queryEvent);
+            if (observer is not null)
+            {
+                await observer.ObserveAsync(
+                    queryEvent,
+                    cancellationToken).ConfigureAwait(false);
+            }
         }
 
         return events.ToImmutable();
     }
 
-    public static async IAsyncEnumerable<PackageQueryEvent> ExecuteAsync(
+    internal static async IAsyncEnumerable<PackageQueryEvent> ExecuteAsync(
         IPackageSourceClient source,
         PackageQueryPlan plan,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
@@ -613,7 +684,7 @@ public static class PackageQuery
     /// Executes a package query with the explicit host capability required to
     /// acquire admitted package content.
     /// </summary>
-    public static async IAsyncEnumerable<PackageQueryEvent> ExecuteAsync(
+    internal static async IAsyncEnumerable<PackageQueryEvent> ExecuteAsync(
         IPackageSourceClient source,
         PackageQueryPlan plan,
         IPackageQueryContentProvider? contentProvider,
@@ -634,25 +705,31 @@ public static class PackageQuery
         int matches = 0;
         int failures = 0;
         int packageContentCompleted = 0;
+        int? sourceCandidates = null;
         bool searchOutcomeObserved = false;
+        bool sourceSearchFailed = false;
         cancellationToken.ThrowIfCancellationRequested();
         yield return Progress(
             PackageQueryProgressPhase.Search,
             completed: 0,
             limit: 1);
-        await foreach (PackageProfileEvent profileEvent
-            in PackageProfileQuery.ExecuteAsync(
-                source,
-                new PackagePrefixProfileRequest(
-                    plan.Prefix.ToString(),
-                    plan.MaximumCandidates,
-                    plan.IncludePrerelease),
-                cancellationToken).ConfigureAwait(false))
+        await foreach (PackageQueryInputEvent inputEvent
+            in AcquireInputAsync(source, plan, cancellationToken)
+                .ConfigureAwait(false))
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (inputEvent is PackageQueryInputEvent.Acquired acquired)
+            {
+                sourceCandidates = acquired.Count;
+                searchOutcomeObserved = true;
+                yield return Progress(
+                    PackageQueryProgressPhase.Search, completed: 1, limit: 1);
+                continue;
+            }
             bool sourceWideSearchFailure =
-                profileEvent is PackageProfileEvent.Failure searchFailure
+                inputEvent is PackageQueryInputEvent.Failure searchFailure
                 && IsSourceWideSearchFailure(searchFailure.Value);
+            sourceSearchFailed |= sourceWideSearchFailure;
             if (!searchOutcomeObserved)
             {
                 searchOutcomeObserved = true;
@@ -665,14 +742,17 @@ public static class PackageQuery
                 }
             }
 
-            switch (profileEvent)
+            switch (inputEvent)
             {
-                case PackageProfileEvent.Match match:
+                case PackageQueryInputEvent.Match match:
                     candidates++;
-                    yield return Progress(
-                        PackageQueryProgressPhase.Manifest,
-                        candidates,
-                        plan.MaximumCandidates);
+                    if (match.Value.Manifest is not null)
+                    {
+                        yield return Progress(
+                            PackageQueryProgressPhase.Manifest,
+                            candidates,
+                            plan.MaximumCandidates);
+                    }
                     if (!TryMatchManifest(
                         plan,
                         match.Value,
@@ -775,10 +855,13 @@ public static class PackageQuery
                             match.Value,
                             requiresPackageContent
                                 ? PackageQueryFacetTier.PackageContent
-                                : PackageQueryFacetTier.Nuspec,
+                                : match.Value.Manifest is not null
+                                    ? PackageQueryFacetTier.Nuspec
+                                    : PackageQueryFacetTier.SearchMetadata,
                             evidence.ToImmutable()));
                     cancellationToken.ThrowIfCancellationRequested();
-                    if (matches >= plan.MaximumMatches)
+                    if (plan.MaximumMatches is int maximumMatches
+                        && matches >= maximumMatches)
                     {
                         yield return Completed(
                             plan,
@@ -786,12 +869,15 @@ public static class PackageQuery
                             candidates,
                             matches,
                             failures,
-                            PackageQueryCompletionKind.MatchLimitReached);
+                            plan.PackageInput is SourceSelector.Package
+                                ? PackageQueryCompletionKind.ExactPackageComplete
+                                : PackageQueryCompletionKind.MatchLimitReached,
+                            sourceCandidates);
                         yield break;
                     }
                     break;
 
-                case PackageProfileEvent.Failure failure:
+                case PackageQueryInputEvent.Failure failure:
                     failures++;
                     if (!sourceWideSearchFailure)
                     {
@@ -802,50 +888,45 @@ public static class PackageQuery
                             plan.MaximumCandidates);
                     }
 
-                    yield return new PackageQueryEvent.Failure(
-                        FromProfileFailure(failure.Value));
+                    yield return new PackageQueryEvent.Failure(failure.Value);
                     break;
 
-                case PackageProfileEvent.Completed completed:
+                case PackageQueryInputEvent.Completed completed:
                     yield return Completed(
                         plan,
-                        completed.Value.Source,
-                        completed.Value.Candidates,
+                        source.Source,
+                        completed.Candidates,
                         matches,
                         failures,
-                        completed.Value.Candidates == 0
-                            && completed.Value.Failures > 0
+                        sourceSearchFailed
                             ? PackageQueryCompletionKind.Failed
-                            : MapCompletion(
-                                completed.Value.TruncationReason));
+                            : completed.Completion,
+                        sourceCandidates);
                     yield break;
             }
         }
 
         throw new InvalidOperationException(
-            "The package profile stream ended without a completion event.");
+            "The package query input ended without a completion event.");
     }
 
-    static bool IsSourceWideSearchFailure(PackageProfileFailure failure) =>
-        failure.Kind == PackageProfileFailureKind.Search
+    static bool IsSourceWideSearchFailure(PackageQueryFailure failure) =>
+        failure.Kind == PackageQueryFailureKind.Search
         || failure is
         {
-            Kind: PackageProfileFailureKind.SearchContract,
+            Kind: PackageQueryFailureKind.SearchContract,
             PackageId: null,
             Version: null,
         };
 
     static bool TryMatchManifest(
         PackageQueryPlan plan,
-        PackageProfileMatch match,
+        PackageQueryPackage match,
         out ImmutableArray<PackageQueryEvidence>.Builder evidence)
     {
         evidence = ImmutableArray.CreateBuilder<PackageQueryEvidence>(
             plan.Definitions.Length + 1);
-        evidence.Add(
-            new PackageQueryEvidence(
-                PrefixEvidenceId,
-                plan.PrefixEvidence));
+        AddScopeEvidence(plan, evidence);
         var handledGroups = new HashSet<string>(StringComparer.Ordinal);
         foreach (PackageQueryFacetDefinition definition in plan.Definitions)
         {
@@ -878,10 +959,7 @@ public static class PackageQuery
                 {
                     continue;
                 }
-                evidence.Add(
-                    new PackageQueryEvidence(
-                        candidate.Descriptor.Id,
-                        candidate.Evidence(match)));
+                AddFacetEvidence(candidate, match, null, evidence);
             }
         }
 
@@ -890,7 +968,7 @@ public static class PackageQuery
 
     static bool TryMatchPackageContent(
         PackageQueryPlan plan,
-        PackageProfileMatch match,
+        PackageQueryPackage match,
         PackageContentFacts content,
         ImmutableArray<PackageQueryEvidence>.Builder evidence)
     {
@@ -929,10 +1007,7 @@ public static class PackageQuery
 
             foreach (PackageQueryFacetDefinition candidate in matched)
             {
-                evidence.Add(
-                    new PackageQueryEvidence(
-                        candidate.Descriptor.Id,
-                        candidate.Evidence(match)));
+                AddFacetEvidence(candidate, match, content, evidence);
             }
         }
 
@@ -949,15 +1024,18 @@ public static class PackageQuery
         bool needsSkills = definitions.Any(definition =>
             definition.Descriptor.Id == EmbeddedSkillFacetId);
         bool needsToolSettings = definitions.Any(definition =>
-            definition.Descriptor.Id is ToolV1FacetId or ToolV2FacetId);
-        bool hasSkill = needsSkills && entries.Any(IsSkillDocument);
+            definition.Descriptor.Id
+                is ToolFacetId or ToolV1FacetId or ToolV2FacetId);
+        PackageQueryEvidenceSummary? skills = needsSkills
+            ? SummarizeItems(entries.Where(IsSkillDocument), StringComparer.Ordinal)
+            : null;
         string? toolVersion = needsToolSettings
             ? await ReadToolSettingsVersionAsync(
                 content,
                 entries,
                 cancellationToken).ConfigureAwait(false)
             : null;
-        return new PackageContentFacts(hasSkill, toolVersion);
+        return new PackageContentFacts(skills, toolVersion);
     }
 
     static async ValueTask<string?> ReadToolSettingsVersionAsync(
@@ -1063,13 +1141,99 @@ public static class PackageQuery
             failure.Message,
             failure.ManifestFailureReason);
 
-    static int DependencyCount(PackageProfileMatch match) =>
-        match.Manifest.DependencyGroups.Sum(group =>
-            group.Dependencies.Length);
-
-    static int NonEmptyDependencyGroupCount(PackageProfileMatch match) =>
-        match.Manifest.DependencyGroups.Count(group =>
+    static bool HasDependencies(PackageQueryPackage match) =>
+        match.RequiredManifest.DependencyGroups.Any(group =>
             !group.Dependencies.IsEmpty);
+
+    static PackageQueryFacetEvidence DescribeDependencies(PackageQueryPackage match) =>
+        DescribeItems(
+            SummarizeItems(
+                match.RequiredManifest.DependencyGroups
+                    .SelectMany(group => group.Dependencies)
+                    .Select(dependency => dependency.Id),
+                StringComparer.OrdinalIgnoreCase),
+            "dependency",
+            "dependencies");
+
+    static PackageQueryFacetEvidence DescribeToolFormat(
+        string? settingsVersion) =>
+        settingsVersion switch
+        {
+            "1" => Describe(
+                "DotnetToolSettings.xml declares the portable .NET tool CLI v1 format."),
+            "2" => Describe(
+                "DotnetToolSettings.xml declares the RID-specific .NET tool CLI v2 format."),
+            _ => Describe(
+                "The package manifest declares a .NET tool, but its settings do not identify CLI v1 or CLI v2."),
+        };
+
+    static PackageQueryEvidenceSummary SummarizeItems(
+        IEnumerable<string> items,
+        StringComparer comparer)
+    {
+        string[] distinct = [.. items.Distinct(comparer).Order(comparer)];
+        return new PackageQueryEvidenceSummary(
+            distinct.Length,
+            [
+                .. distinct.Take(MaximumEvidencePreviewItems)
+                    .Select(item => new InertString(
+                        TextPolicy.Field, item, MaximumEvidencePreviewCharacters)),
+            ]);
+    }
+
+    static PackageQueryFacetEvidence DescribeItems(
+        PackageQueryEvidenceSummary summary,
+        string singular,
+        string plural)
+    {
+        string heading = $"{summary.Count.ToString(CultureInfo.InvariantCulture)} "
+            + Pluralize(summary.Count, singular, plural);
+        if (summary.Preview.IsEmpty)
+            return new PackageQueryFacetEvidence(Evidence(heading + "."), summary);
+
+        InertString preview = InertString.Join(", ", TextPolicy.Prose, [.. summary.Preview]);
+        int remaining = summary.Count - summary.Preview.Length;
+        InertString text = remaining > 0
+            ? InertString.Format(TextPolicy.Prose,
+                $"{heading}: {preview} (+{remaining.ToString(CultureInfo.InvariantCulture)} more).")
+            : InertString.Format(TextPolicy.Prose, $"{heading}: {preview}.");
+        return new PackageQueryFacetEvidence(text, summary);
+    }
+
+    static PackageQueryFacetEvidence Describe(string text) => new(Evidence(text));
+
+    static PackageQueryEvidence CreateFacetEvidence(
+        PackageQueryFacetDefinition definition,
+        PackageQueryPackage package,
+        PackageContentFacts? content)
+    {
+        PackageQueryFacetEvidence description = definition.Evidence(package, content);
+        return new PackageQueryEvidence(definition.Descriptor.Id, description.Text)
+        {
+            Summary = description.Summary,
+        };
+    }
+
+    static void AddFacetEvidence(
+        PackageQueryFacetDefinition definition,
+        PackageQueryPackage package,
+        PackageContentFacts? content,
+        ImmutableArray<PackageQueryEvidence>.Builder evidence)
+    {
+        int insertionIndex = 1;
+        while (insertionIndex < evidence.Count
+            && DefinitionsById.TryGetValue(
+                evidence[insertionIndex].Id,
+                out PackageQueryFacetDefinition? existing)
+            && existing.Descriptor.Weight < definition.Descriptor.Weight)
+        {
+            insertionIndex++;
+        }
+
+        evidence.Insert(
+            insertionIndex,
+            CreateFacetEvidence(definition, package, content));
+    }
 
     static string Pluralize(int count, string singular, string plural) =>
         count == 1 ? singular : plural;
@@ -1089,7 +1253,8 @@ public static class PackageQuery
         int candidates,
         int matches,
         int failures,
-        PackageQueryCompletionKind completion) =>
+        PackageQueryCompletionKind completion,
+        int? sourceCandidates = null) =>
         new(
             new PackageQuerySummary(
                 plan.Prefix,
@@ -1099,7 +1264,10 @@ public static class PackageQuery
                 candidates,
                 matches,
                 failures,
-                completion));
+                completion)
+            {
+                SourceCandidates = sourceCandidates,
+            });
 
     static PackageQueryCompletionKind MapCompletion(
         PackageSearchTruncationReason reason) =>

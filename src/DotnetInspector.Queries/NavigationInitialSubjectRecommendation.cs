@@ -94,11 +94,11 @@ public sealed record NavigationInitialLibraryCandidate
 public sealed record NavigationInitialSubjectBasis
 {
     internal NavigationInitialSubjectBasis(
-        StructuralSubjectIdentity.RootSubject root,
+        StructuralSubjectIdentity.PackageSubject package,
         StructuralSubjectIdentity.AllLibrariesSubject? allLibraries,
         ImmutableArray<NavigationInitialLibraryCandidate> libraries)
     {
-        ArgumentNullException.ThrowIfNull(root);
+        ArgumentNullException.ThrowIfNull(package);
         if (libraries.IsDefault)
         {
             throw new ArgumentException(
@@ -106,10 +106,10 @@ public sealed record NavigationInitialSubjectBasis
                 nameof(libraries));
         }
         if (allLibraries is not null
-            && allLibraries.Coordinate != root.Coordinate)
+            && allLibraries.Package != package)
         {
             throw new ArgumentException(
-                "The aggregate Library candidate must belong to the Root coordinate.",
+                "The aggregate Library candidate must belong to the exact Package.",
                 nameof(allLibraries));
         }
 
@@ -119,10 +119,10 @@ public sealed record NavigationInitialSubjectBasis
         foreach (NavigationInitialLibraryCandidate? library in libraries)
         {
             if (library is null
-                || library.Subject.Coordinate != root.Coordinate)
+                || library.Subject.Package != package)
             {
                 throw new ArgumentException(
-                    "Every Library candidate must belong to the Root coordinate.",
+                    "Every Library candidate must belong to the exact Package.",
                     nameof(libraries));
             }
             if (!identities.Add(library.Subject))
@@ -140,12 +140,12 @@ public sealed record NavigationInitialSubjectBasis
             hasPrimary |= library.IsPrimary;
         }
 
-        Root = root;
+        Package = package;
         AllLibraries = allLibraries;
         Libraries = libraries;
     }
 
-    public StructuralSubjectIdentity.RootSubject Root { get; }
+    public StructuralSubjectIdentity.PackageSubject Package { get; }
     public StructuralSubjectIdentity.AllLibrariesSubject? AllLibraries
     {
         get;
@@ -158,14 +158,14 @@ public sealed record NavigationInitialSubjectBasis
     public bool Equals(NavigationInitialSubjectBasis? other) =>
         ReferenceEquals(this, other)
         || other is not null
-        && Root == other.Root
+        && Package == other.Package
         && AllLibraries == other.AllLibraries
         && Libraries.SequenceEqual(other.Libraries);
 
     public override int GetHashCode()
     {
         var hash = new HashCode();
-        hash.Add(Root);
+        hash.Add(Package);
         hash.Add(AllLibraries);
         foreach (NavigationInitialLibraryCandidate library in Libraries)
             hash.Add(library);
@@ -199,7 +199,7 @@ public sealed record NavigationInitialSubjectOutcome
     static bool Contains(
         NavigationInitialSubjectBasis basis,
         StructuralSubjectIdentity subject) =>
-        subject == basis.Root
+        subject == basis.Package
         || subject == basis.AllLibraries
         || basis.Libraries.Any(
             library =>
@@ -211,43 +211,21 @@ public sealed record NavigationInitialSubjectOutcome
 public static class NavigationInitialSubjectRecommendation
 {
     public static NavigationInitialSubjectOutcome Recommend(
-        StructuralSubjectIdentity.RootSubject root,
+        StructuralSubjectIdentity.PackageSubject package,
         StructuralSubjectIdentity.AllLibrariesSubject? allLibraries,
         ImmutableArray<NavigationInitialLibraryCandidate> libraries)
     {
         var basis = new NavigationInitialSubjectBasis(
-            root,
+            package,
             allLibraries,
             libraries);
         StructuralSubjectIdentity subject =
-            FindType(basis, isPrimary: true, isDefault: true)
-            ?? FindType(basis, isPrimary: false, isDefault: true)
-            ?? FindType(basis, isPrimary: true, isDefault: false)
-            ?? FindType(basis, isPrimary: false, isDefault: false)
-            ?? (StructuralSubjectIdentity?)basis.AllLibraries
-            ?? (StructuralSubjectIdentity?)basis.Libraries.FirstOrDefault(
+            (StructuralSubjectIdentity?)basis.Libraries.FirstOrDefault(
                 library => library.IsPrimary)?.Subject
             ?? (StructuralSubjectIdentity?)basis.Libraries
                 .FirstOrDefault()?.Subject
-            ?? basis.Root;
+            ?? (StructuralSubjectIdentity?)basis.AllLibraries
+            ?? basis.Package;
         return new NavigationInitialSubjectOutcome(basis, subject);
-    }
-
-    static StructuralSubjectIdentity.TypeSubject? FindType(
-        NavigationInitialSubjectBasis basis,
-        bool isPrimary,
-        bool isDefault)
-    {
-        foreach (NavigationInitialLibraryCandidate library in basis.Libraries)
-        {
-            if (library.IsPrimary != isPrimary)
-                continue;
-            foreach (NavigationInitialTypeCandidate type in library.Types)
-            {
-                if (type.Accessibility.IsDefault == isDefault)
-                    return type.Subject;
-            }
-        }
-        return null;
     }
 }

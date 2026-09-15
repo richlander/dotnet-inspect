@@ -84,6 +84,9 @@ public sealed class PackageSourceDeclaration
             Name,
             SourceResolver.ResolveSourceValue(_value, _baseDirectory),
             _credential);
+
+    internal bool MatchesUnclassifiedValue(string value) =>
+        string.Equals(_value, value, StringComparison.Ordinal);
 }
 
 /// <summary>

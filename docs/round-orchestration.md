@@ -79,11 +79,19 @@ or the work appears to need multiple normative owners.
 5. Re-run focused gates for anything the integrated range can affect.
 6. Push and record the candidate head and effective base; the lock begins.
 7. Satisfy the applicable eligibility row below.
-8. Dispatch every required reviewer at the exact candidate head.
+8. Dispatch every required reviewer at the exact candidate head. When every
+   reviewer returns a usable result, the round number is spent.
 9. Reconcile all feedback publicly.
-10. Close only when reconciliation, the applicable local gates, and the status
-    acquisition cadence are satisfied. The lock ends, the round number is
-    spent, and the visible [round report](#the-round-report) is required.
+10. Close only when reconciliation and the status acquisition cadence are
+    satisfied and each applicable gate is green or has taken the post-review
+    author-change transition below. The lock ends, and the visible [round
+    report](#the-round-report) is required.
+
+A round is spent when every required reviewer returns a usable result. A clean
+result can make that exact head review-clean. A finding-producing result spends
+the round just as surely: reconcile it, report the round, and form any fix as
+the next numbered round. A cancelled, empty, policy-blocked, or otherwise
+unusable review does not spend a round and may be retried on the unchanged head.
 
 ### Eligibility table
 
@@ -113,30 +121,43 @@ reviewer to return no findings against an unchanged locked head; use
 
 Recovery transitions, applied without waiting for CI:
 
-- **Conflict:** supersede, integrate, resolve, push immediately, and restart
-  the same round. A conflict after clean review may instead take the
+- **Conflict before a usable review result:** supersede, integrate, resolve,
+  push immediately, and retry the pending round.
+- **Conflict after a usable review result:** reconcile, close and report the
+  spent round, release its lock, expire merge authorization, remove
+  `review-clean`, then integrate, resolve, and push the recovery as the next
+  numbered round. A clean review may instead take the
   [exact-head trivial-interaction waiver](#trivial-interaction-re-review-waiver)
   path when its resolution satisfies every stated condition; don't dispatch
   replacement reviewers while that decision is pending.
 - **Scope violation:** keep the locked head unchanged while the user chooses
   split, abandonment, or an approved broad exception (see
   [Recovering from an over-broad design](design-scope.md#recovering-from-an-over-broad-design)).
-  A resulting head change follows the author-change transition at the same
-  round.
-- **Failure requiring an author change:** supersede, push the fix, satisfy the
-  failed-gate row, and restart the same round.
-- **Cancelled or evidenced transient failure:** keep the lock and retry the
-  unchanged head; repeat only with concrete transient evidence, otherwise treat
-  it as an author change.
+  Before a usable review result, a resulting head change retries the pending
+  round; afterward, it forms the next numbered round.
+- **Pre-review failure requiring an author change:** supersede, push the fix,
+  satisfy the failed-gate row, and retry the pending round.
+- **Review finding requiring an author change:** close and report the
+  finding-producing round; push the fix as the next numbered round.
+- **Post-review gate failure requiring an author change:** record the exact
+  failure, remove `review-clean`, reconcile the review, close and report the
+  spent round as gate-failed, release its lock, and push the repair as the next
+  numbered round. This transition does not make the failed gate green or the
+  PR merge-ready.
+- **Cancelled or evidenced transient review failure:** keep the lock and retry
+  the unchanged head only with concrete transient evidence. An unusable review
+  result does not spend the pending round.
 
-A final-gate `ci-required` failure observed during or after a non-boundary
-Markdown-only round does not interrupt or reopen that round. Finish its review
-path; afterward, retry the unchanged head only with concrete transient evidence,
-otherwise remove `review-clean` and form a candidate at the next round number.
-Never close a round or goal while one of its applicable required checks is red. A
-superseded attempt spends no round and gets no completion report; let its
-reviewers finish or acknowledge cancellation, and carry every returned finding
-forward.
+A transient post-review gate failure keeps the unchanged head locked and retries
+the gate with concrete transient evidence. A non-transient failure requiring an
+author change takes the explicit transition above; it is the only way a round
+closes with an applicable red gate. Never close a goal, claim successful
+validation, or report merge readiness while a required check is red.
+
+A candidate superseded before a usable reviewer result spends no round and gets
+no completion report. Once every required reviewer returns a usable result,
+that round is spent even when findings require a replacement head; carry every
+finding forward.
 
 ### Merge preflight
 
@@ -174,9 +195,9 @@ snapshot runs and how its result changes round state.
 ### Obtain one snapshot
 
 Follow [GitHub status queries](github-status-queries.md) for API selection,
-request ordering, fixed-head checks, and response classification. This document
-does not restate those mechanics. It consumes one classified snapshot and
-applies the round transition below.
+request ordering, live-base conflict probing, fixed-head checks, and response
+classification. This document does not restate those mechanics. It consumes
+one classified snapshot and applies the round transition below.
 
 ### Apply the result
 
@@ -196,7 +217,7 @@ unrelated members such as `review`. In the table, **status members** means
 | PR is closed or draft | Leave the status wait, publish the human action or stopped state, and end. |
 | Base ref changed | Leave the status wait; expire merge authorization and route the unchanged head through candidate formation without inheriting fixed-head evidence. |
 | Head changed | Leave the status wait; disable auto-merge first, handle an already-merged result as terminal, then route the returned head through candidate formation without inheriting fixed-head evidence. |
-| REST `mergeable: false` or GraphQL `mergeable: CONFLICTING` | Leave the status wait; apply conflict recovery before considering CI. |
+| GitHub reports a conflict, or the local live-base test merge conflicts | Leave the status wait; apply conflict recovery before considering CI. |
 | `ci-required` completed without `success` while required for the current round or goal | Leave the status wait; classify the result and apply the applicable recovery transition. |
 | `ci-required` completed without `success` while not required for the current round or goal | Record the final-readiness failure and continue the current review path. |
 | GraphQL `mergeStateStatus: BLOCKED`, `goal=merge` | Leave the status wait, publish `blocked=<pr-number> rec=wait`, and end. |
@@ -233,7 +254,9 @@ Arm at most one schedule at a time. Key it to its own ID plus the expected
 `head`, complete `waiting` set, `goal`, and deadline. A stale run stops itself
 and exits before querying GitHub. A current run stops itself, clears the
 retained ID, obtains one snapshot, and may arm one successor only when the
-deadline still permits it.
+deadline still permits it. Retain `conflict-checked-base` with the wait state;
+each snapshot fetches the live base and locally tests it only when that exact
+tip has not already been checked for the expected head.
 
 For rate limits, never schedule before the query classification's
 retry-not-before time. GitHub documents `Retry-After` as authoritative,
@@ -244,10 +267,12 @@ choose a conservative delay and never schedule beyond the deadline. Do not use
 `gh run watch`, `gh pr checks --watch`, fixed-rate schedules, synchronous
 sleeps, or concurrent status requests.
 
-When the budget expires with status unresolved, clear `schedule`, keep the
-unresolved predicates, publish the report below, set `rec=stop`, and end. This
-is an informational stop: it ends observation only and neither closes nor
-abandons the PR.
+When the budget expires with status unresolved, obtain a final snapshot. Do not
+publish the report below unless its fetched live base equals
+`conflict-checked-base`; classify and surface a fetch or probe failure instead.
+Then clear `schedule`, keep the unresolved predicates, publish the report, set
+`rec=stop`, and end. This is an informational stop: it ends observation only
+and neither closes nor abandons the PR.
 
 ### Status budget report
 
@@ -260,6 +285,7 @@ Status not observed for PR <number> at round <n> after <mm> minutes.
 - Unresolved: <waiting predicates>
 - Last observation: ci-required=<state|not-observed>,
   mergeable=<true|false|null|not-observed> at <datetime>.
+- Local conflict probe: base=<40-character SHA>, checked at <datetime>.
 - Cause: <rate-limit evidence, transient failure, or still running/queued>.
 - Snapshots: <count>, last at <datetime>.
 - This is not a CI result. No failing check was observed. GitHub documents
@@ -281,19 +307,19 @@ snapshot satisfies the prerequisite. The duration context comes from
 ### Reviewer roster
 
 [How many reviewers, and from which models](../AGENTS.md#how-many-reviewers-and-from-which-models)
-states the binding tier table and roster names. Pick the second seat from the
-prior round's clean count:
+states the binding tier table and roster name. Every non-trivial change gets one
+review seat; there is no second seat and no clean-count-based selection. Use
+[Agent model mapping](agent-models.md) to resolve the name to a dispatch ID.
 
-- **No prior round, or 0/2 clean:** prefer GPT-5.6 Sol again for the second
-  seat.
-- **1/2 clean:** keep GPT-5.6 Sol fixed, rule out last round's second seat,
-  then prefer a different family than the author (the author's family only as
-  a fallback) at that model's highest available quality.
-
-Record the choice and its reasoning on the PR. If a roster model is
-unavailable, substitute another model for that seat, report the substitution
-on the PR, and proceed without approval — a substituted seat still counts as
-filled. One round evaluates one settled head with all required reviewers.
+Select GPT-5.6 Sol by default. Use GPT-6 Astra for complex changes; GPT-5.6
+Terra or Luna may fill the seat for relatively simple changes that still
+require review. If the selected model is unavailable, choose another non-Fast
+GPT model sufficient for the change's complexity, report the substitution and
+its reasoning on the PR, and proceed without approval. Non-GPT models, Fast
+models or modes, and extra-high (`xhigh`) reasoning are prohibited when the
+harness advertises GPT models. This prohibition governs dispatch only; observe
+and use otherwise valid work returned by a mistakenly prohibited launch. One
+round evaluates one settled head with its required reviewer.
 
 ### Dispatch
 
@@ -312,11 +338,11 @@ required real-run evidence. The appended material may narrow the review but
 must not weaken or broaden the prompt's trust model and finding-admission rules.
 It also records the user purpose, convention or best-practice baseline,
 intentional divergence, analogous implementation evidence, pathological or
-boundary case and gate, complexity basis, consumer and host plan, rendering
-strategy, current slice and residual work, and the demo with a neighboring
-case. Use `Not applicable — <reason>` only when the reason names the relevant
-change classification and exact-head evidence; cite the owning design's exact
-section when it defines the boundary.
+boundary case and gate, complexity basis, consumer, production-host adoption,
+and retirement plan, rendering strategy, current slice and residual work, and
+the demo with a neighboring case. Use `Not applicable — <reason>` only when
+the reason names the relevant change classification and exact-head evidence;
+cite the owning design's exact section when it defines the boundary.
 Agents that prefer a structured composition aid may instead fill the optional
 [`docs/templates/adversarial-review-prompt.md`](templates/adversarial-review-prompt.md),
 which includes the same fixed prompt followed by candidate placeholders.
@@ -327,23 +353,27 @@ or variable input, the boundary through which it reaches the claim, trusted
 parties and excluded scenarios, the user purpose, baseline and any divergence,
 relevant analogous evidence, pathological case and gate, current slice,
 residual work, demo and neighboring case, the observable consequence, and the
-evidence that would falsify the claim. For an applicable capability, substrate,
-host, or broad rendering change, candidate formation must also supply the
-complexity basis, named consumer, focused issue, overall end-to-end tracker,
-host-enablement plan, any recorded single-consumer or single-host approval and
-its exact scope, and the rendering strategy. Reviewers judge the visible
-design's consistency with those supplied facts; they do not grant approvals or
-invent roadmap decisions. State the facts directly in the self-contained
-prompt; links may support them but do not replace them. For a correctness
-review without an untrusted actor, name the ordinary supported caller and input
-instead. Candidate formation must make every non-applicability explanation
-judgeable from the normative owner, changed surfaces, and exact-head diff. If
-required fields cannot be filled or non-applicability cannot be established,
-return to design or scope clarification before spending a review round.
+evidence that would falsify the claim. For an applicable architecture,
+capability, substrate, host, or broad rendering change, candidate formation
+must also supply the complexity basis, named consumer, focused issue, overall
+end-to-end tracker, enumerated production-host adoption path and total step
+count, any applicable existing-architecture retirement plan, any recorded
+single-consumer or single-host approval and its exact scope, and the rendering
+strategy. Host-neutral components still require the counted path to observable
+host behavior; test infrastructure may name its harness as the production
+host. Reviewers judge the visible design's consistency with those supplied
+facts; they do not grant approvals or invent roadmap decisions. State the facts
+directly in the self-contained prompt; links may support them but do not
+replace them. For a correctness review without an untrusted actor, name the
+ordinary supported caller and input instead. Candidate formation must make
+every non-applicability explanation judgeable from the normative owner,
+changed surfaces, and exact-head diff. If required fields cannot be filled or
+non-applicability cannot be established, return to design or scope
+clarification before spending a review round.
 
-Give every seat the same completed prompt except for its worktree path. State
-candidate facts rather than rewarding findings; the canonical prompt already
-makes reporting CLEAN an explicit successful outcome.
+Give the seat the completed prompt and its worktree path. State candidate
+facts rather than rewarding findings; the canonical prompt already makes
+reporting CLEAN an explicit successful outcome.
 
 Isolate every reviewer in a separate linked review worktree under the primary
 checkout's `.worktrees/` directory or an operating-system temporary directory;
@@ -364,18 +394,10 @@ brief. An exploit-tutorial-style prompt can trip a model's content filter, and
 response with a clean worktree, which is indistinguishable from a broken model
 or a stalled harness.
 
-This has happened here, and it cost most of a day. A seat returned empty
-several times across two heads and was nearly reported to the user as a
-non-functional model in need of repinning. A reviewer from a different family
-then failed with an explicit message naming content filtering as the cause,
-which is the only reason the real explanation surfaced at all. The prompt had
-been written as a catalog of concrete strings to try against a gate that rejects
-markup able to run unreviewed code. Rewording it -- same surfaces, same required
-evidence, same rigor -- produced full reports from both seats on the first
-attempt.
-
-The reviewer was refusing the prompt, not the work. Keep prompts in terms of the
-property:
+This has happened here and cost most of a day, so treat it as a live hazard
+rather than a theoretical one. The reviewer is refusing the prompt, not the
+work, and rewording it costs no surfaces, no required evidence, and no rigor.
+Keep prompts in terms of the property:
 
 - **Say what the property actually is.** If the gate enforces static-analysis
   coverage, say that, and say the concern is unreviewed code rather than
@@ -405,7 +427,7 @@ than one handed a list of strings to retry.
 
 When a reviewer returns empty or near-empty, suspect the prompt before the
 model. Check the worktree for artifacts, then re-dispatch the same work to a
-model from a different family: filters differ, and one may state the reason
+different non-Fast GPT model: filters may differ, and one may state the reason
 where another fails silently. Do not propose repinning a roster seat on
 empty-response evidence alone.
 
@@ -414,6 +436,18 @@ empty-response evidence alone.
 Reconcile the reviews publicly on the PR: attribute findings, state what was
 verified or dismissed, and link resolution commits or explain explicit
 non-actions.
+
+Every review status and reconciliation post names the numbered round, cumulative
+pushed-candidate count, cumulative usable-review count, and cumulative accepted
+finding count. Never report the round number alone when replacement attempts or
+findings make it an incomplete description of progress.
+
+The accepted-finding count records accepted review occurrences, not distinct
+defect identities. Increment it once for each finding accepted as requiring
+design, evidence, or implementation work in a usable review. If a later review
+returns the same unresolved finding and it remains accepted, increment the
+count again because the recurrence is evidence about convergence. Dismissals
+and carry-forward without a new reviewer occurrence do not increment it.
 
 When a replacement candidate is required, say so on the PR and name the base tip
 and merge commit, so the next review reads as a confirmation rather than an
@@ -432,7 +466,7 @@ prompt:
 ```text
 Round <n> is complete for PR <number>.
 - Theme: <one-sentence session theme>.
-- Review models <model-a> and <model-b> were used for adversarial review.
+- Review model <model> was used for adversarial review.
 - Design basis: normative owner <path#section> — <owned claim>; supporting
   <path and role for each model, adjacent contract, constraint, or consumer>.
 - Review feedback is: [converging, diverging, neutral, clean].
@@ -440,16 +474,21 @@ Round <n> is complete for PR <number>.
 - Round end: <datetime>.
 - Round duration: <hours:minutes>
 
+Progress: <pushed candidates> candidates, <usable reviews> usable reviews,
+<accepted findings> accepted findings.
 Reviews: <clean>/<required> clean — <status by reviewer>
 Blocked: <PR or issue numbers not yours to fix; omit when empty>
 Waiting: <comma-separated tool-evaluable predicates; omit when empty>
 Recommendation: [continue, wait, merge, split into focused successors,
 approve next rounds, stop (reason)]
 
-Fix description: <prose description of changes made in response to the round>.
+Resolution: <completed changes or accepted next-round resolution plan>.
 ```
 
-Use `Fix description` to state the concrete review-driven changes.
+Use `Resolution` to state concrete review-driven changes already made. For a
+finding-producing round that must be reported before the next candidate begins,
+state the accepted resolution plan and assign its implementation to that next
+round.
 Classification must match the reviewer outcomes:
 
 - If every required reviewer returned no findings and the locked head remained
@@ -460,7 +499,7 @@ Classification must match the reviewer outcomes:
   `neutral`, even when every finding was dismissed and the head stayed
   unchanged. Explain dismissals in the public reconciliation.
 
-`Reviews` records the dual-clean count that GitHub cannot observe. Every
+`Reviews` records the clean count that GitHub cannot observe. Every
 `Blocked` entry must be an existing PR or issue; file one before citing a new
 shared failure. `Waiting` records one or more comma-separated predicates tooling
 can evaluate, such as `check:<name>`, `checks`, `merge`, or `review`; it is not
@@ -476,9 +515,10 @@ a blocker, and it clears only when every listed predicate clears.
   author or review round is needed, but `ci-required` remains pending or
   missing, use `Waiting: check:ci-required` and `Recommendation: wait`. Use
   `Waiting: check:ci-required,merge` when live mergeability is also unresolved.
-  A completed failure finishes the current round, then follows the final-gate
-  transition above; use `Recommendation: continue` only when the next round is
-  inside the authorized block.
+  A completed author-change failure takes the post-review gate-failure
+  transition, reports the current round as gate-failed, and uses
+  `Recommendation: continue` only when the repair round is inside the
+  authorized block.
   An intermediate or fix-producing round reports `continue` without waiting for
   CI only when the next round remains inside the current authorized block and
   the status cadence permits it. At a six-round boundary, fresh green
@@ -606,10 +646,11 @@ other interaction invalidates both. Any head movement also invalidates both.
 ## Block boundaries and splitting
 
 [Stop after six rounds](../AGENTS.md#stop-after-six-rounds) states the binding
-rules: rounds 1-6 run without approval, approval is required only before
-rounds 7, 13, 19, and so on, and round 12 (and every six-round boundary after
-it) carries a presumption to split remaining work into focused successors.
-This section owns the checkpoint procedure and the split mechanics.
+rules: each usable fixed-head review result consumes one round; rounds 1-6 run
+without approval; approval is required before rounds 7, 13, 19, and so on; and
+round 12 (and every six-round boundary after it) carries a presumption to split
+remaining work into focused successors. This section owns the checkpoint
+procedure and split mechanics.
 
 ### The block-approval checkpoint
 
@@ -619,7 +660,7 @@ Before requesting another block, answer:
    findings retired, and confidence gained. Separate durable progress from
    churn.
 2. **Are reviews converging?** Cite clean counts and repeated versus new finding
-   categories. State why dual-clean is or is not likely in the next block.
+   categories. State why a clean round is or is not likely in the next block.
 3. **Are the foundations sound?** Classify remaining findings as architectural,
    coverage gaps, contract expansion, or harness-only concerns.
 4. **Should implementation pause for a docs-only design PR?** Recommend it when

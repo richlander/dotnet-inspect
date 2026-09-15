@@ -1,4 +1,5 @@
 using System.Reflection.Metadata;
+using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
 
@@ -67,7 +68,8 @@ public static class SignatureBlobGuard
     {
         try
         {
-            return !ExceedsDepth(ref blob, kind, maxDepth);
+            SignatureBlobGuardMeasurements measurements = default;
+            return !ExceedsDepth(ref blob, kind, maxDepth, ref measurements);
         }
         catch (BadImageFormatException)
         {
@@ -95,10 +97,18 @@ public static class SignatureBlobGuard
         BlobReader blob,
         Kind kind,
         int maxDepth = DefaultMaxDepth)
+        => IsSafeAndCompleteToDecode(blob, kind, out _, maxDepth);
+
+    internal static bool IsSafeAndCompleteToDecode(
+        BlobReader blob,
+        Kind kind,
+        out SignatureBlobGuardMeasurements measurements,
+        int maxDepth = DefaultMaxDepth)
     {
+        measurements = default;
         try
         {
-            return !ExceedsDepth(ref blob, kind, maxDepth)
+            return !ExceedsDepth(ref blob, kind, maxDepth, ref measurements)
                 && blob.RemainingBytes == 0;
         }
         catch (BadImageFormatException)
@@ -122,10 +132,24 @@ public static class SignatureBlobGuard
                 kind,
                 maxDepth);
 
+    internal static bool IsSafeAndCompleteToDecode(
+        MetadataReader reader,
+        BlobHandle signature,
+        Kind kind,
+        out SignatureBlobGuardMeasurements measurements,
+        int maxDepth = DefaultMaxDepth)
+    {
+        measurements = default;
+        return !signature.IsNil
+            && IsSafeAndCompleteToDecode(
+                reader.GetBlobReader(signature), kind, out measurements, maxDepth);
+    }
+
     static bool ExceedsDepth(
         ref BlobReader blob,
         Kind kind,
-        int maxDepth)
+        int maxDepth,
+        ref SignatureBlobGuardMeasurements measurements)
     {
         // Work items are read strictly left-to-right; the stack only tracks *what* to read next and
         // at what depth, so recursion lives on the heap and can never overflow the native stack.
@@ -169,7 +193,7 @@ public static class SignatureBlobGuard
                     break;
 
                 case Op.ArrayShape:
-                    if (SkipArrayShape(ref blob, ref remainingTypeNodes))
+                    if (SkipArrayShape(ref blob, ref remainingTypeNodes, ref measurements))
                         return true;
                     break;
             }
@@ -434,10 +458,15 @@ public static class SignatureBlobGuard
     /// <c>SignatureBlobGuardTests.Rejects_aggregate_array_shape_counts_beyond_the_type_node_budget</c>
     /// gate it.
     /// </remarks>
-    static bool SkipArrayShape(ref BlobReader blob, ref int remainingTypeNodes)
+    static bool SkipArrayShape(
+        ref BlobReader blob,
+        ref int remainingTypeNodes,
+        ref SignatureBlobGuardMeasurements measurements)
     {
         blob.ReadCompressedInteger();           // rank
         int numSizes = blob.ReadCompressedInteger();
+        if (numSizes >= 0)
+            measurements.Sizes = measurements.Sizes.Observe(numSizes);
         if (numSizes < 0
             || numSizes > blob.RemainingBytes
             || numSizes > remainingTypeNodes)
@@ -448,6 +477,8 @@ public static class SignatureBlobGuard
         for (int i = 0; i < numSizes; i++)
             blob.ReadCompressedInteger();        // size
         int numLoBounds = blob.ReadCompressedInteger();
+        if (numLoBounds >= 0)
+            measurements.LowerBounds = measurements.LowerBounds.Observe(numLoBounds);
         if (numLoBounds < 0
             || numLoBounds > blob.RemainingBytes
             || numLoBounds > remainingTypeNodes)

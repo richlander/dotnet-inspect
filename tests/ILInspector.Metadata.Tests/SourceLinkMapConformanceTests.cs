@@ -1,7 +1,6 @@
 using System.Buffers;
 using System.Text;
 using System.Text.Json;
-using SLF = SourceLinkFetch;
 
 namespace ILInspector.Metadata.Tests;
 
@@ -12,7 +11,7 @@ namespace ILInspector.Metadata.Tests;
 /// <remarks>
 /// <para>
 /// The repository previously carried two independent matchers —
-/// <see cref="SLF.SourceLinkResolver"/> and <c>SourceDocumentPathResolver</c> — which disagreed
+/// <see cref="SourceLinkDocumentMap"/> and <c>SourceDocumentPathResolver</c> — which disagreed
 /// on six of the nine inputs below. Measured against the rule the Source Link specification
 /// states (<c>dotnet/designs</c>, <c>accepted/2020/diagnostics/source-link.md</c>), neither was
 /// correct, so the disagreement could not be settled by preferring one.
@@ -35,10 +34,10 @@ public class SourceLinkMapConformanceTests
     [Fact]
     public void AuthoredMappingInventory_RetainsDecodedTextForAuditConsumers()
     {
-        SLF.SourceLinkResolver resolver = SLF.SourceLinkResolver.Parse(
+        SourceLinkDocumentMap resolver = SourceLinkDocumentMap.Parse(
             """{"documents":{"*":"https://hostile.example/\u202Ewrong\u202C/\u000B/*"}}""");
 
-        SLF.SourceLinkDocumentMapping mapping = Assert.Single(resolver.DocumentMappings);
+        SourceLinkDocumentMapping mapping = Assert.Single(resolver.DocumentMappings);
         Assert.Equal("*", mapping.Document);
         Assert.Equal("https://hostile.example/\u202Ewrong\u202C/\u000B/*", mapping.Url);
         Assert.DoesNotContain("\\u202E", mapping.Url, StringComparison.Ordinal);
@@ -47,7 +46,7 @@ public class SourceLinkMapConformanceTests
     [Fact]
     public void MappingLimit_StopsBeforeRetainingAnOverBudgetInventory()
     {
-        SLF.SourceLinkResolver resolver = SLF.SourceLinkResolver.Parse(
+        SourceLinkDocumentMap resolver = SourceLinkDocumentMap.Parse(
             """{"documents":{"a.cs":"https://example.test/a.cs","b.cs":"https://example.test/b.cs"}}""",
             maxMappings: 1);
 
@@ -169,7 +168,7 @@ public class SourceLinkMapConformanceTests
     public void TheSpecifiedUrl_IsProducedByTheSourceLinkOwner(
         string because, string map, string documentPath, string? expected)
     {
-        Assert.Equal(expected, SLF.SourceLinkResolver.Parse(map).ResolveUrl(documentPath));
+        Assert.Equal(expected, SourceLinkDocumentMap.Parse(map).ResolveUrl(documentPath));
         Assert.NotEmpty(because);
     }
 
@@ -261,7 +260,7 @@ public class SourceLinkMapConformanceTests
             }
             """;
 
-        Assert.Equal(expected, SLF.SourceLinkResolver.Parse(map).ResolveUrl(documentPath));
+        Assert.Equal(expected, SourceLinkDocumentMap.Parse(map).ResolveUrl(documentPath));
     }
 
     /// <summary>
@@ -278,7 +277,7 @@ public class SourceLinkMapConformanceTests
             {"documents":{"/_/*":"https://dev.azure.com/o/p/_apis/git/repositories/r/items?scopePath=/*&versionDescriptor.version=abc"}}
             """;
 
-        string? resolved = SLF.SourceLinkResolver.Parse(map).ResolveUrl("/_/src/Foo.cs");
+        string? resolved = SourceLinkDocumentMap.Parse(map).ResolveUrl("/_/src/Foo.cs");
 
         Assert.Equal(
             "https://dev.azure.com/o/p/_apis/git/repositories/r/items?scopePath=/src/Foo.cs&versionDescriptor.version=abc",
@@ -293,7 +292,7 @@ public class SourceLinkMapConformanceTests
     [Fact]
     public void ADocumentPathCarryingAWildcard_NeverMatches()
     {
-        var map = SLF.SourceLinkResolver.Parse("""{"documents":{"/_/*":"https://host/A/*"}}""");
+        var map = SourceLinkDocumentMap.Parse("""{"documents":{"/_/*":"https://host/A/*"}}""");
 
         Assert.Null(map.ResolveUrl("/_/*"));
         Assert.Null(map.ResolveUrl("/_/src/*"));
@@ -307,7 +306,7 @@ public class SourceLinkMapConformanceTests
     [Fact]
     public void ARejectedKey_IsReportedAndDoesNotDenyTheRestOfTheMap()
     {
-        var map = SLF.SourceLinkResolver.Parse(
+        var map = SourceLinkDocumentMap.Parse(
             """{"documents":{"/_/*/bad":"https://wrong.test/*","/_/*":"https://right.test/*"}}""");
 
         Assert.Equal(["/_/*/bad"], map.RejectedKeys);
@@ -333,11 +332,31 @@ public class SourceLinkMapConformanceTests
     [InlineData("{}")]
     public void AnEntryWhoseValueIsNotAString_IsRejectedRatherThanMatchingNothing(string value)
     {
-        var map = SLF.SourceLinkResolver.Parse(
+        var map = SourceLinkDocumentMap.Parse(
             """{"documents":{"/_/src/*":""" + value + ""","/_/*":"https://right.test/*"}}""");
 
         Assert.Equal(["/_/src/*"], map.RejectedKeys);
         Assert.Equal("https://right.test/src/Foo.cs", map.ResolveUrl("/_/src/Foo.cs"));
+    }
+
+    [Fact]
+    public void ARejectedConformantKey_IsDocumentSpecificWhenNoValidEntryResolves()
+    {
+        var map = SourceLinkDocumentMap.Parse(
+            """{"documents":{"/_/*":42,"/other/*":"https://right.test/*"}}""");
+
+        Assert.Equal(
+            SourceLinkResolutionStatus.Rejected,
+            map.Resolve("/_/src/Foo.cs", out _));
+        Assert.Equal(
+            SourceLinkResolutionStatus.Unmapped,
+            map.Resolve("/unmapped/Foo.cs", out _));
+
+        SourceDocumentPathResolution resolution =
+            SourceDocumentPathResolver.Create(map).Resolve("/_/src/Foo.cs");
+        Assert.Equal(
+            SourceDocumentResolutionStatus.Rejected,
+            resolution.Status);
     }
 
     /// <summary>
@@ -392,7 +411,7 @@ public class SourceLinkMapConformanceTests
         string url,
         bool accepted)
     {
-        var map = SLF.SourceLinkResolver.Parse(
+        var map = SourceLinkDocumentMap.Parse(
             "{\"documents\":{\"/_/src/*\":\"" + url +
             "\",\"/_/*\":\"https://right.test/*\"}}");
 
@@ -443,14 +462,14 @@ public class SourceLinkMapConformanceTests
         string refused,
         string acceptedTwin)
     {
-        var refusedMap = SLF.SourceLinkResolver.Parse(
+        var refusedMap = SourceLinkDocumentMap.Parse(
             "{\"documents\":{\"/_/src/*\":\"" + refused +
             "\",\"/_/*\":\"https://right.test/*\"}}");
 
         Assert.Equal(["/_/src/*"], refusedMap.RejectedKeys);
         Assert.Equal("https://right.test/src/Foo.cs", refusedMap.ResolveUrl("/_/src/Foo.cs"));
 
-        var twinMap = SLF.SourceLinkResolver.Parse(
+        var twinMap = SourceLinkDocumentMap.Parse(
             "{\"documents\":{\"/_/src/*\":\"" + acceptedTwin +
             "\",\"/_/*\":\"https://right.test/*\"}}");
 
@@ -487,7 +506,7 @@ public class SourceLinkMapConformanceTests
         const string Sha = "0123456789012345678901234567890123456789";
         const string Prefix = "https://raw.githubusercontent.com/o/r/" + Sha + "/";
 
-        var map = SLF.SourceLinkResolver.Parse(
+        var map = SourceLinkDocumentMap.Parse(
             "{\"documents\":{" +
             "\"/_/README.md*\":\"" + Prefix + "README.md*\"," +
             "\"/_/*\":\"" + Prefix + "*\"}}");
@@ -555,7 +574,7 @@ public class SourceLinkMapConformanceTests
         const string Sha = "0123456789012345678901234567890123456789";
         const string Raw = "https://raw.githubusercontent.com/o/r/" + Sha + "/";
 
-        var map = SLF.SourceLinkResolver.Parse(
+        var map = SourceLinkDocumentMap.Parse(
             "{\"documents\":{" +
             "\"/_/src/*\":\"" + Raw + "One.cs?document=*\"," +
             "\"/_/*\":\"" + Raw + "*\"}}");
@@ -568,7 +587,7 @@ public class SourceLinkMapConformanceTests
         Assert.Equal(Raw + "src/Two.cs", map.ResolveUrl("/_/src/Two.cs"));
 
         // The real Azure Repos shape is the same shape, and must keep working.
-        var azure = SLF.SourceLinkResolver.Parse(
+        var azure = SourceLinkDocumentMap.Parse(
             "{\"documents\":{\"/_/*\":\"https://dev.azure.com/c/w/_apis/git/repositories/core/items" +
             "?api-version=1.0&versionType=commit&version=" + Sha + "&path=/*\"}}");
 
@@ -577,10 +596,10 @@ public class SourceLinkMapConformanceTests
         // The matcher refuses only where the host is known not to read the substitution, so the
         // GitHub map above now attributes cleanly rather than being refused: what it resolves to
         // is no longer one file for every document.
-        var provenance = SLF.SourceLinkProvenance.Determine(map, ["/_/src/One.cs", "/_/src/Two.cs"]);
+        var provenance = SourceLinkProvenance.Determine(map, ["/_/src/One.cs", "/_/src/Two.cs"]);
         Assert.True(provenance.IsEstablished, provenance.Reason);
 
-        var azureProvenance = SLF.SourceLinkProvenance.Determine(azure, ["/_/src/One.cs"]);
+        var azureProvenance = SourceLinkProvenance.Determine(azure, ["/_/src/One.cs"]);
         Assert.True(azureProvenance.IsEstablished, azureProvenance.Reason);
     }
 
@@ -754,7 +773,7 @@ public class SourceLinkMapConformanceTests
         true)]
     public void OnlyAnEntryThatCannotSelectContent_IsRefusedResolution(string url, bool resolves)
     {
-        var map = SLF.SourceLinkResolver.Parse(
+        var map = SourceLinkDocumentMap.Parse(
             "{\"documents\":{\"/_/*\":\"" + url + "\"}}");
 
         Assert.Equal(resolves, map.ResolveUrl("/_/src/Program.cs") is not null);
@@ -779,7 +798,7 @@ public class SourceLinkMapConformanceTests
         string mapText =
             "{\"documents\":{\"/_/A.cs*\":\"" + root + specific
             + "\",\"/_/*\":\"" + root + "path=/*\"}}";
-        var map = SLF.SourceLinkResolver.Parse(mapText);
+        var map = SourceLinkDocumentMap.Parse(mapText);
 
         Assert.Empty(map.RejectedKeys);
         Assert.Equal(root + "path=/A.cs", map.ResolveUrl("/_/A.cs"));
@@ -796,7 +815,7 @@ public class SourceLinkMapConformanceTests
     [Fact]
     public void AMapWithMoreThanOneReading_ResolvesNothingAndSaysWhy()
     {
-        var map = SLF.SourceLinkResolver.Parse(
+        var map = SourceLinkDocumentMap.Parse(
             """{"documents":{"/_/*":"https://evil.test/*","/_/*":"https://right.test/*"}}""");
 
         Assert.NotNull(map.ParseError);
@@ -816,8 +835,8 @@ public class SourceLinkMapConformanceTests
     /// watches.
     /// </para>
     /// <para>
-    /// <c>SourceLinkFetch.SourceLinkResolver</c> is the owner and only reader.
-    /// ILInspector.SourceLink asks it for matching, provenance, and path-audit facts.
+    /// <c>ILInspector.SourceLink.SourceLinkDocumentMap</c> is the owner and only reader.
+    /// Other SourceLink components ask it for matching, provenance, and path-audit facts.
     /// The assertion is set equality rather than containment so another reader cannot
     /// reappear unnoticed.
     /// </para>
@@ -834,7 +853,7 @@ public class SourceLinkMapConformanceTests
             .Select(file => Path.GetRelativePath(src, file).Replace('\\', '/'))
             .Order(StringComparer.Ordinal);
 
-        Assert.Equal(["SourceLinkFetch/SourceLinkResolver.cs"], readers);
+        Assert.Equal(["ILInspector.SourceLink/SourceLinkDocumentMap.cs"], readers);
     }
 
     /// <summary>
@@ -863,7 +882,7 @@ public class SourceLinkMapConformanceTests
     public void AMapsMeaning_DoesNotDependOnTheOrderItsKeysAreWritten(
         string because, string map, string documentPath, string? expected)
     {
-        Assert.Equal(expected, SLF.SourceLinkResolver.Parse(ReverseDocumentOrder(map)).ResolveUrl(documentPath));
+        Assert.Equal(expected, SourceLinkDocumentMap.Parse(ReverseDocumentOrder(map)).ResolveUrl(documentPath));
         Assert.NotEmpty(because);
     }
 
@@ -918,7 +937,7 @@ public class SourceLinkMapConformanceTests
         static string Resolve(string keyA, string urlA, string keyB, string urlB)
         {
             // A separator key carries a backslash, which JSON requires escaped.
-            var map = SLF.SourceLinkResolver.Parse(
+            var map = SourceLinkDocumentMap.Parse(
                 "{\"documents\":{\"" + Json(keyA) + "\":\"" + urlA + "\",\"" + Json(keyB) + "\":\"" + urlB + "\"}}");
 
             Assert.Empty(map.RejectedKeys);
@@ -953,7 +972,7 @@ public class SourceLinkMapConformanceTests
 
         foreach (string map in (string[])[exactFirst, prefixFirst])
         {
-            Assert.Equal(exactUrl, SLF.SourceLinkResolver.Parse(map).ResolveUrl("/_/a.cs"));
+            Assert.Equal(exactUrl, SourceLinkDocumentMap.Parse(map).ResolveUrl("/_/a.cs"));
             Assert.Equal(exactUrl, SourceDocumentPath.Resolve("/_/a.cs", map).ResolvedUrl);
         }
     }
@@ -998,7 +1017,7 @@ public class SourceLinkMapConformanceTests
     public void AStructurallyInvalidMap_SaysWhyRatherThanResolvingNothingQuietly(
         string map, bool expectedToFail)
     {
-        var resolver = SLF.SourceLinkResolver.Parse(map);
+        var resolver = SourceLinkDocumentMap.Parse(map);
 
         Assert.Equal(expectedToFail, resolver.ParseError is not null);
         Assert.Null(resolver.ResolveUrl("/_/a.cs"));
@@ -1038,7 +1057,7 @@ public class SourceLinkMapConformanceTests
     }
 
     /// <summary>
-    /// Reconstructs the replaced <c>SourceLinkFetch</c> matcher: document order, ordinal
+    /// Reconstructs the replaced SourceLink matcher: document order, ordinal
     /// comparison, no percent-encoding, and <c>Replace</c> over every wildcard in the template.
     /// </summary>
     private static string? ReplacedFetchMatcher(string map, string documentPath)

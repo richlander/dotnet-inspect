@@ -6,7 +6,7 @@ using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 
 using ILInspector.ControlFlow;
-using ILInspector.Findings;
+using Inspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 
@@ -47,13 +47,18 @@ public enum LibraryBodyAnalysisFeatures
     /// validity depends on the absence of writes in other bodies.
     /// </summary>
     JsonWireContractFlow = 1 << 6,
+    /// <summary>
+    /// Produce typed physical local-throw sites and explicit body coverage;
+    /// implies <see cref="MethodEvidence"/>.
+    /// </summary>
+    LocalThrows = 1 << 7,
     /// <summary>The body-analysis features used by the general index.</summary>
     Default = MethodEvidence
         | Allocations
         | OptimizationOpportunities
         | AsyncSiblingOpportunities,
     /// <summary>All available body-analysis producers.</summary>
-    All = Default | LeakTriage | OwnershipFlow | JsonWireContractFlow,
+    All = Default | LeakTriage | OwnershipFlow | JsonWireContractFlow | LocalThrows,
 }
 
 /// <summary>
@@ -84,6 +89,7 @@ public sealed class LibraryBodyIndex
         FieldStores = analysis.Methods.FieldStores;
         FieldLoads = analysis.Methods.FieldLoads;
         ReturnFlows = analysis.Methods.ReturnFlows;
+        _localThrows = analysis.Methods.LocalThrows;
         _physicalDirectCalls =
         [
             .. DirectCalls.Select(static call =>
@@ -106,7 +112,7 @@ public sealed class LibraryBodyIndex
             (features
                 & LibraryBodyAnalysisFeatures.OptimizationOpportunities) != 0;
         _unsafeLeverageMethods = analysis.Safety.LeverageMethods;
-        MemorySafetyRulesEnabled = analysis.Safety.UpdatedRulesEnabled;
+        MemorySafetyRules = analysis.Safety.Rules;
         UnsafeModes = analysis.Safety.Modes;
         _bodySignals = analysis.Methods.BodySignals;
         _allocationOccurrences = analysis.Allocations.Occurrences;
@@ -187,6 +193,21 @@ public sealed class LibraryBodyIndex
     /// anything else?" fails closed.
     /// </summary>
     public ImmutableArray<MethodReturnFlow> ReturnFlows { get; }
+    readonly ImmutableArray<MethodLocalThrowEvidence> _localThrows;
+
+    /// <summary>
+    /// Physical local-throw evidence, including unresolved sites and unavailable
+    /// bodies. No kickoff or enclosing-source attribution is applied.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// The local-throw producer was not requested.
+    /// </exception>
+    public ImmutableArray<MethodLocalThrowEvidence> LocalThrows
+        => (Features & LibraryBodyAnalysisFeatures.LocalThrows) != 0
+            ? _localThrows
+            : throw new InvalidOperationException(
+                "Local throws were not requested for this body index.");
+
     readonly ImmutableArray<DirectCall> _physicalDirectCalls;
     public ImmutableArray<UnsafeEvidence> UnsafeEvidence { get; }
     public ImmutableArray<AnalysisDiagnostic> Diagnostics { get; }
@@ -851,11 +872,20 @@ public sealed class LibraryBodyIndex
             out operation);
 
     /// <summary>
-    /// Whether the module opted into the updated memory-safety rules via
-    /// <c>MemorySafetyRulesAttribute</c> (Roslyn's <c>UseUpdatedMemorySafetyRules</c>).
-    /// When false, every requires-unsafe member is <see cref="CallerUnsafeMode.Implicit"/>.
+    /// The defining module's normalized memory-safety rules result.
     /// </summary>
-    public bool MemorySafetyRulesEnabled { get; }
+    public MemorySafetyRulesResult MemorySafetyRules { get; }
+
+    /// <summary>
+    /// Whether the normalized module result selects the recognized updated
+    /// rules. False covers every other state; callers that need the distinction
+    /// consume <see cref="MemorySafetyRules"/>.
+    /// </summary>
+    public bool MemorySafetyRulesEnabled =>
+        MemorySafetyRules is MemorySafetyRulesResult.Available
+        {
+            State: MemorySafetyRulesState.Updated,
+        };
 
     /// <summary>Per-<see cref="CallerUnsafeMode"/> method counts across the whole assembly.</summary>
     public UnsafeModeBreakdown UnsafeModes { get; }
@@ -1114,11 +1144,14 @@ public sealed class LibraryBodyIndex
                     InAssemblyTypeIsException:
                         new Dictionary<(string Namespace, string Name), bool>(),
                     NonHeapNewObjOperandTokens: new HashSet<int>(),
-                    DeclaredSources: new Dictionary<int, MethodIdentity>()),
+                    DeclaredSources: new Dictionary<int, MethodIdentity>(),
+                    LocalThrows: []),
                 Safety: new(
                     Evidence: unsafeEvidence,
                     LeverageMethods: [],
-                    UpdatedRulesEnabled: false,
+                    Rules: new MemorySafetyRulesResult.Available(
+                        MemorySafetyRulesState.Legacy,
+                        []),
                     Modes: new UnsafeModeBreakdown(
                         methods.Count(method =>
                             method.CallerUnsafeMode == CallerUnsafeMode.None),
@@ -1127,7 +1160,10 @@ public sealed class LibraryBodyIndex
                                 == CallerUnsafeMode.Implicit),
                         methods.Count(method =>
                             method.CallerUnsafeMode
-                                == CallerUnsafeMode.Explicit)),
+                                == CallerUnsafeMode.Explicit),
+                        methods.Count(method =>
+                            method.CallerUnsafeMode
+                                == CallerUnsafeMode.Unavailable)),
                     Occurrences: unsafetyOccurrences
                         ?? new Dictionary<
                             int,
@@ -1327,17 +1363,7 @@ public sealed class LibraryBodyIndex
         LibraryBodyModuleIdentity moduleIdentity =
             LibraryBodyModuleIdentity.FromImage(reader);
         IAssemblyReferenceResolver? analysisResolver =
-            plan.Includes(
-                LibraryBodyAnalysisFeatures
-                    .OptimizationOpportunities)
-            || plan.Includes(
-                LibraryBodyAnalysisFeatures
-                    .AsyncSiblingOpportunities)
-            || plan.Includes(
-                LibraryBodyAnalysisFeatures
-                    .OwnershipFlow)
-                ? resolver
-                : null;
+            UsesReferenceResolution(plan) ? resolver : null;
         using var builder = new LibraryBodyAnalysisBuilder(
             path,
             reader,
@@ -1403,7 +1429,9 @@ public sealed class LibraryBodyIndex
         || plan.Includes(
             LibraryBodyAnalysisFeatures.AsyncSiblingOpportunities)
         || plan.Includes(
-            LibraryBodyAnalysisFeatures.OwnershipFlow);
+            LibraryBodyAnalysisFeatures.OwnershipFlow)
+        || plan.Includes(
+            LibraryBodyAnalysisFeatures.LocalThrows);
 
     static LibraryBodyRootSnapshot? AcquireRootSnapshot(string path)
     {

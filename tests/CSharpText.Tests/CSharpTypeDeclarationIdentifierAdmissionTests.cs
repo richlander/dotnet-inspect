@@ -14,6 +14,7 @@ public sealed class CSharpTypeDeclarationIdentifierAdmissionTests
         { "Widget", "Widget" },
         { "_", "_" },
         { "class", "@class" },
+        { "closed", "@closed" },
         { "extension", "@extension" },
         { "\u03A9", "\u03A9" },
         { "\u2160", "\u2160" },

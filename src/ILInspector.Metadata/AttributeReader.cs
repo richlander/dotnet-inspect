@@ -62,10 +62,6 @@ public static partial class AttributeReader
         "System.Text.Json.Serialization.JsonObjectCreationHandlingAttribute";
     private const string JsonObjectCreationHandlingTypeName =
         "System.Text.Json.Serialization.JsonObjectCreationHandling";
-    private const string JsonPolymorphicAttributeName =
-        "System.Text.Json.Serialization.JsonPolymorphicAttribute";
-    private const string JsonDerivedTypeAttributeName =
-        "System.Text.Json.Serialization.JsonDerivedTypeAttribute";
     private const string JsonExtensionDataAttributeName =
         "System.Text.Json.Serialization.JsonExtensionDataAttribute";
     private const string JsonKnownNamingPolicyTypeName =
@@ -117,6 +113,31 @@ public static partial class AttributeReader
                 return true;
         }
         return false;
+    }
+
+    internal static (bool IsExtension, bool IsReadOnly) ReadMethodMarkerAttributes(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        bool includeExtension,
+        Action<int>? beforeMaterialize)
+    {
+        // Share name materialization rather than adding a scan for each marker.
+        bool isExtension = false;
+        bool isReadOnly = false;
+        foreach (var handle in attributes)
+        {
+            var attribute = reader.GetCustomAttribute(handle);
+            string? name = GetAttributeTypeName(
+                reader,
+                attribute.Constructor,
+                beforeMaterialize);
+            isExtension |= includeExtension
+                && name == KnownAttributeNames.ExtensionAttribute;
+            isReadOnly |= name == KnownAttributeNames.IsReadOnlyAttribute;
+            if (isReadOnly && (!includeExtension || isExtension))
+                break;
+        }
+        return (isExtension, isReadOnly);
     }
 
     public static bool TryGetExtensionMarkerName(
@@ -432,6 +453,27 @@ public static partial class AttributeReader
         return false;
     }
 
+    internal static bool HasUnionAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize = null)
+    {
+        foreach (var handle in attributes)
+        {
+            var attribute = reader.GetCustomAttribute(handle);
+            if (TryGetTopLevelAttributeType(
+                    reader,
+                    attribute.Constructor,
+                    KnownAttributeNames.UnionAttribute,
+                    beforeMaterialize,
+                    out _))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /// <summary>Checks if the enum has the <c>[Flags]</c> attribute.</summary>
     /// <remarks>
     /// Reports only well-formed authentic rows. Callers that project a wire
@@ -549,16 +591,6 @@ public static partial class AttributeReader
         || HasUnsupportedJsonObjectCreationHandlingAttribute(
             reader,
             attributes,
-            beforeMaterialize)
-        || HasFrameworkAttribute(
-            reader,
-            attributes,
-            JsonPolymorphicAttributeName,
-            beforeMaterialize)
-        || HasFrameworkAttribute(
-            reader,
-            attributes,
-            JsonDerivedTypeAttributeName,
             beforeMaterialize);
 
     public static bool HasUnsupportedJsonMemberWireAttributes(
@@ -2784,9 +2816,9 @@ public static partial class AttributeReader
     public static List<(string Name, string? Value)> GetMethodAttributes(
         PEReader peReader, string fullTypeName, string methodName, int overloadIndex, bool publicOnly = true)
     {
-        if (!peReader.HasMetadata) return [];
+        if (!MetadataFormatAdmission.AdmitImage(peReader)) return [];
 
-        var reader = peReader.GetMetadataReader();
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         return ReadMethodAttributes(reader, FindMethodHandle(reader, fullTypeName, methodName, overloadIndex, publicOnly));
     }
 

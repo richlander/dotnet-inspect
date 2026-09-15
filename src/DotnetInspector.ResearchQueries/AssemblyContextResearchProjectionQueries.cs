@@ -121,15 +121,23 @@ public static class AssemblyContextTypeProjectionQuery
         AssemblyImageSnapshot snapshot,
         AssemblyContextTypeProjectionRequest request)
     {
+        AssemblyContextAnalysisSource.BindingPolicyResolver resolver =
+            AssemblyContextResearchSource.Resolver(group, subject);
         using MetadataSource source =
-            AssemblyContextResearchSource.Open(group, subject, snapshot);
-        return ResearchViews.ProjectType(
+            AssemblyContextResearchSource.Open(
+                group,
+                subject,
+                snapshot,
+                resolver);
+        ResearchViews.TypeProjectionResult result = ResearchViews.ProjectType(
             new ResearchViews.TypeProjectionRequest(
                 source,
                 request.Type,
                 request.PublicOnly,
                 request.Composition,
                 request.RelationshipGraph));
+        resolver.ValidateForPublication();
+        return result;
     }
 }
 
@@ -194,6 +202,8 @@ public static class AssemblyContextMemberProjectionQuery
         AssemblyImageSnapshot snapshot,
         AssemblyContextMemberProjectionRequest request)
     {
+        AssemblyContextAnalysisSource.BindingPolicyResolver resolver =
+            AssemblyContextResearchSource.Resolver(group, subject);
         LibraryBodyIndex? index = null;
         MemberProjectionContextLimitation? limitation = null;
         try
@@ -202,7 +212,7 @@ public static class AssemblyContextMemberProjectionQuery
                 AssemblyContextResearchSource.Name(subject),
                 snapshot.Content,
                 request.AnalysisFeatures,
-                AssemblyContextResearchSource.Resolver(group, subject));
+                resolver);
         }
         catch (Exception ex) when (
             ex is BadImageFormatException
@@ -218,7 +228,11 @@ public static class AssemblyContextMemberProjectionQuery
         try
         {
             using MetadataSource source =
-                AssemblyContextResearchSource.Open(group, subject, snapshot);
+                AssemblyContextResearchSource.Open(
+                    group,
+                    subject,
+                    snapshot,
+                    resolver);
             ResearchViews.MemberProjectionResult projection =
                 ResearchViews.ProjectMember(
                     new ResearchViews.MemberProjectionRequest(
@@ -245,7 +259,12 @@ public static class AssemblyContextMemberProjectionQuery
                     && projection.SelectedMethodToken is { } methodToken
                     ? ProjectInvocationDestinations(index, methodToken, document)
                     : [];
-            return new AssemblyMemberProjection(projection, limitation, destinations);
+            var result = new AssemblyMemberProjection(
+                projection,
+                limitation,
+                destinations);
+            resolver.ValidateForPublication();
+            return result;
         }
         finally
         {
@@ -386,10 +405,11 @@ internal static class AssemblyContextResearchSource
     internal static MetadataSource Open(
         AssemblyContextGroup group,
         AssemblyContextSubject subject,
-        AssemblyImageSnapshot snapshot)
+        AssemblyImageSnapshot snapshot,
+        AssemblyContextAnalysisSource.BindingPolicyResolver resolver)
         => MetadataSource.OpenWithoutSymbols(
             snapshot.RetainAssemblyReference(Participant(group, subject).Assembly),
-            Resolver(group, subject));
+            (IAssemblyReferenceResolver)resolver);
 
     /// <summary>
     /// The name Analysis and the decompiler label this assembly by. It is a label, not a file:
@@ -398,7 +418,7 @@ internal static class AssemblyContextResearchSource
     internal static string Name(AssemblyContextSubject subject)
         => AssemblyContextAnalysisSource.Name(subject);
 
-    internal static IAssemblyReferenceResolver Resolver(
+    internal static AssemblyContextAnalysisSource.BindingPolicyResolver Resolver(
         AssemblyContextGroup group,
         AssemblyContextSubject subject)
         => AssemblyContextAnalysisSource.Resolver(group, subject);

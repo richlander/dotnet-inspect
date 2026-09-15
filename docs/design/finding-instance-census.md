@@ -2,7 +2,7 @@
 
 This document owns producer-issued identity for one sealed Finding census. It
 defines the receipt, per-instance key, canonical entry association, sealing
-operation, and validation outcome supplied by `ILInspector.Findings`.
+operation, and validation outcome supplied by `Inspector.Findings`.
 
 [Finding nomenclature](finding-nomenclature.md) owns observation, census, and
 operation-outcome meanings. [Finding coordinates](finding-coordinates.md) owns
@@ -43,7 +43,7 @@ axis even when current values happen to agree.
 
 ## Contract
 
-`ILInspector.Findings` supplies four host-neutral types:
+`Inspector.Findings` supplies four host-neutral types:
 
 | Type | Contract |
 | --- | --- |
@@ -239,7 +239,7 @@ Two conventions deliberately do not transfer:
 ## Evidence
 
 The Release executable gates in
-`src/ILInspector.ILDiff.Tests/FindingCensusTests.cs` verify:
+`tests/ILInspector.ILDiff.Tests/FindingCensusTests.cs` verify:
 
 - `Seal_PreservesOrderMultiplicityAndExactInstances` proves independent equal
   seals, distinct receipts and keys, exact references, and reordered

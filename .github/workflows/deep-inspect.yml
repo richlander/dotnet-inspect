@@ -14,6 +14,7 @@ on:
           - package-sweep
           - authored-corpus
           - platform-test
+          - inspect-web
           - nightly
           - all
   schedule:
@@ -52,11 +53,10 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-package-sweep-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
@@ -65,7 +65,7 @@ jobs:
             nuget-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Build managed tool
-        run: dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
+        run: dotnet build src/DotnetInspect.Cli -c Release -p:PublishAot=false
 
       - name: Prepare top-package slice
         shell: bash
@@ -76,7 +76,7 @@ jobs:
           # evidence, so it wants what ships today, not the pinned pool the EVIL
           # corpus measures. The pin exists to make the corpus reproducible
           # (#3353); honoring it here would quietly turn discovery into a replay.
-          dotnet run -p:NoWarn=NU1507 -p:NuGetAudit=false \
+          dotnet run \
             eng/prepare-decompiler-package-sweep.cs -- \
             artifacts/package-sweep 1 10 --resolve-latest \
             | tee artifacts/package-sweep/acquisition.txt
@@ -116,11 +116,10 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
@@ -128,6 +127,7 @@ jobs:
             nuget-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Build solution (tool + fixtures)
+        id: build
         run: dotnet build dotnet-inspect.slnx -c Release
 
       - name: Install ilasm/ildasm
@@ -137,13 +137,14 @@ jobs:
         run: eng/restore-iltools.sh --rid linux-x64 >> "$GITHUB_PATH"
 
       - name: Run CLI tests (including slow integration)
-        run: dotnet run --project src/dotnet-inspect.Tests -c Release
+        run: dotnet run --project tests/DotnetInspect.Cli.Tests -c Release
 
       - name: Run decompiler tests (slow gates except the multi-hour corpus sweep)
-        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate no-corpus
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- --gate no-corpus
 
       - name: Run analysis tests (including slow)
-        run: dotnet run --project src/ILInspector.Analysis.Tests -c Release
+        run: dotnet run --project tests/ILInspector.Analysis.Tests -c Release
 
       - name: Restore vendored ILAssembler
         run: bash eng/restore-ilassembler.sh
@@ -189,20 +190,19 @@ jobs:
           - os: ubuntu-26.04
             rid: linux-x64
     runs-on: ${{ matrix.os }}
-    # Windows has measured as high as 57 minutes (#4350). The initial macOS
-    # lane gets the same larger budget until its runtime variance is known.
-    timeout-minutes: 90
+    # Windows has measured as high as 57 minutes (#4350). macOS now needs more
+    # than 90 minutes after suite growth; retain a 30-minute variance margin.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
@@ -235,7 +235,7 @@ jobs:
       # reporting every affected suite makes the scheduled failure actionable.
       - name: Run CLI tests (all)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project src/dotnet-inspect.Tests -c Release
+        run: dotnet run --project tests/DotnetInspect.Cli.Tests -c Release
 
       - name: Run CSharpText tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
@@ -243,31 +243,54 @@ jobs:
 
       - name: Run artifact contract tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project src/DotnetInspector.Artifacts.Tests -c Release
+        run: dotnet run --project tests/Inspector.Artifacts.Tests -c Release
+
+      - name: Run ecosystem registry tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/DotnetInspector.Ecosystems.Tests -c Release
+
+      - name: Run ecosystem consumer tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/DotnetInspector.Ecosystems.Consumer.Tests -c Release
 
       - name: Run decompiler unit tests (fast)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
+        run: dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
 
       - name: Run NuGetFetch tests (offline)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project src/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
+        run: dotnet run --project tests/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
 
       - name: Run metadata tests
+        id: metadata
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project tests/ILInspector.Metadata.Tests -c Release -- -longRunning 60
+        env:
+          DOTNET_INSPECT_D3_REPORT: ${{ github.workspace }}/artifacts/custom-attribute-d3/result.json
+        run: dotnet run --project tests/ILInspector.Metadata.Tests -c Release -- --long-running 60 --xunit-diagnostics on
+
+      - name: Upload custom-attribute D3 evidence
+        if: ${{ !cancelled() && (steps.metadata.outcome == 'success' || steps.metadata.outcome == 'failure') }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: custom-attribute-d3-${{ matrix.rid }}
+          path: artifacts/custom-attribute-d3/result.json
+          if-no-files-found: error
 
       - name: Run services tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project src/DotnetInspector.Services.Tests -c Release
+        run: dotnet run --project tests/DotnetInspector.Services.Tests -c Release
 
       - name: Run query tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project src/DotnetInspector.Queries.Tests -c Release
+        run: dotnet run --project tests/DotnetInspector.Queries.Tests -c Release
+
+      - name: Run presentation tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/DotnetInspector.Presentation.Tests -c Release
 
       - name: Run Research tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project src/ILInspector.Research.Tests -c Release -- -failSkips
+        run: dotnet run --project tests/ILInspector.Research.Tests -c Release -- --fail-skips on
 
       - name: Check ilasm/ildasm/mdv result
         if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.iltools.outcome != 'success' }}
@@ -294,11 +317,10 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
@@ -309,7 +331,7 @@ jobs:
         run: dotnet build dotnet-inspect.slnx -c Release
 
       - name: Run decompiler corpus sweep
-        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate corpus
+        run: dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- --gate corpus
 
   release-certification:
     name: Release certification
@@ -340,9 +362,55 @@ jobs:
           fi
           echo "Release certification passed for $GITHUB_SHA"
 
+  inspect-web:
+    name: Inspect Web comprehensive
+    # Complete mutation and dual-runtime evidence runs daily and on demand.
+    # Ordinary PRs retain fast boundary coverage; direct changes to these
+    # harnesses or their owners select the same comprehensive modes in CI.
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '0 6 * * *') ||
+      inputs.lane == 'inspect-web' ||
+      inputs.lane == 'all'
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: inspect-web/package-lock.json
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.100-rc.1.26425.128'
+
+      - name: Install browser Wasm workload
+        run: dotnet workload install wasm-experimental
+
+      - name: Build browser frontend
+        working-directory: inspect-web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Check complete generated facade contract
+        run: eng/generate-inspect-web-engine-facade.sh --check
+
+      - name: Test complete shared-runtime multi-facade canary
+        run: eng/test-inspect-web-multi-facade-canary.sh
+
+      - name: Test complete managed-operation bridge canary
+        run: eng/test-inspect-web-managed-operation-bridge-canary.sh
+
   census:
     name: Census lane
-    if: inputs.lane == 'census' || inputs.lane == 'all'
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '0 6 * * *') ||
+      inputs.lane == 'census' ||
+      inputs.lane == 'all'
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
@@ -350,11 +418,10 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
@@ -362,25 +429,30 @@ jobs:
             nuget-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Build managed tool
-        run: dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
+        run: dotnet build src/DotnetInspect.Cli -c Release -p:PublishAot=false
 
       - name: Prepare real-world corpus
-        run: bash eng/prepare-decompiler-corpus.sh corpus-assemblies.txt
+        run: |
+          mkdir -p artifacts/deep-inspect
+          bash eng/prepare-decompiler-corpus.sh artifacts/deep-inspect/corpus-assemblies.txt
 
       - name: Run real-world corpus sensor
         shell: bash
         run: |
-          mapfile -t assemblies < corpus-assemblies.txt
+          set -o pipefail
+          mapfile -t assemblies < artifacts/deep-inspect/corpus-assemblies.txt
           mkdir -p artifacts/deep-inspect
           dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
             --emit-corpus-snapshot artifacts/deep-inspect/corpus-snapshot.json \
             --diff-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json \
             --compile-cap 4000 \
             --corpus-fidelity-cap 50 \
-            --max-examples 3
+            --corpus-fidelity-oracle rts-cutover \
+            --max-examples 3 \
+            2>&1 | tee artifacts/deep-inspect/corpus-sensor.txt
 
       - name: Build classic state-machine corpus fixture
-        run: dotnet build src/ILInspector.Decompiler.Fixtures.ClassicStateMachines -c Release
+        run: dotnet build fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicStateMachines -c Release
 
       - name: Run classic state-machine corpus sensor
         shell: bash
@@ -391,13 +463,14 @@ jobs:
             --corpus-profile classic-state-machines \
             --emit-corpus-snapshot artifacts/deep-inspect/classic-state-machines-snapshot.json \
             --diff-corpus-baseline tools/DecompilerHarness/corpus/classic-state-machines-baseline.json \
+            --corpus-fidelity-oracle compile-back \
             --max-examples 10
 
       - name: Run return-address equivalence census
         shell: bash
         run: |
           set -o pipefail
-          mapfile -t assemblies < corpus-assemblies.txt
+          mapfile -t assemblies < artifacts/deep-inspect/corpus-assemblies.txt
           mkdir -p artifacts/deep-inspect
           dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
             --emit-return-address-snapshot artifacts/deep-inspect/return-address-snapshot.json \
@@ -409,7 +482,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          mapfile -t assemblies < corpus-assemblies.txt
+          mapfile -t assemblies < artifacts/deep-inspect/corpus-assemblies.txt
           mkdir -p artifacts/deep-inspect
           dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
             --emit-not-my-type-snapshot artifacts/deep-inspect/not-my-type-snapshot.json \
@@ -433,7 +506,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          mapfile -t assemblies < corpus-assemblies.txt
+          mapfile -t assemblies < artifacts/deep-inspect/corpus-assemblies.txt
           mkdir -p artifacts/deep-inspect
           dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
             --validity-predicate-scan \
@@ -444,7 +517,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          mapfile -t assemblies < corpus-assemblies.txt
+          mapfile -t assemblies < artifacts/deep-inspect/corpus-assemblies.txt
           mkdir -p artifacts/deep-inspect
           dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
             --validity-check \
@@ -474,7 +547,7 @@ jobs:
         run: |
           mkdir -p artifacts/analysis-census
           dotnet run --project tools/AnalysisHarness -c Release -- \
-            --corpus-list corpus-assemblies.txt \
+            --corpus-list artifacts/deep-inspect/corpus-assemblies.txt \
             --emit-corpus-snapshot artifacts/analysis-census/analysis-corpus-snapshot.json \
             --diff-corpus-baseline tools/AnalysisHarness/corpus/analysis-baseline.json
 
@@ -538,7 +611,7 @@ jobs:
           "$DOTNET_ROOT/dotnet" --info
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-nightly-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
@@ -613,7 +686,7 @@ jobs:
         run: dotnet build dotnet-inspect.slnx -c Release --no-restore
 
       - name: Run unsafe decompiler tests with nightly SDK
-        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-restore -- -filter "/*/*/UnsafeEmitterTests/*"
+        run: dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-restore -- -filter "/*/*/UnsafeEmitterTests/*"
 
       - name: Gate net11 opt-in feature corpus
         shell: bash
@@ -631,6 +704,7 @@ jobs:
             --quality-diff-card \
             --compile-cap 25 \
             --corpus-fidelity-cap 25 \
+            --corpus-fidelity-oracle compile-back \
             --max-examples 3 \
             | tee artifacts/opt-in-corpus/quality-diff-card.md
 
@@ -692,11 +766,10 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
+          dotnet-version: '11.0.100-rc.1.26425.128'
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
@@ -741,7 +814,7 @@ jobs:
 
       - name: Upload the run JSON
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: deep-inspect-authored-corpus
           path: |
@@ -761,6 +834,8 @@ jobs:
       - platform-test
       - decompiler-corpus
       - release-certification
+      - inspect-web
+      - census
       - authored-corpus-ratchet
     if: ${{ github.event_name == 'schedule' && failure() }}
     runs-on: ubuntu-26.04
@@ -770,6 +845,7 @@ jobs:
       - name: Open or update the tracking issue
         env:
           GH_TOKEN: ${{ github.token }}
+          ISSUE_LABEL: nightly-failure
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         shell: bash
         run: |
@@ -780,10 +856,23 @@ jobs:
             --json number,title \
             --jq "map(select(.title == \"$title\")) | .[0].number // empty")
           if [ -n "$num" ]; then
+            label_status=0
+            if gh api --method POST \
+              "repos/${{ github.repository }}/issues/$num/labels" \
+              -f "labels[]=$ISSUE_LABEL" >/dev/null; then
+              :
+            else
+              label_status=$?
+            fi
             gh issue comment --repo "${{ github.repository }}" "$num" \
               --body "Another scheduled Deep Inspect run failed: $RUN_URL"
+            if [ "$label_status" -ne 0 ]; then
+              echo "::error::Failed to restore $ISSUE_LABEL on issue #$num"
+              exit "$label_status"
+            fi
           else
             gh issue create --repo "${{ github.repository }}" \
               --title "$title" \
+              --label "$ISSUE_LABEL" \
               --body $'A scheduled Deep Inspect run failed.\n\nRun: '"$RUN_URL"$'\n\nThe failed lane(s) are visible on the run. This issue was opened automatically; it will not auto-close, so close it once the failure is triaged.'
           fi

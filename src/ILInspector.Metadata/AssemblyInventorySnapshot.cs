@@ -37,8 +37,12 @@ public enum CandidateOpenFailureKind
     Unreadable,
     InvalidImage,
     ResourceBudget,
+    UnsupportedMetadataFormat,
 }
 
 public sealed record CandidateOpenFailure(
     CandidateOpenFailureKind Kind,
-    string Detail);
+    string Detail)
+{
+    public MetadataRootMalformedReason? MetadataRootReason { get; init; }
+}

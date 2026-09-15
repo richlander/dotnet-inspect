@@ -1,4 +1,5 @@
 using DotnetInspector.Fixtures;
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
@@ -229,6 +230,108 @@ public class FixtureCatalogTests
             "ILInspector.Decompiler.Fixtures.UnsafeChainB");
     }
 
+    [Fact]
+    public void ForwardedFieldFixtures_PreserveReferenceAndDeploymentSignatures()
+    {
+        AssertBoundary(
+            FixtureCatalog.DecompilerForwardedFieldCaller,
+            FixtureBoundary.CrossAssemblyBoundary);
+        AssertBoundary(
+            FixtureCatalog.DecompilerForwardedFieldTargetReference,
+            FixtureBoundary.VersionPair);
+        AssertBoundary(
+            FixtureCatalog.DecompilerForwardedFieldTargetDeployment,
+            FixtureBoundary.VersionPair);
+        Assert.Equal(
+            new Version(1, 0, 0, 0),
+            AssemblyVersion(
+                FixtureCatalog.DecompilerForwardedFieldTargetReference));
+        Assert.Equal(
+            new Version(2, 0, 0, 0),
+            AssemblyVersion(
+                FixtureCatalog.DecompilerForwardedFieldTargetDeployment));
+
+        AssertAssemblyReferences(
+            FixtureCatalog.DecompilerForwardedFieldCaller,
+            "ILInspector.Decompiler.Fixtures.ForwardedFieldTarget",
+            "DotnetInspector.Services.RouteLearning.Middle");
+        AssertAssemblyReferences(
+            FixtureCatalog.DecompilerForwardedFieldTargetReference,
+            "DotnetInspector.Services.RouteLearning.Middle");
+        AssertAssemblyReferences(
+            FixtureCatalog.DecompilerForwardedFieldTargetDeployment,
+            "DotnetInspector.Services.RouteLearning.Base");
+        Assert.DoesNotContain(
+            "DotnetInspector.Services.RouteLearning.Middle",
+            AssemblyReferences(
+                FixtureCatalog.DecompilerForwardedFieldTargetDeployment));
+
+        Assert.True(HasAttributeNamed(
+            FixtureCatalog.DecompilerForwardedFieldCaller.AssemblyPath(),
+            "MemorySafetyRulesAttribute"));
+        Assert.True(HasAttributeNamed(
+            FixtureCatalog.DecompilerForwardedFieldTargetReference.AssemblyPath(),
+            "MemorySafetyRulesAttribute"));
+        Assert.True(HasAttributeNamed(
+            FixtureCatalog.DecompilerForwardedFieldTargetDeployment.AssemblyPath(),
+            "MemorySafetyRulesAttribute"));
+    }
+
+    [Fact]
+    public void RouteLearningFixtures_PreserveForwardingChain()
+    {
+        AssertBoundary(
+            FixtureCatalog.ServicesRouteLearningBase,
+            FixtureBoundary.CrossAssemblyBoundary);
+        AssertBoundary(
+            FixtureCatalog.ServicesRouteLearningContract,
+            FixtureBoundary.CrossAssemblyBoundary);
+        AssertBoundary(
+            FixtureCatalog.ServicesRouteLearningMiddle,
+            FixtureBoundary.CrossAssemblyBoundary);
+        AssertBoundary(
+            FixtureCatalog.ServicesRouteLearningConsumer,
+            FixtureBoundary.CrossAssemblyBoundary);
+        AssertBoundary(
+            FixtureCatalog.ServicesRouteLearningUnrelated,
+            FixtureBoundary.CrossAssemblyBoundary);
+
+        AssertAssemblyReferences(
+            FixtureCatalog.ServicesRouteLearningConsumer,
+            "DotnetInspector.Services.RouteLearning.Middle");
+        AssertAssemblyReferences(
+            FixtureCatalog.ServicesRouteLearningMiddle,
+            "DotnetInspector.Services.RouteLearning.Base");
+        AssertTypeForwarder(
+            FixtureCatalog.ServicesRouteLearningMiddle.AssemblyPath(),
+            "DotnetInspector.Services.RouteLearning.Middle",
+            "DotnetInspector.Services.RouteLearning.Base");
+        AssertTypeForwarder(
+            FixtureCatalog.ServicesRouteLearningConsumer.AssetPath("middle"),
+            "DotnetInspector.Services.RouteLearning.Middle",
+            "DotnetInspector.Services.RouteLearning.Base");
+        Assert.DoesNotContain(
+            AssemblyReferences(
+                FixtureCatalog.ServicesRouteLearningUnrelated),
+            reference => reference.StartsWith(
+                "DotnetInspector.Services.RouteLearning.",
+                StringComparison.Ordinal));
+        string unrelatedDirectory = Assert.IsType<string>(
+            Path.GetDirectoryName(
+                FixtureCatalog.ServicesRouteLearningUnrelated
+                    .AssemblyPath()));
+        Assert.False(
+            File.Exists(
+                Path.Combine(
+                    unrelatedDirectory,
+                    "DotnetInspector.Services.RouteLearning.Middle.dll")));
+        Assert.False(
+            File.Exists(
+                Path.Combine(
+                    unrelatedDirectory,
+                    "DotnetInspector.Services.RouteLearning.Base.dll")));
+    }
+
     static void AssertFixtureFileName(FixtureDefinition fixture, string expectedFileName)
     {
         string path = fixture.AssemblyPath();
@@ -241,15 +344,58 @@ public class FixtureCatalogTests
 
     static void AssertAssemblyReferences(FixtureDefinition fixture, params string[] expectedReferences)
     {
-        using var stream = File.OpenRead(fixture.AssemblyPath());
-        using var peReader = new PEReader(stream);
-        var reader = peReader.GetMetadataReader();
-        var references = reader.AssemblyReferences
-            .Select(handle => reader.GetString(reader.GetAssemblyReference(handle).Name))
-            .ToHashSet(StringComparer.Ordinal);
+        HashSet<string> references = AssemblyReferences(fixture);
 
         Assert.All(expectedReferences, reference =>
             Assert.Contains(reference, references));
+    }
+
+    static HashSet<string> AssemblyReferences(FixtureDefinition fixture)
+    {
+        using var stream = File.OpenRead(fixture.AssemblyPath());
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        return reader.AssemblyReferences
+            .Select(handle =>
+                reader.GetString(
+                    reader.GetAssemblyReference(handle).Name))
+            .ToHashSet(StringComparer.Ordinal);
+    }
+
+    static Version AssemblyVersion(FixtureDefinition fixture)
+    {
+        using var stream = File.OpenRead(fixture.AssemblyPath());
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        return reader.GetAssemblyDefinition().Version;
+    }
+
+    static void AssertTypeForwarder(
+        string assemblyPath,
+        string fullName,
+        string implementationAssembly)
+    {
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        ExportedType forwarder = Assert.Single(
+            reader.ExportedTypes
+                .Select(reader.GetExportedType),
+            type =>
+                (type.Attributes
+                    & (TypeAttributes)0x00200000) != 0
+                && $"{reader.GetString(type.Namespace)}."
+                    + reader.GetString(type.Name)
+                    == fullName);
+        Assert.Equal(
+            HandleKind.AssemblyReference,
+            forwarder.Implementation.Kind);
+        AssemblyReference implementation =
+            reader.GetAssemblyReference(
+                (AssemblyReferenceHandle)forwarder.Implementation);
+        Assert.Equal(
+            implementationAssembly,
+            reader.GetString(implementation.Name));
     }
 
     static bool HasAttributeNamed(string assemblyPath, string attributeName)

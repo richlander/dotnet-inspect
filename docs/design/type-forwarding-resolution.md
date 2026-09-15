@@ -505,6 +505,11 @@ its Metadata provenance representation does not.
 
 There are four legitimate starts and they stay explicit:
 
+The following sketches show the implemented seed-origin surface. The
+[resolver-lineage continuation contract](#resolver-lineage-continuations)
+adds a selected-occurrence start and origin; an acquisition descriptor alone
+remains a seed, not a way to resume a context-sensitive selection.
+
 ```csharp
 public abstract class AssemblyBindingOrigin
 {
@@ -648,7 +653,8 @@ context's frozen catalog, probe it, then follow any forwarder." An unregistered
 handle is a typed `UnregisteredAssembly` rejection; resolution never mutates a
 frozen catalog. `Reference` means "first ask the binding policy to resolve this
 exact `AssemblyRef` from this binding origin, then probe the result." Forwarder
-hops always use the current candidate as `RequestingAssembly`; a global origin
+hops always use the current candidate as `RequestingAssembly`, retaining its
+selected occurrence's continuation when present; a global origin
 is explicit and a policy may reject it for a source-relative scope. The builder
 registers a reference start's requesting registration as a plan root before
 freeze, then policy receives only that opaque registration. A frozen context
@@ -680,6 +686,82 @@ This avoids an optional `(path, reference?)` or `(assembly?, identity?)` shape.
 Every request states exactly where resolution begins.
 
 ### Single-image declaration
+
+#### Detached declaration inventory
+
+`AssemblyInspectionSession.TypeDeclarations()` returns the complete,
+reader-independent declaration evidence from its already-open image as
+`AssemblyTypeDeclarationInventoryOutcome.Read`, or rejects the whole inventory
+through the existing `Rejected(CandidateOpenFailure)` arm. A valid image with
+no discoverable declarations is a complete empty inventory; an unreadable,
+invalid, or unsupported image is not. The descriptor-based inventory reader
+uses the same declaration scanner and retains its descriptor identity and
+artifact-content validation.
+
+This is a synchronous Metadata facet, not acquisition or a cache. A borrowed
+session uses its lender's image, does not reopen the descriptor or path, and
+does not acquire forwarder targets or module files. The session and its lender
+must remain alive during the read; use after either closes throws
+`ObjectDisposedException`. Returned identities, names, kinds, and visibility
+facts are detached and remain usable after both close. Inventory residency and
+append maintenance belong to [Workspace Live Locator](workspace-live-locator.md),
+not this facet.
+
+Each discoverable entry preserves a `MetadataTypeDefinitionName`, a
+`Definition`, `Forwarder`, or `ModuleExport` kind, and `IsPublicSurface`.
+`Declarations` contains all entries; `GetDeclarations()` selects the public
+discovery view and `GetDeclarations(includeAll: true)` includes nonpublic
+entries without rereading. Neither view includes the special top-level
+empty-namespace `<Module>` definition. The public view means:
+
+- A definition and every enclosing definition have `Public` or `NestedPublic`
+  visibility. Protected nested definitions are not in this public-only view.
+- A valid AssemblyRef-terminated forwarder advertises a declaration, including
+  nested forwarders, regardless of its visibility bits. This is declaration
+  discovery, not a claim about target accessibility or successful binding.
+- A module export retains its separate kind; every row of its enclosing
+  ExportedType chain must have `Public` or `NestedPublic` visibility.
+
+This view is not the API renderer's attribute or compiler-generated-name
+suppression policy. `ModuleExport` is valid Metadata evidence even though the
+[reverse locator](reverse-type-declaration-locator.md) does not support it as a
+candidate; that consumer must report its own coverage gap rather than silently
+discarding the evidence. Repeated exact structured names, whether definitions,
+forwarders, or module exports, reject the whole inventory as `InvalidImage`;
+the inventory does not choose a declaration. Malformed names or export
+implementation chains likewise reject, using the single-image probe's existing
+structured decoder.
+
+Exact selection uses ordinal structured-name equality. Pattern selection can
+use `TypeMatcher.MatchesTypeFilter(MetadataTypeDefinitionName, string)`, which
+owns projection into Metadata's existing pattern grammar; Queries need not
+reconstruct names from display rows. The legacy `Definitions`, `Forwarders`,
+and `MeaningfulPublicTypeCount` projections retain their meanings, including
+the module name in `Definitions` and the classifier's row-local count policy.
+Malformed export targets previously skipped by the descriptor inventory are
+now rejected consistently with the declaration probe.
+
+The motivating asset is `Microsoft.NETCore.App.Ref@10.0.10`: its
+`ref/net10.0/netstandard.dll` forwards `System.Object` and
+`System.Environment+SpecialFolder` with zero visibility bits, while
+`System.Runtime.dll` defines them. Filtering forwarders by definition
+visibility bits would lose these real public discoveries.
+
+Release gates are in `AssemblyTypeDeclarationInventoryTests`:
+`BorrowedInventory_ReusesOwnerAndSurvivesDisposal` and
+`BorrowedInventory_RejectsUseAfterLenderDisposal` cover borrowing;
+`PublicAndAllViews_PreserveNestedVisibilityAndExcludeModuleRow`,
+`NestedForwarders_AreAdvertisedWithoutTargetResolutionOrVisibilityBits`, and
+`ModuleExports_AreExplicitRatherThanDroppedOrRelabeled` cover declaration
+views; `InvalidDeclarations_RejectWholeInventoryOnBothEntryPoints`,
+`NativeImage_IsRejectedRatherThanACompleteEmptyInventory`, and
+`EmptyInventory_IsACompleteEmptyDeclarationSet` distinguish rejection from
+complete emptiness. `StructuredPattern_PreservesNestedGenericBoundaries`
+covers the structured matcher. The Slow gate
+`PinnedReferencePack_BorrowedAndDescriptorInventoriesPreserveDeclarations`
+hash-pins the real package and checks both entry points.
+
+#### Single-name probe
 
 ```csharp
 public readonly record struct TypeDefinitionToken(int Value);
@@ -1162,9 +1244,11 @@ internal interface IAssemblyBindingResolver
 > `AssemblyBindingSelectionSnapshot`, and Metadata validates the returned token
 > before interpreting a cold answer and validates the current token again at
 > the generation commit point. Focused Release tests enforce foreign-snapshot
-> rejection and policy-publication exclusion. Non-reused transforming-policy
-> tokens, delegated-version refresh, supersession retry, and full
-> model-to-implementation correspondence remain unverified.
+> rejection and policy-publication exclusion. Queries facade adoption in
+> #5669 adds distinct transforming-policy tokens, delegated-version refresh,
+> and continuation-preserving descriptor adaptation, with the focused gates
+> listed below. Broader policy adoption, supersession retry, and full
+> model-to-implementation correspondence remain separate work.
 
 `AssemblyBindingSelectionSnapshot` is the policy owner's immutable answer for
 one request. It atomically carries the exact
@@ -1268,12 +1352,14 @@ return the delegate token as the governing token for composite behavior. It
 never relabels a mismatched delegated payload with its own version.
 
 One atomically published composite state contains its token, captured delegate
-versions, and immutable routing inputs. A learned source-relative route is
-staged into a fresh composite state and token; it cannot mutate answers under
-the current token. #5216 may instead provide a complete route map during
-workspace realization. This contract defines the policy-local state
-transition, not construction, publication, termination, or replacement of the
-workspace generation that consumes it.
+versions, and immutable routing inputs. Changing that routing function requires
+a fresh composite state and token; it cannot mutate answers under the current
+token. Selecting another occurrence under that unchanged function is not a
+policy change. The resolver-lineage contract below replaces discovery-time
+route insertion for source-relative groups with an explicit continuation.
+Issue #5216 may instead provide a complete route map during workspace realization.
+This contract defines the policy-local state transition, not construction,
+publication, termination, or replacement of the consuming workspace generation.
 
 `AssemblyReferenceBindingPolicy` has two disjoint modes. A structured-policy
 delegate is fully transparent for every target: the adapter exposes the
@@ -1303,11 +1389,476 @@ and eventual publication. Its companion composite model checks matching success,
 foreign-snapshot propagation, state refresh, route replacement, and retry
 progress.
 
+**Queries facade adoption (#5669).** Two existing facades transform policy
+answers; neither is transparent. `CancellationObservingBindingPolicy` adapts
+selected descriptors to observe cancellation during later reads.
+`AssemblyContextAnalysisSource.BindingPolicyResolver` retains descriptors and
+maps seed requests to its configured participant. Their outer occurrences
+retain the delegate's original occurrence, so continued requests preserve that
+context rather than repeat seed routing. The immutable `RoleBindingPolicy`
+leaf has no delegate and keeps its existing fixed token.
+
+This is one production-adoption step, shared by existing callers: CLI
+`MemberCommand` reaches the source facade through
+`AssemblyContextSourceComparisonQuery` for Source Diff; Browser `SourceExports`
+uses member/type source queries, and `AnalysisExports` uses method analysis
+and optimization queries. The step replaces delegate tokens used as outer
+tokens and descriptor reconstruction that erased the selected continuation.
+It introduces no host presentation change or workspace retry.
+
+`AssemblyContextAnalysisSourceTests` gates stable distinct versions,
+uninterpreted foreign snapshots, descriptor effects, state refresh, delegated
+continuations, retired-origin rejection, Metadata's null-snapshot failure,
+and the retained-analysis publication guard. `AssemblyContextSourceQueryTests`
+gates cancellation and failure observation, foreign-snapshot failure in source
+comparison, and the source query's captured participant-version boundary.
+The affected analysis queries also validate the group's captured version
+before publishing, including a foreign snapshot that lower-level analysis
+may have handled as incomplete evidence. The existing composite model supports
+the version transitions; these Release cases establish the Queries
+correspondence rather than claiming that the model proves the implementation.
+
+**CLI caller adoption (#5667).** `ApiMemberAnalysisInspection` supplies the
+target and caller participants with command-configured resolvers. Its
+`CallerBindingPolicy` is a transparent adapter over
+`SourceRelativeAssemblyGroupBindingPolicy.CreateRoutingOnly`; it no longer
+constructs resolvers or publishes routes for discovered assemblies. The shared
+Services implementation owns version capture, foreign-snapshot propagation, and
+continuation issuance for this path as well as the existing CLI/Browser
+assembly-group consumers.
+
+Routing-only composition deliberately leaves reference-candidate selection
+to its delegates or the surrounding composite. Analysis's existing
+`ScopeFirstBindingPolicy` remains the caller-scope candidate-selection owner.
+Applying the Services group's canonical-candidate precedence inside that
+fallback would change the CLI's selection rules rather than merely adopt
+continuations. A selected configured participant still supplies its configured
+continuation; a transitive non-participant retains its selecting delegate's
+occurrence. Selecting a transitive dependency does not instantiate another
+resolver.
+
+Intrinsic core-library facts remain relative to the requesting occurrence's
+image. Retaining its selecting resolver must not re-root those facts at that
+resolver's original target. The shared intrinsic-binding path enforces this
+for both modes; `Select_RoutingOnlyKeepsTheContinuedCoreLibraryAsItsOwnIntrinsic`
+and `Select_ComposedCoreLibraryKeepsItsDescriptorAndSelectingRoute` gate a
+continued core-library selection rather than a return to its caller's facade,
+including a core library selected from a root-free composition handoff.
+
+Caller-scope reachability follows bound occurrences through forwarders and
+distinguishes visited resolver contexts. It must not reconstruct a seed from a
+physical candidate and mistake that different request for unavailable binding
+evidence. `ApiMemberAnalysisInspectionTests` gates the existing exact-version,
+unrelated-scope, direct-scope narrowing, and caller/callee admission behavior.
+
+This folds the CLI adoption and its Analysis prerequisite (#5668) into one
+coherent production step under #5274. Its concrete
+consumer is CLI `member -S Callers`, through `CallerScopeReachabilityPlan`.
+`CallerBindingContinuationTests.ProjectCallers_RetainTheSelectedProjectContext`
+uses a restored-assets forwarding chain and an unselected same-name DLL beside
+a dependency: that neighboring DLL must not hide the caller selected through
+the project's context. The same command without that neighbor is the adjacent
+ordinary case.
+
+`CallerBindingPolicyTests` gates distinct stable tokens, shared-dependency
+contexts, nested and canonical-participant continuations, invalid origins,
+foreign-snapshot propagation, state refresh, and null-result failure.
+`SourceRelativeAssemblyGroupBindingPolicyTests` also gates retirement when a
+delegate emits a foreign snapshot without changing its advertised version,
+for both group and routing-only composition. The existing composite-version
+and resolver-lineage models supply the bounded correspondence; these Release
+cases establish the implementation gates. This step adds no retry.
+
+**Analysis caller-scope adoption (#5668).** `ScopeFirstBindingPolicy` captures
+its fixed target/root inventory, fallback policy and fallback version in
+immutable state with a distinct outer token. Its target/root precedence is
+unchanged. Selected occurrences carry that outer version and retain the exact
+fallback occurrence for continued requests; a locally selected target or root
+continues through the fallback's configured seed rules. Returning a fallback
+continuation under a different outer snapshot version is invalid, even when
+both policies are individually immutable.
+
+Foreign fallback snapshots are forwarded unchanged before interpreting their
+selection and retire the captured outer state, including when the fallback's
+advertised version has not changed. Ordinary selections keep the token stable;
+fallback drift requires a fresh token and rejects retired continuations.
+`CallerScopeReachabilityPlanTests` gates these transitions and the frozen
+Metadata composition: a caller forwarding to a different target definition
+must remain ruled out with either seed or policy-issued fallback occurrences.
+
+**Research publication-guard adoption (#6345).** The existing
+`DotnetInspector.ResearchQueries` publishers retain the
+`AssemblyContextAnalysisSource.BindingPolicyResolver` that supplies their
+policy-dependent evidence and validate it at the final query publication
+boundary. `DirectMemberComparisonQuery` validates each borrowed endpoint
+before its result leaves that endpoint's group callback.
+`AssemblyContextTypeProjectionQuery` and
+`AssemblyContextMemberProjectionQuery` validate the resolver immediately
+before returning their typed participant result; the member projection uses
+one resolver for both its Analysis index and Metadata source.
+
+This is one host-neutral production-adoption step under #5274. CLI
+`match --body` and Inspect Web method-body comparison consume
+`DirectMemberComparisonQuery`; Inspect Web type and annotated-source endpoints
+consume the Research projection queries. A policy replacement during Research
+work must therefore produce the existing query-level failure rather than
+publish a success derived from the retired group snapshot. The neighboring
+unchanged-policy behavior is preserved.
+
+`DirectMemberComparisonQueryTests` and
+`AssemblyContextResearchProjectionQueryTests` gate version replacement after
+the final ordinary binding selection and immediately before publication. They
+exercise the public production queries, not only the resolver guard. The
+existing selection/version model remains bounded supporting evidence for the
+consumed version transition; this adoption adds no new state transition,
+retry, workspace replacement, result arm, or host rendering path.
+
+#### Acquisition-free group selection
+
+`IAcquisitionFreeAssemblyBindingPolicy` is an explicit binding-owner capability.
+Its selection may inspect the caller's already-retained requesting image and
+return previously acquired descriptors, but may not discover candidates, open
+captured source descriptors, or delegate to an acquisition-capable policy.
+A stable version, a warmed selection cache, or a descriptor list does not
+establish this capability. `AssemblyDependencyResolver` does not implement it:
+selection can discover and acquire descriptors even before Metadata opens a
+returned candidate.
+
+`SourceRelativeAssemblyGroupBindingPolicy.CreateClosedWorld` accepts exact
+retained participants and acquisition-free policies. Construction performs no
+delegated selection. Its binding rules remain the existing Services rules,
+including canonical-participant resolver lineage, explicit delegate identity
+policy, designated/platform arbitration, ambiguity, and typed missing,
+unavailable, and rejected answers. It does not infer a new general binding
+policy from the participant names or paths.
+
+Every selected, ambiguous, or shadow candidate must have an admitted
+acquisition registration. In-group descriptors are replaced by the canonical
+retained descriptor without changing the configured participant's continuation;
+an out-of-group candidate makes the selection
+`Unavailable(CandidateUnavailable)` without opening it. A foreign requesting
+registration is `Rejected(InvalidBindingOrigin)`, and intrinsic lookup reads
+the canonical retained requesting image. Foreign snapshots and retired
+lineages retain their existing rejection/version semantics.
+
+The workspace target-composition consumer requires this capability before
+Metadata resolution; an unsupported participant policy produces the public
+Queries `UnsupportedBindingPolicy` rejection rather than an inferred binding
+answer. Real context realization seals every admitted image under the group's
+retained-image budget before publication, seeds those exact snapshots into the
+group, and supplies the closed-group policy with the corresponding
+snapshot-backed descriptors and `NoResolverAssemblyBindingPolicy` delegates.
+An intrinsic request therefore cannot reopen a package entry, embedded-content
+provider, network source, or filesystem path. Custom policies can opt in only
+when their implementation meets the acquisition-free contract.
+
+This is not a second frozen-context API. Metadata still builds a request
+manifest before freezing, using the acquisition-free policy over retained
+images. Once frozen, `TypeResolutionContext.Resolve` performs neither policy
+selection nor acquisition, as specified below.
+
+`ClosedWorldAssemblyGroupBindingPolicyTests` gates canonical image replacement
+for selected, ambiguous, and shadow candidates, version-policy preservation,
+source-relative lineage, typed non-selections, foreign origins, and
+foreign/retired policy state. The Queries
+`WorkspaceResearchTarget_RejectsAcquiringPolicyBeforeDiscoveryOrOpen` and
+`WorkspaceResearchTarget_RejectsDependencyResolverBeforeItAcquiresOmittedSibling`
+gates exercise both composition paths with selection-side acquisition witnesses.
+`WorkspaceContextLoaderTests.Group_IntrinsicSelectionDoesNotReopenPackageContent`
+gates the production loader path after group publication, and
+`Group_RetentionBudgetFailureCreatesNoGroup` proves eager sealing remains
+bounded and atomic.
+`Group_DisposalRevokesItsSnapshotBackedDescriptors` proves the descriptor's
+image lease ends with quiescent group release even while an asynchronous
+workspace remains alive.
+
+#### Resolver-lineage continuations
+
+> **Status: implemented, with CLI and Browser endpoint evidence.**
+> #5978 carries occurrences through Metadata; #5982 adopts them in the
+> source-relative Services producer and the existing CLI API-surface path.
+> #6049 confirms the Browser's existing query composition through production
+> export methods. #5274 tracks the remaining binding-policy work.
+
+**Claim:** a selected assembly occurrence retains the policy-issued binding
+context required for its subsequent references, without changing the answers
+to other requests under the same policy version.
+
+The production consumer is `AssemblySetSurfaceBuilder`, through
+`AssemblySetResolutionSession`. CLI `DiffCommand` and `TimelineCommand`
+already invoke it through `ApiSurfaceEndpointResolver`. The #5801 fixture
+demonstrates `Consumer -> Middle forwarder -> Base`: a constraint classifies as
+`ReferenceType` through Consumer's resolver and as `Undetermined` when the
+learned association is removed. This establishes the need for resolver lineage,
+not the need for a shared mutable route map. That original fixture is
+Services-level evidence. The Services adoption also exercises the same
+forwarding chain through the real CLI `diff` parser: a complete dependency set
+returns a complete comparison, while an absent Base produces explicit
+inspection failures and a nonzero exit. This single-root command case does
+not claim to reproduce the two-resolver boundary or a Browser call graph.
+
+##### Decision and alternatives
+
+| Representation | Decision and reason |
+| --- | --- |
+| Policy-issued continuation on the selected occurrence | Chosen: retains the source of the next binding decision without publishing a new answer for an existing origin. |
+| Complete immutable participant routes | Retained for sealed workspaces. Open-ended assembly-set inspection cannot assume that all selected forwarding participants were initial roots. |
+| Registration-to-resolver map with fresh tokens | Not the default: every newly discovered route could supersede discovery, requiring a retry/convergence owner that this path does not have. |
+| Add-only map under one token | Rejected: an unrouted origin already receives the fallback answer, so insertion can change an equal request. Sharing one registration also makes first-writer ownership insufficient. |
+| Separate catalog per initial root | Insufficient by itself: selecting a canonical peer root can switch the governing resolver. That context still has to survive the next hop; duplicating catalogs does not define the missing association. |
+
+The two-context boundary is deliberately distinct from the minimal #5801
+fixture: two supported policy delegates can return the same acquisition
+descriptor while prescribing different dependencies. The model explores this
+boundary; `ExtractApiSurface_SharedForwarderRetainsBothResolverContexts`
+enforces it with compiled class and interface implementations of Base.
+Both discovery orders and repeated extraction retain `ReferenceType` versus
+`NeitherReferenceNorValue` under one policy version.
+
+##### Currency and authority
+
+An `AssemblyBindingOccurrence` pairs a selected `ResolvedAssemblyReference`
+with its `AssemblyBindingLineage`. The descriptor continues to own acquisition
+identity; the lineage owns the binding context in which references from that
+occurrence are interpreted. Neither field is inferred from a path, display
+name, MVID, or the order in which a candidate was discovered.
+
+A lineage is opaque outside its issuing policy. It is scoped to the exact
+issuing policy state/version and denotes an immutable continuation of that
+state's routing function. Its equality must preserve the issuer, policy
+version, and every delegated-context distinction that can change a subsequent
+answer. Equal continuation meanings within one state have stable equality;
+traversing another hop does not create a new meaning merely because it is
+another call. This is a bounded routing context, not an accumulated path.
+
+A seed origin explicitly names an initial assembly or the existing global
+arm. It uses the policy's fixed seed/default rules. A continuation origin
+names the selected occurrence. Reconstructing a seed from that occurrence's
+registration is not an equivalent operation. Existing context-free policies
+may return an explicit seed continuation; they do not claim to retain a
+source-relative context.
+
+Only the selection issuer pairs an assembly with its continuation. Metadata
+retains that pair, projects the descriptor through the acquisition catalog,
+and passes the occurrence as the requesting origin for forwarding, intrinsic
+core-library binding, and other context-sensitive resolution dependencies.
+The issuer has the requesting descriptor as well as the opaque lineage when
+its binding rule needs image facts; it need not recover a descriptor from an
+otherwise uninformative registration.
+
+For a source-relative group, selecting a configured canonical participant
+uses that participant's configured resolver context. Selecting a transitive
+non-participant retains the selecting delegate's context. Thus the rule is
+not "always copy the parent's context": existing canonical-root and
+designated/platform selection semantics still determine the selected result.
+A terminal missing, unavailable, rejected, or ambiguous result creates no
+active selected occurrence and installs no route. Shadowed descriptors are
+evidence, not active continuations.
+
+A transparent wrapper preserves the occurrence unchanged. A transforming
+composite issues its own continuation and retains the delegated continuation
+inside it; it does not pass an outer context to a delegate that did not issue
+it. The existing delegated-snapshot version check precedes payload use and
+therefore precedes occurrence issuance. This section does not change
+candidate-domain eligibility or finalization: when composition returns a
+terminal selection, that selection's issuer also supplies its continuation.
+
+##### Association, reuse, and failure
+
+The atomic selection snapshot governs the assembly and continuation together.
+An occurrence from another issuing state cannot be silently rebound under a
+new token or treated as a seed. A stale or foreign continuation is an explicit
+binding-origin rejection, not an identity miss or a reason to use the default
+resolver. Ordinary in-flight version drift keeps the existing
+`PolicyVersionChanged` control and commit rules. A later generation must obtain
+fresh occurrences from its seeds; this design adds no automatic retry.
+
+The Metadata binding-domain projection includes the candidate and the full
+lineage distinction. Type-request keys, intrinsic-binding keys, deferred
+kind-resolution dependencies, frozen manifests, and policy-dependent recipes
+retain the same distinction. The same candidate reached through two lineages
+may share acquisition, inventory, and image-local declaration facts, but not a
+binding answer or context-dependent type-kind result merely because its
+physical definition is the same.
+
+A selected binding outcome, a terminal resolution result, and a retained
+recipe preserve the occurrence needed to start a later context-sensitive
+request. A physical definition key, token, or address remains physical
+correspondence currency; it does not become a resolver-context lookup key.
+The continuation supplies no new acquisition authority and does not extend
+the lifetime of a catalog or an owning workspace.
+
+Across a policy-version change, context-sensitive recipes are re-derived
+from seeds rather than relabeling old lineages. Image-local reuse remains
+available. Selective cross-version equivalence of lineage-bearing recipes
+is not a claim of this slice.
+
+Stable lineage equality makes repeated semantic requests idempotent.
+Occurrences count as relationship/discovery work under the existing bounds,
+even when they share one candidate; the candidate count is not a substitute
+for that work bound. Existing physical-candidate forwarder-cycle detection
+and hop budgets remain unchanged. This effort does not widen support for
+revisiting a candidate through a different context on one forwarding path.
+
+##### CLI match body continuation
+
+Issue #6391 applies this contract to the CLI `match --body` handoff. API selection
+retains the terminal occurrence and its issuing policy with each selected type.
+The body query starts from that occurrence; it does not construct another
+resolver from the terminal assembly path.
+
+The query workspace remains sealed. Before creating it, the CLI walks the
+selected occurrence's assembly references through the retained policy and
+continuations, bounded by Metadata's existing candidate limit. The resulting
+participants are the exact selected descriptors and shadows returned by that
+policy. Directly selected platform participants are included but not
+recursively expanded; the platform resolver remains their closure owner.
+Missing, ambiguous, unavailable, or rejected references add no participant,
+and the query does not synthesize a fallback candidate for them.
+
+The occurrence-rooted participant adapter is a transforming policy. It owns a
+distinct outer version, translates the selected initial occurrence to the
+delegate, retains delegated continuations inside its own lineage, and rejects a
+different seed origin. The sealed group composes one such route for every
+selected occurrence under one routing-only source-relative policy version;
+shadow-only participants have no invented continuation. The existing Research
+publication guard validates the resulting policy version before body evidence
+escapes.
+
+The pathological gate uses a facade-forwarded implementation whose body calls
+a dependency selected by project policy. An unselected same-name dependency
+beside the implementation advertises an incompatible delegate shape. Re-seeding
+from the implementation path produces partial reconstructed C# through the
+decoy or an unavailable dependency; continuing the selected occurrence produces
+the same full-fidelity body with and without that neighbor.
+
+This adoption does not change `match --similar`, broaden navigation or
+reference-tree discovery, define a Browser transport, retire
+`IAssemblyReferenceResolver`, or change candidate-domain finalization. The
+existing resolver-lineage model covers the retained occurrence and
+reconstruction negative control; no new state transition is introduced.
+
+##### Both production hosts and retirement
+
+The counted adoption path in #5274 has **four steps**, including this design.
+The table is a composition plan, not authority over another owner's internals.
+Steps 2 and 3 form one consumer-led delivery milestone: stage the Metadata
+prerequisite immediately below its Services/CLI adopter, keeping at most one
+unmerged substrate PR ahead of that production consumer. A merged prerequisite
+alone is not host adoption; this sequencing follows #5865.
+
+| Step | Owning slice and completion |
+| --- | --- |
+| 1 | Binding owner: currency and companion model locked in #5912 under #5666. Product behavior was unchanged. |
+| 2 | Metadata (#5953, landed #5978): implemented selected occurrences across requests, results, deferred dependencies, and policy-dependent caches. Existing seed-only producers remain behavior-compatible; context-aware gates demonstrate distinct answers for a shared registration. |
+| 3 | Services (#5666, landed #5982): implemented `SourceRelativeAssemblyGroupBindingPolicy` continuation issuance, retiring learned-route insertion and registration-only intrinsic caching. The #5801 result and real CLI `diff` endpoint are exercised; `timeline` uses the same endpoint construction. |
+| 4 | Queries/Browser (#6049): endpoint gates confirm the existing composition through `AssemblyContextTypeResolutionQuery` and `MemberCallGraphSession`, exercised by `PlatformCallGraphExports`. Terminal member navigation and graph expansion retain sealed participant provisioning and one attempt per authorized demand. |
+
+The CLI production path is reached at step 3; the Browser path at step 4.
+Browser is an actual caller of both named query services. It is not evidence
+for discovery-time route learning: the workspace-owned complete-plan and
+one-attempt contract remains unchanged. No Browser filesystem resolver or
+host-specific continuation algorithm is introduced.
+
+Step 3 retired the Services learned-route representation. The existing Queries
+composition also consumes that implementation; step 4 confirms its Browser
+endpoint behavior rather than introducing another runtime cutover. Other transforming
+policies remain the separately scoped work in #5667, #5668, and #5669.
+Retirement requires the affected existing consumers to have safely cut over;
+the presence of the new currency alone does not justify deletion. If that
+requires a separate retirement step, update the count in #5274 explicitly.
+Delegated-version refresh is still required when a delegate actually changes;
+it is not made unnecessary by replacing route learning.
+
+##### Evidence and limits
+
+The [resolver-lineage model](models/resolver-lineage/README.md) checks the
+selected-occurrence association, lineage-sensitive cache reuse, canonical-root
+context selection, and stable-token progress. It imports the binding owner's
+version lifecycle and checks that genuine policy change can supersede the
+attempt without an automatic retry. Negative controls erase the occurrence
+context, omit it from cache identity, always inherit a parent context, or
+advance the token merely for selecting a continuation.
+
+The model abstracts two resolver contexts, one shared selected candidate, and
+two terminal dependencies; it is not a PE decoder, a workspace realization
+model, or proof of product adoption. Exact TLC outcomes are enforced by
+`eng/tla-expected-exit-codes.txt`. Metadata's `TypeResolutionContextTests`
+enforce occurrence separation, forwarding and deferred-dependency propagation,
+intrinsic answers, same-version recipe reuse, stale-origin rejection, and
+contextual discovery bounds in Release. Services'
+`SourceRelativeAssemblyGroupBindingPolicyTests` enforce canonical-root and
+nested-delegate continuation, stable seed behavior, separate intrinsic answers,
+delegate-version refresh, and the compiled two-context case.
+`AssemblySetResolutionSessionTests` retain the original forwarded-constraint
+oracle; CLI `CommandLine_ForwardedConstraint_ReportsDependencyCompleteness`
+exercises the real command and its missing-dependency neighbor.
+CLI `ExecuteAsync_ForwardedBodies_RetainSelectedProjectContext` exercises the
+Issue #6391's facade, selected dependency, and same-name neighbor through production
+`match --body`; `AssemblyContextParticipantTests` enforce seed translation,
+continuation translation, distinct outer versions, and foreign-seed rejection.
+Existing `MemberCallGraphSessionTests` provide query-level regression coverage,
+not Browser endpoint adoption. Browser's Release `BrowserEngineBoundaryTests`
+provide that endpoint evidence:
+
+- `PlatformCallGraph_ResolvesDefinitionsBehindFacadesWithoutHostProbing`
+  follows a returned `System.IO.TextWriter.WriteLine` target from a
+  `System.Console` graph to its terminal browsable surface. It expands the
+  member from both the canonical assembly and the `System.Runtime` facade
+  using the product-issued type identity and selector, while preserving the
+  earlier retained scope.
+- `MemberFacts_DistinguishesSurfaceAndBodyTokenResolution` and
+  `GraphMemberSurface_UsesSurfaceAssetForImplementationOnlyType` exercise
+  package member navigation and repeated surface/implementation selection.
+- `QueryMemberCallGraph_RejectsCollapsedContextCoordinates` keeps an
+  incomplete workspace request visibly rejected.
+
+These are managed invocations of the production Browser export methods, not
+DOM or live-Wasm execution evidence. The supported endpoint path starts from
+sealed canonical participants: selecting a forwarded terminal definition as
+the next canonical root is not replay of a transitive continuation.
+This confirms the existing composition, not a Browser demonstration of the
+model's two-context nonparticipant case. The host continues projecting physical
+navigation identity; this adoption introduces no lineage wire representation.
+No feature-specific rendering domain is added: the existing API and call-graph
+models and their lowering owners remain.
+
+The comparative baseline is explicit context association, not a new loading
+mechanism. [AssemblyLoadContext][lineage-alc] associates assemblies with loading
+contexts and requires repeatable answers; shared assemblies retain their
+owning context, rather than copying every referring context.
+[MetadataLoadContext][lineage-mlc] keeps binding answers, including failures,
+inside one context and rejects resolver results belonging to another context.
+Those constraints inform association and cache scope. Their loading APIs,
+one-name-per-context rules, and fallback policies are not this tool's binding
+authority; no implementation code or runtime-loading mechanism is imported.
+
+[lineage-alc]: https://learn.microsoft.com/en-us/dotnet/core/dependency-loading/understanding-assemblyloadcontext
+[lineage-mlc]: https://github.com/dotnet/runtime/blob/main/src/libraries/System.Reflection.MetadataLoadContext/src/System/Reflection/MetadataLoadContext.Resolving.cs
+
 #### Complete identity-eligible binding composition
 
-> **Status: design-only and unverified in the product.** The companion TLA+
-> model checks the bounded interaction contract. Product correspondence
-> requires focused Release gates when this contract is implemented.
+> **Status: implemented.** The companion TLA+ model checks the bounded
+> interaction contract. Focused Metadata, Services, and Queries Release gates
+> establish the product correspondence named below.
+
+The motivating real asset is
+[`System.Memory.Data@11.0.0-preview.7.26381.103`][composition-memory-data].
+Its `lib/net10.0/System.Memory.Data.dll` references
+`System.Text.Json, Version=11.0.0.0`, whose package assembly in turn references
+`System.Text.Encodings.Web, Version=11.0.0.0`. The package copies and the
+corresponding `Microsoft.NETCore.App.Ref@11.0.0-preview.7.26381.103` reference
+assemblies have equal ECMA-335 identities but distinct module identities. The
+source package records dotnet/dotnet commit
+[`e2c1e00b3d0f96afb892fb261d5921565b400246`][composition-runtime-commit];
+[`System.Memory.Data.csproj`][composition-memory-data-project] declares the
+`System.Text.Json` dependency, [`BinaryData.cs`][composition-binary-data]
+consumes it, and
+[`System.Text.Json.csproj`][composition-json-project] declares the
+`System.Text.Encodings.Web` dependency. This topology motivates a complete
+identity-eligible domain that preserves both the designated package copy and
+the inactive platform copy, plus a continuation that can resolve the real
+second-hop reference without replacing the selecting route.
 
 `AssemblyBindingCandidateDomain` is the binding identity owner's immutable
 handoff for one exact `AssemblyBindingRequest`. It contains every and only
@@ -1405,6 +1956,32 @@ delegated snapshot's pre-consumption match; the existing selection/version
 models check the distinct outer-token association, later replacement, and
 commit point.
 
+When a handoff passes through a routing composite before the adjacent
+arbitration owner finalizes one selected contender, the resulting occurrence
+preserves the delegated request occurrence that reached the domain issuer.
+Finalization must not replace that route with a seed occurrence merely because
+the handoff itself carried descriptors rather than a terminal selection. A
+direct handoff whose selected contender is a configured canonical participant
+instead continues through that participant's configured policy. The adjacent
+source-relative arbitration owner consumes a compatible domain from the
+handoff itself even when none of its members was an initial group root; root
+membership cannot substitute for, or be required in addition to, the identity
+owner's completeness statement. Selecting-route preservation depends on the
+configured route relationship, not the immediate delegate's concrete type, so
+a transparent policy facade cannot erase the handoff continuation. Global
+routing is one explicit continuation origin, not absence of a continuation
+override; finalization preserves that global origin instead of substituting a
+selected descriptor's seed occurrence.
+
+A source-relative group's local name-owner mismatch rule applies after
+`NoNameOwner`, when no candidate evidence exists. It cannot replace a terminal
+`Selected` or `Ambiguous` result, even when the group contains another
+same-named root not represented by that result. Such roots do not authorize
+reconstructing contenders or promoting inactive evidence. An exact terminal
+selection outside the group therefore remains an external resolution and does
+not become correspondence-incomplete solely because the group contains a
+different version of the same simple name.
+
 This contract owns identity-domain completeness, descriptor preservation,
 deterministic evidence order, and the closed finalization boundary. It does not
 define how identity eligibility is computed; designated/platform roles or
@@ -1421,6 +1998,79 @@ checks complete and order-independent issuance, exact final partitioning,
 valid-decision correspondence, non-domain-result preservation,
 noncanonical terminal-partition preservation, empty/foreign-decision
 rejection, foreign snapshot exclusion, and eventual completion.
+
+`AssemblyBindingCandidateDomainTests` gates nonempty exact domain construction,
+owner-issued order, atomic handoff transport, exact ordered final partitions,
+decision preservation, resolver-lineage preservation, malformed-decision
+rejection, terminal-factory closure, and the unfinalized Metadata boundary.
+`TypeResolutionContextTests.SharedCatalog_ReusesAmbiguousInactiveEvidenceWithoutOpeningIt`
+gates inactive ambiguous evidence through interning and frozen reuse.
+`AssemblyDependencyResolverTests` gates the existing designated/platform
+arbitration owner consuming the domain without registration-order precedence
+and retaining lower-precedence platform evidence beneath a designated tie.
+`SourceRelativeAssemblyGroupBindingPolicyTests.Select_DesignatedPrecedenceFinalizesCompositionHandoff`
+gates the adjacent source-relative arbitration owner consuming a compatible
+handoff and finalizing its exact designated contenders before Metadata.
+`Select_RoutingOnlyCompositionPreservesSelectingRoute` gates the delegated
+request occurrence through routing-only handoff forwarding and singleton
+finalization.
+`Select_TerminalSelectionDoesNotPromoteInactiveDesignatedEvidence` gates a
+terminal selected partition through a compatible outer group, including a
+group root already represented by inactive evidence and an additional
+same-named root outside the terminal partition.
+`Select_NestedTerminalAmbiguityPreservesInactiveOrder` gates both active and
+inactive projection order when a compatible outer group names an existing
+terminal contender. These terminal gates require later selection-changing
+arbitration to consume `CompositionRequired`; a composite cannot reconstruct a
+candidate domain from `Selected` or `Ambiguous`.
+`Select_RootFreeCompositionHandoffUsesItsCompleteDomain` gates source-relative
+consumption when no handoff member is an initial group root.
+`Select_DirectCompositionUsesCanonicalParticipantRoute` and
+`Select_RoutingOnlyCompositionPreservesSelectingRoute` jointly gate the
+continuation distinction between a direct canonical-participant handoff and a
+handoff forwarded by a routing-only composite.
+`Select_TransparentRoutingWrapperPreservesSelectingRoute` and
+`AssemblyContextParticipantTests.OccurrenceRootedParticipant_PreservesRoutingCompositionContinuation`
+gate the same selecting-route continuation through transparent and
+occurrence-rooted policy facades.
+`OccurrenceRootedParticipant_PreservesGlobalCompositionContinuation` gates the
+global-origin arm through handoff finalization and occurrence-rooted
+continuation at the policy seam.
+`OccurrenceRootedParticipant_RealPackageTopologyPreservesGlobalCompositionContinuation`
+uses the pinned `System.Memory.Data`, `System.Text.Json`,
+`System.Text.Encodings.Web`, and `Microsoft.NETCore.App.Ref` assemblies above.
+It verifies the emitted two-hop references, identity-equal but physically
+distinct package/platform candidates, exact inactive evidence, and successful
+second-hop selection through the preserved global route.
+
+This is deliberately a real-asset-backed composition gate, not a claim that
+current package realization originates the handoff. Package participants still
+carry package provenance, while the current adjacent precedence owner consumes
+designated and platform roles. Until #5133 and #5216 provide that production
+role projection and domain issuer, the test supplies those roles around the
+real owner-issued identities and bytes. The synthetic companion remains the
+smallest seam-isolation gate; acquisition-to-handoff correspondence remains
+unverified by this slice.
+`MemberCallGraphSessionTests.CrossLibrary_ResolvedVersionSkewIsNotIncomplete`
+and `CrossLibraryCalleeNeighborhood_ResolvedVersionSkewStaysExternal` gate the
+observable query consequence: an exact terminal selection outside the group is
+external rather than an incomplete correspondence with a version-skewed group
+participant.
+`SourceRelativeAssemblyGroupBindingPolicyTests.Select_ForeignCompositionSnapshotEscapesBeforeDomainInterpretation`
+gates
+foreign-snapshot exclusion before a transforming composite can inspect the
+domain. The existing selected-shadow and continuation gates remain the
+neighboring terminal-preservation evidence.
+`ClosedWorldAssemblyGroupBindingPolicyTests`,
+`AssemblyContextAnalysisSourceTests`, and
+`AssemblyContextSourceQueryTests` gate exact domain-descriptor transformation
+through closed-world, retained-image, and cancellation-observing facades.
+
+[composition-memory-data]: https://www.nuget.org/packages/System.Memory.Data/11.0.0-preview.7.26381.103
+[composition-runtime-commit]: https://github.com/dotnet/dotnet/commit/e2c1e00b3d0f96afb892fb261d5921565b400246
+[composition-memory-data-project]: https://github.com/dotnet/dotnet/blob/e2c1e00b3d0f96afb892fb261d5921565b400246/src/runtime/src/libraries/System.Memory.Data/src/System.Memory.Data.csproj#L27-L29
+[composition-binary-data]: https://github.com/dotnet/dotnet/blob/e2c1e00b3d0f96afb892fb261d5921565b400246/src/runtime/src/libraries/System.Memory.Data/src/System/BinaryData.cs#L4-L24
+[composition-json-project]: https://github.com/dotnet/dotnet/blob/e2c1e00b3d0f96afb892fb261d5921565b400246/src/runtime/src/libraries/System.Text.Json/src/System.Text.Json.csproj#L440-L444
 
 #### Binding miss name ownership
 
@@ -1536,7 +2186,9 @@ the requesting origin in the request and cache key; different origins may reuse
 the same selected registration without sharing a cached policy decision.
 
 The internal structurally equatable `AssemblyBindingDomainKey` is a closed
-value with `Global` and `RequestingCandidate(AssemblyCandidateId)` arms. It is
+origin projection. Its implemented arms are `Global` and
+`RequestingCandidate(AssemblyCandidateId)`; the continuation target contract
+adds the lineage distinction to a requesting occurrence. It is
 generation-scoped and is the only origin projection permitted in binding and
 resolution cache keys. `AssemblyBindingCacheKey` is the structural tuple of
 that domain key, closed binding target, and scope; the containing cache supplies
@@ -2152,9 +2804,11 @@ It stores:
 - the exact `AssemblyBindingCacheKey` dependencies and their closed,
   structurally comparable `AssemblyBindingSnapshot` values.
 
-`AssemblyBindingSnapshot` contains only the binding arm, missing disposition,
-selected candidate ids, and typed failure payload; it never compares public
-outcome objects or descriptors. Freeze stores recipes by
+`AssemblyBindingSnapshot` contains the binding arm, missing disposition,
+selected candidate ids, their lineage distinctions when present, and typed
+failure payload; it never compares public outcome objects or descriptors.
+Lineage-bearing recipes follow the seed re-derivation rule above on policy
+replacement. Freeze stores recipes by
 `(AssemblyCatalogGenerationId, TypeResolutionCacheKey)` and materializes the
 public outcome and definition keys for that generation. A later epoch carries
 each dependency forward without a policy call while its owning policy version
@@ -2223,9 +2877,10 @@ catalog, and caches:
 
 `TypeResolutionCacheKey` is an internal projection; it does not use the public
 request object's reference equality. Its start arm contains either the internal
-candidate id plus scope or the closed binding target plus binding-domain key
-plus scope, or the source candidate plus module name, followed by the
-structurally equatable `MetadataTypeDefinitionName`.
+candidate id and any selected-occurrence lineage plus scope or the closed
+binding target plus binding-domain key plus scope, or the source occurrence
+plus module name, followed by the structurally equatable
+`MetadataTypeDefinitionName`.
 
 The cache retains typed failures as well as successes. Re-running a rejected
 probe must not turn it into a success-shaped miss.
@@ -2487,9 +3142,9 @@ scenario and creates no forwarding-resolver requirement.
 | Call-graph correspondence | Resolve every identity-bearing named type without dropping physical evidence when resolution is incomplete. | Hashable join projections, degraded unavailable-binding keys, physical storage identity, and graph lifetime remain Analysis-owned and are mapped by [Type, member, and API representation](type-member-api-representation.md). |
 | Browser platform call graphs | Resolve through already authorized platform candidates. | Supplemental platform admission and rebuilding the bounded workspace graph remain workspace/query decisions; the resolver does not probe the host. |
 | `match` token selection and discovery in #5228 | Retain the terminal physical candidate and module beside every resolved definition or member coordinate. | The CLI owns raw-token provenance, merged-surface projection, pairwise same-image checks, and discovery-population selection. A forwarded member token cannot be scanned or reinterpreted against the facade, and widening discovery cannot silently switch the seed back to the facade image. |
-| Custom-attribute enum width | Reach the exact defining type selected by the serialized reference. | Serialized-name grammar, qualifier constraints, enum-shape validation, and guard/decode width agreement belong to [Custom-attribute value decoding](custom-attribute-value-decoding.md). |
+| Custom-attribute enum width | Reach the exact defining type selected by the serialized reference. | Serialized-name grammar, qualifier constraints, enum-shape validation, and decoder width resolution belong to [Custom-attribute value decoding](custom-attribute-value-decoding.md). |
 | Signature spellability and compile-back | Resolve each named occurrence and preserve terminal definition and failure evidence. | The independent [single-signature decode bound](metadata-signature-decoding.md) and terminal accessibility tracked by #5302 belong outside this design. #5248 owns replacement of the superseded aggregate references with the tools-side local declaration/nameability obligation. Compiler closure and final admission remain tools-owned. This design issues no spellability aggregate or proof protocol. |
-| Research implementation targets in #5189 | Supply the meaning of a forwarding declaration if a later composition explicitly invokes resolution. | The Research attempt is input-local and intentionally records `Unavailable/DeclaringTypeForwarded` instead of leaving its admitted input. A later workspace owner decides whether a forwarded endpoint may be followed to an already admitted or explicitly authorized implementation participant. |
+| Research implementation targets in #5189 | Supply the meaning of a forwarding declaration if a later composition explicitly invokes resolution. | The Research attempt is input-local and intentionally records `Unavailable/DeclaringTypeForwarded` instead of leaving its admitted input. [Workspace Research target composition](research-workspace-target-composition.md) owns selection of an exact already admitted terminal Research attempt. Supplemental admission remains a separate workspace-owned effort. |
 | Integration census | Resolve a peer to its terminal definition while retaining ordered forwarding evidence. | Finite-universe `In`/`Out` classification, completeness, suppression, provenance, and parent handoff remain owned by [Integrations](integrations.md). |
 
 ## Determinism

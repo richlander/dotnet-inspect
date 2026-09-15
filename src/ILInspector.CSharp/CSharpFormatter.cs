@@ -47,6 +47,15 @@ public sealed record CSharpFormatOptions
     public bool TerminateMemberDeclaration { get; init; }
     public bool ForceAsync { get; init; }
     public bool ForceUnsafe { get; init; }
+    /// <summary>
+    /// Opts into model-aware method/field spelling. Null retains the compatibility
+    /// view. Unavailable evidence or unsupported forms throw NotSupportedException;
+    /// use FormatMemberOutcome for one declaration or CSharpTypePrinter for an
+    /// atomic type-level, diagnostic-bearing print outcome.
+    /// </summary>
+    public CSharpMemorySafetyLanguage? MemorySafetyLanguage { get; init; }
+    /// <summary>An affirmative choice to emit an extern declaration, not a body-RVA inference.</summary>
+    public bool IsExtern { get; init; }
     public bool IncludeCustomAttributes { get; init; } = false;
     public bool IncludeSignatureAttributes { get; init; } = true;
     public bool IncludeObsoleteAttribute { get; init; } = true;
@@ -63,6 +72,47 @@ public sealed record CSharpFormattedDeclaration(
     string Text,
     ImmutableSortedSet<string> Usings,
     IReadOnlyList<string> Diagnostics);
+
+public sealed record CSharpMemberDeclarationDiagnostic(
+    string TypeName,
+    string MemberName,
+    string Message);
+
+/// <summary>
+/// The typed result of rendering one selected member declaration.
+/// </summary>
+public abstract record CSharpMemberDeclarationOutcome
+{
+    private CSharpMemberDeclarationOutcome()
+    {
+    }
+
+    public sealed record Rendered : CSharpMemberDeclarationOutcome
+    {
+        internal Rendered(
+            CSharpFormattedDeclaration declaration,
+            bool usesCompatibilitySpelling)
+        {
+            Declaration = declaration;
+            UsesCompatibilitySpelling = usesCompatibilitySpelling;
+        }
+
+        public CSharpFormattedDeclaration Declaration { get; }
+
+        /// <summary>
+        /// True only for an older surface with no typed module memory-safety facts.
+        /// </summary>
+        public bool UsesCompatibilitySpelling { get; }
+    }
+
+    public sealed record NotRendered : CSharpMemberDeclarationOutcome
+    {
+        internal NotRendered(CSharpMemberDeclarationDiagnostic diagnostic)
+            => Diagnostic = diagnostic;
+
+        public CSharpMemberDeclarationDiagnostic Diagnostic { get; }
+    }
+}
 
 /// <summary>
 /// Formats Metadata declaration shapes as C# without selecting or grouping APIs.
@@ -130,10 +180,21 @@ public sealed class CSharpFormatter
             throw new ArgumentOutOfRangeException(nameof(options), options.TypeNamePolicy, "C# type-name policy must be defined.");
         if (!Enum.IsDefined(options.NamespacePolicy))
             throw new ArgumentOutOfRangeException(nameof(options), options.NamespacePolicy, "C# namespace policy must be defined.");
+        if (options.MemorySafetyLanguage is { } language && !Enum.IsDefined(language))
+            throw new ArgumentOutOfRangeException(nameof(options), language, "C# memory-safety language must be defined.");
         var usings = options.Usings?.ToArray()
             ?? throw new ArgumentException("C# formatter usings cannot be null.", nameof(options));
         _declarationOptions = ToDeclarationOptions(options, usings);
     }
+
+    CSharpFormatter(CSharpDeclarationOptions options)
+        => _declarationOptions = options;
+
+    internal CSharpFormatter ForExternDeclaration()
+        => new(_declarationOptions with { IsExtern = true });
+
+    internal bool UsesModelAwareMemorySafety
+        => _declarationOptions.MemorySafetyLanguage is not null;
 
     public string FormatMember(
         ApiType type,
@@ -161,6 +222,11 @@ public sealed class CSharpFormatter
         ArgumentNullException.ThrowIfNull(type);
         ArgumentNullException.ThrowIfNull(member);
         ArgumentException.ThrowIfNullOrWhiteSpace(kind);
+        if (_declarationOptions.MemorySafetyLanguage is not null)
+        {
+            throw new NotSupportedException(
+                $"Member '{type.FullName}.{member.Name}.{kind}': model-aware accessor spelling is not supported.");
+        }
 
         var accessor = member.SignatureModel?.Accessors
             .FirstOrDefault(candidate => candidate.Kind == kind);
@@ -205,6 +271,10 @@ public sealed class CSharpFormatter
         ArgumentNullException.ThrowIfNull(type);
         ArgumentNullException.ThrowIfNull(member);
         ArgumentNullException.ThrowIfNull(body);
+        IReadOnlyList<string>? parameterNames =
+            (body as CSharpBlockBody)?.ParameterNames;
+        if (parameterNames is { Count: 0 })
+            parameterNames = null;
         return CSharpDeclarationWriter.RenderMemberDeclaration(
             type,
             member,
@@ -214,7 +284,8 @@ public sealed class CSharpFormatter
                 ForceUnsafe = _declarationOptions.ForceUnsafe || body.RequiresUnsafeModifier,
                 SuppressFinalizerSpelling = body.SuppressDestructorSyntax
             },
-            methodParameters);
+            methodParameters,
+            parameterNames);
     }
 
     public CSharpFormattedDeclaration FormatMemberUnit(
@@ -229,6 +300,44 @@ public sealed class CSharpFormatter
             member,
             _declarationOptions,
             methodParameters));
+    }
+
+    /// <summary>
+    /// Renders one selected declaration without requiring hosts to translate
+    /// model-aware refusal exceptions into presentation state.
+    /// </summary>
+    public CSharpMemberDeclarationOutcome FormatMemberOutcome(
+        ApiType type,
+        ApiMember member,
+        IReadOnlyList<string>? methodParameters = null)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(member);
+
+        bool usesCompatibilitySpelling =
+            _declarationOptions.MemorySafetyLanguage is not null
+            && type.MemorySafety is null;
+        CSharpDeclarationOptions declarationOptions = usesCompatibilitySpelling
+            ? _declarationOptions with { MemorySafetyLanguage = null }
+            : _declarationOptions;
+        try
+        {
+            return new CSharpMemberDeclarationOutcome.Rendered(
+                ToFormattedDeclaration(CSharpDeclarationWriter.RenderMemberUnit(
+                    type,
+                    member,
+                    declarationOptions,
+                    methodParameters)),
+                usesCompatibilitySpelling);
+        }
+        catch (NotSupportedException exception)
+        {
+            return new CSharpMemberDeclarationOutcome.NotRendered(
+                new CSharpMemberDeclarationDiagnostic(
+                    type.FullName,
+                    member.Name,
+                    exception.Message));
+        }
     }
 
     public string FormatTypeDeclaration(
@@ -784,6 +893,8 @@ public sealed class CSharpFormatter
             TerminateMemberDeclaration = options.TerminateMemberDeclaration,
             ForceAsync = options.ForceAsync,
             ForceUnsafe = options.ForceUnsafe,
+            MemorySafetyLanguage = options.MemorySafetyLanguage,
+            IsExtern = options.IsExtern,
             IncludeCustomAttributes = options.IncludeCustomAttributes,
             IncludeSignatureAttributes = options.IncludeSignatureAttributes,
             IncludeObsoleteAttribute = options.IncludeObsoleteAttribute,

@@ -10,6 +10,11 @@ The owner composes policy and evidence. It does not infer authority from a
 transport URL, producer label, display string, cache hit, or successful
 response.
 
+The higher [PackageHouse Composition](package-house.md) owner consumes these
+results as its source-authority and payload-settlement capability. That facade
+does not transfer or redefine this document's authority, candidate,
+completeness, deadline, failure, or payload-lifetime contracts.
+
 ## Boundary
 
 The package source model consumes these owner-issued inputs:
@@ -20,7 +25,7 @@ The package source model consumes these owner-issued inputs:
 | HTTP endpoint admission and local-source classification inputs | Package configuration and [local package source identity](local-package-source-identity.md) | Classify before any source client or network authority exists. |
 | Local search, version, manifest, payload, and failure outcomes | [Local folder package source](local-folder-package-source.md) | Consume bounded local source evidence without reinterpreting paths, layout, or host failures. |
 | `PackageSourceAssociation`, `IPackageSourceClient`, `PackageSourceOperationResult<T>`, and source-result identity | [Browser package sources](browser-package-sources.md#nugetfetch-typed-source-result-identity) | Invoke protocol-independent operations and recover the exact caller authority from each result. |
-| `NuGetOperationContext` and typed deadline failures | [Browser package sources](browser-package-sources.md#operation-context-handoff) | Share one caller identity and operation ceiling across every selected authority and route. |
+| `NuGetOperationContext` and typed deadline failures | [Browser package sources](browser-package-sources.md#operation-context-handoff) | Own one lower-level context beneath each package-source operation lease so every selected authority and route shares one caller identity and operation ceiling. |
 | Plugin-authentication context and target authorization | [NuGet feed authentication](nuget-authentication.md#source-scoped-plugin-authentication-context) | Bind configurable V3 routes and compatibility requests to the selected configured authority. |
 | Package-store publication and cache lookup | [Cache concurrency and publication](cache-concurrency.md) | Admit only candidate and payload entries authorized by the current package authority. |
 
@@ -49,6 +54,216 @@ package-level acquisition composition remains
 [#5400](https://github.com/richlander/dotnet-inspect/issues/5400);
 package-profile projection remains owned by
 [#4806](https://github.com/richlander/dotnet-inspect/issues/4806).
+
+## Source settlement ownership
+
+The package source model owns package-source settlement. Its
+`PackageSourceSettlementService` issues a
+`PackageSourceSettlementLease` over caller-supplied configured-authority
+client access. The service creates operation contexts at operation issuance.
+The lease is named for that
+resource, not for PackageHouse or another consumer.
+
+The root settlement generation establishes the authority to:
+
+- authorize and settle one caller-pinned package coordinate;
+- discover complete versions under one explicit discovery contract and source
+  authorization;
+- acquire one exact manifest through a candidate issued by the same lease; and
+- acquire one admitted retained payload through a candidate issued by the same
+  lease and caller-supplied authority-scoped package stores, retaining the
+  exact source-result identity beside the configured authority.
+
+`PackageVersionDiscoveryContract.CompleteVersionEnumeration` is the public
+owner-issued contract for consumers that need every listed version, including
+prereleases, before applying domain-specific selection. The public
+`PackageSourceOperationLease.DiscoverVersionsAsync` method accepts package-ID
+source authorization and returns the same authoritative, partial, or failed
+evidence used by PackageHouse. A consumer may filter an authoritative result
+but must use `SelectCandidate` to preserve the exact reporting-authority set
+when it later acquires a selected version. Package-backed Platform target
+discovery in
+[#6561](https://github.com/richlander/dotnet-inspect/issues/6561) is the first
+consumer; family, target-framework, and Platform version projection remain
+outside this owner.
+
+One lease owns one candidate-issuer identity. It accepts only source results
+whose association and client identity match the exact configured authority
+being settled.
+
+### Adoption and remaining compatibility
+
+The operation-ownership implementation tracked by
+[#6619](https://github.com/richlander/dotnet-inspect/issues/6619) separates the
+root lifetime from asynchronous use. A synchronous borrow of the root directly
+issues `PackageSourceOperationLease`. The root and operation lease are the
+only Package Source types carrying `ResourceOwnership` metadata. Active
+asynchronous work holds the required generation, context, and release effect
+without defining a third Package Source resource or retaining a root or
+operation-lease borrow across `await`. The root implements only
+`IAsyncDisposable`.
+
+PackageHouse adopts operation-lease ownership in
+[#6622](https://github.com/richlander/dotnet-inspect/issues/6622). Each House
+execution consumes one request-matched operation lease, owns it across every
+asynchronous suspension, and releases it on every terminal path. Existing
+direct source adapters retain the root only through the scoped compatibility
+path until their owning consumers adopt transferred operation leases. Calls
+without an external context own a fresh operation lease, while existing
+external-context calls use the internal registered-work bridge. Desktop
+composition owns the root and awaits root quiescence before releasing its
+clients.
+
+These compatibility paths do not claim that ordinary class aliases are
+borrows under [Resource Ownership and Borrowing](resource-ownership-and-borrowing.md).
+No borrow crosses `await`.
+
+### Root lease and operation issuance
+
+`PackageSourceSettlementLease` is a declared asynchronous resource. Its caller
+owns the lease and must observe successful settlement before disposing the
+caller-owned source clients that back it. A synchronous borrow of the live root
+issues one `PackageSourceOperationLease` directly. Host composition owns the
+root, issues an operation lease at each supported operation boundary, and
+transfers that lease to PackageHouse, package-backed Platform, or a direct
+Package Source consumer. Adopted long-lived adapters do not retain the root or
+a delegate, wrapper, or authorization that captures its live settlement
+authority.
+
+No separate package-source operation-authorization type is required.
+`IPackageSourceAuthorization` remains the distinct package-ID policy that
+selects eligible configured authorities; it does not issue resource leases.
+
+Invoking root settlement rejects new operation leases and direct root
+settlement. Root-state validation, operation registration, and the transition
+to settling are one atomic issuer-owned decision: an operation is either
+rejected or registered before settlement can observe quiescence. Settlement
+then waits for every registered operation lease to release.
+
+An operation lease issued before retirement remains independently owned and
+may finish, including issuing or using candidates through the retained
+root-generation identity. The root does not dispose caller-owned source
+clients, package stores, retained content, or Workspace participants;
+successful observed root settlement is the signal that its caller may release
+those adjacent resources in their owner-declared order. Faulted or canceled
+root settlement does not establish quiescence.
+
+### Operation lease
+
+`PackageSourceOperationLease` is a declared synchronous resource issued for one
+top-level package operation. Issuance receives the request and operation
+deadlines plus caller cancellation, creates the exact lower-owner
+`NuGetOperationContext`, and transfers the new lease to the requesting caller.
+The operation lease owns that context and the temporary authority needed to use
+the root generation's configured clients and candidate issuer. Its issuance is
+registered with the root settlement; its release removes that registration.
+
+The operation lease:
+
+- preserves one caller cancellation identity and absolute operation ceiling
+  across every selected authority, retry, authentication exchange, manifest
+  read, payload route, and consumer-owned decision step within the same
+  top-level operation;
+- accepts only coordinates, authorizations, candidates, and source results
+  associated with its root settlement generation;
+- permits sequential source steps within the one top-level operation;
+- does not own source clients, stores, retained payload content, or detached
+  results; and
+- is released synchronously only after its current awaited source step has
+  settled.
+
+Public asynchronous Package Source operations use the operation lease rather
+than accepting a root lease, an independently supplied operation context, or
+both. PackageHouse consumes the lease under
+[#6622](https://github.com/richlander/dotnet-inspect/issues/6622); its exact
+acceptance, terminal-path release, and result-handoff obligations belong to
+the [PackageHouse design](package-house.md). Package-backed Platform adoption
+belongs to the
+[Platform design](package-backed-platform-realization.md). A direct Package
+Source consumer may own the lease lexically for one operation.
+
+### Awaited work
+
+Borrowing an operation lease is synchronous. Asynchronous Package Source work
+must instead transfer an active-work ownership obligation into its state
+machine before the first suspension and release that obligation in terminal
+cleanup. The state machine does not capture a borrow of the operation lease.
+
+This contract requires the ownership effect, not a distinct public or private
+child-lease type. The implementation may use an internal registration, token,
+or equivalent state so long as acquisition, parent retention, transfer into
+the asynchronous state machine, release, and exceptional cleanup remain
+metadata-visible to Resource Lifecycle Analysis.
+
+One operation lease has at most one active asynchronous source step. Its owner
+awaits that step before reuse or release. Package Source payload acquisition
+consumes lower-level response streams into caller-owned retained package
+content before the work obligation ends, so no returned package result
+requires the operation lease to remain live.
+
+An attempted operation-lease release while asynchronous work remains active
+fails visibly and leaves the root registration intact. The supported lexical
+and transferred-owner paths await the source step before release; an idempotent
+second `Dispose` does not create another valid release obligation.
+
+### Results and retirement
+
+Root retirement rejects candidate issuance or use through the direct
+compatibility surface and through newly requested operations. An operation
+issued before retirement retains generation-bound candidate authority until it
+releases. The current compatibility surface does not dispose an explicitly
+caller-supplied operation context; the adopted operation surface accepts no
+such context and owns the one it creates. Completed result values retain their
+existing evidence semantics after root or operation retirement; no package
+result or House receipt stores either live lease.
+
+Candidate payload acquisition consults every authorized cache before cold
+acquisition, then tries the same stable local-before-HTTP authority order used
+for candidate manifests. The result preserves the serving configured authority,
+producer identity, retained-content generation, cache/download origin,
+not-found authorities, and attributed failures. The lease does not create or
+select stores: the caller supplies one store per configured authority and
+producer, preserving host choice between filesystem, in-memory Browser/Wasm,
+or another package-owned storage implementation.
+
+The adopted operation lease uses the shared marker defaults for direct
+construction, return transfer, ordinary resource parameters, and synchronous
+`Dispose`. The root lease's required `DisposeAsync`, root-to-operation
+registration, asynchronous state-machine ownership effect, and caller-owned
+client release ordering require the Package Source external ownership model
+until dedicated metadata roles are separately justified. Current C# does not
+prevent aliasing, use after transfer, or unobserved async settlement; focused
+Release gates and generalized Resource Lifecycle Analysis cover the supported
+flow set and report unsupported flow as incomplete.
+
+Repository-wide absence of another issuer or the retired House-named API
+remains unverified by user choice.
+
+`PackageSourceSettlementLeaseSettlesManifestAndRetiresWithoutDisposingClient`,
+`PackageSourceSettlementLeaseRejectsForeignCandidateAndClientAssociation`,
+`PackageSourceSettlementLeaseRetirementRejectsNewButAllowsIssuedOperation`,
+`PackageSourceSettlementLeaseIssuanceCannotRacePastSettlement`,
+`PackageSourceSettlementLeaseSettlementWaitsForIssuedOperations`,
+`PackageSourceSettlementLeaseSettlementLeavesClientsCallerOwnedAfterQuiescence`,
+`PackageSourceOperationLeaseOwnsOneContextAcrossSequentialSteps`,
+`PackageSourceOperationLeaseRejectsForeignGenerationEvidence`,
+`PackageSourceOperationAsyncStateOwnsAuthorityWithoutBorrowEscape`,
+`PackageSourceOperationLeaseRejectsReleaseWhileAsyncWorkIsActive`,
+`PackageSourceOperationLeaseCancellationSettlesWorkBeforeRelease`, and
+`PackageSourceOperationLeaseFailureSettlesWorkBeforeRelease` are the Release
+gates for root settlement, caller-owned resources, operation ownership,
+candidate identity, exact source association, discovery completeness, and
+payload settlement. The PackageHouse and Platform owners add their own
+transfer-and-release gates.
+`PackageSourceSettlementLeaseAcquiresPayloadAndRetiresWithoutDisposingClient`
+additionally gates retained generation, producer, and origin. Existing
+`ConfiguredPayloadAcquisitionTests` remain the Release gates for cache/source
+ordering, failover, not-found evidence, and typed payload failures through the
+shared candidate-payload implementation.
+`CompleteVersionDiscoveryIssuesReporterBoundCandidate` and
+`CompleteVersionDiscoveryPreservesAuthoritativeEmpty` gate the public
+complete-enumeration contract, configured-authority aggregation, candidate
+issuance, and authoritative empty result.
 
 ## Identity roles
 
@@ -80,23 +295,37 @@ An authority can additionally have a durable cache key only when the package
 owner can project a stable key without credential-dependent input while still
 preserving every authority distinction.
 
-An HTTP declaration containing a query, fragment, or redacted credential-like
-path component cannot use a durable key derived from that text. Hashing the
-untreated value would retain a credential guess verifier, while using the
-credential-free producer key would collapse distinct authorities. Such an
-authority remains fully usable through its opaque runtime identity, but
-cross-process candidate and payload cache reuse is unavailable until an
-independent non-secret stable authority ID exists. A source name alone is not
-sufficient because the same name can later designate another endpoint.
+For HTTP declarations, runtime authority equality canonicalizes only the
+scheme, IDN host, effective port, percent-escape hex casing, and one trailing
+path slash. It preserves the raw path, query, and fragment spelling, including
+encoded-unreserved characters, dot segments, repeated slashes, and an empty
+query or fragment marker. This stricter process-local key is neither the
+NuGetFetch producer identity nor the legacy persistent-cache key. It must not
+be rendered, persisted, or hashed into a cache path.
+
+An HTTP declaration containing configured credentials, a query, fragment, or
+redacted credential-like path component cannot use a durable key derived from
+that text. Hashing the untreated value would retain a credential guess
+verifier, while using the credential-free producer key would collapse distinct
+authorities. Such an authority remains fully usable through its opaque runtime
+identity, but cross-process candidate and payload cache reuse is unavailable
+until an independent non-secret stable authority ID exists. A source name
+alone is not sufficient because the same name can later designate another
+endpoint.
 
 Portable browser source IDs and owner-issued canonical local identities may
 provide such an independent stable ID under their own contracts. The package
 owner combines that ID with a versioned authority namespace; it does not hash a
 credential-bearing URL to fill a missing identity.
 
-`ConfiguredAuthority_QueryDistinctSameProducerSourcesRemainDistinct` and
-`ConfiguredAuthority_CredentialPathRotationsDoNotShareAuthorityOrRetainSecret`
-are the required Release gates for these distinctions.
+`ConfiguredAuthority_QueryDistinctSameProducerSourcesRemainDistinct`,
+`ConfiguredAuthority_CredentialPathRotationsRemainDistinctWithoutDiagnosticDisclosure`,
+`ConfiguredAuthority_RawPathDistinctionsRemainSeparate`,
+`PackageVersionListing_EncodedPathCredentialDoesNotCrossToLiteralPath`, and
+`SourceClientComposition_PreservesRawProviderQuerySpelling`, together with the
+authentication owner's
+`CredentialRequestPreservesOriginalSourceSpelling`, are the required Release
+gates for these distinctions.
 
 ## Classification precedes authority and transport
 
@@ -146,6 +375,9 @@ The classification boundary is gated by
 `SourceClassification_FileUriNeverConstructsHttpTransport`,
 `SourceClassification_UnsupportedSchemeCreatesNoAuthorityOrRequest`, and
 `LocalCapabilityAbsence_IsVisibleNonHttpAndIncomplete`.
+`PackageVersionListing_UnusableSourceSetupIsTypedBeforeTransport` additionally
+gates malformed HTTP syntax, hosts rejected by NuGetFetch endpoint projection,
+and an unusable credential-provider scope at the live CLI boundary.
 
 ## Resolving active and eligible authorities
 
@@ -175,6 +407,10 @@ authorize bytes. `PackageSourceMapping_SelectsAliasesBeforeAuthorityCollapse`,
 `ResolveSourcesForPackage_MappingClassifiesOnlySelectedAliases`,
 `PackageSourceMapping_ConflictingAliasPoliciesFailBeforeClientCreation`, and
 `SourceOrder_DoesNotChooseVersionOrSameTierPayload` gate these rules.
+`ResolveSourcesForPackageWithFailures_RetainsValidPeer`,
+`ResolveSourcesForPackageWithFailures_MappedUnsupportedAliasIsNotInactive`,
+and `PackageVersionListing_UnsupportedConfiguredSourceRetainsValidPeer` gate
+per-alias pre-client failure without suppressing valid selected authorities.
 
 ## Associations, routes, and authentication
 
@@ -197,11 +433,13 @@ route while the shared operation context remains live. The authority fails
 only after no applicable route can produce the required evidence.
 
 For configurable V3 routes, the package owner supplies the same association
-and canonical authority decision consumed by the authentication owner. Reusing
-or disposing a route does not independently create or retire authentication
-authority. Replacing or releasing the configured authority retires its
-authentication context under that owner's contract. Gallery remains
-plugin-authentication-free.
+and canonical authority decision consumed by the authentication owner. The
+provider-query URI retains the exact configured spelling selected for that
+authority; parsing it for resource authorization cannot replace its plugin
+lookup identity. Reusing or disposing a route does not independently create or
+retire authentication authority. Replacing or releasing the configured
+authority retires its authentication context under that owner's contract.
+Gallery remains plugin-authentication-free.
 
 Package-layer compatibility requests must execute through the selected
 authority's source-bound request policy. A feed-advertised or redirect target
@@ -287,6 +525,76 @@ version-resolution contract to the union of authority-bearing candidate
 evidence only after the aggregate has sufficient completeness for that
 operation.
 
+The package owner may project those retained observations into one immutable,
+resource-free `PackageAcquisitionCandidate`. A caller-pinned candidate carries
+every usable authority eligible for its exact coordinate. A discovered
+candidate carries only authorities whose adopted observations reported its
+coordinate under the retained discovery contract. Its opaque correspondence
+identity binds the coordinate, candidate kind, discovery contract, issuing
+source context, and authority reference-identity set.
+
+`PackageAcquisitionCandidateIssuer` is the host-neutral construction boundary
+for hosts that already possess explicit `PackageSourceAuthorization` and
+owner-issued `PackageSourceOperationResult<PackageVersionResult>` values. It
+adopts those results, applies package-owned completeness and listing policy,
+and issues the same candidate currency without requiring desktop
+configuration or credential-provider services. Host adapters invoke source
+clients; they do not reproduce candidate aggregation or correspondence.
+
+### Bounded acquisition populations
+
+`PackageAcquisitionPopulation` is the resource-free handoff for one frozen
+ordered set of one to five authority-bearing candidates. It retains the
+requested candidate count, immutable candidates, candidate-correlated typed
+authority failures, and the source completion that formed the set.
+`CandidateLimitReached` establishes the requested bounded population only when
+the bound was actually filled; it does not claim that the wider package prefix
+was exhausted. Provider and client page limits remain distinct incomplete
+completions.
+
+`PackageSourceOperationLease.ResolvePinnedPopulationAsync` resolves one to five
+unique exact coordinates in caller order. Each coordinate retains its own
+package-ID authorization result; a denied coordinate remains a typed failure
+beside any candidates that were issued successfully.
+
+`PackageAcquisitionPopulationResolver.ResolveGalleryPrefixAsync` is the first
+prefix adapter. It accepts one validated `PackagePrefixDeclaration`, a bound
+from one to five, and exactly one credential-free NuGet Gallery authority.
+Prefix search establishes package-ID order and source completion. The adapter
+then performs complete version discovery for each selected ID through the same
+operation lease, applies the package-owned latest stable or prerelease
+selection contract, and retains the resulting discovered candidate. Search
+metadata and source-less ID/version pairs never become acquisition authority.
+
+The returned population does not own or alias the operation lease. The caller
+retains that still-live same-issuer lease and transfers both values together to
+the consuming query. Candidate payload acquisition therefore continues to
+enforce the existing foreign-generation and disposed-operation rejection
+contract.
+
+`ExactPopulationFreezesUniqueCoordinatesInCallerOrder`,
+`ExactPopulationRetainsAuthorizationFailureBesideResolvedCandidates`,
+`PrefixPopulationSelectsLatestEligibleVersionsInSearchOrder`,
+`PrefixPopulationPreservesSourceLimitAndVersionFailure`,
+`PrefixPopulationRejectsDuplicateSourceRows`,
+`PrefixPopulationRejectsNonCanonicalSourceId`,
+`PrefixPopulationRejectsUnderfilledCandidateLimit`,
+`PrefixPopulationConsumesTerminalPageAfterFillingBound`,
+`PrefixPopulationPreservesTerminalFailureAfterFillingBound`,
+`PrefixPopulationContinuesAfterRequestTimeout`,
+`PrefixPopulationStopsAfterOperationTimeout`,
+`PrefixPopulationRequiresCredentialFreeGalleryAuthority`,
+`PrefixPopulationRequiresGalleryTransport`, and
+`PopulationCancellationRetainsCallerToken` are the Release gates for this
+handoff.
+
+The
+[Package Dependency Candidate Query](package-dependency-candidate-resolution.md)
+uses that currency for NuGet dependency constraints. It may choose a version
+only from a discovery result whose complete retained contract admits
+dependency-range selection; `Authoritative` without that contract is
+insufficient.
+
 The Release gates are
 `Discovery_AllEligibleAuthoritiesMustSettleBeforeAuthoritativeSelection`,
 `Discovery_UnreadableAuthorityCannotBecomePackageAbsence`,
@@ -312,6 +620,13 @@ precedence within one tier. A cached payload may answer before an uncached
 authority is probed only when its retained authority is currently authorized
 for that coordinate.
 
+`PackageSourceOperationLease.AcquireCandidatePayloadAsync` owns this
+candidate-bound step. Its result carries the exact
+`PackageSourceResultIdentity` that produced or authorized the payload; a
+higher consumer does not reconstruct source or producer identity from the
+configured endpoint or payload text. Desktop composition delegates its
+payload work to this source-owned operation during PackageHouse adoption.
+
 Symbols, manifests, RID companions, tool-wrapper redirects, and projected
 platform packs independently reapply the package-ID and coordinate authority
 rules. Existence of a primary package on one authority does not authorize a
@@ -324,10 +639,11 @@ related package or symbol endpoint on another.
 
 ## Shared operation context and payload lifetime
 
-One public package operation creates or consumes one `NuGetOperationContext`
-and passes that exact instance to every selected authority and every route,
-including local routes. A new source, retry, compatibility request, redirect,
-or route fallback creates no new operation ceiling.
+One package-source operation lease owns one `NuGetOperationContext` and passes
+that exact instance to every selected authority and every route, including
+local routes. A new source, retry, compatibility request, redirect, or route
+fallback creates no new operation ceiling. Public adopted operations do not
+accept another context beside the lease.
 
 A request deadline can fail one route and permit another applicable route or
 authorized authority while time remains. An operation-ceiling timeout is
@@ -339,17 +655,17 @@ typed operation timeout.
 Caller cancellation remains cancellation carrying the original caller token.
 It does not become a source failure, partial result, or operation timeout.
 
-When a source operation returns a payload stream, the caller owns that stream
-and must keep the shared context alive until consumption or disposal
-completes. The package owner does not dispose an externally supplied context.
-It disposes only a context it created, and only after every owned source
-operation and payload stream has settled.
+Lower source clients may return a payload stream under the shared context. The
+asynchronous work owner consumes or disposes that stream before its obligation
+ends. A successful package payload result contains caller-owned retained
+content, not the response stream or operation context. Releasing the operation
+lease disposes its context only after current work has settled.
 
 The gates are
 `OperationContext_RequestTimeoutMayFailOverWithinRemainingCeiling`,
 `OperationContext_OperationTimeoutIsTerminalAcrossAuthorities`,
 `OperationContext_CallerCancellationRetainsOriginalIdentity`, and
-`PayloadLifetime_SharedContextOutlivesReturnedStream`.
+`PayloadLifetime_AsyncWorkSettlesStreamBeforeOperationRelease`.
 
 ## Candidate and payload stores
 
@@ -435,6 +751,48 @@ gates named throughout this document remain the implementation evidence.
 
 ## Implementation boundary
 
+Desktop adoption is staged and remains transitional under the
+[PackageHouse adoption plan](package-house.md#adoption-plan). Ordinary online
+`package <id> --versions` is the first package-owned consumer: it resolves
+configured authorities, creates one association per authority and one
+plugin-authentication context per configurable V3 authority, uses the
+credential-free Gallery route for the exact anonymous NuGet.org authority,
+uses one operation context across those authorities, adopts each typed result
+through the exact association, and reports authoritative, partial, or failed
+version evidence. A selected local authority invokes the existing bounded
+NuGetFetch local-folder client without constructing an HTTP transport or
+authentication context. Its complete version observations, including an empty
+result, join the same aggregate as HTTP evidence through exact association
+lookup. Unavailable local capability, missing roots, invalid archives, and
+source limits remain attributed failures rather than package absence. The
+NuGetFetch host contract is unchanged: desktop filesystems support local reads;
+Browser/Wasm without a filesystem capability returns typed unsupported.
+When the Gallery route cannot complete its registration listing-state join,
+its retained flat-container candidates are explicitly partial rather than
+authoritative.
+Malformed selected declarations and unusable configurable authentication
+scopes become attributed pre-client failures before transport construction.
+Other valid selected authorities still run, and usable peer evidence is
+reported as partial.
+
+Online metadata-only version queries also use this composition: pinned
+verification, latest-version, range enumeration, `--versions-with-feed`, and
+`--include-unlisted`. Latest and range selection require authoritative
+discovery; a healthy subset cannot choose the answer. A pinned verification
+can report an observed exact coordinate with peer failures disclosed, but
+cannot infer absence from unreadable peers. Failed operations, including the
+terminal operation deadline, publish no query rows.
+
+Online caller-pinned extraction and the discovered-coordinate acquisition seam
+now adopt configured authorities as described below. Offline version queries
+and extraction, metadata, search, and unmigrated payload consumers remain on the
+legacy composition until their package-owned adoption slices land.
+The process-global authentication decorator therefore
+also remains solely for those legacy paths; it cannot be removed until they no
+longer depend on it. This first live slice does not read or publish the legacy
+producer-keyed version-list cache; authority-safe cache adoption remains a
+later slice.
+
 The current desktop paths that derive cache authorization from source URL
 digests, collapse sources by producer-shaped endpoint identity, or iterate an
 ordered source list are legacy behavior. They cannot claim this target
@@ -447,3 +805,320 @@ producer identity, transport kind, source order, or a healthy subset were
 mistakenly used as authority. Existing NuGetFetch and authentication gates
 remain evidence for their owners; they do not substitute for these
 package-composition gates.
+
+### Local version-listing adoption
+
+The CLI consumer is ordinary `package <id> --versions --source <folder>` (or a
+mapped folder in `NuGet.Config`). Local and HTTP version evidence use the same
+operation context, filtering, sorting, and final result limit. Directory layout
+recognition and finite observation limits remain owned by NuGetFetch.
+
+`PackageVersionListing_LocalFolderReadsVersionsWithoutHttpTransport`,
+`PackageVersionListing_LocalMappingPrecedesCollapseAndKeepsDistinctRoots`,
+`PackageVersionListing_LocalAndHttpUnionIsSortedBeforeLimit`,
+`PackageVersionListing_EmptyLocalRootIsAbsenceButMissingRootFails`,
+`PackageVersionListing_LocalFailureRetainsHttpPeerAsPartial`,
+`PackageVersionListing_HttpFailureRetainsLocalPeerAsPartial`, and
+`OperationContext_RequestTimeoutContinuesToLaterAuthorityWithinCeiling` are the
+Release gates for this adoption. The existing terminal-operation-timeout and
+HTTP source-association gates remain unchanged.
+
+The production adoption path is tracked by
+[#5400](https://github.com/richlander/dotnet-inspect/issues/5400) in six steps:
+configured authorities, ordinary version listing, metadata-only version
+queries, caller-pinned payload/cache authority, discovered-coordinate
+payload acquisition (latest/wildcard/range), and remaining CLI consumers/legacy
+retirement. Exact pins are independently useful; splitting their adoption from
+discovered coordinates avoids interpreting a legacy producer restriction as
+reporting-authority evidence. The user explicitly approved
+CLI-only continuation ("CLI is good enough. proceed"); browser adoption is
+not a prerequisite for this workstream. These slices do not add browser
+filesystem registration or claim that offline local discovery is supported.
+
+### Caller-pinned payload acquisition
+
+The production consumers are ordinary online single-package
+`package <id>@<version>` inspection and exact package pins in the API resolver
+used by `type`, `member`, and `match`, through
+`PackageExtractor.ExtractPinnedPackageAsync`. These exact-pin paths use the same
+configuration, mapping, client ownership, and association lookup as version
+queries. An eligible cache hit
+precedes cold acquisition; cold local sources precede HTTP sources regardless
+of declaration order. A pin needs one usable authority, not readable peers.
+Failures encountered before success remain available as typed diagnostics and
+in verbose CLI output. Local archive enumeration remains NuGetFetch-owned.
+
+The desktop store reuses existing admission and atomic publication. Local
+authorities publish into `package-authority-content-v1`, keyed by their
+`authority-v1` identity and exact coordinate, with producer evidence retained
+separately. The old `package-content-v5` family remains for unmigrated consumers
+and is never reinterpreted as this new namespace. Local global-packages reuse
+requires the metadata source to resolve to the same canonical local authority.
+
+HTTP authorities currently have no durable cache identity. Their admitted
+payloads use authority-scoped temporary filesystem materialization, retained
+until the extraction consumer calls the existing cleanup API. They do not
+read or write persistent payload or derived package-index entries, including
+HTTP global-packages entries. Temporary ownership is independent of the final
+payload's cache origin: a cached redirect target does not release the consumer
+from cleaning up earlier HTTP wrapper materialization. This deliberately trades
+cross-invocation cache reuse for correct authority; it does not invent a durable
+HTTP key from a credential-bearing endpoint or producer digest. Local derived
+package indexes use the persistent authority key.
+
+One operation context spans exact acquisition, stream consumption, publication,
+and exact tool-wrapper redirects. Each redirect recomputes package-ID
+authorization from the original source policy. The returned extraction retains
+the configured authority separately from producer provenance. Remote metadata
+enrichment is restricted to that resolved source representation; local payload
+inspection uses archive metadata instead. All-library Integration inspection
+uses its existing materialized-input path rather than reacquiring the root
+through the legacy producer-authorized artifact path.
+
+The exact-pin slice does not migrate multi-package inspection, offline
+extraction, automatic payload selection, dependency commands, symbols,
+manifest-only requests, platform projection, or workspace artifact acquisition.
+Selected package and API/timeline range adoption are described below.
+Those callers retain `ExtractPackageAsync` and its producer-keyed single-flight
+registry until their own handoffs migrate. The new path does not join those
+legacy flights or share caller-owned temporary directories across extractions.
+Legacy discovered-coordinate restrictions remain on their existing path until
+their resolver can carry reporting authorities end to end. The CLI-only
+approval above covers this adoption; the store-independent composition API
+remains reusable by a future browser host.
+
+Release gates are `ConfiguredPayloadAcquisitionTests` (real local/HTTP payloads,
+source tiers and mapping, partial peer failure, terminal deadlines,
+cancellation, stream/commit lifetime, temporary extraction, and redirected
+package authorization), `AuthorityScopedPackageStoreTests` (authority slots
+and namespace/provenance separation), and
+`PackageInspectorMetadataSourceTests.InspectAsync_ConfiguredAuthoritiesDoNotShareProducerIndexes`
+(derived-index isolation). Existing source-routing, store-publication,
+legacy extraction/concurrency, and payload-admission suites retain their
+contracts.
+
+### Discovered-coordinate payload acquisition
+
+The production consumer in step 5 is ordinary online single-package inspection
+with an omitted version, `@latest`, `--preview`, or a wildcard version. The
+package layer also supplies an authority-preserving range-address acquisition
+seam. The API and timeline consumers described below adopt retained range
+discovery in the first focused part of step 6. Ordinary `package` payload
+inspection still does not accept a range or `--at`.
+
+Selection consumes complete, current candidate evidence from every eligible
+configured authority. Each retained observation preserves its configured
+authority, normalized coordinate, discovery contract, listing state, and
+producer provenance. Per-feed display rows and legacy source-URL restrictions
+are not selection receipts. Partial evidence, failed discovery, or an expired
+operation cannot reach payload-cache lookup or acquisition.
+
+Latest selects the highest listed version, excluding prereleases unless
+requested. Wildcards retain the existing case-insensitive version-prefix
+semantics, including matching prereleases. Range addresses retain
+`PackageVersionVector`'s inclusive endpoints, caller direction, prerelease
+rules, and explicit address selection. Metadata-only range enumeration stays
+separate from acquisition.
+
+Only authorities whose admitted observations reported the selected coordinate
+under that selection contract may supply its payload, including cache hits.
+Another eligible authority's warm cache is not a substitute for reporting
+evidence. Among reporters, the existing cache-first and cold-local-before-HTTP
+rules apply. Selection, acquisition, and tool-wrapper traversal share one
+operation context; each redirected package independently reapplies its own
+package-ID authority rather than inheriting the root's reporting set.
+
+This path does not consult legacy producer-keyed candidate caches or use
+payload-directory scans as candidate evidence. Selection therefore performs
+fresh bounded discovery, including when an omitted-version request previously
+used a legacy version-cache hit. `@latest` keeps its fresh-discovery meaning.
+Authority-safe candidate caching remains deferred; local payload caching and
+HTTP temporary ownership reuse the caller-pinned path unchanged.
+
+The same six-step plan and recorded CLI-only approval apply. Multi-package
+inspection, other consumers, offline behavior, and corresponding legacy
+retirement remain in step 6. Existing Markout-backed package views and
+file/content projection remain the rendering boundary; no new default output
+section is introduced.
+
+The Release gates in `ConfiguredPayloadAcquisitionTests` cover this contract:
+`PackageCommand_LocalSelectionPrintsSelectedPayload` and
+`PackageCommand_SelectionRefreshesWithWarmLocalPayload` exercise the live
+consumer and fresh discovery; `AcquireSelected_PartialDiscoveryDoesNotProbePayloadCaches`,
+`AcquireSelected_NonReportingWarmCacheCannotSupplySelectedVersion`,
+`AcquireSelected_QueryDistinctAuthoritiesDoNotShareReportingEvidence`, and
+`AcquireSelected_GalleryListingEvidenceControlsAuthorization` distinguish
+reporting authority from availability, producer identity, and listing state.
+`AcquireSelected_RangeRetainsAddressDirectionAndReporter` gates the range seam.
+The external-operation deadline, commit-lifetime, caller-cancellation, and
+selected-wrapper tests gate the shared operation and temporary ownership.
+Existing caller-pinned acquisition and authority-store gates remain applicable
+to their shared implementation.
+
+### API and timeline range consumers
+
+Online API inspection with an omitted version, `@latest`, or a wildcard uses
+the same complete current selection and reporting-authority handoff as ordinary
+package inspection. Omitted and `@latest` requests select the highest stable
+listed version; wildcard requests retain the package owner's existing
+case-insensitive prefix and prerelease semantics. Exact caller pins and ranges
+retain their separate acquisition paths. Local archives and offline API
+inspection remain on the legacy extractor.
+
+Online API range inspection (`type`, `member`, and `match` with `--at`) and
+`timeline` retain one complete configured-authority discovery together with
+their immutable version vector. Every selected address consumes that same
+evidence; an address is not converted into an unrestricted caller pin or a
+producer-key restriction. Sparse and dense timeline evaluation do not
+rediscover the vector between cells. Incomplete discovery prevents payload
+acquisition, even when a healthy peer or a non-reporter's cache has bytes.
+
+These vectors preserve the existing listed-only API/timeline policy. An
+unlisted observation does not admit an endpoint or authorize its acquisition;
+another authority's listed observation can independently admit it. Local and
+V3 authorities without Gallery listing semantics retain their existing visible
+listing convention. Metadata-only `package --versions` can include unlisted
+rows and is a different operation, so its ordinals need not match a listed-only
+vector. Caller-pinned API inspection can acquire an unlisted exact coordinate
+without candidate discovery.
+
+Opening a range is metadata-only. API inspection requires an explicit address;
+timeline without `--at` renders unevaluated cells, repeated `--at` selects sparse
+cells, and `--at all` explicitly requests dense evaluation. The existing
+operation ceiling spans discovery and acquisition. Each successful extraction
+owns independent temporary storage, valid after range disposal. Projection
+consumes the already acquired package through the existing assembly-selection
+policy rather than opening another package-acquisition path. Failed projection
+and completed inspection release their transferred temporary storage.
+
+Executable replay retains the source policy as well as the coordinate.
+`match --similar` projects reporter authorities' configured source spellings
+into a new exact-package invocation, retaining config and mapping context.
+When the original policy already names only reporters, it can be reused
+without disclosing endpoints. Those spellings are new invocation inputs,
+never in-process authority receipts. Redirected final packages use their own
+package policy, not the root's reporter set. Timeline recommendations retain
+the original range source policy, config-discovery directory, TFM, prerelease,
+and visibility options. Both use shared CLI quoting and disclosure checks;
+undisclosable source values require config-backed replay instead of a lossy or
+credential-bearing command.
+
+The observable rendering remains the existing Markout-backed API, match, and
+timeline views. This slice introduces no output section and does not migrate
+offline behavior, dependency acquisition, multi-package commands, symbols, or
+workspace acquisition.
+
+Release gates in `ConfiguredPayloadAcquisitionTests` are
+`ApiSelection_LocalFeedUsesConfiguredAuthority`,
+`ApiSelection_UnreadablePeerFailsBeforePayload`,
+`OpenRange_OneMetadataDiscoveryServesMultipleAddressesAndReporters`,
+`Range_NonReportingWarmLocalCacheCannotAnswer`,
+`OpenRange_GalleryUnlistedEndpointNeedsIndependentReporter`,
+`ApiRange_LocalFeedSelectsTheRequestedAddress`,
+`RangeConsumers_UnreadablePeerFailsBeforePayload`,
+`TimelineRange_OneDiscoveryAcquiresOnlyExplicitAddresses`,
+`TimelineRange_ProbeReplayRetainsWorkingDirectoryAndSelectionPolicy`, and
+`ApiRange_ProjectionFailureCleansTransferredTemporaryDirectory`.
+The range lifetime cases cover independent successful roots and wrapper
+policy. `MatchDiscoveryTests` covers exact replay with local, HTTP, mapped,
+ambient-config, and query-distinct sources. `AssemblySetResolverTests` covers
+the reused TFM selection and transferred ownership.
+
+### Metadata-only version queries
+
+The consumer is the CLI version-query family, not package inspection. The
+aggregate projects adopted observations into existing `PackageVersionInfo`
+and `PackageVersionSourceInfo` presentation models. These projections are not
+payload authorization receipts. Existing Markout-backed output paths retain
+their Markdown, TSV, JSONL, row-window, and count shapes.
+
+Listing state is per authority. An unlisted Gallery row is hidden by default
+even if another authority lists that version; the merged listing is visible
+if any authority lists it. Local/V3 sources without listing semantics retain
+the existing visible/`listed` presentation convention. Feed labels are
+credential-safe presentation only; colliding labels get operation-local
+ordinals, never hashes of HTTP authority keys.
+
+Source-composition limits apply to distinct versions after the union, not
+source rows. The CLI's adopted `-n` instead counts the selected lens's rows
+after query resolution, under
+[CLI row selection](cli-row-selection.md#command-by-command-adoption).
+Range limits apply after inclusive endpoint resolution in caller direction.
+Explicit latest queries exclude unlisted versions even when their output
+requests the listing column. Pinned queries enumerate including prereleases
+and unlisted coordinates, compare normalized versions, and do not consult
+legacy payload caches online. Raw partial listings (including `--versions -n 1`)
+retain warnings; bare `--version`, explicit latest, and range queries fail
+before rendering when evidence is partial.
+
+`CliVersionQueries_LocalSelectorsUseCompleteEvidence`,
+`CliVersionQueries_PartialEvidenceCannotSelectLatestOrRange`,
+`CliVersionQueries_PinnedEvidenceDoesNotRequireReadablePeers`,
+`CliVersionQueries_ListingLensesPreservePerAuthorityRows`, and
+`CliVersionQueries_SourceOrderCannotChangeLatest` are the Release gates for
+this slice. Payload-selecting wildcard/latest/range paths remain outside this
+claim and migrate with their authority-preserving payload handoff.
+
+### Reusable authority authorization
+
+The reusable authorization seam projects selected package sources into
+package-owned configured authority objects. It uses the same runtime authority
+key as desktop source composition, mints one opaque source association per
+authority, supports exact reverse lookup, and supplies a versioned persistent
+cache key only when the package owner can form one without retained credentials
+or collapsed authority distinctions. Alias mapping remains earlier than
+authority collapse, and local and HTTP declarations are classified without
+constructing a transport. An authority object and its association live for one
+authorization answer; result adoption uses that answer's reverse map.
+Host-supplied independently authorized sources remain distinct unless their
+policy owner has already selected and collapsed aliases with equivalent
+authority keys and policy.
+
+One authorization observation retains both its ordered authorities and every
+typed configuration failure encountered while selecting them. Healthy
+authorities and failures may coexist; a denial is present only when no
+authority remains and policy has a specific reason. Pinned candidate and
+version-discovery settlement carry those failures forward rather than
+reconstructing them after the operation.
+
+`DesktopPackageSourceComposition.AuthorizeSourcesFor` is the desktop
+registration projection of the same result. It resolves sources through the
+partial-failure path, registers each usable source with the composition, and
+returns those exact `ConfiguredPackageAuthority` objects. Reconstructing an
+equal-looking authority from `PackageSource` is not equivalent: it has another
+opaque association and cannot address the composition's registered client.
+The returned observation is resource-free and captures no settlement lease,
+client, callback, or operation context. It therefore does not prolong the
+desktop composition's lifetime or preserve a registration that later policy
+replaces.
+
+The Release gates
+`ConfiguredAuthority_QueryDistinctSameProducerSourcesRemainDistinct`,
+`PackageSourceAuthorization_QueryDistinctAuthoritiesHaveExactAssociations`,
+`SourcePolicyAuthorization_RetainsHealthyPeerAndConfigurationFailure`,
+`AuthorizationObservation_RetainsRegisteredAuthorityAndPartialFailure`,
+`AuthorizationFailuresFlowThroughPinnedAndVersionDiscovery`,
+`PackageSourceAuthorization_CredentialPathAuthoritiesHaveNoPersistentKey`,
+`PackageSourceAuthorization_HttpAuthorityWithoutStableIdHasNoPersistentKey`,
+`SourceClassification_PlainDirectoryNeverConstructsHttpTransport`,
+`SourceClassification_FileUriNeverConstructsHttpTransport`,
+`SourceClassification_UnsupportedSchemeCreatesNoAuthorityOrRequest`,
+`PackageSourceMapping_SelectsAliasesBeforeAuthorityCollapse`, and
+`PackageSourceMapping_ConflictingAliasPoliciesFailBeforeClientCreation`
+enforce this seam.
+
+Typed route composition, exact result adoption, and version discovery are live
+for the online desktop consumers described above. Remaining consumer
+migrations continue in later slices of
+[#5400](https://github.com/richlander/dotnet-inspect/issues/5400). The legacy
+`Sources` projection remains available during those migrations; it is not an
+alternative authority identity.
+
+Every `PackageVersionDiscoveryResult` produced after package-ID validation
+retains the canonical package ID whose configured-authority operation produced
+it, including authoritative empty, filtered-empty, partial, and failed
+results. A failure produced before a valid package ID exists retains no
+package ID. Candidate evidence is validated against the retained ID during
+construction. Consumers use this owner-issued identity for request
+correspondence rather than inferring the package from candidate presence, feed
+labels, or failure text.

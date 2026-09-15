@@ -1,7 +1,8 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
-using ILInspector.Decompiler.Pipeline;
+using ILInspector.Decompiler;
+using ILInspector.Metadata;
 
 using Microsoft.CodeAnalysis.CSharp;
 
@@ -12,20 +13,81 @@ static class CompilerFeatureOptions
     const System.Reflection.MethodImplAttributes RuntimeAsync =
         (System.Reflection.MethodImplAttributes)0x2000;
 
-    public static CSharpParseOptions ParseOptions()
-        => new(LanguageVersion.Preview);
-
-    public static CSharpParseOptions ParseOptions(string assemblyPath)
+    public abstract record Resolution
     {
-        using var pe = new PEReader(File.OpenRead(assemblyPath));
-        return ParseOptions(pe);
+        public sealed record Available(
+            CSharpParseOptions Options,
+            MemorySafetyMode Mode)
+            : Resolution;
+
+        public sealed record Unavailable(
+            MemorySafetyModeDecision Decision,
+            string Reason)
+            : Resolution;
     }
 
-    public static CSharpParseOptions ParseOptions(PEReader pe)
+    public static Resolution Resolve(string assemblyPath)
     {
-        var options = ParseOptions();
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        return Resolve(pe);
+    }
+
+    public static CSharpParseOptions ParseOptions(string assemblyPath)
+        => Resolve(assemblyPath) switch
+        {
+            Resolution.Available available => available.Options,
+            Resolution.Unavailable unavailable => throw new InvalidOperationException(
+                unavailable.Reason),
+            _ => throw new InvalidOperationException(
+                "Unknown compiler feature resolution."),
+        };
+
+    public static CSharpParseOptions ParseOptions(PEReader pe)
+        => Resolve(pe) switch
+        {
+            Resolution.Available available => available.Options,
+            Resolution.Unavailable unavailable => throw new InvalidOperationException(
+                unavailable.Reason),
+            _ => throw new InvalidOperationException(
+                "Unknown compiler feature resolution."),
+        };
+
+    public static Resolution Resolve(PEReader pe)
+    {
+        if (!pe.HasMetadata)
+        {
+            var rules = new MemorySafetyRulesResult.Unavailable(
+                new MemorySafetyMetadataFailure(
+                    MemorySafetyMetadataFailureKind.Malformed,
+                    "artifact has no managed metadata"),
+                []);
+            var missingMetadata =
+                new MemorySafetyModeDecision.Unavailable(rules);
+            return new Resolution.Unavailable(
+                missingMetadata,
+                MemorySafetyModeDecision.DescribeUnavailable(rules));
+        }
+
+        MemorySafetyModeDecision decision =
+            MemorySafetyModeDecision.Resolve(
+                MemorySafetyMetadataIndex.Create(pe.GetMetadataReader()).Rules);
+        if (decision is MemorySafetyModeDecision.Unavailable unavailable)
+        {
+            return new Resolution.Unavailable(
+                unavailable,
+                MemorySafetyModeDecision.DescribeUnavailable(
+                    unavailable.Rules));
+        }
+
+        var available = (MemorySafetyModeDecision.Available)decision;
+        bool usesUpdatedMemorySafetyRules =
+            available.Mode == MemorySafetyMode.Updated;
+        var options = new CSharpParseOptions(
+            usesUpdatedMemorySafetyRules
+                ? LanguageVersion.Preview
+                : LanguageVersion.Latest);
         var features = new List<KeyValuePair<string, string>>();
-        if (pe.HasMetadata && ModuleUsesUpdatedMemorySafetyRules(pe))
+        if (usesUpdatedMemorySafetyRules)
         {
             features.Add(new("updated-memory-safety-rules", "true"));
         }
@@ -33,21 +95,11 @@ static class CompilerFeatureOptions
         if (pe.HasMetadata && ModuleUsesRuntimeAsync(pe))
             features.Add(new("runtime-async", "on"));
 
-        return features.Count == 0 ? options : options.WithFeatures(features);
+        options = features.Count == 0
+            ? options
+            : options.WithFeatures(features);
+        return new Resolution.Available(options, available.Mode);
     }
-
-    /// <summary>
-    /// Recompilation must replay the mode the printer used, so this defers to
-    /// the printer's own predicate rather than deriving the mode independently.
-    /// Any second reader — including the more faithful
-    /// <c>MemorySafetyMetadataIndex</c>, which accepts marker spellings the
-    /// printer ignores — can disagree with the printer and compile output back
-    /// under rules it was not printed with.
-    /// <c>CompilerFeatureOptionsTests.HarnessReplayMatchesPrinterMode</c> is the
-    /// gate.
-    /// </summary>
-    static bool ModuleUsesUpdatedMemorySafetyRules(PEReader pe)
-        => IrImporter.ModuleUsesUpdatedMemorySafetyRules(pe.GetMetadataReader());
 
     static bool ModuleUsesRuntimeAsync(PEReader pe)
     {

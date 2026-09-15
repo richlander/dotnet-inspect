@@ -837,7 +837,8 @@ public sealed class IsPatternPass : IIrPass
         pattern = new PositionalPattern(
             (IrExpression)value.Clone(),
             [new PositionalPatternSubpattern(ComparisonKind.Equal), secondSubpattern],
-            [(Constant)firstConstant.Clone(), (Constant)secondConstant.Clone()]);
+            [(Constant)firstConstant.Clone(), (Constant)secondConstant.Clone()],
+            deconstruction.ConsumedDeconstructMethod);
         return true;
     }
 

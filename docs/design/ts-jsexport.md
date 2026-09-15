@@ -78,7 +78,7 @@ parts:
    first resolves the complete root set, then generates the same independent
    facade for each resolved assembly.
 3. **Inspect-web is a consumer of the tool.** Its managed
-   `InspectWeb.Engine.dll` exposes dotnet-inspect functionality through one
+   `DotnetInspect.Web.dll` exposes dotnet-inspect functionality through one
    `InspectionEngine` type containing static `[JSExport]` methods.
 4. **`ILInspector.JsExportSurface` is part of the tool's implementation.** It
    is a host-side library over Metadata- and Analysis-owned facts. It constructs
@@ -102,33 +102,33 @@ The phases compose as follows:
 ```text
 ts-jsexport process on a developer or CI host
 
-InspectWeb.Engine.dll --read as PE/IL data--> Metadata and Analysis facts
+DotnetInspect.Web.dll --compiled context--> seven rooted export assemblies
                                                     |
                                                     v
-                                          JsExportSurface model
+                                          JsExportSurface models
                                                     |
                                                     v
                                            TypeScript emitter
                                                     |
                                                     v
-                                        inspect-web-engine.ts
+                                      seven inspect-web facades
 
 
 browser execution
 
-inspect-web-engine.js --> dotnet.js / dotnet.runtime.js
+seven facade modules --> dotnet.js / dotnet.runtime.js
                                       |
                                       v
-                             InspectWeb.Engine.dll
+                         seven managed export assemblies
                                       |
                                       v
                          dotnet-inspect product libraries
 ```
 
-The compiler step between the diagrams derives
-`inspect-web-engine.js` from `inspect-web-engine.ts`. Neither the
-`ts-jsexport` executable nor its `ILInspector.JsExportSurface` implementation
-library crosses into the browser execution phase.
+The compiler step between the diagrams derives one JavaScript module from each
+generated TypeScript facade. Neither the `ts-jsexport` executable nor its
+`ILInspector.JsExportSurface` implementation library crosses into the browser
+execution phase.
 
 ## Why this layer generates TypeScript
 
@@ -144,7 +144,7 @@ That raw object is usable without `ts-jsexport`:
 ```js
 const runtime = await dotnet.create();
 const exports =
-  await runtime.getAssemblyExports("InspectWeb.Engine");
+  await runtime.getAssemblyExports("DotnetInspect.Web");
 const json =
   await exports.InspectionEngine.QueryPackage(
     packageId,
@@ -166,8 +166,8 @@ adds application-facing policy:
 - public wrapper signatures distinct from raw interop signatures;
 - authenticated JSON parsing and exact wire-result types;
 - readonly producer-owned JSON snapshots;
-- initialization and one-runtime reuse; and
-- consumer-facing DTO and enum declarations.
+- initialization and explicit one-runtime composition; and
+- consumer-facing DTO, enum, and JSON union declarations.
 
 Generating JavaScript plus JSDoc would express those TypeScript decisions
 indirectly and require the generator to own comment containment, JSDoc import
@@ -235,6 +235,132 @@ use `ReadonlyArray<T>`, and string-keyed dictionaries use
 `Readonly<Record<string, T>>`. Direct JS-interop arrays remain mutable because
 they are runtime values, not serialized snapshots.
 
+### Translating unions and nullability
+
+C# and TypeScript can both describe alternative and nullable values, but they
+do not use the same type-system representation. On the C# side, this design
+receives union alternatives from the generated `union` declaration model.
+Nullability is separate: nullable-reference annotations such as `string?` are
+compiler metadata over the same CLR reference type, while `int?` is
+`System.Nullable<int>`. On the TypeScript side, a native union represents both
+case alternatives and nullability; with strict null checking, nullable `T` is
+spelled `T | null`.
+
+The generator therefore translates meaning rather than preserving source
+syntax:
+
+- `string?` becomes `string | null`.
+- `int?` becomes `number | null`.
+- `GenericNested<string?>` becomes `GenericNested<string | null>`.
+- `GenericNested<string?>?` becomes
+  `GenericNested<string | null> | null`.
+- Union cases `TValue` and `int`, plus a default-null case, become
+  `TValue | number | null`.
+
+These rows remain distinct before translation. Union case evidence determines
+the alternatives; nullable metadata and authenticated serializer evidence
+determine where `null` is possible. Their TypeScript forms then compose and
+normalize as unions. In particular, `property?: T` is not another spelling of
+`property: T | null`: the former permits an absent property and introduces
+`undefined`, while the latter describes a present JSON property whose value
+may be `null`.
+
+This document uses *lowering* for the broader conversion into the public
+TypeScript facade, but union and nullable projection does not materially lower
+the abstraction level. It is closer to type-level transpilation: one
+source-language wire-type vocabulary is translated into another at roughly the
+same semantic altitude. The representation changes because TypeScript uses
+union syntax for both concepts, while the distinctions established by C# and
+System.Text.Json evidence must remain observable in the translated type.
+
+### JSON union lowering
+
+Slice 3 of [#5892](https://github.com/richlander/dotnet-inspect/issues/5892),
+tracked by [#6106](https://github.com/richlander/dotnet-inspect/issues/6106),
+consumes the union evidence owned by
+[`JsExportSurface`](../../src/ILInspector.JsExportSurface/README.md#json-union-alternatives).
+It does not infer another serializer contract from the union's `Value` member.
+
+A serialize-reached supported union becomes a TypeScript type alias containing
+its mapped case alternatives and the producer's default-null alternative.
+Case types retain their existing JSON mappings, including readonly snapshots,
+byte-array Base64 strings, and local enum/DTO declarations. Aliases and every
+reference participate in the same identity-based module-name allocation as
+other wire declarations. The raw export remains string-valued; the public
+facade parses that JSON and returns the generated alias.
+Case signature trees supply identities rather than nested nullable-reference
+annotations. Reference-valued entries in case arrays and dictionaries therefore
+remain nullable conservatively; null must not disappear from supported JSON.
+
+Generic unions with direct type-parameter cases use generic aliases whose
+arguments are JSON wire types. Closed uses retain their structured argument
+identities. A parameter embedded inside a case signature remains unsupported:
+substituting a wire type into a CLR container is not generally faithful
+(`T[]` writes an array for `T = int`, but a Base64 string for `T = byte`).
+Generic JSON records with direct, recursively parametric members use generic
+TypeScript interfaces. Closed constructions are discovered only from
+authenticated source-generated JSON roots, and their arguments are substituted
+through supported records, arrays, dictionaries, nullable values, and unions.
+A direct serializer root does not retain nullable-reference annotations for
+its generic arguments, so reference-shaped arguments remain conservatively
+nullable. Union case signatures have the same nested-annotation erasure and
+apply the same rule to generic-record alternatives. Ordinary record member
+signatures retain their nested nullable annotations and project those precise
+generic arguments instead, including when a supported generic union wraps a
+generic record directly, through a nullable value wrapper, or through supported
+array and dictionary containers.
+Metadata nullability traversal follows the compiler transform encoding:
+`System.Nullable<T>` and non-generic value types contribute no independent
+transform slots, so following reference annotations remain aligned. Generic
+value types and generic parameters retain their compiler-issued placeholder
+slots.
+
+Recursive composition remains parametric only when substituting a wire type
+preserves the surrounding wire shape. `GenericNested<T>[]` is an array of
+records for every supported `T`; direct `T[]` is not parametric because
+`T = byte` closes to `byte[]`, whose JSON form is a Base64 string rather than
+an array. A generic parameter directly wrapped in an array therefore fails
+visibly before publication, including when that array is nested in another
+supported container. Nullable-reference annotation on an unconstrained
+parameter does not change that CLR array shape, while a value-constrained
+`T?[]` remains a genuine array of `System.Nullable<T>` and stays supported.
+Open, other embedded non-parametric, or unauthenticated constructions also fail
+visibly; the boundary does not infer arbitrary CLR generic shapes. Parameter
+arrays are identified from decoded generic-parameter positions rather than
+display names, so a qualified concrete array remains distinct even when its
+type name matches a parameter name.
+
+Deserialize-reached unions, unavailable case/null evidence, unsupported
+converters, unmapped alternatives, and recursive union-case alias components
+fail visibly before publication. Recursive DTO interfaces are not union-case
+alias components and retain their existing behavior.
+Unused union registrations remain inert. No discriminator, replacement
+transport, or runtime schema validator is introduced.
+
+The envelope pilot has one deliberate converter exception: the shared
+`InertText.InertString` field converter is authenticated as the JSON `string`
+wire shape and preserves nullable fields as `string | null`. Polymorphic
+`System.Text.Json` base records remain structural in this generation slice;
+their runtime discriminator and derived members are preserved by the managed
+serializer, while a later union-lowering slice may expose them as a
+discriminated TypeScript union.
+
+`JsonUnionWireTests` and the compiler/runtime consumer harness
+`eng/test-ts-jsexport-typescript.sh` gate the generated contract against actual
+source-generated serializer results and compiled TypeScript consumers,
+including an annotation-erased null reference root, a generic-record union
+alternative with null content, a precise nullable generic argument in an
+ordinary record member both directly and through generic-union collection
+arguments, a nullable generic record struct, and mixed nullable value/reference
+generic arguments, rejected direct and container-nested `T[]` and
+unconstrained `T?[]` constructions whose `byte[]` payloads are Base64 text, a
+supported value-constrained `T?[]` neighboring case, and a concrete array whose
+name collides with a generic parameter.
+The four-step adoption path remains Metadata evidence, JsExportSurface
+evidence, this CLI generation/harness slice, and inspect-web browser/Wasm
+adoption. The existing TypeScript emitter owns this format lowering; no new
+human-readable rendering path or architecture retirement is needed.
+
 ### Public facade view
 
 The exported TypeScript wrapper presents the application-level result:
@@ -295,16 +421,21 @@ For one input assembly, `ts-jsexport` emits one self-contained TypeScript module
 containing:
 
 1. public enum and DTO declarations for reached wire contracts;
-2. one private structural type for the raw `getAssemblyExports()` object;
-3. private runtime and narrowed managed-export storage plus accessors;
-4. `initializeRuntime()`, which single-flight creates one runtime, captures the
-   inspected assembly's exports, publishes both private values only after
-   acquisition succeeds, and returns no raw runtime or export object;
-5. `runEntryPoint(mainAssemblyName?, args?)`, which forwards to
+2. one public `JsExportRuntime` structural handle limited to
+   `getAssemblyExports()` and `runMain()`;
+3. one private structural type for the raw `getAssemblyExports()` object;
+4. private runtime and narrowed managed-export storage plus accessors;
+5. `createRuntime()`, which invokes the configured SDK builder and returns the
+   narrow handle rather than the SDK's full `RuntimeAPI`;
+6. `initializeRuntime(runtime?)`, which single-flight acquires the inspected
+   assembly's exports through a supplied handle or, when omitted, through one
+   locally created handle, and publishes both private values only after
+   acquisition succeeds;
+7. `runEntryPoint(mainAssemblyName?, args?)`, which forwards to
    `runtime.runMain()` on that same private runtime and returns its
    `Promise<number>`;
-6. one exported facade function per supported `[JSExport]` method; and
-7. the exact JSON parse operation for each authenticated envelope.
+8. one exported facade function per supported `[JSExport]` method; and
+9. the exact JSON parse operation for each authenticated envelope.
 
 Runtime creation and managed entry-point execution are separate operations.
 `initializeRuntime()` never invokes `runMain()` implicitly. The consumer
@@ -321,24 +452,27 @@ the runtime hosts a different main assembly. Promise fulfillment, rejection,
 and nonzero exit codes pass through unchanged.
 
 Initialization has one terminal state machine per generated module instance.
-The first `initializeRuntime()` call records the in-flight work before calling
-`dotnet.create()`. Concurrent calls join that work, and calls after success are
-fulfilled without creating or acquiring again. Any creation, acquisition, or
-validation failure is terminal for that module in the current JavaScript realm:
-later initialization calls preserve the same rejection, and retry requires a
-page reload or worker-realm restart. Runtime and export storage remain
-unpublished unless the whole operation succeeds.
+The first `initializeRuntime()` call records the in-flight work before it
+awaits either the supplied handle or `createRuntime()`. Concurrent calls join
+that work, and calls after success are fulfilled without creating or acquiring
+again. Any creation, acquisition, or validation failure is terminal for that
+module in the current JavaScript realm: later initialization calls preserve
+the same rejection, and retry requires a page reload or worker-realm restart.
+Runtime and export storage remain unpublished unless the whole operation
+succeeds.
 
 That single-flight guarantee is deliberately module-local. A consumer using
-several separately generated facade modules configures the SDK's shared
-module-scoped `dotnet` builder before invoking any facade initializer, then
-serializes their first initialization unless its runtime owner guarantees
-shared in-flight acquisition. Generated facades import that same builder but
-never change its configuration; after the first serialized initializer
-completes, later `dotnet.create()` calls reuse the SDK's completed runtime
-instance. A facade whose local acquisition or validation fails never exits or
-disposes the potentially shared runtime. Cross-module coordination,
-configuration, and runtime lifetime remain consumer and runtime policy.
+several separately generated facade modules chooses one runtime owner, calls
+that module's `createRuntime()` exactly once, and passes the same returned
+promise or completed `JsExportRuntime` handle to every module's
+`initializeRuntime(runtime)` call. The consumer serializes those first
+initializations unless its runtime owner deliberately permits concurrent
+attachment. This contract does not rely on repeated `dotnet.create()` calls
+being idempotent: the Mono SDK memoizes a completed runtime while the CoreCLR
+SDK rejects a second creation. Generated facades import the configured builder
+but never change it. A facade whose local acquisition or validation fails never
+exits or disposes the shared runtime. Cross-module coordination, configuration,
+and runtime lifetime remain consumer and runtime policy.
 
 The focused
 [lifecycle model](models/ts-jsexport-lifecycle/README.md) model-checks those
@@ -886,19 +1020,32 @@ issue references below.
   prove that inspect-web's runtime dependency closure contains none of
   `ts-jsexport`, `ILInspector.JsExportSurface`, or
   `ILInspector.TypeScriptGeneration`;
-- `eng/generate-inspect-web-engine-facade.sh --check` regenerates inspect-web's
-  checked-in TypeScript source, compiles its `.js` and `.d.ts` artifacts against
-  the SDK-owned `dotnet.d.ts` from the engine's MSBuild-resolved Browser/Wasm
-  runtime pack with host-independent LF output, and proves all three files are
-  current;
+- `eng/generate-inspect-web-engine-facade.sh --check` executes inspect-web's
+  compiled context once, requires the exact seven rooted artifacts and consumer
+  mappings, compiles all seven `.js` and `.d.ts` outputs against the SDK-owned
+  `dotnet.d.ts` from the engine's MSBuild-resolved Browser/Wasm runtime pack
+  with host-independent LF output, and proves all 21 files are current;
+- the deployment and promotion verifiers pin the exact rooted-assembly set (the
+  seven names above) and structural invariants such as exactly one SDK
+  `create()` call, one runtime, and zero entry-point invocations, but assert
+  only `js_export_method_count > 0` rather than an exact total: the total
+  drifts with ordinary per-method feature work across seven independently
+  owned export classes, while the byte-for-byte source, declaration, and
+  published-JavaScript comparisons already in the same verifiers catch any
+  change to the exported surface. An exact-count assertion here would
+  duplicate that coverage while adding a value contributors must remember to
+  bump in lockstep across every workflow copy — see
+  [#6051](https://github.com/richlander/dotnet-inspect/issues/6051);
 - `verify-engine-facade-runtime.ts` executes the compiler-derived JavaScript
   without a `window` global, proves initialization performs no managed
   operation or entry-point call, and then exercises explicit host
   configuration, synchronous and asynchronous managed operations, and
   `runEntryPoint()`;
-- `verify-published-engine-facade.ts` runs the published Browser/Wasm runtime
-  without a `window` global and proves the production facade carries a
-  synchronous build identity and a genuinely awaited package-version query;
+- `verify-published-engine-facades.ts` runs the published Browser/Wasm runtime
+  without a `window` global and proves all seven production facades initialize
+  over one runtime, dispatch through their own assemblies, invoke the host
+  entry point once, and carry a synchronous build identity plus a genuinely
+  awaited host canary;
 - a set-equality gate proves that supported `[JSExport]` methods and generated
   managed-operation facade functions have exact one-to-one correspondence,
   excluding separately identified `initializeRuntime` and `runEntryPoint`

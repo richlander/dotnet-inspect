@@ -21,7 +21,7 @@ The host-neutral request model, structural capability catalog, planner, typed
 rejections, and retained validated plan are implemented in
 `src/DotnetInspector.Queries/AnalysisRequest.cs`. The properties in
 [Verification](#verification) are enforced by the named gates in
-`src/DotnetInspector.Queries.Tests/AnalysisRequestTests.cs`.
+`tests/DotnetInspector.Queries.Tests/AnalysisRequestTests.cs`.
 
 The word *analysis* is generic here: it means a producer-backed inspection
 question such as Integrations, calls, metadata, API shape, or body analysis.
@@ -53,7 +53,7 @@ This owner references rather than restates adjacent contracts.
 
 | Owner | Imported contract |
 | --- | --- |
-| [Inspection Subject Navigation](inspection-subject-navigation.md) | Workspace, Package or non-package Root, Library, Type, and Member structural identity and activation. |
+| [Inspection Subject Navigation](inspection-subject-navigation.md) | Workspace, Package, Library, Type, and Member structural identity and activation. |
 | [Type, member, and API representation](type-member-api-representation.md) | Type and Member lookup, definition, and anchor currencies. |
 | [Artifact acquisition and workspace composition](artifact-acquisition-and-workspaces.md) | Realized coordinates, admitted participants, binding contexts, provenance, failures, and lifetime. |
 | [Inspection layers](inspection-layers.md) | Query-owned profile binding, population sealing, and typed producer handoffs accepted in PR #4713. |
@@ -246,6 +246,8 @@ descriptor before producer execution. It checks:
 Rejection is a typed planning outcome with guidance. It is not a producer
 inspection, a successful empty result, or a Finding state. Validation must not
 execute the producer merely to decide whether the producer is supported.
+The planning result is a closed owner-issued union: exactly one accepted plan
+or one rejection, each with a non-null payload by construction.
 
 The request owner declares a closed set of rejection reasons covering invalid
 mode, descriptor-unsupported mode, unsupported surface, unsupported target
@@ -397,6 +399,8 @@ The runtime implementation is verified by these named gates:
 - `AnalysisCapability_RejectsTargetRoleCardinalityMismatch`
 - `AnalysisDescriptor_RejectsModeWithoutSatisfiableSurfaceOrProjection`
 - `AnalysisDescriptor_RequiresOneExactCapabilityIdentityPerId`
+- `AnalysisPlanningResults_AreClosedToOwnerIssuedCases`
+- `AnalysisPlanningResults_PayloadsAreNonNullByConstruction`
 - `AnalysisPlan_RetainsExactRequestFieldsAndDescriptorRequirements`
 - `AnalysisPlan_CostIsMaximumOfAnalysisAndTransitiveQueries`
 - `AnalysisPlan_RetainsUniverseCompletenessAndFailureInputs`

@@ -1,10 +1,10 @@
-using SLF = SourceLinkFetch;
+using ILInspector.SourceLink;
 
 namespace DotnetInspector.Services;
 
 internal static class SourceFetchOriginValidator
 {
-    public static SLF.SourceLinkFetchOriginResult Validate(
+    public static SourceLinkFetchOriginResult Validate(
         string requestedUrl,
         string? finalUrl)
         => Validate(
@@ -12,30 +12,30 @@ internal static class SourceFetchOriginValidator
             finalUrl,
             finalUrlReliable: !OperatingSystem.IsBrowser());
 
-    internal static SLF.SourceLinkFetchOriginResult Validate(
+    internal static SourceLinkFetchOriginResult Validate(
         string requestedUrl,
         string? finalUrl,
         bool finalUrlReliable)
     {
         if (!finalUrlReliable)
         {
-            SLF.SourceLinkFetchOriginResult requested =
-                SLF.SourceLinkProvenance.ValidateFetchOrigin(
+            SourceLinkFetchOriginResult requested =
+                SourceLinkProvenance.ValidateFetchOrigin(
                     requestedUrl,
                     requestedUrl);
-            if (requested.Status == SLF.SourceLinkFetchOriginStatus.Preserved)
+            if (requested.Status == SourceLinkFetchOriginStatus.Preserved)
             {
-                return new SLF.SourceLinkFetchOriginResult(
-                    SLF.SourceLinkFetchOriginStatus.Changed,
+                return new SourceLinkFetchOriginResult(
+                    SourceLinkFetchOriginStatus.Changed,
                     "the transport cannot report the final response URL");
             }
         }
 
         return finalUrl is null
-            ? new SLF.SourceLinkFetchOriginResult(
-                SLF.SourceLinkFetchOriginStatus.Changed,
+            ? new SourceLinkFetchOriginResult(
+                SourceLinkFetchOriginStatus.Changed,
                 "the transport did not report a final response URL")
-            : SLF.SourceLinkProvenance.ValidateFetchOrigin(
+            : SourceLinkProvenance.ValidateFetchOrigin(
                 requestedUrl,
                 finalUrl);
     }

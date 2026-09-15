@@ -103,8 +103,11 @@ internal static class ChangePlanner
             candidateObjectId);
         ChangeEvidence evidence =
             GitCandidateReader.ReadChanges(repository, provenance);
+        IReadOnlyList<byte[]> changedOutcomePaths =
+            GitCandidateReader.ReadTlaManifestChanges(
+                repository, provenance, evidence);
         ChangeRoutingPolicy policy = ChangeRoutingPolicy.Load(repository);
-        return Compose(provenance, evidence, policy);
+        return Compose(provenance, evidence, policy, changedOutcomePaths);
     }
 
     /// <summary>
@@ -115,11 +118,16 @@ internal static class ChangePlanner
     /// <param name="provenance">The validated provenance.</param>
     /// <param name="evidence">The acquired change evidence.</param>
     /// <param name="policy">The loaded routing policy.</param>
+    /// <param name="changedOutcomePaths">
+    /// Configuration paths whose exact-outcome mappings differ at the endpoints.
+    /// Required when the change evidence contains the manifest.
+    /// </param>
     /// <returns>The plan and its scoped evidence.</returns>
     internal static PlanningResult Compose(
         CandidateProvenance provenance,
         ChangeEvidence evidence,
-        ChangeRoutingPolicy policy)
+        ChangeRoutingPolicy policy,
+        IReadOnlyList<byte[]>? changedOutcomePaths = null)
     {
         RoutingSelections routing = policy.Route(evidence);
         ValidationSelections validations =
@@ -129,7 +137,8 @@ internal static class ChangePlanner
         List<PlanScopeDescriptor> scopes = [];
         if (validations.Tla)
         {
-            scopeBytes = BuildTlaScope(evidence, out int scopeRecords);
+            scopeBytes = BuildTlaScope(
+                evidence, changedOutcomePaths, out int scopeRecords);
             scopes.Add(new PlanScopeDescriptor(
                 PlanScopeDescriptor.TlaScope,
                 PlanScopeDescriptor.TlaArtifact,
@@ -151,46 +160,80 @@ internal static class ChangePlanner
 
     /// <summary>
     /// Builds the TLA+ scope file: exact <c>path-bytes NUL</c> records, in
-    /// plan input order, containing only TLA+ model content. Infrastructure
-    /// paths select the lane without contributing content, so an
-    /// infrastructure-only selection produces a valid zero-record scope.
+    /// plan input order, followed by affected manifest configuration paths in
+    /// byte order. Paths already in the scope are not repeated. The manifest
+    /// path itself selects validation, not model execution.
     /// </summary>
     /// <param name="evidence">The acquired change evidence.</param>
+    /// <param name="changedOutcomePaths">The acquired mapping delta.</param>
     /// <param name="recordCount">The number of scoped records.</param>
     /// <returns>The exact scope file bytes.</returns>
     private static byte[] BuildTlaScope(
         ChangeEvidence evidence,
+        IReadOnlyList<byte[]>? changedOutcomePaths,
         out int recordCount)
     {
-        List<ChangeRecord> selected = [];
+        List<byte[]> selected = [];
         long length = 0;
+        bool manifestChanged = false;
         foreach (ChangeRecord record in evidence.Records)
         {
-            if (!ChangeRoutingPolicy.IsTlaModelContent(record.Path))
+            if (!ChangeRoutingPolicy.IsTlaScopedInput(record.Path))
             {
                 continue;
             }
 
-            selected.Add(record);
-            length += record.Path.Length + 1;
+            AddPath(record.Path);
+            manifestChanged |= record.Path.SequenceEqual(
+                "eng/tla-expected-exit-codes.txt"u8);
+        }
+
+        if (manifestChanged)
+        {
+            if (changedOutcomePaths is null)
+            {
+                throw new PlanRefusalException(
+                    PlanRefusalCategory.EvidenceUnavailable,
+                    "a changed TLA manifest requires its endpoint mapping delta");
+            }
+
+            foreach (byte[] path in changedOutcomePaths)
+            {
+                AddPath(path);
+            }
+        }
+
+        byte[] bytes = new byte[length];
+        int offset = 0;
+        foreach (byte[] path in selected)
+        {
+            path.CopyTo(bytes.AsSpan(offset));
+            offset += path.Length;
+            bytes[offset++] = 0;
+        }
+
+        recordCount = selected.Count;
+        return bytes;
+
+        void AddPath(ReadOnlySpan<byte> path)
+        {
+            foreach (byte[] existing in selected)
+            {
+                if (path.SequenceEqual(existing))
+                {
+                    return;
+                }
+            }
+
+            length += path.Length + 1;
             if (length > MaximumScopeBytes)
             {
                 throw new PlanRefusalException(
                     PlanRefusalCategory.ScopeOverflow,
                     "the tla scope exceeded its byte ceiling");
             }
-        }
 
-        byte[] bytes = new byte[length];
-        int offset = 0;
-        foreach (ChangeRecord record in selected)
-        {
-            record.Path.CopyTo(bytes.AsSpan(offset));
-            offset += record.Path.Length;
-            bytes[offset++] = 0;
+            selected.Add(path.ToArray());
         }
-
-        recordCount = selected.Count;
-        return bytes;
     }
 }

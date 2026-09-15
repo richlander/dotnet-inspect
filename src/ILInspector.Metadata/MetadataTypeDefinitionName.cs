@@ -542,7 +542,9 @@ internal static class MetadataTypeDefinitionNameReader
     internal static MetadataTypeDefinitionNameReadResult Read(
         MetadataReader reader,
         TypeDefinitionHandle handle,
-        Action<int>? beforeMaterialize = null)
+        Action<int>? beforeMaterialize = null,
+        Action<int>? chargeChain = null,
+        Action<int>? chargeCharacters = null)
     {
         Span<TypeDefinitionHandle> rootToLeaf =
             stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
@@ -554,13 +556,16 @@ internal static class MetadataTypeDefinitionNameReader
                 out _,
                 out RelationshipTraversalRejection? rejection))
         {
+            chargeChain?.Invoke(consumedNodes);
             return RejectedTraversal(rejection!);
         }
 
+        chargeChain?.Invoke(consumedNodes);
         return ReadChain<TypeDefinitionHandle, TypeDefinitionNameRow>(
             reader,
             rootToLeaf[..consumedNodes],
-            beforeMaterialize);
+            beforeMaterialize,
+            chargeCharacters);
     }
 
     internal static MetadataTypeDefinitionNameMatch Matches(
@@ -723,7 +728,9 @@ internal static class MetadataTypeDefinitionNameReader
     internal static MetadataTypeDefinitionNameReadResult Read(
         MetadataReader reader,
         TypeReferenceHandle handle,
-        Action<int>? beforeMaterialize = null)
+        Action<int>? beforeMaterialize = null,
+        Action<int>? chargeChain = null,
+        Action<int>? chargeCharacters = null)
     {
         Span<TypeReferenceHandle> rootToLeaf =
             stackalloc TypeReferenceHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
@@ -735,13 +742,16 @@ internal static class MetadataTypeDefinitionNameReader
                 out _,
                 out RelationshipTraversalRejection? rejection))
         {
+            chargeChain?.Invoke(consumedNodes);
             return RejectedTraversal(rejection!);
         }
 
+        chargeChain?.Invoke(consumedNodes);
         return ReadChain<TypeReferenceHandle, TypeReferenceNameRow>(
             reader,
             rootToLeaf[..consumedNodes],
-            beforeMaterialize);
+            beforeMaterialize,
+            chargeCharacters);
     }
 
     internal static MetadataTypeDefinitionNameReadResult Read(
@@ -771,7 +781,8 @@ internal static class MetadataTypeDefinitionNameReader
     static MetadataTypeDefinitionNameReadResult ReadChain<THandle, TRow>(
         MetadataReader reader,
         ReadOnlySpan<THandle> rootToLeaf,
-        Action<int>? beforeMaterialize = null)
+        Action<int>? beforeMaterialize = null,
+        Action<int>? chargeCharacters = null)
         where THandle : struct
         where TRow : struct, IMetadataTypeNameRow<THandle>
     {
@@ -791,23 +802,27 @@ internal static class MetadataTypeDefinitionNameReader
                 var (namespaceHandle, nameHandle) = TRow.GetName(reader, handle);
                 if (i == 0)
                 {
-                    if (!budget.TryRead(
-                            reader,
-                            namespaceHandle,
-                            delimiterChars: 0,
-                            beforeMaterialize,
-                            out @namespace))
+                    bool namespaceRead = budget.TryRead(
+                        reader,
+                        namespaceHandle,
+                        delimiterChars: 0,
+                        beforeMaterialize,
+                        out @namespace);
+                    chargeCharacters?.Invoke(@namespace.Length);
+                    if (!namespaceRead)
                     {
                         return NameTooLong(TRow.ToEntity(handle), i + 1);
                     }
                 }
 
-                if (!budget.TryRead(
-                        reader,
-                        nameHandle,
-                        delimiterChars: 1,
-                        beforeMaterialize,
-                        out string segment))
+                bool segmentRead = budget.TryRead(
+                    reader,
+                    nameHandle,
+                    delimiterChars: 1,
+                    beforeMaterialize,
+                    out string segment);
+                chargeCharacters?.Invoke(segment.Length + 1);
+                if (!segmentRead)
                 {
                     return NameTooLong(TRow.ToEntity(handle), i + 1);
                 }

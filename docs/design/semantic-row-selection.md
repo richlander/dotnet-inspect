@@ -11,7 +11,7 @@ and retires the umbrella assignment. The product implementation lives in
 `src/DotnetInspector.RowSelection`.
 
 The executable Release gates in
-`src/DotnetInspector.RowSelection.Tests` and the non-friend consumer in
+`tests/DotnetInspector.RowSelection.Tests` and the non-friend consumer in
 `tests/DotnetInspector.RowSelection.Consumer` verify the implemented contract.
 
 Related designs:

@@ -8,7 +8,7 @@ contract; it does not decide which subject, coordinate, or lens is active,
 and it does not own the consumer effect lifecycle that installs navigation
 results.
 
-The rules are normative targets for `prototypes/inspect-web`. When the
+The rules are normative targets for `inspect-web`. When the
 current implementation differs, this document describes the intended
 behavior rather than preserving the inconsistency.
 
@@ -20,9 +20,9 @@ This owner defines:
   hover, keyboard focus, disabled) and their accessibility contract;
 - the interaction grammar and collapsed-summary rules for progressive filter
   disclosure;
-- the shared heading rules across the API and Metadata lenses: API renders a
-  compact exact-target heading, while Metadata retains its detailed type-level
-  context; and
+- the shared heading rules across the API and Metadata lenses: both use quiet
+  local headings while Metadata retains its detailed type-level context in its
+  projection and exact-target context row; and
 - the compact status vocabulary for successful and failed source provenance.
 
 It does not own:
@@ -57,6 +57,60 @@ This document consumes, without redefining:
   and
 - product-issued source-provenance results, including optional
   producer-authorized browse URLs.
+
+## Theme palette
+
+Inspect Web uses the modern .NET and C# purple family as its shared identity.
+The official .NET brand purple, `#512BD4`, is the strong selected fill in both
+themes. Dark-theme interactive foregrounds use the official light purple
+`#B9AAEE`; light-theme interactive foregrounds use brand purple. Selected
+surfaces use deep purple in dark mode and the official pale lavender
+`#EEEAFB` in light mode. The inspected graph subject uses the same family,
+pairing the official `#311A7F` shade with light purple in dark mode and pale
+lavender with brand purple in light mode.
+
+Dark and light themes share those semantic roles rather than acquiring
+unrelated identities:
+
+| Role | Dark theme | Light theme |
+| ---- | ---------- | ----------- |
+| Foundation | Purple-black and midnight-purple neutrals | White and pale-lavender neutrals |
+| Interactive foreground and focus | Light purple | Brand purple |
+| Strong selected fill | Brand purple | Brand purple |
+| Selected surface | Deep purple | Pale lavender |
+| Inspected graph subject | Purple shade with light-purple stroke | Pale lavender with brand-purple stroke |
+
+Blue and cyan remain available for information and structural graph roles.
+Green, yellow, and red remain semantic status colors. Warm colors may identify
+warnings, Findings, exceptional states, or conventional source syntax; they do
+not act as the persistent website selection identity. In particular, Inspect
+Web does not use the legacy green C# association. Allocation Findings use a
+dedicated warm role, and every Finding category retains its semantic border
+when selection or another shared control treatment is also present.
+
+Theme neutrals may be tonal adaptations rather than logo colors, but they stay
+within the same purple-to-lavender family. Text, control boundaries, selected
+fills, and focus indicators retain their accessibility contrast and non-color
+cues. A focused control on the strong selected fill uses its contrasting
+foreground for the inset focus ring. The browser palette gate checks the shared
+CSS roles, their representative consumers, and contrast in both themes.
+
+### Overlays and elevation
+
+Overlay scrims use a purple-black neutral rather than an unrelated green or
+gray cast. Dark mode uses the deeper and more opaque scrim; light mode uses a
+lighter purple-neutral scrim so the underlying page remains recognizable.
+
+Elevation communicates spatial hierarchy rather than brand identity. Menu,
+dialog, and drawer shadows therefore use neutral dark tones, with lower
+opacity in light mode. Floating menus and transient toasts use menu elevation;
+modal surfaces use dialog elevation; and drawers keep directional geometry
+while sharing one drawer-shadow color.
+
+Only detached surfaces receive elevation. Attached search results, inline
+cards, and full-surface explorers rely on layout and boundaries instead of
+shadows. The browser palette gate checks the shared roles and representative
+menu, dialog, drawer, toast, and scrim consumers in both themes.
 
 ## Selector controls
 
@@ -195,7 +249,7 @@ ordinary body copy; the current leaf also receives the shared accent. Segment
 copy controls preserve this typography without button chrome and gain an
 underline on hover plus an explicit keyboard focus outline.
 
-### API, Source, and Metadata lenses
+### API, Source, Metadata, and Package Dependencies lenses
 
 API renders a compact local heading followed by its primary content. Type API
 uses `Members` with the live visible/total member-group count. Member API uses
@@ -205,11 +259,23 @@ competing with the subject path. Source is the full-area exception governed by
 [Inspect Web Surface Composition](inspect-web-surface-composition.md#source-and-annotated-source):
 it adds no local heading, so the subject zone remains the visible owner of the
 complete hierarchy while the active Source inspector labels the lens panel.
-Metadata retains its detailed type heading.
+Type Metadata uses a quiet local `Metadata` heading while retaining its detailed
+type-level context in the primary projection and compact bottom context row.
+Package Metadata uses the parallel quiet `Metadata images` heading while its
+compact controls and bottom row retain the active package coordinate.
+Package Dependencies uses a quiet `Dependencies` heading while its compact
+controls and bottom row retain the active package coordinate.
 
-At narrow widths, API header identity and status may elide visually as complete
-strings. Responsive styling does not selectively remove the overload total or
-ordinal from the rendered or accessible status.
+At narrow widths, API header identity and status plus Type Metadata, Package
+Metadata, and Package Dependencies header status and context values may elide
+visually as complete strings. Responsive styling does not selectively remove
+the overload total or ordinal from the rendered or accessible status.
+
+The narrow content-frame `Types` or `Members` control may occupy the leading
+space of these quiet headers. The local heading remains the accessible name
+even when it is visually elided. Member Overview begins its first content
+within the normal compact content inset; the scroller and first paragraph do
+not stack independent top margins into a blank introductory band.
 
 When the snapshot has no effective lens, the UI renders no `tabpanel`. A status
 region references the target heading and its visible `Lens unavailable`
@@ -248,15 +314,30 @@ and increases the amount visible without scrolling.
 
 ### Metadata lens
 
-The Metadata lens retains the detailed type heading. It is the type-level view
-for kind, namespace, declaration shape, target framework, library, package, and
-version context.
+Type Metadata uses a quiet `Metadata` heading with kind and accessibility
+status. Its full-area projection remains the type-level view for kind,
+namespace, declaration shape, target framework, library, package, and version
+context. Type shape rows begin at the top of the scroll region; the exact type
+identity and package coordinate remain in the compact bottom context row.
+
+Package Metadata uses a quiet `Metadata images` heading with assembly count or
+state. Version, Framework, and optional platform Library remain compact controls
+above the image facts. The exact package coordinate, framework, and optional
+library remain in the bottom context row.
+
+Package Dependencies uses a quiet `Dependencies` heading with selected
+package-dependency and direct assembly-reference counts or state. Version and
+Framework remain compact controls above the result. Manifest target-framework
+selection remains in the result because it does not change the package
+coordinate. The exact package coordinate and active framework remain in the
+bottom context row.
 
 The exact-target identity remains the common orientation point between API,
-Metadata, and Source. API and Metadata repeat that identity in their local
-headings; Source relies on the persistent subject zone rather than duplicating
-it inside the full-area working surface. Switching lenses does not change the
-selected subject or its display identity.
+Metadata, and Source. API uses its local member heading, Type Metadata preserves
+the type identity in its context row, Package Metadata and Package Dependencies
+preserve their package coordinates, and Source relies on the persistent subject
+zone rather than duplicating it inside the full-area working surface. Switching
+lenses does not change the selected subject or its display identity.
 
 ## Source provenance
 
@@ -266,7 +347,7 @@ type, member, and graph source surfaces; page-level placement and related
 action placement remain with their owning surfaces.
 
 For type and member Source, the placement of provenance relative to content and
-the placement of Copy and optional Open are owned by
+the placement of Copy, optional Open, and Explore are owned by
 [Inspect Web Surface Composition](inspect-web-surface-composition.md#source-and-annotated-source).
 Graph Source retains its modal-local composition.
 

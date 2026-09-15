@@ -149,7 +149,7 @@ repository evidence profile rather than motivating a second command-line
 parser.
 
 `MtpTestHostTests` is the outcome-level gate for the first adopter,
-`dotnet-inspect.Tests`. It starts the built test apphost and covers the
+`DotnetInspect.Cli.Tests`. It starts the built test apphost and covers the
 unmatched, valid, and mixed valid/stale filter outcomes. The suite's workflow
 contract tests pin its MTP call sites and preserve the authenticated package
 fixture's stronger not-skipped receipt.
@@ -166,6 +166,143 @@ the offline `Network=Live` exclusion through MTP, while the NuGet authentication
 test contract records the corresponding explicit live selection. These paths
 reuse the pinned outcome-level host gate and preserve the test partition owned
 by `docs/design/nuget-authentication.md`.
+
+`DotnetInspector.ILRoundtrip.Tests` is the fourth adopter. Its required PR lane
+exercises the fast `Speed=Slow` exclusion through MTP, while Deep Inspect and
+the suite's focused README preserve the unfiltered vendored-assembler sweep.
+These paths reuse the pinned outcome-level host gate without weakening the
+round-trip oracle or moving broad sweep work into PR CI.
+
+`ILInspector.JsExportSurface.Tests` is the fifth adopter. Its required focused
+CI commands use MTP method and class filters plus the MTP xUnit report
+extension. Existing report checks remain the stronger evidence that every
+named method or class contributed execution; MTP supplies only aggregate
+non-vacuity.
+
+`ILInspector.Metadata.Tests` is the sixth adopter. Its ordinary Linux and
+Windows PR commands remain unfiltered, while Deep Inspect preserves the
+60-second long-running diagnostic threshold through MTP's `--long-running`
+option with xUnit diagnostics enabled. Its process-isolated containment tests
+also select their child workers through MTP method filters. These paths reuse
+the pinned outcome-level host gate without changing the suite's metadata or
+oracle evidence.
+
+`ILInspector.Research.Tests` is the seventh adopter. Its ordinary PR command
+remains unfiltered, while Deep Inspect preserves the suite's skipped-test
+failure policy through MTP's `--fail-skips on` option. These paths reuse the
+pinned outcome-level host gate without changing the Research evidence composed
+from metadata, analysis, decompilation, source, or Finding contracts.
+
+`DotnetInspector.Services.Tests` is the eighth migrated adopter. Its required
+Linux and Windows PR commands and all three Deep Inspect platform lanes remain
+unfiltered, while its signed-package fixture instructions select the focused
+verification class through an MTP class filter. These paths reuse the pinned
+outcome-level host gate without changing the suite's service, package, source,
+cache, or resolution evidence.
+
+`DotnetInspector.Queries.Tests` is the ninth migrated adopter. Its required
+Linux and Windows PR commands and all three Deep Inspect platform lanes remain
+unfiltered. Supported package-manifest and source-query instructions use MTP
+method or class filters, while the workspace-scope instructions run each named
+regression class separately so every selection receives its own aggregate
+non-vacuity result. These paths reuse the pinned outcome-level host gate without
+changing query, workspace, package, source, or acquisition evidence.
+
+`DotnetInspector.Ecosystems.Tests` is the tenth migrated adopter. Its required
+PR, Windows, Deep Inspect platform, and developer commands remain unfiltered.
+These paths reuse the pinned outcome-level host gate without changing the
+suite's friend-only registry and catalog evidence or the separately compiled
+public-consumer evidence in `DotnetInspector.Ecosystems.Consumer.Tests`.
+
+`DotnetInspector.Ecosystems.Consumer.Tests` is the eleventh migrated adopter.
+Its required PR, Windows, Deep Inspect platform, and developer commands remain
+unfiltered. These paths reuse the pinned outcome-level host gate without
+changing the suite's separately compiled non-friend evidence or combining it
+with the dedicated catalog suite.
+
+`Inspector.Artifacts.Tests` is the twelfth migrated adopter. Its required PR,
+Deep Inspect platform, and developer commands remain unfiltered. These paths
+reuse the pinned outcome-level host gate without changing the suite's artifact
+access, local admission, workspace-session, digest, or cleanup evidence.
+
+`CSharpText.Tests` is the thirteenth migrated adopter. Its required PR, Deep
+Inspect platform, and developer commands remain unfiltered. These paths reuse
+the pinned outcome-level host gate without changing the suite's identifier,
+signature, declaration, conditional-recovery, or layout evidence. Manual
+decompiler fixture probes continue to inspect the built test assembly rather
+than invoke its test host.
+
+`DotnetInspector.RowSelection.Tests` is the fourteenth migrated adopter. Its
+required PR and developer commands remain unfiltered. These paths reuse the
+pinned outcome-level host gate without changing the suite's typed-language,
+reference-evaluator, failure, or separately compiled non-friend consumer
+evidence.
+
+`DotnetInspector.Sections.Tests` is the fifteenth migrated adopter. Its
+required PR and developer commands remain unfiltered. These paths reuse the
+pinned outcome-level host gate without changing the suite's unresolved-intent,
+cohort-binding, owner-identity, selection, or structured-failure evidence.
+
+`ILInspector.Instructions.Tests` is the sixteenth migrated adopter. Its
+required PR and developer commands remain unfiltered. These paths reuse the
+pinned outcome-level host gate without changing the suite's instruction
+decoding, block graph, typed-stack, metadata resolution, fidelity, comparison,
+analysis-diff, Finding value-equality, or review-fix evidence.
+
+`ILInspector.ILDiff.Tests` is the seventeenth migrated adopter. Its required PR
+and developer commands remain unfiltered, while process-isolated signature and
+metadata-graph safety workers select their child methods through MTP filters.
+These paths reuse the pinned outcome-level host gate without changing the
+suite's IL body and assembly comparison, normalization, member alignment,
+Finding census and matching, compiler-generated ordinal, metadata-graph
+safety, or diff presentation evidence.
+
+`DotnetInspector.FixtureInfrastructure.Tests` is the eighteenth migrated
+adopter. Its required PR command remains unfiltered. This path reuses the
+pinned outcome-level host gate without changing the suite's fixture identity,
+registration, grouping, artifact resolution, source and sidecar paths,
+boundary-axis, or cross-assembly relationship evidence.
+
+`InertText.Tests` is the nineteenth migrated adopter. Its required PR and
+developer commands remain unfiltered. These paths reuse the pinned
+outcome-level host gate without changing the suite's text-policy, containment,
+lossless and injective encoding, visual-form, truncation, composition, URL
+redaction, or public-surface evidence.
+
+`runfaster.Tests` is the twentieth migrated adopter. Its required PR and
+developer commands remain unfiltered. These paths reuse the pinned
+outcome-level host gate without changing the suite's candidate lookup, byte
+attribution, multiplicity, type confirmation, trace correlation, triage
+validation, leak-watch, or end-to-end CLI evidence.
+
+`DependencyPolicy.Tests` is the twenty-first migrated adopter. Its required PR
+and developer commands remain unfiltered. These paths reuse the pinned
+outcome-level host gate without changing the suite's strict schema, graph
+classification, rule evaluation, non-vacuity, deterministic diagnostic,
+MSBuild graph, assembly-closure, or fail-closed boundary evidence.
+
+`DotnetInspector.MetadataRendering.Tests` is the twenty-second migrated
+adopter. Its required PR and developer commands remain unfiltered. These paths
+reuse the pinned outcome-level host gate without changing the suite's metadata
+projection, structured rendering, `mdi`, containment, untrusted-text, reference,
+or visible-failure evidence. The migration also retires the oversized-version
+fixture harness: metadata admission now rejects its invalid version length
+before rendering, and the Metadata owner separately gates that typed rejection.
+
+`DotnetInspector.Presentation.Tests` is the twenty-third migrated adopter. Its
+required PR, Windows, Deep Inspect platform, and developer commands remain
+unfiltered. These paths reuse the pinned outcome-level host gate without
+changing the suite's ecosystem-change report, clone-candidate, Library API
+diff, Member source-diff, or detached inspection-envelope presentation
+evidence.
+
+`CSharpText.MemberSlicing.Tests` is the twenty-fourth migrated adopter. The
+tracker called this project `DotnetInspector.CSharpBodySlicer.Tests` before its
+rename in [#6340](https://github.com/richlander/dotnet-inspect/pull/6340). Its
+developer command remains unfiltered. This path reuses the pinned outcome-level
+host gate without changing the suite's declaration slicing, conditional
+recovery, exact metadata-name correspondence, corpus breadth, or Roslyn
+parse-validity evidence.
 
 If the selected MTP version cannot produce the independent discovery and
 execution identities required by the decompiler completeness receipt, that

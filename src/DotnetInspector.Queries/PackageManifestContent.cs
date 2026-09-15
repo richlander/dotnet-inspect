@@ -2,7 +2,15 @@ using DotnetInspector.Packages;
 
 namespace DotnetInspector.Queries;
 
-internal static class PackageManifestContent
+/// <summary>
+/// The single root-manifest selection rule shared by every package-content consumer.
+/// </summary>
+/// <remarks>
+/// Selection is not parsing: this only names the one root <c>.nuspec</c> entry a package may
+/// carry, so callers that need manifest bytes reuse it rather than re-implementing entry-path
+/// safety and root-uniqueness checks.
+/// </remarks>
+public static class PackageManifestContent
 {
     public static string? FindRootManifest(IPackageContent content)
     {

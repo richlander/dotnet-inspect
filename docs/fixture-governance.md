@@ -12,9 +12,31 @@ Independently compiled artifacts inspected by tests or harnesses live under
 tools and harnesses live under `tools/`.
 
 Keep compiler-produced source that is compiled as part of a test assembly beside
-its owning tests. A corpus, platform probe, consumer canary, or
-negative-compilation project remains under `tests/` unless its built artifact is
-itself an inspected fixture.
+its owning tests. A corpus, platform probe, executed test double, consumer
+canary, or negative-compilation project remains under `tests/` unless its built
+artifact is itself an inspected fixture.
+
+Classify by consumption, not by project name. For example,
+`NuGetFetch.PluginFixture` is executed as a protocol test double and
+`NuGetFetch.CustomClientFixture` is compiled and invoked as an external API
+consumer. Both live under `tests/nuget/`, not in the inspected-artifact catalog.
+
+Their test host lives under `tests/NuGetFetch.Tests`. Use the same selection as
+CI to exclude private-feed tests:
+`dotnet run --project tests/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"`.
+The separate plugin process and external-client project keep their existing
+build boundaries; the host's location does not change their roles.
+
+An executable can still be an inspected fixture: `RunFaster.AllocationFixture`
+supplies allocation IL correlated with a recorded `.nettrace`. Its project and
+trace live together under `fixtures/runfaster/`; the trace's copied test-output
+location is a separate catalog contract, not its source location.
+
+The corresponding test executable and its compiler-produced sample types live
+under `tests/runfaster.Tests`. Run the complete suite with
+`dotnet run --project tests/runfaster.Tests -c Release`. A test-project move
+preserves the test host, inherited build settings and built-output locations;
+intentional changes to those contracts belong in a separate change.
 
 `tests/DotnetInspector.FixtureInfrastructure` owns fixture registration and
 resolution. It records repository-relative project directories explicitly;
@@ -22,10 +44,17 @@ source location must not be inferred from a project or assembly name. Shared
 compiled specimen types live separately under
 `fixtures/shared/DotnetInspector.Fixtures`.
 
-Existing standalone fixtures are moving from `src/` and `tests/` into the
-top-level tree through owner-scoped slices tracked by
-[#5694](https://github.com/richlander/dotnet-inspect/issues/5694). New fixture
-projects and fixtures moved for other reasons use the target layout now.
+The owner-scoped migration tracked by
+[#5694](https://github.com/richlander/dotnet-inspect/issues/5694) established
+this layout for existing standalone fixtures and test executables. New fixture
+projects and fixtures moved for other reasons use the same layout.
+
+The permanent repository gate is intentionally partial.
+`DotnetInspector.FixtureInfrastructure.Tests` requires every cataloged fixture
+project path to use `fixtures/<owner>/` and requires projects in role-named
+solution folders to use the matching repository root. It does not infer the
+role of every project outside the solution or classify test-local inputs;
+those distinctions remain governed here and in review.
 
 ## Project-boundary rule
 

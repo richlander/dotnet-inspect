@@ -56,7 +56,7 @@ The model does not cover:
 - implementation conformance.
 
 The Release tests in
-`src/DotnetInspector.Queries.Tests/InspectionWorkspaceTests.cs` remain the
+`tests/DotnetInspector.Queries.Tests/InspectionWorkspaceTests.cs` remain the
 implementation gates. The model checks whether the abstract protocol's own
 rules are consistent over its bounded state space.
 
