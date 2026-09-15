@@ -350,15 +350,16 @@ public class AuthoredSourceValidityTests
     /// <summary>
     /// True when <paramref name="name"/> carries a compiler-generated segment. The compiler
     /// spells such names with a leading '&lt;' on the segment it owns — "&lt;M&gt;d__0" for an
-    /// iterator, "&lt;&gt;c" for a lambda holder — which no C# identifier can spell. A generic
-    /// name such as "Walk&lt;THandle&gt;" or "RelationshipChain&lt;T&gt;" also contains '&lt;',
-    /// but never at the start of a segment, so it stays in the corpus.
+    /// iterator, "&lt;&gt;c" for a lambda holder — which no C# identifier can spell. Member
+    /// anchors escape that leading character as "\&lt;". A generic name such as
+    /// "Walk&lt;THandle&gt;" or "RelationshipChain&lt;T&gt;" also contains '&lt;', but never at
+    /// the start of a segment, so it stays in the corpus.
     /// </summary>
     private static bool IsCompilerGenerated(string name)
     {
         foreach (var segment in name.Split('.', '+'))
         {
-            if (segment.StartsWith('<'))
+            if (segment.StartsWith('<') || segment.StartsWith(@"\<"))
                 return true;
         }
 

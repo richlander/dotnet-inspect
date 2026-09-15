@@ -38,9 +38,33 @@ function $validateManagedExports(exports) {
         value = $ownDataProperty(value, "Interop");
         value = $ownDataProperty(value, "Metadata");
         value = $ownDataProperty(value, "MetadataExports");
+        value = $ownDataProperty(value, "CancelLibraryApiDiff.271973316");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.CancelLibraryApiDiff.271973316\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "DotnetInspect");
+        value = $ownDataProperty(value, "Web");
+        value = $ownDataProperty(value, "Interop");
+        value = $ownDataProperty(value, "Metadata");
+        value = $ownDataProperty(value, "MetadataExports");
         value = $ownDataProperty(value, "QueryGraphMemberSurface.1542089313");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryGraphMemberSurface.1542089313\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "DotnetInspect");
+        value = $ownDataProperty(value, "Web");
+        value = $ownDataProperty(value, "Interop");
+        value = $ownDataProperty(value, "Metadata");
+        value = $ownDataProperty(value, "MetadataExports");
+        value = $ownDataProperty(value, "QueryLibraryApiDiff.451505237");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryLibraryApiDiff.451505237\u0027 is not callable.");
         }
     }
     {
@@ -176,8 +200,18 @@ export function initializeRuntime(runtime) {
 export function runEntryPoint(mainAssemblyName, args) {
     return $requireRuntime().runMain(mainAssemblyName, args);
 }
+export function cancelLibraryApiDiff(operationId, reason) {
+    const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["CancelLibraryApiDiff.271973316"](operationId, reason);
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
 export async function queryGraphMemberSurface(packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken) {
     const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryGraphMemberSurface.1542089313"](packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken);
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
+export async function queryLibraryApiDiff(operationId, requestJson) {
+    const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryLibraryApiDiff.451505237"](operationId, requestJson);
     const $parsed = JSON.parse($result);
     return $parsed;
 }

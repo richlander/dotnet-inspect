@@ -54,6 +54,8 @@ type PackageOperationName =
   | "resolvePackageDependencyVersion";
 
 type MetadataOperationName =
+  | "cancelLibraryApiDiff"
+  | "queryLibraryApiDiff"
   | "queryTypeProjection"
   | "queryMemberDeclaration"
   | "queryPlatformMemberDeclaration"
@@ -852,6 +854,22 @@ export const engineWorkerOrdinaryOperations = {
     ),
   },
   metadata: {
+    cancelLibraryApiDiff: valueOperation(
+      "ordinary-metadata-cancel-library-api-diff",
+      2,
+      (
+        facades,
+        ...args: Parameters<MetadataFacade["cancelLibraryApiDiff"]>
+      ) => facades.metadata.cancelLibraryApiDiff(...args),
+    ),
+    queryLibraryApiDiff: valueOperation(
+      "ordinary-metadata-query-library-api-diff",
+      2,
+      (
+        facades,
+        ...args: Parameters<MetadataFacade["queryLibraryApiDiff"]>
+      ) => facades.metadata.queryLibraryApiDiff(...args),
+    ),
     queryMemberDeclaration: valueOperation(
       "ordinary-metadata-query-member-declaration",
       9,
@@ -1232,6 +1250,12 @@ export function bindEngineWorkerOrdinaryClient(
       ),
     },
     metadata: {
+      cancelLibraryApiDiff: bind(
+        engineWorkerOrdinaryOperations.metadata.cancelLibraryApiDiff,
+      ),
+      queryLibraryApiDiff: bind(
+        engineWorkerOrdinaryOperations.metadata.queryLibraryApiDiff,
+      ),
       queryMemberDeclaration: bind(
         engineWorkerOrdinaryOperations.metadata.queryMemberDeclaration,
       ),
