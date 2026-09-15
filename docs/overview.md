@@ -131,13 +131,15 @@ substrates, and inspection producers that will extend that space.
   owns the explicit-consumer obligation for a population-creating range,
   distinguishes filtering an already selected population, and admits Count
   as a consumer without inventing a default operation. Its first adopter,
-  [Diff History inspection](design/diff-history.md), owns the target explicit
-  endpoint, History, and population-count requests and shared results for
-  CLI and Browser/Wasm. History preserves native temporal evidence; Count
-  alone counts package versions without payload inspection. The CLI cutover
-  removes the standalone `timeline` command and implicit source-range
-  endpoint selection without compatibility. Package, Finding, Workspace,
-  envelope, row-selection, and Browser interaction retain their contracts.
+  [Diff History inspection](design/diff-history.md), owns target temporal
+  and population-count semantics and shared results for CLI and Browser/Wasm.
+  History preserves native temporal evidence; Count alone counts package
+  versions without payload inspection.
+  [Subject-owned Diff](design/command-transition-model.md#subject-owned-diff)
+  owns the Library/Type/Member command placement, Package count binding, and
+  envelope-complete adoption boundary, including public CLI envelope output
+  and no-compat top-level Diff/Timeline retirement. Package, Finding, Workspace,
+  envelope, row-selection, and Browser interaction retain their own contracts.
   The proposed
   [structural clone search scope](design/structural-clone-search-scope.md)
   owner defines Library, Type, and Member seed populations plus the shared

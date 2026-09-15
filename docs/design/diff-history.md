@@ -7,23 +7,25 @@ Status: **proposed; not implemented**. This specification is tracked by
 [Compare delivery #5083](https://github.com/richlander/dotnet-inspect/issues/5083)
 and [multi-part document adoption #6980](https://github.com/richlander/dotnet-inspect/issues/6980).
 
-The **Diff History inspection** owner defines the Diff range-consumer contract
-and its temporal operation:
+The **Diff History inspection** owner defines temporal inspection and the
+related metadata-only version-population reduction:
 
-> A Diff source range requires an explicit consumer, with no default.
+> A population-creating range requires an explicit consumer, with no default.
 > `--endpoints` compares the two endpoints; `--history` correlates an explicitly
 > evaluated subset of an ordered package-version population; Count alone
 > counts its versions without inspecting payloads. History returns one detached,
 > typed temporal result for CLI and Browser/Wasm. Population selection,
 > evaluation selection, and result-row selection remain distinct.
-> The standalone `timeline` command is removed when the CLI replacement lands,
-> without compatibility.
+> The completed shared results reach both hosts without losing Content, Share,
+> or diagnostics.
 
 The user approved this direction on 2026-09-14 and explicitly requested
-"remove the timeline command (no compat)". This document takes ownership of
-that one command-placement decision from the
-[command-transition model](command-transition-model.md). Other operations
-retain that model's general rules.
+"remove the timeline command (no compat)". The subsequent
+[subject-owned Diff decision](command-transition-model.md#subject-owned-diff)
+supersedes #6988's top-level placement and owns CLI mapping and cutover.
+This document relinquishes that command-placement responsibility while
+retaining temporal, count, and evaluation semantics. Its examples now consume
+the subject-owned grammar rather than defining a competing entry point.
 
 The subsequent user direction names the mode `--history`, requires an explicit
 consumer for population-creating ranges, and admits Count as a consumer.
@@ -31,7 +33,7 @@ This is the first adoption of
 [population range selection](population-range-selection.md), under its bounded
 first-adopter scope.
 
-This owner defines the requests, results, and immediate host mappings.
+This owner defines the semantic requests and results.
 It consumes package version resolution, Finding correlation, acquisition,
 Workspace lifetime, row selection, and envelope contracts; it does not
 redefine their algorithms, identity, admission, or lifecycle policies.
@@ -49,29 +51,32 @@ Endpoints: A ----------------------> B
 History:   A -> v1 -> v2 -> ... ----> B
 ```
 
-Grouping them under Diff is a deliberate exception to the general preference
-for separate commands when arity changes. It makes the same source and focus
-usable for endpoint confirmation and temporal investigation without another
-top-level command. It does not pretend that two-endpoint comparison and
-N-address correlation have identical acquisition or failure semantics.
+Grouping them as modes of a subject-owned Diff operation makes the same
+source and focus usable for endpoint confirmation and temporal investigation.
+Distinct arity does not require a top-level command. Two-endpoint comparison
+and N-address correlation retain different acquisition and failure semantics.
 
 Existing `PackageVersionVector` addressing and `FindingCensusCorrelation<T>`
 are the implementation baseline. The `match`/`match --similar` operation family
 is analogous evidence for an explicit mode with a different population, not
 authority to reuse its algorithms. No external implementation is transferred.
 
-## CLI contract
+## CLI adoption of the semantic contract
+
+Command placement and host-adoption completion are owned by
+[subject-owned Diff](command-transition-model.md#subject-owned-diff).
+The following examples and bindings consume that contract.
 
 ### Explicit range consumers
 
 Supplying a source range creates a population request; it does not choose how
-Diff consumes it. A range request must select an admitted consumer:
+the subject operation consumes it. A range request must select an admitted consumer:
 
 | Selector | Input and meaning |
 | --- | --- |
-| `--endpoints` | Compare the two literal endpoints using existing pairwise behavior, without enumerating interior versions. |
-| `--history` | Discover a package-version population and correlate explicitly selected evaluations. |
-| `--count` without either operation | Count the selected package versions using source metadata alone. |
+| Subject Diff with `--endpoints` | Compare the two literal endpoints using existing pairwise behavior, without enumerating interior versions. |
+| Admitted Type/Member Diff with `--history` | Discover a package-version population and correlate explicitly selected evaluations. |
+| Package range with `--count` | Count the selected package versions using source metadata alone, outside Diff. |
 
 `--endpoints` and `--history` are mutually exclusive. There is no default
 operation. A source range without an admitted consumer is an error before
@@ -79,16 +84,16 @@ population discovery or payload acquisition. Focus, producer, classification,
 format, `--at`, and row-filter options do not supply a missing operation.
 History is not inferred from the range or its number of versions.
 
-Count may accompany an explicit operation as a reduction of that operation's
-selected result rows; it is not a conflicting second operation. A range in
+Count on source-range Diff requires an explicit mode and reduces that
+operation's selected result rows; it does not select version counting. A range in
 `--rows` filters those declared rows and needs no additional consumer.
 It does not excuse a missing consumer for the source range.
 
 This is an intentionally breaking change to range invocations, not a new
-default. Existing source-range shorthands obey the same rule. Platform ranges
-use `--endpoints`; platform History and count-only version populations remain
-unsupported. Non-range explicit local Library pairs retain their current
-pairwise grammar and behavior.
+default. Admitted source-range shorthands obey the same rule. Platform ranges
+use subject Diff with `--endpoints`; platform History and count-only version
+populations remain unsupported. Non-range explicit local Library pairs move
+under `library diff` while retaining their pairwise argument meaning and results.
 
 The initial History domain matches the existing command: one package range,
 one Type focus, and one Finding producer, optionally narrowed to one Member.
@@ -97,32 +102,32 @@ ordering, or cross-package comparison. Both hosts support this same domain.
 
 ```bash
 # Existing endpoint comparison, now explicitly selected
-dotnet-inspect diff --package Markout@0.33.0..0.35.2 --endpoints \
-  --type Markout.MarkoutWriterOptions
+dotnet-inspect type diff Markout.MarkoutWriterOptions \
+  --package Markout@0.33.0..0.35.2 --endpoints
 
 # Proposed replacement for the current standalone command
-dotnet-inspect diff --package Markout@0.33.0..0.35.2 --history \
-  --type Markout.MarkoutWriterOptions --finding api.member \
+dotnet-inspect type diff Markout.MarkoutWriterOptions \
+  --package Markout@0.33.0..0.35.2 --history --finding api.member \
   --at all -S Transitions
 
 # Discover the version population without evaluating package payloads
-dotnet-inspect diff --package Markout@0.33.0..0.35.2 --history \
-  --type Markout.MarkoutWriterOptions
+dotnet-inspect type diff Markout.MarkoutWriterOptions \
+  --package Markout@0.33.0..0.35.2 --history
 
 # Inspect a sparse sample; preserve the gap between the endpoints
-dotnet-inspect diff --package Markout@0.33.0..0.35.2 --history \
-  --type Markout.MarkoutWriterOptions --at first --at last
+dotnet-inspect type diff Markout.MarkoutWriterOptions \
+  --package Markout@0.33.0..0.35.2 --history --at first --at last
 
 # Count package versions, not changes or successful evaluations
-dotnet-inspect diff --package Markout@0.33.0..0.35.2 --count
+dotnet-inspect package Markout@0.33.0..0.35.2 --count
 ```
 
 These are target invocations, not currently supported syntax.
 
 ### Count-only population requests
 
-Without `--endpoints` or `--history`, `--count` selects one declared Versions
-cohort. Resolve the same package-version population used by History, apply
+On the Package range surface, `--count` selects one declared Versions cohort.
+Resolve the same package-version population used by History, apply
 supported version-row selection, and reduce it through the existing Count
 contract. Count-only does not require a Type, produce temporal evaluations,
 compare endpoints, or acquire package payloads.
@@ -193,12 +198,12 @@ resolved or absent.
 | `analysis.call-site` | One exact Member, required. |
 | `analysis.unsafety` | One exact Member, required. |
 
-`--finding` is the producer selector. The old command's positional Type
-shorthand and `--members`, `--type-presence`, and `--attributes` aliases are not
-part of the replacement grammar. Existing Diff source/focus spellings remain
-owned by Diff; examples use the named `--package`, `--type`, and `--member`
-forms. Source authorization, `--tfm`, `--preview`, and `--all` retain their
-owning meanings.
+`--finding` is the producer selector. The old command's argument rewriting and
+`--members`, `--type-presence`, and `--attributes` aliases are not part of the
+replacement grammar. Type/Member selectors follow their subject grammar after
+`diff`; `--package` supplies the source. Library population filters do not
+become exact History focus selectors.
+Source authorization, `--tfm`, `--preview`, and `--all` retain their meanings.
 
 History-only inputs require `--history`; in particular, `--at` must not
 silently change endpoint Diff or Count into correlation. History rejects
@@ -290,10 +295,12 @@ Count reduces the declared comparison rows. Row, field, and column selection
 preserve their existing host contracts. Host JSON is a typed content
 projection, not an envelope transport.
 
-The public envelope mode tracked by #6719 is a separate transport adoption.
-It must eventually serialize this exact constructed envelope without another
-inspection, but is not a prerequisite for History or population counts in
-either host.
+The public envelope mode tracked by #6719 remains a separately owned
+transport, but is now required by the subject-owned CLI adoption. It serializes
+this exact constructed envelope without another inspection. Complete Browser
+delivery is also part of adoption; it must preserve Content, Share, and ordered
+typed diagnostics even where the UI renders only a subset.
+This supersedes the earlier delivery plan that deferred envelope exposure.
 
 ## Browser adoption boundary
 
@@ -325,53 +332,32 @@ request. It must not reinterpret existing semantic-version ranges as
 publication-time ranges. The current History grammar still requires a closed
 package-version range; this example adds no implementation step or gate.
 
-## Atomic CLI cutover: no compatibility
+## CLI cutover dependency
 
-The CLI adoption introduces the replacement and removes `timeline` in the same
-production slice. There is no alias, forwarding shim, hidden compatibility
-route, deprecation period, or fallback to the old command.
-
-Remove the executable command registration and old command-specific argument
-rewriting; relocate reusable correlation behind the shared operation rather than
-keeping two semantic implementations. Update help, completion/discovery
-surfaces, generated probe commands, README, product skills, demos, and active
-workflow examples in that same slice. Historical design evidence need not be
-rewritten, and Timeline remains a valid mode/domain name in code.
-
-The same cutover adds the explicit range consumers and removes implicit
-endpoint selection for source ranges. Migrate existing endpoint examples and
-generated replay commands to `--endpoints`; retain the operation and any Count
-reduction in replay. Neither the proposed `--timeline` nor `--pairwise`
-spelling becomes an alias: the chosen spellings are `--history` and
-`--endpoints`.
-
-Classify and disclose both the command removal and the explicit-consumer
-requirement as **intentionally breaking** under
-[CLI change classification](cli-change-classification.md).
-The retired command invocation must not silently become package acquisition
-through the implicit router. Apply that owner's obsolete-input rules without
-retaining an executable compatibility path.
+The [placement owner](command-transition-model.md#cutover-and-production-path)
+owns atomic retirement of top-level `diff` and `timeline`, obsolete-input
+handling, replacement coverage, and active guidance. This History adoption
+supplies the shared semantic implementation and subject-mode bindings; it does
+not preserve a second algorithm or route. The proposed `--timeline` and
+`--pairwise` spellings do not become aliases.
 
 This specification PR changes no runtime behavior. Current README/skills remain
 truthful until the cutover; they must not advertise the new consumers early.
 
 ## Counted adoption and evidence
 
-1. Lock the population-range pattern and this first adopter's specification,
-   including its one command-placement exception.
-2. Implement the shared History and population-count terminals over existing
-   version resolution, correlation, and Count, retaining authentic assets and
-   outcome-level gates.
-3. Atomically adopt the range consumers in `diff`, remove the implicit range
-   default and standalone command without compatibility, and update active
-   CLI guidance.
-4. Adopt the same History and population-count results in Browser Compare
-   through its existing host owners, with real UI and transport gates.
+The authoritative
+[five-step production path](command-transition-model.md#cutover-and-production-path)
+now includes shared enveloped terminals, supported public CLI envelope
+transport, subject-owned CLI cutover, and complete Browser adoption after the
+specification. This replaces the earlier four-step plan; it does not add a
+second parallel migration. History and population-count work contribute to the
+shared-terminal step and both host adoptions. The generic envelope type is
+already implemented and is reused, not rebuilt.
 
-Total steps: **4**. This PR is step 1. Steps 3 and 4 consume step 2 and may
-proceed independently; step 2 is not the completion of product delivery.
-Call Graph/canvas, generic envelope transport, and Library-wide History do
-not become prerequisites for the current Compare work.
+Call Graph/canvas, Library-wide History, and the future duration example remain
+outside that path. The new envelope requirement does not hold already-shipped
+pairwise Compare work hostage to this migration.
 
 The real scenario is `Markout@0.33.0..0.35.2` focused on
 `Markout.MarkoutWriterOptions`, already used by the repository's Timeline
@@ -399,11 +385,12 @@ The implementation slices must supply Release gates for:
 - count-only versions, filtered version counts, and Count after an explicit
   operation, retaining the declared unit and rejecting insufficient evidence;
 - metadata-only counts without package payload acquisition or a Type focus;
-- unchanged endpoint results with `--endpoints`, an unchanged non-range local
-  pair, History invocation, and rejection of the retired command without
-  package fallback; and
-- Browser consumption of the same History and population-count results,
-  preserving gaps, failures, and count units.
+- unchanged endpoint results under subject Diff with `--endpoints`, equivalent
+  non-range local pair results, Type/Member History, and rejected retired
+  commands without package fallback; and
+- complete CLI/Browser envelope delivery for History and Package version
+  counts, preserving gaps, failures, count units, Share, and diagnostic identity
+  and order without duplicate execution for serialization.
 
 These new gates are **unverified** in this design-only slice. Deterministic
 contract cases belong in PR-fast suites; real-package/exhaustive cases are

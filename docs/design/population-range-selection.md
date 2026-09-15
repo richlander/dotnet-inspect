@@ -77,11 +77,14 @@ removes that default; other command owners are not migrated by this document.
 [Diff History inspection](diff-history.md#explicit-range-consumers) is the
 first adopter. Its specification locks alongside this pattern under the
 [bounded first-adopter exception](../design-scope.md#stage-implementation-after-locking-the-design).
-That owner defines the CLI selectors, shared results, Browser consumption,
-and no-compat retirement; this pattern does not duplicate their contracts.
+That owner retains the semantic History and version-count results.
+[Subject-owned Diff](command-transition-model.md#subject-owned-diff) now owns
+their command placement: Type/Member History and Package version counting.
+This pattern does not duplicate those contracts or require a top-level Diff.
 
-The counted production path is the adopter's four steps: specification, shared
-queries/results, CLI cutover, and Browser adoption. The real motivating asset is
+The counted production path is the placement owner's five steps, including
+complete shared envelopes, public CLI envelope transport, CLI cutover, and
+Browser adoption after specification. The real motivating asset is
 `Markout@0.33.0..0.35.2`, both as a version-count question and as a History
 inspection of `Markout.MarkoutWriterOptions`. Other owners adopt separately;
 no repository-wide migration or new temporal population resolver is implied.
