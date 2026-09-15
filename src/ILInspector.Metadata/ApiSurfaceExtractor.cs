@@ -724,31 +724,17 @@ public static class ApiSurfaceExtractor
                 continue;
             }
 
-            // Only include public types by default. The filtered-export scan
-            // above intentionally precedes this visibility check: an authentic
-            // row on a private compiler-generated lambda type remains relevant
-            // failure evidence even though the type is not an API declaration.
-            if (!typeDef.IsPublic && scope == ApiSurfaceExtractionScope.Public)
+            if (!IsTypeVisibleInSurface(
+                    reader,
+                    typeDef,
+                    scope,
+                    observeDecodeWork))
                 continue;
 
             // Whether this type's members follow the include-all rules. Every member decision
             // below reads this local, so the composed scope keeps a public type's public member
             // list while a non-public type carries its complete one.
-            bool includeAll = scope == ApiSurfaceExtractionScope.IncludeAll
-                || (scope == ApiSurfaceExtractionScope.PublicWithNonPublicTypes
-                    && !typeDef.IsPublic);
-
-            // Skip EditorBrowsable(Never) and Obsolete types unless --all. A public type the
-            // extractor hides stays hidden in the composed scope too: it is suppressed, not
-            // demoted into the non-public bucket with an include-all member list.
-            if (!includeAll
-                && AttributeReader.HasHiddenAttribute(
-                    reader,
-                    typeDef.GetCustomAttributes(),
-                    observeDecodeWork))
-            {
-                continue;
-            }
+            bool includeAll = IncludesAllMembers(typeDef, scope);
 
             MetadataTypeDefinitionName definitionName =
                 MetadataTypeDefinitionNameReader.Read(
@@ -1992,6 +1978,29 @@ public static class ApiSurfaceExtractor
             budget is null ? null : budget.RetainCommittedText);
         return surface;
     }
+
+    internal static bool IsTypeVisibleInSurface(
+        MetadataReader reader,
+        TypeDefinition type,
+        ApiSurfaceExtractionScope scope,
+        Action<int>? observeDecodeWork = null)
+    {
+        if (!type.IsPublic && scope == ApiSurfaceExtractionScope.Public)
+            return false;
+
+        return IncludesAllMembers(type, scope)
+            || !AttributeReader.HasHiddenAttribute(
+                reader,
+                type.GetCustomAttributes(),
+                observeDecodeWork);
+    }
+
+    static bool IncludesAllMembers(
+        TypeDefinition type,
+        ApiSurfaceExtractionScope scope) =>
+        scope == ApiSurfaceExtractionScope.IncludeAll
+        || (scope == ApiSurfaceExtractionScope.PublicWithNonPublicTypes
+            && !type.IsPublic);
 
     private static void CountSummaryMembers(
         MetadataReader reader,

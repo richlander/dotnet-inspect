@@ -12013,7 +12013,7 @@ async function loadSelectedTypeMetadata() {
     version: pkg.version,
     framework: pkg.activeFramework,
     assembly: type.assembly,
-    type: type.queryId ?? type.id,
+    type: type.definitionId ?? type.id,
     workspaceJson,
     isVisible: () => {
       const currentType = selectedType();

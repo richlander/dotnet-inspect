@@ -200,6 +200,27 @@ public sealed partial class BrowserEngineBoundaryTests
             ]
             """;
 
+        string packageJson =
+            await DotnetInspect.Web.Interop.Package.PackageExports
+                .QueryPackage(
+                    package,
+                    "1.0.0",
+                    "net11.0");
+        using JsonDocument packageDocument =
+            JsonDocument.Parse(packageJson);
+        JsonElement nestedRow =
+            Assert.Single(
+                packageDocument.RootElement.GetProperty("types")
+                    .EnumerateArray(),
+                candidate =>
+                    candidate.GetProperty("definitionId").GetString()
+                    == "N.Outer+Inner");
+        Assert.Equal(
+            "N.Outer.Inner",
+            nestedRow.GetProperty("queryId").GetString());
+        string definitionId =
+            nestedRow.GetProperty("definitionId").GetString()!;
+
         BrowserTypeMetadata presentation =
             await DotnetInspect.Web.Interop.Metadata.MetadataExports
                 .TypeProjectionAsync(
@@ -207,7 +228,7 @@ public sealed partial class BrowserEngineBoundaryTests
                     "1.0.0",
                     "net11.0",
                     $"{assemblyName}.dll",
-                    "N.Outer+Inner",
+                    definitionId,
                     workspaceJson,
                     Resolve(RowQueryIntent.Empty));
 

@@ -284,6 +284,9 @@ preserving namespace, nesting, literal delimiters, case, and generic arity.
 Only when that identity is absent does lookup apply exact dotted, short, or
 namespace-suffix compatibility matching before Metadata's broader base-name
 matching.
+The Browser row-to-operation handoff carries this escaped definition identity,
+not the flattened query spelling. Method enrichment retains the selected
+MethodDef token rather than resolving its declaring Type again through text.
 The optional exact `PackageCompileAsset.Id`, Metadata-issued assembly identity
 (or bounded exact assembly-name selector for callers that have only a name)
 narrows declaration discovery within the surface role;
@@ -296,8 +299,11 @@ assets sharing an assembly identity cannot substitute for each other.
 Share is derived only for Available content, using the escaped owner-issued
 definition identity that Browser restoration consumes and the source-issued
 exact package coordinate. Package-wide uniqueness is evaluated over all
-declarations independently of the requested public/API visibility. Misses,
-ambiguity, incomplete inspection and rejection remain non-projectable. A
+declarations independently of the requested public/API visibility. Share
+requires the selected Type to be present in the Browser catalog's
+`PublicWithNonPublicTypes` surface; `IncludeAll` content hidden from that
+surface remains available but non-projectable. Misses, ambiguity, incomplete
+inspection and rejection remain non-projectable. A
 successful assembly-selected collision is also
 non-projectable when the package-wide canonical type is not unique: this
 slice preserves the source-issued declaration and supplier asset IDs rather

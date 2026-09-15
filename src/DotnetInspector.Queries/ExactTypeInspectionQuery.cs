@@ -84,6 +84,7 @@ public abstract record ExactTypeInspectionResult
             WorkspaceDefinitionSnapshotIdentity definition,
             ExactTypeCandidate candidate,
             bool isContextUnique,
+            bool isPublicWithNonPublicTypesVisible,
             ApiType type,
             ApiMemberInventoryResult members,
             ImmutableArray<ApiSurfaceInspectionFailure> inspectionFailures)
@@ -91,6 +92,8 @@ public abstract record ExactTypeInspectionResult
         {
             Candidate = candidate;
             IsContextUnique = isContextUnique;
+            IsPublicWithNonPublicTypesVisible =
+                isPublicWithNonPublicTypesVisible;
             Type = type;
             Members = members;
             InspectionFailures = inspectionFailures;
@@ -103,6 +106,12 @@ public abstract record ExactTypeInspectionResult
         /// the complete selected context, independent of the assembly selector.
         /// </summary>
         public bool IsContextUnique { get; }
+
+        /// <summary>
+        /// Whether the selected Type is present in the composed Browser catalog
+        /// surface.
+        /// </summary>
+        public bool IsPublicWithNonPublicTypesVisible { get; }
 
         public ApiType Type { get; }
 
@@ -550,12 +559,23 @@ public static class ExactTypeInspectionQuery
             !selected.Resolution.Hops.IsDefaultOrEmpty;
         ApiSurfaceExtractor.PopulateDerivedTypes(surface, type);
 
-        AssemblyImageAccessResult<bool> asyncEnrichment =
+        AssemblyImageAccessResult<ExactTypeEnrichment?>
+            exactTypeEnrichment =
             realization.SurfaceGroup.UseAssemblySession(
                 selected.Supplier,
                 cancellationToken,
                 (session, _) =>
                 {
+                    MethodBodySource methods = session.MethodBodies;
+                    bool? isPublicWithNonPublicTypesVisible =
+                        methods.IsTypeVisibleInSurface(
+                            selected.Resolution.Definition.Address
+                                .Definition.Value,
+                            ApiSurfaceExtractionScope
+                                .PublicWithNonPublicTypes);
+                    if (isPublicWithNonPublicTypesVisible is null)
+                        return null;
+
                     foreach (ApiMember member in type.Members)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
@@ -564,25 +584,18 @@ public static class ExactTypeInspectionQuery
                                 != HandleKind.MethodDefinition)
                             continue;
 
-                        MethodBodySource methods = session.MethodBodies;
-                        MethodOperandIdentity? identity =
-                            methods.ResolveMethodIdentity(token);
-                        if (identity is null)
-                            return false;
-                        MethodBodySelection? method = methods.ResolveMethod(
-                            identity.DeclaringType,
-                            identity.Name,
-                            overloadIndex: 0,
-                            publicOnly: false,
-                            preferredToken: token);
+                        MethodBodySelection? method =
+                            methods.ResolveMethodDefinition(token);
                         if (method is null || method.MetadataToken != token)
-                            return false;
+                            return null;
                         member.IsAsync = method.AsyncClassification is not null;
                     }
-                    return true;
+                    return new ExactTypeEnrichment(
+                        isPublicWithNonPublicTypesVisible.Value);
                 });
-        if (asyncEnrichment
-            is AssemblyImageAccessResult<bool>.Rejected asyncRejected)
+        if (exactTypeEnrichment
+            is AssemblyImageAccessResult<ExactTypeEnrichment?>
+                .Rejected enrichmentRejected)
         {
             return new ExactTypeInspectionResult.Rejected(
                 request,
@@ -591,13 +604,14 @@ public static class ExactTypeInspectionQuery
                     new(
                         ExactTypeInspectionFailureKind
                             .AsyncClassificationUnavailable,
-                        asyncRejected.Assembly.Identity,
+                        enrichmentRejected.Assembly.Identity,
                         CandidateOpenFailure:
-                            asyncRejected.Failure.Kind),
+                            enrichmentRejected.Failure.Kind),
                 ]);
         }
-        if (asyncEnrichment is AssemblyImageAccessResult<bool>.Available
-            { Value: false })
+        if (exactTypeEnrichment
+            is not AssemblyImageAccessResult<ExactTypeEnrichment?>
+                .Available { Value: { } enrichment })
         {
             return Rejected(
                 ExactTypeInspectionFailureKind.AsyncClassificationUnavailable,
@@ -619,6 +633,7 @@ public static class ExactTypeInspectionQuery
                 && contextOccurrences.Contains(candidate.Observation.Occurrence)) == 1
                 && contextOutcomes.Length == contextOccurrences.Count
                 && contextOutcomes.All(static member => member.IsComplete),
+            enrichment.IsPublicWithNonPublicTypesVisible,
             type,
             ApiInventoryQuery.Members(type),
             SelectedFailures(surface, type));
@@ -786,4 +801,7 @@ public static class ExactTypeInspectionQuery
         PackageAssemblyRoleParticipant SupplierMember,
         string DeclarationAssetId,
         PackageRootBinding Binding);
+
+    sealed record ExactTypeEnrichment(
+        bool IsPublicWithNonPublicTypesVisible);
 }

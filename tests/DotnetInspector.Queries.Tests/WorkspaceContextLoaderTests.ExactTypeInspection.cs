@@ -166,6 +166,16 @@ public sealed partial class WorkspaceContextLoaderTests
         Assert.Equal(
             "N.Outer+Inner",
             nested.Candidate.Definition.ToEscapedFullName());
+
+        var topLevel =
+            Assert.IsType<ExactTypeInspectionResult.Available>(
+                (await ExecuteExactAsync(
+                    store,
+                    PackageContext(Version),
+                    "N.Outer.Inner")).Content);
+        Assert.Equal(
+            "N.Outer.Inner",
+            topLevel.Candidate.Definition.ToEscapedFullName());
     }
 
     [Fact]
@@ -280,6 +290,28 @@ public sealed partial class WorkspaceContextLoaderTests
         Assert.Equal(
             "N.Widget",
             restored.Candidate.Definition.ToEscapedFullName());
+    }
+
+    [Fact]
+    public async Task ExactTypeInspection_IncludeAllIsNotBrowserShareable()
+    {
+        InspectionEnvelope<ExactTypeInspectionResult> envelope =
+            await ExecuteExactAsync(
+                await CachedStoreAsync(
+                    Version,
+                    Archive(
+                        ($"ref/{Framework}/Editor.Hidden.dll",
+                            EditorHiddenApiAssembly()))),
+                PackageContext(Version),
+                "N.EditorHidden",
+                scope: ApiSurfaceScope.IncludeAll);
+
+        Assert.IsType<ExactTypeInspectionResult.Available>(
+            envelope.Content);
+        var share =
+            Assert.IsType<InspectionShare.NonProjectable>(
+                envelope.Share);
+        Assert.Equal("exact-type/type.visibility", share.Path);
     }
 
     [Fact]
@@ -1162,6 +1194,32 @@ public sealed partial class WorkspaceContextLoaderTests
             topLevel.DefineDefaultConstructor(MethodAttributes.Public);
             topLevel.CreateType();
         }
+
+        using var stream = new MemoryStream();
+        assemblyBuilder.Save(stream);
+        return stream.ToArray();
+    }
+
+    static byte[] EditorHiddenApiAssembly()
+    {
+        var assemblyBuilder = new PersistedAssemblyBuilder(
+            new AssemblyName("Editor.Hidden"),
+            typeof(object).Assembly);
+        ModuleBuilder module =
+            assemblyBuilder.DefineDynamicModule("Editor.Hidden");
+        TypeBuilder type = module.DefineType(
+            "N.EditorHidden",
+            TypeAttributes.Public | TypeAttributes.Class);
+        ConstructorInfo constructor =
+            typeof(System.ComponentModel.EditorBrowsableAttribute)
+                .GetConstructor(
+                    [typeof(System.ComponentModel.EditorBrowsableState)])!;
+        type.SetCustomAttribute(
+            new CustomAttributeBuilder(
+                constructor,
+                [System.ComponentModel.EditorBrowsableState.Never]));
+        type.DefineDefaultConstructor(MethodAttributes.Public);
+        type.CreateType();
 
         using var stream = new MemoryStream();
         assemblyBuilder.Save(stream);

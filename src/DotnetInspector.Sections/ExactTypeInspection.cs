@@ -40,6 +40,12 @@ public static class ExactTypeInspection
                 "type",
                 "An exact type was not successfully resolved.");
         }
+        if (!available.IsPublicWithNonPublicTypesVisible)
+        {
+            return NonProjectable(
+                "type.visibility",
+                "The selected type is not present in the Browser-restorable catalog surface.");
+        }
         if (!available.IsContextUnique)
         {
             return NonProjectable(

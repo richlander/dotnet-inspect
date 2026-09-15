@@ -121,6 +121,48 @@ public sealed partial class MethodBodySource : IOperandNameResolver
         return methodHandle is { } handle ? CreateSelection(handle) : null;
     }
 
+    public MethodBodySelection? ResolveMethodDefinition(int methodToken)
+    {
+        _ensureAlive();
+        try
+        {
+            EntityHandle entity = MetadataTokens.EntityHandle(methodToken);
+            return entity.Kind == HandleKind.MethodDefinition
+                ? CreateSelection((MethodDefinitionHandle)entity)
+                : null;
+        }
+        catch (Exception ex) when (ex is BadImageFormatException
+            or InvalidOperationException
+            or ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    public bool? IsTypeVisibleInSurface(
+        int typeToken,
+        ApiSurfaceExtractionScope scope)
+    {
+        _ensureAlive();
+        try
+        {
+            EntityHandle entity = MetadataTokens.EntityHandle(typeToken);
+            return entity.Kind == HandleKind.TypeDefinition
+                ? ApiSurfaceExtractor.IsTypeVisibleInSurface(
+                    _reader,
+                    _reader.GetTypeDefinition(
+                        (TypeDefinitionHandle)entity),
+                    scope)
+                : null;
+        }
+        catch (Exception ex) when (ex is BadImageFormatException
+            or InvalidOperationException
+            or ArgumentException)
+        {
+            return null;
+        }
+    }
+
     public bool ContainsType(string typeName)
     {
         _ensureAlive();

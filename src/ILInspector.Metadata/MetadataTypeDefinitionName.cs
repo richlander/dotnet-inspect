@@ -274,7 +274,7 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
     {
         ArgumentNullException.ThrowIfNull(escapedFullName);
         if (escapedFullName.Length
-            > MetadataSafetyPolicy.MaxTypeNameCharacters)
+            > MetadataSafetyPolicy.MaxTypeNameCharacters * 2)
         {
             return RejectSerialized(
                 MetadataTypeNameRejectionKind.SegmentsTooLong);
