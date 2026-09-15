@@ -314,8 +314,13 @@ Every adopted CLI leaf must consume that envelope internally and support the
 public `--envelope` projection tracked by
 [#6719](https://github.com/richlander/dotnet-inspect/issues/6719). It serializes
 the already constructed baseline without another inspection, Share projection,
-or host enrichment. Ordinary content rendering, including its existing JSON
-contract, remains a separate projection when `--envelope` is absent.
+or host enrichment. The
+[CLI output boundary](output-shapes.md#content-shapes-and-service-envelopes)
+distinguishes content-layer shapes and `--json` from service-layer
+`--envelope`. Adopted leaves must satisfy its unprojected content-JSON
+equivalence and explicit machine-schema migration requirements; retaining a
+different legacy JSON view is not complete adoption. Other content rendering
+remains separate from service passthrough.
 Framing, schema/version, content-kind and owner-specific Outcome
 discrimination, serializer registration, option conflicts, output-stream
 handling, and serialization failures are settled by the CLI transport owner,

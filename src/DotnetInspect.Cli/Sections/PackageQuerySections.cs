@@ -20,18 +20,21 @@ public static class PackageQuerySections
 
     public static PackageQueryView CreateDocument(
         string prefix,
-        IReadOnlyList<PackageQueryEvent> events,
+        IReadOnlyList<PackageQueryMatch> results,
+        PackageQuerySummary summary,
         RowWindow? rows = null)
     {
-        PackageQuerySummary summary = events
-            .OfType<PackageQueryEvent.Completed>().Single().Value;
-        PackageQueryMatch[] matches =
-            [.. events.OfType<PackageQueryEvent.Match>().Select(match => match.Value)];
+        ArgumentNullException.ThrowIfNull(results);
+        ArgumentNullException.ThrowIfNull(summary);
         return new()
         {
             TitleText = new(TextPolicy.Field, $"Package Query: {prefix}"),
             Summary = summary,
-            Results = [.. RowWindow.Apply(rows, matches).Select(match => new PackageQueryRow(match))],
+            Results =
+            [
+                .. RowWindow.Apply(rows, results)
+                    .Select(match => new PackageQueryRow(match)),
+            ],
         };
     }
 

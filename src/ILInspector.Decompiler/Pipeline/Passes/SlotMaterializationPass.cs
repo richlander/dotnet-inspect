@@ -60,6 +60,8 @@ public sealed class SlotMaterializationPass : IIrPass
     {
         var plan = BuildPlan(function);
         var decided = plan.Candidates.Where(static candidate => candidate.Vetoes == SlotMaterializationVeto.None).ToList();
+        var invariant = IrInvariants.Enabled && decided.Count > 0
+            ? SlotMaterializationInvariant.Capture(function) : null;
 
         // Replace every load before moving store values so nested slot loads
         // have already become locals. Reparent each value instead of cloning
@@ -88,6 +90,7 @@ public sealed class SlotMaterializationPass : IIrPass
                     value));
             }
         }
+        invariant?.Check();
     }
 
     static MaterializationPlan BuildPlan(IrFunction function)

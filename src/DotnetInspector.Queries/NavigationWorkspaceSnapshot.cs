@@ -666,19 +666,8 @@ public static class NavigationWorkspaceSnapshotEvaluation
             StructuralSubjectIdentity.ForPackage(
                 workspace,
                 occurrenceDescriptor.Occurrence);
-        ImmutableArray<WorkspaceContextMember> libraryInputs =
-        [
-            .. packageEvaluation.Libraries.Select(
-                static library => library.Library),
-        ];
-        WorkspaceContextMember? primary =
-            PrimaryLibrary(packageEvaluation);
         NavigationSubjectInventory inventory =
-            NavigationSubjectInventoryClassification.Classify(
-                package,
-                libraryInputs,
-                primary,
-                packageEvaluation.Surface);
+            ClassifySubjectInventory(package, packageEvaluation);
         ImmutableArray<NavigationLibraryDescriptor> libraries =
             LibraryDescriptors(
                 packageEvaluation,
@@ -1144,7 +1133,23 @@ public static class NavigationWorkspaceSnapshotEvaluation
                         })),
         ];
 
-    static WorkspaceContextMember? PrimaryLibrary(
+    internal static NavigationSubjectInventory ClassifySubjectInventory(
+        StructuralSubjectIdentity.PackageSubject package,
+        NavigationPackageEvaluation evaluation)
+    {
+        ArgumentNullException.ThrowIfNull(package);
+        ArgumentNullException.ThrowIfNull(evaluation);
+        return NavigationSubjectInventoryClassification.Classify(
+            package,
+            [
+                .. evaluation.Libraries.Select(
+                    static library => library.Library),
+            ],
+            PrimaryLibrary(evaluation),
+            evaluation.Surface);
+    }
+
+    private static WorkspaceContextMember? PrimaryLibrary(
         NavigationPackageEvaluation package)
     {
         if (package.PrimaryAssetId is null)

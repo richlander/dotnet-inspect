@@ -25,12 +25,13 @@ composition and schema-dispatch substrate are implemented by
 [#7075](https://github.com/richlander/dotnet-inspect/pull/7075).
 [#7047](https://github.com/richlander/dotnet-inspect/issues/7047) remains open
 to require the view/navigation pair and explicit leading Workspace subject and
-to complete pre-construction version-1 compatibility classification. Query
-payload codecs, runtime selector resolution, complete view binding, and the
-restoration coordinator defined here are not yet implemented.
-[#7049](https://github.com/richlander/dotnet-inspect/issues/7049) owns portable
-selector resolution against one fresh Workspace, including inactive
-direct-Package state.
+to complete pre-construction version-1 compatibility classification.
+Runtime subject/context selector resolution against one fresh Workspace,
+including inactive direct-Package state, is implemented by
+[#7094](https://github.com/richlander/dotnet-inspect/pull/7094), closing
+[#7049](https://github.com/richlander/dotnet-inspect/issues/7049). Query
+payload codecs, complete view binding, and the restoration coordinator defined
+here are not yet implemented.
 [#7087](https://github.com/richlander/dotnet-inspect/issues/7087) owns
 query-free packet-format-2 transposition. Issue
 [#7027](https://github.com/richlander/dotnet-inspect/issues/7027) owns the
@@ -2041,6 +2042,15 @@ Implementation must add, at minimum:
   acquisition-target validation at ordinary plan invocation, while
   `Registry_RejectsSubscribeAndFilesystemCoordinates_AndCrossKindPeers`
   preserves explicit unsupported outcomes;
+- a runtime-selector gate proving one exact fresh Workspace and Scope resolve
+  the focused committed state to one `NavigationInitialization`, retain every
+  inactive direct-Package row as exact resolved input, and preserve
+  non-Package rows only as dormant inventory. The gate must cover
+  occurrence-local Library/Type/Member identity, Package and Workspace active
+  subjects, subject-less Package recommendation, exact facets, missing and
+  ambiguous selectors, incomplete inventory, foreign or superseded
+  occurrences, projected Members whose declaring Type differs from their
+  containing Type, and `allLibraries` over an empty Package;
 - a grammar gate covering recursive catalog paths and composition, plus one
   exact-pin parser exercised through member coordinates, group subscriptions,
   and packet tuples, including rejection of `latest`, ranges, build metadata,
@@ -2314,6 +2324,18 @@ Definition records and product demos (this slice):
   requests, and independent retained Package/Library/Type/Member context.
   Non-Package rows remain undecorated, nonempty query references fail until
   #6971, and packet-format-1 projection returns `NonProjectable`;
+- `CommittedScenarioSelectorResolver` consumes one exact fresh Workspace,
+  its exact `WorkspaceScopeSnapshot`, and one
+  `NavigationPackageEvaluation` per direct-Package row. It resolves portable
+  Library identities by `AssemblyReferenceIdentity` equivalence inside that
+  row's exact occurrence, then resolves exact structured Type and Member
+  identities from Navigation's classified inventory. It returns the
+  focus-selected `NavigationInitialization`, retains inactive Package rows as
+  exact resolved inputs, preserves non-Package rows as dormant inventory, and
+  returns a source-associated typed failure without partial state for missing,
+  ambiguous, incomplete, foreign, superseded, or noncontiguous input. It does
+  not construct, publish, activate, or close a Workspace and does not resolve
+  Registry applicability;
 - `ProductDemoSourceBinding` is the Workspace-owned target-free static
   method-group binding. It validates exactly one matching scenario record,
   resolves that exact scenario, and enforces `ProductDemoSections`; the
@@ -2361,7 +2383,17 @@ Definition records and product demos (this slice):
   gate the implemented query-free composition boundaries while
   `Json_SchemaVersion1SpellingRemainsUnchanged` preserves the version-1
   writer contract. The three #7047 completion properties named above remain
-  unverified;
+  unverified.
+  `CommittedScenarioSelectorResolverTests.Resolve_WorkspaceFocusRetainsExactMemberContextAndDormantRows`,
+  `Resolve_PackageFocusProducesOneActivationAndInactiveExactInput`,
+  `Resolve_SameLibraryIdentityAcrossOccurrencesStaysOccurrenceLocal`,
+  `Resolve_RejectsMissingAmbiguousAndForeignPackageFacts`,
+  `Resolve_SelectorCardinalityFailuresAreTyped`,
+  `Resolve_IncompleteTypeInventoryIsNotReportedAsMissing`,
+  `Resolve_ProjectedMemberCannotEscapeItsExactDeclaringType`, and
+  `Resolve_AllLibrariesRequiresOneLibraryButPackageContextDoesNot` gate
+  runtime selector resolution, exact occurrence association, atomic typed
+  failure, incomplete-inventory disclosure, and contiguous retained paths.
   `ProductDemoSourceBindingTests` gates source shape, exactly-once source
   invocation per resolve, exact scenario resolution, section admission, and
   visible failures.

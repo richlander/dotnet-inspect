@@ -14,9 +14,11 @@ Release gates are in
 The CLI production host adopts those contracts through
 `package changes --ecosystem <name>`; its focused Release gates are in
 `tests/DotnetInspect.Cli.Tests/PackageChangesCommandTests.cs`. Browser/Wasm
-adoption remains a later delivery step. Historical security changes remain
-unsupported because no owner supplies the required before/after evidence. The
-CLI placement correction is tracked by
+adopts the shared inspection boundary and progressive Worker transport through
+[#7068](https://github.com/richlander/dotnet-inspect/issues/7068); Browser query
+state and rendering remain a later delivery step. Historical security changes
+remain unsupported because no owner supplies the required before/after
+evidence. The CLI placement correction is tracked by
 [#7009](https://github.com/richlander/dotnet-inspect/issues/7009).
 
 The **Ecosystem Change Report query** in `DotnetInspector.Queries` is the
@@ -176,6 +178,14 @@ rather than manufacturing a document. The document retains the complete
 resolved request, progress observations, selected activity rows, typed failure
 events, and terminal coverage/work summary. Its schema version is explicit.
 
+`EcosystemChangeReportInspection` is the sole host-facing enumerator. It admits
+every query event unchanged to the collector before projecting `Progress`,
+`Row`, or typed `Failure` to an optional nonterminal sink; `Completed` is
+terminal-only. The resulting
+`InspectionEnvelope<EcosystemChangeReportDocument>` is authoritative. Sink
+projection, Browser progress coalescing, or the absence of a sink cannot change
+the terminal Document, and cancellation produces no synthetic Document.
+
 One report has one source-result identity. Before lowering that identity to its
 portable producer key, inert display, and transport kind, Presentation verifies
 that every returned row carries the terminal summary's exact source identity.
@@ -234,6 +244,26 @@ limit before execution. Markdown and plain text lower the shared Markout view;
 single-table formats fail explicitly. `--verbose` reports bounded acquisition
 progress on stderr without contaminating stdout.
 
+The Browser host exposes a dedicated `package-changes` Worker operation. Its
+input carries a registered product-owned `PackageSetId`, an optional paired
+interval, security selection, and the bounded row limit; it does not accept
+caller-authored package members or provider URLs. The managed callback carries
+the shared nonterminal sequence without `Completed`. The Worker publishes
+progress through operation authority and publishes rows and failures as durable
+events in producer order before settling with the projected
+`InspectionEnvelope<EcosystemChangeReportDocument>`. Partial or semantically
+failed report completion remains a physically successful operation containing
+the typed Document; caller cancellation and unexpected operation failure remain
+operation settlements outside the envelope.
+
+Browser acquisition uses the full NuGet V3 Catalog source and GitHub reviewed
+advisories only through the fixed same-origin public-evidence bridge. The
+operation has a 120-second Browser deadline, a 115-second source/advisory
+deadline, and a 25-second per-request timeout, leaving terminal classification
+to the existing managed-operation and Browser deadline owners. Query-state
+adoption and `/query` presentation intentionally remain outside this transport
+slice.
+
 Illustrative rendering, using synthetic package/evidence records:
 
 | Observed activity | Package | Version | Activity | Security evidence |
@@ -278,8 +308,12 @@ after rows. CLI adoption demonstrates the `package changes` placement, the
 retirement of `ecosystem --changes`, default and explicit intervals, exact
 package-set scope, security selection, structured and human output, ordinary
 source-horizon lag, unsupported option combinations, and a pack without
-executable scope. Browser adoption must still demonstrate equivalent semantic
-results and disclose its own publication timing.
+executable scope. Browser transport adoption demonstrates package-set lookup,
+paired interval validation, strict bounded wire decoding, ordered progressive
+publication before terminal settlement, semantic partial completion inside a
+physically successful envelope, managed cancellation, and the fixed Catalog
+source/deadline composition. Browser query state, rendering, and measured
+publication timing remain to be demonstrated by the focused UI adoption.
 
 The shared-presentation Release gates run the real query over controlled NuGet
 Catalog and GitHub-reviewed-advisory responses, including
