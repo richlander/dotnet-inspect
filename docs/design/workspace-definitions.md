@@ -1624,8 +1624,9 @@ field.
 #### Legacy lowering
 
 Definition schema version 1 and packet format 1 remain supported contracts,
-but they never acquire Registry semantics in place. Decode first produces an
-unchanged source-identified version-1 semantic plan. Complete restoration has
+but they never acquire Registry semantics in place. Preparation first produces
+an unchanged source-identified `Version1ScenarioDefinitionSet`; it does not
+lower workspace members or navigation sources. Complete restoration has
 one Definitions-owned path: a workspace-backed version-1 request either lowers
 to an exact version-2 runtime recipe or returns `LegacyLoweringFailed` before
 construction. There is no compatibility result, adapter, executor handoff, or
@@ -2311,8 +2312,9 @@ Definition records and product demos (this slice):
   ordinary `InspectionWorkspace(WorkspacePlan)` API.
   `ResolvedWorkspaceContext.Input` retains its exact context in that plan.
   `PrepareScenario` additionally dispatches same-version graphs without
-  constructing a Workspace: every version-1 graph retains the existing
-  source-identified resolution, and schema-version-2 graphs return a
+  constructing a Workspace: every version-1 graph returns an unchanged
+  source-identified `Version1ScenarioDefinitionSet`, and schema-version-2
+  graphs return a
   `CommittedScenarioDefinitionSet` after validation. Workspace-backed
   schema-version-2 scenarios require both view and navigation, the leading
   state explicitly requests Workspace with no retained context, and absent or

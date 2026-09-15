@@ -564,10 +564,9 @@ public sealed class InspectionDefinitionV2Tests
             Assert.IsType<InspectionDefinitionScenarioPreparationResult.Version1>(
                 registry.PrepareScenario(scenario.Id));
 
-        Assert.Equal(scenario.Id, prepared.Scenario.ScenarioId);
-        Assert.Same(workspace, prepared.Scenario.Workspace);
-        Assert.IsType<WorkspaceMemberCoordinate.PlatformMember>(
-            prepared.Scenario.Navigation!.FocusTab.Coordinate);
+        Assert.Same(scenario, prepared.Definitions.Scenario);
+        Assert.Same(workspace, prepared.Definitions.Workspace);
+        Assert.Same(navigation, prepared.Definitions.Navigation);
     }
 
     [Fact]
@@ -607,8 +606,100 @@ public sealed class InspectionDefinitionV2Tests
             Assert.IsType<InspectionDefinitionScenarioPreparationResult.Version1>(
                 registry.PrepareScenario(scenario.Id));
 
-        Assert.Same(view, prepared.Scenario.View);
-        Assert.Equal("package", prepared.Scenario.Navigation!.FocusTabId);
+        Assert.Same(view, prepared.Definitions.View);
+        Assert.Same(navigation, prepared.Definitions.Navigation);
+    }
+
+    [Fact]
+    public void PrepareScenario_Version1PreservesUnloweredSubscription()
+    {
+        var registry = new InspectionDefinitionRegistry();
+        var catalog = new CatalogDefinition(
+            InspectionDefinitionSchema.Version1,
+            "catalog",
+            [
+                new CatalogGroupDefinition(
+                    "Runtime",
+                    members:
+                    [
+                        new DefinitionMemberCoordinate.PlatformCoordinate(
+                            "runtime"),
+                    ]),
+            ]);
+        var workspace = new WorkspaceDefinition(
+            InspectionDefinitionSchema.Version1,
+            "workspace",
+            [
+                new WorkspaceContextDefinition(
+                    "context",
+                    subscribe: ":Runtime"),
+            ]);
+        var navigation = new NavigationDefinition(
+            InspectionDefinitionSchema.Version1,
+            "navigation",
+            [new NavigationTabDefinition("runtime", subscribe: ":Runtime")],
+            "runtime");
+        var scenario = new ScenarioDefinition(
+            InspectionDefinitionSchema.Version1,
+            "scenario",
+            workspace: workspace.Id,
+            navigation: navigation.Id);
+        registry.Add(catalog);
+        registry.Add(workspace);
+        registry.Add(navigation);
+        registry.Add(scenario);
+
+        var prepared =
+            Assert.IsType<InspectionDefinitionScenarioPreparationResult.Version1>(
+                registry.PrepareScenario(scenario.Id));
+
+        Assert.Same(navigation, prepared.Definitions.Navigation);
+        Assert.Same(catalog, Assert.Single(prepared.Definitions.Catalogs));
+    }
+
+    [Fact]
+    public void PrepareScenario_Version1PreservesUnloweredFilesystemCoordinates()
+    {
+        DefinitionMemberCoordinate[] coordinates =
+        [
+            new DefinitionMemberCoordinate.ProjectCoordinate("sample.csproj"),
+            new DefinitionMemberCoordinate.LocalCoordinate("sample.dll"),
+            new DefinitionMemberCoordinate.DirectoryCoordinate("artifacts"),
+        ];
+
+        foreach (DefinitionMemberCoordinate coordinate in coordinates)
+        {
+            var registry = new InspectionDefinitionRegistry();
+            var workspace = new WorkspaceDefinition(
+                InspectionDefinitionSchema.Version1,
+                "workspace",
+                [
+                    new WorkspaceContextDefinition(
+                        "context",
+                        members: [coordinate]),
+                ]);
+            var navigation = new NavigationDefinition(
+                InspectionDefinitionSchema.Version1,
+                "navigation",
+                [new NavigationTabDefinition("source", coordinate: coordinate)],
+                "source");
+            var scenario = new ScenarioDefinition(
+                InspectionDefinitionSchema.Version1,
+                "scenario",
+                workspace: workspace.Id,
+                navigation: navigation.Id);
+            registry.Add(workspace);
+            registry.Add(navigation);
+            registry.Add(scenario);
+
+            var prepared =
+                Assert.IsType<InspectionDefinitionScenarioPreparationResult.Version1>(
+                    registry.PrepareScenario(scenario.Id));
+
+            Assert.Same(
+                coordinate,
+                Assert.Single(prepared.Definitions.Navigation!.Tabs).Coordinate);
+        }
     }
 
     [Fact]
@@ -664,8 +755,8 @@ public sealed class InspectionDefinitionV2Tests
             Assert.IsType<InspectionDefinitionScenarioPreparationResult.Version1>(
                 registry.PrepareScenario(scenario.Id));
 
-        Assert.Same(workspace, prepared.Scenario.Workspace);
-        Assert.Null(prepared.Scenario.Navigation);
+        Assert.Same(workspace, prepared.Definitions.Workspace);
+        Assert.Null(prepared.Definitions.Navigation);
         Assert.Equal(
             scenario.Id,
             registry.ResolveScenario(scenario.Id).ScenarioId);
@@ -696,9 +787,9 @@ public sealed class InspectionDefinitionV2Tests
             Assert.IsType<InspectionDefinitionScenarioPreparationResult.Version1>(
                 registry.PrepareScenario("scenario"));
 
-        Assert.Null(prepared.Scenario.Workspace);
-        Assert.Equal("bundle:input", prepared.Scenario.Scenario.Input);
-        Assert.Equal("platform", prepared.Scenario.Navigation!.FocusTabId);
+        Assert.Null(prepared.Definitions.Workspace);
+        Assert.Equal("bundle:input", prepared.Definitions.Scenario.Input);
+        Assert.Equal("platform", prepared.Definitions.Navigation!.Focus);
     }
 
     [Fact]

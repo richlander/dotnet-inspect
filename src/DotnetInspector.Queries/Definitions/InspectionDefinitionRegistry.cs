@@ -120,7 +120,7 @@ public sealed class InspectionDefinitionRegistry
         }
 
         return new InspectionDefinitionScenarioPreparationResult.Version1(
-            ResolveVersion1Scenario(scenario));
+            CreateVersion1Scenario(records));
     }
 
     private ResolvedScenario ResolveVersion1Scenario(
@@ -445,6 +445,49 @@ public sealed class InspectionDefinitionRegistry
             records.Catalogs);
     }
 
+    private static Version1ScenarioDefinitionSet CreateVersion1Scenario(
+        ScenarioRecordComposition records)
+    {
+        ScenarioDefinition scenario = records.Scenario;
+        WorkspaceDefinition? workspace =
+            records.Workspace as WorkspaceDefinition;
+        if (records.Workspace is not null && workspace is null)
+        {
+            throw new InspectionDefinitionException(
+                $"Scenario '{scenario.Id}' references an incompatible workspace record.");
+        }
+
+        QueryDefinition? query = records.Query as QueryDefinition;
+        if (records.Query is not null && query is null)
+        {
+            throw new InspectionDefinitionException(
+                $"Scenario '{scenario.Id}' requires a schema-version-1 query record.");
+        }
+
+        ViewDefinition? view = records.View as ViewDefinition;
+        if (records.View is not null && view is null)
+        {
+            throw new InspectionDefinitionException(
+                $"Scenario '{scenario.Id}' requires a schema-version-1 view record.");
+        }
+
+        NavigationDefinition? navigation =
+            records.Navigation as NavigationDefinition;
+        if (records.Navigation is not null && navigation is null)
+        {
+            throw new InspectionDefinitionException(
+                $"Scenario '{scenario.Id}' requires a schema-version-1 navigation record.");
+        }
+
+        return new Version1ScenarioDefinitionSet(
+            scenario,
+            workspace,
+            query,
+            view,
+            navigation,
+            records.Catalogs);
+    }
+
     private static void ValidateCommittedView(
         CommittedNavigationDefinition navigation,
         CommittedViewDefinition view)
@@ -616,12 +659,62 @@ public abstract record InspectionDefinitionScenarioPreparationResult
     }
 
     public sealed record Version1(
-        ResolvedScenario Scenario)
+        Version1ScenarioDefinitionSet Definitions)
         : InspectionDefinitionScenarioPreparationResult;
 
     public sealed record Version2(
         CommittedScenarioDefinitionSet Definitions)
         : InspectionDefinitionScenarioPreparationResult;
+}
+
+/// <summary>
+/// Strictly composed schema-version-1 records before complete-restoration
+/// lowering or existing source-specific execution.
+/// </summary>
+public sealed class Version1ScenarioDefinitionSet
+{
+    internal Version1ScenarioDefinitionSet(
+        ScenarioDefinition scenario,
+        WorkspaceDefinition? workspace,
+        QueryDefinition? query,
+        ViewDefinition? view,
+        NavigationDefinition? navigation,
+        IReadOnlyList<CatalogDefinition> catalogs)
+    {
+        Scenario = scenario;
+        Workspace = workspace;
+        Query = query;
+        View = view;
+        Navigation = navigation;
+        Catalogs = catalogs;
+        Records = new ReadOnlyCollection<InspectionDefinitionRecord>(
+            new InspectionDefinitionRecord?[]
+            {
+                Workspace,
+                Query,
+                View,
+                Navigation,
+                Scenario,
+            }
+            .Where(record => record is not null)
+            .Cast<InspectionDefinitionRecord>()
+            .Concat(Catalogs)
+            .ToArray());
+    }
+
+    public ScenarioDefinition Scenario { get; }
+
+    public WorkspaceDefinition? Workspace { get; }
+
+    public QueryDefinition? Query { get; }
+
+    public ViewDefinition? View { get; }
+
+    public NavigationDefinition? Navigation { get; }
+
+    public IReadOnlyList<CatalogDefinition> Catalogs { get; }
+
+    public IReadOnlyList<InspectionDefinitionRecord> Records { get; }
 }
 
 /// <summary>
