@@ -40,12 +40,12 @@ agnostic at the bottom. Analysis and the decompiler depend on `Instructions`;
 neither owns it. The product path stays SRM-only, NativeAOT-friendly, Roslyn-free,
 and never loads inspected assemblies.
 
-The target
+The implemented
 [instruction exception-flow facts](instruction-exception-flow-facts.md)
 compose this substrate with
 [Metadata exception-region facts](metadata-exception-region-facts.md).
 Their detached body and clause values remain in `MetadataPrimitives`, which
-Instructions already references, so that extension does not add an
+Instructions already references, so the extension does not add an
 Instructions-to-Metadata project dependency. The
 [composition map](exception-facts-composition.md) owns the peer Analysis and
 Decompiler adoption sequence.
@@ -64,9 +64,13 @@ dependency direction and the assembly owner.
 - **Layer 0 — decoded identity (the shared instruction currency).** The decoded
   instruction stream (offset-keyed), the EH-aware `BlockGraph`, and offset→
   instruction/block lookup. This is the instruction de-dup target and the
-  Research join key. The target exception-flow extension preserves Metadata's
-  owner-issued method-body and clause currency beside these decoded identities;
-  it does not reconstruct that physical identity from offsets.
+  Research join key. The exception-flow facts preserve Metadata's owner-issued
+  method-body and clause currency beside these decoded identities; they do not
+  reconstruct physical identity from offsets.
+  `InstructionExceptionFlowFacts` adds typed region and continuation
+  identities, closed location queries, and per-edge normal-transfer facts.
+  Legacy raw-body decode keeps Layer 0 available but cannot issue shared
+  exception-flow evidence without Metadata's currency.
   `MethodInstructions` is the Layer 0 façade; `InstructionDecoder.Decode` +
   `BlockGraph.Build` are the materializing throwing primitives.
   `InstructionDecoder.Visit` is the no-copy, non-materializing primitive for

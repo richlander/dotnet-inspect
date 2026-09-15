@@ -22,9 +22,10 @@ consumption. That approval covers this two-owner composition design, not a
 combined implementation PR.
 
 Metadata's body and physical clause types, closed result, and current-surface
-migration are implemented in step 2. Instructions flow facts and all peer
-consumer adoption and retirement remain unverified until their focused steps
-land.
+migration are implemented in step 2. Instructions topology, location, and
+normal-transfer facts plus the `MethodInstructions` / `BlockGraph` migration
+are implemented in step 3. Peer-consumer adoption and remaining retirement
+stay unverified until their focused steps land.
 
 ## Handoff
 
