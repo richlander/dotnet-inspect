@@ -331,15 +331,16 @@ public class ReachingDefinitionsTests
     }
 
     [Fact]
-    public void Analyze_LeaveRegion_MarksResultIncomplete()
+    public void Analyze_LeaveOutsideExceptionRegion_IsComplete()
     {
         var result = ReachingDefinitions.Analyze([
             Op(ILOpCode.Leave_s), 0x00,
             Op(ILOpCode.Ret),
         ], argumentSlotCount: 0);
 
-        Assert.False(result.IsComplete);
-        Assert.Contains("Region-leaving", result.IncompleteReason);
+        Assert.True(result.IsComplete, result.IncompleteReason);
+        Assert.Empty(result.Definitions);
+        Assert.Empty(result.Uses);
     }
 
     static byte Op(ILOpCode opcode) => checked((byte)opcode);

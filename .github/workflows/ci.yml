@@ -1145,6 +1145,10 @@ jobs:
         if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.PlatformHouse.Packages.Tests -c Release -- --filter-not-trait "Speed=Slow"
 
+      - name: Run portable-query codec tests
+        if: matrix.shard == 'contracts'
+        run: dotnet run --project tests/DotnetInspector.PortableQueries.Tests -c Release
+
       - name: Run row-selection tests
         if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.RowSelection.Tests -c Release

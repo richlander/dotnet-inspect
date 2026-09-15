@@ -11,7 +11,7 @@ public sealed class ProductEcosystemPackTests
     public void AspireIsTheOnlyShippedScannerAndRetainsTheOwnerBinding()
     {
         Assert.Equal(
-            [false, false, false, true, false, false, false],
+            [false, false, false, true, false, false, false, false],
             EcosystemPackCatalog.Discover().Select(pack => pack.HasScanner));
         var selected = Assert.IsType<EcosystemScannerSelectionResult.Known>(
             EcosystemPackCatalog.SelectScanner(EcosystemPackIds.Aspire));
@@ -25,6 +25,7 @@ public sealed class ProductEcosystemPackTests
                 EcosystemPackIds.AI,
                 EcosystemPackIds.Azure,
                 EcosystemPackIds.Blazor,
+                EcosystemPackIds.Maui,
             },
             id => Assert.IsType<EcosystemScannerSelectionResult.Unavailable>(
                 EcosystemPackCatalog.SelectScanner(id)));
@@ -88,6 +89,12 @@ public sealed class ProductEcosystemPackTests
                 EcosystemPackIds.Blazor,
                 "Blazor",
                 700,
+                packageSet: null),
+            maui => AssertPack(
+                maui,
+                EcosystemPackIds.Maui,
+                ".NET MAUI",
+                800,
                 packageSet: null));
     }
 
@@ -201,6 +208,19 @@ public sealed class ProductEcosystemPackTests
                     "Microsoft.AspNetCore.Components.WebView.Maui",
                     "Microsoft.AspNetCore.Components.QuickGrid.EntityFrameworkAdapter",
                     "Microsoft.Authentication.WebAssembly.Msal",
+                ]),
+            maui => AssertKnowledge(
+                maui,
+                [
+                    "Microsoft.Maui",
+                    "CommunityToolkit.Maui",
+                ],
+                [
+                    "Microsoft.Maui.Controls",
+                    "Microsoft.AspNetCore.Components.WebView.Maui",
+                    "CommunityToolkit.Maui",
+                    "Microsoft.Maui.Graphics.Skia",
+                    "Microsoft.Maui.Graphics.Text.Markdig",
                 ]));
 
         static void AssertKnowledge(
@@ -233,7 +253,8 @@ public sealed class ProductEcosystemPackTests
                 Assert.Single(aspire.ToolPackages)),
             ai => Assert.Empty(ai.ToolPackages),
             azure => Assert.Empty(azure.ToolPackages),
-            blazor => Assert.Empty(blazor.ToolPackages));
+            blazor => Assert.Empty(blazor.ToolPackages),
+            maui => Assert.Empty(maui.ToolPackages));
     }
 
     [Fact]

@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -62,16 +63,24 @@ public class MethodExceptionRegionFactsTests
         Assert.NotEqual(Guid.Empty, body.EvidenceId.ObservationId);
         Assert.NotEqual(body.EvidenceId, secondEvidence);
         Assert.NotEmpty(body.IL);
-        Assert.Equal(body.ExceptionRegions.Length, body.ExceptionRegionCatalog.Clauses.Length);
         Assert.All(
             body.ExceptionRegionCatalog.Clauses,
             clause => Assert.Equal(body.EvidenceId, clause.Id.Body));
         Assert.Equal(
             Enumerable.Range(0, body.ExceptionRegionCatalog.Clauses.Length),
             body.ExceptionRegionCatalog.Clauses.Select(clause => clause.Id.Ordinal));
-        for (int ordinal = 0; ordinal < body.ExceptionRegions.Length; ordinal++)
+        using var stream = File.OpenRead(SelfPath);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        MethodDefinition method = reader.GetMethodDefinition(
+            (MethodDefinitionHandle)MetadataTokens.EntityHandle(token));
+        ImmutableArray<ExceptionRegion> rawRegions =
+            pe.GetMethodBody(method.RelativeVirtualAddress)
+                .ExceptionRegions;
+        Assert.Equal(rawRegions.Length, body.ExceptionRegionCatalog.Clauses.Length);
+        for (int ordinal = 0; ordinal < rawRegions.Length; ordinal++)
         {
-            ExceptionRegion raw = body.ExceptionRegions[ordinal];
+            ExceptionRegion raw = rawRegions[ordinal];
             MethodExceptionClause clause = body.ExceptionRegionCatalog.Clauses[ordinal];
             Assert.Equal(raw.Kind, clause.Kind);
             Assert.Equal(raw.TryOffset, clause.ProtectedExtent.Start);
