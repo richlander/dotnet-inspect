@@ -7763,6 +7763,31 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void ApiTypePipeline_MixedTypesAndForwardersShowsBoth()
+    {
+        var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
+        var model = new ApiSurface
+        {
+            Types = [new ApiType { Name = "Foo", Kind = "class" }],
+            TypeForwarders =
+            [
+                new TypeForwarder
+                {
+                    TypeName = "Forwarded",
+                    TargetAssembly = "Target",
+                },
+            ],
+        };
+
+        var effective = pipeline.GetEffectiveSections(
+            model,
+            Verbosity.Minimal);
+
+        Assert.Contains("Classes", effective);
+        Assert.Contains(SectionNames.TypeForwarders, effective);
+    }
+
+    [Fact]
     public void ApiTypePipeline_EmptyTypes_NoSections()
     {
         var pipeline = ApiTypeSectionDescriptors.CreatePipeline();

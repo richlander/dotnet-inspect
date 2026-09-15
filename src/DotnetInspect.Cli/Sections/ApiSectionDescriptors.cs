@@ -64,8 +64,7 @@ public static class ApiTypeSectionDescriptors
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static bool CanRender(ApiSurface model)
-            => model.Types.Count == 0
-               && model.TypeForwarders.Count > 0;
+            => model.TypeForwarders.Count > 0;
     }
 
     public sealed class Classes : ISectionDescriptor<ApiSurface>

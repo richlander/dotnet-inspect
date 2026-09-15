@@ -9958,6 +9958,37 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_Listing_MixedSurfaceExposesForwarders()
+    {
+        var (_, discovery, _) = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Drawing",
+            "-D",
+            "--table",
+            "--tips",
+            "q");
+        var (_, countOutput, _) = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Drawing",
+            "-S",
+            SectionNames.TypeForwarders,
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Contains("Classes", discovery, StringComparison.Ordinal);
+        Assert.Contains(
+            SectionNames.TypeForwarders,
+            discovery,
+            StringComparison.Ordinal);
+        Assert.True(
+            int.TryParse(countOutput.Trim(), out int count)
+            && count > 0);
+    }
+
+    [Fact]
     public async Task Type_Listing_ComputedAllSelectorIsRejected()
     {
         var (exit, output, error) = await RunAppAsync(
