@@ -130,7 +130,7 @@ public sealed class ProductEcosystemPackTests
     }
 
     [Fact]
-    public void ShippedRetrievalKnowledgeMatchesLiteralPolicy()
+    public void ShippedNamespaceAndRegisteredPackageKnowledgeMatchesLiteralPolicy()
     {
         Assert.Collection(
             EcosystemPackCatalog.Discover(),
@@ -174,6 +174,10 @@ public sealed class ProductEcosystemPackTests
                 ],
                 [
                     "Microsoft.Extensions.Azure",
+                    "Azure.AI.OpenAI",
+                    "Microsoft.Azure.SignalR",
+                    "Aspire.Azure.AI.OpenAI",
+                    "Aspire.Hosting.Azure.SignalR",
                     "Azure.Identity",
                     "Azure.Security.KeyVault.Secrets",
                     "Azure.Storage.Blobs",
