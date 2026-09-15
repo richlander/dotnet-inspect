@@ -42,27 +42,7 @@ export type TypeDependencyRelationshipKind = number;
 
 export type TypeDependencyRowSet = number;
 
-export interface ArtifactAcquisitionRegistration {
-  readonly generation: ArtifactGenerationIdentity;
-  readonly artifact: ArtifactIdentity;
-  readonly provenance: IArtifactProvenance;
-}
-
-export interface ArtifactGenerationIdentity {
-}
-
-export interface ArtifactIdentity {
-  readonly generation: ArtifactGenerationIdentity;
-  readonly ordinal: number;
-}
-
-export interface AssemblyAcquisitionRegistration {
-  readonly artifactRegistration: ArtifactAcquisitionRegistration | null;
-  readonly moduleVersionId: string | null;
-}
-
 export interface AssemblyContextSubject {
-  readonly registration: AssemblyAcquisitionRegistration;
   readonly identity: AssemblyReferenceIdentity;
   readonly provenance: AssemblyResolutionProvenance;
 }
@@ -560,9 +540,6 @@ export interface ExactTypeParameter {
   readonly name: string;
   readonly variance: string | null;
   readonly constraints: ReadonlyArray<string>;
-}
-
-export interface IArtifactProvenance {
 }
 
 export interface InspectionDiagnostic {

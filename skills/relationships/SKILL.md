@@ -85,13 +85,23 @@ projects, and library references. `--depth 1` includes direct edges only;
 omitting it follows the complete authorized graph. Shared targets remain
 distinct incoming edges and appear as revisits in tree output. `-D`, `-S`,
 `--table`, `--tsv`, `--jsonl`, `--json`, `--count`, `--rows`, and `-n` address
-the same section and logical-row contracts.
+the existing section and logical-row contracts. For positional type mode only,
+unprojected `--json` is now the complete camelCase
+`TypeDependencySectionResult`, not the former flattened presentation graph.
 
 ```bash
 dnx dotnet-inspect -y -- depends JsonSerializer --package System.Text.Json
 dnx dotnet-inspect -y -- depends MyType --library MyLib.dll --mermaid
 dnx dotnet-inspect -y -- depends Command --project ./src/App/App.csproj -v:q
 dnx dotnet-inspect -y -- depends Int128 --table --rows 1..10
+dnx dotnet-inspect -y -- depends NpgsqlOptionsExtension \
+  --package Npgsql.EntityFrameworkCore.PostgreSQL@8.0.4 \
+  --tfm net8.0 \
+  --envelope
+dnx dotnet-inspect -y -- depends NpgsqlOptionsExtension \
+  --package Npgsql.EntityFrameworkCore.PostgreSQL@8.0.4 \
+  --tfm net8.0 \
+  --json
 dnx dotnet-inspect -y -- depends \
   --project ./src/App/App.csproj \
   --depth 2 \
@@ -101,6 +111,24 @@ dnx dotnet-inspect -y -- depends \
   --depth 1 \
   --tree
 ```
+
+`--envelope` is a presence-only service-output selector implemented only for
+positional `depends <type>`. It implies JSON and emits
+`schema_version: 1`, `result_kind: "type-dependencies"`, the same Content as
+the paired `--json` command, Share, and ordered diagnostics. The Content keeps
+the complete dependency relationships plus the selected
+`rowSelection.relationships`; dependency enums remain numeric.
+The service constructs Share for both JSON modes, but `--json` emits Content
+only; `--envelope` exposes Share.
+
+With `--envelope`, use `--compact` for minified JSON. `--depth` remains
+traversal, and `--rows` or `-n`/`--head`/`--tail` remain semantic relationship
+selection. Do not combine it with `--json`, another format, Discover or schema
+modes, `-S`, explicit `-v`, Count, fields/columns, decoration, projections, or
+rendered-line clipping. `--verbose`, `--info`, and `--tips` remain on stderr;
+explicit `--share` retains the existing final-line URL/packet policy. Asset
+mode, Discover, Count, Library Diff, and `--evidence-envelope` have not adopted
+this transport.
 
 ## Who calls it? (reverse edges)
 
