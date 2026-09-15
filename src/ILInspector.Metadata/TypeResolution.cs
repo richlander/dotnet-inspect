@@ -696,7 +696,8 @@ public sealed class DefinitionJoinToken : IEquatable<DefinitionJoinToken>
     internal AssemblyCatalogGenerationId Generation { get; }
     public DefinitionJoinKind Kind { get; }
     public DuplicateArtifactEvidence? Evidence { get; }
-    internal Guid Value => _value;
+    /// <summary>Opaque stable value for receipts over this join token.</summary>
+    public Guid Value => _value;
 
     public bool Equals(DefinitionJoinToken? other) =>
         other is not null
