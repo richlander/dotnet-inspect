@@ -432,8 +432,12 @@ test("generated rejection fails visibly without poisoning neighboring calls", as
       packageCacheStats: () => ({
         packages: 4,
         resident: 2,
+        maxPackageEntries: 12,
         workspaces: 1,
+        maxWorkspaces: 4,
         residentBytes: 1024,
+        maxResidentBytes: 134_217_728,
+        maxWorkspaceRetainedImageBytes: 67_108_864,
       }),
     },
   });
@@ -447,8 +451,12 @@ test("generated rejection fails visibly without poisoning neighboring calls", as
   assert.deepEqual(await neighbor, {
     packages: 4,
     resident: 2,
+    maxPackageEntries: 12,
     workspaces: 1,
+    maxWorkspaces: 4,
     residentBytes: 1024,
+    maxResidentBytes: 134_217_728,
+    maxWorkspaceRetainedImageBytes: 67_108_864,
   });
   assert.equal(state.host.snapshot().phase, "ready");
   assert.deepEqual(state.failures, []);
@@ -465,8 +473,12 @@ test("malformed and oversized generated results reject only their calls", async 
       packageCacheStats: () => ({
         packages: 1,
         resident: 1,
+        maxPackageEntries: 12,
         workspaces: 0,
+        maxWorkspaces: 4,
         residentBytes: 64,
+        maxResidentBytes: 134_217_728,
+        maxWorkspaceRetainedImageBytes: 67_108_864,
       }),
     },
   });
@@ -610,8 +622,12 @@ test("a closed-epoch ordinary client cannot dispatch into a replacement", async 
         return {
           packages: 0,
           resident: 0,
+          maxPackageEntries: 12,
           workspaces: 0,
+          maxWorkspaces: 4,
           residentBytes: 0,
+          maxResidentBytes: 134_217_728,
+          maxWorkspaceRetainedImageBytes: 67_108_864,
         };
       },
     },

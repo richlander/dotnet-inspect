@@ -43,20 +43,24 @@ const ready: DiagnosticsViewModel = {
     stats: {
       packages: 7,
       resident: 5,
+      maxPackageEntries: 12,
       workspaces: 2,
+      maxWorkspaces: 4,
       residentBytes: 12_582_912,
+      maxResidentBytes: 134_217_728,
+      maxWorkspaceRetainedImageBytes: 67_108_864,
     },
   },
   capturedAtUtc: "2026-01-23T15:45:00Z",
 };
 
-test("Diagnostics renders runtime, build, and package-cache evidence in order", () => {
+test("Diagnostics renders runtime, build, and isolated-storage evidence in order", () => {
   const html = diagnosticsViewHtml(ready, escapeHtml);
 
   assert.match(html, /aria-label="Back to previous page"/);
   assert.match(html, /&larr; Back/);
   assert.ok(html.indexOf(">Runtime startup<") < html.indexOf(">Build<"));
-  assert.ok(html.indexOf(">Build<") < html.indexOf(">Package cache<"));
+  assert.ok(html.indexOf(">Build<") < html.indexOf(">Isolated storage<"));
   assert.match(html, /Download/);
   assert.match(html, /1\.01 s/);
   assert.match(html, /Framework assets/);
@@ -64,8 +68,11 @@ test("Diagnostics renders runtime, build, and package-cache evidence in order", 
   assert.match(html, /0123456789abcdef0123456789abcdef01234567/);
   assert.match(html, /id="diagnostics-commit"/);
   assert.match(html, /Browser \/ WebAssembly/);
-  assert.match(html, /Resident payloads/);
-  assert.match(html, /12 MB/);
+  assert.match(html, /Resident payloads[\s\S]*>5</);
+  assert.match(html, /Package-entry budget[\s\S]*>12</);
+  assert.match(html, /Resident bytes[\s\S]*12 MB of 128 MB/);
+  assert.match(html, /Workspace slots[\s\S]*2 of 4/);
+  assert.match(html, /Workspace image budget[\s\S]*64 MB each/);
   assert.match(html, /Startup phase legend/);
   assert.match(html, /Browser Performance API/);
 });
@@ -92,8 +99,12 @@ test("Diagnostics distinguishes valid zero bytes from unavailable values", () =>
       stats: {
         packages: 0,
         resident: 0,
+        maxPackageEntries: 12,
         workspaces: 0,
+        maxWorkspaces: 4,
         residentBytes: 0,
+        maxResidentBytes: 134_217_728,
+        maxWorkspaceRetainedImageBytes: 67_108_864,
       },
     },
   }, escapeHtml);

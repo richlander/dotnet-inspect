@@ -133,8 +133,12 @@ export interface BrowserPackageAssemblyQueryPattern {
 export interface BrowserPackageCacheStats {
     readonly packages: number;
     readonly resident: number;
+    readonly maxPackageEntries: number;
     readonly workspaces: number;
+    readonly maxWorkspaces: number;
     readonly residentBytes: number;
+    readonly maxResidentBytes: number;
+    readonly maxWorkspaceRetainedImageBytes: number;
 }
 export interface BrowserPackageDependencies {
     readonly package: string;
