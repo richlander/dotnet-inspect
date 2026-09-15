@@ -2251,11 +2251,15 @@ test("Demos keeps the inspection visible when predecessor history replacement fa
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
   await page.waitForFunction(() => new URL(location.href).searchParams.has("w"));
   await chooseSubject(page, "package", "Package");
-  await page.waitForFunction(() => {
+  await page.waitForFunction((): boolean => {
     const packet = new URL(location.href).searchParams.get("w");
-    return packet
-      ? JSON.parse(atob(packet)).view.lens === "overview"
-      : false;
+    if (!packet) return false;
+    const state: unknown = JSON.parse(atob(packet));
+    return typeof state === "object" && state !== null
+      && "view" in state
+      && typeof state.view === "object" && state.view !== null
+      && "lens" in state.view
+      && state.view.lens === "overview";
   });
   await page.evaluate(() => {
     Object.defineProperty(history, "replaceState", {
