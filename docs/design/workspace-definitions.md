@@ -1610,7 +1610,9 @@ Definition schema version 1 and packet format 1 remain supported contracts,
 but they never acquire Registry semantics in place. Decode first produces an
 unchanged source-identified version-1 semantic plan. Whole-composition lowering
 is eligible only when its focused source is a direct Package coordinate and
-its recognized view requests Package or Package-only recommendation state.
+its recognized view requests Package or Package-only recommendation state. A
+referenced version-1 query additionally requires an exact lowerable Package
+facet; a query never attaches to recommendation-only state.
 Any recognized view that requires Type, Member, or aggregate-Library as its
 active subject returns `LegacyCompatibilityRequired`, because version 2 carries
 those values only as retained context and cannot apply their facets to a
@@ -1665,6 +1667,7 @@ table:
 | Version-1 source and structural evidence | Exact legacy value | Version-2 disposition |
 | --- | --- | --- |
 | no Type or Member and no `lens` or `section` | absent | Package-only recommendation state |
+| Package-only recommendation state with a referenced query | any | `LegacyCompatibilityRequired` |
 | package-capable coordinate with no Type or Member | `overview` | Package, `package.overview` |
 | package-capable coordinate with no Type or Member | `dependencies` | Package, `package.dependencies` |
 | exact Type and no Member | absent, `api`, `metadata`, `source`, or definition `Methods` | `LegacyCompatibilityRequired` |
@@ -1703,16 +1706,18 @@ not infer a query from Registry's private execution binding.
 
 A referenced version-1 query record is also an unresolved legacy plan. For a
 direct Package-focused scenario, its output attaches only to the state for
-`a`. The record must carry a non-null exact `queryId`, and that query owner must
-statically register a version-1 migration that returns one canonical version-2
-payload for the legacy preset. The resulting Package-backed query must be
-compatible with the exact lowered facet; migration never chooses or changes a
-facet. An absent `queryId`, missing owner migration, owner rejection,
-recommendation-only coordinate state, or incompatible facet returns
-`LegacyLoweringFailed`. A workspace-free, no-navigation, or non-Package-focused
-v1 graph retains the query in its existing execution plan instead of partially
-migrating it. Workspace Definitions never drops the preset or manufactures
-`{}`.
+`a`. If the recognized view supplies no exact lowerable Package facet, dispatch
+returns the unchanged plan through `LegacyCompatibilityRequired` before query
+migration; a migration never chooses a facet for recommendation-only state.
+Otherwise the record must carry a non-null exact `queryId`, and that query owner
+must statically register a version-1 migration that returns one canonical
+version-2 payload for the legacy preset. The resulting Package-backed query
+must be compatible with the exact lowered facet; migration never chooses or
+changes a facet. An absent `queryId`, missing owner migration, owner rejection,
+or incompatible exact facet returns `LegacyLoweringFailed`. A workspace-free,
+no-navigation, or non-Package-focused v1 graph retains the query in its
+existing execution plan instead of partially migrating it. Workspace
+Definitions never drops the preset or manufactures `{}`.
 
 Format 1 carries view state only for `a`. For a Package-lowerable plan,
 the lowerer creates an absent-subject recommendation state for every other
@@ -1726,12 +1731,13 @@ likewise becomes recommendation state.
 A workspace-backed format-1 plan with absent or non-Package focus is not
 lowered. Neither is a plan whose recognized view requires Type, Member, or
 aggregate-Library as its active subject, nor a definition-v1 plan carrying
-`library` or `libraries`. Its unchanged decoded basis and exact semantic plan
+`library` or `libraries`, nor a plan with a referenced query but no exact
+lowerable Package facet. Its unchanged decoded basis and exact semantic plan
 return through `LegacyCompatibilityRequired`. The consumer may pass only that
 plan to its existing compatibility executor; it does not reconstruct the
 request from display state. Any captured structural change from that session
-is `NonProjectable`; no format-2 writer emits a descendant or non-Package
-active subject.
+is `NonProjectable`; no format-2 writer emits a descendant or non-Package active
+subject.
 Filters, body targets, source targets, and overload ordinals have no version-1
 field and are never inferred from courtesy routes or host state.
 
@@ -1752,9 +1758,10 @@ Workspace. Each such Workspace is constructed solely from its own definition;
 no other Workspace or Workspace definition participates. A workspace-backed
 version-1 input with absent or non-Package focus, a recognized Type, Member, or
 aggregate-Library active request, or a definition-v1 view carrying `library` or
-`libraries`, returns `LegacyCompatibilityRequired` before construction and
-remains on its immutable compatibility path. Workspace-free scenarios remain
-outside this operation and execute through their source or query owner.
+`libraries`, or a referenced query without an exact lowerable Package facet,
+returns `LegacyCompatibilityRequired` before construction and remains on its
+immutable compatibility path. Workspace-free scenarios remain outside this
+operation and execute through their source or query owner.
 
 This operation applies to workspace-backed saved definitions, share packets,
 Browser history, workspace-backed product demos, Spotlight package selections
@@ -2167,7 +2174,8 @@ Implementation must add, at minimum:
   facet-specific query-owner migration whose descriptor consumes that scope.
   Workspace-backed v1 plans with absent or non-Package focus, recognized Type,
   Member, or aggregate-Library active requests, plus every definition-v1 plan
-  carrying `library` or `libraries`, must return
+  carrying `library` or `libraries` and every query-bearing plan without an
+  exact lowerable Package facet, must return
   `LegacyCompatibilityRequired` before construction, retain their exact
   semantic plan and request basis, never enter Registry/Navigation v2
   composition, and classify changed capture as `NonProjectable`.
@@ -2566,12 +2574,12 @@ Definition records and product demos (this slice):
   rendering` gate these boundaries. `canonical transitions cancel visible
   source work before snapshot` and `canonical transitions settle annotated
   source before snapshot` specifically gate source-request settlement.
-  Package-root navigation and explicit Share use the ordinary
-  Browser route, without stale packet state, until product facet IDs are
-  implemented; and
-- **not yet:** the designed View Facet Registry implementation, complete
-  schema-version-2 validation and version-1 compatibility dispatch under
-  #7047, omitted direct-Package context materialization under #7049,
+  Package-root navigation and explicit Share use the ordinary Browser route,
+  without stale packet state, until Browser Definitions consumption binds the
+  landed product facet IDs; and
+- **not yet:** Definitions and Browser binding to the landed View Facet
+  Registry, complete schema-version-2 validation and version-1 compatibility
+  dispatch under #7047, omitted direct-Package context materialization under #7049,
   query-free packet format 2
   ([#7087](https://github.com/richlander/dotnet-inspect/issues/7087)),
   query-bearing packet projection, legacy lowering, per-coordinate view/query
