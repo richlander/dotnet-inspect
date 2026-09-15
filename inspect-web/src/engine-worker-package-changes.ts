@@ -26,7 +26,7 @@ import {
   mapEngineWorkerBoundaryErrors,
 } from "./engine-worker-contract.ts";
 
-export const engineWorkerPackageChangesKind = "package-changes";
+const engineWorkerPackageChangesKind = "package-changes";
 
 const maximumRequestCharacters = 1_024;
 const maximumCallbackCharacters = 8 * 1_024 * 1_024;
@@ -680,7 +680,7 @@ function decodeEvent(value: unknown): EngineWorkerPackageChangesEvent {
     "Package Changes event payload does not match its kind.");
 }
 
-export const engineWorkerPackageChangesProgress:
+const engineWorkerPackageChangesProgress:
 BoundedPayloadDecoder<BrowserPackageChangesProgress> = {
   decode(value) {
     try {
@@ -695,7 +695,7 @@ BoundedPayloadDecoder<BrowserPackageChangesProgress> = {
   },
 };
 
-export const engineWorkerPackageChangesDurableEvent:
+const engineWorkerPackageChangesDurableEvent:
 BoundedPayloadDecoder<EngineWorkerPackageChangesDurableEvent> = {
   decode(value) {
     try {
