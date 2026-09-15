@@ -476,7 +476,12 @@ public sealed partial class WorkspaceContextLoaderTests
         AssemblyContextGroup group = workspace.CreateAssemblyContextGroup([participant]);
         return workspace.CompleteDeclarationContext(order, acquired.Receipt.Request,
             new WorkspaceContextLoadOutcome.Loaded(
-                group, [source with { Participant = participant }], [], Framework, runtimeIdentifier: null));
+                workspace.Identity,
+                group,
+                [source with { Participant = participant }],
+                [],
+                Framework,
+                runtimeIdentifier: null));
     }
 
     static void AssertEquivalent(
