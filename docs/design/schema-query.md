@@ -11,7 +11,10 @@ validation, and rendered-manifest filtering are implemented. Some older
 post-render projection paths still use Markout's rendered-string diagnostic;
 that compatibility path does not own section-scoped rendered truth and its
 migration is tracked by
-[#7138](https://github.com/richlander/dotnet-inspect/issues/7138). The earlier
+[#7138](https://github.com/richlander/dotnet-inspect/issues/7138). Package-info
+rendering and structural discovery also retain independent field vocabularies;
+their convergence is tracked by
+[#7140](https://github.com/richlander/dotnet-inspect/issues/7140). The earlier
 [auto-generated schema note](auto-schema.md) records the first generated-schema
 migration but is not a current owner.
 
@@ -99,7 +102,7 @@ product document has structure outside one generated view:
 | One statically attributed view | Use its generated schema directly. |
 | One document rendered from several first-class views | Merge the owner-issued generated schemas in product order. |
 | Generated structure plus product sections or columns | Augment the generated schema with the exact product vocabulary. |
-| Runtime-shaped rows or a dynamic field table | Build the schema from the same owner-issued row or field definition that drives rendering. |
+| Runtime-shaped rows or a dynamic field table | Build the schema from the product owner's stable item vocabulary. Prefer one shared definition; otherwise enforce complete equivalence. |
 | A narrower catalog over a larger structural document | Filter the complete product schema by the catalog's authored section identities. |
 
 Current examples include the API document merging type, member-summary,
@@ -109,10 +112,19 @@ discovery augmenting generated sections with metadata and clone-candidate
 vocabulary. These are examples of the composition forms, not a normative
 call-site inventory.
 
+`Package Info` is a current compatibility exception to the preferred shared
+definition. `InspectionResultView.GetMetadataFields()` emits rendered field
+keys, while `PackageCommand.PackageInfoFieldNames` supplies structural
+discovery and projection resolution. The current names appear aligned, but
+complete equivalence is unverified and tracked by
+[#7140](https://github.com/richlander/dotnet-inspect/issues/7140).
+
 An augmentation must have a reason the generated view cannot express. It must
 reuse the renderer's owner-issued names and order rather than creating a
-parallel approximation. Manual composition is not an interim defect when the
-product document itself is composed or dynamic.
+parallel approximation. A new dynamic shape with independently maintained
+render and schema vocabularies requires a complete equivalence gate. Manual
+composition is not an interim defect when the product document itself is
+composed or dynamic.
 
 ## Three levels of truth
 
@@ -252,9 +264,11 @@ document schema.
 
 ### Dynamic structure has no static attribute source
 
-Runtime field tables, alternate row shapes, or product-defined columns must be
-authored from the same typed definition used by rendering. A fabricated manual
-item list that can drift from the renderer is not acceptable.
+Runtime field tables, alternate row shapes, or product-defined columns use the
+product owner's stable vocabulary. One shared typed definition is preferred.
+When legacy rendering and schema definitions remain independent, their complete
+equivalence needs an enforcing gate or must be marked unverified and tracked.
+The `Package Info` exception is the current unverified case.
 
 ### A field exists in only one selected section
 
@@ -292,11 +306,14 @@ The current Release CLI suite owns the executable contract:
 | `ProjectionDiagnosticsTests.DiagnoseRendered_WildcardUsesResolvedNames` and `DiagnoseRendered_OverlappingPatternsUseResolvedNames` | Post-render pattern diagnosis follows resolved structural names. |
 | `CommandExecutionTests.Project_Discover_ExplicitTableDoesNotPromoteToTree`, `Project_Discover_TsvNoHeaderOmitsHeader`, and `Project_Discover_JsonOutWritesOnlyToFile` | Discovery preserves explicit format, header, and destination intent. |
 | `PackageQueryCliTests.DataDiscovery_UsesPackageQuerySchemaWithoutAcquisition` and `LibraryIntegrationQueryTests.StructuralDiscoveryDoesNotRequireScannerOptInOrAcquireTarget` | Structural discovery uses owner-issued schema without triggering domain acquisition or scanner execution. |
+| `CommandExecutionTests.Package_DiscoverSchema_ListsPublishedPackageInfoField` | Package structural discovery samples one runtime field; complete renderer/schema vocabulary equivalence remains unverified under #7140. |
 
 New schema composition forms require a focused gate that proves their generated,
-merged, augmented, or dynamic vocabulary matches the product document. A
-documentation-only change to this owner requires Markdown validation and
-verification that every named gate still exists.
+merged, augmented, or dynamic vocabulary matches the product document. The
+current package field-vocabulary equality is explicitly unverified; no safety
+or completeness claim rests on the sampled `Published` gate. A documentation-
+only change to this owner requires Markdown validation and verification that
+every named gate still exists.
 
 ## Non-claims and staged work
 
@@ -316,7 +333,9 @@ filtering, and rendered-manifest effective discovery are current behavior.
 Replacing the remaining rendered-string projection diagnostics with manifest
 or typed identity evidence is staged in
 [#7138](https://github.com/richlander/dotnet-inspect/issues/7138); no stronger
-section-scoped claim rests on that compatibility path. Any new cross-host query
-language, generated accessor model, schema serialization contract, or
-additional pattern semantics requires a focused issue and owner; the retired
-proposal checklist is not standing authorization.
+section-scoped claim rests on that compatibility path. Unifying or completely
+gating the package field vocabulary is staged in
+[#7140](https://github.com/richlander/dotnet-inspect/issues/7140). Any new
+cross-host query language, generated accessor model, schema serialization
+contract, or additional pattern semantics requires a focused issue and owner;
+the retired proposal checklist is not standing authorization.
