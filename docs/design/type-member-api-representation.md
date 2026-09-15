@@ -733,6 +733,13 @@ The table separates four axes that are often collapsed:
 Member currency has the same separation: selector in, anchor out, module scope
 beside the anchor, and producer-native body identity retained for body evidence.
 
+The proposed [API declaration correspondence](api-declaration-correspondence.md)
+contract adds a separate Metadata-owned, strict declaration profile within a
+designated acquired-image pair for coordinate retention. Its future result
+retains physical endpoint association and typed non-success; it does not
+strengthen `MemberAnchor`, `MemberSignatureShape`, or catalog definition
+equality. Library pairing and Navigation adoption remain separate prerequisites.
+
 ### Conversion ownership
 
 Conversions are operations with an owner, not implicit casts:

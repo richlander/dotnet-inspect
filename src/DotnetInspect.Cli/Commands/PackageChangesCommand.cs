@@ -1,11 +1,10 @@
-using System.Runtime.CompilerServices;
-
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
 using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using Markout;
 using NuGetFetch;
@@ -147,10 +146,12 @@ internal static class PackageChangesCommand
                 plan,
                 cancellationToken,
                 operationContext);
-        EcosystemChangeReportDocument document =
-            await EcosystemChangeReportPresentation.CollectAsync(
-                ObserveProgress(events, logger, cancellationToken),
+        InspectionEnvelope<EcosystemChangeReportDocument> inspection =
+            await EcosystemChangeReportInspection.ExecuteAsync(
+                events,
+                new VerboseProgressSink(logger),
                 cancellationToken).ConfigureAwait(false);
+        EcosystemChangeReportDocument document = inspection.Content;
 
         WriteOutput(document, options);
         return document.Failures.IsEmpty
@@ -191,30 +192,31 @@ internal static class PackageChangesCommand
         }
     }
 
-    private static async IAsyncEnumerable<EcosystemChangeReportEvent>
-        ObserveProgress(
-            IAsyncEnumerable<EcosystemChangeReportEvent> events,
-            VerboseLogger logger,
-            [EnumeratorCancellation] CancellationToken cancellationToken)
+    private sealed class VerboseProgressSink(VerboseLogger logger)
+        : IEcosystemChangeReportNonterminalSink
     {
-        EcosystemChangeReportProgressPhase? activePhase = null;
-        int lastCatalogPageReport = 0;
-        await foreach (EcosystemChangeReportEvent item
-            in events.WithCancellation(cancellationToken).ConfigureAwait(false))
+        EcosystemChangeReportProgressPhase? _activePhase;
+        int _lastCatalogPageReport;
+
+        public ValueTask ReportAsync(
+            EcosystemChangeReportNonterminalEvent reportEvent,
+            CancellationToken cancellationToken)
         {
-            if (item is EcosystemChangeReportEvent.Progress progress)
+            cancellationToken.ThrowIfCancellationRequested();
+            if (reportEvent
+                is EcosystemChangeReportNonterminalEvent.Progress progress)
             {
-                if (activePhase != progress.Value.Phase)
+                if (_activePhase != progress.Value.Phase)
                 {
-                    activePhase = progress.Value.Phase;
+                    _activePhase = progress.Value.Phase;
                     logger.Log(ProgressStart(progress.Value));
                 }
                 else if (progress.Value.Phase
                         == EcosystemChangeReportProgressPhase.Catalog
                     && progress.Value.CatalogPagesAcquired
-                        >= lastCatalogPageReport + 50)
+                        >= _lastCatalogPageReport + 50)
                 {
-                    lastCatalogPageReport =
+                    _lastCatalogPageReport =
                         progress.Value.CatalogPagesAcquired;
                     logger.Log(
                         $"Catalog: inspected {progress.Value.Completed:N0} activity events "
@@ -222,12 +224,12 @@ internal static class PackageChangesCommand
                 }
             }
 
-            yield return item;
+            return ValueTask.CompletedTask;
         }
     }
 
     private static string ProgressStart(
-        EcosystemChangeReportProgress progress) =>
+        EcosystemChangeReportProgressPresentation progress) =>
         progress.Phase switch
         {
             EcosystemChangeReportProgressPhase.Catalog =>

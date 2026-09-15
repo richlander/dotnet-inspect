@@ -73,11 +73,15 @@ function succeeded(
   value: BrowserPackageQueryEvent,
 ): BrowserPackageQueryResult {
   return {
-    version: 2,
+    version: 3,
     kind: "Succeeded",
     value: null,
     inspection: {
-      content: [value],
+      content: {
+        results: [],
+        failures: [],
+        completion: value.completion!,
+      },
       share: {
         kind: "NonProjectable",
         fullUrl: null,
@@ -98,7 +102,7 @@ function assemblySucceeded(
   value: BrowserPackageQueryEvent,
 ): BrowserPackageQueryResult {
   return {
-    version: 2,
+    version: 3,
     kind: "Succeeded",
     value,
     inspection: null,
@@ -239,7 +243,7 @@ test("Browser source retains the Package Query inspection envelope", async () =>
   assert.deepEqual(completion, { kind: "exhausted" });
   assert.equal(inspections.length, 2);
   assert.equal(inspections[0], null);
-  assert.equal(inspections[1]?.content.at(-1)?.kind, "Completed");
+  assert.equal(inspections[1]?.content.completion.kind, "Exhausted");
   assert.deepEqual(inspections[1]?.share, {
     kind: "NonProjectable",
     fullUrl: null,
@@ -1186,7 +1190,7 @@ test("Browser source decodes managed failure and cancellation results", async ()
     ...defaultControls,
     async run() {
       return {
-        version: 2,
+        version: 3,
         kind: "Failed",
         value: null,
         inspection: null,
@@ -1241,7 +1245,7 @@ test("Browser source decodes managed failure and cancellation results", async ()
     ...defaultControls,
     async run() {
       return {
-        version: 2,
+        version: 3,
         kind: "Canceled",
         value: null,
         inspection: null,
@@ -1307,7 +1311,7 @@ test("Browser source reports unexpected failure after a superseded observer fail
   await Promise.resolve();
   abort.abort("superseded");
   settleManagedResult?.({
-    version: 2,
+    version: 3,
     kind: "Failed",
     value: null,
     inspection: null,

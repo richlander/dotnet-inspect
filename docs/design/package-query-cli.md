@@ -22,15 +22,19 @@ ANDed predicate evaluation over `PackageProfileQuery`, an explicit
 package-content provider for archive-derived facets, non-empty inert evidence,
 separate candidate and match bounds, visible failures, and typed completion.
 The host-neutral `PackageQueryInspection` composition in
-`DotnetInspector.Sections` materializes completed execution as
-`InspectionEnvelope<ImmutableArray<PackageQueryEvent>>`; the existing immutable
-event sequence remains the Package Query-owned content, while the envelope
-carries the required shared Share outcome and diagnostics. Package Query does
-not yet have a canonical Workspace packet projection, so its current Share
-outcome is explicitly non-projectable rather than a host-reconstructed URL.
-The internal event stream remains an execution mechanism for progressive
-Browser delivery, not the completed host-neutral handoff. The Browser facade
-retains a typed transport projection of the envelope's complete event content,
+`DotnetInspector.Sections` is the sole enumerator of Package Query execution.
+It publishes `PackageQueryEvent.Nonterminal` values through an optional
+feature-owned sink, retains the terminal `Completed` summary, and materializes
+one `InspectionEnvelope<PackageQueryDocument>`. The Document contains ordered
+Results, typed Failures, and the terminal Summary; advisory Progress and
+operational event interleaving do not become completed semantic content. This
+is the Package Query adoption tracked by
+[#7081](https://github.com/richlander/dotnet-inspect/issues/7081) under the
+[host-observable content-kind contract](host-observable-content-kinds.md).
+
+Package Query does not yet have a canonical Workspace packet projection, so
+its current Share outcome is explicitly non-projectable rather than a
+host-reconstructed URL. The Browser facade projects the same Document,
 including owners, manifest facts, declared dependencies, manifest identity
 provenance, and stable manifest-failure reasons, plus its Share outcome and
 diagnostics through the Worker boundary. Browser state keeps that projection
@@ -505,7 +509,11 @@ predicates:
 The CLI reuses `RowPredicateSyntaxParser` and repeated `--where` syntax for
 `facet=<ID>`. The IDs come from the product descriptor catalog; this is not an
 arbitrary section-field predicate engine. CLI and Browser invoke the same L1
-definitions.
+definitions. The CLI applies semantic row selection to
+`PackageQueryDocument.Results`, renders `PackageQueryDocument.Failures` as
+visible diagnostics, and uses `PackageQueryDocument.Summary` for exact-count
+and exit-status decisions. It does not reconstruct the Document from streamed
+events.
 
 ### Tier gating
 
