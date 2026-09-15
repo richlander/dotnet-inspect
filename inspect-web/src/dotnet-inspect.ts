@@ -4860,8 +4860,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     focusLevelOneHeading();
   } else if (isIntegrationMode(integrationTabFocus)) {
     restoreIntegrationTabFocus(document, integrationTabFocus);
-  } else if (packageRetryHadFocus
-    || (packageControlHadFocus && (packageLoadingHadFocus || loadingPackageContent))) {
+  } else if (packageRetryHadFocus || packageControlHadFocus) {
     document.querySelector<HTMLElement>(
       loadingPackageContent ? "#package-content-loading" : `#${packageLoadingControl}`)
       ?.focus({ preventScroll: true });
@@ -8823,6 +8822,7 @@ async function switchPackageVersion(newVersion: string) {
   const framework = pkg.activeFramework;
   await loadPackage(id, newVersion, framework, {
     replacePackage: pkg,
+    packageLens: state.atPackageRoot ? state.packageLens : "overview",
     invalidateWorkspaceShareBasis: true,
     loadingPresentation: "content",
   });
@@ -8839,6 +8839,7 @@ async function switchPackageFramework(newFramework: string) {
     newFramework,
     {
       replacePackage: pkg,
+      packageLens: state.atPackageRoot ? state.packageLens : "overview",
       invalidateWorkspaceShareBasis: true,
       loadingPresentation: "content",
     });
@@ -14043,6 +14044,7 @@ interface LoadPackageOptions {
   navigationSeq?: number;
   queryNotice?: string;
   replacePackage?: AppPackage | null;
+  packageLens?: PackageLens;
   location?: ParsedLocation;
   retryAction?: RetryAction;
   invalidateWorkspaceShareBasis?: boolean;
@@ -14128,7 +14130,7 @@ async function loadPackage(
     } else {
       state.atPackageRoot = true;
       state.atLibraryRoot = false;
-      state.packageLens = "overview";
+      state.packageLens = options.packageLens ?? "overview";
     }
     if (deep) {
       applyDeepLink(deep);
