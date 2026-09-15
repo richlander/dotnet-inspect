@@ -148,11 +148,15 @@ public sealed class EcosystemCommandTests
         Assert.Contains("ecosystem.aspnetcore", result.Output);
         Assert.Contains("ecosystem.aspire", result.Output);
         Assert.Contains("ecosystem.ai", result.Output);
+        Assert.Contains("ecosystem.azure", result.Output);
         Assert.Contains(
             "| ecosystem.aspire | Aspire | Aspire package and demo content. | configured | 1 | 2 |",
             result.Output);
         Assert.Contains(
             "| ecosystem.ai | AI | AI abstractions, agents, vector data, and protocol packages. | none | 0 | 0 |",
+            result.Output);
+        Assert.Contains(
+            "| ecosystem.azure | Azure | Azure client libraries, identity, and Microsoft.Extensions integration. | none | 0 | 0 |",
             result.Output);
     }
 
@@ -176,6 +180,30 @@ public sealed class EcosystemCommandTests
             Microsoft.Extensions.VectorData.Abstractions
             Microsoft.Agents.AI
             ModelContextProtocol
+            """,
+            result.Output.Trim());
+    }
+
+    [Fact]
+    public async Task AzureCorePackagesExposeCurrentSupportedStartingPoints()
+    {
+        var result = await ExecuteCommandLineAsync(
+            "ecosystem",
+            "azure",
+            "-S",
+            "Core Packages",
+            "--tsv");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            """
+            package
+            Microsoft.Extensions.Azure
+            Azure.Identity
+            Azure.Security.KeyVault.Secrets
+            Azure.Storage.Blobs
+            Azure.Messaging.ServiceBus
             """,
             result.Output.Trim());
     }
@@ -560,6 +588,7 @@ public sealed class EcosystemCommandTests
         Assert.Contains("Unknown ecosystem 'unknown'.", result.Error);
         Assert.Contains("aspire (ecosystem.aspire)", result.Error);
         Assert.Contains("ai (ecosystem.ai)", result.Error);
+        Assert.Contains("azure (ecosystem.azure)", result.Error);
     }
 
     [Theory]

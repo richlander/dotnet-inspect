@@ -2,6 +2,30 @@ import { dotnet } from "./runtime-loader.js";
 
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 
+export type BrowserLibraryApiDiffCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
+
+export type BrowserLibraryApiDiffEndpointIssueKind = "Truncated" | "Rejected" | "Failed" | "InspectionFailures" | "DegradedSignatures" | "UnexpectedAssemblyPopulation" | number;
+
+export type BrowserLibraryApiDiffFailureKind = "Expected" | "Unexpected" | number;
+
+export type BrowserLibraryApiDiffInspectionFailureMechanism = "Metadata" | "Relationship" | "Signature" | "TypeSpecification" | number;
+
+export type BrowserLibraryApiDiffMetadataRootMalformedReason = "UnmappableMetadataDirectory" | "TruncatedFixedPrefix" | "InvalidSignature" | "InvalidVersionLength" | "TruncatedVersionField" | "MissingVersionTerminator" | number;
+
+export type BrowserLibraryApiDiffOpenFailureKind = "Unreadable" | "InvalidImage" | "ResourceBudget" | "UnsupportedMetadataFormat" | number;
+
+export type BrowserLibraryApiDiffProjectionLimit = "Participants" | "Types" | "Members" | "InspectionFailures" | "TypeForwarders" | "MetadataRows" | "RetainedTextCharacters" | number;
+
+export type BrowserLibraryApiDiffRejectionKind = "LogicalLibraryMismatch" | "FindingComparisonFailed" | "CompatibilityInspectionFailed" | "MissingExactTypeIdentity" | "MissingMemberAnchor" | "DuplicateExactTypeIdentity" | "UnassociatedStructuredSubject" | "ContradictoryOccupiedSideTopology" | "ChangedTypeCountLimitExceeded" | "TypeTextLimitExceeded" | "CollectionEntryLimitExceeded" | "SerializedResultLimitExceeded" | number;
+
+export type BrowserLibraryApiDiffResultKind = "Succeeded" | "Unavailable" | "Rejected" | "Failed" | "Canceled" | number;
+
+export type BrowserLibraryApiDiffSurfaceScope = "Public" | "IncludeAll" | "PublicWithNonPublicTypes" | number;
+
+export type BrowserLibraryApiDiffTypeState = "Diff" | "Addition" | "Deletion" | number;
+
+export type BrowserLibraryApiDiffUnavailableKind = "TargetIncomplete" | "CurrentIncomplete" | "BothIncomplete" | number;
+
 export type InspectionDiagnosticSeverity = number;
 
 export type MetadataRootMalformedReason = number;
@@ -98,6 +122,143 @@ export interface BrowserHeapListing {
   readonly rowsTruncated: boolean;
   readonly entriesTruncated: boolean;
   readonly error: string | null;
+}
+
+export interface BrowserLibraryApiDiffAggregate {
+  readonly changedTypeCount: number;
+  readonly addedTypeCount: number;
+  readonly removedTypeCount: number;
+  readonly changedMemberCount: number;
+  readonly breakingCount: number;
+  readonly additiveCount: number;
+  readonly potentiallyBreakingCount: number;
+}
+
+export interface BrowserLibraryApiDiffAssemblyIdentity {
+  readonly name: string;
+  readonly version: string | null;
+  readonly culture: string | null;
+  readonly publicKeyToken: string | null;
+}
+
+export interface BrowserLibraryApiDiffCancellation {
+  readonly kind: BrowserLibraryApiDiffCancellationKind;
+  readonly reason: string | null;
+}
+
+export interface BrowserLibraryApiDiffCompileAsset {
+  readonly id: string;
+  readonly path: string;
+  readonly assemblyName: string;
+}
+
+export interface BrowserLibraryApiDiffEndpoint {
+  readonly packageId: string;
+  readonly version: string;
+  readonly framework: string;
+  readonly asset: BrowserLibraryApiDiffCompileAsset;
+  readonly assembly: BrowserLibraryApiDiffAssemblyIdentity;
+  readonly scope: BrowserLibraryApiDiffSurfaceScope;
+  readonly isComplete: boolean;
+  readonly issues: ReadonlyArray<BrowserLibraryApiDiffEndpointIssue>;
+}
+
+export interface BrowserLibraryApiDiffEndpointIssue {
+  readonly kind: BrowserLibraryApiDiffEndpointIssueKind;
+  readonly truncation: BrowserLibraryApiDiffProjectionTruncation | null;
+  readonly openFailureKind: BrowserLibraryApiDiffOpenFailureKind | null;
+  readonly detail: string | null;
+  readonly metadataRootReason: BrowserLibraryApiDiffMetadataRootMalformedReason | null;
+  readonly count: number | null;
+  readonly inspectionFailures: ReadonlyArray<BrowserLibraryApiDiffInspectionFailure> | null;
+}
+
+export interface BrowserLibraryApiDiffInspectionFailure {
+  readonly operation: string;
+  readonly subjectToken: number;
+  readonly mechanism: BrowserLibraryApiDiffInspectionFailureMechanism;
+  readonly kind: string;
+  readonly detail: string;
+  readonly subjectAssembly: BrowserLibraryApiDiffAssemblyIdentity | null;
+  readonly dependencyAssembly: BrowserLibraryApiDiffAssemblyIdentity | null;
+}
+
+export interface BrowserLibraryApiDiffProjectionTruncation {
+  readonly limit: BrowserLibraryApiDiffProjectionLimit;
+  readonly bound: number;
+  readonly projectedParticipants: number;
+  readonly omittedParticipants: number;
+  readonly projectedTypes: number;
+  readonly projectedMembers: number;
+  readonly projectedInspectionFailures: number;
+  readonly projectedTypeForwarders: number;
+  readonly inspectedMetadataRows: number;
+  readonly projectedRetainedTextCharacters: number;
+}
+
+export interface BrowserLibraryApiDiffRejected {
+  readonly kind: BrowserLibraryApiDiffRejectionKind;
+  readonly target: BrowserLibraryApiDiffEndpoint | null;
+  readonly current: BrowserLibraryApiDiffEndpoint | null;
+  readonly bound: number | null;
+  readonly observed: number | null;
+}
+
+export interface BrowserLibraryApiDiffRequest {
+  readonly schemaVersion: number;
+  readonly packageId: string;
+  readonly currentVersion: string;
+  readonly targetVersion: string;
+  readonly targetFramework: string;
+  readonly compileAssetId: string;
+}
+
+export interface BrowserLibraryApiDiffResult {
+  readonly schemaVersion: number;
+  readonly request: BrowserLibraryApiDiffRequest | null;
+  readonly kind: BrowserLibraryApiDiffResultKind;
+  readonly value: BrowserLibraryApiDiffSucceeded | null;
+  readonly unavailable: BrowserLibraryApiDiffUnavailable | null;
+  readonly rejected: BrowserLibraryApiDiffRejected | null;
+  readonly failureKind: BrowserLibraryApiDiffFailureKind | null;
+  readonly error: string | null;
+  readonly diagnostic: string | null;
+  readonly reason: string | null;
+}
+
+export interface BrowserLibraryApiDiffSucceeded {
+  readonly libraryIdentifier: string;
+  readonly libraryDisplay: string;
+  readonly target: BrowserLibraryApiDiffEndpoint;
+  readonly current: BrowserLibraryApiDiffEndpoint;
+  readonly aggregate: BrowserLibraryApiDiffAggregate;
+  readonly types: ReadonlyArray<BrowserLibraryApiDiffType>;
+}
+
+export interface BrowserLibraryApiDiffType {
+  readonly documentIdentifier: string;
+  readonly display: string;
+  readonly state: BrowserLibraryApiDiffTypeState;
+  readonly typeDefinitionChanged: boolean | null;
+  readonly changedMemberCount: number;
+  readonly breakingCount: number;
+  readonly additiveCount: number;
+  readonly potentiallyBreakingCount: number;
+  readonly before: BrowserLibraryApiDiffTypeIdentity | null;
+  readonly after: BrowserLibraryApiDiffTypeIdentity | null;
+}
+
+export interface BrowserLibraryApiDiffTypeIdentity {
+  readonly identifier: string;
+  readonly namespace: string;
+  readonly segments: ReadonlyArray<string>;
+  readonly display: string;
+}
+
+export interface BrowserLibraryApiDiffUnavailable {
+  readonly kind: BrowserLibraryApiDiffUnavailableKind;
+  readonly target: BrowserLibraryApiDiffEndpoint;
+  readonly current: BrowserLibraryApiDiffEndpoint;
 }
 
 export interface BrowserMemberBodySelector {
@@ -433,7 +594,9 @@ type $ManagedExports = {
       readonly "Interop": {
         readonly "Metadata": {
           readonly "MetadataExports": {
+            readonly "CancelLibraryApiDiff.271973316": (operationId: string, reason: string) => string;
             readonly "QueryGraphMemberSurface.1542089313": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number) => Promise<string>;
+            readonly "QueryLibraryApiDiff.451505237": (operationId: string, requestJson: string) => Promise<string>;
             readonly "QueryMemberDeclaration.340032695": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, implementationMember: boolean) => Promise<string>;
             readonly "QueryPackageHeapEntries.649160465": (packageId: string, version: string, targetFramework: string, assemblyFileName: string, metadataRoot: string, heap: string) => Promise<string>;
             readonly "QueryPackageMetadata.1579276339": (packageId: string, version: string, targetFramework: string, assemblyFileName: string) => Promise<string>;
@@ -499,9 +662,33 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Metadata");
     value = $ownDataProperty(value, "MetadataExports");
+    value = $ownDataProperty(value, "CancelLibraryApiDiff.271973316");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.CancelLibraryApiDiff.271973316\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Metadata");
+    value = $ownDataProperty(value, "MetadataExports");
     value = $ownDataProperty(value, "QueryGraphMemberSurface.1542089313");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryGraphMemberSurface.1542089313\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Metadata");
+    value = $ownDataProperty(value, "MetadataExports");
+    value = $ownDataProperty(value, "QueryLibraryApiDiff.451505237");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryLibraryApiDiff.451505237\u0027 is not callable.");
     }
   }
   {
@@ -649,10 +836,22 @@ export function runEntryPoint(
   return $requireRuntime().runMain(mainAssemblyName, args);
 }
 
+export function cancelLibraryApiDiff(operationId: string, reason: string): BrowserLibraryApiDiffCancellation {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["CancelLibraryApiDiff.271973316"](operationId, reason);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserLibraryApiDiffCancellation;
+}
+
 export async function queryGraphMemberSurface(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number): Promise<BrowserGraphMemberSurface> {
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryGraphMemberSurface.1542089313"](packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserGraphMemberSurface;
+}
+
+export async function queryLibraryApiDiff(operationId: string, requestJson: string): Promise<BrowserLibraryApiDiffResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryLibraryApiDiff.451505237"](operationId, requestJson);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserLibraryApiDiffResult;
 }
 
 export async function queryMemberDeclaration(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, implementationMember: boolean): Promise<BrowserMemberDeclaration> {

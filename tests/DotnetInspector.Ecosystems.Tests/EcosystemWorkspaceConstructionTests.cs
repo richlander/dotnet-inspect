@@ -10,7 +10,7 @@ namespace DotnetInspector.Ecosystems.Tests;
 public sealed class EcosystemWorkspaceConstructionTests
 {
     [Fact]
-    public void ShippedDeclarationsPreservePlatformAndAiOverlapAndAspireIntegrationCurrency()
+    public void ShippedDeclarationsPreservePlatformTopicOverlapAndAspireIntegrationCurrency()
     {
         foreach (EcosystemPackDescriptor pack in EcosystemPackCatalog.Discover())
         {
@@ -67,6 +67,25 @@ public sealed class EcosystemWorkspaceConstructionTests
                 ai.Populations[0]).Prefix;
         Assert.True(extensionsPrefix.MatchesPackageId("Microsoft.Extensions.AI.OpenAI"));
         Assert.True(aiExtensionsPrefix.MatchesPackageId("Microsoft.Extensions.AI.OpenAI"));
+        var azure = SelectKnown(EcosystemPackIds.Azure);
+        Assert.Equal(
+            [
+                "Azure.",
+                "Microsoft.Extensions.Azure",
+            ],
+            azure.Populations.Select(item =>
+                Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                    item).Prefix.Prefix));
+        PackagePrefixDeclaration azurePackagePrefix =
+            Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                azure.Populations[0]).Prefix;
+        PackagePrefixDeclaration azureExtensionsPrefix =
+            Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                azure.Populations[1]).Prefix;
+        Assert.True(azurePackagePrefix.MatchesPackageId("Azure.Storage.Blobs"));
+        Assert.False(azurePackagePrefix.MatchesPackageId("Microsoft.Azure.Storage.Blob"));
+        Assert.True(extensionsPrefix.MatchesPackageId("Microsoft.Extensions.Azure"));
+        Assert.True(azureExtensionsPrefix.MatchesPackageId("Microsoft.Extensions.Azure"));
     }
 
     [Fact]

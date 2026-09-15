@@ -5,6 +5,7 @@ import {
   createPackageComparisonTargets,
   diffTargetDescription,
   renderPackageComparisonTargets,
+  resolveEffectiveDiffTarget,
   type ComparisonPackage,
 } from "../src/package-comparison-targets.ts";
 import type { PackageVersionState } from "../src/catalog-requests.ts";
@@ -106,6 +107,36 @@ test("no predecessor, listing uncertainty, and request failure stay distinct", (
     status: "available", inventory: { versions: ["1.0.0"], currentVersionInsertionIndex: 0, previousVersion: null, previousVersionUnavailableReason: "Listing unknown" },
   }), "Listing unknown");
   assert.equal(diffTargetDescription({ kind: "previous" }, { status: "failed", message: "Offline" }), "Offline");
+});
+
+test("effective Diff targets preserve exact intent and require authoritative predecessors", () => {
+  assert.deepEqual(
+    resolveEffectiveDiffTarget({ kind: "exact", version: "1.0.0" }, {
+      status: "failed",
+      message: "Offline",
+    }),
+    { kind: "available", version: "1.0.0" },
+  );
+  assert.deepEqual(
+    resolveEffectiveDiffTarget({ kind: "previous" }, { status: "loading" }),
+    { kind: "loading", message: "Reading available versions..." },
+  );
+  assert.deepEqual(
+    resolveEffectiveDiffTarget({ kind: "previous" }, versions),
+    { kind: "available", version: "1.0.0" },
+  );
+  assert.deepEqual(
+    resolveEffectiveDiffTarget({ kind: "previous" }, {
+      status: "available",
+      inventory: {
+        versions: ["2.0.0"],
+        currentVersionInsertionIndex: 0,
+        previousVersion: null,
+        previousVersionUnavailableReason: "Listing authority unavailable.",
+      },
+    }),
+    { kind: "unavailable", message: "Listing authority unavailable." },
+  );
 });
 
 test("form renders escaped coordinates, explicit limitations, and a retry action", () => {

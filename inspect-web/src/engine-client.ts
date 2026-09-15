@@ -41,6 +41,8 @@ type PackageOperations =
   | "searchTypes";
 
 type MetadataOperations =
+  | "cancelLibraryApiDiff"
+  | "queryLibraryApiDiff"
   | "queryMemberDeclaration"
   | "queryPlatformMemberDeclaration"
   | "queryGraphMemberSurface"
