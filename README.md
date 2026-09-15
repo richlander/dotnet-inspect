@@ -175,7 +175,7 @@ stderr rather than mixed into structured output.
 | `library X` | Inspect assembly metadata, symbols, SourceLink, references, resources, async methods, and rendered body shapes. |
 | `type X` | Discover types or render a single type shape. |
 | `member X` | Inspect members, docs, overloads, decompiled/lowered C#, rendered body shapes, checksum-verified PDB source, and IL. |
-| `find [X]` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, such as `.Serialize`) to search member names instead. Omit `X` with `--package-prefix PREFIX` to discover latest NuGet package manifests, or with `--literal TEXT` to find decoded IL string literals in explicitly named packages. |
+| `find [X]` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, such as `.Serialize`) to search member names instead. Use `--package-prefix PREFIX` with a type/member pattern to expand package scope, or omit `X` with `--literal TEXT` to find decoded IL string literals in explicitly named packages. |
 | `diff X` | Compare API surfaces by default; opt into analysis or implementation evidence. |
 | `timeline X` | Correlate API or member-body Findings across a package version range. |
 | `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set. |
@@ -424,6 +424,32 @@ the count exact.
 **Breaking change:** `package search` and patternless
 `find --package-prefix PREFIX` have been removed. Use `package query` with an
 exact package ID or an explicit terminal-star prefix.
+
+### Typed Find locations
+
+An exact-version Package or explicit Platform Library search with `--tfm`
+uses one short-lived Workspace and preserves each declaration's exact
+coordinate and observation context:
+
+```bash
+dotnet-inspect find System.Text.Json.JsonSerializer \
+  --package System.Text.Json@10.0.0 \
+  --platform System.Text.Json \
+  --tfm net10.0 --json
+```
+
+Plain type-search JSON is an operation document with `complete`, `results`,
+and `locator_sections`. Each result includes typed `location` and `navigation`
+data; zero-candidate and incomplete answers remain visible in
+`locator_sections`. Package navigation is emitted only when the observed
+producer can be reacquired without losing source authority. Platform
+implementation-pack observations currently decline copyable Type/Member
+commands because public Platform syntax reopens the reference view.
+
+Repeat `--ecosystem ecosystem.ID` to register exactly those ecosystem packs in
+caller order. Without it, Find registers every shipped ecosystem. Registration
+is inert: it does not execute package-prefix discovery or add package content
+to the search.
 
 ### Assembly-semantic Find over explicit packages
 

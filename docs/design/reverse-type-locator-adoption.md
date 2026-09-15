@@ -34,7 +34,7 @@ inside the Workspace owner.
 | 4 | [#6845](https://github.com/richlander/dotnet-inspect/issues/6845), [Workspace Live Locator](workspace-live-locator.md): [explicit context projection](workspace-live-locator.md#implemented-explicit-context-projection) and its [resident facade](workspace-live-locator.md#implemented-resident-context-facade) are implemented; other producers remain pending. | Coherent first-use observation, reuse without rescanning immutable evidence, receipt-pinned vectors and owner-governed close are gated for declaration contexts. Artifact Root/Scope, reference-view and local/project adapters still need their owner-issued associations. |
 | 5 | [#6849](https://github.com/richlander/dotnet-inspect/issues/6849), Queries: [cold reverse locator](reverse-type-declaration-locator.md#implemented-cold-query) over the implemented Workspace population input. | Implemented always-vector coordinate-plus-origin answers, deterministic outcomes and Release gates; additional population producers remain step 4 adoption, not inferred source authority. |
 | 6 | [#6846](https://github.com/richlander/dotnet-inspect/issues/6846), Sections: [adopt the locator result's row unit and structured multi-format projection](output-shapes.md#reverse-type-declaration-locator-projection). | Implemented typed answer row sets, source-generated JSON, common Markout lowering, and mandatory coverage/failure disclosure independent of selected candidate rows. |
-| 7 | [#6844](https://github.com/richlander/dotnet-inspect/issues/6844), CLI Find: use the live facade in a short-lived Workspace; Type and Member consume the selected observation through ordinary exact-coordinate paths. | Runnable locate-once workflow, deliberate fallback/limit migration and routing parity evidence; update shipped skills only now. |
+| 7 | [#6844](https://github.com/richlander/dotnet-inspect/issues/6844), CLI Find: the implemented exact-Package/explicit-Platform-Library path uses the live facade in a short-lived Workspace; Type and Member consume the selected observation through exact typed handoff. | Implemented locate-once workflow, separate fallback requests, downstream limits, typed JSON coverage, and automatic Platform routing parity. Other source adapters remain explicit follow-up scope. |
 | 8 | [#6851](https://github.com/richlander/dotnet-inspect/issues/6851), Inspect Web: retain the same live facade across admitted additions and consume selected Type/Member context. | Browser/Wasm Find-after-append and navigation use typed data, not displayed names; portable sharing remains owner-governed. |
 | 9 | [#6850](https://github.com/richlander/dotnet-inspect/issues/6850), Platform discovery in Services: retire or narrow `PlatformTypeCatalog` after its consumers migrate. | No duplicated general reverse scan; retain acquisition/probing/naming and Spotlight's static filename population. |
 
@@ -56,14 +56,13 @@ consumption by Type and Member; returning a new unused DTO is not adoption.
 ### First CLI consumer staging
 
 The concrete consumer seam is
-`DotnetInspect.Cli/Inspectors/TypeSearchService.FindTypesAsync`. Its configured
-package branch currently calls `ConfiguredPackageSearchWorkspace.QuerySurfaceAsync`
-and `AssemblyContextTypeInventoryQuery`; other scopes use
-`AssemblySetInspectionWorkspace`. Neither route currently supplies the new
-population receipt. Step 4's source adapters must bridge their owner-issued
-associations before that collector can migrate.
+`DotnetInspect.Cli/Inspectors/TypeSearchService.FindTypesAsync`. Exact-version
+Package and explicit Platform Library requests with an explicit TFM use the
+resident locator. Unsupported source shapes continue through
+`AssemblySetInspectionWorkspace` until their owners provide exact declaration
+context associations.
 
-The step 7 adapter will submit the already parsed patterns as
+The step 7 adapter submits the already parsed patterns as
 `TypeDeclarationLocatorRequest.Pattern` values through the shared resident
 facade, preserving the resulting candidate's `Coordinate`, `Name`, `Kind`,
 and `Observation` through step 6's rows and selected Type/Member handoff.
@@ -73,12 +72,10 @@ classification, source authorization and defaults remain Find-owned; any
 fallback is a separately identified request, and `FindOptions.Limit` cannot
 silently stand in for the query's inventory-read bound.
 
-The current cold query and resident facade deliberately do not replace a CLI
-collector before those associations exist. The next production
-steps remain the named step 4 completion, step 6 Sections, and step 7 CLI
-handoff, followed by step 8's TypeScript consumer of the same typed operation.
-The completed common inspection supplies `InspectionEnvelope<TContent>` at
-that host boundary rather than nesting envelopes around prerequisite queries.
+The remaining production step is step 8's TypeScript consumer of the same
+typed operation, followed by step 9's duplicate Platform lookup retirement.
+Additional source producers remain independently owned adapter work rather
+than a claim that the first CLI slice migrated every Find source.
 
 ## Rendering handoff
 
@@ -125,9 +122,10 @@ a Services-to-Queries dependency to retain a lower-layer entry point.
 [#6756](https://github.com/richlander/dotnet-inspect/issues/6756) remains an
 independent retained-state repair and need not await this workstream.
 
-Pin `System.Text.Json@10.0.0` and `Microsoft.NETCore.App.Ref@10.0.10` in
-implementation evidence. Add project/local fixture paths when their coordinate
-owner is ready. The query design lists the required pathological outcomes;
+Pin `System.Text.Json@10.0.0` and the corresponding Platform 10.0
+reference/runtime evidence where applicable. Add project/local fixture paths
+when their coordinate owner is ready. The query design lists the required
+pathological outcomes;
 the CLI and browser slices additionally demonstrate selecting each same-named
 source candidate, then inspecting its Type and an exact Member.
 The stateless query remains independently usable cold. The approved Workspace

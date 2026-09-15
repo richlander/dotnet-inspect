@@ -6,6 +6,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
+using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
@@ -162,10 +163,16 @@ public class FindCommand
                 }
                 else
                 {
+                    var document = new TypeFindDocument(
+                        Complete:
+                            !search.HasFailures
+                            && !search.SourceSelectionIncomplete,
+                        Results: results,
+                        LocatorSections: search.LocatorSections);
                     JsonOutputHelper.Write(
-                        results,
-                        TypeFindResultJsonContext.Default.ListTypeFindResult,
-                        TypeFindResultCompactJsonContext.Default.ListTypeFindResult,
+                        document,
+                        TypeFindDocumentJsonContext.Default.TypeFindDocument,
+                        TypeFindDocumentCompactJsonContext.Default.TypeFindDocument,
                         options.CompactJson);
                 }
             }
@@ -174,6 +181,7 @@ public class FindCommand
                 WriteOutput(results, title, options);
             }
 
+            WriteLocatorSections(search.LocatorSections, options);
             return 0;
         }
         catch (Exception ex)
@@ -630,6 +638,47 @@ public class FindCommand
         }
     }
 
+    private static void WriteLocatorSections(
+        IReadOnlyList<TypeDeclarationLocatorSectionResult> sections,
+        FindOptions options)
+    {
+        if (sections.Count == 0
+            || options.Count
+            || (options.JsonOutput
+                && !IsColumnProjectionRequested(options)))
+        {
+            return;
+        }
+
+        bool useStandardOutput =
+            !options.Count
+            && !options.Tabular
+            && !options.JsonOutput;
+        TextWriter writer =
+            useStandardOutput ? Console.Out : CommandError.Writer;
+        foreach (TypeDeclarationLocatorSectionResult section in sections)
+        {
+            writer.WriteLine();
+            TypeDeclarationLocatorView view =
+                TypeDeclarationLocatorView.Create(section);
+            if (useStandardOutput)
+            {
+                MarkoutSerializer.Serialize(
+                    view,
+                    writer,
+                    TypeDeclarationLocatorViewContext.Default);
+            }
+            else
+            {
+                MarkoutSerializer.Serialize(
+                    view,
+                    writer,
+                    new PlainTextFormatter(),
+                    TypeDeclarationLocatorViewContext.Default);
+            }
+        }
+    }
+
     private static bool WriteCount(List<TypeFindResult> rawData, string title, FindOptions options)
     {
         var view = FindOutputFormatter.BuildView(rawData, title);
@@ -705,4 +754,7 @@ public record class TypeSearchResult
 
     [JsonPropertyName("source_version")]
     public string? SourceVersion { get; set; }
+
+    [JsonIgnore]
+    public TypeDeclarationLocatorSectionCandidate? Location { get; set; }
 }

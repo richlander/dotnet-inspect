@@ -1,4 +1,6 @@
 using System.Text.Json.Serialization;
+using DotnetInspect.Cli.Inspectors;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Models;
 
@@ -55,7 +57,22 @@ public record TypeFindResult
 
     [JsonPropertyName("source_version")]
     public string? SourceVersion { get; init; }
+
+    [JsonPropertyName("location")]
+    public TypeDeclarationLocatorSectionCandidate? Location { get; init; }
+
+    [JsonPropertyName("navigation")]
+    public TypeFindNavigation? Navigation { get; init; }
 }
+
+/// <summary>
+/// Typed Find operation result. Locator evidence remains available even when
+/// row selection or a zero-candidate answer leaves <see cref="Results"/> empty.
+/// </summary>
+public sealed record TypeFindDocument(
+    bool Complete,
+    List<TypeFindResult> Results,
+    IReadOnlyList<TypeDeclarationLocatorSectionResult> LocatorSections);
 
 /// <summary>
 /// Raw result from member-name search (<c>find --members</c> / leading-dot shortcut). One record per

@@ -87,12 +87,15 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         var result = await RunCommandAsync(arguments);
 
         Assert.True(result.Exit == 0, result.Error);
+        if (operation != "type")
+        {
+            Assert.Contains(
+                "Using committed package Root for search:",
+                result.Error,
+                StringComparison.Ordinal);
+        }
         Assert.Contains(
-            "Using committed package Root for search:",
-            result.Error,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            $"\"source\": \"{id}\"",
+            $"\"source\": \"{(operation == "type" ? id.ToLowerInvariant() : id)}\"",
             result.Output,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -260,16 +263,16 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     [Theory]
-    [InlineData("README.md", "NoCompileAssets")]
-    [InlineData("ref/net11.0/_._", "EmptyCompileGroup")]
+    [InlineData("README.md", false)]
+    [InlineData("ref/net11.0/_._", true)]
     public async Task Find_PackageWithoutSurfaceRemainsQueryableRoot(
         string packageEntry,
-        string expectedStatus)
+        bool expectedComplete)
     {
         string id =
             $"Workspace.Search.Empty.{Guid.NewGuid():N}";
         byte[] package;
-        if (expectedStatus == "EmptyCompileGroup")
+        if (packageEntry.EndsWith("_._", StringComparison.Ordinal))
         {
             byte[] fallbackAssembly = await File.ReadAllBytesAsync(
                 typeof(ConfiguredPayloadAcquisitionTests).Assembly.Location,
@@ -299,15 +302,20 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             ]);
 
         Assert.Equal(0, result.Exit);
-        Assert.Contains(
-            "Using committed package Root for search:",
-            result.Error,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            expectedStatus,
-            result.Error,
-            StringComparison.Ordinal);
-        Assert.Equal("[]", result.Output.Trim());
+        using System.Text.Json.JsonDocument document =
+            System.Text.Json.JsonDocument.Parse(result.Output);
+        Assert.Equal(
+            expectedComplete,
+            document.RootElement.GetProperty("complete").GetBoolean());
+        Assert.Empty(
+            document.RootElement.GetProperty("results").EnumerateArray());
+        if (!expectedComplete)
+        {
+            Assert.Contains(
+                "PackageAssetUnavailable",
+                result.Output,
+                StringComparison.Ordinal);
+        }
     }
 
     [Fact]
@@ -332,15 +340,24 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             ]);
 
         Assert.Equal(0, result.Exit);
-        Assert.Equal("[]", result.Output.Trim());
+        using System.Text.Json.JsonDocument document =
+            System.Text.Json.JsonDocument.Parse(result.Output);
+        Assert.False(
+            document.RootElement.GetProperty("complete").GetBoolean());
+        Assert.Empty(
+            document.RootElement.GetProperty("results").EnumerateArray());
         Assert.Contains(
-            $"Could not commit package Root '{id}@{Version}'",
-            result.Error,
+            "PackageAssetUnavailable",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            id.ToLowerInvariant(),
+            result.Output,
             StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task Find_PackageRootUsesReferencePreferredCompileSurface()
+    public async Task Find_PackageLocatorUsesAssemblyIdentityFromImplementationUniverse()
     {
         string id =
             $"Workspace.Search.Reference.{Guid.NewGuid():N}";
@@ -371,11 +388,11 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             referenceResult.Output,
             StringComparison.Ordinal);
         Assert.Contains(
-            "\"library\": \"Workspace.Search\"",
+            "\"library\": \"DotnetInspector.Services\"",
             referenceResult.Output,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
-            "\"library\": \"Implementation\"",
+            "\"library\": \"Workspace.Search\"",
             referenceResult.Output,
             StringComparison.Ordinal);
     }

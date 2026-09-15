@@ -5,6 +5,7 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 
@@ -31,6 +32,33 @@ internal static class TypeSearchService
         void MarkFailure() => hasFailures = true;
         AssemblySetRequest request =
             FindSourceCollector.BuildFindRequest(options);
+        if (ConfiguredDeclarationLocatorWorkspace.IsEligible(
+                request,
+                options.Tfm))
+        {
+            await using ConfiguredDeclarationLocatorWorkspace locator =
+                await ConfiguredDeclarationLocatorWorkspace.OpenAsync(
+                    options,
+                    logger,
+                    httpClient,
+                    cancellationToken);
+            List<TypeFindResult> located =
+                await FindWithLocatorAsync(
+                    patterns,
+                    options,
+                    locator,
+                    cancellationToken);
+            FindSearchResult<TypeFindResult> search =
+                CreateSearchResult(
+                    located,
+                    locator.HasFailures,
+                    options.PackagePrefixLimitReached);
+            return search with
+            {
+                LocatorSections = locator.Sections,
+            };
+        }
+
         if (ConfiguredPackageSearchWorkspace.IsEligible(
                 options.SourceSelection,
                 request,
@@ -43,7 +71,8 @@ internal static class TypeSearchService
                     request,
                     options.Tfm!,
                     logger.Log,
-                    cancellationToken);
+                    cancellationToken,
+                    FindSourceCollector.CreateWorkspacePlan(options));
             if (configured is null)
                 return new([], HasFailures: true);
 
@@ -75,7 +104,323 @@ internal static class TypeSearchService
                 options.PackagePrefixLimitReached);
         }
 
-        await using var workspace = new AssemblySetInspectionWorkspace();
+        return await FindWithLegacyAsync(
+            options,
+            patterns,
+            logger,
+            httpClient);
+    }
+
+    private static async Task<List<TypeFindResult>> FindWithLocatorAsync(
+            string[] patterns,
+            FindOptions options,
+            ConfiguredDeclarationLocatorWorkspace workspace,
+            CancellationToken cancellationToken)
+    {
+        TypeDeclarationLocatorSectionResult directSection =
+            await workspace.LocateAsync(
+                patterns,
+                cancellationToken);
+        if (directSection
+            is not TypeDeclarationLocatorSectionResult.Evaluated direct)
+        {
+            return [];
+        }
+
+        var results = new List<TypeFindResult>();
+        var misses =
+            new List<(
+                int Index,
+                string Pattern,
+                bool DirectComplete)>();
+        for (int index = 0; index < patterns.Length; index++)
+        {
+            string pattern = patterns[index];
+            List<TypeSearchResult> candidates =
+                ProjectCandidates(
+                    direct.Answers[index].Candidates,
+                    options.TypeFilter);
+            if (options.Limit is { } directLimit
+                && candidates.Count > directLimit)
+            {
+                candidates = [.. candidates.Take(directLimit)];
+            }
+
+            if (candidates.Count == 0)
+            {
+                misses.Add(
+                    (index, pattern, direct.Answers[index].IsComplete));
+                continue;
+            }
+
+            AddClassifiedResults(
+                results,
+                pattern,
+                pattern.Contains('*') || pattern.Contains('?')
+                    ? MatchKind.Glob
+                    : MatchKind.Exact,
+                candidates,
+                options.SourceOptions,
+                options.IncludeAll);
+        }
+
+        if (misses.Count == 0)
+            return results;
+
+        var prefixRequests =
+            misses
+                .Where(static miss =>
+                    !miss.Pattern.Contains('*')
+                    && !miss.Pattern.Contains('?')
+                    && LooksLikeNamespacePrefix(miss.Pattern))
+                .Select(static miss => $"{miss.Pattern}*")
+                .ToArray();
+        bool needsCensus =
+            misses.Any(
+                static miss =>
+                    !miss.Pattern.Contains('*')
+                    && !miss.Pattern.Contains('?'));
+        string[] fallbackRequests =
+        [
+            .. prefixRequests,
+                .. needsCensus ? ["*"] : Array.Empty<string>(),
+            ];
+        TypeDeclarationLocatorSectionResult.Evaluated? fallback = null;
+        if (fallbackRequests.Length > 0)
+        {
+            fallback =
+                await workspace.LocateAsync(
+                    fallbackRequests,
+                    cancellationToken)
+                as TypeDeclarationLocatorSectionResult.Evaluated;
+        }
+
+        var prefixes = new Dictionary<string, List<TypeSearchResult>>(
+            StringComparer.Ordinal);
+        if (fallback is not null)
+        {
+            for (int index = 0; index < prefixRequests.Length; index++)
+            {
+                prefixes[prefixRequests[index]] =
+                    ProjectCandidates(
+                        fallback.Answers[index].Candidates,
+                        options.TypeFilter);
+            }
+        }
+
+        List<TypeSearchResult> census =
+            fallback is not null && needsCensus
+                ? ProjectCandidates(
+                    fallback.Answers[^1].Candidates,
+                    options.TypeFilter)
+                : [];
+        List<string> typeNames =
+            census.Select(static candidate => candidate.FullName)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+
+        foreach ((_, string pattern, bool directComplete) in misses)
+        {
+            if (!pattern.Contains('*')
+                && !pattern.Contains('?')
+                && LooksLikeNamespacePrefix(pattern)
+                && prefixes.TryGetValue(
+                    $"{pattern}*",
+                    out List<TypeSearchResult>? prefixCandidates)
+                && prefixCandidates.Count > 0)
+            {
+                string prefixPattern = $"{pattern}*";
+                CommandError.WriteNote(
+                    $"No exact matches for '{pattern}'. Showing prefix "
+                    + $"matches for '{prefixPattern}'.");
+                IEnumerable<TypeSearchResult> selected =
+                    prefixCandidates.DistinctBy(
+                        static candidate => candidate.FullName);
+                if (options.Limit is { } prefixLimit)
+                    selected = selected.Take(prefixLimit);
+                AddClassifiedResults(
+                    results,
+                    prefixPattern,
+                    MatchKind.Glob,
+                    selected,
+                    options.SourceOptions,
+                    options.IncludeAll);
+                continue;
+            }
+
+            if (!pattern.Contains('*') && !pattern.Contains('?'))
+            {
+                var suggestions =
+                    TypeMatcher.FindClosest(
+                            typeNames,
+                            pattern,
+                            minSimilarity: 0.5,
+                            maxResults: 5)
+                        .ToList();
+                if (suggestions.Count > 0)
+                {
+                    Dictionary<string, double> similarities =
+                        suggestions.ToDictionary(
+                            static suggestion => suggestion.Name,
+                            static suggestion => suggestion.Similarity);
+                    HashSet<string> names =
+                        suggestions.Select(static suggestion => suggestion.Name)
+                            .ToHashSet(StringComparer.Ordinal);
+                    foreach (TypeSearchResult candidate
+                        in census.Where(
+                                candidate => names.Contains(
+                                    candidate.FullName))
+                            .DistinctBy(
+                                static candidate => candidate.FullName))
+                    {
+                        results.Add(
+                            ToFindResult(
+                                pattern,
+                                MatchKind.Partial,
+                                similarities[candidate.FullName],
+                                candidate,
+                                options.SourceOptions,
+                                options.IncludeAll));
+                    }
+                    continue;
+                }
+            }
+
+            bool fallbackComplete =
+                fallback is null
+                || fallback.Answers.All(
+                    static answer => answer.IsComplete);
+            if (directComplete && fallbackComplete)
+            {
+                results.Add(
+                    new TypeFindResult
+                    {
+                        Pattern = pattern,
+                        Match = MatchKind.NotFound,
+                    });
+            }
+        }
+
+        return results;
+    }
+
+    private static List<TypeSearchResult> ProjectCandidates(
+        ImmutableArray<TypeDeclarationLocatorSectionCandidate> candidates,
+        string? typeFilter)
+    {
+        var results = new List<TypeSearchResult>(candidates.Length);
+        foreach (TypeDeclarationLocatorSectionCandidate candidate
+            in candidates)
+        {
+            string fullName =
+                candidate.Name.ToMetadataFullName();
+            if (typeFilter is not null
+                && !TypeMatcher.MatchesTypeFilter(
+                    fullName,
+                    typeFilter))
+            {
+                continue;
+            }
+
+            string typeName =
+                candidate.Name.Segments.Length == 1
+                    ? candidate.Name.Segments[0]
+                    : string.Join(
+                        ".",
+                        candidate.Name.Segments);
+            (string source, string? version) =
+                candidate.Observation.Realization switch
+                {
+                    TypeDeclarationLocatorRealization.PackageRealization
+                        package =>
+                        (package.PackageId, package.Version),
+                    TypeDeclarationLocatorRealization.PlatformRealization
+                        platform =>
+                        (platform.Family, platform.Version),
+                    _ => ("", null),
+                };
+            results.Add(
+                new TypeSearchResult
+                {
+                    TypeName = MetadataTypeNameFormatter
+                        .FormatGenericTypeName(typeName),
+                    Namespace = candidate.Name.Namespace,
+                    FullName = MetadataTypeNameFormatter
+                        .FormatGenericTypeName(fullName),
+                    Kind = candidate.DeclarationKind.ToString(),
+                    Assembly =
+                        candidate.Observation.AssemblyIdentity.Name,
+                    Source = source,
+                    SourceVersion = version,
+                    Location = candidate,
+                });
+        }
+
+        return results;
+    }
+
+    private static void AddClassifiedResults(
+            List<TypeFindResult> results,
+            string pattern,
+            MatchKind match,
+            IEnumerable<TypeSearchResult> candidates,
+            DotnetInspector.Packages.NuGetSourceOptions? sourceOptions,
+            bool includeAll)
+    {
+        foreach (TypeSearchResult candidate in candidates)
+        {
+            results.Add(
+                ToFindResult(
+                    pattern,
+                    match,
+                    similarity: 1.0,
+                    candidate,
+                    sourceOptions,
+                    includeAll));
+        }
+    }
+
+    private static TypeFindResult ToFindResult(
+            string pattern,
+            MatchKind match,
+            double? similarity,
+            TypeSearchResult candidate,
+            DotnetInspector.Packages.NuGetSourceOptions? sourceOptions,
+            bool includeAll) =>
+            new()
+            {
+                Pattern = pattern,
+                Match = match,
+                Similarity = similarity,
+                Type = candidate.TypeName,
+                Namespace = candidate.Namespace ?? "",
+                FullName = candidate.FullName,
+                Kind = candidate.Kind ?? "",
+                Library = candidate.Assembly ?? "",
+                Source = candidate.Source ?? "",
+                SourceVersion = candidate.SourceVersion,
+                Location = candidate.Location,
+                Navigation =
+                    candidate.Location is { } location
+                        ? TypeFindInspectionTarget.Create(location)
+                            .CreateNavigation(
+                                sourceOptions,
+                                includeAll)
+                        : null,
+            };
+
+    private static async Task<FindSearchResult<TypeFindResult>>
+        FindWithLegacyAsync(
+            FindOptions options,
+            string[] patterns,
+            VerboseLogger logger,
+            HttpClient httpClient)
+    {
+        bool hasFailures = false;
+        void MarkFailure() => hasFailures = true;
+        await using var workspace =
+            new AssemblySetInspectionWorkspace(
+                FindSourceCollector.CreateWorkspacePlan(options));
         Task<List<TypeSearchResult>> Collect(string? pattern) =>
             CollectTypesAsync(
                 options,
@@ -304,7 +649,8 @@ internal static class TypeSearchService
                     Kind = t.Kind ?? "",
                     Library = t.Assembly ?? "",
                     Source = t.Source ?? "",
-                    SourceVersion = t.SourceVersion
+                    SourceVersion = t.SourceVersion,
+                    Location = t.Location,
                 });
             }
         }
@@ -326,7 +672,8 @@ internal static class TypeSearchService
                     Kind = t.Kind ?? "",
                     Library = t.Assembly ?? "",
                     Source = t.Source ?? "",
-                    SourceVersion = t.SourceVersion
+                    SourceVersion = t.SourceVersion,
+                    Location = t.Location,
                 });
             }
         }
@@ -353,7 +700,9 @@ internal static class TypeSearchService
         VerboseLogger logger,
         HttpClient httpClient)
     {
-        await using var workspace = new AssemblySetInspectionWorkspace();
+        await using var workspace =
+            new AssemblySetInspectionWorkspace(
+                FindSourceCollector.CreateWorkspacePlan(options));
         return await CollectTypesAsync(
             options,
             pattern,

@@ -1643,7 +1643,8 @@ public class FindCommandIntegrationTests
 
         Assert.Equal(0, exit);
         using var document = System.Text.Json.JsonDocument.Parse(output);
-        var result = Assert.Single(document.RootElement.EnumerateArray());
+        var result = Assert.Single(
+            document.RootElement.GetProperty("results").EnumerateArray());
         Assert.Equal(
             "System.Text.Json.JsonDocument",
             result.GetProperty("full_name").GetString());
@@ -1800,7 +1801,7 @@ public class FindCommandIntegrationTests
     // ── JSON output tests ────────────────────────────────────────────
 
     [Fact]
-    public async Task Find_JsonOutput_ProducesIndentedJsonArray()
+    public async Task Find_JsonOutput_ProducesIndentedOperationDocument()
     {
         var options = new FindOptions
         {
@@ -1814,15 +1815,17 @@ public class FindCommandIntegrationTests
 
         Assert.Equal(0, exit);
         using var doc = System.Text.Json.JsonDocument.Parse(output);
-        Assert.Equal(System.Text.Json.JsonValueKind.Array, doc.RootElement.ValueKind);
-        Assert.True(doc.RootElement.GetArrayLength() > 0);
-        Assert.Equal(System.Text.Json.JsonValueKind.Object, doc.RootElement[0].ValueKind);
-        Assert.True(doc.RootElement[0].TryGetProperty("full_name", out _));
-        Assert.Contains("\n  {", output);
+        Assert.Equal(System.Text.Json.JsonValueKind.Object, doc.RootElement.ValueKind);
+        Assert.True(doc.RootElement.GetProperty("complete").GetBoolean());
+        System.Text.Json.JsonElement results =
+            doc.RootElement.GetProperty("results");
+        Assert.True(results.GetArrayLength() > 0);
+        Assert.True(results[0].TryGetProperty("full_name", out _));
+        Assert.Contains("\n  \"results\": [", output);
     }
 
     [Fact]
-    public async Task Find_CompactJsonOutput_ProducesSingleLineJsonArray()
+    public async Task Find_CompactJsonOutput_ProducesSingleLineOperationDocument()
     {
         var options = new FindOptions
         {
@@ -1839,8 +1842,9 @@ public class FindCommandIntegrationTests
         var payload = output.TrimEnd();
         Assert.DoesNotContain('\n', payload);
         using var doc = System.Text.Json.JsonDocument.Parse(payload);
-        Assert.Equal(System.Text.Json.JsonValueKind.Array, doc.RootElement.ValueKind);
-        Assert.True(doc.RootElement.GetArrayLength() > 0);
+        Assert.Equal(System.Text.Json.JsonValueKind.Object, doc.RootElement.ValueKind);
+        Assert.True(
+            doc.RootElement.GetProperty("results").GetArrayLength() > 0);
     }
 
     [Fact]

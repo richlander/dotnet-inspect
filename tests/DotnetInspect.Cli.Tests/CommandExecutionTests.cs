@@ -20087,6 +20087,128 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Find_ExactPackageAndPlatformJsonRetainsLocatorNavigation()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find",
+            "System.Text.Json.JsonSerializer",
+            "--package",
+            "System.Text.Json@10.0.0",
+            "--platform",
+            "System.Text.Json",
+            "--ecosystem",
+            "ecosystem.aspire",
+            "--ecosystem",
+            "ecosystem.ai",
+            "--tfm",
+            "net10.0",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.True(
+            document.RootElement.GetProperty("complete").GetBoolean());
+        JsonElement[] rows =
+        [
+            .. document.RootElement.GetProperty("results").EnumerateArray(),
+        ];
+        JsonElement[] sections =
+        [
+            .. document.RootElement
+                .GetProperty("locator_sections")
+                .EnumerateArray(),
+        ];
+        Assert.Single(sections);
+        Assert.Equal(
+            "evaluated",
+            sections[0].GetProperty("kind").GetString());
+        Assert.Equal(
+            2,
+            sections[0]
+                .GetProperty("answers")[0]
+                .GetProperty("available_candidate_count")
+                .GetInt32());
+        Assert.Equal(2, rows.Length);
+        Assert.Collection(
+            rows,
+            static row =>
+                Assert.Equal(
+                    "package",
+                    row.GetProperty("location")
+                        .GetProperty("coordinate")
+                        .GetProperty("kind")
+                        .GetString()),
+            static row =>
+                Assert.Equal(
+                    "platform",
+                    row.GetProperty("location")
+                        .GetProperty("coordinate")
+                        .GetProperty("kind")
+                        .GetString()));
+        Assert.All(
+            rows,
+            static row =>
+            {
+                Assert.Equal(
+                    "Definition",
+                    row.GetProperty("location")
+                        .GetProperty("declaration_kind")
+                        .GetString());
+            });
+        JsonElement packageNavigation =
+            rows[0].GetProperty("navigation");
+        Assert.Contains(
+            "dotnet-inspect type",
+            packageNavigation.GetProperty("type_command").GetString(),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Member Index",
+            packageNavigation.GetProperty("member_index_command").GetString(),
+            StringComparison.Ordinal);
+        JsonElement platformNavigation =
+            rows[1].GetProperty("navigation");
+        Assert.Contains(
+            "implementation-pack content",
+            platformNavigation
+                .GetProperty("unavailable_reason")
+                .GetString(),
+            StringComparison.Ordinal);
+        Assert.False(
+            platformNavigation.TryGetProperty(
+                "type_command",
+                out _));
+        Assert.False(
+            platformNavigation.TryGetProperty(
+                "member_index_command",
+                out _));
+    }
+
+    [Fact]
+    public async Task Find_IncompleteLocatorMarkdownDisclosesCoverageAndGap()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "find",
+            "System.Object",
+            "--package",
+            "System.Runtime@4.3.1",
+            "--platform",
+            "System.Private.CoreLib",
+            "--tfm",
+            "net10.0",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Coverage", output);
+        Assert.Contains("## Gaps", output);
+        Assert.Contains("Incomplete", output);
+        Assert.Contains("PackageAssetUnavailable", output);
+    }
+
+    [Fact]
     public async Task Find_Members_ExplicitFlag_RendersMembersSection()
     {
         var (exit, output, error) = await RunAppAsync(

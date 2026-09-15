@@ -3,16 +3,20 @@
 This document owns the CLI-scoped type-search operation implemented by
 `TypeSearchService.FindTypesAsync`: given a host-authorized source scope and
 one or more parsed type patterns, it collects Metadata-issued candidates,
-classifies each pattern, and returns flat `TypeFindResult` rows with source
-provenance.
+classifies each pattern, and returns typed candidate rows. A row produced by
+the reverse-locator path retains its exact coordinate, structured name,
+declaration kind, origin, and observation context; a presentation adapter may
+still lower that row to the established `TypeFindResult` display shape.
 
 [CLI host architecture](../cli-architecture.md) owns parsing, source
 authorization, operation lifetime, diagnostics, exit status, and rendering.
 [Search scope resolution](search-scope-resolution.md) owns default activation
 and explicit scope-group normalization. [Inspection
 layers](inspection-layers.md) owns the boundary between the host, typed
-queries, and Metadata facts. `AssemblyContextTypeInventoryQuery` owns the
-candidate inventory; `ILInspector.Metadata.TypeMatcher` owns the type matching
+queries, and Metadata facts. `WorkspaceDeclarationLocator` owns resident reverse-declaration lookup for
+admitted declaration contexts; `AssemblyContextTypeInventoryQuery` remains the
+compatibility inventory for source producers not yet adopted by that
+Workspace path. `ILInspector.Metadata.TypeMatcher` owns the type matching
 grammar and similarity calculation. [Output shapes](output-shapes.md) and
 [progressive disclosure](progressive-disclosure.md) own projection, formatting,
 and presentation limits.
@@ -21,8 +25,10 @@ and presentation limits.
 
 The repository convention is a typed operation result between fact production
 and presentation. A service result is not a Markout view and does not acquire
-rendering attributes merely to reduce adapter code. `TypeFindResult` is the
-typed compatibility result for this operation; `FindResultView` and
+rendering attributes merely to reduce adapter code. `TypeFindDocument` is the
+plain-JSON operation result: it retains result rows, operation completion, and
+every shared locator Section, including zero-candidate and incomplete answers.
+`TypeFindResult` is its typed result-row currency; `FindResultView` and
 `FindRow` remain presentation projections.
 
 This service deliberately remains inside the CLI project. It consumes
@@ -31,10 +37,81 @@ L1 query, a host-neutral API, or a browser/Wasm contract. The service boundary
 is still useful: commands do not classify candidates, and writers do not
 reconstruct search semantics.
 
-The proposed [Reverse Type-Declaration Locator](reverse-type-declaration-locator.md)
-is the separately owned host-neutral coordinate-discovery successor. Its
-[adoption map](reverse-type-locator-adoption.md) tracks the CLI migration;
-this service's current behavior and gaps remain unchanged until that adoption.
+The [Reverse Type-Declaration Locator](reverse-type-declaration-locator.md) is
+the separately owned host-neutral coordinate-discovery substrate. Its
+[adoption map](reverse-type-locator-adoption.md) tracks this migration.
+
+## Adopted reverse-locator path
+
+The first CLI adoption is deliberately narrower than every source spelling
+accepted by `find`. It applies when the finite source request contains only:
+
+- exact-version Package references;
+- explicit Platform Library names; or
+- both,
+
+and declares one explicit target framework other than `all`. Package archives,
+floating package versions, whole Platform families, reference-view catalogs,
+local Libraries, projects, binary directories, package groups, and
+package-prefix expansion remain on the compatibility collector until their
+owners supply the exact declaration-context association required by the
+Workspace population.
+
+The CLI creates one short-lived `InspectionWorkspace` from
+`EcosystemPackCatalog.CreateWorkspacePlan()` or, when the caller repeats
+`--ecosystem`, the exact caller-ordered selected plan. Registrations are inert:
+Find admits only concrete caller-selected Package and Platform Library
+content, and never executes a registered package-prefix population. It admits
+one `WorkspaceDeclarationContext` per selected source through
+`WorkspaceContextLoader.LoadDeclarationContextAsync`, obtains the Workspace's
+resident `WorkspaceDeclarationLocator`, and submits the already parsed direct
+patterns as `TypeDeclarationLocatorRequest.Pattern` values. Platform Library
+admission preserves the existing Platform resolver's family/version choice,
+then observes the selected implementation-pack content. It does not relabel a
+reference-pack declaration as that implementation view. Reference-view
+population remains a separately owned adapter.
+
+The service retains the shared
+`TypeDeclarationLocatorSectionResult` and each selected
+`TypeDeclarationLocatorSectionCandidate` through CLI classification and row
+selection. `TypeFindResult` is a one-way compatibility presentation; no Type
+or Member consumer may reconstruct identity from its `FullName`, `Library`,
+`Source`, or `SourceVersion` strings.
+
+For a direct miss, namespace-prefix and similarity work remains CLI-owned.
+Prefix fallback is issued as a separate `<pattern>*` locator request. A
+similarity census is issued as a separate `*` locator request and is performed
+only when a direct or prefix answer does not settle the pattern. The original
+answer and every fallback answer keep their own coverage. An incomplete direct
+answer is never described as a scoped miss merely because a later fallback
+produced no row.
+
+`FindOptions.Limit` is applied only to classified candidate rows. It is not
+passed to `WorkspaceDeclarationLocatorOptions` and cannot reduce inventory
+reads or retained inventories. Public semantic row selection remains an L2/CLI
+operation after the complete locator result and does not remove upstream
+coverage.
+
+The selected-candidate handoff is an owner-issued
+`TypeFindInspectionTarget`, not a command-display parser. It derives exact
+Package or Platform source arguments from the candidate's coordinate and
+attached realization/selection context, binds the candidate's structured
+Metadata name, and lets Member apply its exact Metadata-issued selector only
+after that Type binding. Package reopening is generated only when the
+invocation's existing source authorization can reacquire the observed
+producer. Platform implementation-pack observations have no public Type/Member
+source syntax that preserves their view, so their copyable commands visibly
+decline. Applying such a candidate to Type or Member is likewise unavailable
+until a source-owned exact implementation-view route exists. A candidate
+without a representable authorized reopening target retains its locator row
+and reports navigation unavailable rather than emitting a lossy command.
+
+Automatic Platform Type/Member routing keeps the current definition and
+namespace-prefix preference in the Platform routing owner and remains on its
+existing reference-view route. A locator implementation-pack observation is
+not substituted for that view merely because family, version, and Library
+match. Migrating that route requires a source-owned exact implementation-view
+reopening adapter.
 
 The analogous `MemberSearchService` confirms the local convention of one
 ordered source collector, typed query execution, flat result rows, and
@@ -48,6 +125,8 @@ contract, however, and is not owned here.
 - one or more non-empty, trimmed patterns;
 - an explicit source scope, after applying the platform default when the user
   supplied none;
+- the all-known ecosystem Workspace plan or an exact caller-ordered
+  `--ecosystem` selection;
 - source and network authorization in `FindOptions`;
 - the visibility choice represented by `IncludeAll`;
 - the operation result limit, when present; and
@@ -71,21 +150,19 @@ described under [Implementation and validation status](#implementation-and-valid
 5. projects; and
 6. binary directories.
 
-For one normalized package reference with an exact NuGet version, one explicit
-target framework other than `all`, no other source, and no numeric result
-limit, the service owns an `InspectionWorkspace` with awaited close. It acquires and
-commits one package Root, then executes `AssemblyContextTypeInventoryQuery`
-against the Root's surface group. Direct and fallback census passes reuse that
-committed Root. Floating, `@latest`, and wildcard version selectors remain on
-the legacy route so this adoption does not redefine their version-selection
-semantics. Package candidates project library, source, and version from typed
-Root and asset provenance; a package-relative asset is not represented as a
-host filesystem path.
+For exact-version Packages and explicit Platform Libraries with one explicit
+target framework other than `all`, the service owns an
+`InspectionWorkspace` with awaited close. It admits declaration contexts
+through `WorkspaceContextLoader` and executes the Workspace-resident locator.
+Direct, namespace-prefix, and similarity-census requests reuse the same
+resident inventories. Floating, `@latest`, wildcard version selectors, and
+the other unsupported source shapes remain on the legacy route so this
+adoption does not redefine their selection semantics.
 
-All other source shapes retain an ephemeral
+Unsupported source shapes retain an ephemeral
 `AssemblySetInspectionWorkspace`. Each admitted assembly executes the same
-query, and the service projects its type name, namespace, full name, kind,
-library file base name, source, and source version into the internal
+inventory query, and the service projects its type name, namespace, full name,
+kind, library file base name, source, and source version into the internal
 `TypeSearchResult` currency. The library value on this route is path
 provenance, not metadata assembly identity. Neither route reopens assemblies,
 infers metadata facts from display text, or replaces a typed query failure with
@@ -142,11 +219,13 @@ position.
 ## Limits and work
 
 For direct and namespace-prefix matches, `Limit` is a per-pattern result cap.
-On the optimized non-tabular single-pattern path it is also an acquisition
-bound: once enough direct matches have been collected, later sources are
-neither resolved nor diagnosed. For multiple patterns, or one pattern on the
-census path, the service must inspect the complete authorized source set before
-applying each pattern's cap.
+On the locator path it is applied after complete locator evaluation and cannot
+bound inventory reads or retained inventories. On the optimized legacy
+non-tabular single-pattern path it is also an acquisition bound: once enough
+direct matches have been collected, later sources are neither resolved nor
+diagnosed. For multiple patterns, or one pattern on the legacy census path,
+the service inspects the complete authorized source set before applying each
+pattern's cap.
 
 Similarity fallback has its own fixed cap of five candidate names. The current
 implementation does not additionally apply `Limit` to partial suggestions;
@@ -171,8 +250,13 @@ detail. An operation-wide exception propagates to `FindCommand`, which owns
 the hard error and exit status.
 
 An empty result is therefore not proof that every source succeeded; the stderr
-diagnostic stream is part of the CLI operation outcome. Structured completion
-evidence is not part of this CLI compatibility result.
+diagnostic stream remains part of the CLI operation outcome. Plain type-search
+JSON publishes `complete`, `results`, and `locator_sections`, so locator
+coverage survives even when `results` is empty. Default Markdown appends the
+shared locator Results, Coverage, and Gaps view. Row-only table, JSONL, TSV,
+and projected-JSON stdout remain display projections; the same shared
+locator view is rendered as plain text on stderr so those formats do not turn
+incomplete evidence into an unqualified miss.
 
 `FindTypesAsync` accepts the command cancellation token and carries it through
 package Root acquisition, publication, query admission, and the boundaries
@@ -185,14 +269,21 @@ The original classification refactor is complete: `FindCommand` calls
 rendering after receiving `TypeFindResult` rows.
 
 The Release tests in
-`tests/DotnetInspect.Cli.Tests/TypeSearchServiceTests.cs` currently verify candidate
+`tests/DotnetInspect.Cli.Tests/TypeSearchServiceTests.cs` verify candidate
 collection and source behavior:
 
 - directory source provenance for a separator-free path;
 - acceptance of a directory path with a trailing separator;
 - visible invalid-assembly warnings;
-- runtime-asset package fallback; and
-- early exit before an unnecessary later source.
+- runtime-asset package fallback;
+- early exit before an unnecessary later source;
+- distinct exact Package and Platform choices for
+  `System.Text.Json.JsonSerializer`;
+- post-locator result limiting without an inventory bound;
+- typed Package Type and exact Member consumption;
+- visible Platform implementation-view handoff and command decline;
+- configured-source command decline; and
+- separate `System.Object` definition and forwarder choices.
 
 The classification cascade itself has no focused service-level gate. In
 particular, the following properties are unverified or known gaps:

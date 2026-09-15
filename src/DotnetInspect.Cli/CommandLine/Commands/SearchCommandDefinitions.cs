@@ -40,6 +40,13 @@ public static class SearchCommandDefinitions
         };
         var platformOption = CommandLineHelpers.CreatePlatformSearchOption();
         var platformLibraryOption = CommandLineHelpers.CreatePlatformLibrarySearchOption();
+        var ecosystemOption = new Option<string[]>("--ecosystem")
+        {
+            Description =
+                "Register exactly the named canonical ecosystem(s) in caller order. Can repeat.",
+            Arity = ArgumentArity.OneOrMore,
+            AllowMultipleArgumentsPerToken = false
+        };
         var extensionsOption = new Option<bool>("--extensions")
         {
             Description =
@@ -84,6 +91,7 @@ public static class SearchCommandDefinitions
         findCommand.Options.Add(assemblyOption);
         findCommand.Options.Add(platformOption);
         findCommand.Options.Add(platformLibraryOption);
+        findCommand.Options.Add(ecosystemOption);
         findCommand.Options.Add(extensionsOption);
         findCommand.Options.Add(aspnetcoreOption);
         findCommand.Options.Add(projectOption);
@@ -109,7 +117,7 @@ public static class SearchCommandDefinitions
 
         var commandArgs = new FindOptionsParser.FindCommandArgs(
             patternArg, packageOption, assemblyOption, platformOption, platformLibraryOption,
-            extensionsOption, aspnetcoreOption, projectOption, binOption, tfmOption, allOption,
+            ecosystemOption, extensionsOption, aspnetcoreOption, projectOption, binOption, tfmOption, allOption,
             typeFilterOption, compactOption, opts.NoHeaders, packagePrefixOption, membersOption,
             literalOption);
 
