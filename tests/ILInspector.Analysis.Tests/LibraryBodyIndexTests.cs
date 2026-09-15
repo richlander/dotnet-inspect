@@ -12083,6 +12083,159 @@ public class LibraryBodyIndexTests
         Assert.Empty(index.HollowUnsafeMethods());
     }
 
+    [Fact]
+    public void SameImageCalls_UseNormalizedCallerContracts()
+    {
+        LibraryBodyIndex index = LibraryBodyIndex.Open(
+            FixtureCatalog.DecompilerUnsafeNew.AssemblyPath());
+
+        DirectCall pointerNone = Assert.Single(
+            index.DirectCalls,
+            call =>
+                call.Caller.DeclaringType.Name
+                    == "MemorySafetySpellingFixture"
+                && call.Caller.Name == "CallPointerNoneMethod"
+                && call.Callee.Name == "PointerNoneMethod");
+        Assert.Equal(
+            CallerUnsafeMode.None,
+            pointerNone.TargetCallerUnsafeMode);
+        Assert.DoesNotContain(
+            index.UnsafeEvidence,
+            evidence =>
+                evidence.Member.Name == "CallPointerNoneMethod"
+                && evidence.Reason == "Unsafe call");
+
+        DirectCall pointerFreeExplicit = Assert.Single(
+            index.DirectCalls,
+            call =>
+                call.Caller.DeclaringType.Name
+                    == "MemorySafetySpellingFixture"
+                && call.Caller.Name
+                    == "CallPointerFreeUnsafeMethod"
+                && call.Callee.Name == "PointerFreeUnsafeMethod");
+        Assert.Equal(
+            CallerUnsafeMode.Explicit,
+            pointerFreeExplicit.TargetCallerUnsafeMode);
+        Assert.Contains(
+            index.UnsafeEvidence,
+            evidence =>
+                evidence.Member.Name
+                    == "CallPointerFreeUnsafeMethod"
+                && evidence.Reason == "Unsafe call"
+                && evidence.OperandToken
+                    == pointerFreeExplicit.OperandToken);
+
+        foreach ((string caller, string callee) in new[]
+        {
+            ("ReadProperty", "get_Property"),
+            ("SubscribeEvent", "add_Changed"),
+            ("Create", ".ctor"),
+        })
+        {
+            DirectCall call = Assert.Single(
+                index.DirectCalls,
+                item =>
+                    item.Caller.DeclaringType.Name
+                        == "AccessorContractFixtures"
+                    && item.Caller.Name == caller
+                    && item.Callee.Name == callee);
+            Assert.Equal(
+                CallerUnsafeMode.Explicit,
+                call.TargetCallerUnsafeMode);
+            Assert.Contains(
+                index.UnsafeEvidence,
+                evidence =>
+                    evidence.Member.Name == caller
+                    && evidence.Reason == "Unsafe call"
+                    && evidence.OperandToken == call.OperandToken);
+        }
+
+        DirectCall setter = Assert.Single(
+            index.DirectCalls,
+            call =>
+                call.Caller.DeclaringType.Name
+                    == "AccessorContractFixtures"
+                && call.Caller.Name == "WriteProperty"
+                && call.Callee.Name == "set_Property");
+        Assert.Equal(
+            CallerUnsafeMode.None,
+            setter.TargetCallerUnsafeMode);
+        Assert.DoesNotContain(
+            index.UnsafeEvidence,
+            evidence =>
+                evidence.Member.Name == "WriteProperty"
+                && evidence.Reason == "Unsafe call");
+
+        DirectCall constructedGeneric = Assert.Single(
+            index.DirectCalls,
+            call =>
+                call.Caller.DeclaringType.Name
+                    == "GenericCallerContractCalls"
+                && call.Caller.Name == "CallConstructedInstance"
+                && call.Callee.Name == "ExplicitInstance");
+        Assert.Equal(
+            CallerUnsafeMode.Explicit,
+            constructedGeneric.TargetCallerUnsafeMode);
+        Assert.Contains(
+            index.UnsafeEvidence,
+            evidence =>
+                evidence.Member.Name == "CallConstructedInstance"
+                && evidence.Reason == "Unsafe call"
+                && evidence.OperandToken
+                    == constructedGeneric.OperandToken);
+    }
+
+    [Fact]
+    public void SameImageCalls_LegacyPointerContractRemainsImplicit()
+    {
+        var index = LibraryBodyIndex.Open(
+            typeof(UnsafeEvidenceFixtures).Assembly.Location);
+
+        DirectCall call = Assert.Single(
+            index.DirectCalls,
+            item =>
+                item.Caller.Name
+                    == nameof(
+                        UnsafeEvidenceFixtures
+                            .PointerExternCallerA)
+                && item.Callee.Name
+                    == nameof(
+                        UnsafeEvidenceFixtures.PointerExtern));
+        Assert.Equal(
+            CallerUnsafeMode.Implicit,
+            call.TargetCallerUnsafeMode);
+        Assert.Contains(
+            index.UnsafeEvidence,
+            evidence =>
+                evidence.Member.Name
+                    == nameof(
+                        UnsafeEvidenceFixtures
+                            .PointerExternCallerA)
+                && evidence.Reason == "Unsafe call"
+                && evidence.OperandToken == call.OperandToken);
+    }
+
+    [Fact]
+    public void SameImageCalls_UnavailableContractRemainsVisible()
+    {
+        LibraryBodyIndex index =
+            OpenMemorySafetyContractImage(2, 1);
+
+        DirectCall call = Assert.Single(
+            index.DirectCalls,
+            item =>
+                item.Caller.Name == "CallsPointerOnly"
+                && item.Callee.Name == "PointerOnly");
+        Assert.Equal(
+            CallerUnsafeMode.Unavailable,
+            call.TargetCallerUnsafeMode);
+        Assert.DoesNotContain(
+            index.UnsafeEvidence,
+            evidence =>
+                evidence.Member.Name == "CallsPointerOnly"
+                && evidence.Reason == "Unsafe call");
+    }
+
     static LibraryBodyIndex OpenMemorySafetyContractImage(
         params int?[] moduleMarkers)
     {
@@ -12177,7 +12330,8 @@ public class LibraryBodyIndexTests
                 markerConstructorSignature,
                 bodyOffset: -1,
                 MetadataTokens.ParameterHandle(1));
-        metadata.AddMethodDefinition(
+        MethodDefinitionHandle pointerOnly =
+            metadata.AddMethodDefinition(
             MethodAttributes.Public | MethodAttributes.Static,
             MethodImplAttributes.IL,
             metadata.GetOrAddString("PointerOnly"),
@@ -12192,6 +12346,23 @@ public class LibraryBodyIndexTests
                 emptyMethodSignature,
                 bodyOffset,
                 MetadataTokens.ParameterHandle(1));
+        var callerBody = new BlobBuilder();
+        var callerInstructions =
+            new InstructionEncoder(callerBody);
+        callerInstructions.OpCode(ILOpCode.Ldarg_0);
+        callerInstructions.Call(pointerOnly);
+        callerInstructions.OpCode(ILOpCode.Ret);
+        int callerBodyOffset =
+            bodyEncoder.AddMethodBody(
+                callerInstructions,
+                maxStack: 1);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("CallsPointerOnly"),
+            pointerMethodSignature,
+            callerBodyOffset,
+            MetadataTokens.ParameterHandle(1));
 
         metadata.AddTypeDefinition(
             TypeAttributes.NotPublic,

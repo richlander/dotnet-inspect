@@ -355,6 +355,34 @@ contract. The wider #5254 adoption continues with call targets, fields,
 operation evidence, and inner-unsafe roles before #5270 composes CLI and browser
 audit paths.
 
+### Same-image call-target contracts
+
+**Owner and claim:** Analysis joins each `call`, `callvirt`, or `newobj`
+operand that corresponds to a primary-image MethodDef to that definition's
+normalized caller contract. The MethodDef token is the join currency:
+`MethodDefinitionMap` resolves direct MethodDef operands, MethodSpec operands,
+local MemberRef aliases, and constructed-generic targets before
+`MethodSafetyAnalysis` classifies the call. The resolved MethodDef remains the
+internal join currency; `DirectCall` preserves its `None`, `Implicit`,
+`Explicit`, or `Unavailable` contract without changing the established operand
+and peeled-token identities.
+
+For a resolved same-image invocation, `Implicit` and `Explicit` produce
+`Unsafe call` evidence, `None` does not, and `Unavailable` remains visible on
+the call without being recast as safe or unsafe evidence. Calls to
+`System.Runtime.CompilerServices.Unsafe` remain independent positive body-risk
+evidence. External or unresolved targets retain the existing structural
+pointer fallback until cross-assembly mixed-model enforcement has an owner.
+
+`SameImageCalls_UseNormalizedCallerContracts`,
+`SameImageCalls_LegacyPointerContractRemainsImplicit`,
+`SameImageCalls_UnavailableContractRemainsVisible`, and
+`UnsafeEvidence_FindsSignatureOperationsAndUnsafeCalls` gate the contract with
+compiler-produced updated and legacy controls plus a generated conflicting-
+marker image. This slice does not define cross-assembly enforcement, field
+contracts, inner-unsafe or safe-boundary roles, reconstructed operation
+meaning, function-load enforcement, or #5270 CLI/browser composition.
+
 `LibraryBodyStableReceiverGetterClassifier` owns the
 narrow PE-backed readonly-field getter judgment and its acquisition-scoped
 cache;

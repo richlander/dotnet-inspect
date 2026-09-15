@@ -79,6 +79,17 @@ internal sealed class LibraryBodyAnalysisAccumulator
             }
         }
 
+        ImmutableArray<MethodIdentity> physicalMethods =
+        [
+            .. results
+                .Where(static result => result.HasCaller)
+                .Select(static result => result.Caller!),
+        ];
+        var methodMap = MethodDefinitionMap.Create(physicalMethods);
+        Dictionary<int, MethodIdentity> methodsByToken =
+            physicalMethods.ToDictionary(
+                static method => method.MetadataToken);
+
         // Merge per-method results in metadata order, reproducing the exact sequence of appends
         // the original sequential loop performed. A method that hit a recoverable failure carries
         // its partial contributions (accumulated before the throw) alongside its diagnostic, so
@@ -116,16 +127,27 @@ internal sealed class LibraryBodyAnalysisAccumulator
                 default: none++; break;
             }
             declaredMethods.Add(r.Caller!);
-            if (!r.UnsafeEvidence.IsDefaultOrEmpty)
-                unsafeEvidence.AddRange(r.UnsafeEvidence);
+            ImmutableArray<DirectCall> normalizedCalls =
+                NormalizeSameImageCallContracts(
+                    r.Calls,
+                    methodMap,
+                    methodsByToken);
+            if (!r.UnsafeEvidence.IsDefaultOrEmpty
+                || !normalizedCalls.IsDefaultOrEmpty)
+            {
+                unsafeEvidence.AddRange(
+                    ReconcileCallSafetyEvidence(
+                        r.UnsafeEvidence,
+                        normalizedCalls));
+            }
             if (r.IsLeverage)
                 unsafeLeverageMethods.Add(r.Caller!);
             if (r.HasBody)
                 methods.Add(r.Caller!);
-            if (!r.Calls.IsDefaultOrEmpty)
+            if (!normalizedCalls.IsDefaultOrEmpty)
             {
                 calls.AddRange(
-                    r.Calls.Select(call =>
+                    normalizedCalls.Select(call =>
                     {
                         MethodIdentity declared =
                             ResolveDeclaredMethod(
@@ -282,6 +304,75 @@ internal sealed class LibraryBodyAnalysisAccumulator
             OwnershipFlow: new(ownershipFlow.ToImmutable()),
             Resources: new(leakTriageResult),
             Diagnostics: diagnostics.ToImmutable());
+    }
+
+    static ImmutableArray<DirectCall> NormalizeSameImageCallContracts(
+        ImmutableArray<DirectCall> calls,
+        MethodDefinitionMap methodMap,
+        IReadOnlyDictionary<int, MethodIdentity> methodsByToken)
+    {
+        if (calls.IsDefaultOrEmpty)
+            return calls;
+
+        return
+        [
+            .. calls.Select(call =>
+            {
+                if (call.Kind is not (
+                    CallKind.Call
+                    or CallKind.CallVirtual
+                    or CallKind.NewObject))
+                {
+                    return call;
+                }
+
+                int targetToken = methodMap.Resolve(call);
+                return targetToken != 0
+                    && methodsByToken.TryGetValue(
+                        targetToken,
+                        out MethodIdentity? target)
+                    ? call with
+                    {
+                        TargetCallerUnsafeMode =
+                            target.CallerUnsafeMode,
+                    }
+                    : call;
+            }),
+        ];
+    }
+
+    static ImmutableArray<UnsafeEvidence> ReconcileCallSafetyEvidence(
+        ImmutableArray<UnsafeEvidence> evidence,
+        ImmutableArray<DirectCall> calls)
+    {
+        if (calls.IsDefaultOrEmpty)
+            return evidence;
+
+        IEnumerable<UnsafeEvidence> nonCallEvidence =
+            evidence.IsDefaultOrEmpty
+                ? []
+                : evidence.Where(
+                    static item => item.Reason != "Unsafe call");
+        IEnumerable<UnsafeEvidence> callEvidence =
+            calls.Where(
+                    static call =>
+                        call.Kind != CallKind.CallIndirect)
+                .Select(call =>
+                    MethodSafetyAnalysis.InspectCall(
+                        call.Caller,
+                        call.Callee,
+                        call.Kind,
+                        call.ILOffset,
+                        call.OperandToken,
+                        call.TargetCallerUnsafeMode))
+                .OfType<UnsafeEvidence>();
+
+        return
+        [
+            .. nonCallEvidence
+                .Concat(callEvidence)
+                .OrderBy(static item => item.ILOffset ?? int.MinValue),
+        ];
     }
 
     static void RemoveExternallyStoredAsyncFieldSources(
