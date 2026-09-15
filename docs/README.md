@@ -231,7 +231,9 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Finding Adoption](design/finding-adoption.md) | How Analysis, Findings, and Research compose. |
 | [Call Graph Projection](design/call-graph-projection.md) | Projecting the inspection graph into a call graph. |
 | [Instruction Substrate](design/instruction-substrate.md) | Shared IL/control-flow substrate consumed by Analysis and the Decompiler. |
-| [Decompiler Exception-flow Facts](design/decompiler-exception-flow-facts.md) | Target immutable per-function exception-region identity, topology, membership, transfer, and raw/structured correspondence shared by Decompiler consumers. |
+| [Metadata Exception-region Facts](design/metadata-exception-region-facts.md) | Target closed physical method-body exception-clause catalog shared by Metadata, Analysis, Decompiler, and presentation consumers. |
+| [Instruction Exception-flow Facts](design/instruction-exception-flow-facts.md) | Target decoded-IL topology, location context, and normal-transfer facts shared by Analysis and Decompiler. |
+| [Exception Facts Composition](design/exception-facts-composition.md) | Metadata-to-Instructions identity handoff and peer Analysis/Decompiler adoption map. |
 | [TypeScript Facades for `[JSExport]`](design/ts-jsexport.md) | Generating TypeScript facades for JSExport members. |
 | [Classic Async Request Adapter](design/classic-async-request-adapter.md) | Carries exact Metadata relationship evidence and owner failures into the Decompiler classic-inverse boundary. |
 | [Classic Async Inverse Core](design/classic-async-reconstruction.md) | Proof-carrying reconstruction of authenticated classic async requests. |
