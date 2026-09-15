@@ -27,6 +27,61 @@ public sealed class EcosystemWorkspaceConstructionConsumerTests
         }
     }
 
+    [Fact]
+    public void PublicSelectedPlanCanRegisterOnlyPlatform()
+    {
+        EcosystemPackId[] expected = [EcosystemPackIds.Platform];
+        WorkspacePlan plan =
+            EcosystemPackCatalog.CreateWorkspacePlan(expected);
+
+        WorkspaceEcosystemRegistrationDeclaration[] declarations =
+        [
+            .. plan.Registrations.Select(item =>
+                Assert.IsType<WorkspaceRegistration.Ecosystem>(item)
+                    .Declaration),
+        ];
+
+        Assert.Equal(
+            expected.Select(id => id.Value),
+            declarations.Select(declaration => declaration.Id.Value));
+        Assert.Single(declarations);
+    }
+
+    [Fact]
+    public void AllKnownAzureRegistrationSeparatesConcreteRootsFromDiscoveryPrefixes()
+    {
+        WorkspaceEcosystemRegistrationDeclaration azure =
+            Assert.IsType<WorkspaceRegistration.Ecosystem>(
+                EcosystemPackCatalog.CreateWorkspacePlan().Registrations[^1])
+                .Declaration;
+
+        Assert.Equal(
+            [
+                "Microsoft.Extensions.Azure",
+                "Azure.AI.OpenAI",
+                "Microsoft.Azure.SignalR",
+                "Aspire.Azure.AI.OpenAI",
+                "Aspire.Hosting.Azure.SignalR",
+                "Azure.Identity",
+                "Azure.Security.KeyVault.Secrets",
+                "Azure.Storage.Blobs",
+                "Azure.Messaging.ServiceBus",
+            ],
+            azure.CorePackages.Select(package => package.PackageId));
+        Assert.Equal(
+            [
+                "Azure.",
+                "Microsoft.Azure.",
+                "Microsoft.Extensions.Azure",
+                "Aspire.Azure.",
+                "Aspire.Hosting.Azure.",
+            ],
+            azure.Populations.Select(population =>
+                Assert.IsType<
+                    WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                        population).Prefix.Prefix));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

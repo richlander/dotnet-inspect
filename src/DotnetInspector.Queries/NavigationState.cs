@@ -107,7 +107,153 @@ public sealed record NavigationEvaluationFacts(
 
 public sealed record NavigationInitialization(
     StructuralSubjectIdentity? Subject = null,
-    NavigationRetainedSubjectContext? Context = null);
+    NavigationRetainedSubjectContext? Context = null,
+    NavigationLensIdentity? Lens = null);
+
+public enum NavigationRestorationRejectionKind
+{
+    InvalidContext,
+    SubjectOutsideContext,
+    LensRequiresSubject,
+    LensSubjectMismatch,
+    Registry,
+}
+
+public enum NavigationRestorationFailureKind
+{
+    PackageNotPrepared,
+    IncompleteInventory,
+}
+
+/// <summary>
+/// Closed result of preparing Navigation state inside one fresh unpublished
+/// Workspace. Only <see cref="Prepared"/> carries state or effect authority.
+/// </summary>
+public abstract record NavigationRestorationPreparationResult
+{
+    private protected NavigationRestorationPreparationResult(
+        InspectionWorkspaceIdentity workspace,
+        NavigationInitialization request)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(request);
+        Workspace = workspace;
+        Request = request;
+    }
+
+    public InspectionWorkspaceIdentity Workspace { get; }
+
+    public NavigationInitialization Request { get; }
+
+    public sealed record Prepared : NavigationRestorationPreparationResult
+    {
+        internal Prepared(
+            InspectionWorkspaceIdentity workspace,
+            NavigationInitialization request,
+            NavigationOperationInitialization initialization)
+            : base(workspace, request)
+        {
+            ArgumentNullException.ThrowIfNull(initialization);
+            Initialization = initialization;
+        }
+
+        public NavigationOperationInitialization Initialization { get; }
+    }
+
+    public sealed record Unavailable : NavigationRestorationPreparationResult
+    {
+        internal Unavailable(
+            InspectionWorkspaceIdentity workspace,
+            NavigationInitialization request,
+            StructuralSubjectIdentity subject,
+            string message)
+            : base(workspace, request)
+        {
+            ArgumentNullException.ThrowIfNull(subject);
+            ArgumentException.ThrowIfNullOrWhiteSpace(message);
+            Subject = subject;
+            Message = message;
+        }
+
+        public StructuralSubjectIdentity Subject { get; }
+
+        public string Message { get; }
+    }
+
+    public sealed record Failed : NavigationRestorationPreparationResult
+    {
+        internal Failed(
+            InspectionWorkspaceIdentity workspace,
+            NavigationInitialization request,
+            StructuralSubjectIdentity subject,
+            NavigationRestorationFailureKind kind,
+            string message,
+            NavigationTypeInventoryOutcome? inventory = null)
+            : base(workspace, request)
+        {
+            ArgumentNullException.ThrowIfNull(subject);
+            ArgumentException.ThrowIfNullOrWhiteSpace(message);
+            if (!Enum.IsDefined(kind))
+                throw new ArgumentOutOfRangeException(nameof(kind));
+            if (kind == NavigationRestorationFailureKind.IncompleteInventory
+                && inventory is null)
+            {
+                throw new ArgumentException(
+                    "An incomplete-inventory failure requires its exact evidence.",
+                    nameof(inventory));
+            }
+
+            Subject = subject;
+            Kind = kind;
+            Message = message;
+            Inventory = inventory;
+        }
+
+        public StructuralSubjectIdentity Subject { get; }
+
+        public NavigationRestorationFailureKind Kind { get; }
+
+        public string Message { get; }
+
+        public NavigationTypeInventoryOutcome? Inventory { get; }
+    }
+
+    public sealed record Rejected : NavigationRestorationPreparationResult
+    {
+        internal Rejected(
+            InspectionWorkspaceIdentity workspace,
+            NavigationInitialization request,
+            NavigationRestorationRejectionKind kind,
+            string message,
+            NavigationLensActivationResult.Rejected? lensResolution = null)
+            : base(workspace, request)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(message);
+            if (!Enum.IsDefined(kind))
+                throw new ArgumentOutOfRangeException(nameof(kind));
+            if (kind == NavigationRestorationRejectionKind.Registry
+                && lensResolution is null)
+            {
+                throw new ArgumentException(
+                    "A Registry rejection requires its exact activation evidence.",
+                    nameof(lensResolution));
+            }
+
+            Kind = kind;
+            Message = message;
+            LensResolution = lensResolution;
+        }
+
+        public NavigationRestorationRejectionKind Kind { get; }
+
+        public string Message { get; }
+
+        public NavigationLensActivationResult.Rejected? LensResolution
+        {
+            get;
+        }
+    }
+}
 
 /// <summary>Expected preparation failures are data; unexpected exceptions propagate.</summary>
 public abstract record NavigationPreparation
