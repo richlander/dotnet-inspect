@@ -129,8 +129,8 @@ state. Search and Demos are both visible in the initial 390 by 844 CSS-pixel
 content viewport; artwork never precedes them.
 
 Home does not repeat links already owned by the data bar. The data bar is the
-shared entry for the CLI tool, agent skill, and Credits. The current Home-bar
-action inventory remains unchanged by this composition.
+shared entry for the CLI tool, agent skill, Diagnostics, and Credits. The
+current Home-bar action inventory remains unchanged by this composition.
 
 Loading, catalog-unavailable, query-notice, and long-label states retain the
 same primary hierarchy. They do not replace Search with artwork, turn failure
@@ -187,10 +187,10 @@ elision inside its allocation.
 The optional working-surface action region exists only when the active surface
 supplies page-level contextual actions. It is not part of either navigation
 group and does not add items to the Application menu. Source supplies Copy and
-optional Open there; Annotated Source supplies Copy and Explore there; Member
-Diff supplies its mode, change navigation and position, and any authorized
-Before or After Open actions there. The target yields space while the complete
-action group remains visible.
+optional Open plus Explore there; Annotated Source supplies Copy and Explore
+there; Member Diff supplies its mode, change navigation and position, and any
+authorized Before or After Open actions there. The target yields space while
+the complete action group remains visible.
 
 The menu surface is placed in the shared top-level overlay layer, anchored to
 the button's inline end and constrained to the viewport. It may cover the
@@ -220,9 +220,11 @@ never enter the Application menu. Full-area source surfaces use the dedicated
 page-level working-surface action region; result-local surfaces retain their
 actions in the result:
 
-- Source places `Copy` and optional `Open` in the working-surface action region
-  while source content starts at the top of its pane and compact provenance
-  stays attached to the bottom.
+- Source places `Copy`, optional `Open`, and `Explore` in the working-surface
+  action region while source content starts at the top of its pane and compact
+  provenance stays attached to the bottom. `Explore` opens Settings at
+  **Decompiler style** so the complete source presentation options are
+  available; dismissal returns focus to the same Source action.
 - Annotated Source places `Copy` and `Explore` in the working-surface action
   region while product provenance stays attached to the bottom.
 - Member Diff places the viewer-owned mode control, `Previous`, current change
@@ -803,6 +805,9 @@ loading. No cache-residency preflight is required to choose this presentation.
 Acquisition and partial-package notices otherwise retain their host
 presentation; this introduces no independent Overview query or acquisition
 state machine.
+Package inspector retention follows the current
+[Navigation Browser migration behavior](inspection-subject-navigation.md#status);
+this surface does not define cross-coordinate subject correspondence.
 Empty inventories retain their zero totals and any available package documents.
 Admitted libraries with no public types retain their named Library Overview.
 
@@ -1335,8 +1340,8 @@ closed. Changes may apply live, but one Settings component renders each
 owner-issued setting descriptor and dispatches its typed action. Domain owners
 retain validation and state semantics.
 
-Diagnostics is a separate full-bleed experience launched from Settings or
-Spotlight. It is not another settings implementation.
+Diagnostics is a separate full-bleed experience launched from the data bar or
+Settings. It is not another settings implementation or a Spotlight command.
 
 ## Package-source presentation
 
@@ -1437,7 +1442,7 @@ expand, or host runtime diagnostics:
 
 <!-- markdownlint-disable MD013 -->
 ```text
-dotnet-inspect v0.35.2 · abc1234 · Aug 27, 2026 UTC · Package source: Corporate mirror (pkgs.dev.azure.com/org/_packaging/feed/nuget/v3/index.json) · CLI tool · Agent skill · Credits
+dotnet-inspect v0.35.2 · abc1234 · Aug 27, 2026 UTC · Package source: Corporate mirror (pkgs.dev.azure.com/org/_packaging/feed/nuget/v3/index.json) · CLI tool · Agent skill · Diagnostics · Credits
 ```
 <!-- markdownlint-enable MD013 -->
 
@@ -1448,7 +1453,8 @@ The data bar includes:
 - concise UTC build date without a `built` prefix;
 - read-only package producer, or the applicable non-package acquisition kind;
 - `CLI tool`;
-- `Agent skill`; and
+- `Agent skill`;
+- `Diagnostics`; and
 - `Credits`.
 
 On a narrow viewport, the line remains non-wrapping and horizontally scrollable.
@@ -1467,11 +1473,11 @@ The data bar does not contain:
 - an API-surface label; or
 - an expansion toggle.
 
-Diagnostics opens at `/diagnostics` as a routed full-bleed surface. Settings
-and Spotlight Commands expose the route; the Application menu does not. The
-destination receives focus on its single `Diagnostics` level-one heading, and
-Back restores the preceding routed surface without discarding its retained
-Workspace. A direct entry falls back to Home.
+Diagnostics opens at `/diagnostics` as a routed full-bleed surface. The data
+bar and Settings expose the route; Spotlight Commands and the Application menu
+do not. The destination receives focus on its single `Diagnostics` level-one
+heading. Its prominent `Back` control restores the preceding routed surface
+without discarding its retained Workspace. A direct entry falls back to Home.
 
 The first implemented Diagnostics snapshot contains only evidence already
 issued for the current browser session:
@@ -1663,9 +1669,11 @@ with the absence of a synthesized `Default feed` control.
 ### Source working surface
 
 1. Open Type Source with Type navigation visible.
-2. Confirm that the source pane uses all remaining width, Copy and optional
-   Open appear in the working-surface action region, source content begins at
-   the top of the pane, and compact provenance remains attached to its bottom.
+2. Confirm that the source pane uses all remaining width, Copy, optional Open,
+   and Explore appear in the working-surface action region, source content
+   begins at the top of the pane, and compact provenance remains attached to
+   its bottom. Open Explore and confirm that Settings focuses Decompiler style
+   and dismissal returns focus to Explore.
 3. Collapse Type navigation and confirm that source content expands to the full
    viewport width.
 4. Open PDB Source and confirm that no Decompiler style control appears.
@@ -1767,10 +1775,11 @@ with the absence of a synthesized `Default feed` control.
 ### Data and diagnostics
 
 1. Confirm that version, commit, UTC date, the complete owner-issued compact
-   producer label, CLI tool, and agent skill occupy one non-expanding data-bar
-   line.
+   producer label, CLI tool, agent skill, Diagnostics, and Credits occupy one
+   non-expanding data-bar line.
 2. Confirm that timings, cache counts, runtime readiness, assembly identity,
    and framework do not appear in that line.
-3. Open Diagnostics and confirm that detailed runtime, source, and cache
-   evidence and owner-authorized cache actions appear in the full-bleed
-   surface.
+3. Open Diagnostics from the data bar and Settings, confirm that it is absent
+   from Spotlight Commands and the Application menu, and confirm that detailed
+   runtime, source, and cache evidence and owner-authorized cache actions appear
+   in the full-bleed surface with a visible Back control.

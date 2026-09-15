@@ -88,6 +88,7 @@ export function dataBarHtml(
   items.push(
     `<a class="data-bar-item data-bar-action" href="${CLI_TOOL_URL}" target="_blank" rel="noopener noreferrer">CLI tool</a>`,
     `<a class="data-bar-item data-bar-action" href="${AGENT_SKILL_URL}" target="_blank" rel="noopener noreferrer">Agent skill</a>`,
+    `<a class="data-bar-item data-bar-action" href="${ROUTED_ENTRY_PATHS.diagnostics}">Diagnostics</a>`,
     `<a class="data-bar-item data-bar-action" href="${ROUTED_ENTRY_PATHS.credits}">Credits</a>`,
   );
 

@@ -32,6 +32,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\DotnetInspector.PackageQueries\DotnetInspector.PackageQueries.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspector.Presentation\DotnetInspector.Presentation.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Sections\DotnetInspector.Sections.csproj" />
     <ProjectReference Include="..\DotnetInspector.Queries.Consumer\DotnetInspector.Queries.Consumer.csproj" />
@@ -57,6 +58,8 @@
   <ItemGroup>
     <EmbeddedResource Include="..\..\eng\package-manifest-corpus.json"
                       LogicalName="DotnetInspector.Queries.Tests.PackageManifestCorpus.json" />
+    <EmbeddedResource Include="..\..\tools\PackageAssemblyQueryBenchmark.json"
+                      LogicalName="DotnetInspector.Queries.Tests.PackageAssemblyQueryBenchmark.json" />
     <EmbeddedResource Include="..\..\eng\view-facet-compatibility.json"
                       LogicalName="DotnetInspector.Queries.Tests.ViewFacetCompatibility.json" />
   </ItemGroup>

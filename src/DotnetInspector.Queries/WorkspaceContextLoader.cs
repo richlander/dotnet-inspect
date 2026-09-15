@@ -184,7 +184,8 @@ public static class WorkspaceContextLoader
 
     /// <summary>
     /// Loads one explicitly selected declaration context and binds its exact
-    /// request to the realization outcome for later population capture.
+    /// request to the realization outcome for population capture and lazy
+    /// Workspace locator observation.
     /// </summary>
     public static async Task<WorkspaceDeclarationContext> LoadDeclarationContextAsync(
         InspectionWorkspace workspace,

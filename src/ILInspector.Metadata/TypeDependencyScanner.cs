@@ -627,8 +627,7 @@ public static class TypeDependencyScanner
             if (TypeFilters.IsCompilerGenerated(name))
                 continue;
 
-            string ns = reader.GetString(definition.Namespace);
-            string fullName = TypeResolver.GetFullName(ns, name);
+            string fullName = TypeResolver.GetFullName(reader, definition);
             ValidateRelationships(reader, definition);
             staged.TryAdd(
                 fullName,

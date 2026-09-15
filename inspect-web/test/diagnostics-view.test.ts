@@ -53,6 +53,8 @@ const ready: DiagnosticsViewModel = {
 test("Diagnostics renders runtime, build, and package-cache evidence in order", () => {
   const html = diagnosticsViewHtml(ready, escapeHtml);
 
+  assert.match(html, /aria-label="Back to previous page"/);
+  assert.match(html, /&larr; Back/);
   assert.ok(html.indexOf(">Runtime startup<") < html.indexOf(">Build<"));
   assert.ok(html.indexOf(">Build<") < html.indexOf(">Package cache<"));
   assert.match(html, /Download/);

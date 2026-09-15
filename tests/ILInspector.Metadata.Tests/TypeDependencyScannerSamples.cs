@@ -72,3 +72,19 @@ public interface TypeDependencyCaseGenericRoot :
     TypeDependencyCaseGenericRight
 {
 }
+
+public static class TypeDependencyNestedLeft
+{
+    public interface KeyCollection :
+        TypeDependencyCaseLeaf
+    {
+    }
+}
+
+public static class TypeDependencyNestedRight
+{
+    public interface KeyCollection :
+        TypeDependencyCaseleaf
+    {
+    }
+}

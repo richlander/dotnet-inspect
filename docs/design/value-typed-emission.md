@@ -585,13 +585,20 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    webs in the 14-assembly investigation still failed the existing type-domain
    gate.
 
-   Exact core-library string webs also materialize when every producer already
-   has the testified string type. This does not expand the coercion domain or
-   infer reference conversions: object-typed nulls and other non-exact producers
-   remain deferred, as do other reference types. Every observer still supplies
+   Exact core-library string and object webs also materialize when every
+   producer already has the testified type. This does not expand the coercion
+   domain or infer reference conversions: an object-typed null cannot testify
+   to string storage, and a string-typed producer cannot testify to object
+   storage. Exact single-dimensional, zero-based arrays of core-library
+   `System.Byte` use the same admission: the array itself, not merely its
+   element representation, must already have the testified type. Signed-byte,
+   other-element, rectangular, and jagged arrays remain deferred. Existing
+   explicit casts are preserved; array conversions are not inferred.
+   Other non-exact producers and reference types remain
+   deferred. Every observer still supplies
    testimony, and the existing structural-fold, nested-scope, and atomic-copy
    boundaries remain in force. No value or control-flow edge moves.
-   A string carrier already recognized by the later swap raiser stays on slots
+   A reference carrier already recognized by the later swap raiser stays on slots
    until that raiser consumes it; materialization must not turn an existing
    tuple swap back into assignments. This reuses the swap owner's matcher and
    preserves its existing named-local boundary.
@@ -620,6 +627,31 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    `HelpBuilder.Default.GetArgumentUsageLabel`;
    `NestedLocalOwnershipSeparatesIndependentPoolsAndOuterCaptures` gates
    independent nested pools and retained outer captures.
+
+   Object materialization preserves an already explicit `Box` rather than
+   inventing boxing from an assignable producer. Real witnesses include
+   Newtonsoft.Json 13.0.4 `JsonReader.get_ValueType` and
+   `JsonSerializer.DeserializeInternal`, and Microsoft.CodeAnalysis 5.0.0
+   `ExceptionUtilities.UnexpectedValue`.
+   `ObjectSlotMaterializationTests` gates exact and sink-derived object
+   testimony, preserved null and boxing nodes, every-producer agreement,
+   nominal identity, observer disagreement, atomic copies, pending swaps, and
+   the real Roslyn witness in the repository compiler dependency.
+   `CompilerProducedObjectFixturesRecompileExactly` gates retained call results,
+   retained boxing, and object swaps with independent compile-back.
+
+   Byte-array witnesses include Newtonsoft.Json 13.0.4
+   `JsonValidatingReader.ReadAsBytes` and `TraceJsonReader.ReadAsBytes`, plus
+   Microsoft.CodeAnalysis 5.0.0 `LittleEndianReader.ReadReversed` and
+   `CryptoBlobParser.ReadReversed`.
+   `ByteArraySlotMaterializationTests` gates exact array identity, preserved
+   allocation/initializer/cast nodes, sink-derived testimony, nominal element
+   identity and rank, competing producers and observers, atomic copies, and
+   pending swaps. Its compiler-produced fixtures retain reads and allocations
+   across state changes and preserve initialized/aliased arrays;
+   `CompilerProducedByteArrayFixturesRecompileExactly` checks those cases and
+   array swaps with independent compile-back. Materialization does not change
+   allocation timing, element writes, or the identity shared by array aliases.
 
    `MaterializesSingleStoreConditionalWithSingleRead` and
    `MaterializesBooleanIdentityWhenConditionalFeedsBooleanLocal` gate

@@ -11,7 +11,7 @@ using ILInspector.Metadata;
 
 namespace ILInspector.Analysis.Tests;
 
-public sealed class DirectCallDefinitionResolutionTests
+public sealed partial class DirectCallDefinitionResolutionTests
 {
     static string OwnershipFixturePath =>
         FixtureCatalog.AnalysisOwnershipFlow.AssemblyPath();

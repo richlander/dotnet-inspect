@@ -1,6 +1,7 @@
 using ILInspector.DecompilerHarness;
 using ILInspector.Decompiler.Pipeline;
 using Microsoft.CodeAnalysis;
+using static ILInspector.Decompiler.Tests.ReferenceSlotMaterializationTestHelpers;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -10,7 +11,6 @@ public class StringSlotMaterializationTests
     static readonly TypeRef StringType = TypeRef.CoreLib("System", "String");
     static readonly TypeRef Object = TypeRef.CoreLib("System", "Object");
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
-    static readonly TypeRef Owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
 
     [Theory]
     [InlineData(false)]
@@ -107,14 +107,12 @@ public class StringSlotMaterializationTests
     }
 
     [Theory]
-    [InlineData("object")]
     [InlineData("array")]
     [InlineData("foreign-string")]
     public void OtherExactReferenceTypesRemainDeferred(string kind)
     {
         var type = kind switch
         {
-            "object" => Object,
             "array" => TypeRef.SzArray(StringType),
             "foreign-string" => TypeRef.Definition("Other", "System", "String"),
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
@@ -198,33 +196,26 @@ public class StringSlotMaterializationTests
     public void RealRoslynStringWebsMaterialize(string typeName, string methodName)
     {
         using var source = MetadataSource.Open(typeof(SyntaxTree).Assembly.Location);
-        AssertCompilerProducedMaterialization(source, typeName, methodName);
+        AssertMaterializes(source, typeName, methodName, StringType, "string");
     }
 
     [Fact]
     public void CompilerProducedReadAndObserveMaterializesRetainedString()
     {
         using var source = MetadataSource.Open(typeof(StringSlotMaterializationSamples).Assembly.Location);
-        AssertCompilerProducedMaterialization(source, typeof(StringSlotMaterializationSamples).FullName!,
-            nameof(StringSlotMaterializationSamples.ReadAndObserve));
+        AssertMaterializes(source, typeof(StringSlotMaterializationSamples).FullName!,
+            nameof(StringSlotMaterializationSamples.ReadAndObserve), StringType, "string");
     }
 
     [Fact]
     public void CompilerProducedStringSwapRetainsItsPendingCarrier()
     {
         using var source = MetadataSource.Open(typeof(StringSlotMaterializationSamples).Assembly.Location);
-        var function = IrImporter.Import(source, typeof(StringSlotMaterializationSamples).FullName!,
+        var function = RaiseToMaterialization(source, typeof(StringSlotMaterializationSamples).FullName!,
             nameof(StringSlotMaterializationSamples.SwapStrings));
-        Assert.NotNull(function);
-        foreach (var pass in IrPasses.Default)
-        {
-            if (pass is SlotMaterializationPass)
-                break;
-            pass.Run(function, PassContext.None);
-        }
 
         var pending = Assert.Single(SlotMaterializationPass.Analyze(function),
-            decision => decision.Vetoes == SlotMaterializationVeto.PendingStringSwap);
+            decision => decision.Vetoes == SlotMaterializationVeto.PendingReferenceSwap);
         new SlotMaterializationPass().Run(function, PassContext.None);
         Assert.Contains(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot == pending.Slot);
         new SwapIdiomPass().Run(function, PassContext.None);
@@ -249,51 +240,4 @@ public class StringSlotMaterializationTests
         Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
     }
 
-    static void AssertCompilerProducedMaterialization(MetadataSource source, string typeName, string methodName)
-    {
-        var function = IrImporter.Import(source, typeName, methodName);
-        Assert.NotNull(function);
-        var context = PassContext.ForImport(reference => IrImporter.Import(source, reference),
-            source.AreProvablyDisjoint);
-        foreach (var pass in IrPasses.Default)
-        {
-            if (pass is SlotMaterializationPass)
-                break;
-            pass.Run(function, context);
-        }
-        var decisions = SlotMaterializationPass.Analyze(function)
-            .Where(decision => decision.WillMaterialize && StringType.Equals(decision.Type)).ToArray();
-        Assert.NotEmpty(decisions);
-        var slots = decisions.Select(decision => decision.Slot).ToHashSet();
-
-        new SlotMaterializationPass().Run(function, context);
-        new CoercionInsertionPass().Run(function, context);
-
-        Assert.DoesNotContain(CoercionSinks.ScopeNodes(function.Body),
-            node => node is StoreStackSlot store && slots.Contains(store.Slot)
-                || node is LoadStackSlot load && slots.Contains(load.Slot));
-        Assert.Contains("string S_", CSharpPrinter.Print(function).Output);
-        Assert.Empty(CoercionInvariant.Check(function));
-        function.CheckInvariant(includeSemantics: true);
-    }
-
-    static void AssertRetained(IrFunction function)
-    {
-        var nodes = function.Descendants.Where(node => node is StoreStackSlot or LoadStackSlot).ToArray();
-        new SlotMaterializationPass().Run(function, PassContext.None);
-        Assert.Empty(function.Locals);
-        Assert.All(nodes, node => Assert.Contains(node, function.Descendants));
-        function.CheckInvariant();
-    }
-
-    static IrFunction Function(TypeRef returnType, params IrNode[] statements)
-    {
-        var block = new Block(0);
-        foreach (var statement in statements)
-            block.Add(statement);
-        var body = new BlockContainer();
-        body.Add(block);
-        return new IrFunction("M", Owner,
-            new MethodSignature(returnType, [], HasThis: false, GenericParameterCount: 0), [], body);
-    }
 }

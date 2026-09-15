@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Adds a bounded, credential-free portable token to every Package Source
+  producer identity for later exact package Root correspondence without
+  carrying endpoint, path, or source authority (#6995).
+- Adds a receipt-preserving PackageHouse compile-realization adapter that issues
+  the existing package Root binding without repeating asset selection, retains
+  Root-only explicit-empty and no-match outcomes, and reports unsupported
+  configured producers or Unicode package IDs as typed coordinate
+  no-contribution evidence (#6942).
 - Implements target-aware PackageHouse `Realize` execution over the existing
   compile/runtime selector receipts, preserving acquired package shape,
   optional Library handoffs, and terminal timeout evidence (#6880).

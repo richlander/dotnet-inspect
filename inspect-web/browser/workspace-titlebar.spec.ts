@@ -122,7 +122,7 @@ test("the data bar occupies its fixed row when the notice stack is empty", async
   await expect(page.locator(".notice-stack")).toBeHidden();
   await expect(page.locator(".data-bar")).toContainText(
     "dotnet-inspect v0.35.2 · abc1234 · Aug 27, 2026 UTC · "
-      + "Package source: NuGet.org · CLI tool · Agent skill · Credits");
+      + "Package source: NuGet.org · CLI tool · Agent skill · Diagnostics · Credits");
   await expect(page.locator(
     ".data-bar button, .data-bar [aria-expanded], "
       + ".data-bar [data-status-bar-toggle]",
@@ -1229,10 +1229,10 @@ test("Member Facts Findings preserve fields, actions, and exact selected state",
   );
   expect(await second.evaluate(element =>
     getComputedStyle(element.closest(".finding-row")!, "::before")
-      .backgroundColor)).toBe("rgb(157, 140, 255)");
+      .backgroundColor)).toBe("rgb(185, 170, 238)");
   expect(await second.evaluate(element =>
     getComputedStyle(element).backgroundImage))
-    .toContain("rgb(40, 32, 68)");
+    .toContain("rgb(43, 32, 84)");
 });
 
 test("Member Facts Findings reflow without hiding long values", async ({
@@ -1800,7 +1800,7 @@ test("the inspected target occupies the second row and package selectors stay in
   await expect(page.locator(".targetbar .lensbar")).toHaveCount(0);
   await expect(page.locator(".subject-path-segment.root.current")).toHaveCSS(
     "color",
-    "rgb(232, 233, 228)",
+    "rgb(240, 237, 247)",
   );
   await expect(page.locator(".titlebar #package-version")).toHaveCount(0);
   await expect(page.locator(".titlebar #framework")).toHaveCount(0);
@@ -1960,6 +1960,7 @@ test("Source fills the detail area below working-surface actions and above prove
 
     await expect(page.locator("#copy-source")).toBeVisible();
     await expect(page.locator(".shell-action-link")).toHaveText("Open");
+    await expect(page.locator("#explore-source")).toHaveText("Explore");
     await expect(page.locator("#inspector-panel > h1")).toHaveCount(0);
     await expect(
       page.getByRole("group", { name: "Source actions" }),
@@ -1999,6 +2000,14 @@ test("Source fills the detail area below working-surface actions and above prove
       document.documentElement.scrollWidth
       - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
   }
+
+  await page.setViewportSize({ width: 1120, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?member=1&source=1");
+  await page.locator("#explore-source").click();
+  await expect(page.locator("#settings-backdrop")).toBeVisible();
+  await expect(page.locator("#settings-decompiler-title")).toBeFocused();
+  await page.locator("#settings-close").click();
+  await expect(page.locator("#explore-source")).toBeFocused();
 
   for (const width of [1920, 1440, 1120, 600, 400]) {
     await page.setViewportSize({ width, height: 900 });
@@ -2048,7 +2057,7 @@ test("the target row advertises the typed Package, Library, Type, and Member pat
   await expect(page.locator(".titlebar .lens")).toHaveCount(5);
   await expect(page.locator(".subject-path-segment.current")).toHaveCSS(
     "color",
-    "rgb(157, 140, 255)");
+    "rgb(185, 170, 238)");
   const packageText = await page.locator(".subject-path-segment").nth(0)
     .evaluate(element => getComputedStyle(element).fontSize);
   const typeText = await page.locator(".subject-path-segment").nth(1)

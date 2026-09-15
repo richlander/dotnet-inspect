@@ -422,6 +422,36 @@ constant rather than inventing an endpoint. A v3 client for canonical
 `https://api.nuget.org/v3/index.json` maps to that same constant. Other endpoint
 projections use the HTTP producer factory.
 
+### Portable producer token
+
+Every `PackageProducerIdentity` also issues one bounded portable token from its
+complete canonical `Key`:
+
+```text
+nfp-1.<64 lowercase hexadecimal SHA-256 digits>
+```
+
+The digest input is the strict UTF-8 encoding of the complete key, including
+its versioned namespace prefix. The key has already excluded credentials and
+applied the producer-equivalence contract before hashing, so the token neither
+repeats endpoint/path policy nor derives from display text. Equal producer
+identities therefore issue equal tokens. Changing the digest algorithm,
+encoding, or input requires a new token prefix.
+
+The token is collision-resistant correspondence evidence, not a mathematical
+injective encoding and not source authority. A consumer compares it only with
+tokens issued from producer identities authorized by the current host. If one
+token matches multiple distinct full keys, the consumer fails visibly rather
+than choosing by source order. The token cannot recover an endpoint, local
+path, credential, association, or configured authority.
+
+`PortableProducerKeyPinsCanonicalCredentialFreeIdentity` pins representative
+exact output and canonical grammar.
+`ProducerIdentityFoldsOnlyDeclaredEndpointEquivalences`,
+`ProducerIdentityRedactsPathBeforeKeyAndDisplay`, and
+`LocalFolderSource_ConsumesCanonicalIdentityWithoutReparsing` gate equal and
+distinct HTTP identities, credential rotation, and local identity issuance.
+
 ### Result propagation
 
 Every built-in `IPackageSourceClient` owns one

@@ -1414,8 +1414,12 @@ public sealed partial class InspectionWorkspace :
                     admission.CloseWorkspaceAdmission();
                 plan = new WorkspaceClosePlan(
                     admissions,
-                    [.. _artifactSessions]);
+                    [.. _artifactSessions],
+                    _declarationLocator);
                 _state = InspectionWorkspaceState.Closing;
+                _declarationObserver = null;
+                _declarationPopulation = null;
+                _declarationContexts.Clear();
                 foreach (AssemblyContextGroup group in _groups)
                 {
                     group.CloseAdmissionFromWorkspace(
@@ -1550,6 +1554,8 @@ public sealed partial class InspectionWorkspace :
     {
         WorkspaceClosePlan plan =
             await start.ConfigureAwait(false);
+        Task<Exception?> locatorClose = plan.DeclarationLocator?.CloseAsync()
+            ?? Task.FromResult<Exception?>(null);
         Task<ImmutableArray<Exception>> rootClose = CloseArtifactRootsAsync();
         var completionTasks =
             new Task<InspectionWorkspaceGroupCloseResult?>[
@@ -1610,6 +1616,13 @@ public sealed partial class InspectionWorkspace :
                 reportGroups.Add(result);
         }
 
+        Exception? locatorFailure = await locatorClose.ConfigureAwait(false);
+        if (locatorFailure is not null)
+        {
+            groupCloseFailure = groupCloseFailure is null
+                ? locatorFailure
+                : new AggregateException(groupCloseFailure, locatorFailure);
+        }
         var report = new InspectionWorkspaceCloseReport(
             reportGroups.ToImmutable(),
             artifactCleanupFailures.ToImmutable());
@@ -1696,7 +1709,8 @@ public sealed partial class InspectionWorkspace :
     readonly record struct WorkspaceClosePlan(
         ImmutableArray<WorkspaceGroupAdmission> GroupAdmissions,
         ImmutableArray<WorkspaceArtifactSessionRegistration>
-            ArtifactSessions);
+            ArtifactSessions,
+        WorkspaceDeclarationLocator? DeclarationLocator);
 
     internal sealed class WorkspaceCoordinatedGroupAdmission
     {

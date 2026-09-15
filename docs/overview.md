@@ -156,7 +156,18 @@ substrates, and inspection producers that will extend that space.
   joins a facade's Metadata forwarding outcome through the sealed
   Queries-to-Research population receipt to one already admitted terminal
   Research attempt.
-- `src/ILInspector.Metadata/` reads PE metadata and portable-PDB structure: named documents, checksums, sequence-point relationships/ranges, raw custom-debug-information blobs, API surfaces, method classification, authenticated [state-machine relationships](design/state-machine-relationship-index.md), assembly details, and the sibling [ReadyToRun image projection](design/readytorun-image-projection.md) for PE-envelope discovery, headers, and section directories. `MetadataFindings` projects API and portable-PDB build-context observations onto the shared Finding spine while retaining compatibility classification through `ApiDiff`.
+- `src/ILInspector.Metadata/` reads PE metadata and portable-PDB structure:
+  named documents, checksums, sequence-point relationships/ranges, raw
+  custom-debug-information blobs, API surfaces, method classification,
+  authenticated
+  [state-machine relationships](design/state-machine-relationship-index.md),
+  target [exception-region facts](design/metadata-exception-region-facts.md),
+  assembly details, and the sibling
+  [ReadyToRun image projection](design/readytorun-image-projection.md) for
+  PE-envelope discovery, headers, and section directories.
+  `MetadataFindings` projects API and portable-PDB build-context observations
+  onto the shared Finding spine while retaining compatibility classification
+  through `ApiDiff`.
 - `src/ILInspector.SourceLink/` sits above Metadata. It owns SourceLink map
   extraction and matching, canonical document paths, URL decoration,
   provenance grammar, high-level type/member/IL-offset resolution,
@@ -171,7 +182,15 @@ substrates, and inspection producers that will extend that space.
   only public `CSharpText` contracts, preserving the boundary that prevents
   access to lexer internals.
 - `src/ILInspector.CSharp/` is the lightweight model-bound C# spelling and type-view layer over Metadata shapes. `CSharpFormatter` is the declaration-spelling seam; [declared-type self-name admission](design/csharp-declared-type-self-name.md) owns the proposed exact-name boundary shared by type, constructor, and finalizer heads. `CSharpTypePrinter` composes exact typed requests, including skeleton, full, stub, mixed-accessor, primary-constructor, and nested-type shapes, without taking a Decompiler or Research dependency.
-- `src/ILInspector.Analysis/` indexes IL method-body evidence such as direct call sites, allocation and unsafety occurrences, method signals, and whole-assembly leverage without decompiling to C#. `AnalysisFindings` exposes reusable typed censuses and comparisons for allocations, call sites, unsafe operations, and unsafe declaration/body evidence.
+- `src/ILInspector.Analysis/` indexes IL method-body evidence such as direct
+  call sites, allocation and unsafety occurrences, method signals, and
+  whole-assembly leverage without decompiling to C#. It is a peer consumer of
+  Metadata's physical exception-region facts and Instructions' decoded
+  exception-flow facts under the
+  [exception facts composition](design/exception-facts-composition.md).
+  `AnalysisFindings` exposes reusable typed censuses and comparisons for
+  allocations, call sites, unsafe operations, and unsafe declaration/body
+  evidence.
   Its decoded string-literal producer uses the `InertText` leaf for
   construction-time containment of artifact-authored evidence. Semantic
   matching uses the original decoded text, never its contained display form.
@@ -185,7 +204,11 @@ substrates, and inspection producers that will extend that space.
 - `src/ILInspector.ILDiff/` owns IL body and assembly comparison over decoded
   instruction streams: canonicalization, alignment, Finding projection, typed
   failures, and producer-owned diff presentation.
-- `src/ILInspector.Instructions/` is the shared IL decode + EH-aware basic-block substrate (one decoder the analyzer and decompiler converge onto); see [instruction substrate](design/instruction-substrate.md).
+- `src/ILInspector.Instructions/` is the shared IL decode + EH-aware
+  basic-block substrate, including target
+  [exception-flow facts](design/instruction-exception-flow-facts.md), that
+  Analysis and Decompiler converge onto; see
+  [instruction substrate](design/instruction-substrate.md).
 - `src/Inspector.Text/` provides the reusable
   `TextFindings` API for exact, ordered line inspection and generic text
   comparison on the shared Finding spine, plus deterministic LF construction.
@@ -265,13 +288,14 @@ substrates, and inspection producers that will extend that space.
   owner defines the sole product-facing platform realization and
   reference-processing facade: explicit target/version settlement,
   exact-target source realization,
-  provenance-retaining bare-library handoff, and transparent .NET Standard
-  forwarding through Metadata. Package-reference processing and pruning
-  remain upstream in the package domain. Selected Workspace ecosystem
+  shared Library owner/reference handoff, and transparent .NET Standard
+  forwarding through Metadata. Live Library owners remain separate from
+  resource-free House values and receipts. Package-reference processing and
+  pruning remain upstream in the package domain. Selected Workspace ecosystem
   populations lower through their retained platform-family declarations into
   independent runtime and ASP.NET Core House target demands; package-prefix
-  contributions remain package-domain work. The House also settles
-  target, source, reference, implementation, and forwarding evidence needed by
+  contributions remain package-domain work. The House also settles target,
+  source, reference, implementation, and forwarding evidence needed by
   downstream source and documentation adapters. Documentation settlement,
   Workspace admission, the assembly-reference ladder, and host presentation
   remain with their focused owners.
@@ -287,13 +311,15 @@ substrates, and inspection producers that will extend that space.
 - The target
   [DocumentationHouse Composition](design/documentation-house.md) owner defines
   the sole host-neutral documentation settlement facade over one exact
-  library-scoped type or member subject. It composes owner-issued compiled XML
-  contributions and SourceHouse-authored source through CSharpText mechanics,
-  preserves independent channel attempts and field-level provenance, and
-  retains conflicts instead of overwriting one source. PackageHouse,
-  PlatformHouse, and direct-library adapters construct documentation-ready
-  contributions; Metadata, CSharpText, SourceHouse, artifact lifetime, and host
-  presentation retain their focused authority.
+  library-scoped type or member subject, an exact shared Library reference,
+  request-selected API content, and a transferred operation lease. It reads
+  eligible compiled XML through synchronous Library snapshots, may transfer
+  the lease onward to a deferred SourceHouse-authored operation, preserves
+  independent channel attempts and field-level provenance, and retains
+  conflicts instead of overwriting one source. PackageHouse, PlatformHouse,
+  and direct-library adapters bind resource-free source evidence to exact
+  Library content references; Metadata, CSharpText, SourceHouse, Library
+  ownership, and host presentation retain their focused authority.
 - The target
   [Library Ownership and Borrowing](design/library-ownership-and-borrowing.md)
   owner defines the shared lifetime seam beneath those Houses: one
@@ -402,11 +428,11 @@ substrates, and inspection producers that will extend that space.
   [#6334](https://github.com/richlander/dotnet-inspect/issues/6334), tracked by
   [#6801](https://github.com/richlander/dotnet-inspect/issues/6801).
 - `src/ILInspector.Decompiler/` emits lowered C#, raw IL, and structural
-  annotated IL from method bodies. Its target
-  [exception-flow facts](design/decompiler-exception-flow-facts.md) owner
-  supplies immutable per-function exception-region identity, topology,
-  membership, transfer, and raw/structured correspondence without taking
-  pass-owned rewrite policy.
+  annotated IL from method bodies. It is a peer consumer of Metadata's physical
+  exception-region facts and Instructions' decoded exception-flow facts under
+  the [exception facts composition](design/exception-facts-composition.md);
+  Decompiler retains structured-IR correspondence and pass-owned rewrite
+  policy.
 - `src/ILInspector.Research/` owns the offset-keyed fact overlay above Analysis
   and Decompiler: its registry orders fact producers, joins R1 analysis
   occurrences with R2 decompiler projections, and projects facts into the

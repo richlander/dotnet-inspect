@@ -181,6 +181,18 @@ public abstract class WorkspaceDeclarationInventoryOutcome
         internal Unavailable(WorkspaceDeclarationPopulationFailure failure) => Failure = failure;
         public WorkspaceDeclarationPopulationFailure Failure { get; }
     }
+
+    public sealed class NotEvaluated : WorkspaceDeclarationInventoryOutcome
+    {
+        internal NotEvaluated(WorkspaceDeclarationInventoryBound bound) => Bound = bound;
+        public WorkspaceDeclarationInventoryBound Bound { get; }
+    }
+}
+
+public enum WorkspaceDeclarationInventoryBound
+{
+    ReadAttempts,
+    RetainedInventories,
 }
 
 /// <summary>
@@ -207,6 +219,9 @@ public sealed class WorkspaceDeclarationPopulation
 
     public WorkspaceDeclarationPopulationReceipt Receipt { get; }
 
+    internal WorkspaceDeclarationPopulationFailure? Availability() =>
+        _workspace.DeclarationPopulationAvailability();
+
     /// <summary>Inspects one selected occurrence through its existing group owner.</summary>
     public WorkspaceDeclarationInventoryOutcome ReadDeclarations(
         WorkspaceDeclarationOccurrence occurrence,
@@ -220,7 +235,7 @@ public sealed class WorkspaceDeclarationPopulation
                 WorkspaceDeclarationPopulationFailure.OccurrenceNotSelected);
         }
 
-        if (_workspace.DeclarationPopulationAvailability() is { } unavailable)
+        if (Availability() is { } unavailable)
             return new WorkspaceDeclarationInventoryOutcome.Unavailable(unavailable);
 
         try

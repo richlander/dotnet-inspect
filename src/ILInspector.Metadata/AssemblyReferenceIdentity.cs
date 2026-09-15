@@ -147,7 +147,7 @@ public sealed record AssemblyReferenceIdentity(
     /// the literal <c>neutral</c> — onto one value so callers can compare an
     /// assembly-name culture qualifier against a projected identity.
     /// </summary>
-    internal static string NormalizeCulture(string? value) =>
+    public static string NormalizeCulture(string? value) =>
         string.IsNullOrEmpty(value)
             || value.Equals("neutral", StringComparison.OrdinalIgnoreCase)
                 ? ""
