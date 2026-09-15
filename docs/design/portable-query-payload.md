@@ -133,7 +133,12 @@ no implementation derives from a .NET enum name, a CLI spelling, or a display
 label; the operator set is exactly the four identities the row predicate syntax
 already admits, so there is no strict `lt` or `gt`. An omitted window bound is a
 gap in place rather than a shorter tuple, so no window can be mistaken for
-another stage. An order operation carries its own role, kind, and boundary, so a
+another stage, and a closed window's bounds are ordered — that is the stage
+owner's construction precondition, and the parent slice makes it this codec's to
+enforce at decode, so no payload can reach a resolver carrying a stage it could
+not construct. Counts have one portable domain, fixed in the shape region so that
+a host's native integer width never decides what another host must admit. An
+order operation carries its own role, kind, and boundary, so a
 baseline of `[a asc]` beside a ranking of `[b desc, c asc]` can never serialize
 identically to a baseline of `[a asc, b desc]` beside a ranking of `[c asc]` —
 the vectors `operation-boundary-a` and `operation-boundary-b` are that pair.

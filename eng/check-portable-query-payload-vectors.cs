@@ -40,8 +40,12 @@ using System.Text.Json;
 // What one tuple slot may hold.
 //   Identity    a key, dimension, or order reference: string, ≤ MaxIdentityBytes
 //   Text        a term value: string, ≤ MaxValueBytes, never interpreted
-//   Count       a positive integer: no sign, leading zero, fraction, or exponent
-//   WindowBound a Count, or null meaning "no bound on this side"
+//   Count       an integer 1..2147483647, spelled with no sign, leading zero,
+//               fraction, or exponent. That domain fits every host's native
+//               integer and the stage owner's int; no larger count is admitted.
+//   WindowBound a Count, or null meaning "no bound on this side". When both
+//               bounds of a window are present, start <= end (the stage owner's
+//               construction precondition, enforced here at decode).
 //   Role        the string "base", or an integer index into s naming a top stage
 //   Direction   asc | desc
 // Token slots are fixed by their layout and listed with it.
@@ -77,12 +81,16 @@ const int MaxOrderFieldTerms  = 8;   // aggregate across every operation
 const int MaxIdentityBytes    = 64;  // keys, dimensions, order references
 const int MaxValueBytes       = 256; // term values
 const int PacketMaxValues     = 256; // the packet owner's per-payload allowance
+const long MaxCount           = 2147483647; // the Count domain's upper bound
 
-// Text order, for every sort this codec performs: Unicode scalar value, which is
-// UTF-8 byte order. Not UTF-16 code-unit order (string.CompareOrdinal). Defined
-// by the intent model; emitted here.
-Comparer<string> scalarOrder = Comparer<string>.Create((x, y) =>
-    Encoding.UTF8.GetBytes(x).AsSpan().SequenceCompareTo(Encoding.UTF8.GetBytes(y)));
+// Depth is 4 by construction of the layouts above; no payload can reach 5
+// without first failing a layout rule. MaxDepth is a guard, not a reachable
+// limit, and has no vector.
+
+// Element orders and the text comparator are NOT defined here. They are the
+// intent model's semantic orders (docs/design/portable-query-intent.md,
+// "Semantic order"): Unicode scalar value, which is UTF-8 byte order. This
+// codec emits them; the comparer below the SHAPE region implements that rule.
 
 // Strings, inherited from the packet owner: escape only quote, backslash, and
 // C0 controls; \b \t \n \f \r where defined; lowercase \u00xx for other C0;
@@ -92,6 +100,10 @@ Comparer<string> scalarOrder = Comparer<string>.Create((x, y) =>
 // ═══════════════════════════════════════════════════════════════════════════════
 // End of SHAPE. Everything below is implementation.
 // ═══════════════════════════════════════════════════════════════════════════════
+
+// Implements the model's comparator: Unicode scalar order == UTF-8 byte order.
+Comparer<string> scalarOrder = Comparer<string>.Create((x, y) =>
+    Encoding.UTF8.GetBytes(x).AsSpan().SequenceCompareTo(Encoding.UTF8.GetBytes(y)));
 
 string root = FindRepoRoot();
 string vectorsPath = Path.Combine(root, "docs", "design", "models", "portable-query-payload", "vectors.json");
@@ -107,9 +119,8 @@ foreach (JsonElement v in vectors.RootElement.GetProperty("encode").EnumerateArr
     string expected = v.GetProperty("canonical").GetString()!;
     string intentText = v.GetProperty("intent").GetRawText();
 
-    string? reason = ValidateStructure(intentText, out JsonDocument? intentDoc);
+    string? reason = Encode(intentText, out string canonical);
     if (reason is not null) { Fail(name, $"intent refused as {reason}"); continue; }
-    string canonical = Canonicalize(intentDoc!);
     if (canonical != expected) { Fail(name, $"canonical bytes differ\n    expected {expected}\n    actual   {canonical}"); continue; }
 
     string? decodeReason = ValidateBytes(expected);
@@ -129,7 +140,7 @@ foreach (JsonElement v in vectors.RootElement.GetProperty("encode-reject").Enume
     nEncodeReject++;
     string name = v.GetProperty("name").GetString()!;
     string expectedReason = v.GetProperty("reject").GetString()!;
-    string? reason = ValidateStructure(v.GetProperty("intent").GetRawText(), out _);
+    string? reason = Encode(v.GetProperty("intent").GetRawText(), out _);
     if (reason != expectedReason) Fail(name, $"expected intent rejection '{expectedReason}', got '{reason ?? "accepted"}'");
 }
 
@@ -154,6 +165,22 @@ foreach (JsonElement v in vectors.RootElement.GetProperty("pair").EnumerateArray
 
 Console.WriteLine($"{nEncode} encode, {nEncodeReject} encode-reject, {nReject} reject, {nPair} pair vectors; {failures} failure(s)");
 return failures == 0 ? 0 : 2;
+
+// ─── Encode: intent → canonical bytes, or a reason ───────────────────────────
+// Limits on parts and text are charged as parsed; the payload byte limit is
+// charged on the canonical form, before emission succeeds.
+
+string? Encode(string intentText, out string canonical)
+{
+    canonical = "";
+    string? reason = ValidateStructure(intentText, out JsonDocument? doc);
+    if (reason is not null) return reason;
+    using (doc)
+    {
+        canonical = Canonicalize(doc!);
+        return Encoding.UTF8.GetByteCount(canonical) > MaxPayloadBytes ? "limit-exceeded" : null;
+    }
+}
 
 // ─── Decode: bytes → reason or null ──────────────────────────────────────────
 
@@ -250,6 +277,8 @@ string? ValidateStructure(string text, out JsonDocument? doc)
                     if (slot.ValueKind == JsonValueKind.Null) { if (layout[k] != Slot.WindowBound) return "null-outside-window"; continue; }
                     if (!IsCount(slot)) return "bad-integer";
                 }
+                if (tok == "window" && stage[1].ValueKind != JsonValueKind.Null && stage[2].ValueKind != JsonValueKind.Null
+                    && stage[1].GetInt64() > stage[2].GetInt64()) return "window-unordered";
                 stageTokens[i++] = tok;
             }
         }
@@ -408,10 +437,10 @@ static bool IsCanonicalInteger(JsonElement e)
     string raw = e.GetRawText();
     if (raw.Contains('.') || raw.Contains('e') || raw.Contains('E') || raw.StartsWith('-') || raw.StartsWith('+')) return false;
     if (raw.Length > 1 && raw[0] == '0') return false;
-    return e.TryGetInt64(out _);
+    return e.TryGetInt64(out _);   // wider than Int64 is not a Count either; IsCount applies the domain
 }
 
-static bool IsCount(JsonElement e) => IsCanonicalInteger(e) && e.GetInt64() > 0;
+static bool IsCount(JsonElement e) => IsCanonicalInteger(e) && e.GetInt64() >= 1 && e.GetInt64() <= MaxCount;
 
 static int Depth(JsonElement e) => e.ValueKind switch
 {

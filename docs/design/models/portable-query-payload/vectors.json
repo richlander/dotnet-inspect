@@ -762,6 +762,46 @@
       "canonical": "{\"t\":[[\"k\",\"eq\",\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"]]}"
     },
     {
+      "name": "count-at-maximum",
+      "description": "A count of 2147483647, the top of the Count domain, is admissible as a bound maximum and as a stage count.",
+      "queryId": "row.query",
+      "intent": {
+        "b": [
+          [
+            "candidates",
+            2147483647
+          ]
+        ],
+        "s": [
+          [
+            "head",
+            2147483647
+          ],
+          [
+            "window",
+            1,
+            2147483647
+          ]
+        ]
+      },
+      "canonical": "{\"b\":[[\"candidates\",2147483647]],\"s\":[[\"head\",2147483647],[\"window\",1,2147483647]]}"
+    },
+    {
+      "name": "window-equal-bounds",
+      "description": "A closed window whose start equals its end selects one row and is ordered.",
+      "queryId": "row.query",
+      "intent": {
+        "s": [
+          [
+            "window",
+            7,
+            7
+          ]
+        ]
+      },
+      "canonical": "{\"s\":[[\"window\",7,7]]}"
+    },
+    {
       "name": "payload-near-byte-maximum",
       "description": "Twenty-four terms with 99-byte values and eight bounds: a term-heavy payload close to the 3 KiB limit, showing the byte count binding before the part counts.",
       "queryId": "package.query",
@@ -1279,6 +1319,207 @@
         ]
       },
       "reject": "limit-exceeded"
+    },
+    {
+      "name": "value-one-over-in-intent",
+      "description": "A 257-byte value is refused on the intent side too.",
+      "intent": {
+        "t": [
+          [
+            "k",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ]
+        ]
+      },
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "nine-field-terms-in-intent",
+      "description": "Nine field terms across operations exceed the aggregate on the intent side too.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "fields",
+            "f0",
+            "asc",
+            "f1",
+            "asc",
+            "f2",
+            "asc",
+            "f3",
+            "asc",
+            "f4",
+            "asc",
+            "f5",
+            "asc",
+            "f6",
+            "asc",
+            "f7",
+            "asc",
+            "f8",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "payload-too-large-as-intent",
+      "description": "Twenty-four distinct terms with 128-byte values: every part and every text within its limit, yet the canonical form exceeds 3 KiB. The byte limit is charged on the canonical form before emission succeeds.",
+      "intent": {
+        "t": [
+          [
+            "k00",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k01",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k02",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k03",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k04",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k05",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k06",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k07",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k08",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k09",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k10",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k11",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k12",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k13",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k14",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k15",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k16",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k17",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k18",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k19",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k20",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k21",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k22",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ],
+          [
+            "k23",
+            "eq",
+            "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+          ]
+        ]
+      },
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "window-unordered-in-intent",
+      "description": "A closed window whose end precedes its start cannot construct a selection stage; the stage owner's precondition is enforced at construction.",
+      "intent": {
+        "s": [
+          [
+            "window",
+            9,
+            1
+          ]
+        ]
+      },
+      "reject": "window-unordered"
+    },
+    {
+      "name": "count-over-domain-in-intent",
+      "description": "2147483648 is outside the Count domain, however it is spelled.",
+      "intent": {
+        "b": [
+          [
+            "candidates",
+            2147483648
+          ]
+        ]
+      },
+      "reject": "bad-integer"
     }
   ],
   "reject": [
@@ -1515,6 +1756,42 @@
       "description": "No exponent form.",
       "bytes": "{\"s\":[[\"head\",1e2]]}",
       "reject": "bad-integer"
+    },
+    {
+      "name": "count-over-domain",
+      "description": "2147483648 is outside the Count domain.",
+      "bytes": "{\"b\":[[\"candidates\",2147483648]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "count-beyond-int64",
+      "description": "A count wider than any host integer is not a Count; the domain, not a host type, decides.",
+      "bytes": "{\"b\":[[\"candidates\",9223372036854775808]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "window-unordered",
+      "description": "A closed window whose end precedes its start is refused at decode, before it can reach a resolver.",
+      "bytes": "{\"s\":[[\"window\",9,1]]}",
+      "reject": "window-unordered"
+    },
+    {
+      "name": "nine-bounds-on-the-wire",
+      "description": "Nine bounds exceed the limit on the wire side too.",
+      "bytes": "{\"b\":[[\"d0\",1],[\"d1\",1],[\"d2\",1],[\"d3\",1],[\"d4\",1],[\"d5\",1],[\"d6\",1],[\"d7\",1],[\"d8\",1]]}",
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "nine-stages-on-the-wire",
+      "description": "Nine stages exceed the limit on the wire side too.",
+      "bytes": "{\"s\":[[\"head\",1],[\"head\",1],[\"head\",1],[\"head\",1],[\"head\",1],[\"head\",1],[\"head\",1],[\"head\",1],[\"head\",1]]}",
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "nine-order-operations-on-the-wire",
+      "description": "Nine operations exceed the limit on the wire side too.",
+      "bytes": "{\"s\":[[\"top\",1],[\"top\",1],[\"top\",1],[\"top\",1],[\"top\",1],[\"top\",1],[\"top\",1],[\"top\",1]],\"o\":[[\"base\",\"named\",\"x\",\"asc\"],[0,\"named\",\"x\",\"asc\"],[1,\"named\",\"x\",\"asc\"],[2,\"named\",\"x\",\"asc\"],[3,\"named\",\"x\",\"asc\"],[4,\"named\",\"x\",\"asc\"],[5,\"named\",\"x\",\"asc\"],[6,\"named\",\"x\",\"asc\"],[7,\"named\",\"x\",\"asc\"]]}",
+      "reject": "limit-exceeded"
     },
     {
       "name": "too-many-terms",
