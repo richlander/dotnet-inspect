@@ -703,12 +703,8 @@ public static class CompleteRestorationCoordinator
         }
         catch (OperationCanceledException)
         {
-            return CurrentnessFailure(authority)
-                is CompleteRestorationFailure.AuthorityUnavailable
-                    authorityFailure
-                    && authorityFailure.Status
-                        == CompleteRestorationIntentStatus.Superseded
-                ? new CompleteWorkspacePreparationResult.Superseded()
+            return CurrentnessFailure(authority) is { } unavailable
+                ? PreparationForUnavailable(unavailable)
                 : new CompleteWorkspacePreparationResult.Failed(
                     new CompleteRestorationFailure.Cancelled(
                         "Workspace restoration was cancelled."));
@@ -1172,8 +1168,8 @@ public static class CompleteRestorationCoordinator
                     + "selector.");
         }
 
-        LegacyFacetResult mapped =
-            MapLegacyFacet(
+        CompleteRestorationPreparation.LegacyFacetMapping mapped =
+            CompleteRestorationPreparation.LegacyRestorationLowering.MapFacet(
                 legacy.Source,
                 view,
                 subject?.Kind ?? StructuralSubjectKind.Package);
@@ -1276,93 +1272,6 @@ public static class CompleteRestorationCoordinator
                     library.Library)
                 == type.Subject.Library);
 
-    private static LegacyFacetResult MapLegacyFacet(
-        CompleteRestorationLegacySource source,
-        ViewDefinition? view,
-        StructuralSubjectKind subject)
-    {
-        string? lens = view?.Lens;
-        string? section = view?.Section;
-        if (subject is StructuralSubjectKind.Member)
-        {
-            if (lens is not null
-                && lens is not "api"
-                and not "metadata"
-                and not "source")
-            {
-                return new(null, "The legacy parent Type lens is invalid.");
-            }
-
-            return (source, section) switch
-            {
-                (_, null) =>
-                    new("member.overview", null),
-                (CompleteRestorationLegacySource.PacketV1, "overview") =>
-                    new("member.overview", null),
-                (CompleteRestorationLegacySource.PacketV1, "call-graph") =>
-                    new("member.call-graph", null),
-                (CompleteRestorationLegacySource.PacketV1, "facts") =>
-                    new("member.facts", null),
-                (CompleteRestorationLegacySource.PacketV1, "source") =>
-                    new("member.source", null),
-                (CompleteRestorationLegacySource.PacketV1, "annotated") =>
-                    new("member.annotated-source", null),
-                (CompleteRestorationLegacySource.DefinitionV1, "Call Graph") =>
-                    new("member.call-graph", null),
-                _ => new(null, $"Unknown legacy Member section '{section}'."),
-            };
-        }
-
-        if (subject is StructuralSubjectKind.Type)
-        {
-            if (section is not null)
-            {
-                if (lens is not null)
-                {
-                    return new(
-                        null,
-                        "A legacy Type view cannot carry both lens and "
-                            + "section.");
-                }
-                return source
-                        is CompleteRestorationLegacySource.DefinitionV1
-                    && section == "Methods"
-                    ? new("type.api", null)
-                    : new(
-                        null,
-                        $"Unknown legacy Type section '{section}'.");
-            }
-
-            return lens switch
-            {
-                null => new(null, null),
-                "api" => new("type.api", null),
-                "metadata" => new("type.metadata", null),
-                "source" => new("type.source", null),
-                _ => new(null, $"Unknown legacy Type lens '{lens}'."),
-            };
-        }
-
-        if (section is not null)
-        {
-            return new(
-                null,
-                "A legacy Package view cannot carry a member section.");
-        }
-
-        return lens switch
-        {
-            null => new(null, null),
-            "overview" => new("package.overview", null),
-            "dependencies" => new("package.dependencies", null),
-            "integrations" => new("library.integrations", null),
-            "opportunities" => new("library.opportunities", null),
-            "analysis" => new("library.analysis", null),
-            "metadata" => new("library.metadata", null),
-            _ => new(null, $"Unknown legacy Package lens '{lens}'."),
-        };
-    }
-
     private static LegacyInitializationResult LegacyFailure(string message) =>
         new(
             null,
@@ -1428,10 +1337,6 @@ public static class CompleteRestorationCoordinator
     private sealed record LegacyInitializationResult(
         NavigationInitialization? Initialization,
         CompleteRestorationFailure? Failure);
-
-    private sealed record LegacyFacetResult(
-        string? Facet,
-        string? Failure);
 
     private sealed record DetachedVersion2Result(
         CompleteRestorationResolvedState.Version2? State,

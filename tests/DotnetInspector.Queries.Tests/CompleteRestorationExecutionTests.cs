@@ -614,9 +614,8 @@ public sealed class CompleteRestorationExecutionTests
     }
 
     [Fact]
-    public async Task LegacyMemberKeyWithoutStableSelector_Fails()
+    public void LegacyMemberKeyWithoutStableSelector_FailsBeforeConstruction()
     {
-        PackageFixture package = await SystemTextJsonPackageAsync();
         InspectionDefinitionRegistry registry = Version1PackageRegistry(
             new ViewDefinition(
                 InspectionDefinitionSchema.Version1,
@@ -625,28 +624,15 @@ public sealed class CompleteRestorationExecutionTests
                 type: "System.Text.Json.JsonSerializer",
                 memberKey: "method:Serialize"));
         var authority = new TestIntentAuthority();
-        var preparation =
-            Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+        var failed =
+            Assert.IsType<CompleteRestorationPreparationResult.Failed>(
                 WorkspaceDefinitionConsumer.PrepareRestoration(
                     registry,
                     "scenario",
                     authority));
-        var host = new TestHost();
-        using var client = new HttpClient(new RejectingHandler());
 
-        CompleteRestorationResult<InspectionWorkspace> result =
-            await WorkspaceDefinitionConsumer.RestoreAsync(
-                preparation,
-                authority,
-                host,
-                Options(client, package.Store),
-                TestContext.Current.CancellationToken);
-
-        var failed = Assert.IsType<
-            CompleteRestorationResult<InspectionWorkspace>.Failed>(result);
         Assert.IsType<CompleteRestorationFailure.LegacyLoweringFailed>(
             failed.Failure);
-        Assert.True(host.CloseReport!.Succeeded);
     }
 
     [Theory]
@@ -711,6 +697,88 @@ public sealed class CompleteRestorationExecutionTests
         var failed = Assert.IsType<
             CompleteRestorationResult<InspectionWorkspace>.Failed>(result);
         Assert.IsType<CompleteRestorationFailure.Cancelled>(failed.Failure);
+    }
+
+    [Theory]
+    [InlineData(CompleteRestorationIntentStatus.Expired)]
+    [InlineData(CompleteRestorationIntentStatus.Revoked)]
+    public async Task AuthorityLossDuringWork_PreservesExactStatus(
+        CompleteRestorationIntentStatus status)
+    {
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(CompleteRestorationExecutionTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        var authority = new TestIntentAuthority();
+        var preparation =
+            Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+                WorkspaceDefinitionConsumer.PrepareRestoration(
+                    WorkspaceOnlyRegistry(assembly),
+                    "scenario",
+                    authority));
+        var host = new TestHost();
+        using var client = new HttpClient(new RejectingHandler());
+        CompleteRestorationExecutionOptions options =
+            Options(client, assembly) with
+            {
+                Projection = _ =>
+                {
+                    authority.Status = status;
+                    authority.Revoke();
+                    throw new OperationCanceledException(authority.Revocation);
+                },
+            };
+
+        CompleteRestorationResult<InspectionWorkspace> result =
+            await WorkspaceDefinitionConsumer.RestoreAsync(
+                preparation,
+                authority,
+                host,
+                options,
+                TestContext.Current.CancellationToken);
+
+        var failed = Assert.IsType<
+            CompleteRestorationResult<InspectionWorkspace>.Failed>(result);
+        Assert.Equal(
+            status,
+            Assert.IsType<
+                CompleteRestorationFailure.AuthorityUnavailable>(
+                    failed.Failure).Status);
+        Assert.True(host.CloseReport!.Succeeded);
+    }
+
+    [Fact]
+    public async Task CancellationDuringWork_RemainsCancelled()
+    {
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(CompleteRestorationExecutionTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        var authority = new TestIntentAuthority();
+        var preparation =
+            Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+                WorkspaceDefinitionConsumer.PrepareRestoration(
+                    WorkspaceOnlyRegistry(assembly),
+                    "scenario",
+                    authority));
+        var host = new TestHost();
+        using var client = new HttpClient(new RejectingHandler());
+        CompleteRestorationExecutionOptions options =
+            Options(client, assembly) with
+            {
+                Projection = _ => throw new OperationCanceledException(),
+            };
+
+        CompleteRestorationResult<InspectionWorkspace> result =
+            await WorkspaceDefinitionConsumer.RestoreAsync(
+                preparation,
+                authority,
+                host,
+                options,
+                TestContext.Current.CancellationToken);
+
+        var failed = Assert.IsType<
+            CompleteRestorationResult<InspectionWorkspace>.Failed>(result);
+        Assert.IsType<CompleteRestorationFailure.Cancelled>(failed.Failure);
+        Assert.True(host.CloseReport!.Succeeded);
     }
 
     [Fact]

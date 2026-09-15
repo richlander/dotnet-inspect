@@ -115,12 +115,21 @@ public sealed class InspectionDefinitionRegistry
         ValidateNavigationIds(records.Navigation);
         if (scenario.SchemaVersion == InspectionDefinitionSchema.Version2)
         {
+            CommittedScenarioDefinitionSet committed =
+                CreateCommittedScenario(records);
+            ValidateNavigationSources(
+                records.Workspace as WorkspaceDefinition,
+                records.Navigation);
             return new InspectionDefinitionScenarioPreparationResult.Version2(
-                CreateCommittedScenario(records));
+                committed);
         }
 
+        ResolvedScenario resolved = ResolveVersion1Scenario(scenario);
+        ValidateNavigationSources(
+            records.Workspace as WorkspaceDefinition,
+            records.Navigation);
         return new InspectionDefinitionScenarioPreparationResult.Version1(
-            ResolveVersion1Scenario(scenario));
+            resolved);
     }
 
     private ResolvedScenario ResolveVersion1Scenario(
@@ -329,6 +338,69 @@ public sealed class InspectionDefinitionRegistry
             {
                 throw new InspectionDefinitionException(
                     $"Navigation '{navigation!.Id}' has duplicate tab id '{tab.Id}'.");
+            }
+        }
+    }
+
+    private static void ValidateNavigationSources(
+        WorkspaceDefinition? workspace,
+        InspectionDefinitionRecord? navigation)
+    {
+        if (workspace is null || navigation is null)
+            return;
+
+        IReadOnlyList<NavigationTabDefinition> tabs = navigation switch
+        {
+            NavigationDefinition version1 => version1.Tabs,
+            CommittedNavigationDefinition version2 => version2.Tabs,
+            _ => throw new InspectionDefinitionException(
+                $"Navigation '{navigation.Id}' has an incompatible record kind."),
+        };
+        foreach (NavigationTabDefinition tab in tabs)
+        {
+            WorkspaceContextDefinition[] sourceMatches =
+            [
+                .. workspace.Contexts.Where(context =>
+                    tab.Coordinate is { } coordinate
+                        ? context.Members.Contains(coordinate)
+                        : string.Equals(
+                            context.Subscribe,
+                            tab.Subscribe,
+                            StringComparison.Ordinal)),
+            ];
+            WorkspaceContextDefinition[] targetMatches =
+            [
+                .. sourceMatches.Where(context =>
+                    (tab.Framework is null
+                        || string.Equals(
+                            tab.Framework,
+                            context.Framework,
+                            StringComparison.Ordinal))
+                    && (tab.RuntimeIdentifier is null
+                        || string.Equals(
+                            tab.RuntimeIdentifier,
+                            context.RuntimeIdentifier,
+                            StringComparison.Ordinal))),
+            ];
+            if (targetMatches.Length == 0)
+            {
+                throw new InspectionDefinitionException(
+                    $"Navigation tab '{tab.Id}' does not match an explicit "
+                        + $"member or subscription target in workspace "
+                        + $"'{workspace.Id}'.");
+            }
+
+            int distinctTargets = targetMatches
+                .Select(context => (
+                    context.Framework,
+                    context.RuntimeIdentifier))
+                .Distinct()
+                .Count();
+            if (distinctTargets > 1)
+            {
+                throw new InspectionDefinitionException(
+                    $"Navigation tab '{tab.Id}' is ambiguous across workspace "
+                        + "contexts with different effective targets.");
             }
         }
     }

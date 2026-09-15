@@ -78,6 +78,116 @@ public sealed class CompleteRestorationPreparationTests
     }
 
     [Fact]
+    public void InvalidVersion1Facet_FailsBeforeConstruction()
+    {
+        InspectionDefinitionRegistry registry = Version1Registry(
+            new ViewDefinition(
+                InspectionDefinitionSchema.Version1,
+                "view",
+                lens: "API",
+                type: "System.Text.Json.JsonSerializer"));
+
+        var failed = Assert.IsType<CompleteRestorationPreparationResult.Failed>(
+            WorkspaceDefinitionConsumer.PrepareRestoration(
+                registry,
+                "scenario",
+                new TestIntentAuthority()));
+
+        Assert.IsType<CompleteRestorationFailure.LegacyLoweringFailed>(
+            failed.Failure);
+    }
+
+    [Fact]
+    public void InactiveVersion1NavigationOutsideWorkspace_FailsComposition()
+    {
+        var registry = new InspectionDefinitionRegistry();
+        registry.Add(Workspace(InspectionDefinitionSchema.Version1));
+        registry.Add(new NavigationDefinition(
+            InspectionDefinitionSchema.Version1,
+            "navigation",
+            [
+                new NavigationTabDefinition("package", coordinate: Package()),
+                new NavigationTabDefinition(
+                    "missing",
+                    coordinate:
+                        new DefinitionMemberCoordinate.PackageCoordinate(
+                            "Newtonsoft.Json",
+                            "13.0.3",
+                            "net9.0")),
+            ],
+            "package"));
+        registry.Add(new ViewDefinition(
+            InspectionDefinitionSchema.Version1,
+            "view",
+            lens: "overview"));
+        registry.Add(new ScenarioDefinition(
+            InspectionDefinitionSchema.Version1,
+            "scenario",
+            workspace: "workspace",
+            context: "context",
+            view: "view",
+            navigation: "navigation"));
+
+        var failed = Assert.IsType<CompleteRestorationPreparationResult.Failed>(
+            WorkspaceDefinitionConsumer.PrepareRestoration(
+                registry,
+                "scenario",
+                new TestIntentAuthority()));
+
+        Assert.IsType<CompleteRestorationFailure.InvalidDefinitionSet>(
+            failed.Failure);
+    }
+
+    [Fact]
+    public void DormantVersion2NavigationOutsideWorkspace_FailsComposition()
+    {
+        var registry = new InspectionDefinitionRegistry();
+        registry.Add(Workspace(InspectionDefinitionSchema.Version2));
+        registry.Add(new CommittedNavigationDefinition(
+            InspectionDefinitionSchema.Version2,
+            "navigation",
+            [
+                new NavigationTabDefinition("package", coordinate: Package()),
+                new NavigationTabDefinition(
+                    "platform",
+                    coordinate:
+                        new DefinitionMemberCoordinate.PlatformCoordinate(
+                            "runtime",
+                            Framework: "net9.0")),
+            ],
+            "package"));
+        registry.Add(new CommittedViewDefinition(
+            InspectionDefinitionSchema.Version2,
+            "view",
+            [
+                new CommittedViewStateDefinition(
+                    null,
+                    new PortableSubjectRequest.Workspace()),
+                new CommittedViewStateDefinition(
+                    "package",
+                    new PortableSubjectRequest.Package(),
+                    new PortableRetainedSubjectContext.Package()),
+                new CommittedViewStateDefinition("platform"),
+            ]));
+        registry.Add(new ScenarioDefinition(
+            InspectionDefinitionSchema.Version2,
+            "scenario",
+            workspace: "workspace",
+            context: "context",
+            view: "view",
+            navigation: "navigation"));
+
+        var failed = Assert.IsType<CompleteRestorationPreparationResult.Failed>(
+            WorkspaceDefinitionConsumer.PrepareRestoration(
+                registry,
+                "scenario",
+                new TestIntentAuthority()));
+
+        Assert.IsType<CompleteRestorationFailure.InvalidDefinitionSet>(
+            failed.Failure);
+    }
+
+    [Fact]
     public void Version1DefinitionQuery_FailsWithoutQueryOwnerMigration()
     {
         InspectionDefinitionRegistry registry = Version1Registry(

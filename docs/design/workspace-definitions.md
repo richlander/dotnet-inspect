@@ -2270,14 +2270,16 @@ Definition records and product demos (this slice):
   runtime selector resolution, exact occurrence association, atomic typed
   failure, incomplete-inventory disclosure, and contiguous retained paths.
   `CompleteRestorationPreparationTests` gates resource-free version dispatch,
-  exact plan association, pre-construction rejection, absent query-owner
-  migration, and supersession.
+  exact plan association, complete navigation-source membership, static legacy
+  lowering rejection before construction, absent query-owner migration, and
+  supersession.
   `CompleteRestorationExecutionTests` gates exact unpublished activation,
   duplicate logical Package Roots, subject-less Package recommendation,
   inactive facet rejection, Browser and definition-v1 Type lowering,
   canonical packet retention, invalid legacy member keys, context and Scope
-  failure, cancellation and authority loss, projection failure, late
-  supersession, host cleanup, and exact activation-object association.
+  failure, cancellation and exact authority-loss classification, projection
+  failure, late supersession, host cleanup, and exact activation-object
+  association.
   The
   `workspace-definitions-complete-restoration` TLA+ model checks fresh
   Workspace identity, exact request/plan/Workspace association, ordered

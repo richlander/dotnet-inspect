@@ -566,6 +566,17 @@ public static class CompleteRestorationPreparation
                                 + "requires a registered query-owner "
                                 + "migration."));
                 }
+                if (LegacyRestorationLowering.ValidateStatic(
+                        source,
+                        version1.Scenario.View)
+                    is { } staticFailure)
+                {
+                    return new CompleteRestorationPreparationResult.Failed(
+                        authority.Identity,
+                        request,
+                        new CompleteRestorationFailure.LegacyLoweringFailed(
+                            staticFailure));
+                }
                 return new CompleteRestorationPreparationResult.Ready(
                     new CompleteRestorationPlan(
                         authority.Identity,
@@ -579,6 +590,123 @@ public static class CompleteRestorationPreparation
             default:
                 throw new InvalidOperationException(
                     "Unknown definition preparation result.");
+        }
+    }
+
+    internal sealed record LegacyFacetMapping(
+        string? Facet,
+        string? Failure);
+
+    internal static class LegacyRestorationLowering
+    {
+        internal static string? ValidateStatic(
+            CompleteRestorationLegacySource source,
+            ViewDefinition? view)
+        {
+            bool hasMemberAnchor = view?.MemberAnchor is not null;
+            bool hasMemberSignature = view?.MemberSignature is not null;
+            if (view?.MemberKey is not null
+                && !hasMemberAnchor
+                && !hasMemberSignature)
+            {
+                return "A legacy memberKey requires memberAnchor or "
+                    + "memberSignature.";
+            }
+
+            StructuralSubjectKind subject =
+                hasMemberAnchor || hasMemberSignature
+                    ? StructuralSubjectKind.Member
+                    : view?.Type is not null
+                        ? StructuralSubjectKind.Type
+                        : StructuralSubjectKind.Package;
+            return MapFacet(source, view, subject).Failure;
+        }
+
+        internal static LegacyFacetMapping MapFacet(
+            CompleteRestorationLegacySource source,
+            ViewDefinition? view,
+            StructuralSubjectKind subject)
+        {
+            string? lens = view?.Lens;
+            string? section = view?.Section;
+            if (subject is StructuralSubjectKind.Member)
+            {
+                if (lens is not null
+                    && lens is not "api"
+                    and not "metadata"
+                    and not "source")
+                {
+                    return new(null, "The legacy parent Type lens is invalid.");
+                }
+
+                return (source, section) switch
+                {
+                    (_, null) =>
+                        new("member.overview", null),
+                    (CompleteRestorationLegacySource.PacketV1, "overview") =>
+                        new("member.overview", null),
+                    (CompleteRestorationLegacySource.PacketV1, "call-graph") =>
+                        new("member.call-graph", null),
+                    (CompleteRestorationLegacySource.PacketV1, "facts") =>
+                        new("member.facts", null),
+                    (CompleteRestorationLegacySource.PacketV1, "source") =>
+                        new("member.source", null),
+                    (CompleteRestorationLegacySource.PacketV1, "annotated") =>
+                        new("member.annotated-source", null),
+                    (CompleteRestorationLegacySource.DefinitionV1, "Call Graph") =>
+                        new("member.call-graph", null),
+                    _ => new(null, $"Unknown legacy Member section '{section}'."),
+                };
+            }
+
+            if (subject is StructuralSubjectKind.Type)
+            {
+                if (section is not null)
+                {
+                    if (lens is not null)
+                    {
+                        return new(
+                            null,
+                            "A legacy Type view cannot carry both lens and "
+                                + "section.");
+                    }
+                    return source
+                            is CompleteRestorationLegacySource.DefinitionV1
+                        && section == "Methods"
+                        ? new("type.api", null)
+                        : new(
+                            null,
+                            $"Unknown legacy Type section '{section}'.");
+                }
+
+                return lens switch
+                {
+                    null => new(null, null),
+                    "api" => new("type.api", null),
+                    "metadata" => new("type.metadata", null),
+                    "source" => new("type.source", null),
+                    _ => new(null, $"Unknown legacy Type lens '{lens}'."),
+                };
+            }
+
+            if (section is not null)
+            {
+                return new(
+                    null,
+                    "A legacy Package view cannot carry a member section.");
+            }
+
+            return lens switch
+            {
+                null => new(null, null),
+                "overview" => new("package.overview", null),
+                "dependencies" => new("package.dependencies", null),
+                "integrations" => new("library.integrations", null),
+                "opportunities" => new("library.opportunities", null),
+                "analysis" => new("library.analysis", null),
+                "metadata" => new("library.metadata", null),
+                _ => new(null, $"Unknown legacy Package lens '{lens}'."),
+            };
         }
     }
 
