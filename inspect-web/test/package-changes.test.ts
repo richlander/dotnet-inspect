@@ -164,6 +164,35 @@ test("a cancellation race preserves authoritative failure", async () => {
   });
 });
 
+test("fresh reset retires a canceled generation before delayed settlement", async () => {
+  const pending = deferred<PackageChangesTerminalResult>();
+  const prior = changeRow("Prior.Report");
+  let signal!: AbortSignal;
+  const source: PackageChangesDataSource = {
+    async run(_request, _onProgress, onRow, _onFailure, abortSignal) {
+      signal = abortSignal;
+      onRow(prior);
+      return await pending.promise;
+    },
+  };
+  const state = initialPackageChangesState();
+  const controller = createPackageChangesController(state, source, () => {});
+  const running = controller.run(
+    createPackageChangesRequest("package-set.prior"));
+
+  controller.cancel("disposed");
+  controller.reset();
+
+  assert.equal(signal.aborted, true);
+  assert.deepEqual(state, initialPackageChangesState());
+  pending.resolve({
+    kind: "succeeded",
+    inspection: inspection([prior]),
+  });
+  await running;
+  assert.deepEqual(state, initialPackageChangesState());
+});
+
 test("replacement suppresses stale callbacks and terminal settlement", async () => {
   const runs: Array<{
     readonly publish: (row: ReturnType<typeof changeRow>) => void;

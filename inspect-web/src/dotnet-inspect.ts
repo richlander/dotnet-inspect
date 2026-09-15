@@ -11620,12 +11620,7 @@ function resetPackageQueryState() {
   state.packageQueryState.outcome = fresh.outcome;
   state.packageQueryInspection = null;
   state.packageQueryMode = "packages";
-  const freshChanges = initialPackageChangesState();
-  state.packageChangesState.request = freshChanges.request;
-  state.packageChangesState.progress = freshChanges.progress;
-  state.packageChangesState.rows = freshChanges.rows;
-  state.packageChangesState.failures = freshChanges.failures;
-  state.packageChangesState.settlement = freshChanges.settlement;
+  packageChangesController.reset();
   packageQueryViewport = null;
   packageChangesViewport = null;
 }
@@ -11678,7 +11673,9 @@ function openPackageQueryRoute(
   dismissModalsForRoutedNavigation();
   navigationSequence.begin();
   packageQueryController.cancel();
-  packageChangesController.cancel("superseded");
+  if (options.preserveState) {
+    packageChangesController.cancel("superseded");
+  }
   packageQueryHandoffNavigationSeq = null;
   if (!options.preserveState) {
     resetPackageQueryState();

@@ -69,6 +69,7 @@ export interface PackageChangesController {
   readonly state: PackageChangesState;
   run(request: BrowserPackageChangesRequest): Promise<void>;
   cancel(reason?: PackageChangesCancelReason): void;
+  reset(): void;
 }
 
 export function initialPackageChangesState(): PackageChangesState {
@@ -144,6 +145,23 @@ export function createPackageChangesController(
     onUpdate();
   }
 
+  function reset(): void {
+    const retiring = active;
+    generation++;
+    active = null;
+    if (retiring !== null) {
+      retiring.accepting = false;
+      retiring.controller.abort("superseded");
+    }
+    const fresh = initialPackageChangesState();
+    state.request = fresh.request;
+    state.progress = fresh.progress;
+    state.rows = fresh.rows;
+    state.failures = fresh.failures;
+    state.settlement = fresh.settlement;
+    onUpdate();
+  }
+
   async function run(request: BrowserPackageChangesRequest): Promise<void> {
     if (active !== null) {
       active.accepting = false;
@@ -208,5 +226,5 @@ export function createPackageChangesController(
     }
   }
 
-  return { state, run, cancel };
+  return { state, run, cancel, reset };
 }
