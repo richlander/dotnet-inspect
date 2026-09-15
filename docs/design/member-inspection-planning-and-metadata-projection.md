@@ -1625,10 +1625,10 @@ be consumed by the type/member plan before slice 4 lands.
 Exit gate: cache, context, and hostile-input limit declarations drive `MDP009`;
 shadow results expose full/summary/focused limit, rejection, and projection
 disagreements before cutover; `MDP016` proves the narrow lossless-row exception
-before any consumer uses it to supply product results; the slice-5 portion of
-`MDP017` proves the classifier and raw table/image/leaf paths. It does not
-require later consumer migrations: slice-specific bypass closure belongs to
-`MDP011`, and final repository closure belongs to `MDP013` and `MDP017`.
+before any consumer uses it to supply product results; `MDP017` proves the
+classifier and currently adopted raw table/image/leaf paths. It does not require
+later consumer migrations: slice-specific bypass closure belongs to `MDP011`,
+while repository-wide admission remains unverified under #5559.
 
 ### Slice 6: activate shared declaration admission atomically
 
@@ -1706,11 +1706,9 @@ Depends on: slices 4, 6, and 7.
   supply expected accessor structure, including reader-only chains that must
   now carry an `AssemblyImage` lease; retain only exact allow-listed
   comparison-oracle and address-only test-input calls.
-- Inventory every remaining product acquisition owner and public/reusable
-  `PEReader` entry point. Route any path not already covered by
-  `AssemblyImage`, the slice-6 API-surface migration, or the raw metadata
-  projector through `MetadataImageFormatClassifier`; no reader-only
-  compatibility path may bypass the unsupported-format gate.
+- Preserve the adopted `MDP017` inventory through the migration. Additional
+  owner adoption remains separate, unscheduled #5559 work rather than a slice-8
+  completion condition.
 - Update architecture docs from proposed to implemented only after the
   corresponding gates pass.
 - Update `schema-query.md` and the other mechanism owners to remove superseded
@@ -1719,7 +1717,8 @@ Depends on: slices 4, 6, and 7.
 Exit gate: targeted searches and architecture tests find no dual-use option
 authority, duplicate declaration validity owner, or CSharp metadata
 reconstruction, including inert compatibility state left after the semantic
-cutovers. `MIP012`, `MDP013`, and the full `MDP017` closure must pass.
+cutovers. `MIP012`, `MDP013`, and the adopted `MDP017` inventory must pass;
+repository-wide metadata admission remains unverified under #5559.
 
 ## Verification obligations
 
