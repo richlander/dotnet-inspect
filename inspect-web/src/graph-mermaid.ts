@@ -173,6 +173,32 @@ type UniqueCompatiblePackage = (
 interface MermaidGraphNodeInfo extends DependencyGraphNodeInfo {
   key: string;
   label: string;
+  role: DependencyGraphPresentationRole;
+}
+
+export type DependencyGraphPresentationRole =
+  | "inspected"
+  | "samePrefix"
+  | "external";
+
+export function dependencyGraphFamilyPrefix(packageId: string): string {
+  const firstDot = packageId.indexOf(".");
+  if (firstDot < 0) return packageId;
+  const secondDot = packageId.indexOf(".", firstDot + 1);
+  return secondDot < 0 ? packageId : packageId.slice(0, secondDot);
+}
+
+export function dependencyGraphPresentationRole(
+  inspectedPackageId: string,
+  packageId: string,
+): DependencyGraphPresentationRole {
+  const inspected = inspectedPackageId.toLowerCase();
+  const candidate = packageId.toLowerCase();
+  if (candidate === inspected) return "inspected";
+  const prefix = dependencyGraphFamilyPrefix(inspectedPackageId).toLowerCase();
+  return candidate === prefix || candidate.startsWith(`${prefix}.`)
+    ? "samePrefix"
+    : "external";
 }
 
 export async function buildDependencyGraphMermaid(
@@ -204,6 +230,7 @@ export async function buildDependencyGraphMermaid(
         kind,
         packageKey,
         versionRange: "",
+        role: dependencyGraphPresentationRole(model.package.id, pkg.id),
         label: sameIdCount > 1
           ? `${pkg.id}@${pkg.version} · ${pkg.activeFramework}`
           : pkg.id
@@ -226,6 +253,7 @@ export async function buildDependencyGraphMermaid(
         kind: "external",
         packageKey: "",
         versionRange,
+        role: dependencyGraphPresentationRole(model.package.id, dependency.id),
         label: versionRange
           ? `${dependency.id} ${versionRange}`
           : dependency.id
@@ -349,19 +377,27 @@ export async function buildDependencyGraphMermaid(
   for (const key of keys) {
     const info = nodeInfo.get(key)!;
     const label = mermaidLabel(info.label);
-    lines.push(`  ${idOf.get(key)}["${label}"]:::${info.kind}`);
+    lines.push(`  ${idOf.get(key)}["${label}"]:::${info.role}`);
   }
   for (const edge of edges) {
     lines.push(`  ${idOf.get(edge.from)} --> ${idOf.get(edge.to)}`);
   }
-  lines.push("classDef self fill:var(--graph-target-fill),stroke:var(--graph-target-stroke),color:var(--graph-target-text),stroke-width:2px;");
-  lines.push("classDef open fill:var(--panel-active),stroke:var(--blue),color:var(--text);");
-  lines.push("classDef external fill:transparent,stroke:var(--line-strong),color:var(--dim);");
+  lines.push("classDef inspected fill:var(--graph-target-fill),stroke:var(--graph-target-stroke),color:var(--graph-target-text),stroke-width:2px;");
+  lines.push("classDef samePrefix fill:var(--graph-package-same-prefix-fill),stroke:var(--graph-package-same-prefix-stroke),color:var(--graph-package-same-prefix-text);");
+  lines.push("classDef external fill:var(--graph-package-external-fill),stroke:var(--graph-package-external-stroke),color:var(--graph-package-external-text);");
   const nodeInfoById = new Map<string, DependencyGraphNodeInfo>();
   for (const key of keys) {
     const id = idOf.get(key);
     const info = nodeInfo.get(key);
-    if (id && info) nodeInfoById.set(id, info);
+    if (id && info) {
+      const navigationInfo: DependencyGraphNodeInfo = { kind: info.kind };
+      if (info.packageKey !== undefined)
+        navigationInfo.packageKey = info.packageKey;
+      if (info.id !== undefined) navigationInfo.id = info.id;
+      if (info.versionRange !== undefined)
+        navigationInfo.versionRange = info.versionRange;
+      nodeInfoById.set(id, navigationInfo);
+    }
   }
   return {
     definition: lines.join("\n"),

@@ -11,7 +11,12 @@ import {
   dependencyGraphRenderSignature,
   packageIdentityKey,
 } from "../src/data.ts";
-import { buildDependencyGraphMermaid, resolveMermaidCssVariables } from "../src/graph-mermaid.ts";
+import {
+  buildDependencyGraphMermaid,
+  dependencyGraphFamilyPrefix,
+  dependencyGraphPresentationRole,
+  resolveMermaidCssVariables,
+} from "../src/graph-mermaid.ts";
 import type {
   BrowserDependencyCoordinateMatch,
   BrowserPackageDependencyGroup,
@@ -51,6 +56,94 @@ const groups: BrowserPackageDependencyGroup[] = [
   { index: 1, framework: "net9.0", isActive: false,
     dependencies: [{ id: "External", versionRange: "[4.0]" }] },
 ];
+
+test("package graph identity uses a bounded case-insensitive family prefix", () => {
+  assert.equal(
+    dependencyGraphFamilyPrefix("Microsoft.Extensions.Hosting"),
+    "Microsoft.Extensions",
+  );
+  assert.equal(
+    dependencyGraphFamilyPrefix("Microsoft.Extensions"),
+    "Microsoft.Extensions",
+  );
+  assert.equal(dependencyGraphFamilyPrefix("Serilog"), "Serilog");
+  assert.equal(
+    dependencyGraphPresentationRole(
+      "Microsoft.Extensions.Hosting",
+      "MICROSOFT.EXTENSIONS",
+    ),
+    "samePrefix",
+  );
+  assert.equal(
+    dependencyGraphPresentationRole(
+      "Microsoft.Extensions.Hosting",
+      "Microsoft.Extensions.Logging",
+    ),
+    "samePrefix",
+  );
+  assert.equal(
+    dependencyGraphPresentationRole(
+      "Microsoft.Extensions.Hosting",
+      "Microsoft.ExtensionsX.Logging",
+    ),
+    "external",
+  );
+  assert.equal(
+    dependencyGraphPresentationRole("Serilog", "Serilog.Sinks.Console"),
+    "samePrefix",
+  );
+  assert.equal(
+    dependencyGraphPresentationRole(
+      "Microsoft.Extensions.Hosting",
+      "microsoft.extensions.hosting",
+    ),
+    "inspected",
+  );
+});
+
+test("package graph presentation roles remain independent from navigation kinds", async () => {
+  const inspected = {
+    id: "Microsoft.Extensions.Hosting",
+    version: "10.0.0",
+    activeFramework: "net10.0",
+  };
+  const samePrefixLoaded = {
+    ...inspected,
+    id: "Microsoft.Extensions.Logging",
+  };
+  const externalLoaded = { ...inspected, id: "Serilog" };
+  const graph = await buildDependencyGraphMermaid({
+    package: inspected,
+    packages: [inspected, samePrefixLoaded, externalLoaded],
+    packageDependencies: {
+      dependencyGroups: [{
+        index: 0,
+        framework: "net10.0",
+        isActive: true,
+        dependencies: [
+          { id: "Microsoft.Extensions.Logging", versionRange: "[10.0.0]" },
+          { id: "Microsoft.Extensions.Options", versionRange: "[10.0.0]" },
+          { id: "Serilog", versionRange: "[4.0.0]" },
+          { id: "Newtonsoft.Json", versionRange: "[13.0.0]" },
+        ],
+      }],
+    },
+    dependenciesGroupIndex: 0,
+    workspaceDependencies: {},
+  }, (_packages, id) => {
+    return [samePrefixLoaded, externalLoaded].find(pkg => pkg.id === id) ?? null;
+  });
+  assert.ok(graph);
+  assert.match(graph.definition, /d0\["Microsoft.Extensions.Hosting"\]:::inspected/);
+  assert.match(graph.definition, /d1\["Microsoft.Extensions.Logging"\]:::samePrefix/);
+  assert.match(graph.definition, /d2\["Microsoft.Extensions.Options \[10.0.0\]"\]:::samePrefix/);
+  assert.match(graph.definition, /d3\["Serilog"\]:::external/);
+  assert.match(graph.definition, /d4\["Newtonsoft.Json \[13.0.0\]"\]:::external/);
+  assert.deepEqual(
+    [...graph.nodeInfoById.values()].map(node => node.kind),
+    ["self", "open", "external", "open", "external"],
+  );
+});
 
 class Container {
   dataset: Record<string, string> = {};
