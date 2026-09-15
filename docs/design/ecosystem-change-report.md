@@ -12,10 +12,12 @@ Release gates are in
 `tests/DotnetInspector.Queries.Tests/EcosystemChangeReportQueryTests.cs` and
 `tests/DotnetInspector.Presentation.Tests/EcosystemChangeReportPresentationTests.cs`.
 The CLI production host adopts those contracts through
-`ecosystem <name> --changes`; its focused Release gates are in
-`tests/DotnetInspect.Cli.Tests/EcosystemChangesCommandTests.cs`. Browser/Wasm
+`package changes --ecosystem <name>`; its focused Release gates are in
+`tests/DotnetInspect.Cli.Tests/PackageChangesCommandTests.cs`. Browser/Wasm
 adoption remains a later delivery step. Historical security changes remain
-unsupported because no owner supplies the required before/after evidence.
+unsupported because no owner supplies the required before/after evidence. The
+CLI placement correction is tracked by
+[#7009](https://github.com/richlander/dotnet-inspect/issues/7009).
 
 The **Ecosystem Change Report query** in `DotnetInspector.Queries` is the
 single normative owner. Its claim is:
@@ -212,16 +214,25 @@ are presentation only; hosts consume the typed document when category or
 completion meaning affects behavior.
 
 The CLI host exposes the report only through the explicit network-backed
-`ecosystem <name> --changes` gesture. It resolves the named ecosystem's exact
-product-owned `PackageSetId`; a pack without one fails rather than falling back
-to a namespace guess or all-NuGet scan. The host defaults to the query-owned
-42-day interval, accepts paired `--from`/`--through` timestamps for the same
-exclusive/inclusive bounds, maps `--security-only` to `SecurityRelevant`, and
-maps `-n` to the semantic result limit before execution. Markdown and plain
-text lower the shared Markout view; `--json` uses the shared lossless
-serializer. Catalog-only projections and single-table formats fail explicitly.
-`--verbose` reports bounded acquisition progress on stderr without
-contaminating stdout.
+`package changes --ecosystem <name>` gesture. This is the Package Changes peer
+query defined by the command boundary in
+[#6972](https://github.com/richlander/dotnet-inspect/issues/6972): Package Query
+returns matched package rows for current-state predicates, while Package
+Changes returns timestamped package-activity rows with coverage and security
+evidence. Catalog is the acquisition mechanism, not the command identity.
+`ecosystem` remains the acquisition-free product vocabulary.
+
+`--ecosystem` is a population control: the host resolves the named ecosystem's
+exact product-owned `PackageSetId`; a pack without one fails rather than falling
+back to a namespace guess or all-NuGet scan. It does not assert that every
+selected package has a semantic Integration association with that ecosystem.
+The host defaults to the query-owned 42-day interval, accepts paired
+`--from`/`--through` timestamps for the same exclusive/inclusive bounds, maps
+`--security-only` to `SecurityRelevant`, and maps `-n` to the semantic result
+limit before execution. Markdown and plain text lower the shared Markout view;
+`--json` uses the shared lossless serializer. Catalog-only projections and
+single-table formats fail explicitly. `--verbose` reports bounded acquisition
+progress on stderr without contaminating stdout.
 
 Illustrative rendering, using synthetic package/evidence records:
 
@@ -263,11 +274,12 @@ association, repeated activity, current context versus security-release
 evidence, `created` and `published` fallback receipt bases, out-of-window
 security facts, unavailable versus checked-empty data, take after predicates,
 ordering barriers and candidate bounds, provider failures, and cancellation
-after rows. CLI adoption demonstrates the default and explicit intervals,
-exact package-set scope, security selection, structured and human output,
-ordinary source-horizon lag, unsupported option combinations, and a pack
-without executable scope. Browser adoption must still demonstrate equivalent
-semantic results and disclose its own publication timing.
+after rows. CLI adoption demonstrates the `package changes` placement, the
+retirement of `ecosystem --changes`, default and explicit intervals, exact
+package-set scope, security selection, structured and human output, ordinary
+source-horizon lag, unsupported option combinations, and a pack without
+executable scope. Browser adoption must still demonstrate equivalent semantic
+results and disclose its own publication timing.
 
 The shared-presentation Release gates run the real query over controlled NuGet
 Catalog and GitHub-reviewed-advisory responses, including

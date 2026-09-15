@@ -175,6 +175,11 @@ public static class PackageCommandDefinitions
             packageNameArg,
             prereleaseOption);
         packageCommand.Subcommands.Add(queryCommand);
+        packageCommand.Subcommands.Add(
+            PackageChangesCommandDefinitions.CreatePackageChangesCommand(
+                opts,
+                packageCommand,
+                packageNameArg));
 
         var commandArgs = new PackageOptionsParser.PackageCommandArgs(
             packageNameArg, dependenciesOption, layoutOption, pathOption, tfmsOption,

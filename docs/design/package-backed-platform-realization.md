@@ -56,7 +56,8 @@ It does not establish:
 - target-framework reduction from project or package inputs;
 - Workspace admission, call-graph population, dependency traversal, or host
   presentation; or
-- bare-library handoff, binding, forwarding, source, analysis, or
+- shared Library construction or ownership handoff, binding, forwarding,
+  source, analysis, or
   decompilation.
 
 ## Normative basis and real-asset evidence
@@ -545,18 +546,19 @@ counted step.
 
 After 5a and 5b:
 
-1. step 6 defines provenance-retaining bare-library handoff;
-2. steps 7 and 8 add target-bound indexing and documentation;
-3. step 9 adopts PlatformHouse in Workspace, reference resolution, call graphs,
-   and dependency traversal;
-4. step 10 adopts the same requests and outcomes in CLI and Inspect Web; and
-5. step 11 retires direct package-backed Platform selection in
-   `WorkspaceContextLoader`, `BrowserPlatformCatalog`,
-   `BrowserPlatformWorkspace`, and the remaining legacy services.
+1. step 6 adopts shared Library construction and ownership handoff in
+   PlatformHouse;
+2. step 7 moves target-bound type indexing behind PlatformHouse and integrates
+   transparent .NET Standard resolution;
+3. step 8 adopts PlatformHouse in the assembly-reference ladder, Workspace,
+   Queries, call graphs, and dependency traversal;
+4. step 9 adopts the same requests and outcomes in CLI and Inspect Web; and
+5. step 10 retires direct product reference processing and the remaining
+   legacy services.
 
 [#4413](https://github.com/richlander/dotnet-inspect/issues/4413) is a
 downstream Browser performance beneficiary. Step 5b removes broad repeated
-runtime-pack scanning by defining manifest membership, while step 10 owns the
+runtime-pack scanning by defining manifest membership, while step 9 owns the
 Browser migration that realizes the performance change.
 
 ## Demo

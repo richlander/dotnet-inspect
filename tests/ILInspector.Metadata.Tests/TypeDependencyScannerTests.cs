@@ -326,6 +326,27 @@ public class TypeDependencyScannerTests
     }
 
     [Fact]
+    public void DescriptorPopulation_ExactNestedTypeUsesDeclaringTypeIdentity()
+    {
+        Type target = typeof(TypeDependencyNestedRight.KeyCollection);
+        ResolvedAssemblyReference assembly =
+            Descriptor(target.Assembly.Location);
+
+        TypeDependencyPopulationResult result =
+            TypeDependencyScanner.BuildExactDependencyPopulation(
+                target.FullName!.Replace('+', '.'),
+                [assembly]);
+
+        Assert.True(result.Dependency.Found);
+        Assert.Same(assembly.Registration, result.MatchedRegistration);
+        TypeDependencyRelationship relationship =
+            Assert.Single(result.Dependency.Relationships);
+        Assert.Equal(
+            typeof(TypeDependencyCaseleaf).FullName,
+            relationship.TargetTypeName);
+    }
+
+    [Fact]
     public void Relationships_ExpandCaseDistinctConstructedGenericTypes()
     {
         TypeDependencyResult result =

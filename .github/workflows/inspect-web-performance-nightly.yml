@@ -1,8 +1,6 @@
 name: Inspect Web runtime performance
 
 on:
-  schedule:
-    - cron: '17 2 * * *'
   workflow_dispatch:
     inputs:
       samples:
