@@ -41,7 +41,7 @@ consumer and host contract.
 > content from structural declarations.
 
 This is one product contract over an upstream owner-issued model. Markout owns
-`DocumentSchema`, `SectionSchema`, `ItemSchema`, generated
+`DocumentSchema`, `SectionSchema`, `SchemaItem`, generated
 `MarkoutSchemaInfo`, and `ToDocumentSchema()`. dotnet-inspect owns how its
 commands compose those values, present discovery, validate projections, and
 compare structural requests with actual rendering.
