@@ -267,6 +267,7 @@ one closed House outcome
   - unavailable
   - ambiguous
   - rejected
+  - failed
   - incomplete
 ```
 
@@ -1537,13 +1538,15 @@ The implementation and adoption slices own these Release gates:
 | Explicit source authorization | No source capability, cache, installed root, or network route is used unless present in the captured source plan. |
 | Demand-bounded work | One-library demand does not become whole-population work unless the selected source reports an atomic larger realization unit. |
 | Reference and implementation separation | Reference-only success cannot satisfy implementation-body demand; a combined result retains explicit correspondence. |
+| Implementation-only role closure | Implementation-only realization succeeds only when Platform-owned declaration-surface evidence assigns the selected runtime content both mandatory roles; without that evidence it returns typed `Unavailable` before Library construction and constructs no owner. |
 | Reference-definition bridge | A reference `TypeDef` reaches implementation only through House-owned view correspondence and a separate Metadata request; no forwarding hop is invented. |
 | Typed ingress separation | A raw `PackageRef` cannot enter PlatformHouse, and a bare CLI selector cannot become an `AssemblyRef` or `PackageRef` without command-owned classification. |
 | Delegation preserves identity boundaries | An upstream platform delegation retains its package decision receipt outside PlatformHouse and cannot establish a platform-library or assembly identity from package spelling. |
 | Shared Library construction | The .NET 11 Platform `System.Text.Json` realization constructs one source-distinct `LibraryReference` with reference-pack `ApiAssembly` and runtime-pack `ImplementationAssembly` content, exact Platform target/source/provenance, and view correspondence; an equal-identity NuGet Library cannot substitute. |
 | Owning realization handoff | Every completed one-Library and population realization transfers each `LibraryContentOwner` exactly once beside its matching resource-free reference; the House value, receipt, contribution, request, and cache retain no owner or Library lease. |
+| Resource-free House boundary | Focused contract tests over contributions, completed House values, receipts, requests, and cache entries prove that they retain no live source handle or content obligation, Artifact owner or lease, Library owner or lease, callback, opener, stream, or disposal delegate. |
 | Internal Library access | PlatformHouse Metadata work reads exact content only through a fresh internal `LibraryOperationLease`; every borrow ends before `await`, and the lease settles before completion. |
-| Terminal owner disposition | Completed non-owning operations, rejection, failure, incomplete completion, and cancellation retire every constructed owner the House does not return; only a completed owning `Realize` result transfers owners, and retirement failure remains visible. |
+| Terminal owner disposition | Completed non-owning operations, unavailability, ambiguity, rejection, failure, incomplete completion, and cancellation retire every constructed owner the House does not return, including partially constructed multi-Library population work; only a completed owning `Realize` result transfers owners, and retirement failure remains visible. |
 | Failure precedence | A superseded source fault may remain evidence in another terminal outcome; construction, borrow, lease-settlement, retirement, or child-release failure produces `Failed`, including when cleanup fails after cancellation. |
 | Permissive Workspace admission | A participant targeting a newer platform remains admissible and usable for same-participant inspection without realizing a matching complete platform. |
 | Exact traversal compatibility | Under an owner-classified unsupported downgrade, an exact Metadata member-signature match succeeds with downgrade context; a missing or changed signature returns the attributed compatibility failure without blocking unrelated work. Supported upward compatibility does not warn merely because targets differ. |
