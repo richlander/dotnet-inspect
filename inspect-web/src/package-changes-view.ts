@@ -179,7 +179,7 @@ export function renderPackageChangesView(
             Security-relevant activity only
           </label>
           <label for="package-changes-limit">Maximum results</label>
-          <input id="package-changes-limit" type="number" min="1" max="1000" step="1" value="${state.request?.maximumRows ?? 100}" />
+          <input id="package-changes-limit" type="number" min="1" max="1000" step="1" value="${state.request?.maximumRows ?? 100}" required />
           <div class="package-changes-actions">
             <button id="package-changes-run" class="primary-action" type="submit"${packageSets.length ? "" : " disabled"}>Run report</button>
             <button id="package-changes-cancel" type="button"${state.settlement.kind === "running" ? "" : " disabled"}>Cancel</button>

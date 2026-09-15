@@ -1159,6 +1159,14 @@ test.describe("Package Changes website over real Wasm", () => {
     await expect(page.locator(".package-changes-package-set-summary"))
       .not.toHaveText("");
 
+    const maximumRows = page.locator("#package-changes-limit");
+    await maximumRows.fill("");
+    await page.locator("#package-changes-run").click();
+    expect(await maximumRows.evaluate(
+      input => (input as HTMLInputElement).validity.valueMissing)).toBe(true);
+    expect(requests).toHaveLength(0);
+    await maximumRows.fill("100");
+
     const dateTimeInput = (value: Date) => value.toISOString().slice(0, 19);
     await page.locator("#package-changes-custom-interval").check();
     await page.locator("#package-changes-from")
