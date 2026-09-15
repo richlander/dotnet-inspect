@@ -161,11 +161,16 @@ public abstract class DirectCallDefinitionResolution
             AssemblyCatalogGenerationId generation,
             CatalogCallGraphParticipant participant,
             DirectCall call,
-            DirectCallDefinitionOccurrence definition)
+            DirectCallDefinitionOccurrence definition,
+            DirectCallGenericScopeOwners? genericScopes,
+            DirectCallTypeResolutionSnapshot typeResolutions)
             : base(catalog, generation, participant, call) =>
-            Definition = definition;
+            (Definition, GenericScopes, TypeResolutions) =
+                (definition, genericScopes, typeResolutions);
 
         public DirectCallDefinitionOccurrence Definition { get; }
+        internal DirectCallGenericScopeOwners? GenericScopes { get; }
+        internal DirectCallTypeResolutionSnapshot TypeResolutions { get; }
     }
 
     public sealed class Unmatched : DirectCallDefinitionResolution
@@ -254,6 +259,45 @@ public abstract class DirectCallDefinitionResolutionOutcome
 
         public DirectCallDefinitionRejectionKind Kind { get; }
     }
+}
+
+internal sealed record DirectCallGenericScopeOwners(
+    GraphNodeStorageKey Type,
+    GraphNodeStorageKey Method);
+
+internal enum DirectCallTypeResolutionKind
+{
+    Resolved,
+    Ambiguous,
+    Unsupported,
+    Incomplete,
+    IntrinsicCoreLibrary,
+}
+
+internal sealed record DirectCallTypeResolutionProjection(
+    DirectCallTypeResolutionKind Kind,
+    AssemblyReferenceIdentity? Assembly = null,
+    DefinitionJoinToken? Definition = null,
+    TypeResolutionOutcome? Outcome = null,
+    DefinitionJoinTokenProjection? DefinitionProjection = null);
+
+internal sealed class DirectCallTypeResolutionSnapshot
+{
+    readonly Dictionary<TypeRef, DirectCallTypeResolutionProjection>
+        _projections;
+
+    internal DirectCallTypeResolutionSnapshot(
+        Dictionary<TypeRef, DirectCallTypeResolutionProjection>
+            projections) =>
+        _projections = projections;
+
+    internal bool TryGet(
+        TypeRef type,
+        out DirectCallTypeResolutionProjection projection) =>
+        _projections.TryGetValue(type, out projection!);
+
+    internal IEnumerable<DirectCallTypeResolutionProjection>
+        Projections => _projections.Values;
 }
 
 public static class DirectCallDefinitionResolver
@@ -905,7 +949,10 @@ public static class DirectCallDefinitionResolver
             return new EvidenceGenericScopeResult(
                 new GenericScopeBounds(
                     typeParameters.Count,
-                    methodParameters.Count));
+                    methodParameters.Count,
+                    MetadataTokens.GetToken(
+                        method.GetDeclaringType()),
+                    call.EvidenceMethod.MetadataToken));
         }
         catch (Exception ex) when (
             ex is BadImageFormatException
@@ -2003,27 +2050,12 @@ public static class DirectCallDefinitionResolver
         selected switch
         {
             SelectedMemberOutcome.Selected value =>
-                new DirectCallDefinitionResolution.Resolved(
-                    context.Catalog,
-                    context.Generation,
-                    item.Participant,
-                    item.Call,
-                    new DirectCallDefinitionOccurrence(
-                        context.Catalog,
-                        context.Generation,
-                        value.Candidate.Assembly,
-                        value.Candidate.ModuleVersionId,
-                        MetadataTokens.GetToken(
-                            value.Candidate.Definition),
-                        value.Candidate.Member,
-                        correspondence,
-                        declaringResolution.Hops,
-                        value.Candidate.Semantics
-                            == CandidateSemantics.PropertyGetter
-                                ? DirectCallDefinitionSemantics
-                                    .PropertyGetter
-                                : DirectCallDefinitionSemantics.Method,
-                        value.Candidate.IsInterfaceDefinition)),
+                CreateResolvedResult(
+                    context,
+                    item,
+                    correspondence,
+                    declaringResolution,
+                    value),
             SelectedMemberOutcome.Unmatched =>
                 new DirectCallDefinitionResolution.Unmatched(
                     context.Catalog,
@@ -2069,6 +2101,167 @@ public static class DirectCallDefinitionResolver
                     item.Participant,
                     item.Call,
                     DirectCallDefinitionGapKind.DefinitionUnavailable)),
+        };
+
+    static DirectCallDefinitionResolution.Resolved CreateResolvedResult(
+        TypeResolutionContext context,
+        PendingInvocation item,
+        CatalogMemberJoinKey correspondence,
+        TypeResolutionOutcome.Resolved declaringResolution,
+        SelectedMemberOutcome.Selected selected)
+    {
+        PendingDefinitionCandidate candidate = selected.Candidate;
+        DirectCallGenericScopeOwners? genericScopes =
+            item.EvidenceScope is { } scope
+                ? new DirectCallGenericScopeOwners(
+                    GraphNodeStorageKey.Definition(
+                        item.Participant.Assembly,
+                        item.Call.EvidenceMethod.ModuleVersionId,
+                        scope.TypeDefinitionToken),
+                    GraphNodeStorageKey.Definition(
+                        item.Participant.Assembly,
+                        item.Call.EvidenceMethod.ModuleVersionId,
+                        scope.MethodDefinitionToken))
+                : null;
+        return new DirectCallDefinitionResolution.Resolved(
+            context.Catalog,
+            context.Generation,
+            item.Participant,
+            item.Call,
+            new DirectCallDefinitionOccurrence(
+                context.Catalog,
+                context.Generation,
+                candidate.Assembly,
+                candidate.ModuleVersionId,
+                MetadataTokens.GetToken(
+                    candidate.Definition),
+                candidate.Member,
+                correspondence,
+                declaringResolution.Hops,
+                candidate.Semantics
+                    == CandidateSemantics.PropertyGetter
+                        ? DirectCallDefinitionSemantics
+                            .PropertyGetter
+                        : DirectCallDefinitionSemantics.Method,
+                candidate.IsInterfaceDefinition),
+            genericScopes,
+            CreateTypeResolutionSnapshot(
+                context,
+                item.Participant.Assembly,
+                item.Call.Callee));
+    }
+
+    static DirectCallTypeResolutionSnapshot
+        CreateTypeResolutionSnapshot(
+            TypeResolutionContext context,
+            ResolvedAssemblyReference source,
+            MemberRef member)
+    {
+        var projections =
+            new Dictionary<
+                TypeRef,
+                DirectCallTypeResolutionProjection>(
+                ReferenceEqualityComparer.Instance);
+        var pending = new Stack<TypeRef>();
+        pending.Push(member.DeclaringType);
+        pending.Push(member.ReturnType);
+        foreach (TypeRef parameter in member.ParameterTypes)
+            pending.Push(parameter);
+        foreach (TypeRef argument in member.TypeArguments)
+            pending.Push(argument);
+
+        while (pending.TryPop(out TypeRef? type))
+        {
+            if (projections.ContainsKey(type))
+                continue;
+            projections.Add(
+                type,
+                ProjectTypeResolution(
+                    context,
+                    source,
+                    type));
+            if (type.ElementType is not null)
+                pending.Push(type.ElementType);
+            foreach (TypeRef argument in type.TypeArguments)
+                pending.Push(argument);
+        }
+        return new DirectCallTypeResolutionSnapshot(projections);
+    }
+
+    static DirectCallTypeResolutionProjection ProjectTypeResolution(
+        TypeResolutionContext context,
+        ResolvedAssemblyReference source,
+        TypeRef type)
+    {
+        if (type.Kind != TypeRefKind.Definition)
+        {
+            return new DirectCallTypeResolutionProjection(
+                DirectCallTypeResolutionKind.Resolved);
+        }
+        if (type.Resolution is null)
+        {
+            return new DirectCallTypeResolutionProjection(
+                type.Assembly == TypeRef.CoreLibrary
+                    ? DirectCallTypeResolutionKind
+                        .IntrinsicCoreLibrary
+                    : DirectCallTypeResolutionKind.Unsupported);
+        }
+
+        TypeResolutionOutcome outcome = context.Resolve(
+            TypeResolutionRequestFactory.Create(
+                source,
+                type.Resolution));
+        if (outcome is TypeResolutionOutcome.Ambiguous)
+        {
+            return new DirectCallTypeResolutionProjection(
+                DirectCallTypeResolutionKind.Ambiguous,
+                Outcome: outcome);
+        }
+        if (outcome is TypeResolutionOutcome.Rejected rejected)
+        {
+            return new DirectCallTypeResolutionProjection(
+                ClassifyRejectedTypeResolution(rejected.Failure),
+                Outcome: outcome);
+        }
+        if (outcome is not TypeResolutionOutcome.Resolved resolved)
+        {
+            return new DirectCallTypeResolutionProjection(
+                DirectCallTypeResolutionKind.Incomplete,
+                Outcome: outcome);
+        }
+        DefinitionJoinTokenProjection definitionProjection =
+            context.ProjectDefinitionJoinToken(
+                resolved.Definition.Key);
+        if (definitionProjection
+                is not DefinitionJoinTokenProjection.Issued issued
+            || issued.Token.Kind != DefinitionJoinKind.Exact)
+        {
+            return new DirectCallTypeResolutionProjection(
+                DirectCallTypeResolutionKind.Incomplete,
+                Outcome: outcome,
+                DefinitionProjection: definitionProjection);
+        }
+        return new DirectCallTypeResolutionProjection(
+            DirectCallTypeResolutionKind.Resolved,
+            resolved.Definition.Assembly.Assembly.Identity,
+            issued.Token,
+            outcome,
+            definitionProjection);
+    }
+
+    internal static DirectCallTypeResolutionKind
+        ClassifyRejectedTypeResolution(
+        TypeResolutionFailure failure) =>
+        failure switch
+        {
+            TypeResolutionFailure.DeclarationRejected
+                or TypeResolutionFailure.UnsupportedModuleExport
+                or TypeResolutionFailure.UnsupportedModuleReference
+                or TypeResolutionFailure.InvalidBindingPolicy =>
+                DirectCallTypeResolutionKind.Unsupported,
+            TypeResolutionFailure.KindDependencyAmbiguous =>
+                DirectCallTypeResolutionKind.Ambiguous,
+            _ => DirectCallTypeResolutionKind.Incomplete,
         };
 
     static DirectCallDefinitionResolution CreateFailure(
@@ -2147,7 +2340,7 @@ public static class DirectCallDefinitionResolver
             return ResolutionKind.Unsupported;
 
         GenericScopeBounds scope =
-            evidenceScope ?? new GenericScopeBounds(0, 0);
+            evidenceScope ?? new GenericScopeBounds(0, 0, 0, 0);
 
         MethodSignatureTypeInspection inspection =
             signatureNodes.InspectMethodSpecificationArguments(
@@ -2508,7 +2701,9 @@ public static class DirectCallDefinitionResolver
 
     readonly record struct GenericScopeBounds(
         int TypeArity,
-        int MethodArity);
+        int MethodArity,
+        int TypeDefinitionToken,
+        int MethodDefinitionToken);
 
     readonly record struct EvidenceGenericScopeResult(
         GenericScopeBounds? Scope,

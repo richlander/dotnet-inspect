@@ -50,6 +50,29 @@ public sealed class ArtifactContentLease : IDisposable
     }
 
     /// <summary>
+    /// Borrows the exact retained bytes synchronously with caller-supplied
+    /// scoped state.
+    /// </summary>
+    public ArtifactContentAccessOutcome<TResult>
+        WithContent<TState, TResult>(
+        scoped TState state,
+        ArtifactContentCallback<TState, TResult> callback,
+        CancellationToken cancellationToken = default)
+        where TState : allows ref struct
+    {
+        ArgumentNullException.ThrowIfNull(callback);
+        ArtifactSetSession owner =
+            Volatile.Read(ref _owner)
+            ?? throw new ObjectDisposedException(
+                nameof(ArtifactContentLease));
+        return owner.WithContent(
+            this,
+            state,
+            callback,
+            cancellationToken);
+    }
+
+    /// <summary>
     /// Gets the Artifact-owned SHA-256 digest under this content authority.
     /// </summary>
     public ArtifactContentAccessOutcome<ArtifactContentDigest> GetContentDigest(
@@ -118,6 +141,12 @@ public readonly ref struct ArtifactContentView
 public delegate TResult ArtifactContentCallback<TResult>(
     scoped ArtifactContentView view,
     CancellationToken cancellationToken);
+
+public delegate TResult ArtifactContentCallback<TState, TResult>(
+    scoped ArtifactContentView view,
+    scoped TState state,
+    CancellationToken cancellationToken)
+    where TState : allows ref struct;
 
 internal sealed class ArtifactContentDigestCache(
     ArtifactIdentity artifact)
