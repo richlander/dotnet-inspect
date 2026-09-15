@@ -203,6 +203,11 @@ frontend, runtime, workload, configuration, async-lowering evidence, and the
 published-site file manifest. Timing still occurs sequentially on one fresh
 runner after all artifacts are downloaded.
 
+The CoreCLR build jobs move the repository development `global.json` out of
+their ephemeral checkouts before invoking `dotnet`. This keeps the independently
+validated .NET 12 cohort pin authoritative without weakening the repository's
+.NET 11 SDK selection for ordinary development and CI.
+
 Admission uses the same focused package-adoption scenario as CoreCLR
 deployment. Mono or CoreCLR IL rejection fails the cohort. A ReadyToRun
 candidate may be recorded as a correctness rejection only when the browser
