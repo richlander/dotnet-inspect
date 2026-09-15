@@ -232,11 +232,11 @@ donors of a universal query or comparison algorithm.
 | `type diff <Type>` | Comparison of an exact Type, including its owned members; admitted Type History uses the existing Finding domain. |
 | `member diff <Type> <Member>` | Comparison of an exact Member's declaration or admitted body/Findings; admitted Member History retains that domain's focus requirements. |
 | `package P@A..B --count` | Metadata-only version-population reduction, not a Diff operation or package payload inspection. |
-| Future `package diff` | Must compare genuine package facts such as metadata, assets, or dependencies. This adoption does not invent that result or advertise an unsupported command. |
+| Future `package diff` | Must compare genuine package facts such as metadata, assets, or dependencies. This adoption does not invent that content or advertise an unsupported command. |
 
 Likewise, this does not add placeholder Project, Workspace, or every-other-
 subject Diff commands. A subject exposes Diff only when its comparison
-meaning, shared result, and supported modes are defined.
+meaning, shared content, and supported modes are defined.
 
 Current `diff --package P@A..B` commonly compares Libraries acquired from
 packages. It therefore maps to `library diff`, not automatically `package
@@ -325,7 +325,7 @@ not invented by each subject command.
 
 Browser adoption preserves Content, Share, and diagnostic identity/order in
 one identifiable received baseline. It may compose UI state and additional
-owner-issued results outside that envelope. An existing DTO that drops parts
+owner-issued content outside that envelope. An existing DTO that drops parts
 of the baseline is not complete adoption simply because the current view
 does not render them. Existing transport bounds and visible rejection remain
 in force; completeness is not permission to exceed them.
@@ -381,7 +381,7 @@ blocked by the plan.
 The real cases are Library Diff for `System.Text.Json@9.0.0..10.0.0`, Type
 History for `Markout.MarkoutWriterOptions` in `Markout@0.33.0..0.35.2`, and
 version counts for that same range. Implementation gates must cover unchanged
-endpoint results under the new placement, non-range local pairs, explicit
+endpoint content under the new placement, non-range local pairs, explicit
 mode/count units, sparse and failed History, retired-input rejection without
 misrouting valid identifiers, and absence of duplicate execution for output.
 They must compare complete cross-host envelopes and round-trip available and

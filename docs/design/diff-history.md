@@ -33,7 +33,7 @@ This is the first adoption of
 [population range selection](population-range-selection.md), under its bounded
 first-adopter scope.
 
-This owner defines the semantic requests and results.
+This owner defines the semantic requests and terminal content.
 It consumes package version resolution, Finding correlation, acquisition,
 Workspace lifetime, row selection, and envelope contracts; it does not
 redefine their algorithms, identity, admission, or lifecycle policies.
@@ -93,7 +93,8 @@ This is an intentionally breaking change to range invocations, not a new
 default. Admitted source-range shorthands obey the same rule. Platform ranges
 use subject Diff with `--endpoints`; platform History and count-only version
 populations remain unsupported. Non-range explicit local Library pairs move
-under `library diff` while retaining their pairwise argument meaning and results.
+under `library diff` while retaining their pairwise argument meaning and
+content.
 
 The initial History domain matches the existing command: one package range,
 one Type focus, and one Finding producer, optionally narrowed to one Member.
@@ -187,8 +188,8 @@ meaning after another discovery.
 
 The Type selector must identify one focus when evaluation can resolve it;
 multiple filters or ambiguous matches are rejected, not merged. A discovery-
-only result retains the requested selector without claiming that the Type was
-resolved or absent.
+only Document retains the requested selector without claiming that the Type
+was resolved or absent.
 
 | Finding | Focus |
 | --- | --- |
@@ -225,7 +226,8 @@ preserves:
   producer, and native Finding inspection;
 - native census correlation and, when requested, exact-identity tracks;
 - native comparison evidence joined to its exact evaluated endpoints; and
-- coverage, limits, and per-evaluation failures needed to interpret the result.
+- coverage, limits, and per-evaluation failures needed to interpret the
+  Document.
 
 Reuse the existing two correlation tiers from
 [Finding adoption](finding-adoption.md#7-correlate-through-the-census-and-identity-tiers):
@@ -251,7 +253,7 @@ positions are adjacent or separated by unevaluated versions. A gap comparison
 establishes only the two evaluated endpoint facts; it does not identify the
 exact version of an onset or certify the intervening history.
 Fewer than two evaluated addresses yields no transition evidence, not an
-unchanged result.
+unchanged History.
 
 Equal first and last endpoints do not imply an unchanged History. Evaluated
 intermediate changes remain present, including an addition followed by removal.
@@ -317,11 +319,10 @@ are metadata-only and do not require a Type or Member focus.
 
 The Browser adopter supplies the same resolved population, semantic selection,
 focus, producer, and scope, then consumes the same Outcome and Document. Its
-owning designs
-decide controls, applicability, result installation, navigation, and retained
-mode state. This specification does not add a tab, alter sticky navigation, or
-create another Workspace lifecycle. Unevaluated versions, gaps, and failed
-points must remain distinguishable in that host's projection.
+owning designs decide controls, applicability, result installation, navigation,
+and retained mode state. This specification does not add a tab, alter sticky
+navigation, or create another Workspace lifecycle. Unevaluated versions, gaps,
+and failed points must remain distinguishable in that host's projection.
 
 ## Future population construction
 
@@ -381,7 +382,7 @@ They do **not** verify the new terminal, syntax, or retirement.
 
 The implementation slices must supply Release gates for:
 
-- identical semantic results from equal resolved inputs in path-backed and
+- identical semantic content from equal resolved inputs in path-backed and
   pathless-memory hosts, usable after disposal;
 - sparse versus dense evaluation, reversed range direction, invalid selectors,
   and an intermediate change despite equal first/last endpoints;
@@ -392,8 +393,8 @@ The implementation slices must supply Release gates for:
 - count-only versions, filtered version counts, and Count after an explicit
   operation, retaining the declared unit and rejecting insufficient evidence;
 - metadata-only counts without package payload acquisition or a Type focus;
-- unchanged endpoint results under subject Diff with `--endpoints`, equivalent
-  non-range local pair results, Type/Member History, and rejected retired
+- unchanged endpoint content under subject Diff with `--endpoints`, equivalent
+  non-range local pair content, Type/Member History, and rejected retired
   commands without package fallback; and
 - complete CLI/Browser envelope delivery for History and Package version
   counts, preserving gaps, failures, count units, Share, and diagnostic identity
