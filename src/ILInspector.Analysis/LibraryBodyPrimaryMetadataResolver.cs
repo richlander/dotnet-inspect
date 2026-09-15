@@ -79,14 +79,12 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
     internal ILibraryMethodAnalysisResolver CreateMethodAnalysisResolver(
         GenericScope scope,
         MethodIdentity caller,
-        byte[] il,
-        IReadOnlyCollection<ExceptionRegion> exceptionRegions) =>
+        MethodInstructions instructions) =>
         new MethodAnalysisResolver(
             this,
             scope,
             caller,
-            il,
-            exceptionRegions);
+            instructions);
 
     internal IMethodCallResolver CreateCallResolver(
         GenericScope scope,
@@ -325,8 +323,7 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         LibraryBodyPrimaryMetadataResolver owner,
         GenericScope scope,
         MethodIdentity caller,
-        byte[] il,
-        IReadOnlyCollection<ExceptionRegion> exceptionRegions)
+        MethodInstructions instructions)
         : ILibraryMethodAnalysisResolver
     {
         public TypeRef ResolveType(int token)
@@ -380,9 +377,8 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
 
         public ReachingDefinitionsResult AnalyzeReachingDefinitions()
             => ReachingDefinitions.Analyze(
-                il,
-                ArgumentSlotCount(caller),
-                exceptionRegions);
+                instructions,
+                ArgumentSlotCount(caller));
     }
 
     // Metadata-dependent call-site facts for one method. MethodCallAnalysis owns

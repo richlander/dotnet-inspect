@@ -84,14 +84,14 @@ public class ObjectSlotMaterializationTests
     [Theory]
     [InlineData("foreign")]
     [InlineData("generic")]
-    [InlineData("array")]
+    [InlineData("rectangular-array")]
     public void OnlyNominalCoreObjectIsNewlyAdmitted(string kind)
     {
         var type = kind switch
         {
             "foreign" => TypeRef.Definition("Other", "System", "Object"),
             "generic" => TypeRef.GenericInstance(Object, [Int32]),
-            "array" => TypeRef.SzArray(Object),
+            "rectangular-array" => TypeRef.MdArray(Object, 2),
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
         var function = Function(type,
