@@ -58,7 +58,7 @@ jobs:
         with:
           dotnet-version: '11.0.100-rc.1.26425.128'
 
-      - name: Publish MSDL managed API
+      - name: Publish Inspect Web managed API
         run: >
           dotnet publish
           inspect-web/msdl-proxy/MsdlProxy.csproj

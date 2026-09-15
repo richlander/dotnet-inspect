@@ -8,6 +8,11 @@ shared vocabulary for the output flags
 `--print`, `--bare`, …) and for deciding what a new flag should
 do.
 
+**Document** in this file means a rendered multi-section output shape. A typed
+semantic
+[inspection Document](host-observable-content-kinds.md#document)
+may render through that shape, but the two terms are not equivalent.
+
 The item-limit, projection-role, typed-L2 result, and multi-item print passages
 describe historical
 [#4677](https://github.com/richlander/dotnet-inspect/issues/4677) target

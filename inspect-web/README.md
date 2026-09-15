@@ -723,6 +723,16 @@ Each Free Static Web App deploys the small anonymous managed Function in
 keep it from becoming a caller-directed proxy. The function enforces the same
 8 MiB portable-PDB ceiling as the Browser consumer.
 
+The same managed Function app hosts the separately owned
+[public-evidence bridge](../docs/design/inspect-web-public-evidence-bridge.md)
+for Package Changes. Its Browser transport rewrites only canonical NuGet.org
+service-index/Catalog and GitHub reviewed-advisory requests to fixed
+same-origin routes. The Function reconstructs those requests from closed path
+and query grammars, follows no redirects, forwards no caller credentials or
+headers, and returns only bounded JSON. Product-owned source and advisory code
+continues to observe the original provider request identity after the transport
+hop.
+
 Source operations are exclusive across the Browser process: a new request
 cancels the previous request, and leaving every source view cancels hidden work.
 The operation holds its workspace and package archives until its fresh bounded
