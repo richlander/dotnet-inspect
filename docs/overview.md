@@ -425,6 +425,11 @@ substrates, and inspection producers that will extend that space.
 - `src/DotnetInspector.Sections/` also owns the cross-host completed-inspection
   envelope, portable-share outcome, and contained supplemental diagnostics.
   CLI and Inspect Web consume the same contract without either host owning it.
+  The sibling
+  [host-observable content-kinds](design/host-observable-content-kinds.md)
+  owner classifies the envelope's serialized content as a Result, Document, or
+  owner-specific Outcome without defining any inspection owner's fields or
+  failure semantics.
 - `src/DotnetInspect.Cli/Diagnostics/` owns CLI-only output, duration, network,
   cache, and request-diagram measurement. The completion-order helper used only
   by `PlatformPackService` lives beside that consumer in Services.
@@ -637,6 +642,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   wrapper preserving owner-issued primary content and typed cross-host
   diagnostics while broader clients compose additional results and experience
   state separately.
+- [Host-observable content kinds](design/host-observable-content-kinds.md):
+  semantic Result, Document, and owner-specific Outcome classification plus
+  the serialization-ready schema boundary for completed envelope content.
 - [Library family boundaries](design/library-family-boundaries.md): subject
   families for shared inspection substrate, compiled-program inspection,
   ecosystem composition, independent domains, and product hosts.
