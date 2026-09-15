@@ -143,6 +143,140 @@ public sealed class PackageRootAcquisitionTests
     }
 
     [Fact]
+    public async Task PortableConfiguredProducer_ReacquiresWithoutChangingContentKey()
+    {
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.Create(
+                Private,
+                PackageSourceAssociation.Create(),
+                new FailingHandler());
+        PackageProducerIdentity producer = source.Source.Producer;
+        string contentProducerKey = NuGetCache.GetSourceKey(Private.Url);
+        var store = new InMemoryPackageStore();
+        await store.CommitAsync(
+            PackageId,
+            Version,
+            contentProducerKey,
+            new MemoryStream(LibraryPackage()),
+            TestContext.Current.CancellationToken);
+        using var http = new HttpClient(new FailingHandler());
+        PackageRootReacquisitionRequest request = RequestForProducer(
+            producer.PortableKey,
+            Framework,
+            null,
+            Framework,
+            null);
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
+                request.Encode(),
+                out PackageRootReacquisitionRequest? decoded));
+
+        var acquired = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
+            await PackageRootAcquisition.AcquireAsync(
+                decoded,
+                Options(
+                    http,
+                    store,
+                    new UniformPackageSourceAuthorization([Private])),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(request, acquired.Request);
+        Assert.Equal(
+            producer.PortableKey,
+            acquired.Binding.Coordinate.Producer);
+        Assert.Equal(
+            contentProducerKey,
+            acquired.Binding.Root.ProducerKey);
+        Assert.Equal(
+            contentProducerKey,
+            acquired.Payload.ProducerKey);
+        Assert.True(
+            acquired.Binding.Root.ReferencesContent(
+                acquired.Payload.Content));
+    }
+
+    [Fact]
+    public async Task PortableProducer_StillRequiresDestinationAuthorization()
+    {
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.Create(
+                Private,
+                PackageSourceAssociation.Create(),
+                new FailingHandler());
+        PackageRootReacquisitionRequest request = RequestForProducer(
+            source.Source.Producer.PortableKey,
+            Framework,
+            null,
+            Framework,
+            null);
+        using var http = new HttpClient(new FailingHandler());
+
+        var failed = Assert.IsType<PackageRootAcquisitionOutcome.Failed>(
+            await PackageRootAcquisition.AcquireAsync(
+                request,
+                Options(http, new InMemoryPackageStore()),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            PackageRootAcquisitionFailureKind.ProducerNotAuthorized,
+            failed.Kind);
+    }
+
+    [Fact]
+    public async Task CurrentNuGetProducerKey_ReacquiresWithoutRewritingRequest()
+    {
+        string contentProducerKey = NuGetCache.GetSourceKey(NuGetOrg.Url);
+        IPackageStore store = await CachedStoreAsync(LibraryPackage());
+        using var http = new HttpClient(new FailingHandler());
+        PackageRootReacquisitionRequest request = RequestForProducer(
+            PackageProducerIdentity.NuGetOrg.Key,
+            Framework,
+            null,
+            Framework,
+            null);
+
+        var acquired = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
+            await PackageRootAcquisition.AcquireAsync(
+                request,
+                Options(http, store),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(request, acquired.Request);
+        Assert.Equal(
+            PackageProducerIdentity.NuGetOrg.Key,
+            acquired.Binding.Coordinate.Producer);
+        Assert.Equal(contentProducerKey, acquired.Binding.Root.ProducerKey);
+    }
+
+    [Fact]
+    public void PortableProducerAuthorization_PreservesEquivalentAuthoritiesInOrder()
+    {
+        PackageSource[] sources =
+        [
+            new("first", Private.Url),
+            new("second", Private.Url),
+        ];
+        PackageProducerIdentity producer =
+            PackageSourceClientFactory.GetProducerIdentity(sources[0]);
+
+        PackageRootProducerAuthorization.MatchResult match =
+            PackageRootProducerAuthorization.Match(
+                sources,
+                producer.PortableKey);
+
+        Assert.False(match.Ambiguous);
+        Assert.Equal(
+            ["first", "second"],
+            match.Candidates.Select(
+                candidate => candidate.Source.Name));
+        Assert.All(
+            match.Candidates,
+            candidate => Assert.Equal(
+                producer,
+                candidate.Producer));
+    }
+
+    [Fact]
     public async Task ExactRequest_SeparatesAcquisitionAndSelectionTargets()
     {
         using var http = new HttpClient(new FailingHandler());
@@ -415,6 +549,26 @@ public sealed class PackageRootAcquisitionTests
                 Token(null, Version, "nuget.org", null, null, null, null, null, "exact"),
                 Token(PackageId, Version, null, null, null, null, null, null, "exact"),
                 Token(
+                    PackageId,
+                    Version,
+                    "nfp-1." + new string('a', 63),
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    "exact"),
+                Token(
+                    PackageId,
+                    Version,
+                    "nfp-1." + new string('A', 64),
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    "exact"),
+                Token(
                     "not a package id",
                     Version,
                     "nuget.org",
@@ -609,12 +763,29 @@ public sealed class PackageRootAcquisitionTests
         string? selectionRuntimeIdentifier,
         string? compileTargetFramework = null,
         bool usesCompatibleImplementationSelection = false)
+        => RequestForProducer(
+            NuGetCache.GetSourceKey(NuGetOrg.Url),
+            acquisitionFramework,
+            acquisitionRuntimeIdentifier,
+            selectionTargetFramework,
+            selectionRuntimeIdentifier,
+            compileTargetFramework,
+            usesCompatibleImplementationSelection);
+
+    static PackageRootReacquisitionRequest RequestForProducer(
+        string producer,
+        string? acquisitionFramework,
+        string? acquisitionRuntimeIdentifier,
+        string? selectionTargetFramework,
+        string? selectionRuntimeIdentifier,
+        string? compileTargetFramework = null,
+        bool usesCompatibleImplementationSelection = false)
     {
         Assert.True(
             RealizedMemberCoordinate.Package.TryCreate(
                 PackageId,
                 Version,
-                NuGetCache.GetSourceKey(NuGetOrg.Url),
+                producer,
                 acquisitionFramework,
                 acquisitionRuntimeIdentifier,
                 out RealizedMemberCoordinate.Package? coordinate,

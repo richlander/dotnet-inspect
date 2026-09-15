@@ -14,7 +14,7 @@ Integration scanner implementation, plus product demos that exercise ordinary
 shipping sections over exact pinned inputs.
 
 The Package Set Registry includes Microsoft.Extensions, ASP.NET Core, and the
-audited 82-package Aspire inventory. The static pack registry, six-pack
+audited 82-package Aspire inventory. The static pack registry, seven-pack
 manifest, ten-demo contribution, Workspace-owned lazy source binding, CLI
 handoff, inspect-web facade handoff, and the corresponding active Release gates
 named below are implemented. The assembly-friend tests, solution
@@ -70,6 +70,14 @@ join-oriented concrete package roots and overlapping discovery prefixes for
 the `Azure.`, `Microsoft.Azure.`, `Microsoft.Extensions.Azure`,
 `Aspire.Azure.`, and `Aspire.Hosting.Azure.` families. It has no curated
 package set, scanner, tool, or demo.
+
+The Blazor contribution approved in
+[#7069](https://github.com/richlander/dotnet-inspect/issues/7069) is implemented
+as the seventh pack. It contributes four join-oriented concrete package roots
+and two overlapping discovery prefixes for the
+`Microsoft.AspNetCore.Components` and
+`Microsoft.Authentication.WebAssembly` families. It has no curated package
+set, scanner, tool, or demo.
 
 Explicit [tool-package references](#tool-package-references) are implemented
 under #6060, beginning with `Aspire.Cli`. They are independent discovery
@@ -354,6 +362,8 @@ ProductEcosystemPacks
   AspNetCorePack.Registration
   AspirePack.Registration
   AIPack.Registration
+  AzurePack.Registration
+  BlazorPack.Registration
 ```
 
 The example names are illustrative pack source, not required core types. The
@@ -951,7 +961,7 @@ action metadata through their existing presentation owners.
 
 ## Shipped packs and staged adoption
 
-The current application catalog describes six packs from already-owned
+The current application catalog describes seven packs from already-owned
 currencies and content:
 
 | Pack identity | Package-set identity | Product demos | Residual capabilities |
@@ -962,6 +972,7 @@ currencies and content:
 | `ecosystem.aspire` | `package-set.aspire` | `aspire-postgres-callgraph`, `aspire-redis-callgraph` | scanner selectable through the catalog; CLI supports ordinary-result narrowing, not scanner selection; browser selection remains staged; prefix catalog/host adoption remains staged |
 | `ecosystem.ai` | absent | none initially | namespace/core-package discovery and all-known Workspace registration are implemented; no scanner, tool, or standalone prefix-discovery action |
 | `ecosystem.azure` | absent | none initially | namespace/core-package discovery and all-known Workspace registration are implemented; no scanner, tool, or standalone prefix-discovery action |
+| `ecosystem.blazor` | absent | none initially | namespace/core-package discovery and all-known Workspace registration are implemented; no scanner, tool, or standalone prefix-discovery action |
 
 The eight existing demo IDs, metadata, global order, records, pins, and run
 plans remain unchanged. Their global orders are assigned in their current
@@ -980,9 +991,10 @@ authored alongside those capabilities:
 | Aspire | `Aspire` | `Aspire.Hosting` |
 | AI | `Microsoft.Extensions.AI`, `Microsoft.Extensions.VectorData`, `Microsoft.Agents.AI`, `ModelContextProtocol` | `Microsoft.Extensions.AI`, `Microsoft.Extensions.AI.Abstractions`, `Microsoft.Extensions.VectorData.Abstractions`, `Microsoft.Agents.AI`, `ModelContextProtocol` |
 | Azure | `Azure`, `Microsoft.Extensions.Azure` | `Microsoft.Extensions.Azure`, `Azure.AI.OpenAI`, `Microsoft.Azure.SignalR`, `Aspire.Azure.AI.OpenAI`, `Aspire.Hosting.Azure.SignalR`, `Azure.Identity`, `Azure.Security.KeyVault.Secrets`, `Azure.Storage.Blobs`, `Azure.Messaging.ServiceBus` |
+| Blazor | `Microsoft.AspNetCore.Components`, `Microsoft.Authentication.WebAssembly` | `Microsoft.AspNetCore.Components.WebAssembly`, `Microsoft.AspNetCore.Components.WebView.Maui`, `Microsoft.AspNetCore.Components.QuickGrid.EntityFrameworkAdapter`, `Microsoft.Authentication.WebAssembly.Msal` |
 
 Aspire additionally contributes `Aspire.Cli` in its separate tool-package
-sequence; the other five packs contribute no tool references.
+sequence; the other six packs contribute no tool references.
 
 Each root is a compact descriptive subtree, not a package correspondence.
 The Extensions entries prioritize foundational DI, configuration, and logging
@@ -1082,6 +1094,57 @@ omits a trailing dot so the current root package participates.
 relevance is not package acquisition, traversal, curated membership, or
 exclusive ownership.
 
+### Blazor contribution evidence
+
+The Blazor row is grounded in Microsoft's current Blazor hosting guidance and
+stable package releases inspected on 2026-09-15:
+
+| Scenario role | Package evidence | Namespace hint | Workspace population prefix |
+| --- | --- | --- | --- |
+| Browser-hosted Blazor | [`Microsoft.AspNetCore.Components.WebAssembly@10.0.12`](https://www.nuget.org/packages/Microsoft.AspNetCore.Components.WebAssembly/10.0.12) | `Microsoft.AspNetCore.Components` | `Microsoft.AspNetCore.Components` |
+| Blazor Hybrid | [`Microsoft.AspNetCore.Components.WebView.Maui@10.0.101`](https://www.nuget.org/packages/Microsoft.AspNetCore.Components.WebView.Maui/10.0.101) | `Microsoft.AspNetCore.Components` | `Microsoft.AspNetCore.Components` |
+| Data-grid integration | [`Microsoft.AspNetCore.Components.QuickGrid.EntityFrameworkAdapter@10.0.12`](https://www.nuget.org/packages/Microsoft.AspNetCore.Components.QuickGrid.EntityFrameworkAdapter/10.0.12) | `Microsoft.AspNetCore.Components` | `Microsoft.AspNetCore.Components` |
+| Browser authentication | [`Microsoft.Authentication.WebAssembly.Msal@10.0.12`](https://www.nuget.org/packages/Microsoft.Authentication.WebAssembly.Msal/10.0.12) | `Microsoft.Authentication.WebAssembly` | `Microsoft.Authentication.WebAssembly` |
+
+Microsoft's [Blazor
+overview](https://learn.microsoft.com/aspnet/core/blazor/) defines server,
+WebAssembly, and Hybrid hosting models. The [Blazor Hybrid
+guidance](https://learn.microsoft.com/aspnet/core/blazor/hybrid/) identifies
+.NET MAUI as a host for Razor components, while the [QuickGrid
+guidance](https://learn.microsoft.com/aspnet/core/blazor/components/quickgrid)
+documents the component's data-provider integration surface.
+
+The roots prioritize dependency and assembly-reference neighborhoods that can
+join other ecosystems:
+
+- `Microsoft.AspNetCore.Components.WebAssembly@10.0.12` depends on Components
+  Web, JS interop, configuration, and logging packages and references DI,
+  configuration, logging, HTTP, JSON, and browser interop assemblies;
+- `Microsoft.AspNetCore.Components.WebView.Maui@10.0.101` references
+  `Microsoft.Maui`, `Microsoft.Maui.Controls`, and `Microsoft.Maui.Essentials`
+  alongside Components, JS interop, DI, file-provider, and logging
+  abstractions;
+- `Microsoft.AspNetCore.Components.QuickGrid.EntityFrameworkAdapter@10.0.12`
+  depends on and references both QuickGrid and Entity Framework Core, plus DI
+  abstractions; and
+- `Microsoft.Authentication.WebAssembly.Msal@10.0.12` depends on Blazor
+  WebAssembly Authentication and references Components, DI, Options, and
+  System.Text.Json.
+
+The WebView.Maui NuGet dependency groups name Components WebView and JS
+interop, while its packaged assembly supplies the MAUI reference edges. A
+future separately registered MAUI population can therefore make that
+assembly-reference join realizable; this contribution does not claim that
+ordinary package traversal alone acquires MAUI.
+
+The two literal prefixes omit a trailing dot so each base package name and its
+child families remain discoverable. The Components prefix deliberately
+overlaps the broader ASP.NET Core prefix and curated package set.
+`Microsoft.AspNetCore.Components.WebView.Maui` may also be a registered root
+of a future MAUI pack. Those overlaps preserve independent product-authored
+entry points; they do not infer exclusive ownership, package equivalence, or
+automatic traversal.
+
 The initial Workspace projection is implemented under
 [the focused handoff](workspace-ecosystem-registration-handoff.md). Its
 application-owned platform order is Platform, ASP.NET Core, then
@@ -1090,10 +1153,11 @@ order. Platform requires a source-owned runtime population declaration;
 ASP.NET Core requires both its source-owned shared-framework population and
 its concrete registered packages; Microsoft.Extensions contributes concrete
 registered packages. A separate all-known manifest
-uses that order followed by Aspire, AI, and Azure. Aspire retains its `Aspire.`
-prefix, concrete package roots, and exact scanner binding; AI retains its
-concrete package roots and four discovery prefixes; Azure retains its nine
-concrete package roots and five discovery prefixes. The
+uses that order followed by Aspire, AI, Azure, and Blazor. Aspire retains its
+`Aspire.` prefix, concrete package roots, and exact scanner binding; AI retains
+its concrete package roots and four discovery prefixes; Azure retains its nine
+concrete package roots and five discovery prefixes; Blazor retains its four
+concrete package roots and two discovery prefixes. The
 handoff owns completeness and fresh-construction semantics for the two intents
 approved in #6763; this is not a compatibility catalog of earlier manifests.
 Later product builds may change either manifest without changing raw Workspace
@@ -1326,7 +1390,7 @@ consumer gates.
 | `EcosystemPackRegistryTests.InvalidNamespaceRootsFailBeforePublication`, `InvalidCorePackagesFailBeforePublication`, and `MissingKnowledgeSequencesFailBeforePublication` | Malformed roots, missing sequences, and null, invalid, duplicate, versioned, or target-specific core coordinates fail complete construction visibly, without invoking demo sources. |
 | `EcosystemPackRegistryTests.EmptyKnowledgePreservesCapabilityRequirements` | Empty contributions remain empty; knowledge-only registrations fail the existing capability requirement. |
 | `EcosystemPackRegistryTests.ScannerSelectionReturnsOnlyTheSelectedBinding` | Reading knowledge and selecting one capability preserve the selected owner's outcome without invoking neighboring demo/scanner capabilities. |
-| `ProductEcosystemPackTests.ShippedNamespaceAndRegisteredPackageKnowledgeMatchesLiteralPolicy` | All six packs retain literal authored roots and registered package priorities, including Platform's empty core sequence, AI's four current namespace families, and Azure's join-oriented package roots. |
+| `ProductEcosystemPackTests.ShippedNamespaceAndRegisteredPackageKnowledgeMatchesLiteralPolicy` | All seven packs retain literal authored roots and registered package priorities, including Platform's empty core sequence and the AI, Azure, and Blazor join-oriented package roots. |
 | `PackageSetRegistryConsumerTests.PublicSurfaceKeepsCoreReferencesSeparateFromCuratedMembership` | An ordinary non-friend consumer reads immutable knowledge through discovery/lookup; Extensions core entries and curated membership remain distinct, Platform gains no package-set or scanner capability, and AI remains uncurated while overlapping existing Microsoft.Extensions membership. |
 
 ### Tool-reference gates

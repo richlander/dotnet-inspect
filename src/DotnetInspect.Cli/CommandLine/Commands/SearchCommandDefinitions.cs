@@ -550,6 +550,12 @@ public static class SearchCommandDefinitions
                 $"Exclusive bounded NuGet Gallery package root set ({DependencyEvidenceAcquisition.PackageProfileDefaultLimit} packages by default)"
         };
         var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
+        var pruningPlatformFamilyOption =
+            new Option<string?>("--platform-family")
+            {
+                Description =
+                    "Asset-mode Pruning comparison family: runtime or aspnetcore (default: runtime)"
+            };
         var previewOption = new Option<bool>("--preview")
         {
             Description =
@@ -588,6 +594,7 @@ public static class SearchCommandDefinitions
         dependsCommand.Options.Add(projectOption);
         dependsCommand.Options.Add(packagePrefixOption);
         dependsCommand.Options.Add(tfmOption);
+        dependsCommand.Options.Add(pruningPlatformFamilyOption);
         dependsCommand.Options.Add(previewOption);
         dependsCommand.Options.Add(maxPackagesOption);
         dependsCommand.Options.Add(depthOption);
@@ -723,6 +730,9 @@ public static class SearchCommandDefinitions
                 || (parseResult.GetValue(platformLibraryOption)?.Length ?? 0) > 0
                 || parseResult.GetValue(extensionsOption)
                 || parseResult.GetValue(aspnetcoreOption);
+            hasNonPackageShareInput =
+                hasNonPackageShareInput
+                || parseResult.GetValue(pruningPlatformFamilyOption) is not null;
             bool hasValidTypeShareInput =
                 !string.IsNullOrEmpty(targetType)
                 && packages.Length == 1
@@ -784,6 +794,8 @@ public static class SearchCommandDefinitions
                         parseResult.GetValue(maxPackagesOption),
                     Depth = parseResult.GetValue(depthOption),
                     Tfm = parseResult.GetValue(tfmOption),
+                    PruningPlatformFamily =
+                        parseResult.GetValue(pruningPlatformFamilyOption),
                     Verbosity = opts.ParseVerbosity(parseResult),
                     ShareFormat = shareFormat,
                     PackageName = shareFormat is not null
@@ -834,6 +846,12 @@ public static class SearchCommandDefinitions
                 Columns = opts.ParseColumns(parseResult),
                 Fields = opts.ParseFields(parseResult),
             };
+            if (parseResult.GetValue(pruningPlatformFamilyOption) is not null)
+            {
+                CommandError.Write(
+                    "--platform-family is supported only by asset-mode depends with the Pruning section.");
+                return 1;
+            }
             if (!DependsCommand.ValidateTypeDepthSelectionBeforeAcquisition(
                     typePlanOptions))
             {

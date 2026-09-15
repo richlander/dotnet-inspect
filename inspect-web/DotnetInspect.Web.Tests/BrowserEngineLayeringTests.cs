@@ -199,6 +199,12 @@ public sealed class BrowserEngineLayeringTests
             symbol => symbol.StartsWith(
                 "M:DotnetInspector.Queries.AssemblyContextApiSurfaceQuery.ExecuteBounded",
                 StringComparison.Ordinal));
+        Assert.Contains(
+            "M:DotnetInspector.Sections.ExactTypeInspectionOperation.ExecuteAsync(DotnetInspector.Queries.ExactTypeInspectionRequest,DotnetInspector.Queries.WorkspaceContextLoadOptions,System.Threading.CancellationToken)",
+            banned);
+        Assert.Contains(
+            "M:DotnetInspector.Sections.ExactTypeInspectionOperation.Execute(DotnetInspector.Queries.WorkspaceRealizationOperationLease,DotnetInspector.Queries.WorkspaceContextLoadOutcome.Loaded,DotnetInspector.Queries.ExactTypeInspectionRequest)",
+            banned);
 
         // #3932's streaming form releases the participant terminally, and this engine reuses one
         // workspace across exports, so a later whole-group query over the same group would find

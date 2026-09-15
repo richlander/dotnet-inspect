@@ -6,6 +6,7 @@ export type BrowserPackageAssemblyAssessmentKind = "NoMatch" | "NotApplicable" |
 export type BrowserPackageChangesCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
 export type BrowserPackageChangesOperationFailureKind = "Expected" | "Unexpected" | number;
 export type BrowserPackageChangesResultKind = "Succeeded" | "Failed" | "Canceled" | number;
+export type BrowserPackageGraphIdentityRole = "Inspected" | "SamePrefix" | "External" | number;
 export type BrowserPackageQueryCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
 export type BrowserPackageQueryCompletionKind = "Exhausted" | "MatchLimitReached" | "CandidateLimitReached" | "SourcePageLimitReached" | "ClientPageLimitReached" | "Failed" | "ExactPackageComplete" | "ExplicitCandidatesComplete" | number;
 export type BrowserPackageQueryEventKind = "Progress" | "Match" | "Failure" | "Completed" | "Assessment" | number;
@@ -135,8 +136,12 @@ export interface BrowserPackageAssemblyQueryPattern {
 export interface BrowserPackageCacheStats {
     readonly packages: number;
     readonly resident: number;
+    readonly maxPackageEntries: number;
     readonly workspaces: number;
+    readonly maxWorkspaces: number;
     readonly residentBytes: number;
+    readonly maxResidentBytes: number;
+    readonly maxWorkspaceRetainedImageBytes: number;
 }
 export interface BrowserPackageChangesAdvisoryAcquisition {
     readonly packageProducerKey: string;
@@ -566,6 +571,7 @@ export declare function runEntryPoint(mainAssemblyName?: string, args?: string[]
 export declare function activateWorkspacePackageOccurrence(action: string): Promise<BrowserWorkspacePackageOccurrenceActivation>;
 export declare function cancelPackageChanges(operationId: string, reason: string): BrowserPackageChangesCancellation;
 export declare function cancelPackageQuery(operationId: string, reason: string): BrowserPackageQueryCancellation;
+export declare function classifyPackageGraphIdentities(inspectedPackageId: string, packageIdsJson: string): ReadonlyArray<BrowserPackageGraphIdentityRole>;
 export declare function clearWorkspacePackageOccurrences(): Promise<void>;
 export declare function getPackageDocument(packageId: string, version: string, path: string): Promise<BrowserPackageDocumentContent>;
 export declare function getPlatformCatalog(targetFramework: string, platformVersion: string): Promise<BrowserPlatformCatalog>;

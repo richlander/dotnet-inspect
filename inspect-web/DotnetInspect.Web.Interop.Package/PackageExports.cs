@@ -418,4 +418,52 @@ public static partial class PackageExports
             browserResult,
             BrowserPackageJsonContext.Default.BrowserDependencyCoordinateMatch);
     }
+
+    [JSExport]
+    public static string ClassifyPackageGraphIdentities(
+        string inspectedPackageId,
+        string packageIdsJson)
+    {
+        string[] packageIds = JsonSerializer.Deserialize(
+            packageIdsJson,
+            BrowserPackageJsonContext.Default.StringArray)
+            ?? throw new InvalidOperationException("The package graph identity batch is absent.");
+        string prefix = PackageGraphFamilyPrefix(inspectedPackageId);
+        BrowserPackageGraphIdentityRole[] roles = packageIds
+            .Select(packageId => ClassifyPackageGraphIdentity(
+                inspectedPackageId,
+                prefix,
+                packageId))
+            .ToArray();
+        return JsonSerializer.Serialize(
+            roles,
+            BrowserPackageJsonContext.Default.BrowserPackageGraphIdentityRoleArray);
+    }
+
+    static BrowserPackageGraphIdentityRole ClassifyPackageGraphIdentity(
+        string inspectedPackageId,
+        string prefix,
+        string packageId)
+    {
+        if (string.Equals(packageId, inspectedPackageId, StringComparison.OrdinalIgnoreCase))
+            return BrowserPackageGraphIdentityRole.Inspected;
+
+        bool sharesPrefix =
+            string.Equals(packageId, prefix, StringComparison.OrdinalIgnoreCase)
+            || (packageId.Length > prefix.Length
+                && packageId[prefix.Length] == '.'
+                && packageId.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+        return sharesPrefix
+            ? BrowserPackageGraphIdentityRole.SamePrefix
+            : BrowserPackageGraphIdentityRole.External;
+    }
+
+    static string PackageGraphFamilyPrefix(string packageId)
+    {
+        int firstDot = packageId.IndexOf('.');
+        if (firstDot < 0)
+            return packageId;
+        int secondDot = packageId.IndexOf('.', firstDot + 1);
+        return secondDot < 0 ? packageId : packageId[..secondDot];
+    }
 }

@@ -33,7 +33,7 @@ approved in #6763, supplies the platform and all-known construction intents
 adopted here. #7001 adds selected-set construction from an explicit ordered
 ecosystem identity sequence. The platform composition keeps its narrower
 meaning; all-known construction adds every shipped ecosystem, including Aspire,
-AI, and Azure; selected-set construction adds exactly the requested
+AI, Azure, and Blazor; selected-set construction adds exactly the requested
 registrations in caller order. These application-owned choices add no product
 policy to Workspace.
 
@@ -394,6 +394,7 @@ AllKnownProductWorkspace
   ecosystem.aspire
   ecosystem.ai
   ecosystem.azure
+  ecosystem.blazor
 ```
 
 This order is product policy. It is not derived from pack discovery order,
@@ -430,6 +431,7 @@ The current target contributions are:
 | Aspire (all-known only) | `Aspire.Hosting` | `Aspire.` |
 | AI (all-known only) | Five concrete AI packages | Four focused discovery prefixes |
 | Azure (all-known only) | Nine concrete Azure connector and client packages | `Azure.`, `Microsoft.Azure.`, `Microsoft.Extensions.Azure`, `Aspire.Azure.`, `Aspire.Hosting.Azure.` |
+| Blazor (all-known only) | Four concrete Blazor and integration packages | `Microsoft.AspNetCore.Components`, `Microsoft.Authentication.WebAssembly` |
 
 Namespace roots cannot satisfy this requirement. Core packages can because
 they are the finite concrete roots a later selecting operation may resolve;
@@ -460,6 +462,15 @@ application relevance and cross-ecosystem joins. Its `Azure.`,
 Microsoft.Extensions and Aspire values deliberately overlap those ecosystems;
 the handoff preserves every authored contribution without inferring exclusive
 ownership, package equivalence, migration, or traversal from prefix matches.
+
+Blazor is absent from platform curation and present in all-known construction.
+Its four concrete registered packages supply traversal roots for browser-hosted
+Blazor, Blazor Hybrid, QuickGrid's Entity Framework Core adapter, and MSAL
+authentication. Its two prefixes retain focused discovery scope. The
+Components prefix deliberately overlaps the broader ASP.NET Core population,
+and `Microsoft.AspNetCore.Components.WebView.Maui` may also be registered by a
+future MAUI contribution. The handoff preserves both entry points without
+deduplicating either registration or inferring traversal from overlap.
 
 Adding or removing an entry is an application-manifest change, not a Workspace
 Scope default embedded in CLI, Browser, Queries, or persisted data. All-known
@@ -696,6 +707,7 @@ CreateWorkspacePlan()
        4. ecosystem.aspire
        5. ecosystem.ai
        6. ecosystem.azure
+       7. ecosystem.blazor
 
 CreateWorkspacePlan([ecosystem.aspire, ecosystem.platform])
   -> WorkspacePlan
@@ -709,8 +721,8 @@ Direct `new WorkspacePlan()` instead returns an empty registration set.
 Restoring an explicitly empty registration sequence constructs raw and remains
 empty; neither host calls curated construction during restoration.
 
-The neighboring Aspire, AI, and Azure packs have selectable lower declarations
-and appear only in the all-known sequence. Plans create no live Package
+The neighboring Aspire, AI, Azure, and Blazor packs have selectable lower
+declarations and appear only in the all-known sequence. Plans create no live Package
 membership; explicit live construction from any plan starts with empty acquired
 membership.
 
@@ -723,7 +735,7 @@ membership.
 | Projection fidelity | Known selection returns the exact retained declaration; known unavailable and unknown identities remain distinct. |
 | Resource-free projection | Discovery and selection invoke no prefix query, platform source, package-set lookup, scanner, acquisition, or Workspace mutation. |
 | Curated product Workspace | The current Platform, ASP.NET Core, Microsoft.Extensions order and required registered-package or population contributions are enforced without filtering ordinary pack discovery. |
-| All-known product Workspace | The separate current six-row order includes Aspire, AI, and Azure and every known pack; missing or unavailable projections cannot be silently omitted. |
+| All-known product Workspace | The separate current seven-row order includes Aspire, AI, Azure, and Blazor and every known pack; missing or unavailable projections cannot be silently omitted. |
 | Selected product Workspace | A nonempty unique selected identity sequence produces exactly those retained registrations in caller order; null, duplicate, unknown, unavailable, and hints-only entries fail without a partial plan. |
 | Independent construction | One curated plan can seed distinct live Workspace identities; edits and close preserve the original plan and other owners. |
 | Lifetime preservation | Plans require no disposal; explicit live construction consumes the single Workspace awaited lifetime without an Ecosystems-owned variant. |

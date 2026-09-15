@@ -16,6 +16,8 @@ export type BrowserPackageChangesOperationFailureKind = "Expected" | "Unexpected
 
 export type BrowserPackageChangesResultKind = "Succeeded" | "Failed" | "Canceled" | number;
 
+export type BrowserPackageGraphIdentityRole = "Inspected" | "SamePrefix" | "External" | number;
+
 export type BrowserPackageQueryCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
 
 export type BrowserPackageQueryCompletionKind = "Exhausted" | "MatchLimitReached" | "CandidateLimitReached" | "SourcePageLimitReached" | "ClientPageLimitReached" | "Failed" | "ExactPackageComplete" | "ExplicitCandidatesComplete" | number;
@@ -172,8 +174,12 @@ export interface BrowserPackageAssemblyQueryPattern {
 export interface BrowserPackageCacheStats {
   readonly packages: number;
   readonly resident: number;
+  readonly maxPackageEntries: number;
   readonly workspaces: number;
+  readonly maxWorkspaces: number;
   readonly residentBytes: number;
+  readonly maxResidentBytes: number;
+  readonly maxWorkspaceRetainedImageBytes: number;
 }
 
 export interface BrowserPackageChangesAdvisoryAcquisition {
@@ -659,6 +665,7 @@ type $ManagedExports = {
             readonly "ActivateWorkspacePackageOccurrence.976702342": (action: string) => Promise<string>;
             readonly "CancelPackageChanges.271973316": (operationId: string, reason: string) => string;
             readonly "CancelPackageQuery.271973316": (operationId: string, reason: string) => string;
+            readonly "ClassifyPackageGraphIdentities.271973316": (inspectedPackageId: string, packageIdsJson: string) => string;
             readonly "ClearWorkspacePackageOccurrences.1731052262": () => Promise<void>;
             readonly "GetPackageDocument.1001223652": (packageId: string, version: string, path: string) => Promise<string>;
             readonly "GetPlatformCatalog.451505237": (targetFramework: string, platformVersion: string) => Promise<string>;
@@ -765,6 +772,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "CancelPackageQuery.271973316");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.CancelPackageQuery.271973316\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Package");
+    value = $ownDataProperty(value, "PackageExports");
+    value = $ownDataProperty(value, "ClassifyPackageGraphIdentities.271973316");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.ClassifyPackageGraphIdentities.271973316\u0027 is not callable.");
     }
   }
   {
@@ -1096,6 +1115,12 @@ export function cancelPackageQuery(operationId: string, reason: string): Browser
   const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["CancelPackageQuery.271973316"](operationId, reason);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageQueryCancellation;
+}
+
+export function classifyPackageGraphIdentities(inspectedPackageId: string, packageIdsJson: string): ReadonlyArray<BrowserPackageGraphIdentityRole> {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ClassifyPackageGraphIdentities.271973316"](inspectedPackageId, packageIdsJson);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as ReadonlyArray<BrowserPackageGraphIdentityRole>;
 }
 
 export async function clearWorkspacePackageOccurrences(): Promise<void> {

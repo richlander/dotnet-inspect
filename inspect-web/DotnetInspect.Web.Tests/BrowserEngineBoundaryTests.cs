@@ -3490,7 +3490,7 @@ public sealed partial class BrowserEngineBoundaryTests
     [Fact]
     public void PackageWireProjection_PreservesCoreValues()
     {
-        var stats = new BrowserPackageCacheSnapshot(1, 2, 3, 4);
+        var stats = new BrowserPackageCacheSnapshot(1, 2, 12, 3, 4, 5, 128, 64);
         var entry = new BrowserPackageDocumentEntry(
             "skill",
             "Inspect",
@@ -3506,7 +3506,7 @@ public sealed partial class BrowserEngineBoundaryTests
             "cG5n");
 
         Assert.Equal(
-            new BrowserPackageCacheStats(1, 2, 3, 4),
+            new BrowserPackageCacheStats(1, 2, 12, 3, 4, 5, 128, 64),
             BrowserPackageWireProjection.Project(stats));
         Assert.Equal(
             [
@@ -7157,8 +7157,11 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal("net11.0", binding.Coordinate.Framework);
         Assert.Null(binding.Coordinate.RuntimeIdentifier);
         Assert.Equal(
-            NuGetCache.GetSourceKey(PackageSourceIdentity.NuGetOrg.Value),
+            PackageProducerIdentity.NuGetOrg.PortableKey,
             binding.Coordinate.Producer);
+        Assert.Equal(
+            NuGetCache.GetSourceKey(PackageSourceIdentity.NuGetOrg.Value),
+            binding.Root.ProducerKey);
         Assert.True(binding.Root.ReferencesContent(coordinate.Package.Content));
     }
 
