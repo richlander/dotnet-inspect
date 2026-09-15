@@ -104,6 +104,29 @@ public sealed class PackageChangeProxyClientTests
                 .StatusCode);
     }
 
+    [Theory]
+    [InlineData(HttpStatusCode.Created)]
+    [InlineData(HttpStatusCode.NoContent)]
+    [InlineData(HttpStatusCode.PartialContent)]
+    public async Task UnexpectedSuccessfulStatus_IsBadGateway(
+        HttpStatusCode upstream)
+    {
+        var handler = new RecordingHandler(
+            _ => new HttpResponseMessage(upstream));
+        using var client = new HttpClient(handler);
+
+        IActionResult result =
+            await PackageChangeProxyClient.GetNuGetJsonAsync(
+                client,
+                new Uri("https://api.nuget.org/v3/index.json"),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            StatusCodes.Status502BadGateway,
+            Assert.IsAssignableFrom<IStatusCodeActionResult>(result)
+                .StatusCode);
+    }
+
     [Fact]
     public async Task WrongMediaType_IsBadGateway()
     {
@@ -239,6 +262,63 @@ public sealed class PackageChangeProxyClientTests
     }
 
     [Fact]
+    public async Task ResponseBodyTimeout_IsGatewayTimeout()
+    {
+        var handler = new RecordingHandler(_ =>
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(new DelayedReadStream()),
+            };
+            response.Content.Headers.ContentType =
+                new MediaTypeHeaderValue("application/json");
+            return response;
+        });
+        using var client = new HttpClient(handler)
+        {
+            Timeout = TimeSpan.FromMilliseconds(50),
+        };
+
+        IActionResult result =
+            await PackageChangeProxyClient.GetNuGetJsonAsync(
+                client,
+                new Uri("https://api.nuget.org/v3/index.json"),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            StatusCodes.Status504GatewayTimeout,
+            Assert.IsAssignableFrom<IStatusCodeActionResult>(result)
+                .StatusCode);
+    }
+
+    [Fact]
+    public async Task CallerCancellation_IsPropagated()
+    {
+        var handler = new RecordingHandler(_ =>
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(new DelayedReadStream()),
+            };
+            response.Content.Headers.ContentType =
+                new MediaTypeHeaderValue("application/json");
+            return response;
+        });
+        using var client = new HttpClient(handler)
+        {
+            Timeout = TimeSpan.FromSeconds(1),
+        };
+        using var cancellation = new CancellationTokenSource(
+            TimeSpan.FromMilliseconds(50));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => PackageChangeProxyClient.GetNuGetJsonAsync(
+                client,
+                new Uri("https://api.nuget.org/v3/index.json"),
+                cancellation.Token));
+    }
+
+    [Fact]
     public void PrimaryHandler_DisablesRedirectsAndCredentials()
     {
         using var handler = Assert.IsType<HttpClientHandler>(
@@ -319,5 +399,50 @@ public sealed class PackageChangeProxyClientTests
             length = 0;
             return false;
         }
+    }
+
+    private sealed class DelayedReadStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(
+                Timeout.InfiniteTimeSpan,
+                cancellationToken);
+            return 0;
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
     }
 }

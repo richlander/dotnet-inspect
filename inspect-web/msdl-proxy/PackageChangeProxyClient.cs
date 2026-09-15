@@ -75,6 +75,11 @@ internal static class PackageChangeProxyClient
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(upstream);
         using var request = new HttpRequestMessage(HttpMethod.Get, upstream);
+        using var upstreamCancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken);
+        if (client.Timeout != Timeout.InfiniteTimeSpan)
+            upstreamCancellation.CancelAfter(client.Timeout);
         configureRequest(request);
 
         HttpResponseMessage response;
@@ -83,7 +88,7 @@ internal static class PackageChangeProxyClient
             response = await client.SendAsync(
                 request,
                 HttpCompletionOption.ResponseHeadersRead,
-                cancellationToken).ConfigureAwait(false);
+                upstreamCancellation.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
             when (!cancellationToken.IsCancellationRequested)
@@ -102,7 +107,9 @@ internal static class PackageChangeProxyClient
             if (response.StatusCode != HttpStatusCode.OK)
             {
                 return new StatusCodeResult(
-                    (int)response.StatusCode);
+                    response.IsSuccessStatusCode
+                        ? StatusCodes.Status502BadGateway
+                        : (int)response.StatusCode);
             }
             HttpContent? content = response.Content;
             if (content is null
@@ -141,7 +148,7 @@ internal static class PackageChangeProxyClient
                 bytes = await ReadBoundedAsync(
                     content,
                     maximumBytes,
-                    cancellationToken).ConfigureAwait(false);
+                    upstreamCancellation.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
                 when (!cancellationToken.IsCancellationRequested)
