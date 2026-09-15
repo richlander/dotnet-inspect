@@ -10597,6 +10597,192 @@
         ]
       },
       "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "unknown-property-in-intent",
+      "description": "The object is closed on the intent side too: an unknown property is refused, not dropped.",
+      "intent": {"t":[["depends","eq","Serilog"]],"x":1},
+      "reject": "unknown-property"
+    },
+    {
+      "name": "duplicate-property-in-intent",
+      "description": "A repeated property in an intent is refused, not last-wins.",
+      "intent": {"t":[["a","eq","b"]],"t":[["a","eq","b"]]},
+      "reject": "duplicate-property"
+    },
+    {
+      "name": "duplicate-base-in-intent",
+      "description": "At most one operation carries base; a second is refused on the intent side.",
+      "intent": {
+        "o": [
+          [
+            "base",
+            "named",
+            "x",
+            "asc"
+          ],
+          [
+            "base",
+            "named",
+            "y",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "duplicate-role"
+    },
+    {
+      "name": "duplicate-stage-role-in-intent",
+      "description": "At most one operation per ranking stage; a second is refused on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "top",
+            1
+          ]
+        ],
+        "o": [
+          [
+            0,
+            "named",
+            "x",
+            "asc"
+          ],
+          [
+            0,
+            "named",
+            "y",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "duplicate-role"
+    },
+    {
+      "name": "role-names-a-non-top-stage-in-intent",
+      "description": "A ranking role must name a top stage; naming a head stage is refused on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "head",
+            5
+          ]
+        ],
+        "o": [
+          [
+            0,
+            "named",
+            "x",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "role-not-top"
+    },
+    {
+      "name": "role-out-of-range-in-intent",
+      "description": "A ranking role must index an existing stage; index 3 with one stage is refused on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "top",
+            5
+          ]
+        ],
+        "o": [
+          [
+            3,
+            "named",
+            "x",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "role-not-top"
+    },
+    {
+      "name": "role-index-fractional-in-intent",
+      "description": "A role index spelled 0.0 is not a canonical RoleIndex on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "top",
+            1
+          ]
+        ],
+        "o": [
+          [
+            0.0,
+            "named",
+            "x",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "role-index-exponent-in-intent",
+      "description": "A role index spelled 0e0 is not a canonical RoleIndex on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "top",
+            1
+          ]
+        ],
+        "o": [
+          [
+            0e0,
+            "named",
+            "x",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "role-index-negative-zero-in-intent",
+      "description": "A role index spelled -0 is not a canonical RoleIndex on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "top",
+            1
+          ]
+        ],
+        "o": [
+          [
+            -0,
+            "named",
+            "x",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
+      "name": "role-index-negative-in-intent",
+      "description": "A role index spelled -1 is not a canonical RoleIndex on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "top",
+            1
+          ]
+        ],
+        "o": [
+          [
+            -1,
+            "named",
+            "x",
+            "asc"
+          ]
+        ]
+      },
+      "reject": "bad-integer"
     }
   ],
   "reject": [
@@ -14409,6 +14595,96 @@
       "description": "A lone low surrogate escape in the field-direction-8 slot is refused on the wire by the string rule, before any token is matched.",
       "bytes": "{\"o\":[[\"base\",\"fields\",\"f1\",\"asc\",\"f2\",\"asc\",\"f3\",\"asc\",\"f4\",\"asc\",\"f5\",\"asc\",\"f6\",\"asc\",\"f7\",\"asc\",\"k\",\"a\\udc00b\"]]}",
       "reject": "unpaired-surrogate"
+    },
+    {
+      "name": "role-index-negative-on-the-wire",
+      "description": "A role index spelled -1 is not a RoleIndex; the grammar admits no sign.",
+      "bytes": "{\"s\":[[\"top\",1]],\"o\":[[-1,\"named\",\"x\",\"asc\"]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "duplicate-property-t-equal",
+      "description": "The property t twice with identical values is refused; a repeated property is invalid whatever it carries.",
+      "bytes": "{\"t\":[[\"k\",\"eq\",\"v\"]],\"t\":[[\"k\",\"eq\",\"v\"]]}",
+      "reject": "duplicate-property"
+    },
+    {
+      "name": "duplicate-property-t-differing",
+      "description": "The property t twice with differing values is refused, not last-wins and not first-wins.",
+      "bytes": "{\"t\":[[\"k\",\"eq\",\"v\"]],\"t\":[[\"z\",\"eq\",\"v\"]]}",
+      "reject": "duplicate-property"
+    },
+    {
+      "name": "duplicate-property-b-equal",
+      "description": "The property b twice with identical values is refused; a repeated property is invalid whatever it carries.",
+      "bytes": "{\"b\":[[\"candidates\",1]],\"b\":[[\"candidates\",1]]}",
+      "reject": "duplicate-property"
+    },
+    {
+      "name": "duplicate-property-b-differing",
+      "description": "The property b twice with differing values is refused, not last-wins and not first-wins.",
+      "bytes": "{\"b\":[[\"candidates\",1]],\"b\":[[\"other\",2]]}",
+      "reject": "duplicate-property"
+    },
+    {
+      "name": "duplicate-property-s-equal",
+      "description": "The property s twice with identical values is refused; a repeated property is invalid whatever it carries.",
+      "bytes": "{\"s\":[[\"head\",1]],\"s\":[[\"head\",1]]}",
+      "reject": "duplicate-property"
+    },
+    {
+      "name": "duplicate-property-s-differing",
+      "description": "The property s twice with differing values is refused, not last-wins and not first-wins.",
+      "bytes": "{\"s\":[[\"head\",1]],\"s\":[[\"tail\",2]]}",
+      "reject": "duplicate-property"
+    },
+    {
+      "name": "duplicate-property-o-equal",
+      "description": "The property o twice with identical values is refused; a repeated property is invalid whatever it carries.",
+      "bytes": "{\"o\":[[\"base\",\"named\",\"n\",\"asc\"]],\"o\":[[\"base\",\"named\",\"n\",\"asc\"]]}",
+      "reject": "duplicate-property"
+    },
+    {
+      "name": "duplicate-property-o-differing",
+      "description": "The property o twice with differing values is refused, not last-wins and not first-wins.",
+      "bytes": "{\"o\":[[\"base\",\"named\",\"n\",\"asc\"]],\"o\":[[\"base\",\"named\",\"m\",\"desc\"]]}",
+      "reject": "duplicate-property"
+    },
+    {
+      "name": "property-b-before-t",
+      "description": "Property b before t on the wire is not canonical; the order is exactly t, b, s, o.",
+      "bytes": "{\"b\":[[\"candidates\",1]],\"t\":[[\"k\",\"eq\",\"v\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "property-s-before-t",
+      "description": "Property s before t on the wire is not canonical; the order is exactly t, b, s, o.",
+      "bytes": "{\"s\":[[\"head\",1]],\"t\":[[\"k\",\"eq\",\"v\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "property-o-before-t",
+      "description": "Property o before t on the wire is not canonical; the order is exactly t, b, s, o.",
+      "bytes": "{\"o\":[[\"base\",\"named\",\"n\",\"asc\"]],\"t\":[[\"k\",\"eq\",\"v\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "property-s-before-b",
+      "description": "Property s before b on the wire is not canonical; the order is exactly t, b, s, o.",
+      "bytes": "{\"s\":[[\"head\",1]],\"b\":[[\"candidates\",1]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "property-o-before-b",
+      "description": "Property o before b on the wire is not canonical; the order is exactly t, b, s, o.",
+      "bytes": "{\"o\":[[\"base\",\"named\",\"n\",\"asc\"]],\"b\":[[\"candidates\",1]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "property-o-before-s",
+      "description": "Property o before s on the wire is not canonical; the order is exactly t, b, s, o.",
+      "bytes": "{\"o\":[[\"base\",\"named\",\"n\",\"asc\"]],\"s\":[[\"head\",1]]}",
+      "reject": "non-canonical"
     }
   ],
   "pair": [
