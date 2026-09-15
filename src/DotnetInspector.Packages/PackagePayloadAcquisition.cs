@@ -322,10 +322,8 @@ public static class PackagePayloadAcquisition
     {
         ArgumentNullException.ThrowIfNull(configuredSourceIdentity);
         string configuredSource = configuredSourceIdentity.Value;
-        if (!string.Equals(
-                configuredSource,
-                source.Source.CompatibilitySourceIdentity,
-                StringComparison.Ordinal))
+        if (!source.Source.MatchesCompatibilitySourceIdentity(
+                configuredSource))
         {
             throw new ArgumentException(
                 "The configured source identity does not identify the runtime source compatibility identity.",

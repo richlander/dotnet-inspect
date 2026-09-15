@@ -289,10 +289,12 @@ compatibility type, not the target producer identity. Its query-sensitive
 value, equality, hash, and formatting behavior remain unchanged during
 migration. A distinct permanent `PackageProducerIdentity` avoids changing that
 meaning while package-authority readers still exist. Each HTTP result identity
-also retains that source's credential-free compatibility value so a legacy
-content-cache request can prove that it belongs to the runtime source without
-reconstructing the complete producer identity from the lossy legacy spelling.
-Local-folder result identities have no HTTP compatibility value.
+also retains a private digest of that source's compatibility value and exposes
+only an equality operation, so a legacy content-cache request can prove that it
+belongs to the runtime source without retaining endpoint, query, fragment, or
+recognized credential text and without reconstructing complete producer
+identity from the lossy legacy spelling. Local-folder result identities have
+no HTTP compatibility match.
 
 Only the four owner-controlled sealed reference-result types are permitted
 operation values. Supported custom clients construct those types and outcomes
@@ -472,11 +474,11 @@ custom-client registration receives the same kind of bound factory through
 `PackageSourceClientFactory.CreateCustom`. Result, observation, manifest,
 payload, and operation-outcome construction is closed through that factory
 rather than accepting independent identity or issuer arguments.
-The bound result identity carries the compatibility source value supplied by
-the same client factory. Package payload acquisition compares a caller's
-legacy cache identity with that owner-issued value before cache lookup or
-download; it never derives complete producer correspondence from the legacy
-value.
+The bound result identity privately digests the compatibility source value
+supplied by the same client factory. Package payload acquisition asks the
+identity to match a caller's legacy cache identity before cache lookup or
+download; neither the value nor its endpoint components are exposed, and
+complete producer correspondence is never derived from the legacy value.
 
 `CreateCustom` accepts a portable descriptor, the caller's association, and a
 callback from the external client assembly. Its admitted kinds are

@@ -228,9 +228,9 @@ public sealed class PackageSourceResultIdentityTests
         Assert.Equal(
             httpClient.Source.Producer,
             PackageSourceClientFactory.GetProducerIdentity(httpSource));
-        Assert.Equal(
-            "https://feed.example:443/v3/index.json",
-            httpClient.Source.CompatibilitySourceIdentity);
+        Assert.True(
+            httpClient.Source.MatchesCompatibilitySourceIdentity(
+                "https://feed.example:443/v3/index.json"));
 
         string localPath =
             Path.GetFullPath("projected-local-package-source");
@@ -244,7 +244,9 @@ public sealed class PackageSourceResultIdentityTests
             localClient.Source.Producer,
             PackageSourceClientFactory.GetProducerIdentity(
                 new PackageSource("local", localPath)));
-        Assert.Null(localClient.Source.CompatibilitySourceIdentity);
+        Assert.False(
+            localClient.Source.MatchesCompatibilitySourceIdentity(
+                "https://feed.example:443/v3/index.json"));
     }
 
     [Fact]
@@ -1134,13 +1136,14 @@ public sealed class PackageSourceResultIdentityTests
     {
         const string pathSecret = "path-secret";
         const string querySecret = "query-secret";
+        const string fragmentSecret = "fragment-secret";
         const string responseSecret = "response-secret";
         using IPackageSourceClient client =
             PackageSourceClientFactory.Create(
                 new PackageSource(
                     "signed",
                     $"https://feed.example/F/auth/{pathSecret}/api"
-                    + $"?sig={querySecret}"),
+                    + $"?sig={querySecret}#{fragmentSecret}"),
                 PackageSourceAssociation.Create(),
                 new ThrowingHandler(
                     new HttpRequestException(
@@ -1153,9 +1156,22 @@ public sealed class PackageSourceResultIdentityTests
 
         string retained =
             $"{failure.Message}|{failure.Source.Producer.Key}|"
-            + failure.Source.Producer.Display.ToString();
+            + failure.Source.Producer.Display.ToString()
+            + string.Join(
+                "|",
+                typeof(PackageSourceResultIdentity)
+                    .GetFields(
+                        BindingFlags.Instance
+                        | BindingFlags.Public
+                        | BindingFlags.NonPublic)
+                    .Where(field => field.FieldType == typeof(string))
+                    .Select(field => field.GetValue(failure.Source)));
         Assert.DoesNotContain(pathSecret, retained, StringComparison.Ordinal);
         Assert.DoesNotContain(querySecret, retained, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            fragmentSecret,
+            retained,
+            StringComparison.Ordinal);
         Assert.DoesNotContain(
             responseSecret,
             retained,

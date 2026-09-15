@@ -177,6 +177,12 @@ public sealed class PackageProducerIdentity
 public sealed class PackageSourceResultIdentity
     : IEquatable<PackageSourceResultIdentity>
 {
+    static readonly UTF8Encoding StrictUtf8 = new(
+        encoderShouldEmitUTF8Identifier: false,
+        throwOnInvalidBytes: true);
+
+    private readonly string? _compatibilitySourceKey;
+
     internal PackageSourceResultIdentity(
         object ownerCapability,
         PackageProducerIdentity producer,
@@ -190,7 +196,9 @@ public sealed class PackageSourceResultIdentity
         Producer = producer;
         Association = association;
         TransportKind = transportKind;
-        CompatibilitySourceIdentity = compatibilitySourceIdentity;
+        _compatibilitySourceKey = compatibilitySourceIdentity is null
+            ? null
+            : CreateCompatibilitySourceKey(compatibilitySourceIdentity);
     }
 
     /// <summary>Gets the package-content producer.</summary>
@@ -203,10 +211,17 @@ public sealed class PackageSourceResultIdentity
     public PackageSourceKind TransportKind { get; }
 
     /// <summary>
-    /// Gets the credential-free legacy source identity used only to preserve
-    /// existing content-cache correspondence, when this transport has one.
+    /// Reports whether a credential-free legacy HTTP source identity belongs
+    /// to this runtime source's existing content-cache correspondence.
     /// </summary>
-    public string? CompatibilitySourceIdentity { get; }
+    public bool MatchesCompatibilitySourceIdentity(string sourceIdentity)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceIdentity);
+        return _compatibilitySourceKey is not null
+            && _compatibilitySourceKey.Equals(
+                CreateCompatibilitySourceKey(sourceIdentity),
+                StringComparison.Ordinal);
+    }
 
     /// <inheritdoc/>
     public bool Equals(PackageSourceResultIdentity? other) =>
@@ -240,6 +255,11 @@ public sealed class PackageSourceResultIdentity
         PackageSourceResultIdentity? left,
         PackageSourceResultIdentity? right) =>
         !(left == right);
+
+    private static string CreateCompatibilitySourceKey(
+        string sourceIdentity) =>
+        Convert.ToHexStringLower(
+            SHA256.HashData(StrictUtf8.GetBytes(sourceIdentity)));
 }
 
 /// <summary>
