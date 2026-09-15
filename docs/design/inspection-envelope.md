@@ -279,8 +279,8 @@ reader, lease, snapshot, callback or acquired payload crosses this boundary.
 
 The operation compares the admitted and acquired target frameworks through
 NuGet's canonical framework identity. Lookup preserves generic arity while
-preferring an exact full or short name before Metadata's broader base-name
-matching.
+preferring an exact full identity, then an exact short or namespace-suffix
+name, before Metadata's broader base-name matching.
 The optional exact `PackageCompileAsset.Id`, Metadata-issued assembly identity
 (or bounded exact assembly-name selector for callers that have only a name)
 narrows declaration discovery within the surface role;

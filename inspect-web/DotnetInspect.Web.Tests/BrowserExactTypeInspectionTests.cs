@@ -109,6 +109,57 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task ExactType_FullBrowserIdentityPrecedesNamespaceSuffix()
+    {
+        const string package = "Browser.ExactType.FullIdentity";
+        const string assemblyName = "FullIdentity";
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName(assemblyName),
+            typeof(object).Assembly);
+        ModuleBuilder module =
+            assembly.DefineDynamicModule(assemblyName);
+        module.DefineType(
+            "N.Widget",
+            TypeAttributes.Public | TypeAttributes.Class).CreateType();
+        module.DefineType(
+            "Other.N.Widget",
+            TypeAttributes.Public | TypeAttributes.Class).CreateType();
+        using var image = new MemoryStream();
+        assembly.Save(image);
+        _ = await Coordinate(
+            package,
+            Package(
+                image.ToArray(),
+                $"lib/net11.0/{assemblyName}.dll"));
+        string workspaceJson =
+            $$"""
+            [
+              {
+                "package": "{{package}}",
+                "version": "1.0.0",
+                "framework": "net11.0"
+              }
+            ]
+            """;
+
+        BrowserTypeMetadata presentation =
+            await DotnetInspect.Web.Interop.Metadata.MetadataExports
+                .TypeProjectionAsync(
+                    package,
+                    "1.0.0",
+                    "net11.0",
+                    $"{assemblyName}.dll",
+                    "N.Widget",
+                    workspaceJson,
+                    Resolve(RowQueryIntent.Empty));
+
+        Assert.Equal("N.Widget", presentation.FullName);
+        Assert.Equal(
+            BrowserExactTypeOutcome.Available,
+            presentation.ExactTypeInspection.Content.Kind);
+    }
+
+    [Fact]
     public async Task TypeProjection_UsesSharedExactTypeEnvelope()
     {
         const string packageId = "Browser.ExactType.SystemTextJson";

@@ -80,6 +80,20 @@ public static class TypeMatcher
             NormalizeForLookup(target));
     }
 
+    /// <summary>
+    /// Checks whether candidate and target are the same normalized full type
+    /// name while preserving generic arity.
+    /// </summary>
+    public static bool MatchesFullTypeName(string candidate, string target)
+    {
+        if (string.IsNullOrEmpty(candidate) || string.IsNullOrEmpty(target))
+            return false;
+
+        return NormalizeForLookup(candidate).Equals(
+            NormalizeForLookup(target),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     static bool MatchesExactNormalized(
         string normalizedCandidate,
         string normalizedTarget) =>

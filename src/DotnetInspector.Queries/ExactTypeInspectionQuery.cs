@@ -332,12 +332,19 @@ public static class ExactTypeInspectionQuery
         ImmutableArray<TypeDeclarationLocatorCandidate> candidates =
             [.. evaluated.Answers[0].Candidates.Where(candidate =>
                 occurrences.Contains(candidate.Observation.Occurrence))];
+        ImmutableArray<TypeDeclarationLocatorCandidate> fullNames =
+            [.. candidates.Where(candidate =>
+                TypeMatcher.MatchesFullTypeName(
+                    candidate.Name.ToMetadataFullName(),
+                    request.TypeSelector))];
         ImmutableArray<TypeDeclarationLocatorCandidate> exactNames =
             [.. candidates.Where(candidate =>
                 TypeMatcher.MatchesExactTypeName(
-                candidate.Name.ToMetadataFullName(),
-                request.TypeSelector))];
-        if (!exactNames.IsEmpty)
+                    candidate.Name.ToMetadataFullName(),
+                    request.TypeSelector))];
+        if (!fullNames.IsEmpty)
+            candidates = fullNames;
+        else if (!exactNames.IsEmpty)
             candidates = exactNames;
         if (candidates.IsEmpty)
         {

@@ -94,6 +94,32 @@ public sealed partial class WorkspaceContextLoaderTests
     }
 
     [Fact]
+    public async Task ExactTypeInspection_PrefersFullIdentityOverNamespaceSuffix()
+    {
+        byte[] image = ApiAssembly(
+            "Full.Identity",
+            ("N.Widget", []),
+            ("Other.N.Widget", []));
+
+        InspectionEnvelope<ExactTypeInspectionResult> envelope =
+            await ExecuteExactAsync(
+                await CachedStoreAsync(
+                    Version,
+                    Archive(
+                        ($"ref/{Framework}/Full.Identity.dll", image))),
+                PackageContext(Version),
+                "N.Widget");
+
+        var available =
+            Assert.IsType<ExactTypeInspectionResult.Available>(
+                envelope.Content);
+        Assert.Equal("N.Widget", available.Type.FullName);
+        Assert.Equal(
+            "N.Widget",
+            available.Candidate.Definition.ToMetadataFullName());
+    }
+
+    [Fact]
     public async Task ExactTypeInspection_ShareUsesEscapedNestedDefinitionIdentity()
     {
         InspectionEnvelope<ExactTypeInspectionResult> envelope =
