@@ -1,6 +1,7 @@
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Queries;
 using InertText;
 using Markout;
@@ -60,6 +61,32 @@ public sealed class DependsAssetView
         init => field = DependencyEvidenceViewText.Field(value).ToString();
     }
 
+    public required string Pruning
+    {
+        get => field;
+        init => field = DependencyEvidenceViewText.Field(value).ToString();
+    }
+
+    [MarkoutPropertyName("Pruning Roots")]
+    [MarkoutSkipNull]
+    public int? PruningRoots { get; init; }
+
+    [MarkoutPropertyName("Pruning Declarations")]
+    [MarkoutSkipNull]
+    public int? PruningDeclarations { get; init; }
+
+    [MarkoutPropertyName("Pruning Evaluated")]
+    [MarkoutSkipNull]
+    public int? PruningEvaluated { get; init; }
+
+    [MarkoutPropertyName("Pruning Delegated")]
+    [MarkoutSkipNull]
+    public int? PruningDelegated { get; init; }
+
+    [MarkoutPropertyName("Pruning Retained")]
+    [MarkoutSkipNull]
+    public int? PruningRetained { get; init; }
+
     [MarkoutPropertyName("Requested Depth")]
     [MarkoutSkipNull]
     public int? RequestedDepth { get; init; }
@@ -108,6 +135,9 @@ public sealed class DependsAssetView
     [MarkoutSection(Name = DependsAssetSections.Dependencies)]
     public List<DependsDependencyView>? Dependencies { get; init; }
 
+    [MarkoutSection(Name = DependsAssetSections.Pruning)]
+    public List<DependsPruningView>? PruningRows { get; init; }
+
     [MarkoutSection(Name = DependsAssetSections.RestoredEdges)]
     public List<DependsRestoredEdgeView>? RestoredEdges { get; init; }
 
@@ -133,6 +163,9 @@ public sealed class DependsAssetTableView
 
     [MarkoutSection(Name = DependsAssetSections.Dependencies)]
     public List<DependsDependencyView>? Dependencies { get; init; }
+
+    [MarkoutSection(Name = DependsAssetSections.Pruning)]
+    public List<DependsPruningView>? Pruning { get; init; }
 
     [MarkoutSection(Name = DependsAssetSections.RestoredEdges)]
     public List<DependsRestoredEdgeView>? RestoredEdges { get; init; }
@@ -554,6 +587,95 @@ public sealed class DependsDependencyView
 }
 
 [MarkoutSerializable]
+public sealed class DependsPruningView
+{
+    internal static DependsPruningView From(
+        DependsPruningRow row) =>
+        new()
+        {
+            Root = row.RootOccurrence,
+            RootText = row.RootDisplay,
+            RequestedFrameworkText = row.RequestedFramework,
+            SelectedFrameworkText = row.SelectedFramework,
+            PackageText = row.PackageIdSpelling,
+            VersionText = row.VersionConstraintSpelling,
+            Candidate = row.CandidateVersion,
+            PlatformFamily = row.PlatformFamily,
+            PlatformTarget = row.PlatformTargetFramework,
+            PlatformVersion = row.PlatformVersion,
+            PlatformProvides = row.PlatformProvidedVersion,
+            Disposition = row.Disposition.ToString(),
+            Reason = row.Reason,
+        };
+
+    public required int Root { get; init; }
+    [MarkoutIgnore] public InertString RootText { get; init; }
+    [MarkoutIgnore] public InertString RequestedFrameworkText { get; init; }
+    [MarkoutIgnore] public InertString SelectedFrameworkText { get; init; }
+    [MarkoutIgnore] public InertString PackageText { get; init; }
+    [MarkoutIgnore] public InertString VersionText { get; init; }
+
+    [MarkoutPropertyName("Root Identity")]
+    public string RootIdentity => RootText.ToString();
+
+    [MarkoutPropertyName("Requested TFM")]
+    public string RequestedFramework => RequestedFrameworkText.ToString();
+
+    [MarkoutPropertyName("Selected TFM")]
+    public string SelectedFramework => SelectedFrameworkText.ToString();
+
+    public string Package => PackageText.ToString();
+
+    public string Constraint => VersionText.ToString();
+
+    public string? Candidate
+    {
+        get => field;
+        init => field = DependencyEvidenceViewText.Optional(value)?.ToString();
+    }
+
+    [MarkoutPropertyName("Platform Family")]
+    public string? PlatformFamily
+    {
+        get => field;
+        init => field = DependencyEvidenceViewText.Optional(value)?.ToString();
+    }
+
+    [MarkoutPropertyName("Platform Target")]
+    public string? PlatformTarget
+    {
+        get => field;
+        init => field = DependencyEvidenceViewText.Optional(value)?.ToString();
+    }
+
+    [MarkoutPropertyName("Platform Version")]
+    public string? PlatformVersion
+    {
+        get => field;
+        init => field = DependencyEvidenceViewText.Optional(value)?.ToString();
+    }
+
+    [MarkoutPropertyName("Platform Provides")]
+    public string? PlatformProvides
+    {
+        get => field;
+        init => field = DependencyEvidenceViewText.Optional(value)?.ToString();
+    }
+
+    public required string Disposition
+    {
+        get => field;
+        init => field = DependencyEvidenceViewText.Field(value).ToString();
+    }
+
+    public required string Reason
+    {
+        get => field;
+        init => field = DependencyEvidenceViewText.Field(value).ToString();
+    }
+}
+
+[MarkoutSerializable]
 public sealed class DependsDependencyGroupView
 {
     internal static DependsDependencyGroupView From(
@@ -698,6 +820,8 @@ public sealed class DependsFailureView
                 evidence.Value),
             DependsFailureRow.Traversal traversal => FromTraversal(
                 traversal.Value),
+            DependsFailureRow.Pruning pruning => FromPruning(
+                pruning.Value),
             _ => throw new InvalidOperationException(
                 "Unknown depends failure row."),
         };
@@ -777,6 +901,56 @@ public sealed class DependsFailureView
             _ => "Package traversal did not complete.",
         };
 
+    private static DependsFailureView FromPruning(
+        DependsPruningFailure failure) =>
+        failure switch
+        {
+            DependsPruningFailure.Inventory inventory => new()
+            {
+                Phase = DependencyEvidenceFailurePhase.Pruning.ToString(),
+                Reason = nameof(DependsPruningFailure.Inventory),
+                Source = inventory.PlatformFamily,
+                SubjectText = DependencyEvidenceViewText.Field(
+                    inventory.TargetFramework),
+                Group = null,
+                Package = null,
+                Version = null,
+                SourceLabelText = null,
+                MessageText = inventory.Message,
+                AffectedRoots = string.Join(
+                    ",",
+                    inventory.AffectedRootOccurrences),
+                Occurrences = inventory.AffectedDeclarations,
+            },
+            DependsPruningFailure.Candidate candidate => new()
+            {
+                Phase = DependencyEvidenceFailurePhase.Pruning.ToString(),
+                Reason = candidate.Outcome switch
+                {
+                    PackageDependencyCandidateResult.Failed failed =>
+                        failed.Failure.GetType().Name,
+                    PackageDependencyCandidateResult.Incomplete incomplete =>
+                        incomplete.Evidence.GetType().Name,
+                    _ => throw new InvalidOperationException(
+                        "A resolved pruning candidate is not a failure."),
+                },
+                Source = null,
+                SubjectText = DependencyEvidenceViewText.Field(
+                    candidate.PackageId),
+                Group = null,
+                Package = candidate.PackageId,
+                Version = candidate.VersionConstraint,
+                SourceLabelText = null,
+                MessageText = DependencyEvidenceViewText.Field(
+                    "Package candidate resolution did not produce an exact candidate for pruning evaluation."),
+                AffectedRoots = candidate.RootOccurrence.ToString(
+                    System.Globalization.CultureInfo.InvariantCulture),
+                Occurrences = 1,
+            },
+            _ => throw new InvalidOperationException(
+                "Unknown pruning failure."),
+        };
+
     public required string Phase
     {
         get => field;
@@ -827,6 +1001,7 @@ public sealed class DependsFailureView
 [MarkoutContext(typeof(DependsRootView))]
 [MarkoutContext(typeof(DependsGraphEdgeView))]
 [MarkoutContext(typeof(DependsDependencyView))]
+[MarkoutContext(typeof(DependsPruningView))]
 [MarkoutContext(typeof(DependsDependencyGroupView))]
 [MarkoutContext(typeof(DependsRestoredEdgeView))]
 [MarkoutContext(typeof(DependsRestoredPackageView))]

@@ -11,6 +11,47 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class PackageHouseDependencyPruningQueryTests
 {
     [Fact]
+    public void CandidateFreeApplicabilityPreservesEarlyStates()
+    {
+        PackageDependencyEvidenceRoot root = WithAuthorship(
+            PackageRoot(),
+            PackageDependencyEvidenceAuthorship.ApplicationAuthored);
+        PackageDependencyEvidenceDeclaration declaration =
+            SelectedDeclaration(root);
+
+        PackageHouseDependencyPruningApplicability applicability =
+            PackageHouseDependencyPruningApplicabilityQuery.Execute(
+                root,
+                declaration,
+                PackageHouseTargetContext.Exact("net11.0"));
+
+        Assert.Equal(
+            PackageHouseDependencyPruningApplicabilityState
+                .ApplicationAuthoredExemption,
+            applicability.State);
+        Assert.Same(root, applicability.Root);
+        Assert.Same(declaration, applicability.Declaration);
+    }
+
+    [Fact]
+    public void CandidateFreeApplicabilityStopsBeforePlatformInventory()
+    {
+        PackageDependencyEvidenceRoot root = PackageRoot();
+
+        PackageHouseDependencyPruningApplicability applicability =
+            PackageHouseDependencyPruningApplicabilityQuery.Execute(
+                root,
+                SelectedDeclaration(root),
+                PackageHouseTargetContext.Exact("net11.0"));
+
+        Assert.Equal(
+            PackageHouseDependencyPruningApplicabilityState
+                .CandidateRequired,
+            applicability.State);
+        Assert.Null(applicability.TargetUnavailableReason);
+    }
+
+    [Fact]
     public void SelectedLibraryDeclarationEvaluatesExactPolicyReceipt()
     {
         PackageHouseDependencyInput input =
@@ -177,6 +218,32 @@ public sealed class PackageHouseDependencyPruningQueryTests
     }
 
     [Fact]
+    public void RelationshipAuthorshipStillPrecedesProcessing()
+    {
+        PackageDependencyEvidenceRoot root =
+            WithRelationshipAuthorship(
+                RestoredRoot() with
+                {
+                    Processing =
+                        new PackageDependencyEvidenceProcessingResult
+                            .NotApplicable(),
+                },
+                PackageDependencyEvidenceAuthorship.ApplicationAuthored);
+        PackageHouseDependencyInput input = RelationshipInput(
+            root,
+            PackageDependencyEvidenceAuthorship.ApplicationAuthored);
+
+        Assert.IsType<
+            PackageHouseDependencyPruningResult
+                .ApplicationAuthoredExemption>(
+                PackageHouseDependencyPruningQuery.Execute(
+                    input,
+                    Inventory(
+                        input.Subject.Candidate.Coordinate.PackageId,
+                        "11.0.0")));
+    }
+
+    [Fact]
     public void RelationshipWithoutProcessingTargetRemainsUnavailable()
     {
         PackageDependencyEvidenceRoot root = RestoredRoot() with
@@ -326,6 +393,16 @@ public sealed class PackageHouseDependencyPruningQueryTests
                 platformTarget: PlatformTarget(targetFramework)));
     }
 
+    private static PackageDependencyEvidenceDeclaration SelectedDeclaration(
+        PackageDependencyEvidenceRoot root) =>
+        Assert.IsType<
+                PackageDependencyEvidenceDeclarationResult.Available>(
+                root.Declaration)
+            .Groups.SelectMany(group => group.Declarations)
+            .Single(declaration =>
+                declaration.Identity.Group
+                == root.Selection.SelectedGroup);
+
     private static PackageDependencyEvidenceRoot PackageRoot(
         string? targetFramework = "net11.0",
         bool includeNonSelectedGroup = false)
@@ -414,7 +491,9 @@ public sealed class PackageHouseDependencyPruningQueryTests
     }
 
     private static PackageHouseDependencyInput RelationshipInput(
-        PackageDependencyEvidenceRoot root)
+        PackageDependencyEvidenceRoot root,
+        PackageDependencyEvidenceAuthorship authorship =
+            PackageDependencyEvidenceAuthorship.LibraryDeclared)
     {
         PackageDependencyEvidenceRelationship relationship =
             Assert.IsType<
@@ -422,8 +501,7 @@ public sealed class PackageHouseDependencyPruningQueryTests
                     root.Relationships)
                 .Relationships.First(candidate =>
                     candidate.Authorship
-                    == PackageDependencyEvidenceAuthorship
-                        .LibraryDeclared);
+                    == authorship);
         PackageAcquisitionCandidate candidate =
             Candidate(relationship.ResolvedCoordinate);
         return PackageHouseDependencyInputAdapter.Create(
@@ -435,6 +513,33 @@ public sealed class PackageHouseDependencyPruningQueryTests
             PackageHouseTargetContext.Exact(
                 "net11.0",
                 platformTarget: PlatformTarget("net11.0")));
+    }
+
+    private static PackageDependencyEvidenceRoot
+        WithRelationshipAuthorship(
+            PackageDependencyEvidenceRoot root,
+            PackageDependencyEvidenceAuthorship authorship)
+    {
+        PackageDependencyEvidenceRelationshipResult.Available available =
+            Assert.IsType<
+                PackageDependencyEvidenceRelationshipResult.Available>(
+                    root.Relationships);
+        return root with
+        {
+            Relationships =
+                new PackageDependencyEvidenceRelationshipResult.Available(
+                    available.Packages,
+                    [
+                        .. available.Relationships.Select(
+                            relationship =>
+                                relationship with
+                                {
+                                    Authorship = authorship,
+                                }),
+                    ],
+                    available.Failures,
+                    available.Completion),
+        };
     }
 
     private static PackageDependencyEvidenceRoot RestoredRoot()

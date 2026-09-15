@@ -2,6 +2,8 @@ using System.Collections.Immutable;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.PackageQueries;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
 using InertText;
@@ -26,6 +28,16 @@ internal enum DependsTraversalCompletion
     Partial,
     Failed,
     NotRequested,
+}
+
+/// <summary>The selected pruning-policy phase's terminal state.</summary>
+internal enum DependsPruningCompletion
+{
+    NotRequested,
+    Complete,
+    SourceBounded,
+    Partial,
+    Failed,
 }
 
 /// <summary>Whether one explicit root occurrence established semantic identity.</summary>
@@ -71,7 +83,8 @@ internal enum DependsSelectionStatus
 internal sealed record DependsAssetRequestPlan(
     bool Declarations,
     bool RestoredRelationships,
-    bool Traversal)
+    bool Traversal,
+    bool Pruning)
 {
     internal static DependsAssetRequestPlan FromSections(
         IReadOnlySet<string> sections)
@@ -79,16 +92,20 @@ internal sealed record DependsAssetRequestPlan(
         bool failures = sections.Contains(DependsAssetSections.Failures);
         bool dependencies =
             sections.Contains(DependsAssetSections.Dependencies);
+        bool pruning =
+            sections.Contains(DependsAssetSections.Pruning);
         return new DependsAssetRequestPlan(
             Declarations: dependencies
                 || sections.Contains(DependsAssetSections.DependencyGroups)
-                || failures,
+                || failures
+                || pruning,
             RestoredRelationships: dependencies
                 || sections.Contains(DependsAssetSections.RestoredEdges)
                 || sections.Contains(DependsAssetSections.RestoredPackages)
                 || failures,
             Traversal:
-                sections.Contains(DependsAssetSections.DependencyGraph));
+                sections.Contains(DependsAssetSections.DependencyGraph),
+            Pruning: pruning);
     }
 }
 
@@ -134,6 +151,65 @@ internal sealed record DependsDependencyRow(
     string? ResolvedVersion,
     RestoredProjectPackageNodeIdentity? ResolvedPackageIdentity,
     RestoredProjectEdgeIdentity? ResolvedRelationshipIdentity);
+
+/// <summary>How the CLI could answer one selected declaration's pruning question.</summary>
+internal enum DependsPruningDisposition
+{
+    PlatformDelegation,
+    PackageRetained,
+    NotEvaluated,
+    SourceBounded,
+    CandidateUnavailable,
+    InventoryUnavailable,
+}
+
+/// <summary>One selected direct declaration's typed pruning-policy projection.</summary>
+internal sealed record DependsPruningRow(
+    int RootOccurrence,
+    PackageDependencyEvidenceRootIdentity RootIdentity,
+    InertString RootDisplay,
+    PackageDependencyEvidenceDeclarationIdentity DeclarationIdentity,
+    InertString RequestedFramework,
+    InertString SelectedFramework,
+    string PackageId,
+    InertString PackageIdSpelling,
+    string VersionConstraint,
+    InertString VersionConstraintSpelling,
+    string? CandidateVersion,
+    string? PlatformFamily,
+    string? PlatformTargetFramework,
+    string? PlatformVersion,
+    string? PlatformProvidedVersion,
+    DependsPruningDisposition Disposition,
+    string Reason,
+    PackageHouseDependencyPruningApplicability Applicability,
+    PackageDependencyCandidateResult? CandidateOutcome,
+    PackageHouseDependencyPruningResult? Result);
+
+/// <summary>Unfiltered accounting for the selected pruning-policy phase.</summary>
+internal sealed record DependsPruningSummary(
+    DependsPruningCompletion Completion,
+    int Roots,
+    int Declarations,
+    int Evaluated,
+    int Delegated,
+    int Retained,
+    int NotEvaluated,
+    int SourceBounded,
+    int Failed)
+{
+    internal static DependsPruningSummary NotRequested { get; } =
+        new(
+            DependsPruningCompletion.NotRequested,
+            Roots: 0,
+            Declarations: 0,
+            Evaluated: 0,
+            Delegated: 0,
+            Retained: 0,
+            NotEvaluated: 0,
+            SourceBounded: 0,
+            Failed: 0);
+}
 
 /// <summary>Exact restored-project failure detail retained by the traversal phase.</summary>
 internal abstract record DependsRestoredTraversalFailure
@@ -184,6 +260,32 @@ internal abstract record DependsFailureRow
 
     internal sealed record Traversal(DependsTraversalFailureRow Value) :
         DependsFailureRow;
+
+    internal sealed record Pruning(DependsPruningFailure Value) :
+        DependsFailureRow;
+}
+
+/// <summary>A producer failure encountered only by the selected pruning phase.</summary>
+internal abstract record DependsPruningFailure
+{
+    private DependsPruningFailure()
+    {
+    }
+
+    internal sealed record Inventory(
+        string PlatformFamily,
+        string TargetFramework,
+        InertString Message,
+        ImmutableArray<int> AffectedRootOccurrences,
+        int AffectedDeclarations) : DependsPruningFailure;
+
+    internal sealed record Candidate(
+        int RootOccurrence,
+        PackageDependencyEvidenceRootIdentity RootIdentity,
+        PackageDependencyEvidenceDeclarationIdentity DeclarationIdentity,
+        string PackageId,
+        string VersionConstraint,
+        PackageDependencyCandidateResult Outcome) : DependsPruningFailure;
 }
 
 /// <summary>Mandatory document fields for root-set and requested-phase completion.</summary>
@@ -198,6 +300,7 @@ internal sealed record DependsAssetSummary(
     int GraphEdges,
     DependsEvidencePhaseCompletion DeclarationCompletion,
     DependsEvidencePhaseCompletion RestoredRelationshipCompletion,
+    DependsPruningSummary Pruning,
     bool IsPrefixRootSet,
     PackageDependencyEvidencePackagePrefixCompletion? PackagePrefix);
 
@@ -210,6 +313,7 @@ internal sealed record DependsAssetProjection(
     ImmutableArray<DependencyGraphEdgeRow> GraphRows,
     ImmutableArray<DependsRootRow> Roots,
     ImmutableArray<DependsDependencyRow> Dependencies,
+    ImmutableArray<DependsPruningRow> Pruning,
     ImmutableArray<DependencyEvidenceRestoredEdgeRow> RestoredEdges,
     ImmutableArray<DependsFailureRow> Failures,
     ImmutableArray<DependencyEvidenceGroupRow> DependencyGroups,

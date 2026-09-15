@@ -2,6 +2,7 @@ using System.Text.Json.Serialization;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
@@ -19,6 +20,8 @@ internal sealed record DependsAssetDocument
     public List<DependsAssetRootJson>? Roots { get; init; }
 
     public List<DependsDependencyJson>? Dependencies { get; init; }
+
+    public List<DependsPruningJson>? Pruning { get; init; }
 
     public List<DependencyEvidenceRestoredEdgeJson>? RestoredEdges
         { get; init; }
@@ -76,6 +79,12 @@ internal sealed record DependsAssetDocument
                 projection.Dependencies,
                 rows,
                 DependsDependencyJson.Create),
+            Pruning = Project(
+                sections,
+                DependsAssetSections.Pruning,
+                projection.Pruning,
+                rows,
+                row => DependsPruningJson.Create(row, tokens)),
             RestoredEdges = Project(
                 sections,
                 DependsAssetSections.RestoredEdges,
@@ -125,6 +134,15 @@ internal sealed record DependsAssetDocument
         yield return projection.Summary.PackagePrefix?.Source;
         foreach (DependsRootRow root in projection.Roots)
             yield return root.Evidence?.Source;
+        foreach (DependsPruningRow pruning in projection.Pruning)
+        {
+            foreach (PackageSourceResultIdentity? source in
+                     DependsPackageEvidenceJson.Sources(
+                         pruning.CandidateOutcome))
+            {
+                yield return source;
+            }
+        }
         foreach (DependsFailureRow failure in projection.Failures)
         {
             switch (failure)
@@ -193,6 +211,22 @@ internal sealed record DependsAssetDocument
                 tokens.ProjectAssociation(authority.Authority.Association);
             }
         }
+        foreach (DependsPruningRow pruning in projection.Pruning)
+        {
+            if (pruning.CandidateOutcome
+                is not PackageDependencyCandidateResult.Resolved resolved)
+            {
+                continue;
+            }
+
+            tokens.ProjectCorrespondence(
+                resolved.Candidate.Correspondence);
+            foreach (PackageAcquisitionAuthorityEvidence authority in
+                     resolved.Candidate.Authorities)
+            {
+                tokens.ProjectAssociation(authority.Authority.Association);
+            }
+        }
         return tokens;
     }
 
@@ -221,6 +255,8 @@ internal sealed record DependsAssetSummaryJson
     public required DependsEvidencePhaseCompletion
         RestoredRelationshipCompletion { get; init; }
 
+    public required DependsPruningSummaryJson Pruning { get; init; }
+
     public int? RequestedDepth { get; init; }
 
     public required int GraphNodes { get; init; }
@@ -242,12 +278,49 @@ internal sealed record DependsAssetSummaryJson
             DeclarationCompletion = summary.DeclarationCompletion,
             RestoredRelationshipCompletion =
                 summary.RestoredRelationshipCompletion,
+            Pruning = DependsPruningSummaryJson.Create(summary.Pruning),
             RequestedDepth = summary.RequestedDepth,
             GraphNodes = summary.GraphNodes,
             GraphEdges = summary.GraphEdges,
             PackagePrefix = summary.PackagePrefix is { } prefix
                 ? DependencyEvidencePrefixJson.Create(prefix, tokens)
                 : null,
+        };
+}
+
+internal sealed record DependsPruningSummaryJson
+{
+    public required DependsPruningCompletion Completion { get; init; }
+
+    public required int Roots { get; init; }
+
+    public required int Declarations { get; init; }
+
+    public required int Evaluated { get; init; }
+
+    public required int Delegated { get; init; }
+
+    public required int Retained { get; init; }
+
+    public required int NotEvaluated { get; init; }
+
+    public required int SourceBounded { get; init; }
+
+    public required int Failed { get; init; }
+
+    internal static DependsPruningSummaryJson Create(
+        DependsPruningSummary summary) =>
+        new()
+        {
+            Completion = summary.Completion,
+            Roots = summary.Roots,
+            Declarations = summary.Declarations,
+            Evaluated = summary.Evaluated,
+            Delegated = summary.Delegated,
+            Retained = summary.Retained,
+            NotEvaluated = summary.NotEvaluated,
+            SourceBounded = summary.SourceBounded,
+            Failed = summary.Failed,
         };
 }
 
@@ -527,6 +600,127 @@ internal sealed record DependsDependencyJson
     }
 }
 
+internal sealed record DependsPruningJson
+{
+    public required int Root { get; init; }
+
+    public required DependencyEvidenceRootIdentityJson RootIdentity { get; init; }
+
+    [JsonConverter(typeof(InertStringJsonConverter))]
+    public required InertString? RootDisplay { get; init; }
+
+    public required DependencyEvidenceDeclarationIdentityJson
+        DeclarationIdentity { get; init; }
+
+    [JsonConverter(typeof(InertStringJsonConverter))]
+    public required InertString? RequestedFramework { get; init; }
+
+    [JsonConverter(typeof(InertStringJsonConverter))]
+    public required InertString? SelectedFramework { get; init; }
+
+    public required string PackageId { get; init; }
+
+    [JsonConverter(typeof(InertStringJsonConverter))]
+    public required InertString? PackageIdSpelling { get; init; }
+
+    public required string VersionConstraint { get; init; }
+
+    [JsonConverter(typeof(InertStringJsonConverter))]
+    public required InertString? VersionConstraintSpelling { get; init; }
+
+    public string? CandidateVersion { get; init; }
+
+    public string? PlatformFamily { get; init; }
+
+    public string? PlatformTargetFramework { get; init; }
+
+    public string? PlatformVersion { get; init; }
+
+    public string? PlatformProvidedVersion { get; init; }
+
+    public required DependsPruningDisposition Disposition { get; init; }
+
+    public required string Reason { get; init; }
+
+    public required PackageHouseDependencyPruningApplicabilityState
+        Applicability { get; init; }
+
+    public PackageHouseDependencyPruningTargetUnavailableReason?
+        TargetUnavailableReason { get; init; }
+
+    public string? CandidateState { get; init; }
+
+    public string? CandidateDetail { get; init; }
+
+    public DependsPackageCandidateOutcomeJson? Candidate { get; init; }
+
+    public DependencyGraphJsonPackageCandidate? ResolvedCandidate
+        { get; init; }
+
+    public PlatformSubsumption? Subsumption { get; init; }
+
+    public bool? DelegatesToPlatform { get; init; }
+
+    internal static DependsPruningJson Create(
+        DependsPruningRow row,
+        DependencyEvidenceSourceTokens tokens)
+    {
+        PackageHouseDependencyPruningResult.Evaluated? evaluated =
+            row.Result as PackageHouseDependencyPruningResult.Evaluated;
+        return new DependsPruningJson
+        {
+            Root = row.RootOccurrence,
+            RootIdentity = DependencyEvidenceRootIdentityJson.Create(
+                row.RootIdentity),
+            RootDisplay = row.RootDisplay,
+            DeclarationIdentity =
+                DependencyEvidenceDeclarationIdentityJson.Create(
+                    row.DeclarationIdentity),
+            RequestedFramework = row.RequestedFramework,
+            SelectedFramework = row.SelectedFramework,
+            PackageId = row.PackageId,
+            PackageIdSpelling = row.PackageIdSpelling,
+            VersionConstraint = row.VersionConstraint,
+            VersionConstraintSpelling = row.VersionConstraintSpelling,
+            CandidateVersion = row.CandidateVersion,
+            PlatformFamily = row.PlatformFamily,
+            PlatformTargetFramework = row.PlatformTargetFramework,
+            PlatformVersion = row.PlatformVersion,
+            PlatformProvidedVersion = row.PlatformProvidedVersion,
+            Disposition = row.Disposition,
+            Reason = row.Reason,
+            Applicability = row.Applicability.State,
+            TargetUnavailableReason =
+                row.Applicability.TargetUnavailableReason,
+            CandidateState = row.CandidateOutcome?.GetType().Name,
+            CandidateDetail = row.CandidateOutcome switch
+            {
+                PackageDependencyCandidateResult.Failed failed =>
+                    failed.Failure.GetType().Name,
+                PackageDependencyCandidateResult.Incomplete incomplete =>
+                    incomplete.Evidence.GetType().Name,
+                PackageDependencyCandidateResult.Resolved => null,
+                null => null,
+                _ => throw new InvalidOperationException(
+                    "Unknown package candidate result."),
+            },
+            Candidate = DependsPackageCandidateOutcomeJson.CreateOptional(
+                row.CandidateOutcome,
+                tokens),
+            ResolvedCandidate =
+                row.CandidateOutcome
+                    is PackageDependencyCandidateResult.Resolved resolved
+                    ? DependencyGraphOutputAdapter.JsonCandidate(
+                        resolved.Candidate,
+                        tokens)
+                    : null,
+            Subsumption = evaluated?.Pruning.Supply.Subsumption,
+            DelegatesToPlatform =
+                evaluated?.Pruning.Supply.DelegatesToPlatform,
+        };
+    }
+}
+
 internal sealed record DependsFailureJson
 {
     public required DependencyEvidenceFailurePhase Phase { get; init; }
@@ -536,6 +730,8 @@ internal sealed record DependsFailureJson
     public DependencyEvidenceFailureJson? Evidence { get; init; }
 
     public DependsTraversalFailureJson? Traversal { get; init; }
+
+    public DependsPruningFailureJson? Pruning { get; init; }
 
     internal static DependsFailureJson Create(
         DependsFailureRow row,
@@ -558,8 +754,94 @@ internal sealed record DependsFailureJson
                     traversal.Value,
                     tokens),
             },
+            DependsFailureRow.Pruning pruning => new DependsFailureJson
+            {
+                Phase = DependencyEvidenceFailurePhase.Pruning,
+                Reason = pruning.Value.GetType().Name,
+                Pruning = DependsPruningFailureJson.Create(
+                    pruning.Value,
+                    tokens),
+            },
             _ => throw new InvalidOperationException(
                 "Unknown depends failure row."),
+        };
+}
+
+internal sealed record DependsPruningFailureJson
+{
+    public required string Kind { get; init; }
+
+    public string? PlatformFamily { get; init; }
+
+    public string? TargetFramework { get; init; }
+
+    [JsonConverter(typeof(InertStringJsonConverter))]
+    public InertString? Message { get; init; }
+
+    public int? Root { get; init; }
+
+    public DependencyEvidenceRootIdentityJson? RootIdentity { get; init; }
+
+    public DependencyEvidenceDeclarationIdentityJson? DeclarationIdentity
+        { get; init; }
+
+    public string? PackageId { get; init; }
+
+    public string? VersionConstraint { get; init; }
+
+    public string? CandidateState { get; init; }
+
+    public string? CandidateDetail { get; init; }
+
+    public DependsPackageCandidateOutcomeJson? Candidate { get; init; }
+
+    public required List<int> AffectedRoots { get; init; }
+
+    public required int AffectedDeclarations { get; init; }
+
+    internal static DependsPruningFailureJson Create(
+        DependsPruningFailure failure,
+        DependencyEvidenceSourceTokens tokens) =>
+        failure switch
+        {
+            DependsPruningFailure.Inventory inventory => new()
+            {
+                Kind = nameof(DependsPruningFailure.Inventory),
+                PlatformFamily = inventory.PlatformFamily,
+                TargetFramework = inventory.TargetFramework,
+                Message = inventory.Message,
+                AffectedRoots = [.. inventory.AffectedRootOccurrences],
+                AffectedDeclarations = inventory.AffectedDeclarations,
+            },
+            DependsPruningFailure.Candidate candidate => new()
+            {
+                Kind = nameof(DependsPruningFailure.Candidate),
+                Root = candidate.RootOccurrence,
+                RootIdentity = DependencyEvidenceRootIdentityJson.Create(
+                    candidate.RootIdentity),
+                DeclarationIdentity =
+                    DependencyEvidenceDeclarationIdentityJson.Create(
+                        candidate.DeclarationIdentity),
+                PackageId = candidate.PackageId,
+                VersionConstraint = candidate.VersionConstraint,
+                CandidateState = candidate.Outcome.GetType().Name,
+                CandidateDetail = candidate.Outcome switch
+                {
+                    PackageDependencyCandidateResult.Failed failed =>
+                        failed.Failure.GetType().Name,
+                    PackageDependencyCandidateResult.Incomplete incomplete =>
+                        incomplete.Evidence.GetType().Name,
+                    _ => throw new InvalidOperationException(
+                        "A resolved pruning candidate is not a failure."),
+                },
+                Candidate = DependsPackageCandidateOutcomeJson.CreateOptional(
+                    candidate.Outcome,
+                    tokens),
+                AffectedRoots = [candidate.RootOccurrence],
+                AffectedDeclarations = 1,
+            },
+            _ => throw new InvalidOperationException(
+                "Unknown pruning failure."),
         };
 }
 
@@ -774,6 +1056,74 @@ internal sealed record DependsPackageCandidateOutcomeJson
             PackageDependencyTraversalCandidateResult.Resolved resolved =>
                 Create(
                     nameof(PackageDependencyTraversalCandidateResult.Resolved),
+                    resolved.Diagnostics,
+                    tokens),
+            _ => throw new InvalidOperationException(
+                "Unknown package candidate outcome."),
+        };
+
+    internal static DependsPackageCandidateOutcomeJson? CreateOptional(
+        PackageDependencyCandidateResult? result,
+        DependencyEvidenceSourceTokens tokens) =>
+        result switch
+        {
+            null => null,
+            PackageDependencyCandidateResult.Failed
+            {
+                Failure:
+                    PackageDependencyCandidateFailure
+                        .AuthorizationDenied denied,
+            } => Create(
+                nameof(PackageDependencyCandidateFailure
+                    .AuthorizationDenied),
+                denied.Failures,
+                tokens),
+            PackageDependencyCandidateResult.Failed
+            {
+                Failure:
+                    PackageDependencyCandidateFailure.NoMatchingVersion,
+            } => Create(
+                nameof(PackageDependencyCandidateFailure.NoMatchingVersion),
+                [],
+                tokens),
+            PackageDependencyCandidateResult.Failed
+            {
+                Failure:
+                    PackageDependencyCandidateFailure
+                        .ResolvedCoordinateMismatch,
+            } => Create(
+                nameof(PackageDependencyCandidateFailure
+                    .ResolvedCoordinateMismatch),
+                [],
+                tokens),
+            PackageDependencyCandidateResult.Incomplete
+            {
+                Evidence:
+                    PackageDependencyCandidateIncomplete
+                        .PinnedAuthorization pinned,
+            } => Create(
+                nameof(PackageDependencyCandidateIncomplete
+                    .PinnedAuthorization),
+                pinned.Failures,
+                tokens),
+            PackageDependencyCandidateResult.Incomplete
+            {
+                Evidence:
+                    PackageDependencyCandidateIncomplete
+                        .VersionDiscovery discovery,
+            } => Create(
+                nameof(PackageDependencyCandidateIncomplete
+                    .VersionDiscovery),
+                discovery.Failures,
+                tokens) with
+            {
+                DiscoveryState = discovery.State,
+                DiscoveryContract = discovery.Contract,
+                CandidateObservations = discovery.CandidateObservationCount,
+            },
+            PackageDependencyCandidateResult.Resolved resolved =>
+                Create(
+                    nameof(PackageDependencyCandidateResult.Resolved),
                     resolved.Diagnostics,
                     tokens),
             _ => throw new InvalidOperationException(
@@ -1029,6 +1379,26 @@ internal static class DependsPackageEvidenceJson
         }
     }
 
+    internal static IEnumerable<PackageSourceResultIdentity?> Sources(
+        PackageDependencyCandidateResult? outcome)
+    {
+        foreach (PackageAuthorityFailure failure in CandidateFailures(
+                     outcome))
+        {
+            yield return failure.ResultSource
+                ?? failure.SourceFailure?.Source;
+        }
+
+        if (outcome is not PackageDependencyCandidateResult.Resolved resolved)
+            yield break;
+
+        foreach (PackageAcquisitionAuthorityEvidence authority in
+                 resolved.Candidate.Authorities)
+        {
+            yield return authority.Observation?.Source;
+        }
+    }
+
     private static IEnumerable<PackageAuthorityFailure> CandidateFailures(
         PackageDependencyTraversalCandidateResult? outcome) =>
         outcome switch
@@ -1052,6 +1422,33 @@ internal static class DependsPackageEvidenceJson
                         .VersionDiscovery discovery,
             } => discovery.Failures,
             PackageDependencyTraversalCandidateResult.Resolved resolved =>
+                resolved.Diagnostics,
+            _ => [],
+        };
+
+    private static IEnumerable<PackageAuthorityFailure> CandidateFailures(
+        PackageDependencyCandidateResult? outcome) =>
+        outcome switch
+        {
+            PackageDependencyCandidateResult.Failed
+            {
+                Failure:
+                    PackageDependencyCandidateFailure
+                        .AuthorizationDenied denied,
+            } => denied.Failures,
+            PackageDependencyCandidateResult.Incomplete
+            {
+                Evidence:
+                    PackageDependencyCandidateIncomplete
+                        .PinnedAuthorization pinned,
+            } => pinned.Failures,
+            PackageDependencyCandidateResult.Incomplete
+            {
+                Evidence:
+                    PackageDependencyCandidateIncomplete
+                        .VersionDiscovery discovery,
+            } => discovery.Failures,
+            PackageDependencyCandidateResult.Resolved resolved =>
                 resolved.Diagnostics,
             _ => [],
         };

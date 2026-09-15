@@ -10,6 +10,7 @@ internal static class DependsAssetSections
     public const string DependencyGraph = "Dependency Graph";
     public const string Roots = "Roots";
     public const string Dependencies = "Dependencies";
+    public const string Pruning = "Pruning";
     public const string RestoredEdges = "Restored Edges";
     public const string Failures = "Failures";
     public const string DependencyGroups = "Dependency Groups";
@@ -61,6 +62,7 @@ internal static class DependsAssetSections
             DependencyGraph => projection.GraphRows.Length,
             Roots => projection.Roots.Length,
             Dependencies => projection.Dependencies.Length,
+            Pruning => projection.Pruning.Length,
             RestoredEdges => projection.RestoredEdges.Length,
             Failures => projection.Failures.Length,
             DependencyGroups => projection.DependencyGroups.Length,
@@ -75,6 +77,7 @@ internal static class DependsAssetSections
             .WithoutComputedPoles()
             .Add<GraphSection>()
             .Add<DependencySection>()
+            .Add<PruningSection>()
             .Add<FailureSection>()
             .AddBaseCategory(
                 SectionCategoryNames.Dependencies,
@@ -158,6 +161,20 @@ internal static class DependsAssetSections
         public static SectionCost Cost => SectionCost.NetworkFree;
         public static bool CanRender(DependsAssetProjection model) =>
             !model.Dependencies.IsEmpty;
+    }
+
+    public sealed class PruningSection :
+        ISectionDescriptor<DependsAssetProjection>
+    {
+        public static string Name => Pruning;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass =>
+            SectionSizeClass.Informative;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool CanRender(DependsAssetProjection model) =>
+            model.Summary.Pruning.Completion
+                != DependsPruningCompletion.NotRequested;
     }
 
     public sealed class RestoredEdgeSection :
