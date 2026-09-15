@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Queries;
@@ -694,7 +693,7 @@ public sealed class BrowserPackageQueryOperationsTests
     }
 
     [Fact]
-    public async Task EventObserverUsesEnvelopeContentForCompletion()
+    public async Task EventObserverPublishesOnlyNonterminalContent()
     {
         using IPackageSourceClient source =
             PackageSourceClientFactory.CreateGallery(
@@ -720,26 +719,25 @@ public sealed class BrowserPackageQueryOperationsTests
                 emitted.Add,
                 deadline: null);
 
-        await observer.ObserveAsync(
+        await observer.ReportAsync(
             progress,
             TestContext.Current.CancellationToken);
-        await observer.ObserveAsync(
-            completed,
-            TestContext.Current.CancellationToken);
-        var envelope = new InspectionEnvelope<
-            ImmutableArray<PackageQueryEvent>>(
-                [progress, completed],
+        var envelope = new InspectionEnvelope<PackageQueryDocument>(
+                new(
+                    Results: [],
+                    Failures: [],
+                    completed.Value),
                 new InspectionShare.NonProjectable(
                     "package-query/share",
                     "No canonical Workspace packet."));
-        BrowserPackageQueryInspection inspection = observer.Complete(envelope);
+        BrowserPackageQueryInspection inspection =
+            BrowserPackageQueryOperations.Complete(envelope);
 
+        Assert.Empty(inspection.Content.Results);
+        Assert.Empty(inspection.Content.Failures);
         Assert.Equal(
-            [
-                BrowserPackageQueryEventKind.Progress,
-                BrowserPackageQueryEventKind.Completed,
-            ],
-            inspection.Content.Select(queryEvent => queryEvent.Kind));
+            BrowserPackageQueryCompletionKind.Exhausted,
+            inspection.Content.Completion.Kind);
         Assert.Equal(
             BrowserInspectionShareKind.NonProjectable,
             inspection.Share.Kind);
@@ -768,7 +766,10 @@ public sealed class BrowserPackageQueryOperationsTests
                 Failures: 0,
                 BrowserPackageQueryCompletionKind.Exhausted));
         var inspection = new BrowserPackageQueryInspection(
-            [completed],
+            new BrowserPackageQueryDocument(
+                Results: [],
+                Failures: [],
+                completed.Completion!),
             new BrowserInspectionShare(
                 BrowserInspectionShareKind.NonProjectable,
                 FullUrl: null,
@@ -796,12 +797,14 @@ public sealed class BrowserPackageQueryOperationsTests
             BrowserPackageJsonContext.Default.BrowserPackageQueryResult);
 
         Assert.NotNull(roundTripped);
-        Assert.Equal(2, roundTripped.Version);
+        Assert.Equal(3, roundTripped.Version);
         Assert.Null(roundTripped.Value);
         Assert.NotNull(roundTripped.Inspection);
         Assert.Equal(
-            inspection.Content,
-            roundTripped.Inspection.Content);
+            inspection.Content.Completion,
+            roundTripped.Inspection.Content.Completion);
+        Assert.Empty(roundTripped.Inspection.Content.Results);
+        Assert.Empty(roundTripped.Inspection.Content.Failures);
         Assert.Equal(inspection.Share, roundTripped.Inspection.Share);
         Assert.Equal(
             inspection.Diagnostics,
@@ -819,10 +822,10 @@ public sealed class BrowserPackageQueryOperationsTests
             emitted.Add,
             deadline: null);
 
-        await observer.ObserveAsync(
+        await observer.ReportAsync(
             MatchEvent("Contoso.One"),
             TestContext.Current.CancellationToken);
-        Task pending = observer.ObserveAsync(
+        Task pending = observer.ReportAsync(
                 MatchEvent("Contoso.Two"),
                 TestContext.Current.CancellationToken)
             .AsTask();
@@ -848,10 +851,10 @@ public sealed class BrowserPackageQueryOperationsTests
             emitted.Add,
             deadline: null);
 
-        await observer.ObserveAsync(
+        await observer.ReportAsync(
             MatchEvent("Contoso.One"),
             cancellation.Token);
-        Task pending = observer.ObserveAsync(
+        Task pending = observer.ReportAsync(
                 MatchEvent("Contoso.Two"),
                 cancellation.Token)
             .AsTask();
@@ -881,12 +884,12 @@ public sealed class BrowserPackageQueryOperationsTests
                             matchCredit,
                             emitted.Add,
                             deadline);
-                    await observer.ObserveAsync(
+                    await observer.ReportAsync(
                         MatchEvent("Contoso.One"),
                         deadline.Token);
                     while (!deadline.HasExpired)
                         Thread.SpinWait(100);
-                    await observer.ObserveAsync(
+                    await observer.ReportAsync(
                         MatchEvent("Contoso.Two"),
                         deadline.Token);
                     return 0;
@@ -1205,7 +1208,7 @@ public sealed class BrowserPackageQueryOperationsTests
             yield return queryEvent;
     }
 
-    static PackageQueryEvent MatchEvent(string packageId)
+    static PackageQueryEvent.Match MatchEvent(string packageId)
     {
         using IPackageSourceClient source =
             PackageSourceClientFactory.CreateGallery(

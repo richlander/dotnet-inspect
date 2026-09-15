@@ -951,6 +951,9 @@ public class ApiType
     [JsonIgnore]
     public ApiTypeReferenceIdentity? BaseTypeReference { get; set; }
     public List<string> Interfaces { get; set; } = [];
+    [JsonIgnore]
+    public List<ApiTypeReferenceIdentity> InterfaceReferences
+        { get; set; } = [];
 
     /// <summary>
     /// Known derived types within the same assembly.

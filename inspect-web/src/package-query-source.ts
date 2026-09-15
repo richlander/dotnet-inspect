@@ -246,7 +246,7 @@ export function createBrowserPackageQueryDataSource(
               eventSink);
         flushEvents();
         let unexpectedFailure: Error | null = null;
-        if (result.version === 2
+        if (result.version === 3
             && result.kind === "Failed"
             && result.failureKind === "Unexpected") {
           unexpectedFailure = new Error(
@@ -264,7 +264,7 @@ export function createBrowserPackageQueryDataSource(
           }
         }
         if (flushState.failed) throw flushState.error;
-        if (result.version !== 2) {
+        if (result.version !== 3) {
           throw new Error(
             "The Browser package-query result version is unsupported.");
         }
@@ -290,13 +290,14 @@ export function createBrowserPackageQueryDataSource(
             throw new TypeError(
               "The Browser package-query result did not contain its inspection envelope.");
           }
-          const content = result.inspection.content;
-          const terminal = content.at(-1);
-          if (terminal?.kind !== "Completed") {
-            throw new TypeError(
-              "The Browser package-query inspection did not end with completion.");
-          }
-          finalEvent = terminal;
+          finalEvent = {
+            kind: "Completed",
+            row: null,
+            failure: null,
+            completion: result.inspection.content.completion,
+            progress: null,
+            assessment: null,
+          };
         }
         if (finalEvent.kind !== "Completed") {
           throw new TypeError(
