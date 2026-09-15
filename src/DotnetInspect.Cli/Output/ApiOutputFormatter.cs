@@ -246,10 +246,16 @@ public static class ApiOutputFormatter
         if (ShouldRenderMemberDetailContext(options) && includeSections is { Count: > 0 }
             && !includeSections.Contains(SectionNames.Summary))
             includeSections = [SectionNames.Summary, .. includeSections];
+        string[]? explicitSectionOrder =
+            options.IncludeSections is { Count: > 0 }
+            && includeSections is not null
+            ? [.. pipeline.AllSectionNames.Where(includeSections.Contains)]
+            : null;
 
         return new MarkoutWriterOptions
         {
             IncludeSections = includeSections,
+            SectionOrder = explicitSectionOrder,
             IncludeDescription = effectiveVerbosity != Verbosity.Quiet && !ShouldRenderMemberDetailContext(options),
             Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields),
             TextDiffContextLines = effectiveVerbosity >= Verbosity.Detailed ? null : 3

@@ -77,12 +77,22 @@ silently stand in for the query's inventory-read bound.
 [#7101](https://github.com/richlander/dotnet-inspect/issues/7101) supplies the
 Metadata-owned [definition discovery attributes](type-forwarding-resolution.md#definition-discovery-attributes)
 needed for default-visibility adoption. Locator candidates and Sections rows
-carry `DiscoveryAttributes` unchanged, including unavailable target evidence
-for exports. The existing public/all locator views do not apply attribute
-suppression. Step 7's consumer owns that policy and remains responsible for
-default-path parity; [PR #7082](https://github.com/richlander/dotnet-inspect/pull/7082)
-is a separate CLI slice. Step 8 consumes the same typed facts rather than
-reopening metadata or parsing display text to discover them.
+carry `DiscoveryAttributes` and `IsPublicSurface` unchanged, including
+unavailable target attribute evidence for exports. The existing public/all
+locator views do not apply attribute suppression.
+
+[#7142](https://github.com/richlander/dotnet-inspect/issues/7142) supplies the
+focused step-6 [type-declaration visibility selector](type-declaration-visibility.md):
+independent public-surface, EditorBrowsable Never, and obsolete facets;
+Default/All presets with per-facet overrides; and attributed unknown evidence
+through Sections/JSON/Markout. The user explicitly approved **shared-first**
+sequencing, leaving [PR #7082](https://github.com/richlander/dotnet-inspect/pull/7082)
+with its existing CLI owner. Step 7 consumes this shared plan, preserves
+default-path parity or discloses intentional changes, and adds CLI predicate
+bindings and `-Q` disclosure only when execution supports them. This
+prerequisite does not claim those bindings are shipped. Step 8 consumes the
+same shared plan and typed evidence rather than implementing another filter,
+reopening metadata, or parsing display text.
 
 The current cold query and resident facade deliberately do not replace a CLI
 collector before those associations exist. The next production

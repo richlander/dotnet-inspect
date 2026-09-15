@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Xml;
 using DotnetInspector.Packages;
+using DotnetInspector.PortableQueries;
 using DotnetInspector.Services;
 using DotnetInspector.SourceSelection;
 using InertText;
@@ -50,6 +51,17 @@ public sealed record PackageQueryFacetDescriptor(
     public bool CombinesWithinSelectionGroup { get; init; }
 }
 
+/// <summary>One product-owned parameterized Package Query term.</summary>
+public sealed record PackageQueryTermDescriptor(
+    string Key,
+    string Label,
+    string Summary,
+    int Weight,
+    PackageQueryFacetTier Tier,
+    ImmutableArray<string> Operators,
+    string ValueKind,
+    string ExampleValue);
+
 /// <summary>A bounded package-query request over one package-ID prefix.</summary>
 public sealed record PackageQueryRequest(
     string Prefix,
@@ -71,26 +83,35 @@ public enum PackageQueryRequestFailureReason
     IncompatibleFacets,
     PackageContentCandidateLimitExceeded,
     InvalidPackageInput,
+    TooManyTerms,
+    InvalidTermKey,
+    UnknownTerm,
+    TermOperatorNotAdmitted,
+    InvalidTermValue,
+    DuplicateTerm,
 }
 
 /// <summary>
-/// A typed, content-safe package-query planning failure. Returned facet IDs
-/// are always product-issued.
+/// A typed, content-safe package-query planning failure. Returned facet IDs and
+/// term keys are always product-issued.
 /// </summary>
 public sealed record PackageQueryRequestFailure
 {
     internal PackageQueryRequestFailure(
         PackageQueryRequestFailureReason reason,
         IEnumerable<string>? facetIds = null,
+        IEnumerable<string>? termKeys = null,
         int? value = null)
     {
         Reason = reason;
         FacetIds = facetIds is null ? [] : [.. facetIds];
+        TermKeys = termKeys is null ? [] : [.. termKeys];
         Value = value;
     }
 
     public PackageQueryRequestFailureReason Reason { get; }
     public ImmutableArray<string> FacetIds { get; }
+    public ImmutableArray<string> TermKeys { get; }
     public int? Value { get; }
 
     public string Message => Reason switch
@@ -115,6 +136,18 @@ public sealed record PackageQueryRequestFailure
             "The selected package-query facets cannot be combined.",
         PackageQueryRequestFailureReason.PackageContentCandidateLimitExceeded =>
             $"Package-content facets accept at most {PackageQuery.MaximumPackageContentCandidates} candidates.",
+        PackageQueryRequestFailureReason.TooManyTerms =>
+            $"A package-query request accepts at most {PackageQuery.MaximumTerms} terms.",
+        PackageQueryRequestFailureReason.InvalidTermKey =>
+            "A package-query term key is empty or invalid.",
+        PackageQueryRequestFailureReason.UnknownTerm =>
+            "One or more package-query term keys are unknown.",
+        PackageQueryRequestFailureReason.TermOperatorNotAdmitted =>
+            "A package-query term uses an operator that its key does not admit.",
+        PackageQueryRequestFailureReason.InvalidTermValue =>
+            "A package-query term value is invalid.",
+        PackageQueryRequestFailureReason.DuplicateTerm =>
+            "Two package-query terms resolve to the same predicate.",
         _ => "The package-query request is invalid.",
     };
 }
@@ -131,8 +164,8 @@ public abstract record PackageQueryPlanResult
 }
 
 /// <summary>
-/// One validated package-query plan. Construction is product-owned so execution
-/// cannot receive unknown or incompatible facet identities.
+/// One validated package-query plan. Construction is product-owned so
+/// execution cannot receive unknown or incompatible predicates.
 /// </summary>
 public sealed class PackageQueryPlan
 {
@@ -140,6 +173,7 @@ public sealed class PackageQueryPlan
         InertString prefix,
         InertString prefixEvidence,
         ImmutableArray<PackageQueryFacetDefinition> definitions,
+        ImmutableArray<BoundPackageQueryTerm> terms,
         int maximumCandidates,
         int? maximumMatches,
         bool includePrerelease,
@@ -149,6 +183,8 @@ public sealed class PackageQueryPlan
         PrefixEvidence = prefixEvidence;
         Definitions = definitions;
         Facets = [.. definitions.Select(definition => definition.Descriptor)];
+        BoundTerms = terms;
+        Terms = [.. terms.Select(term => term.Term)];
         MaximumCandidates = maximumCandidates;
         MaximumMatches = maximumMatches;
         IncludePrerelease = includePrerelease;
@@ -157,6 +193,7 @@ public sealed class PackageQueryPlan
 
     public InertString Prefix { get; }
     public ImmutableArray<PackageQueryFacetDescriptor> Facets { get; }
+    public ImmutableArray<PortableQueryTerm> Terms { get; }
     public int MaximumCandidates { get; }
     public int? MaximumMatches { get; }
     public bool IncludePrerelease { get; }
@@ -164,6 +201,7 @@ public sealed class PackageQueryPlan
 
     internal InertString PrefixEvidence { get; }
     internal ImmutableArray<PackageQueryFacetDefinition> Definitions { get; }
+    internal ImmutableArray<BoundPackageQueryTerm> BoundTerms { get; }
 }
 
 /// <summary>Whether evidence describes the query input or an inspected package.</summary>
@@ -185,6 +223,7 @@ public sealed record PackageQueryEvidence(
 {
     public PackageQueryEvidenceScope Scope { get; init; }
     public PackageQueryEvidenceSummary? Summary { get; init; }
+    public PortableQueryTerm? Term { get; init; }
     public string Value => Text.ToString();
 }
 
@@ -325,6 +364,11 @@ internal sealed record PackageQueryFacetDefinition(
     Func<PackageQueryPackage, PackageContentFacts?, PackageQueryFacetEvidence> Evidence,
     Func<PackageContentFacts, bool>? MatchesPackageContent = null);
 
+internal sealed record BoundPackageQueryTerm(
+    PackageQueryTermDescriptor Descriptor,
+    PortableQueryTerm Term,
+    InertString Value);
+
 internal sealed record PackageQueryFacetEvidence(
     InertString Text,
     PackageQueryEvidenceSummary? Summary = null);
@@ -343,6 +387,7 @@ public static partial class PackageQuery
     public const int DefaultMaximumMatches = 100;
     public const int MaximumPackageContentCandidates = 20;
     public const int MaximumFacetIdLength = 100;
+    public const int MaximumTerms = 24;
     public const int MaximumToolSettingsBytes = 64 * 1024;
     public const int MaximumEvidencePreviewItems = 3;
     public const int MaximumEvidencePreviewCharacters = 160;
@@ -361,6 +406,7 @@ public static partial class PackageQuery
     public const string DependencySelectionGroupId = "package.query.dependencies";
     public const string ToolSelectionGroupId = "package.query.dotnet-tool-format";
     public const string ToolDisplayGroupId = "package.query.display.dotnet-tool";
+    public const string DependsTermKey = "depends";
 
     static readonly ImmutableArray<PackageQueryFacetDefinition> Definitions =
     [
@@ -494,6 +540,28 @@ public static partial class PackageQuery
         [.. Definitions.Select(definition => definition.Descriptor)];
 
     /// <summary>
+    /// The ordered parameterized term vocabulary. Browser adoption is staged
+    /// separately from the first CLI consumer.
+    /// </summary>
+    public static ImmutableArray<PackageQueryTermDescriptor> Terms { get; } =
+    [
+        new(
+            DependsTermKey,
+            "depends on package",
+            "Matches a direct dependency declared in any package manifest group.",
+            350,
+            PackageQueryFacetTier.Nuspec,
+            [PortableQueryModel.TextOf(PortableQueryOperator.Equal)],
+            "NuGet package ID",
+            "Microsoft.Extensions.DependencyInjection"),
+    ];
+
+    static readonly IReadOnlyDictionary<string, PackageQueryTermDescriptor>
+        TermsByKey = Terms.ToDictionary(
+            descriptor => descriptor.Key,
+            StringComparer.Ordinal);
+
+    /// <summary>
     /// Validates and lowers a request without throwing for user-controlled
     /// prefix, bound, or facet values.
     /// </summary>
@@ -526,6 +594,7 @@ public static partial class PackageQuery
             Evidence(prefix),
             Evidence(prefixEvidence),
             request.FacetIds,
+            terms: null,
             request.MaximumCandidates,
             request.MaximumMatches,
             request.IncludePrerelease);
@@ -535,6 +604,7 @@ public static partial class PackageQuery
         InertString prefix,
         InertString scopeEvidence,
         IReadOnlyCollection<string>? facetIds,
+        IReadOnlyCollection<PortableQueryTerm>? terms,
         int maximumCandidates,
         int? maximumMatches,
         bool includePrerelease,
@@ -620,11 +690,81 @@ public static partial class PackageQuery
                 value: maximumCandidates);
         }
 
+        IReadOnlyCollection<PortableQueryTerm> requestedTerms = terms ?? [];
+        ImmutableArray<PortableQueryTerm> distinctTerms =
+        [
+            .. requestedTerms
+                .Distinct()
+                .OrderBy(term => term.Key, PortableQueryModel.ScalarOrder)
+                .ThenBy(
+                    term => PortableQueryModel.TextOf(term.Operator),
+                    PortableQueryModel.ScalarOrder)
+                .ThenBy(term => term.Value, PortableQueryModel.ScalarOrder),
+        ];
+        if (distinctTerms.Length > MaximumTerms)
+        {
+            return Rejected(PackageQueryRequestFailureReason.TooManyTerms);
+        }
+        if (distinctTerms.Any(term =>
+            string.IsNullOrWhiteSpace(term.Key)
+            || term.Key.Length > MaximumFacetIdLength
+            || !InertString.IsPermitted(TextPolicy.Field, term.Key)))
+        {
+            return Rejected(PackageQueryRequestFailureReason.InvalidTermKey);
+        }
+        if (distinctTerms.Any(term => !TermsByKey.ContainsKey(term.Key)))
+        {
+            return Rejected(PackageQueryRequestFailureReason.UnknownTerm);
+        }
+        if (distinctTerms.Any(term =>
+            !TermsByKey[term.Key].Operators.Contains(
+                PortableQueryModel.TextOf(term.Operator),
+                StringComparer.Ordinal)))
+        {
+            return Rejected(
+                PackageQueryRequestFailureReason.TermOperatorNotAdmitted);
+        }
+        if (distinctTerms.Any(term =>
+            string.IsNullOrWhiteSpace(term.Value)
+            || !InertString.IsPermitted(TextPolicy.Field, term.Value)
+            || term.Key == DependsTermKey
+                && !DotnetInspector.Packages.PackageExtractor
+                    .IsValidPackageId(term.Value)))
+        {
+            return Rejected(PackageQueryRequestFailureReason.InvalidTermValue);
+        }
+
+        string[] duplicateTermKeys =
+        [
+            .. distinctTerms
+                .Where(term => term.Key == DependsTermKey)
+                .GroupBy(term => term.Value, StringComparer.OrdinalIgnoreCase)
+                .Where(group => group.Skip(1).Any())
+                .Select(_ => DependsTermKey)
+                .Distinct(StringComparer.Ordinal),
+        ];
+        if (duplicateTermKeys.Length > 0)
+        {
+            return Rejected(
+                PackageQueryRequestFailureReason.DuplicateTerm,
+                termKeys: duplicateTermKeys);
+        }
+
+        ImmutableArray<BoundPackageQueryTerm> boundTerms =
+        [
+            .. distinctTerms.Select(term =>
+                new BoundPackageQueryTerm(
+                    TermsByKey[term.Key],
+                    term,
+                    new InertString(TextPolicy.Field, term.Value))),
+        ];
+
         return new PackageQueryPlanResult.Accepted(
             new PackageQueryPlan(
                 prefix,
                 scopeEvidence,
                 selected,
+                boundTerms,
                 maximumCandidates,
                 maximumMatches,
                 includePrerelease,
@@ -930,7 +1070,7 @@ public static partial class PackageQuery
         out ImmutableArray<PackageQueryEvidence>.Builder evidence)
     {
         evidence = ImmutableArray.CreateBuilder<PackageQueryEvidence>(
-            plan.Definitions.Length + 1);
+            plan.Definitions.Length + plan.BoundTerms.Length + 1);
         AddScopeEvidence(plan, evidence);
         var handledGroups = new HashSet<string>(StringComparer.Ordinal);
         foreach (PackageQueryFacetDefinition definition in plan.Definitions)
@@ -966,6 +1106,23 @@ public static partial class PackageQuery
                 }
                 AddFacetEvidence(candidate, match, null, evidence);
             }
+        }
+
+        foreach (BoundPackageQueryTerm term in plan.BoundTerms)
+        {
+            if (!TryMatchTerm(term, match, out PackageQueryFacetEvidence termEvidence))
+            {
+                evidence.Clear();
+                return false;
+            }
+
+            evidence.Add(new PackageQueryEvidence(
+                term.Descriptor.Key,
+                termEvidence.Text)
+            {
+                Summary = termEvidence.Summary,
+                Term = term.Term,
+            });
         }
 
         return true;
@@ -1150,6 +1307,42 @@ public static partial class PackageQuery
         match.RequiredManifest.DependencyGroups.Any(group =>
             !group.Dependencies.IsEmpty);
 
+    static bool TryMatchTerm(
+        BoundPackageQueryTerm term,
+        PackageQueryPackage match,
+        out PackageQueryFacetEvidence evidence)
+    {
+        if (term.Descriptor.Key != DependsTermKey)
+        {
+            throw new InvalidOperationException(
+                "Unknown bound Package Query term.");
+        }
+
+        DeclaredPackageDependency[] dependencies =
+        [
+            .. match.RequiredManifest.DependencyGroups
+                .SelectMany(group => group.Dependencies)
+                .Where(dependency => string.Equals(
+                    dependency.Id,
+                    term.Value.ToString(),
+                    StringComparison.OrdinalIgnoreCase)),
+        ];
+        if (dependencies.Length == 0)
+        {
+            evidence = null!;
+            return false;
+        }
+
+        evidence = DescribeItems(
+            SummarizeItems(
+                dependencies.Select(dependency =>
+                    $"{dependency.Id} {dependency.VersionRange}"),
+                StringComparer.Ordinal),
+            "dependency declaration",
+            "dependency declarations");
+        return true;
+    }
+
     static PackageQueryFacetEvidence DescribeDependencies(PackageQueryPackage match) =>
         DescribeItems(
             SummarizeItems(
@@ -1293,6 +1486,11 @@ public static partial class PackageQuery
     static PackageQueryPlanResult.Rejected Rejected(
         PackageQueryRequestFailureReason reason,
         IEnumerable<string>? facetIds = null,
+        IEnumerable<string>? termKeys = null,
         int? value = null) =>
-        new(new PackageQueryRequestFailure(reason, facetIds, value));
+        new(new PackageQueryRequestFailure(
+            reason,
+            facetIds,
+            termKeys,
+            value));
 }

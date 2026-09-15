@@ -40,8 +40,7 @@ internal interface ILibraryMethodAnalysisInfrastructure
     ILibraryMethodAnalysisResolver CreateMethodAnalysisResolver(
         GenericScope scope,
         MethodIdentity caller,
-        byte[] il,
-        IReadOnlyCollection<ExceptionRegion> exceptionRegions);
+        MethodInstructions instructions);
 
     IMethodCallResolver CreateCallResolver(
         GenericScope scope,
@@ -831,9 +830,12 @@ internal sealed class LibraryMethodAnalysisRunner(
             }
             leakFailureKind =
                 LeakTriageFailureKind.BodyAcquisition;
+            MethodBodyData metadataBody = RequireMethodBody(
+                _infrastructure.PeReader,
+                caller.MetadataToken);
             var body = _infrastructure.PeReader.GetMethodBody(
                 methodDefinition.RelativeVirtualAddress);
-            var il = body.GetILBytes() ?? [];
+            var il = metadataBody.IL.ToArray();
             if (includeLeakTriage)
             {
                 if (!SignatureBlobGuard.IsSafeToDecode(
@@ -854,8 +856,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                             LeakTriageAnalyzer
                                 .CreateAssemblyScanMethodIdentity(
                                     caller),
-                            il,
-                            body.ExceptionRegions,
+                            metadataBody,
                             token => _infrastructure.ResolveMethod(
                                 token,
                                 scope,
@@ -867,22 +868,17 @@ internal sealed class LibraryMethodAnalysisRunner(
                                     scope));
                 }
             }
-            var methodInstructions =
-                DecodeBody(
-                    il,
-                    body.ExceptionRegions);
-            var loopRegions =
-                CollectLoopRegions(methodInstructions);
             var localTypes =
                 DecodeLocalTypes(
                     body,
                     scope);
-            var context = new MethodBodyAnalysisContext(
+            MethodBodyAnalysisContext context =
+                MethodBodyAnalysisContext.Create(
                 caller,
-                methodInstructions,
-                body.ExceptionRegions,
-                loopRegions,
+                metadataBody,
                 localTypes);
+            MethodInstructions methodInstructions =
+                context.Instructions;
             if (includeImplementationProfiles)
             {
                 result.ImplementationProfile =
@@ -900,8 +896,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                 _infrastructure.CreateMethodAnalysisResolver(
                     scope,
                     caller,
-                    il,
-                    body.ExceptionRegions);
+                    methodInstructions);
             var localSafety =
                 MethodSafetyAnalysis.InspectLocals(
                     context,
@@ -1301,14 +1296,13 @@ internal sealed class LibraryMethodAnalysisRunner(
 
             leakFailureKind =
                 LeakTriageFailureKind.BodyAcquisition;
-            var body =
-                _infrastructure.PeReader.GetMethodBody(
-                    methodDefinition.RelativeVirtualAddress);
+            MethodBodyData body = RequireMethodBody(
+                _infrastructure.PeReader,
+                method.MetadataToken);
             result.LeakTriage =
                 LeakTriageAnalyzer.AnalyzeMethodDetailed(
                     method,
-                    body.GetILBytes() ?? [],
-                    body.ExceptionRegions,
+                    body,
                     token => _infrastructure.ResolveMethod(
                         token,
                         scope,
@@ -1357,35 +1351,23 @@ internal sealed class LibraryMethodAnalysisRunner(
                 exceptionRegions));
     }
 
-    static IReadOnlyList<(int Start, int End)> CollectLoopRegions(
-        MethodInstructions body)
-    {
-        var regions = new List<(int Start, int End)>();
-        var blockGraph = body.Blocks;
-        foreach (var instruction in body.Instructions)
+    static MethodBodyData RequireMethodBody(
+        PEReader peReader,
+        int methodToken) =>
+        MethodBodySource.Read(peReader, methodToken) switch
         {
-            if (instruction.OpCode == ILOpCode.Switch)
-                continue;
-            int sourceBlock =
-                blockGraph.BlockIndexAt(instruction.Offset);
-            foreach (int target in instruction.BranchTargets)
-            {
-                if (target >= instruction.Offset)
-                    continue;
-                int targetBlock =
-                    blockGraph.BlockIndexAt(target);
-                if (sourceBlock >= 0
-                    && targetBlock >= 0
-                    && blockGraph.Blocks[sourceBlock]
-                        .Edges.Successors.Contains(targetBlock))
-                {
-                    regions.Add(
-                        (target, instruction.Offset));
-                }
-            }
-        }
-        return regions;
-    }
+            MethodBodyReadResult.Available available =>
+                available.Body,
+            MethodBodyReadResult.NoBody =>
+                throw new InvalidOperationException(
+                    $"Method token 0x{methodToken:X8} has no managed IL body."),
+            MethodBodyReadResult.Unavailable unavailable =>
+                throw new BadImageFormatException(
+                    $"Metadata method-body evidence is unavailable "
+                    + $"({unavailable.Reason.GetType().Name})."),
+            _ => throw new InvalidOperationException(
+                "Unknown Metadata method-body result."),
+        };
 
     ImmutableArray<TypeRef> DecodeLocalTypes(
         MethodBodyBlock body,

@@ -16232,7 +16232,6 @@ public class LibraryBodyIndexTests
         var context = new MethodBodyAnalysisContext(
             moveNext,
             instructions,
-            body.ExceptionRegions,
             [],
             []);
         using var builder = new LibraryBodyAnalysisBuilder(

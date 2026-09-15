@@ -497,9 +497,9 @@ public sealed partial class WorkspaceContextLoaderTests
             Assert.Equal(left.IsRealizationComplete, right.IsRealizationComplete);
             Assert.Equal(left.IsEvaluationComplete, right.IsEvaluationComplete);
             Assert.Equal(left.Candidates.Select(candidate =>
-                    (candidate.Coordinate, candidate.Name, candidate.Kind, candidate.DiscoveryAttributes, candidate.Observation)),
+                    (candidate.Coordinate, candidate.Name, candidate.Kind, candidate.IsPublicSurface, candidate.DiscoveryAttributes, candidate.Observation)),
                 right.Candidates.Select(candidate =>
-                    (candidate.Coordinate, candidate.Name, candidate.Kind, candidate.DiscoveryAttributes, candidate.Observation)));
+                    (candidate.Coordinate, candidate.Name, candidate.Kind, candidate.IsPublicSurface, candidate.DiscoveryAttributes, candidate.Observation)));
         }
     }
 
