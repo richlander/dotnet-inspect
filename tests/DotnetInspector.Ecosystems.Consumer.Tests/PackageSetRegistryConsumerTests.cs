@@ -34,7 +34,7 @@ public sealed class PackageSetRegistryConsumerTests
         EcosystemPackDescriptor[] packs = [.. EcosystemPackCatalog.Discover()];
         EcosystemDemoDescriptor[] demos = [.. EcosystemPackCatalog.DiscoverDemos()];
 
-        Assert.Equal(6, packs.Length);
+        Assert.Equal(7, packs.Length);
         Assert.Equal(10, demos.Length);
         Assert.Equal(ProductDemoIds.StjSerializer, demos[0].ScenarioId);
         Assert.Equal(ProductDemoIds.AspireRedisCallGraph, demos[^1].ScenarioId);
@@ -136,6 +136,38 @@ public sealed class PackageSetRegistryConsumerTests
         Assert.DoesNotContain(
             curated.Members,
             member => member.PackageId == "Microsoft.Extensions.Azure");
+
+        EcosystemPackDescriptor blazor = Assert.IsType<EcosystemPackLookupResult.Known>(
+            EcosystemPackCatalog.Lookup(EcosystemPackIds.Blazor)).Descriptor;
+        Assert.Equal(
+            [
+                "Microsoft.AspNetCore.Components",
+                "Microsoft.Authentication.WebAssembly",
+            ],
+            blazor.NamespaceRoots);
+        Assert.Equal(
+            [
+                "Microsoft.AspNetCore.Components.WebAssembly",
+                "Microsoft.AspNetCore.Components.WebView.Maui",
+                "Microsoft.AspNetCore.Components.QuickGrid.EntityFrameworkAdapter",
+                "Microsoft.Authentication.WebAssembly.Msal",
+            ],
+            blazor.CorePackages.Select(package => package.PackageId));
+        Assert.Null(blazor.PackageSet);
+        Assert.False(blazor.HasScanner);
+        Assert.Empty(blazor.Demos);
+        PackageSetDescriptor aspNetCore = Assert.IsType<PackageSetLookupResult.Known>(
+            PackageSetCatalog.Lookup(PackageSetIds.AspNetCore)).Descriptor;
+        Assert.Contains(
+            aspNetCore.Members,
+            member => member.PackageId == "Microsoft.AspNetCore.Components.WebAssembly");
+        Assert.Contains(
+            aspNetCore.Members,
+            member => member.PackageId == "Microsoft.AspNetCore.Components.WebView.Maui");
+        Assert.Contains(
+            aspNetCore.Members,
+            member => member.PackageId
+                == "Microsoft.AspNetCore.Components.QuickGrid.EntityFrameworkAdapter");
     }
 
     [Fact]

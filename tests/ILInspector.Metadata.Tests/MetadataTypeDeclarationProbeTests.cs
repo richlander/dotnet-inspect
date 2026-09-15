@@ -94,63 +94,6 @@ public class MetadataTypeDeclarationProbeTests
             escapedComma.Name);
     }
 
-    [Fact]
-    public void EscapedFullName_RoundTripsStructuredIdentity()
-    {
-        MetadataTypeDefinitionName expected =
-            Name(
-                "N.Part+Scope",
-                "Outer.Part",
-                "Inner+Part",
-                "Slash\\Part");
-        string identity = expected.ToEscapedFullName();
-
-        var parsed =
-            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
-                MetadataTypeDefinitionName.ParseEscapedFullName(
-                    identity));
-
-        Assert.Equal(expected, parsed.Name);
-        Assert.Equal(
-            @"N.Part\+Scope.Outer\.Part+Inner\+Part+Slash\\Part",
-            identity);
-    }
-
-    [Fact]
-    public void EscapedFullName_AllowsBoundedEscapeExpansion()
-    {
-        MetadataTypeDefinitionName expected =
-            Name("N", new string('.', 2049));
-        string identity = expected.ToEscapedFullName();
-
-        var parsed =
-            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
-                MetadataTypeDefinitionName.ParseEscapedFullName(
-                    identity));
-
-        Assert.True(
-            identity.Length
-            > MetadataSafetyPolicy.MaxTypeNameCharacters);
-        Assert.Equal(expected, parsed.Name);
-    }
-
-    [Fact]
-    public void EscapedFullName_RejectsOversizeEncodedIdentity()
-    {
-        var rejected =
-            Assert.IsType<MetadataTypeDefinitionNameResult.Rejected>(
-                MetadataTypeDefinitionName.ParseEscapedFullName(
-                    new string(
-                        '.',
-                        MetadataSafetyPolicy.MaxTypeNameCharacters
-                            * 2
-                            + 1)));
-
-        Assert.Equal(
-            MetadataTypeNameRejectionKind.SegmentsTooLong,
-            rejected.Rejection.Kind);
-    }
-
     [Theory]
     [InlineData(@"System.Environment+\SpecialFolder")]
     [InlineData("Program+StateMachine, OtherAssembly")]

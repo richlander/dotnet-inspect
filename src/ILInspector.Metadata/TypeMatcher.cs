@@ -51,7 +51,12 @@ public static class TypeMatcher
         string normalizedCandidate,
         string normalizedTarget)
     {
-        if (MatchesExactNormalized(normalizedCandidate, normalizedTarget))
+        // Exact match
+        if (normalizedCandidate.Equals(normalizedTarget, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // Match without namespace (e.g., "HttpClient" matches "System.Net.Http.HttpClient")
+        if (EndsWithDottedSuffix(normalizedCandidate, normalizedTarget))
             return true;
 
         // Extract base names (before generic arity suffix)
@@ -75,32 +80,15 @@ public static class TypeMatcher
         if (string.IsNullOrEmpty(candidate) || string.IsNullOrEmpty(target))
             return false;
 
-        return MatchesExactNormalized(
-            NormalizeForLookup(candidate),
-            NormalizeForLookup(target));
+        string normalizedCandidate = NormalizeForLookup(candidate);
+        string normalizedTarget = NormalizeForLookup(target);
+        return normalizedCandidate.Equals(
+                normalizedTarget,
+                StringComparison.OrdinalIgnoreCase)
+            || EndsWithDottedSuffix(
+                normalizedCandidate,
+                normalizedTarget);
     }
-
-    /// <summary>
-    /// Checks whether candidate and target are the same normalized full type
-    /// name while preserving generic arity.
-    /// </summary>
-    public static bool MatchesFullTypeName(string candidate, string target)
-    {
-        if (string.IsNullOrEmpty(candidate) || string.IsNullOrEmpty(target))
-            return false;
-
-        return NormalizeForLookup(candidate).Equals(
-            NormalizeForLookup(target),
-            StringComparison.OrdinalIgnoreCase);
-    }
-
-    static bool MatchesExactNormalized(
-        string normalizedCandidate,
-        string normalizedTarget) =>
-        normalizedCandidate.Equals(
-            normalizedTarget,
-            StringComparison.OrdinalIgnoreCase)
-        || EndsWithDottedSuffix(normalizedCandidate, normalizedTarget);
 
     /// <summary>
     /// True when <paramref name="candidate"/> ends with ".<paramref name="suffix"/>" (case-insensitive)

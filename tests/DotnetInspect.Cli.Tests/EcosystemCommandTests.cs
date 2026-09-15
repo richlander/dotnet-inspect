@@ -149,6 +149,7 @@ public sealed class EcosystemCommandTests
         Assert.Contains("ecosystem.aspire", result.Output);
         Assert.Contains("ecosystem.ai", result.Output);
         Assert.Contains("ecosystem.azure", result.Output);
+        Assert.Contains("ecosystem.blazor", result.Output);
         Assert.Contains(
             "| ecosystem.aspire | Aspire | Aspire package and demo content. | configured | 1 | 2 |",
             result.Output);
@@ -157,6 +158,9 @@ public sealed class EcosystemCommandTests
             result.Output);
         Assert.Contains(
             "| ecosystem.azure | Azure | Azure client libraries, identity, and Microsoft.Extensions integration. | none | 0 | 0 |",
+            result.Output);
+        Assert.Contains(
+            "| ecosystem.blazor | Blazor | Blazor browser, Hybrid, data, and authentication integrations. | none | 0 | 0 |",
             result.Output);
     }
 
@@ -208,6 +212,29 @@ public sealed class EcosystemCommandTests
             Azure.Security.KeyVault.Secrets
             Azure.Storage.Blobs
             Azure.Messaging.ServiceBus
+            """,
+            result.Output.Trim());
+    }
+
+    [Fact]
+    public async Task BlazorCorePackagesExposeRegisteredCallGraphRoots()
+    {
+        var result = await ExecuteCommandLineAsync(
+            "ecosystem",
+            "blazor",
+            "-S",
+            "Core Packages",
+            "--tsv");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            """
+            package
+            Microsoft.AspNetCore.Components.WebAssembly
+            Microsoft.AspNetCore.Components.WebView.Maui
+            Microsoft.AspNetCore.Components.QuickGrid.EntityFrameworkAdapter
+            Microsoft.Authentication.WebAssembly.Msal
             """,
             result.Output.Trim());
     }
@@ -593,6 +620,7 @@ public sealed class EcosystemCommandTests
         Assert.Contains("aspire (ecosystem.aspire)", result.Error);
         Assert.Contains("ai (ecosystem.ai)", result.Error);
         Assert.Contains("azure (ecosystem.azure)", result.Error);
+        Assert.Contains("blazor (ecosystem.blazor)", result.Error);
     }
 
     [Theory]

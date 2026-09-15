@@ -89,7 +89,7 @@ public class TypeOptionsParserTests
         Assert.Empty(options.SourceRepositories);
     }
 
-    internal static async Task<TypeOptions> ParseSuccessAsync(params string[] args)
+    static async Task<TypeOptions> ParseSuccessAsync(params string[] args)
     {
         ArgumentPreprocessor.Reset();
         var (root, opts, cmdArgs) = CreateTestCommand();

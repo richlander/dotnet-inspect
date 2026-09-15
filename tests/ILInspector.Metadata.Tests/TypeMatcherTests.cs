@@ -52,14 +52,8 @@ public class TypeMatcherTests
     }
 
     [Fact]
-    public void ExactMatching_DistinguishesFullIdentityFromNamespaceSuffix()
+    public void ExactTypeNameMatching_PreservesGenericArity()
     {
-        Assert.True(TypeMatcher.MatchesFullTypeName(
-            "N.Outer+Widget",
-            "N.Outer.Widget"));
-        Assert.False(TypeMatcher.MatchesFullTypeName(
-            "Other.N.Widget",
-            "N.Widget"));
         Assert.True(TypeMatcher.MatchesExactTypeName(
             "Other.N.Widget",
             "N.Widget"));

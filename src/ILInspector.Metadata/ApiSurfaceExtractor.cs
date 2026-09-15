@@ -330,11 +330,32 @@ public static class ApiSurfaceExtractor
         bool includeAll = false,
         bool typesOnly = false,
         bool includeCompilerGenerated = false)
+        => Extract(
+            peReader,
+            source,
+            catalog,
+            bindingPolicy,
+            includeAll
+                ? ApiSurfaceExtractionScope.IncludeAll
+                : ApiSurfaceExtractionScope.Public,
+            typesOnly,
+            includeCompilerGenerated);
+
+    internal static ApiSurface Extract(
+        PEReader peReader,
+        ResolvedAssemblyReference source,
+        TypeResolutionCatalog catalog,
+        IAssemblyBindingPolicy bindingPolicy,
+        ApiSurfaceExtractionScope scope,
+        bool typesOnly = false,
+        bool includeCompilerGenerated = false)
     {
         ArgumentNullException.ThrowIfNull(peReader);
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(bindingPolicy);
+        if (!Enum.IsDefined(scope))
+            throw new ArgumentOutOfRangeException(nameof(scope));
 
         var constraintResolution =
             new TypeParameterConstraintResolution(
@@ -343,9 +364,7 @@ public static class ApiSurfaceExtractor
                 catalog.MaxTypeResolutionRequests);
         ApiSurface surface = Extract(
             peReader,
-            includeAll
-                ? ApiSurfaceExtractionScope.IncludeAll
-                : ApiSurfaceExtractionScope.Public,
+            scope,
             typesOnly,
             includeCompilerGenerated,
             budget: null,
@@ -724,17 +743,31 @@ public static class ApiSurfaceExtractor
                 continue;
             }
 
-            if (!IsTypeVisibleInSurface(
-                    reader,
-                    typeDef,
-                    scope,
-                    observeDecodeWork))
+            // Only include public types by default. The filtered-export scan
+            // above intentionally precedes this visibility check: an authentic
+            // row on a private compiler-generated lambda type remains relevant
+            // failure evidence even though the type is not an API declaration.
+            if (!typeDef.IsPublic && scope == ApiSurfaceExtractionScope.Public)
                 continue;
 
             // Whether this type's members follow the include-all rules. Every member decision
             // below reads this local, so the composed scope keeps a public type's public member
             // list while a non-public type carries its complete one.
-            bool includeAll = IncludesAllMembers(typeDef, scope);
+            bool includeAll = scope == ApiSurfaceExtractionScope.IncludeAll
+                || (scope == ApiSurfaceExtractionScope.PublicWithNonPublicTypes
+                    && !typeDef.IsPublic);
+
+            // Skip EditorBrowsable(Never) and Obsolete types unless --all. A public type the
+            // extractor hides stays hidden in the composed scope too: it is suppressed, not
+            // demoted into the non-public bucket with an include-all member list.
+            if (!includeAll
+                && AttributeReader.HasHiddenAttribute(
+                    reader,
+                    typeDef.GetCustomAttributes(),
+                    observeDecodeWork))
+            {
+                continue;
+            }
 
             MetadataTypeDefinitionName definitionName =
                 MetadataTypeDefinitionNameReader.Read(
@@ -1519,6 +1552,21 @@ public static class ApiSurfaceExtractor
                     reader,
                     field.Name,
                     observeDecodeWork);
+
+                // The enum storage slot supplies a type fact rather than a
+                // declarable member, so presentation filters do not apply to it.
+                if (isEnum && fieldName == "value__")
+                {
+                    apiType.EnumUnderlyingType = DecodeFieldType(
+                        reader,
+                        typeContext,
+                        field,
+                        typeNullableContext,
+                        observeText,
+                        observeDecodeWork).Text;
+                    continue;
+                }
+
                 List<string?> jsonPropertyNames =
                     AttributeReader.ReadJsonPropertyNames(
                         reader,
@@ -1597,24 +1645,12 @@ public static class ApiSurfaceExtractor
                         field.GetCustomAttributes(),
                         observeDecodeWork);
 
-                // Decode field type. For enums the special value__ field carries
-                // the underlying type; literal fields are constants, not fields in
-                // source, so they do not need a field declaration type.
+                // Enum literal fields are constants, not fields in source, so they
+                // do not need a field declaration type.
                 string? fieldType = null;
                 bool fieldSignatureDegraded = false;
                 List<ApiTypeReferenceIdentity> fieldTypeReferences = [];
-                if (isEnum)
-                {
-                    if (fieldName == "value__")
-                        apiType.EnumUnderlyingType = DecodeFieldType(
-                            reader,
-                            typeContext,
-                            field,
-                            typeNullableContext,
-                            observeText,
-                            observeDecodeWork).Text;
-                }
-                else
+                if (!isEnum)
                 {
                     (fieldType, fieldSignatureDegraded, fieldTypeReferences) =
                         DecodeFieldType(
@@ -1990,29 +2026,6 @@ public static class ApiSurfaceExtractor
         return surface;
     }
 
-    internal static bool IsTypeVisibleInSurface(
-        MetadataReader reader,
-        TypeDefinition type,
-        ApiSurfaceExtractionScope scope,
-        Action<int>? observeDecodeWork = null)
-    {
-        if (!type.IsPublic && scope == ApiSurfaceExtractionScope.Public)
-            return false;
-
-        return IncludesAllMembers(type, scope)
-            || !AttributeReader.HasHiddenAttribute(
-                reader,
-                type.GetCustomAttributes(),
-                observeDecodeWork);
-    }
-
-    static bool IncludesAllMembers(
-        TypeDefinition type,
-        ApiSurfaceExtractionScope scope) =>
-        scope == ApiSurfaceExtractionScope.IncludeAll
-        || (scope == ApiSurfaceExtractionScope.PublicWithNonPublicTypes
-            && !type.IsPublic);
-
     private static void CountSummaryMembers(
         MetadataReader reader,
         TypeDefinition typeDef,
@@ -2023,6 +2036,7 @@ public static class ApiSurfaceExtractor
     {
         var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
         var accessorMethods = GetSemanticAccessorMethods(reader, typeDef);
+        bool isEnum = IsEnum(reader, typeDef);
 
         foreach (var methodHandle in typeDef.GetMethods())
         {
@@ -2118,7 +2132,8 @@ public static class ApiSurfaceExtractor
                 continue;
 
             string fieldName = reader.GetString(field.Name);
-            if (!IsSurfaceableFieldName(fieldName, includeCompilerGenerated: false)
+            if ((isEnum && fieldName == "value__")
+                || !IsSurfaceableFieldName(fieldName, includeCompilerGenerated: false)
                 || AttributeReader.HasEditorBrowsableNeverAttribute(reader, field.GetCustomAttributes()))
             {
                 continue;
@@ -2201,10 +2216,18 @@ public static class ApiSurfaceExtractor
                     definitionName =
                         MetadataTypeDefinitionNameReader.Read(
                             reader,
-                            exportedTypeHandle)
-                        is MetadataTypeDefinitionNameReadResult.Read read
-                            ? read.Name
-                            : null;
+                            exportedTypeHandle) switch
+                        {
+                            MetadataTypeDefinitionNameReadResult.Read read =>
+                                read.Name,
+                            MetadataTypeDefinitionNameReadResult.Rejected rejected =>
+                                throw new MetadataRowRejectedException(
+                                    ApiSurfaceInspectionFailure
+                                        .TypeForwarderIdentityOperation,
+                                    rejected.Failure),
+                            _ => throw new InvalidOperationException(
+                                "Unknown exported-type name result."),
+                        };
                 }
                 else
                 {

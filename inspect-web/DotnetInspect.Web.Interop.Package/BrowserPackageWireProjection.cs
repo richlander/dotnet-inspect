@@ -146,8 +146,12 @@ internal static class BrowserPackageWireProjection
         return new(
             snapshot.Packages,
             snapshot.Resident,
+            snapshot.MaxPackageEntries,
             snapshot.Workspaces,
-            snapshot.ResidentBytes);
+            snapshot.MaxWorkspaces,
+            snapshot.ResidentBytes,
+            snapshot.MaxResidentBytes,
+            snapshot.MaxWorkspaceRetainedImageBytes);
     }
 
     internal static BrowserPackageDocument Project(BrowserPackageDocumentEntry document)

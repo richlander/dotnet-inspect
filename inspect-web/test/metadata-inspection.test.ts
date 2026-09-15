@@ -19,57 +19,54 @@ import type {
 
 function metadataResult(fullName = "Example.Widget"): BrowserTypeMetadata {
   return {
-    fullName,
-    namespace: "Example",
-    name: "Widget",
-    kind: "Class",
-    modifiers: [],
-    accessibility: "Public",
-    assembly: "Example.Package.dll",
-    baseType: null,
-    interfaces: [],
-    derivedTypes: [],
-    typeParameters: [],
-    attributes: [],
-    enumUnderlyingType: null,
-    composition: null,
-    graphNodes: [],
-    graphEdges: [],
     exactTypeInspection: {
       content: {
-        kind: "NotFound",
-        isComplete: true,
-        request: {
-          contextIndex: 0,
-          typeSelector: fullName,
-          scope: "IncludeAll",
-          surfaceLimits: {
-            maxParticipants: 1,
-            maxTypes: 1,
-            maxMembers: 1,
-            maxInspectionFailures: 0,
-            maxTypeForwarders: 0,
-            maxMetadataRows: 1,
-            maxRetainedTextCharacters: 1,
+        outcome: 0,
+        requestedType: fullName,
+        matchedType: fullName,
+        type: {
+          fullName,
+          namespace: "Example",
+          name: "Widget",
+          definitionIdentity: {
+            namespace: "Example",
+            segments: ["Widget"],
           },
-          assemblyName: "Example.Package",
-          library: null,
-          compileAssetId: "asset:example",
+          introducedTypeParameterCounts: [0],
+          kind: "Class",
+          accessibility: "Public",
+          attributes: [],
+          isSealed: false,
+          isAbstract: false,
+          isStatic: false,
+          isByRefLike: false,
+          isReadOnly: false,
+          baseType: null,
+          interfaces: [],
+          derivedTypes: [],
+          typeParameters: [],
+          members: [],
+          enumUnderlyingType: null,
+          isForwarded: false,
         },
-        available: null,
+        requestedAssembly: null,
+        supplierAssembly: null,
+        forwardingHops: [],
         suggestions: [],
-        candidates: [],
+        inspectionFailures: [],
         failures: [],
+        isAvailable: true,
+        isComplete: true,
       },
       share: {
-        kind: "NonProjectable",
         fullUrl: null,
         packet: null,
-        path: "exact-type/type",
-        reason: "The exact type was not found.",
       },
       diagnostics: [],
     },
+    derivedTypes: [],
+    graphNodes: [],
+    graphEdges: [],
     typeDependencyInspection: {
       content: {
         queryResult: {
@@ -179,6 +176,7 @@ function typeRequest(
     framework: "net10.0",
     assembly: "Example.Package.dll",
     type: "Example.Widget",
+    typeIdentity: "Example.Widget",
     workspaceJson:
       '[{"package":"Example.Package","version":"1.2.3","framework":"net10.0"}]',
     isVisible: () => true,
@@ -325,7 +323,9 @@ test("newer type metadata requests suppress stale success and failure", async ()
   second.resolve(metadataResult("Example.Current"));
   await Promise.all([firstLoad, secondLoad]);
 
-  assert.equal(state.typeMetadata?.fullName, "Example.Current");
+  assert.equal(
+    state.typeMetadata?.exactTypeInspection.content.type?.fullName,
+    "Example.Current");
   assert.equal(state.typeMetadataError, "");
   assert.equal(state.typeMetadataLoading, false);
   assert.equal(state.typeMetadataKey, "second");

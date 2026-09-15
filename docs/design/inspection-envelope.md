@@ -255,108 +255,6 @@ discriminated union; the runtime boundary tests still verify the discriminator,
 derived fields, and diagnostic text. A future union-lowering slice may expose
 those alternatives more narrowly without changing this envelope contract.
 
-The #6818 two-host adoption is exact type inspection for one pinned
-package and one explicit target framework. `ExactTypeInspection.ExecuteAsync`
-returns `InspectionEnvelope<ExactTypeInspectionResult>` under a
-`WorkspaceRealizationOperationLease`. Metadata owns the exact definition,
-supplier and declaration facts. During construction, each host acquires one
-`PackageRootBinding` with `WorkspaceContextLoader.AcquirePackageRootAsync`
-and realizes its Root with `RealizePackageAssemblyContextRoles`. Queries
-uses `TypeDeclarationLocatorQuery` directly over that realization's
-reference-preferred `SurfaceGroup` and its `PackageAssemblyRoleParticipant`
-associations, not the loader's implementation universe or resident locator.
-The existing Workspace validates group ownership; this introduces no second
-realization authority. Forwarding and bounded API extraction finish before
-the operation lease ends, and the package-role realization is then disposed.
-The role's immutable binding policy attests Metadata's existing
-acquisition-free policy contract. A rejected participant needed by that
-resolution gate remains an explicit incomplete outcome.
-The result contains one detached `ApiType` and its member inventory, not the
-supplier's whole surface. The shared operation populates same-assembly derived
-types and async facts through Metadata's existing method-selection query,
-then clears path-only type, member and failure fields. No Workspace, locator,
-reader, lease, snapshot, callback or acquired payload crosses this boundary.
-
-The operation compares the admitted and acquired target frameworks through
-NuGet's canonical framework identity. Lookup first parses the escaped,
-structured Metadata definition identity and performs ordinal exact selection,
-preserving namespace, nesting, literal delimiters, case, and generic arity.
-Only when that identity is absent does lookup apply exact dotted, short, or
-namespace-suffix compatibility matching before Metadata's broader base-name
-matching.
-The Browser row-to-operation handoff carries this escaped definition identity,
-not the flattened query spelling. Method enrichment retains the selected
-MethodDef token rather than resolving its declaring Type again through text.
-Same-assembly derived-Type enrichment joins the structured base definition and
-structured implemented-interface definitions with their assembly identity;
-flattened Type text is only a compatibility fallback for older serialized
-surfaces without structured identity.
-The optional exact `PackageCompileAsset.Id`, Metadata-issued assembly identity
-(or bounded exact assembly-name selector for callers that have only a name)
-narrows declaration discovery within the surface role;
-it does not infer a supplier from a filename. Exact canonical names take
-precedence over Metadata's broader pattern matches. Browser resolves its
-existing asset-id/name gesture through the package owner and passes the
-participant's assembly identity and exact compile asset ID as request evidence;
-CLI may omit both. Reference-only packages remain inspectable, and ref/lib
-assets sharing an assembly identity cannot substitute for each other.
-Share is derived only for Available content, using the escaped owner-issued
-definition identity that Browser restoration consumes and the source-issued
-exact package coordinate. Package-wide uniqueness is evaluated over all
-declarations independently of the requested public/API visibility. Share
-requires the selected Type to be present in the Browser catalog's
-`PublicWithNonPublicTypes` surface; `IncludeAll` content hidden from that
-surface remains available but non-projectable. Misses, ambiguity, incomplete
-inspection and rejection remain non-projectable. A
-successful assembly-selected collision is also
-non-projectable when the package-wide canonical type is not unique: this
-slice preserves the source-issued declaration and supplier asset IDs rather
-than inventing a package-asset key from an assembly name.
-Those logical `compile:` keys retain the package owner's archive identity;
-they are not filesystem paths or reopenable source capabilities.
-Non-nuget.org sources are not projected to the public Browser.
-
-CLI uses a one-type compatibility container solely to feed the existing
-renderer; it neither selects nor extracts the type again and presents the
-supplier assembly identity rather than an invented package-asset path.
-Browser calls `ResearchViews.ProjectType` on the returned type without a
-whole surface. `BrowserTypeMetadata.ExactTypeInspection` retains the baseline
-in a typed, source-generated JSON projection with explicit outcome/completion,
-definition and supplier identities, member facts, Share and structured
-diagnostics. Its dependency/relationship envelope is supplementary and
-still uses the legacy package scope, not the baseline's realization.
-The baseline uses a per-operation Browser realization host; this does not
-complete retained-application adoption or retire supplementary acquisition.
-
-Selected constraint evidence comes from
-`ApiSurface.ConstraintResolutionFailuresBySubject`, not its globally bounded
-and deduplicated display summary. The detached failures retain selected
-type/member/accessor tokens and relevant non-constraint failures. CLI rebuilds
-path-free `ApiSurfaceInspectionSubject` keys for its existing selected-type
-warning renderer.
-
-The CLI adoption is intentionally narrow: exact non-glob type selection over
-one exactly versioned package and one explicit TFM other than `all`. Source,
-PDB, Analysis, Exception Regions, Body Shapes, Clone Candidates, Decompiled
-Source, listing, member, platform, project, local-library, and package-range
-routes retain their existing owners and compatibility paths.
-The ordinary command's default Minimal verbosity is eligible. Normal and
-higher verbosity retain compatibility when they implicitly enable XML docs;
-explicitly disabling docs leaves an otherwise eligible request eligible.
-An exact `NotFound` returns to the compatibility path so namespace/type-prefix
-browsing remains available. Successful exact selection does not repeat source
-resolution or API extraction.
-
-Focused gates are the `ExactTypeInspection_` Queries cases,
-`ExactTypeInspectionCommandTests`, and Browser's exact-Type and existing
-type-dependency boundary cases. They cover detached values (including
-semantic string-path detection), forwarding, assembly/name collisions,
-completion, canonical Share, admitted generation association, ref/lib identity
-collisions, reference-only packages, selected constraint warnings, prefix
-fallback, serialized transport, and equivalent host envelopes.
-The CLI in-memory-only package case makes
-the retired resolver/extraction route observably unsuitable for the request.
-
 ## Content extent and equality
 
 Host agreement applies per envelope, not to the complete visible experience.
@@ -468,15 +366,16 @@ Planned Release gates:
 
 ## CLI envelope passthrough
 
-A direct serialized-envelope projection would be useful for debugging and
-typed automation. Its output spelling and compatibility classification belong
-to the CLI output owners, not this generic envelope. It is tracked by
-[#6719](https://github.com/richlander/dotnet-inspect/issues/6719).
+Supported public CLI passthrough is tracked by
+[#6719](https://github.com/richlander/dotnet-inspect/issues/6719). The CLI
+[content-shape and service-envelope boundary](output-shapes.md#content-shapes-and-service-envelopes)
+owns the JSON-only `--envelope` spelling and its distinction from content
+`--json`. It also owns the required content-JSON alignment when a route adopts
+public passthrough. The generic envelope does not define CLI option
+interactions or migrate existing machine schemas implicitly.
 
-It cannot reuse `--raw` without an explicit compatibility change:
-`--raw` already selects raw/fetchable GitHub URL shape. Any future passthrough
-must preserve the envelope exactly, deliberately select its own output
-contract, and use separately approved non-colliding syntax.
+Passthrough preserves the already constructed envelope exactly. `--raw`
+remains the separate raw/fetchable GitHub URL shape.
 
 ## Non-claims
 

@@ -189,7 +189,7 @@ public static class PackageHouseDependencyInputAdapter
             request);
     }
 
-    private static PackageDependencyEvidenceDeclaration RequireDeclaration(
+    internal static PackageDependencyEvidenceDeclaration RequireDeclaration(
         PackageDependencyEvidenceRoot root,
         PackageDependencyEvidenceDeclaration declaration)
     {

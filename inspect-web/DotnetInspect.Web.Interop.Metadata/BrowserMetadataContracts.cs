@@ -36,51 +36,16 @@ public sealed record BrowserWorkspacePackage(
     string Framework);
 
 /// <summary>
-/// One type's metadata projection, adapted from <c>ResearchViews.TypeProjectionResult</c> — the
-/// presentation-neutral seam the CLI consumes — so the browser never reimplements type-fact
-/// composition.
+/// One Browser type experience composed from the unchanged exact-Type
+/// inspection envelope and Browser-specific relationship results.
 /// </summary>
 public sealed record BrowserTypeMetadata(
-    string FullName,
-    string? Namespace,
-    string Name,
-    string Kind,
-    string[] Modifiers,
-    string? Accessibility,
-    string? Assembly,
-    string? BaseType,
-    string[] Interfaces,
+    InspectionEnvelope<ExactTypeInspectionResult> ExactTypeInspection,
     string[] DerivedTypes,
-    BrowserTypeParameter[] TypeParameters,
-    string[] Attributes,
-    string? EnumUnderlyingType,
-    BrowserTypeComposition? Composition,
     BrowserTypeGraphNode[] GraphNodes,
     BrowserTypeGraphEdge[] GraphEdges,
-    BrowserExactTypeInspectionEnvelope ExactTypeInspection,
     InspectionEnvelope<TypeDependencySectionResult> TypeDependencyInspection,
     string[] InspectionFailures);
-
-public sealed record BrowserTypeParameter(string Name, string? Variance, string[] Constraints);
-
-public sealed record BrowserTypeComposition(
-    int Methods,
-    int Properties,
-    int Fields,
-    int Events,
-    int Constructors,
-    int Operators,
-    int ExplicitInterfaceImplementations,
-    int ExtensionMethods,
-    int Static,
-    int Unsafe,
-    int Async,
-    int Virtual,
-    int Abstract,
-    int Override,
-    int Extension,
-    int Obsolete,
-    int Total);
 
 public sealed record BrowserTypeGraphNode(string Id, string DisplayName, string Role);
 
@@ -310,8 +275,12 @@ public sealed record BrowserExceptionSurface(
 [JsonSerializable(typeof(BrowserMetadataWindow))]
 [JsonSerializable(typeof(BrowserHeapListing))]
 [JsonSerializable(typeof(BrowserTypeMetadata))]
-[JsonSerializable(typeof(BrowserExactTypeInspectionEnvelope))]
-[JsonSerializable(typeof(InspectionEnvelope<TypeDependencySectionResult>))]
+[JsonSerializable(
+    typeof(InspectionEnvelope<ExactTypeInspectionResult>),
+    TypeInfoPropertyName = "ExactTypeInspectionEnvelope")]
+[JsonSerializable(
+    typeof(InspectionEnvelope<TypeDependencySectionResult>),
+    TypeInfoPropertyName = "TypeDependencyInspectionEnvelope")]
 [JsonSerializable(typeof(BrowserGraphMemberSurface))]
 [JsonSerializable(typeof(BrowserMemberDeclaration))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]

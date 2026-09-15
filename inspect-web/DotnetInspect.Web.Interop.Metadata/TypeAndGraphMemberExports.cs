@@ -23,10 +23,10 @@ public static partial class MetadataExports
 {
     /// <summary>
     /// One type's metadata projection, produced by
-    /// <see cref="ExactTypeInspection"/> under an active Workspace realization operation and
-    /// <see cref="AssemblyContextTypeDependencyQuery"/> over the supplementary Browser package
-    /// Workspace. The shared inspection owns type and supplier selection; the Browser retains its
-    /// existing dependency graph projection separately.
+    /// <see cref="AssemblyContextTypeProjectionQuery"/> over the participant that owns the type
+    /// and <see cref="AssemblyContextTypeDependencyQuery"/> over the active package Workspace.
+    /// The queries own metadata access and resolve references through the group's binding policy;
+    /// nothing here opens a source or reads an image.
     /// </summary>
     [JSExport]
     public static async Task<string> QueryTypeProjection(
@@ -34,7 +34,8 @@ public static partial class MetadataExports
         string version,
         string targetFramework,
         string assemblyName,
-        string typeId,
+        string typeQueryId,
+        string typeDefinitionId,
         string workspaceJson)
     {
         BrowserTypeMetadata type = await TypeProjectionAsync(
@@ -42,7 +43,8 @@ public static partial class MetadataExports
             version,
             targetFramework,
             assemblyName,
-            typeId,
+            typeQueryId,
+            typeDefinitionId,
             workspaceJson,
             ResolveTypeDependencyRows(RowQueryIntent.Empty));
         _ = BrowserMetadataJsonSerialization.BrowserTypeMetadata;
@@ -56,7 +58,8 @@ public static partial class MetadataExports
         string version,
         string targetFramework,
         string assemblyName,
-        string typeId,
+        string typeQueryId,
+        string typeDefinitionId,
         string workspaceJson,
         ResolvedRowQueryPlan<TypeDependencyRelationship>
             typeDependencyRows)
@@ -78,172 +81,74 @@ public static partial class MetadataExports
             scope.SurfaceParticipant(
                 root,
                 root.CompileAsset(assemblyName));
-
-        InspectionEnvelope<ExactTypeInspectionResult> exactInspection =
-            await BrowserExactTypeInspection.ExecuteAsync(
+        InspectionEnvelope<ExactTypeInspectionResult> exactTypeInspection =
+            await ExactTypeInspectionOperation.ExecuteAsync(
+                new ExactTypeInspectionRequest(
                     packageId,
                     version,
                     targetFramework,
-                    typeId,
-                    assemblyName,
-                    library: participant.Assembly.Identity,
-                    compileAssetId: participant.Asset.Id)
-                .ConfigureAwait(false);
-        BrowserExactTypeInspectionEnvelope browserExactInspection =
-            BrowserExactTypeInspectionWireProjection.Project(
-                exactInspection);
-        ExactTypeInspectionResult.Available available =
-            RequireAvailable(exactInspection, typeId);
-        ResearchViews.TypeProjectionResult projection =
-            ResearchViews.ProjectType(available.Type);
-        projection = projection with
-        {
-            Identity = projection.Identity with
-            {
-                Assembly = available.Candidate.SupplierAssembly.Name,
-            },
-            InspectionFailures = available.InspectionFailures,
-        };
+                    typeDefinitionId,
+                    ExactTypeSelectionKind.DefinitionIdentity),
+                new WorkspaceContextLoadOptions
+                {
+                    HttpClient = BrowserPackageWorkspace.NetworkClient,
+                    SourceAuthorization =
+                        BrowserPackageWorkspace.PackageSourceAuthorization,
+                    PackageStore =
+                        BrowserPackageWorkspace.SessionPackageStore,
+                    PackageTransferPolicy =
+                        BrowserPackageWorkspace.PackageTransferPolicy,
+                    PayloadLimits =
+                        BrowserPackageWorkspace.PackageLimits,
+                },
+                BrowserApiSurfacePolicy.Limits);
 
-        TypeDependencySectionResult dependencies =
+        (ResearchViews.TypeProjectionResult Projection,
+            TypeDependencySectionResult Dependencies) result =
             scope.UseSurfaceParticipant(
                 participant,
                 (group, member) =>
-                    TypeDependencySectionExecutor.ExecuteParticipant(
-                        group,
-                        member,
-                        new TypeDependencySectionPlan(
-                            projection.Identity.FullName,
-                            typeDependencyRows,
-                            maximumDepth: null)));
+                {
+                    ResearchViews.TypeProjectionResult projection =
+                        BrowserSurfaceProjection.Require(
+                            AssemblyContextTypeProjectionQuery.ExecuteParticipant(
+                                group,
+                                member,
+                                new AssemblyContextTypeProjectionRequest(
+                                    typeQueryId)),
+                            $"Type projection for '{typeQueryId}'");
+                    return (
+                        projection,
+                        TypeDependencySectionExecutor.ExecuteParticipant(
+                            group,
+                            member,
+                            new TypeDependencySectionPlan(
+                                projection.Identity.FullName,
+                                typeDependencyRows,
+                                maximumDepth: null)));
+                });
+        ResearchViews.TypeProjectionResult projection = result.Projection;
         (BrowserTypeGraphNode[] graphNodes,
             BrowserTypeGraphEdge[] graphEdges) =
-            TypeRelationshipGraph(projection, dependencies);
+            TypeRelationshipGraph(projection, result.Dependencies);
         InspectionEnvelope<TypeDependencySectionResult> dependencyEnvelope =
             TypeDependencyEnvelope(
                 scope,
                 root,
-                dependencies,
+                result.Dependencies,
                 projection.Identity.FullName);
 
         return new BrowserTypeMetadata(
-                projection.Identity.FullName,
-                projection.Identity.Namespace,
-                projection.Identity.Name,
-                projection.Identity.Kind,
-                [.. projection.Identity.Modifiers],
-                projection.Identity.Accessibility,
-                projection.Identity.Assembly,
-                projection.BaseType,
-                [.. projection.Interfaces],
+                exactTypeInspection,
                 [.. projection.DerivedTypes],
-                [
-                    .. projection.TypeParameters.Select(parameter => new BrowserTypeParameter(
-                        parameter.Name,
-                        parameter.Variance,
-                        [.. parameter.Constraints])),
-                ],
-                [.. projection.Attributes],
-                projection.EnumUnderlyingType,
-                projection.Composition is { } composition
-                    ? new BrowserTypeComposition(
-                        composition.Methods,
-                        composition.Properties,
-                        composition.Fields,
-                        composition.Events,
-                        composition.Constructors,
-                        composition.Operators,
-                        composition.ExplicitInterfaceImplementations,
-                        composition.ExtensionMethods,
-                        composition.Static,
-                        composition.Unsafe,
-                        composition.Async,
-                        composition.Virtual,
-                        composition.Abstract,
-                        composition.Override,
-                        composition.Extension,
-                        composition.Obsolete,
-                        composition.Total)
-                    : null,
                 graphNodes,
                 graphEdges,
-                browserExactInspection,
                 dependencyEnvelope,
                 [
                     .. projection.InspectionFailures.Select(
                         failure => $"{failure.Operation}: {failure.Detail}"),
-                    .. exactInspection.Diagnostics.Select(
-                        diagnostic => $"{diagnostic.Code}: {diagnostic.Summary}"),
-                    .. TypeDependencyFailures(scope, dependencies),
+                    .. TypeDependencyFailures(scope, result.Dependencies),
                 ]);
-    }
-
-    static ExactTypeInspectionResult.Available RequireAvailable(
-        InspectionEnvelope<ExactTypeInspectionResult> envelope,
-        string typeId) =>
-        envelope.Content switch
-        {
-            ExactTypeInspectionResult.Available available => available,
-            ExactTypeInspectionResult.NotFound notFound =>
-                throw new InvalidOperationException(
-                    $"Exact type inspection did not find '{typeId}'."
-                        + Suggestions(notFound)),
-            ExactTypeInspectionResult.Ambiguous ambiguous =>
-                throw new InvalidOperationException(
-                    $"Exact type inspection for '{typeId}' was ambiguous "
-                        + $"across {ambiguous.Candidates.Length} candidates"
-                        + Candidates(ambiguous.Candidates) + "."),
-            ExactTypeInspectionResult.Incomplete incomplete =>
-                throw new InvalidOperationException(
-                    $"Exact type inspection for '{typeId}' was incomplete"
-                        + Failures(incomplete.Failures)
-                        + Candidates(incomplete.Candidates) + "."),
-            ExactTypeInspectionResult.Rejected rejected =>
-                throw new InvalidOperationException(
-                    $"Exact type inspection for '{typeId}' was rejected"
-                        + Failures(rejected.Failures) + "."),
-            _ => throw new InvalidOperationException(
-                "Exact type inspection returned an unknown outcome."),
-        };
-
-    static string Suggestions(ExactTypeInspectionResult.NotFound result) =>
-        result.Suggestions.IsEmpty
-            ? ""
-            : " Suggestions: "
-                + string.Join(
-                    ", ",
-                    result.Suggestions.Select(
-                        static suggestion =>
-                            suggestion.ToMetadataFullName()))
-                + ".";
-
-    static string Candidates(
-        IEnumerable<ExactTypeCandidate> candidates)
-    {
-        string[] assemblies =
-        [
-            .. candidates
-                .Select(static candidate =>
-                    candidate.SupplierAssembly.Name)
-                .Distinct(StringComparer.Ordinal),
-        ];
-        return assemblies.Length == 0
-            ? ""
-            : $" ({string.Join(", ", assemblies)})";
-    }
-
-    static string Failures(
-        IEnumerable<ExactTypeInspectionFailure> failures)
-    {
-        string[] kinds =
-        [
-            .. failures
-                .Select(static failure => failure.Kind.ToString())
-                .Distinct(StringComparer.Ordinal),
-        ];
-        return kinds.Length == 0
-            ? ""
-            : $" ({string.Join(", ", kinds)})";
     }
 
     static InspectionEnvelope<TypeDependencySectionResult> TypeDependencyEnvelope(
@@ -303,7 +208,7 @@ public static partial class MetadataExports
                 root.Version,
                 root.Framework);
         var workspace = new WorkspaceDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
+            InspectionDefinitionSchema.Version1,
             WorkspaceSharePacketTransposer.WorkspaceId,
             [
                 new WorkspaceContextDefinition(
@@ -312,7 +217,7 @@ public static partial class MetadataExports
                     members: [coordinate]),
             ]);
         var navigation = new NavigationDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
+            InspectionDefinitionSchema.Version1,
             WorkspaceSharePacketTransposer.NavigationId,
             [
                 new NavigationTabDefinition(
@@ -321,12 +226,12 @@ public static partial class MetadataExports
             ],
             "t0");
         var view = new ViewDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
+            InspectionDefinitionSchema.Version1,
             WorkspaceSharePacketTransposer.ViewId,
             lens: "dependencies",
             type: typeName);
         var scenario = new ScenarioDefinition(
-            InspectionDefinitionJson.CurrentSchemaVersion,
+            InspectionDefinitionSchema.Version1,
             WorkspaceSharePacketTransposer.ScenarioId,
             workspace: workspace.Id,
             context: "g0",

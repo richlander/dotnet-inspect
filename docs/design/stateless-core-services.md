@@ -466,7 +466,6 @@ efforts:
 | Platform [#6756](https://github.com/richlander/dotnet-inspect/issues/6756) | Associate `PlatformTypeCatalog` observations with exact generation evidence or recompute them. |
 | Type dependencies [#6758](https://github.com/richlander/dotnet-inspect/issues/6758) | Pass explicit realization authority through one terminal operation already shared by the CLI and Browser/Wasm. |
 | Inspect Web retained host [#6757](https://github.com/richlander/dotnet-inspect/issues/6757) | Retain definitions or restoration data, materialize one active Workspace realization, and retire multiple-open-realization infrastructure. |
-| Exact type inspection [#6818](https://github.com/richlander/dotnet-inspect/issues/6818) | Return one detached `ApiType` in `InspectionEnvelope<ExactTypeInspectionResult>` under realization authority for eligible CLI and Browser/Wasm requests. Browser supplementary dependencies retain their separate compatibility scope; this is not retained-application retirement. |
 
 Each row is one focused issue or a sequence of issues for that same owner. The
 tracker in #6749 records their links and retirement dependencies; this document

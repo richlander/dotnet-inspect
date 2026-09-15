@@ -40,20 +40,20 @@ internal static class BrowserLibraryApiDiffWireProjection
 
     internal static BrowserLibraryApiDiffResult Project(
         BrowserLibraryApiDiffRequest request,
-        LibraryApiDiffPresentationResult result,
+        LibraryApiDiffOutcome outcome,
         BrowserLibraryApiDiffEndpointContext target,
         BrowserLibraryApiDiffEndpointContext current)
     {
         ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(outcome);
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(current);
 
-        BrowserLibraryApiDiffResult projected = result switch
+        BrowserLibraryApiDiffResult projected = outcome switch
         {
-            LibraryApiDiffPresentationResult.Available available =>
-                ProjectAvailable(request, available, target, current),
-            LibraryApiDiffPresentationResult.Unavailable unavailable =>
+            LibraryApiDiffOutcome.Available available =>
+                ProjectAvailable(request, available.Document, target, current),
+            LibraryApiDiffOutcome.Unavailable unavailable =>
                 new BrowserLibraryApiDiffResult(
                     1,
                     request,
@@ -68,29 +68,29 @@ internal static class BrowserLibraryApiDiffWireProjection
                     Error: null,
                     Diagnostic: null,
                     Reason: null),
-            LibraryApiDiffPresentationResult.Rejected rejected =>
+            LibraryApiDiffOutcome.Rejected rejected =>
                 Rejected(
                     request,
                     Project(rejected.Kind),
                     Project(target, rejected.Before),
                     Project(current, rejected.After)),
             _ => throw new InvalidOperationException(
-                "Unknown Library API diff presentation result."),
+                "Unknown Library API diff outcome."),
         };
         return AdmitTransport(request, projected);
     }
 
     static BrowserLibraryApiDiffResult ProjectAvailable(
         BrowserLibraryApiDiffRequest request,
-        LibraryApiDiffPresentationResult.Available available,
+        LibraryApiDiffDocument document,
         BrowserLibraryApiDiffEndpointContext target,
         BrowserLibraryApiDiffEndpointContext current)
     {
         BrowserLibraryApiDiffEndpoint targetEndpoint =
-            Project(target, available.Before);
+            Project(target, document.Before);
         BrowserLibraryApiDiffEndpoint currentEndpoint =
-            Project(current, available.After);
-        if (available.Document.Subjects.Length > MaxChangedTypes)
+            Project(current, document.After);
+        if (document.Comparison.Subjects.Length > MaxChangedTypes)
         {
             return Rejected(
                 request,
@@ -99,10 +99,10 @@ internal static class BrowserLibraryApiDiffWireProjection
                 targetEndpoint,
                 currentEndpoint,
                 MaxChangedTypes,
-                available.Document.Subjects.Length);
+                document.Comparison.Subjects.Length);
         }
 
-        long textCharacters = available.Document.Subjects.Sum(TypeTextCharacters);
+        long textCharacters = document.Comparison.Subjects.Sum(TypeTextCharacters);
         if (textCharacters > MaxTypeTextCharacters)
         {
             return Rejected(
@@ -116,16 +116,16 @@ internal static class BrowserLibraryApiDiffWireProjection
 
         BrowserLibraryApiDiffType[] types =
         [
-            .. available.Document.Subjects.Select(Project),
+            .. document.Comparison.Subjects.Select(Project),
         ];
-        LibraryApiDiffSummary summary = available.Summary;
+        LibraryApiDiffSummary summary = document.Summary;
         return new BrowserLibraryApiDiffResult(
             1,
             request,
             BrowserLibraryApiDiffResultKind.Succeeded,
             new BrowserLibraryApiDiffSucceeded(
-                available.Document.Identifier,
-                available.Document.Display,
+                document.Comparison.Identifier,
+                document.Comparison.Display,
                 targetEndpoint,
                 currentEndpoint,
                 new BrowserLibraryApiDiffAggregate(

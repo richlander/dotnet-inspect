@@ -1,807 +1,1031 @@
 using System.Collections.Immutable;
-using System.Reflection.Metadata;
-using System.Reflection.Metadata.Ecma335;
-using DotnetInspector.SourceSelection;
+
 using ILInspector.Metadata;
-using ILInspector.MetadataPrimitives;
-using NuGetFetch;
+using NuGet.Versioning;
 
 namespace DotnetInspector.Queries;
 
-public sealed record ExactTypeInspectionRequest(
-    int ContextIndex,
-    string TypeSelector,
-    ApiSurfaceScope Scope,
-    ApiSurfaceProjectionLimits SurfaceLimits,
-    string? AssemblyName = null,
-    AssemblyReferenceIdentity? Library = null,
-    string? CompileAssetId = null);
+/// <summary>
+/// One explicitly versioned package, one target framework, and one exact Type
+/// selection.
+/// </summary>
+public sealed record ExactTypeInspectionRequest
+{
+    public ExactTypeInspectionRequest(
+        string packageId,
+        string version,
+        string targetFramework,
+        string type,
+        ExactTypeSelectionKind selectionKind =
+            ExactTypeSelectionKind.Query)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(version);
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetFramework);
+        ArgumentException.ThrowIfNullOrWhiteSpace(type);
+        if (!NuGetVersion.TryParse(version, out NuGetVersion? parsedVersion))
+        {
+            throw new ArgumentException(
+                "Exact Type inspection requires an explicit package version.",
+                nameof(version));
+        }
+        if (targetFramework.Equals("all", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException(
+                "Exact Type inspection requires one explicit target framework.",
+                nameof(targetFramework));
+        }
+        if (!Enum.IsDefined(selectionKind))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(selectionKind));
+        }
+        if (selectionKind == ExactTypeSelectionKind.Query
+            && TypeMatcher.IsTypeGlobPattern(type))
+        {
+            throw new ArgumentException(
+                "Exact Type inspection does not accept a Type glob.",
+                nameof(type));
+        }
 
-public sealed record ExactTypeForwardingHop(
-    AssemblyReferenceIdentity SourceAssembly,
-    AssemblyReferenceIdentity TargetAssembly,
-    AssemblyResolutionScope Scope);
+        PackageId = packageId;
+        Version = parsedVersion.ToNormalizedString();
+        TargetFramework = targetFramework;
+        Type = type;
+        SelectionKind = selectionKind;
+    }
 
-public sealed record ExactTypeCandidate(
-    MetadataTypeDefinitionName Definition,
-    MetadataTypeDefinitionAddress Address,
-    ExactLibrarySourceCoordinate Declaration,
-    ExactLibrarySourceCoordinate Supplier,
-    RealizedMemberCoordinate SupplierSource,
-    AssemblyReferenceIdentity SupplierAssembly,
-    ImmutableArray<ExactTypeForwardingHop> ForwardingHops,
-    string DeclarationAssetId,
-    string SupplierAssetId);
+    public string PackageId { get; }
+
+    public string Version { get; }
+
+    public string TargetFramework { get; }
+
+    public string Type { get; }
+
+    public ExactTypeSelectionKind SelectionKind { get; }
+}
+
+public enum ExactTypeSelectionKind
+{
+    Query,
+    DefinitionIdentity,
+}
+
+public enum ExactTypeInspectionOutcome
+{
+    Available,
+    NotFound,
+    Ambiguous,
+    Unavailable,
+}
 
 public enum ExactTypeInspectionFailureKind
 {
-    InvalidRequest,
-    DefinitionMismatch,
-    ContextUnavailable,
-    ContextLoadFailed,
-    PopulationUnavailable,
-    DeclarationInventoryIncomplete,
-    TypeResolutionRejected,
+    ContextLoad,
+    ParticipantRejected,
+    MetadataMalformed,
+    BindingPolicyUnsupported,
     TypeResolutionUnavailable,
-    TypeResolutionAmbiguous,
-    ApiSurfaceRejected,
-    ApiSurfaceFailed,
-    ApiSurfaceIncomplete,
-    AsyncClassificationUnavailable,
-    ResolvedTypeMissing,
+    SupplierUnavailable,
+    InspectionIncomplete,
+    ProjectionTruncated,
 }
 
+/// <summary>
+/// Exact Metadata assembly identity detached from its acquisition capability.
+/// </summary>
+public sealed record ExactTypeAssemblyIdentity(
+    AssemblyReferenceIdentity Identity,
+    Guid ModuleVersionId);
+
+/// <summary>One exact Metadata forwarding edge followed for the selected Type.</summary>
+public sealed record ExactTypeForwardingHop(
+    AssemblyReferenceIdentity Source,
+    AssemblyReferenceIdentity Target);
+
+/// <summary>Typed non-success or incompleteness evidence for exact Type inspection.</summary>
 public sealed record ExactTypeInspectionFailure(
     ExactTypeInspectionFailureKind Kind,
-    AssemblyReferenceIdentity? Assembly = null,
-    WorkspaceContextLoadFailureKind? ContextLoadFailure = null,
-    CandidateOpenFailureKind? CandidateOpenFailure = null,
-    WorkspaceDeclarationPopulationFailure? PopulationFailure = null,
-    ApiSurfaceProjectionLimit? SurfaceLimit = null);
+    string Detail,
+    AssemblyReferenceIdentity? Assembly = null);
 
-public abstract record ExactTypeInspectionResult
+/// <summary>
+/// Detached Metadata API-surface failure without compatibility paths or
+/// internal definition handles.
+/// </summary>
+public sealed record ExactTypeApiInspectionFailure(
+    string Operation,
+    int SubjectToken,
+    MetadataTypeNameFailureMechanism Mechanism,
+    string Kind,
+    string Detail,
+    AssemblyReferenceIdentity? SubjectAssembly,
+    AssemblyReferenceIdentity? DependencyAssembly)
 {
-    private protected ExactTypeInspectionResult(
-        ExactTypeInspectionRequest request,
-        WorkspaceDefinitionSnapshotIdentity definition,
-        ImmutableArray<ExactTypeInspectionFailure> failures)
-    {
-        Request = request;
-        Definition = definition;
-        Failures = failures;
-    }
-
-    public ExactTypeInspectionRequest Request { get; }
-
-    public WorkspaceDefinitionSnapshotIdentity Definition { get; }
-
-    public ImmutableArray<ExactTypeInspectionFailure> Failures { get; }
-
-    public sealed record Available : ExactTypeInspectionResult
-    {
-        internal Available(
-            ExactTypeInspectionRequest request,
-            WorkspaceDefinitionSnapshotIdentity definition,
-            ExactTypeCandidate candidate,
-            bool isContextUnique,
-            bool isPublicWithNonPublicTypesVisible,
-            ApiType type,
-            ApiMemberInventoryResult members,
-            ImmutableArray<ApiSurfaceInspectionFailure> inspectionFailures)
-            : base(request, definition, [])
-        {
-            Candidate = candidate;
-            IsContextUnique = isContextUnique;
-            IsPublicWithNonPublicTypesVisible =
-                isPublicWithNonPublicTypesVisible;
-            Type = type;
-            Members = members;
-            InspectionFailures = inspectionFailures;
-        }
-
-        public ExactTypeCandidate Candidate { get; }
-
-        /// <summary>
-        /// Whether the canonical definition has one declaring occurrence in
-        /// the complete selected context, independent of the assembly selector.
-        /// </summary>
-        public bool IsContextUnique { get; }
-
-        /// <summary>
-        /// Whether the selected Type is present in the composed Browser catalog
-        /// surface.
-        /// </summary>
-        public bool IsPublicWithNonPublicTypesVisible { get; }
-
-        public ApiType Type { get; }
-
-        public ApiMemberInventoryResult Members { get; }
-
-        public ImmutableArray<ApiSurfaceInspectionFailure> InspectionFailures { get; }
-    }
-
-    public sealed record NotFound : ExactTypeInspectionResult
-    {
-        internal NotFound(
-            ExactTypeInspectionRequest request,
-            WorkspaceDefinitionSnapshotIdentity definition,
-            ImmutableArray<MetadataTypeDefinitionName> suggestions)
-            : base(request, definition, []) =>
-            Suggestions = suggestions;
-
-        public ImmutableArray<MetadataTypeDefinitionName> Suggestions { get; }
-    }
-
-    public sealed record Ambiguous : ExactTypeInspectionResult
-    {
-        internal Ambiguous(
-            ExactTypeInspectionRequest request,
-            WorkspaceDefinitionSnapshotIdentity definition,
-            ImmutableArray<ExactTypeCandidate> candidates)
-            : base(request, definition, []) =>
-            Candidates = candidates;
-
-        public ImmutableArray<ExactTypeCandidate> Candidates { get; }
-    }
-
-    public sealed record Incomplete : ExactTypeInspectionResult
-    {
-        internal Incomplete(
-            ExactTypeInspectionRequest request,
-            WorkspaceDefinitionSnapshotIdentity definition,
-            ImmutableArray<ExactTypeCandidate> candidates,
-            ImmutableArray<ExactTypeInspectionFailure> failures)
-            : base(request, definition, failures) =>
-            Candidates = candidates;
-
-        public ImmutableArray<ExactTypeCandidate> Candidates { get; }
-    }
-
-    public sealed record Rejected : ExactTypeInspectionResult
-    {
-        internal Rejected(
-            ExactTypeInspectionRequest request,
-            WorkspaceDefinitionSnapshotIdentity definition,
-            ImmutableArray<ExactTypeInspectionFailure> failures)
-            : base(request, definition, failures)
-        {
-        }
-    }
+    internal static ExactTypeApiInspectionFailure From(
+        ApiSurfaceInspectionFailure failure) =>
+        new(
+            failure.Operation,
+            failure.SubjectToken,
+            failure.Mechanism,
+            failure.Kind,
+            failure.Detail,
+            failure.SubjectAssembly,
+            failure.DependencyAssembly);
 }
 
-public static class ExactTypeInspectionQuery
+/// <summary>Detached generic-parameter facts for one exact Type.</summary>
+public sealed record ExactTypeParameter(
+    string Name,
+    string? Variance,
+    ImmutableArray<string> Constraints);
+
+/// <summary>
+/// One member inventory entry. This slice carries identity and kind rather
+/// than the richer declaration and body facts owned by later operations.
+/// </summary>
+public sealed record ExactTypeMember(
+    string Name,
+    string Kind,
+    string? Signature);
+
+/// <summary>
+/// Detached structured Metadata Type identity for host transport.
+/// </summary>
+public sealed record ExactTypeDefinitionIdentity(
+    string Namespace,
+    ImmutableArray<string> Segments)
 {
-    public static InspectionQuery<ExactTypeInspectionResult> Definition { get; } =
-        new("Exact type inspection", InspectionCost.Unbounded);
+    internal static ExactTypeDefinitionIdentity From(
+        MetadataTypeDefinitionName definition) =>
+        new(definition.Namespace, definition.Segments);
+}
 
-    public static Task<ExactTypeInspectionResult> ExecuteAsync(
-        ExactTypeInspectionRequest request,
-        WorkspaceRealizationOperationLease operation,
-        PackageRootBinding binding,
-        PackageAssemblyContextRealization realization,
-        CancellationToken cancellationToken = default) =>
-        Task.FromResult(Execute(request, operation, binding, realization, cancellationToken));
+/// <summary>
+/// Detached declaration facts and member inventory for one exact Type.
+/// </summary>
+public sealed record ExactTypeApi(
+    string FullName,
+    string? Namespace,
+    string Name,
+    ExactTypeDefinitionIdentity DefinitionIdentity,
+    ImmutableArray<int> IntroducedTypeParameterCounts,
+    string Kind,
+    string? Accessibility,
+    ImmutableArray<string> Attributes,
+    bool IsSealed,
+    bool IsAbstract,
+    bool IsStatic,
+    bool IsByRefLike,
+    bool IsReadOnly,
+    string? BaseType,
+    ImmutableArray<string> Interfaces,
+    ImmutableArray<string> DerivedTypes,
+    ImmutableArray<ExactTypeParameter> TypeParameters,
+    ImmutableArray<ExactTypeMember> Members,
+    string? EnumUnderlyingType,
+    bool IsForwarded)
+{
+    internal static ExactTypeApi From(ApiType type) =>
+        new(
+            type.FullName,
+            type.Namespace,
+            type.Name,
+            ExactTypeDefinitionIdentity.From(
+                type.DefinitionName
+                    ?? throw new InvalidOperationException(
+                        "An exact Type result requires structured definition identity.")),
+            type.IntroducedTypeParameterCounts is { } introduced
+                ? [.. introduced]
+                : [],
+            type.Kind,
+            type.Accessibility,
+            [.. type.Attributes],
+            type.IsSealed,
+            type.IsAbstract,
+            type.IsStatic,
+            type.IsByRefLike,
+            type.IsReadOnly,
+            type.BaseType,
+            [.. type.Interfaces],
+            [.. type.DerivedTypes],
+            [
+                .. type.TypeParameters.Select(parameter =>
+                    new ExactTypeParameter(
+                        parameter.Name,
+                        parameter.Variance,
+                        [.. parameter.Constraints])),
+            ],
+            [
+                .. type.Members.Select(member =>
+                    new ExactTypeMember(
+                        member.Name,
+                        member.Kind,
+                        member.Signature)),
+            ],
+            type.EnumUnderlyingType,
+            type.IsForwarded);
+}
 
-    static ExactTypeInspectionResult Execute(
+/// <summary>
+/// Detached exact Type API facts and the Metadata identity that supplied them.
+/// </summary>
+public sealed record ExactTypeInspectionResult(
+    ExactTypeInspectionOutcome Outcome,
+    string RequestedType,
+    string? MatchedType,
+    ExactTypeApi? Type,
+    ExactTypeAssemblyIdentity? RequestedAssembly,
+    ExactTypeAssemblyIdentity? SupplierAssembly,
+    ImmutableArray<ExactTypeForwardingHop> ForwardingHops,
+    ImmutableArray<string> Suggestions,
+    ImmutableArray<ExactTypeApiInspectionFailure> InspectionFailures,
+    ImmutableArray<ExactTypeInspectionFailure> Failures)
+{
+    public bool IsAvailable =>
+        Outcome == ExactTypeInspectionOutcome.Available;
+
+    public bool IsComplete =>
+        IsAvailable
+        && Failures.IsEmpty
+        && InspectionFailures.All(static failure =>
+            failure.Operation == ApiSurface.ConstraintResolutionOperation);
+
+    internal static ExactTypeInspectionResult ContextUnavailable(
         ExactTypeInspectionRequest request,
-        WorkspaceRealizationOperationLease operation,
-        PackageRootBinding binding,
-        PackageAssemblyContextRealization realization,
-        CancellationToken cancellationToken = default)
+        IEnumerable<WorkspaceContextLoadFailure> failures) =>
+        new(
+            ExactTypeInspectionOutcome.Unavailable,
+            request.Type,
+            MatchedType: null,
+            Type: null,
+            RequestedAssembly: null,
+            SupplierAssembly: null,
+            ForwardingHops: [],
+            Suggestions: [],
+            InspectionFailures: [],
+            Failures:
+            [
+                .. failures.Select(failure =>
+                    new ExactTypeInspectionFailure(
+                        ExactTypeInspectionFailureKind.ContextLoad,
+                        $"{failure.Kind}: {failure.Message}")),
+            ]);
+
+    internal static ExactTypeInspectionResult RuntimeUnavailable(
+        ExactTypeInspectionRequest request,
+        string detail) =>
+        new(
+            ExactTypeInspectionOutcome.Unavailable,
+            request.Type,
+            MatchedType: null,
+            Type: null,
+            RequestedAssembly: null,
+            SupplierAssembly: null,
+            ForwardingHops: [],
+            Suggestions: [],
+            InspectionFailures: [],
+            Failures:
+            [
+                new ExactTypeInspectionFailure(
+                    ExactTypeInspectionFailureKind.TypeResolutionUnavailable,
+                    detail),
+            ]);
+}
+
+/// <summary>
+/// Live exact-Type context constructed under one candidate realization.
+/// </summary>
+internal sealed class ExactTypeInspectionContext
+{
+    internal ExactTypeInspectionContext(
+        WorkspaceContextLoadOutcome.Loaded context)
     {
+        Realization = context.Workspace;
+        Context = context;
+    }
+
+    internal InspectionWorkspaceIdentity Realization { get; }
+
+    internal WorkspaceContextLoadOutcome.Loaded Context { get; }
+}
+
+/// <summary>
+/// Resolves and projects one exact Type through an admitted Workspace
+/// realization operation.
+/// </summary>
+internal static class ExactTypeInspectionQuery
+{
+    sealed record Candidate(
+        int Order,
+        AssemblyContextParticipant Participant,
+        AssemblyApiSurface Surface,
+        MetadataTypeDefinitionName Definition);
+
+    sealed record Projection(
+        int Order,
+        AssemblyContextParticipant Participant,
+        AssemblyContextEntry<AssemblyApiSurface> Entry);
+
+    sealed record ResolvedCandidate(
+        Candidate Candidate,
+        TypeResolutionOutcome.Resolved Resolution);
+
+    internal static ExactTypeInspectionResult Execute(
+        WorkspaceRealizationOperationLease authority,
+        ExactTypeInspectionContext context,
+        ExactTypeInspectionRequest request,
+        ApiSurfaceProjectionLimits? projectionLimits = null)
+    {
+        ArgumentNullException.ThrowIfNull(authority);
+        ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(operation);
-        ArgumentNullException.ThrowIfNull(binding);
-        ArgumentNullException.ThrowIfNull(realization);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        InspectionWorkspace workspace = operation.Workspace;
-        WorkspaceDefinitionSnapshotIdentity definition =
-            operation.Definition.Identity;
-        if (request.ContextIndex < 0
-            || request.ContextIndex >= operation.Definition.Plan.Contexts.Length
-            || string.IsNullOrWhiteSpace(request.TypeSelector)
-            || TypeMatcher.IsTypeGlobPattern(request.TypeSelector)
-            || request.SurfaceLimits is null
-            || request.CompileAssetId is not null
-                && string.IsNullOrWhiteSpace(request.CompileAssetId)
-            || request.Library is { Version: null }
-            || request.AssemblyName is { } assemblyName
-                && (assemblyName.Length > 1024
-                    || !RealizedMemberCoordinate.IsAssemblySimpleName(assemblyName)
-                    || TypeMatcher.IsTypeGlobPattern(assemblyName))
-            || !Enum.IsDefined(request.Scope))
+        using WorkspaceRealizationOperationUse operation =
+            authority.EnterUse();
+        if (!ReferenceEquals(operation.Realization, context.Realization)
+            || !ReferenceEquals(
+                operation.Definition.Workspace,
+                context.Realization))
         {
-            return Rejected(ExactTypeInspectionFailureKind.InvalidRequest);
+            throw new ArgumentException(
+                "The exact Type context does not belong to the admitted realization.",
+                nameof(context));
         }
 
-        WorkspaceContextInput planned =
-            operation.Definition.Plan.Contexts[request.ContextIndex];
-        string? plannedFramework =
-            planned.Framework is { } framework
-            && NuGetTargetFrameworkIdentity.TryNormalize(
-                framework,
-                out string canonicalFramework)
-                ? canonicalFramework
-                : null;
-        if (planned.Members is not [WorkspaceMemberCoordinate.PackageMember package]
-            || !string.Equals(package.PackageId, binding.Coordinate.PackageId, StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(package.Version, binding.Coordinate.Version, StringComparison.Ordinal)
-            || !string.Equals(plannedFramework, binding.Coordinate.Framework, StringComparison.Ordinal)
-            || !string.Equals(planned.RuntimeIdentifier, binding.Coordinate.RuntimeIdentifier, StringComparison.Ordinal)
-            || realization.SurfaceParticipants.Any(participant =>
-                !ReferenceEquals(participant.Package, binding.Root.Identity)))
+        WorkspaceContextLoadOutcome.Loaded loaded = context.Context;
+        ImmutableArray<AssemblyContextParticipant> participants =
+            PackageParticipants(loaded, request);
+        if (participants.IsEmpty)
         {
-            return Rejected(ExactTypeInspectionFailureKind.DefinitionMismatch);
-        }
-
-        WorkspaceDeclarationPopulationCapture capture =
-            workspace.CapturePackageSurfaceDeclarationPopulation(
-                request.ContextIndex, planned, binding, realization);
-        if (capture is WorkspaceDeclarationPopulationCapture.Rejected rejected)
-        {
-            return new ExactTypeInspectionResult.Rejected(
+            return ExactTypeInspectionResult.RuntimeUnavailable(
                 request,
-                definition,
-                [
-                    new(
-                        rejected.Failure == WorkspaceDeclarationPopulationFailure.ContextUnavailable
-                            ? ExactTypeInspectionFailureKind.DefinitionMismatch
-                            : ExactTypeInspectionFailureKind.PopulationUnavailable,
-                        PopulationFailure: rejected.Failure),
-                ]);
+                "The admitted realization does not contain the requested package coordinate.");
         }
 
-        WorkspaceDeclarationPopulation selectedPopulation =
-            ((WorkspaceDeclarationPopulationCapture.Captured)capture).Population;
-        MetadataTypeDefinitionName? exactDefinition =
-            MetadataTypeDefinitionName.ParseEscapedFullName(
-                request.TypeSelector)
-                is MetadataTypeDefinitionNameResult.Valid validDefinition
-                    ? validDefinition.Name
-                    : null;
-        ImmutableArray<TypeDeclarationLocatorRequest> locatorRequests =
-            exactDefinition is null
-                ?
-                [
-                    new TypeDeclarationLocatorRequest.Pattern(
-                        request.TypeSelector),
-                    new TypeDeclarationLocatorRequest.Pattern("*"),
+        AssemblyContextApiSurfaceResult? boundedProjection =
+            projectionLimits is null
+                ? null
+                : AssemblyContextApiSurfaceQuery.ExecuteBoundedResolved(
+                    loaded.Group,
+                    ApiSurfaceScope.PublicWithNonPublicTypes,
+                    projectionLimits,
+                    participants);
+        ImmutableArray<Projection> projections =
+            boundedProjection is null
+                ? [
+                    .. participants.Select(
+                        (participant, order) => new Projection(
+                            order,
+                            participant,
+                            AssemblyContextApiSurfaceQuery
+                                .ExecuteParticipantResolved(
+                                loaded.Group,
+                                participant,
+                                ApiSurfaceScope.PublicWithNonPublicTypes))),
                 ]
-                :
-                [
-                    new TypeDeclarationLocatorRequest.Exact(
-                        exactDefinition),
-                    new TypeDeclarationLocatorRequest.Pattern(
-                        request.TypeSelector),
-                    new TypeDeclarationLocatorRequest.Pattern("*"),
+                : [
+                    .. boundedProjection.Assemblies.Assemblies.Select(
+                        (entry, order) => new Projection(
+                            order,
+                            participants[order],
+                            entry)),
                 ];
-        int patternAnswerIndex = exactDefinition is null ? 0 : 1;
-        int inventoryAnswerIndex = exactDefinition is null ? 1 : 2;
-        TypeDeclarationLocatorResult allLocated =
-            TypeDeclarationLocatorQuery.Execute(
-                selectedPopulation,
-                locatorRequests,
-                includeAll: true,
-                cancellationToken: cancellationToken);
-        if (allLocated is TypeDeclarationLocatorResult.Rejected locatorRejected)
+        ImmutableArray<ExactTypeInspectionFailure> participantFailures =
+            ParticipantFailures(projections);
+        if (boundedProjection?.Truncation is { } truncation)
         {
-            return new ExactTypeInspectionResult.Rejected(
-                request,
-                definition,
-                [
-                    new(
-                        ExactTypeInspectionFailureKind.PopulationUnavailable,
-                        PopulationFailure:
-                            locatorRejected.PopulationFailure),
-                ]);
+            participantFailures =
+                participantFailures.Add(
+                    new ExactTypeInspectionFailure(
+                        ExactTypeInspectionFailureKind.ProjectionTruncated,
+                        "API-surface projection was truncated by the "
+                            + $"{truncation.Limit} bound of "
+                            + $"{truncation.Bound}; "
+                            + $"{truncation.OmittedParticipants} "
+                            + "participant(s) were omitted."));
         }
-
-        var allEvaluated =
-            (TypeDeclarationLocatorResult.Evaluated)allLocated;
-        TypeDeclarationLocatorResult located =
-            request.Scope == ApiSurfaceScope.IncludeAll
-                ? allLocated
-                : TypeDeclarationLocatorQuery.Execute(
-                    selectedPopulation,
-                    locatorRequests,
-                    includeAll: false,
-                    cancellationToken: cancellationToken);
-        if (located is TypeDeclarationLocatorResult.Rejected scopedRejected)
+        ImmutableArray<ApiSurfaceInspectionFailure> inspectionFailures =
+            InspectionFailures(projections);
+        ImmutableArray<ApiSurfaceInspectionFailure> lookupFailures =
+        [
+            .. inspectionFailures.Where(static failure =>
+                failure.Operation
+                    != ApiSurface.ConstraintResolutionOperation),
+        ];
+        ImmutableArray<ExactTypeApiInspectionFailure>
+            detachedInspectionFailures =
+        [
+            .. lookupFailures.Select(
+                ExactTypeApiInspectionFailure.From),
+        ];
+        ImmutableArray<ExactTypeInspectionFailure> incompleteness =
+            Incompleteness(lookupFailures);
+        ImmutableArray<Candidate> declarations =
+            Declarations(projections);
+        StringComparer declarationComparer =
+            request.SelectionKind
+                == ExactTypeSelectionKind.DefinitionIdentity
+            ? StringComparer.Ordinal
+            : StringComparer.OrdinalIgnoreCase;
+        string[] declarationNames =
+        [
+            .. declarations
+                .Select(candidate =>
+                    candidate.Definition.ToEscapedFullName())
+                .Distinct(declarationComparer),
+        ];
+        ImmutableArray<Candidate> matching;
+        string? matchedType;
+        if (request.SelectionKind
+            == ExactTypeSelectionKind.DefinitionIdentity)
         {
-            return new ExactTypeInspectionResult.Rejected(
-                request,
-                definition,
-                [
-                    new(
-                        ExactTypeInspectionFailureKind.PopulationUnavailable,
-                        PopulationFailure:
-                            scopedRejected.PopulationFailure),
-                ]);
+            matching =
+            [
+                .. declarations.Where(candidate =>
+                    candidate.Definition.ToEscapedFullName().Equals(
+                        request.Type,
+                        StringComparison.Ordinal)),
+            ];
+            matchedType = matching.IsEmpty
+                ? null
+                : request.Type;
         }
-
-        var evaluated =
-            (TypeDeclarationLocatorResult.Evaluated)located;
-        var contextOccurrences = selectedPopulation.Receipt.Members
-            .Select(static member => member.Occurrence).ToHashSet();
-        TypeDeclarationLocatorMemberOutcome[] contextOutcomes =
-            [.. allEvaluated.Members.Where(member => contextOccurrences.Contains(member.Member.Occurrence))];
-        var occurrences = selectedPopulation.Receipt.Members
-            .Where(member =>
-                (request.Library is null
-                    || AssemblyReferenceIdentity.EquivalentComparer.Equals(
-                        member.AssemblyIdentity, request.Library))
-                && (request.AssemblyName is null
-                    || string.Equals(
-                        member.AssemblyIdentity.Name,
-                        request.AssemblyName,
-                        StringComparison.OrdinalIgnoreCase))
-                && (request.CompileAssetId is null
-                    || realization.SurfaceParticipants[member.Occurrence.MemberOrder]
-                        .Asset.Id == request.CompileAssetId))
-            .Select(static member => member.Occurrence)
-            .ToHashSet();
-        TypeDeclarationLocatorMemberOutcome[] selectedOutcomes =
-            [.. contextOutcomes.Where(member => occurrences.Contains(member.Member.Occurrence))];
-        if (selectedOutcomes.Length != occurrences.Count
-            || selectedOutcomes.Any(static member => !member.IsComplete))
+        else
         {
-            return new ExactTypeInspectionResult.Incomplete(
-                request,
-                definition,
-                [],
-                [
-                    new(
-                        ExactTypeInspectionFailureKind
-                            .DeclarationInventoryIncomplete),
-                ]);
-        }
-        ImmutableArray<TypeDeclarationLocatorCandidate> candidates =
-            exactDefinition is not null
-                ?
-                [.. evaluated.Answers[0].Candidates.Where(candidate =>
-                    occurrences.Contains(candidate.Observation.Occurrence))]
+            string? exactName = declarationNames.FirstOrDefault(name =>
+                name.Equals(
+                    request.Type,
+                    StringComparison.OrdinalIgnoreCase));
+            string[] exactShortNames = exactName is null
+                ? [
+                    .. declarationNames.Where(name =>
+                        TypeMatcher.MatchesExactTypeName(
+                            name,
+                            request.Type)),
+                ]
                 : [];
-        ImmutableArray<TypeDeclarationLocatorCandidate> patternCandidates =
-            [.. evaluated.Answers[patternAnswerIndex].Candidates.Where(candidate =>
-                occurrences.Contains(candidate.Observation.Occurrence))];
-        if (candidates.IsEmpty)
-        {
-            ImmutableArray<TypeDeclarationLocatorCandidate> fullNames =
-                [.. patternCandidates.Where(candidate =>
-                    TypeMatcher.MatchesFullTypeName(
-                        candidate.Name.ToMetadataFullName(),
-                        request.TypeSelector))];
-            ImmutableArray<TypeDeclarationLocatorCandidate> exactNames =
-                [.. patternCandidates.Where(candidate =>
-                    TypeMatcher.MatchesExactTypeName(
-                        candidate.Name.ToMetadataFullName(),
-                        request.TypeSelector))];
-            candidates = !fullNames.IsEmpty
-                ? fullNames
-                : !exactNames.IsEmpty
-                    ? exactNames
-                    : patternCandidates;
-        }
-        if (candidates.IsEmpty)
-        {
-            ImmutableArray<MetadataTypeDefinitionName> suggestions =
-                Suggestions(
-                    [.. evaluated.Answers[inventoryAnswerIndex].Candidates.Where(candidate =>
-                        occurrences.Contains(candidate.Observation.Occurrence))],
-                    request.TypeSelector);
-            return new ExactTypeInspectionResult.NotFound(
-                request,
-                definition,
-                suggestions);
+            string[] matchingNames =
+                exactName is not null
+                    ? [exactName]
+                    : exactShortNames.Length > 0
+                        ? exactShortNames
+                        :
+                [
+                    .. declarationNames.Where(name =>
+                        TypeMatcher.MatchesTypeFilter(
+                            name,
+                            request.Type)),
+                ];
+            matching =
+            [
+                .. declarations.Where(candidate =>
+                    matchingNames.Contains(
+                        candidate.Definition.ToEscapedFullName(),
+                        StringComparer.OrdinalIgnoreCase)),
+            ];
+            matchedType = matchingNames.Length == 1
+                ? matchingNames[0]
+                : null;
         }
 
-        var choices = new List<ResolvedChoice>();
-        var resolutionFailures =
-            ImmutableArray.CreateBuilder<ExactTypeInspectionFailure>();
-        foreach (TypeDeclarationLocatorCandidate candidate
-            in candidates)
+        bool lookupIncomplete =
+            participantFailures.Length > 0
+            || lookupFailures.Any(failure =>
+                MayAffectTypeLookup(
+                    failure,
+                    request));
+        if (matching.IsEmpty)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (!TryParticipant(
-                    realization,
-                    candidate.Observation.Occurrence,
-                    out AssemblyContextParticipant root))
+            if (lookupIncomplete)
             {
-                resolutionFailures.Add(
-                    new(
-                        ExactTypeInspectionFailureKind.ContextUnavailable,
-                        candidate.Observation.AssemblyIdentity));
-                continue;
+                return new ExactTypeInspectionResult(
+                    ExactTypeInspectionOutcome.Unavailable,
+                    request.Type,
+                    MatchedType: null,
+                    Type: null,
+                    RequestedAssembly: null,
+                    SupplierAssembly: null,
+                    ForwardingHops: [],
+                    Suggestions: [],
+                    InspectionFailures: detachedInspectionFailures,
+                    Failures:
+                    [
+                        .. participantFailures,
+                        .. incompleteness,
+                    ]);
             }
 
+            ImmutableArray<string> suggestions =
+                request.SelectionKind == ExactTypeSelectionKind.Query
+                ? [.. TypeMatcher.Lookup(
+                    declarationNames,
+                    request.Type).Suggestions]
+                : [];
+            return new ExactTypeInspectionResult(
+                ExactTypeInspectionOutcome.NotFound,
+                request.Type,
+                MatchedType: null,
+                Type: null,
+                RequestedAssembly: null,
+                SupplierAssembly: null,
+                ForwardingHops: [],
+                Suggestions: suggestions,
+                InspectionFailures: detachedInspectionFailures,
+                Failures:
+                [
+                    .. participantFailures,
+                    .. incompleteness,
+                ]);
+        }
+
+        if (lookupIncomplete)
+        {
+            return new ExactTypeInspectionResult(
+                ExactTypeInspectionOutcome.Unavailable,
+                request.Type,
+                matchedType,
+                Type: null,
+                RequestedAssembly: null,
+                SupplierAssembly: null,
+                ForwardingHops: [],
+                Suggestions: [],
+                InspectionFailures: detachedInspectionFailures,
+                Failures:
+                [
+                    .. participantFailures,
+                    .. incompleteness,
+                ]);
+        }
+
+        var resolved = ImmutableArray.CreateBuilder<ResolvedCandidate>();
+        var resolutionFailures =
+            ImmutableArray.CreateBuilder<ExactTypeInspectionFailure>();
+        bool declarationAmbiguous = false;
+        foreach (Candidate candidate in matching)
+        {
             AssemblyContextTypeResolutionResult resolution =
                 AssemblyContextTypeResolutionQuery.Execute(
-                    realization.SurfaceGroup,
-                    root,
-                    candidate.Name,
+                    loaded.Group,
+                    candidate.Participant,
+                    candidate.Definition,
                     AssemblyResolutionScope.Any);
             switch (resolution)
             {
                 case AssemblyContextTypeResolutionResult.Available
-                    { Outcome: TypeResolutionOutcome.Resolved resolved }:
-                    if (!TryParticipant(
-                            realization,
-                            resolved.Definition.Assembly.Assembly,
-                            out AssemblyContextParticipant supplier,
-                            out PackageAssemblyRoleParticipant supplierMember))
+                {
+                    Outcome: TypeResolutionOutcome.Resolved available,
+                }:
+                    resolved.Add(new ResolvedCandidate(candidate, available));
+                    break;
+                case AssemblyContextTypeResolutionResult.Available
+                {
+                    Outcome: TypeResolutionOutcome.Ambiguous
                     {
-                        resolutionFailures.Add(
-                            new(
-                                ExactTypeInspectionFailureKind
-                                    .ContextUnavailable,
-                                resolved.Definition.Assembly.Assembly.Identity));
-                        break;
-                    }
-                    AddChoice(
-                        choices,
-                        new ResolvedChoice(
-                            candidate,
-                            resolved,
-                            supplier,
-                            supplierMember,
-                            realization.SurfaceParticipants[candidate.Observation.Occurrence.MemberOrder].Asset.Id,
-                            binding));
+                        Ambiguity:
+                            TypeResolutionAmbiguity.TypeDeclaration,
+                    },
+                }:
+                    declarationAmbiguous = true;
                     break;
-                case AssemblyContextTypeResolutionResult.Rejected rejectedResolution:
+                case AssemblyContextTypeResolutionResult.Available
+                {
+                    Outcome: TypeResolutionOutcome.Ambiguous
+                        ambiguousResolution,
+                }:
                     resolutionFailures.Add(
-                        new(
-                            ExactTypeInspectionFailureKind.TypeResolutionRejected,
-                            rejectedResolution.Assembly.Identity,
-                            CandidateOpenFailure:
-                                rejectedResolution.Failure.Kind));
-                    break;
-                case AssemblyContextTypeResolutionResult.UnsupportedBindingPolicy unsupported:
-                    resolutionFailures.Add(
-                        new(
+                        new ExactTypeInspectionFailure(
                             ExactTypeInspectionFailureKind
                                 .TypeResolutionUnavailable,
-                            unsupported.Assembly.Identity));
+                            ambiguousResolution.Ambiguity
+                                .GetType().Name,
+                            ambiguousResolution
+                                .TerminalAssemblyIdentity));
                     break;
                 case AssemblyContextTypeResolutionResult.Available available:
                     resolutionFailures.Add(
-                        new(
-                            available.Outcome
-                                is TypeResolutionOutcome.Ambiguous
-                                ? ExactTypeInspectionFailureKind
-                                    .TypeResolutionAmbiguous
-                                : ExactTypeInspectionFailureKind
-                                    .TypeResolutionUnavailable,
+                        new ExactTypeInspectionFailure(
+                            ExactTypeInspectionFailureKind
+                                .TypeResolutionUnavailable,
+                            available.Outcome.GetType().Name,
                             available.Outcome.TerminalAssemblyIdentity));
                     break;
-                default:
-                    throw new InspectionQueryException(
-                        "Unknown exact-type resolution outcome.");
+                case AssemblyContextTypeResolutionResult.Rejected rejected:
+                    resolutionFailures.Add(
+                        new ExactTypeInspectionFailure(
+                            ExactTypeInspectionFailureKind.ParticipantRejected,
+                            rejected.Failure.Detail,
+                            rejected.Assembly.Identity));
+                    break;
+                case AssemblyContextTypeResolutionResult
+                    .UnsupportedBindingPolicy unsupported:
+                    resolutionFailures.Add(
+                        new ExactTypeInspectionFailure(
+                            ExactTypeInspectionFailureKind
+                                .BindingPolicyUnsupported,
+                            "The participant binding policy does not support acquisition-free exact Type resolution.",
+                            unsupported.Assembly.Identity));
+                    break;
             }
         }
 
-        ImmutableArray<ExactTypeCandidate> detached =
-            [.. choices.Select(Detach)];
         if (resolutionFailures.Count > 0)
         {
-            return new ExactTypeInspectionResult.Incomplete(
-                request,
-                definition,
-                detached,
-                resolutionFailures.ToImmutable());
-        }
-        if (choices.Count != 1)
-        {
-            return new ExactTypeInspectionResult.Ambiguous(
-                request,
-                definition,
-                detached);
-        }
-
-        ResolvedChoice selected = choices[0];
-        AssemblyContextApiSurfaceResult projected =
-            AssemblyContextApiSurfaceQuery.ExecuteBoundedResolved(
-                realization.SurfaceGroup,
-                request.Scope,
-                request.SurfaceLimits,
-                [selected.Supplier]);
-        if (projected.Truncation is { } truncation)
-        {
-            return new ExactTypeInspectionResult.Incomplete(
-                request,
-                definition,
-                detached,
+            return new ExactTypeInspectionResult(
+                ExactTypeInspectionOutcome.Unavailable,
+                request.Type,
+                matchedType,
+                Type: null,
+                RequestedAssembly: null,
+                SupplierAssembly: null,
+                ForwardingHops: [],
+                Suggestions: [],
+                InspectionFailures: detachedInspectionFailures,
+                Failures:
                 [
-                    new(
-                        ExactTypeInspectionFailureKind.ApiSurfaceIncomplete,
-                        selected.Supplier.Assembly.Identity,
-                        SurfaceLimit: truncation.Limit),
+                    .. participantFailures,
+                    .. resolutionFailures,
+                    .. incompleteness,
+                ]);
+        }
+        if (declarationAmbiguous || DistinctTerminalCount(resolved) > 1)
+        {
+            return new ExactTypeInspectionResult(
+                ExactTypeInspectionOutcome.Ambiguous,
+                request.Type,
+                matchedType,
+                Type: null,
+                RequestedAssembly: null,
+                SupplierAssembly: null,
+                ForwardingHops: [],
+                Suggestions: [],
+                InspectionFailures: detachedInspectionFailures,
+                Failures:
+                [
+                    .. participantFailures,
+                    .. resolutionFailures,
+                    .. incompleteness,
+                ]);
+        }
+        if (resolved.Count == 0)
+        {
+            return new ExactTypeInspectionResult(
+                ExactTypeInspectionOutcome.Unavailable,
+                request.Type,
+                matchedType,
+                Type: null,
+                RequestedAssembly: null,
+                SupplierAssembly: null,
+                ForwardingHops: [],
+                Suggestions: [],
+                InspectionFailures: detachedInspectionFailures,
+                Failures:
+                [
+                    .. participantFailures,
+                    .. resolutionFailures,
+                    .. incompleteness,
                 ]);
         }
 
-        AssemblyContextEntry<AssemblyApiSurface> projectedEntry =
-            projected.Assemblies.Assemblies.Single();
-        if (projectedEntry
-            is AssemblyContextEntry<AssemblyApiSurface>.Rejected surfaceRejected)
+        ResolvedCandidate selected = resolved
+            .OrderBy(static candidate => candidate.Candidate.Order)
+            .First();
+        ResolvedTypeDefinition terminal =
+            selected.Resolution.Definition;
+        Projection? supplier = projections.FirstOrDefault(projection =>
+            ReferenceEquals(
+                projection.Participant.Assembly.Registration,
+                terminal.Assembly.Assembly.Registration));
+        if (supplier?.Entry
+            is not AssemblyContextEntry<AssemblyApiSurface>.Available
+                supplierSurface)
         {
-            return new ExactTypeInspectionResult.Rejected(
-                request,
-                definition,
+            return new ExactTypeInspectionResult(
+                ExactTypeInspectionOutcome.Unavailable,
+                request.Type,
+                matchedType,
+                Type: null,
+                RequestedAssembly:
+                    AssemblyIdentity(
+                        loaded.Group,
+                        selected.Candidate.Participant),
+                SupplierAssembly: null,
+                ForwardingHops: ForwardingHops(selected.Resolution),
+                Suggestions: [],
+                InspectionFailures: detachedInspectionFailures,
+                Failures:
                 [
-                    new(
-                        ExactTypeInspectionFailureKind.ApiSurfaceRejected,
-                        selected.Supplier.Assembly.Identity,
-                        CandidateOpenFailure: surfaceRejected.Failure.Kind),
+                    .. participantFailures,
+                    .. resolutionFailures,
+                    .. incompleteness,
+                    new ExactTypeInspectionFailure(
+                        ExactTypeInspectionFailureKind.SupplierUnavailable,
+                        "The resolved supplier participant did not produce an API surface.",
+                        terminal.Assembly.Assembly.Identity),
                 ]);
         }
-        if (projectedEntry
-            is AssemblyContextEntry<AssemblyApiSurface>.Failed)
-        {
-            return Rejected(
-                ExactTypeInspectionFailureKind.ApiSurfaceFailed,
-                selected.Supplier.Assembly.Identity);
-        }
 
-        AssemblyApiSurface assemblySurface =
-            ((AssemblyContextEntry<AssemblyApiSurface>.Available)
-                projectedEntry).Value;
-        ApiSurface surface = assemblySurface.Surface;
-        ApiType? type = surface.Types.SingleOrDefault(candidate =>
-            Equals(candidate.DefinitionName, selected.Resolution.Definition.Type));
+        ApiType? type = supplierSurface.Value.Surface.Types.SingleOrDefault(
+            candidate => candidate.DefinitionName is { } definition
+                && definition.Equals(terminal.Type));
         if (type is null)
         {
-            return Rejected(
-                ExactTypeInspectionFailureKind.ResolvedTypeMissing,
-                selected.Supplier.Assembly.Identity);
-        }
-
-        type.IsForwarded =
-            !selected.Resolution.Hops.IsDefaultOrEmpty;
-        ApiSurfaceExtractor.PopulateDerivedTypes(surface, type);
-
-        AssemblyImageAccessResult<ExactTypeEnrichment?>
-            exactTypeEnrichment =
-            realization.SurfaceGroup.UseAssemblySession(
-                selected.Supplier,
-                cancellationToken,
-                (session, _) =>
-                {
-                    MethodBodySource methods = session.MethodBodies;
-                    bool? isPublicWithNonPublicTypesVisible =
-                        methods.IsTypeVisibleInSurface(
-                            selected.Resolution.Definition.Address
-                                .Definition.Value,
-                            ApiSurfaceExtractionScope
-                                .PublicWithNonPublicTypes);
-                    if (isPublicWithNonPublicTypesVisible is null)
-                        return null;
-
-                    foreach (ApiMember member in type.Members)
-                    {
-                        cancellationToken.ThrowIfCancellationRequested();
-                        if (member.MetadataToken is not { } token
-                            || MetadataTokens.EntityHandle(token).Kind
-                                != HandleKind.MethodDefinition)
-                            continue;
-
-                        MethodBodySelection? method =
-                            methods.ResolveMethodDefinition(token);
-                        if (method is null || method.MetadataToken != token)
-                            return null;
-                        member.IsAsync = method.AsyncClassification is not null;
-                    }
-                    return new ExactTypeEnrichment(
-                        isPublicWithNonPublicTypesVisible.Value);
-                });
-        if (exactTypeEnrichment
-            is AssemblyImageAccessResult<ExactTypeEnrichment?>
-                .Rejected enrichmentRejected)
-        {
-            return new ExactTypeInspectionResult.Rejected(
-                request,
-                definition,
+            return new ExactTypeInspectionResult(
+                ExactTypeInspectionOutcome.Unavailable,
+                request.Type,
+                matchedType,
+                Type: null,
+                RequestedAssembly:
+                    AssemblyIdentity(
+                        loaded.Group,
+                        selected.Candidate.Participant),
+                SupplierAssembly:
+                    AssemblyIdentity(
+                        supplier.Participant,
+                        terminal.Address.ModuleVersionId),
+                ForwardingHops: ForwardingHops(selected.Resolution),
+                Suggestions: [],
+                InspectionFailures: detachedInspectionFailures,
+                Failures:
                 [
-                    new(
-                        ExactTypeInspectionFailureKind
-                            .AsyncClassificationUnavailable,
-                        enrichmentRejected.Assembly.Identity,
-                        CandidateOpenFailure:
-                            enrichmentRejected.Failure.Kind),
+                    .. participantFailures,
+                    .. resolutionFailures,
+                    .. incompleteness,
+                    new ExactTypeInspectionFailure(
+                        ExactTypeInspectionFailureKind.SupplierUnavailable,
+                        "The resolved supplier API surface did not contain the exact terminal Type definition.",
+                        terminal.Assembly.Assembly.Identity),
                 ]);
         }
-        if (exactTypeEnrichment
-            is not AssemblyImageAccessResult<ExactTypeEnrichment?>
-                .Available { Value: { } enrichment })
-        {
-            return Rejected(
-                ExactTypeInspectionFailureKind.AsyncClassificationUnavailable,
-                selected.Supplier.Assembly.Identity);
-        }
 
-        type.SourceAssemblyPath = null;
-        type.SourceFilePath = null;
-        type.AdditionalSourceFiles.Clear();
-        foreach (ApiMember member in type.Members)
-            member.SourceFilePath = null;
-        return new ExactTypeInspectionResult.Available(
-            request,
-            definition,
-            Detach(selected),
-            allEvaluated.Answers[inventoryAnswerIndex].Candidates.Count(candidate =>
-                candidate.Kind == AssemblyTypeDeclarationKind.Definition
-                && candidate.Name.Equals(selected.Resolution.Definition.Type)
-                && contextOccurrences.Contains(candidate.Observation.Occurrence)) == 1
-                && contextOutcomes.Length == contextOccurrences.Count
-                && contextOutcomes.All(static member => member.IsComplete),
-            enrichment.IsPublicWithNonPublicTypesVisible,
-            type,
-            ApiInventoryQuery.Members(type),
-            SelectedFailures(surface, type));
-
-        ExactTypeInspectionResult.Rejected Rejected(
-            ExactTypeInspectionFailureKind kind,
-            AssemblyReferenceIdentity? assembly = null) =>
-            new(
-                request,
-                definition,
-                [new(kind, assembly)]);
+        type.IsForwarded = !selected.Resolution.Hops.IsDefaultOrEmpty;
+        ImmutableArray<ApiSurfaceInspectionFailure>
+            selectedInspectionFailures =
+                SelectedInspectionFailures(
+                    inspectionFailures,
+                    supplierSurface.Value.Surface,
+                    type);
+        return new ExactTypeInspectionResult(
+            ExactTypeInspectionOutcome.Available,
+            request.Type,
+            selected.Candidate.Definition.ToEscapedFullName(),
+            ExactTypeApi.From(type),
+            AssemblyIdentity(
+                loaded.Group,
+                selected.Candidate.Participant),
+            AssemblyIdentity(
+                supplier.Participant,
+                terminal.Address.ModuleVersionId),
+            ForwardingHops(selected.Resolution),
+            Suggestions: [],
+            [
+                .. selectedInspectionFailures.Select(
+                    ExactTypeApiInspectionFailure.From),
+            ],
+            [
+                .. participantFailures,
+                .. resolutionFailures,
+                .. incompleteness,
+            ]);
     }
 
-    static bool TryParticipant(
-        PackageAssemblyContextRealization realization,
-        WorkspaceDeclarationOccurrence occurrence,
-        out AssemblyContextParticipant participant)
+    static ImmutableArray<AssemblyContextParticipant> PackageParticipants(
+        WorkspaceContextLoadOutcome.Loaded loaded,
+        ExactTypeInspectionRequest request)
     {
-        if (occurrence.MemberOrder >= 0
-            && occurrence.MemberOrder < realization.SurfaceParticipants.Length)
-        {
-            participant = realization.SurfaceParticipants[occurrence.MemberOrder].Participant;
-            return true;
-        }
-
-        participant = null!;
-        return false;
+        var registrations =
+            loaded.Members
+                .Where(member =>
+                    member.Realized
+                        is RealizedMemberCoordinate.Package package
+                    && package.PackageId.Equals(
+                        request.PackageId,
+                        StringComparison.OrdinalIgnoreCase)
+                    && package.Version.Equals(
+                        request.Version,
+                        StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(
+                        package.Framework,
+                        request.TargetFramework,
+                        StringComparison.OrdinalIgnoreCase))
+                .Select(member =>
+                    member.Participant.Assembly.Registration)
+                .ToHashSet(ReferenceEqualityComparer.Instance);
+        return
+        [
+            .. loaded.Group.Participants.Where(participant =>
+                registrations.Contains(
+                    participant.Assembly.Registration)),
+        ];
     }
 
-    static bool TryParticipant(
-        PackageAssemblyContextRealization realization,
-        ResolvedAssemblyReference assembly,
-        out AssemblyContextParticipant participant,
-        out PackageAssemblyRoleParticipant member)
+    static ImmutableArray<Candidate> Declarations(
+        ImmutableArray<Projection> projections)
     {
-        foreach (PackageAssemblyRoleParticipant candidate in realization.SurfaceParticipants)
+        var declarations = ImmutableArray.CreateBuilder<Candidate>();
+        foreach (Projection projection in projections)
         {
-            if (ReferenceEquals(
-                    candidate.Participant.Assembly.Registration,
-                    assembly.Registration))
+            if (projection.Entry
+                is not AssemblyContextEntry<AssemblyApiSurface>.Available
+                    available)
             {
-                participant = candidate.Participant;
-                member = candidate;
-                return true;
+                continue;
+            }
+
+            foreach (ApiType type in available.Value.Surface.Types)
+            {
+                if (type.DefinitionName is { } definition)
+                {
+                    declarations.Add(
+                        new Candidate(
+                            projection.Order,
+                            projection.Participant,
+                            available.Value,
+                            definition));
+                }
+            }
+            foreach (TypeForwarder forwarder
+                in available.Value.Surface.TypeForwarders)
+            {
+                if (forwarder.DefinitionName is { } definition)
+                {
+                    declarations.Add(
+                        new Candidate(
+                            projection.Order,
+                            projection.Participant,
+                            available.Value,
+                            definition));
+                }
             }
         }
 
-        participant = null!;
-        member = null!;
-        return false;
+        return declarations.DrainToImmutable();
     }
 
-    static void AddChoice(
-        List<ResolvedChoice> choices,
-        ResolvedChoice choice)
+    static ImmutableArray<ExactTypeInspectionFailure> ParticipantFailures(
+        ImmutableArray<Projection> projections)
     {
-        if (choices.Any(existing =>
-                existing.Resolution.Definition.Address
-                    == choice.Resolution.Definition.Address
-                && ReferenceEquals(
-                    existing.Supplier.Assembly.Registration,
-                    choice.Supplier.Assembly.Registration)))
+        var failures =
+            ImmutableArray.CreateBuilder<ExactTypeInspectionFailure>();
+        foreach (Projection projection in projections)
         {
-            return;
+            switch (projection.Entry)
+            {
+                case AssemblyContextEntry<AssemblyApiSurface>.Rejected
+                    rejected:
+                    failures.Add(new ExactTypeInspectionFailure(
+                        ExactTypeInspectionFailureKind.ParticipantRejected,
+                        rejected.Failure.Detail,
+                        rejected.Subject.Identity));
+                    break;
+                case AssemblyContextEntry<AssemblyApiSurface>.Failed failed:
+                    failures.Add(new ExactTypeInspectionFailure(
+                        ExactTypeInspectionFailureKind.MetadataMalformed,
+                        failed.Error.Message,
+                        failed.Subject.Identity));
+                    break;
+            }
         }
 
-        choices.Add(choice);
+        return failures.DrainToImmutable();
     }
 
-    static ExactTypeCandidate Detach(ResolvedChoice choice) =>
-        new(
-            choice.Resolution.Definition.Type,
-            choice.Resolution.Definition.Address,
-            choice.Declaration.Coordinate,
-            new ExactLibrarySourceCoordinate.Package(
-                PackageSourceCoordinate.Create(
-                    choice.Binding.Coordinate.PackageId,
-                    choice.Binding.Coordinate.Version),
-                new ManagedMetadataIdentity.Assembly(choice.Supplier.Assembly.Identity)),
-            choice.Binding.Coordinate,
-            choice.Supplier.Assembly.Identity,
-            [
-                .. choice.Resolution.Hops.Select(hop =>
-                    new ExactTypeForwardingHop(
-                        hop.SourceAssembly.Assembly.Identity,
-                        hop.TargetReference,
-                        hop.Scope)),
-            ],
-            choice.DeclarationAssetId,
-            choice.SupplierMember.Asset.Id);
+    static ImmutableArray<ApiSurfaceInspectionFailure> InspectionFailures(
+        ImmutableArray<Projection> projections) =>
+    [
+        .. projections
+            .SelectMany(projection =>
+                projection.Entry
+                    is AssemblyContextEntry<AssemblyApiSurface>.Available
+                        available
+                    ? available.Value.InspectionFailures
+                    : [])
+            .Distinct(),
+    ];
 
-    static ImmutableArray<MetadataTypeDefinitionName> Suggestions(
-        ImmutableArray<TypeDeclarationLocatorCandidate> candidates,
-        string selector)
+    static bool MayAffectTypeLookup(
+        ApiSurfaceInspectionFailure failure,
+        ExactTypeInspectionRequest request)
     {
-        TypeDeclarationLocatorCandidate[] names =
-        [
-            .. candidates
-                .DistinctBy(
-                    static candidate => candidate.Name,
-                    EqualityComparer<MetadataTypeDefinitionName>.Default)
-                .Select(candidate => (
-                    Candidate: candidate,
-                    Distance: StringDistance.EditDistance(
-                        TypeMatcher.GetSimpleName(
-                            candidate.Name.ToMetadataFullName()),
-                        TypeMatcher.GetSimpleName(selector))))
-                .OrderBy(static candidate => candidate.Distance)
-                .ThenBy(
-                    static candidate =>
-                        candidate.Candidate.Name.ToMetadataFullName(),
-                    StringComparer.Ordinal)
-                .Take(6)
-                .Select(static candidate => candidate.Candidate),
-        ];
-        return [.. names.Select(static candidate => candidate.Name)];
+        if (failure.OwningTypeDefinition is { } owner)
+        {
+            return MatchesRequest(owner);
+        }
+        if (!failure.AffectedTypeDefinitions.IsDefaultOrEmpty)
+        {
+            return failure.AffectedTypeDefinitions.Any(
+                MatchesRequest);
+        }
+
+        return true;
+
+        bool MatchesRequest(
+            MetadataTypeDefinitionName definition)
+        {
+            string name = definition.ToEscapedFullName();
+            return request.SelectionKind
+                    == ExactTypeSelectionKind.DefinitionIdentity
+                ? name.Equals(
+                    request.Type,
+                    StringComparison.Ordinal)
+                : TypeMatcher.MatchesTypeFilter(
+                    name,
+                    request.Type);
+        }
     }
 
-    static ImmutableArray<ApiSurfaceInspectionFailure> SelectedFailures(
-        ApiSurface surface,
-        ApiType type)
+    static ImmutableArray<ApiSurfaceInspectionFailure>
+        SelectedInspectionFailures(
+            ImmutableArray<ApiSurfaceInspectionFailure> inspectionFailures,
+            ApiSurface surface,
+            ApiType type)
     {
-        var subjects = new HashSet<int>();
+        var retainedTokens = new HashSet<int>();
         Add(type.MetadataToken);
         foreach (ApiMember member in type.Members)
         {
             Add(member.MetadataToken);
-            Add(member.DeclarationMetadataToken);
             Add(member.GetterToken);
             Add(member.SetterToken);
             Add(member.AdderToken);
             Add(member.RemoverToken);
         }
 
+        var projected = new ApiSurface();
+        projected.MergeInspectionFailuresFrom(
+            surface,
+            subject => retainedTokens.Contains(subject.SubjectToken),
+            includeNonConstraintFailures: false);
         return
         [
-            .. surface.ConstraintResolutionFailuresBySubject
-                .Where(entry => subjects.Contains(entry.Key.SubjectToken))
-                .SelectMany(static entry => entry.Value)
-                .Concat(surface.InspectionFailures.Where(failure =>
-                    failure.Operation != ApiSurface.ConstraintResolutionOperation
-                    && (failure.OwningTypeDefinition is { } owner
-                        ? owner.Equals(type.DefinitionName)
-                        : !failure.AffectedTypeDefinitions.IsDefaultOrEmpty
-                            ? failure.AffectedTypeDefinitions.Any(affected => affected.Equals(type.DefinitionName))
-                            : failure.SubjectToken == 0
-                                || subjects.Contains(failure.OwningTypeToken ?? failure.SubjectToken))))
-                .Select(static failure => failure with
-                {
-                    SourceAssemblyPath = null,
-                }),
+            .. inspectionFailures.Where(static failure =>
+                failure.Operation
+                    != ApiSurface.ConstraintResolutionOperation),
+            .. projected.InspectionFailures,
         ];
 
         void Add(int? token)
         {
             if (token is int value)
-                subjects.Add(value);
+                retainedTokens.Add(value);
         }
     }
 
-    sealed record ResolvedChoice(
-        TypeDeclarationLocatorCandidate Declaration,
-        TypeResolutionOutcome.Resolved Resolution,
-        AssemblyContextParticipant Supplier,
-        PackageAssemblyRoleParticipant SupplierMember,
-        string DeclarationAssetId,
-        PackageRootBinding Binding);
+    static ImmutableArray<ExactTypeInspectionFailure> Incompleteness(
+        ImmutableArray<ApiSurfaceInspectionFailure> inspectionFailures) =>
+    [
+        .. inspectionFailures
+            .Where(static failure =>
+                failure.Operation
+                    != ApiSurface.ConstraintResolutionOperation)
+            .Select(failure =>
+                new ExactTypeInspectionFailure(
+                    ExactTypeInspectionFailureKind.InspectionIncomplete,
+                    $"{failure.Operation}: {failure.Kind}: {failure.Detail}",
+                    failure.SubjectAssembly)),
+    ];
 
-    sealed record ExactTypeEnrichment(
-        bool IsPublicWithNonPublicTypesVisible);
+    static int DistinctTerminalCount(
+        ImmutableArray<ResolvedCandidate>.Builder resolved) =>
+        resolved
+            .Select(candidate => (
+                candidate.Resolution.Definition.Address,
+                candidate.Resolution.Definition.Assembly.Assembly.Identity))
+            .Distinct()
+            .Count();
+
+    static ExactTypeAssemblyIdentity AssemblyIdentity(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant participant)
+    {
+        AssemblyImageAccessResult<Guid> access =
+            group.UseAssemblySession(
+                participant.Assembly,
+                static session => session.ModuleVersionId());
+        return access switch
+        {
+            AssemblyImageAccessResult<Guid>.Available available =>
+                AssemblyIdentity(participant, available.Value),
+            AssemblyImageAccessResult<Guid>.Rejected rejected =>
+                throw new InvalidOperationException(
+                    "The exact Type assembly identity could not be read: "
+                    + rejected.Failure.Detail),
+            _ => throw new InvalidOperationException(
+                "The exact Type assembly identity could not be read."),
+        };
+    }
+
+    static ExactTypeAssemblyIdentity AssemblyIdentity(
+        AssemblyContextParticipant participant,
+        Guid moduleVersionId) =>
+        new(participant.Assembly.Identity, moduleVersionId);
+
+    static ImmutableArray<ExactTypeForwardingHop> ForwardingHops(
+        TypeResolutionOutcome.Resolved resolution) =>
+    [
+        .. resolution.Hops.Select(hop =>
+            new ExactTypeForwardingHop(
+                hop.SourceAssembly.Assembly.Identity,
+                hop.TargetReference)),
+    ];
 }

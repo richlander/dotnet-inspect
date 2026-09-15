@@ -408,7 +408,7 @@ public sealed class PackageAssemblyContextRoles : IDisposable
 
     internal sealed class RoleBindingPolicy(
         ImmutableArray<ResolvedAssemblyReference> assemblies)
-        : IAcquisitionFreeAssemblyBindingPolicy
+        : IAssemblyBindingPolicy
     {
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
