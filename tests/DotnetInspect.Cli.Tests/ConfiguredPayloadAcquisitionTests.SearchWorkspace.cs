@@ -1,4 +1,8 @@
 using System.Collections.Concurrent;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 
 using DotnetInspector.Services;
 
@@ -377,11 +381,11 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.True(result.Exit == 0, result.Error);
         Assert.Equal("[]", result.Output.Trim());
         Assert.Contains(
-            $"Package '{id.ToLowerInvariant()}' version '{Version}'",
+            id,
             result.Error,
-            StringComparison.Ordinal);
+            StringComparison.OrdinalIgnoreCase);
         Assert.Contains(
-            "was not supplied by any authorized source",
+            "Could not load package Root",
             result.Error,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -389,6 +393,142 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             request => request.EndsWith(
                 ".nupkg",
                 StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Find_ReferenceOnlyPackageUsesCompatibility()
+    {
+        string id =
+            $"Workspace.Search.ReferenceOnly.{Guid.NewGuid():N}";
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(ConfiguredPayloadAcquisitionTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        byte[] package = SnupkgPdbReaderTests.MakeSnupkg(
+            ($"{id}.nuspec", "<package />"u8.ToArray()),
+            ("ref/net11.0/ReferenceOnly.dll", assembly));
+        ConfigureCommandFeed(id, package);
+
+        var result = await RunCommandAsync(
+            [
+                "find",
+                typeof(ConfiguredPayloadAcquisitionTests).FullName!,
+                "--package", $"{id}@{Version}",
+                "--tfm", "net11.0",
+                "--source", FirstFeed,
+                "--json",
+                "--tips", "q",
+            ]);
+
+        Assert.Equal(0, result.Exit);
+        Assert.Equal("", result.Error);
+        using System.Text.Json.JsonDocument document =
+            System.Text.Json.JsonDocument.Parse(result.Output);
+        System.Text.Json.JsonElement row =
+            Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal(
+            typeof(ConfiguredPayloadAcquisitionTests).FullName,
+            row.GetProperty("full_name").GetString());
+        Assert.Equal(
+            Version,
+            row.GetProperty("source_version").GetString());
+        Assert.Equal(
+            "ReferenceOnly",
+            row.GetProperty("library").GetString());
+    }
+
+    [Fact]
+    public async Task Find_FallbacksUseCallerPackageOrder()
+    {
+        const string FirstVersion = "1.0.1";
+        const string SecondVersion = "1.0.0";
+        string id =
+            $"Workspace.Search.Order.{Guid.NewGuid():N}";
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(ConfiguredPayloadAcquisitionTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        IReadOnlyDictionary<string, byte[]> packages =
+            new Dictionary<string, byte[]>
+            {
+                [FirstVersion] = CreatePackage(
+                    id,
+                    "caller-first package",
+                    version: FirstVersion,
+                    library: assembly,
+                    libraryName: "CallerFirst.dll"),
+                [SecondVersion] = CreatePackage(
+                    id,
+                    "caller-second package",
+                    version: SecondVersion,
+                    library: assembly,
+                    libraryName: "CallerSecond.dll"),
+            };
+        CoreHttpClientFactory.SetAuthenticationDecorator(
+            _ => new MultiVersionPayloadFeedHandler(
+                FirstFeed,
+                id,
+                packages));
+        CoreHttpClientFactory.ResetSharedForTesting();
+
+        await AssertUsesFirstVersion("DotnetInspect.Cli.Tests");
+        await AssertUsesFirstVersion(
+            "DotnetInspect.Cli.Tests."
+            + "ConfiguredPayloadAcquisitionTestz");
+
+        async Task AssertUsesFirstVersion(string pattern)
+        {
+            var result = await RunCommandAsync(
+                [
+                    "find", pattern,
+                    "--package", $"{id}@{FirstVersion}",
+                    "--package", $"{id}@{SecondVersion}",
+                    "--tfm", "net11.0",
+                    "--source", FirstFeed,
+                    "--json",
+                    "--tips", "q",
+                ]);
+
+            Assert.Equal(0, result.Exit);
+            using System.Text.Json.JsonDocument document =
+                System.Text.Json.JsonDocument.Parse(result.Output);
+            System.Text.Json.JsonElement[] rows =
+                [.. document.RootElement.EnumerateArray()];
+            Assert.NotEmpty(rows);
+            Assert.All(
+                rows,
+                row => Assert.Equal(
+                    FirstVersion,
+                    row.GetProperty("source_version").GetString()));
+        }
+    }
+
+    [Fact]
+    public async Task Find_PackageLocatorInventoryRejectionIsVisible()
+    {
+        string id =
+            $"Workspace.Search.Rejected.{Guid.NewGuid():N}";
+        byte[] package = CreatePackage(
+            id,
+            "rejected declaration inventory",
+            library: BuildDuplicateTypeDefinitionAssembly(),
+            libraryName: "DuplicateTypes.dll");
+        ConfigureCommandFeed(id, package);
+
+        var result = await RunCommandAsync(
+            [
+                "find", "*",
+                "--package", $"{id}@{Version}",
+                "--tfm", "net11.0",
+                "--source", FirstFeed,
+                "--json",
+                "--tips", "q",
+            ]);
+
+        Assert.Equal(0, result.Exit);
+        Assert.Equal("[]", result.Output.Trim());
+        Assert.Contains(
+            "Type declaration search in 'DuplicateTypes' was incomplete:",
+            result.Error,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -499,6 +639,104 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 () => new ByteArrayContent(package),
                 requests ?? new()));
         CoreHttpClientFactory.ResetSharedForTesting();
+    }
+
+    private static byte[] BuildDuplicateTypeDefinitionAssembly()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("DuplicateTypes.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("DuplicateTypes"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        for (int i = 0; i < 2; i++)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Duplicate"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        }
+
+        var builder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        builder.Serialize(image);
+        return image.ToArray();
+    }
+
+    private sealed class MultiVersionPayloadFeedHandler(
+        string source,
+        string id,
+        IReadOnlyDictionary<string, byte[]> packages)
+        : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.AbsoluteUri;
+            string flat =
+                new Uri(new Uri(source), "flat2/").AbsoluteUri;
+            HttpContent? content = null;
+            if (url == source)
+            {
+                content = new StringContent($$"""
+                    {"version":"3.0.0","resources":[
+                      {"@id":"{{flat}}","@type":"PackageBaseAddress/3.0.0"}
+                    ]}
+                    """);
+            }
+            else
+            {
+                foreach ((string version, byte[] package) in packages)
+                {
+                    string packageUrl =
+                        $"{flat}{id.ToLowerInvariant()}/{version}/"
+                        + $"{id.ToLowerInvariant()}.{version}.nupkg";
+                    if (url == packageUrl)
+                    {
+                        content = new ByteArrayContent(package);
+                        break;
+                    }
+                }
+            }
+
+            if (content is null)
+            {
+                throw new InvalidOperationException(
+                    $"Unexpected exact-pin request: {url}");
+            }
+
+            return Task.FromResult(
+                new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                {
+                    Content = content,
+                    RequestMessage = request,
+                });
+        }
     }
 }
 

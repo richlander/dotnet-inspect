@@ -21,6 +21,7 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
     readonly bool _includeAll;
     readonly IReadOnlyDictionary<int, string> _sourceNames;
     readonly List<TypeDeclarationLocatorSectionResult> _sections = [];
+    readonly HashSet<LocatorFailureKey> _reportedLocatorFailures = [];
     bool _closed;
 
     ConfiguredDeclarationLocatorWorkspace(
@@ -33,8 +34,11 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
         _locator = workspace.GetDeclarationLocator();
         _includeAll = includeAll;
         _sourceNames = sourceNames;
+        HasLoadFailures = hasFailures;
         HasFailures = hasFailures;
     }
+
+    internal bool HasLoadFailures { get; }
 
     internal bool HasFailures { get; private set; }
 
@@ -147,8 +151,8 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
                             loadOptions,
                             cancellationToken).ConfigureAwait(false);
                 sourceNames.Add(context.Receipt.Order, packageId);
-                hasFailures |= WriteLoadFailures(
-                    context.ContextLoadOutcome);
+                hasFailures |= context.ContextLoadOutcome
+                    is WorkspaceContextLoadOutcome.Failed;
             }
 
             foreach (string assembly in options.PlatformAssemblies)
@@ -185,8 +189,8 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
                             loadOptions,
                             cancellationToken).ConfigureAwait(false);
                 sourceNames.Add(context.Receipt.Order, platform.Family);
-                hasFailures |= WriteLoadFailures(
-                    context.ContextLoadOutcome);
+                hasFailures |= context.ContextLoadOutcome
+                    is WorkspaceContextLoadOutcome.Failed;
             }
 
             return new(
@@ -230,6 +234,7 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
             _ => throw new InvalidOperationException(
                 "Unknown declaration locator section result."),
         };
+        WriteLocatorFailures(section);
         _sections.Add(section);
         return section;
     }
@@ -254,15 +259,77 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
         await _workspace.DisposeAsync().ConfigureAwait(false);
     }
 
-    private static bool WriteLoadFailures(
-        WorkspaceContextLoadOutcome? outcome)
+    private void WriteLocatorFailures(
+        TypeDeclarationLocatorSectionResult section)
     {
-        if (outcome is not WorkspaceContextLoadOutcome.Failed failed)
-            return false;
+        if (section is TypeDeclarationLocatorSectionResult.Rejected rejected)
+        {
+            if (HasLoadFailures
+                && rejected.RejectionKind
+                    is TypeDeclarationLocatorRejectionKind
+                        .PopulationUnavailable)
+            {
+                return;
+            }
 
-        foreach (WorkspaceContextLoadFailure failure in failed.Failures)
-            CommandError.WriteWarning(failure.Message);
-        return true;
+            string detail = rejected.PopulationFailure is { } failure
+                ? $": {failure}"
+                : ".";
+            WriteOnce(
+                new(-1, -1, rejected.RejectionKind.ToString(), detail),
+                $"Type declaration search was rejected as "
+                + $"{rejected.RejectionKind}{detail}");
+            return;
+        }
+
+        var evaluated =
+            (TypeDeclarationLocatorSectionResult.Evaluated)section;
+        foreach (TypeDeclarationLocatorMemberCoverage member
+            in evaluated.Members.Where(
+                static member => !member.IsComplete))
+        {
+            string subject =
+                member.Observation.AssemblyIdentity.Name;
+            string detail = member switch
+            {
+                { CandidateFailure: { } failure } =>
+                    failure.Detail,
+                { WorkspaceFailure: { } failure } =>
+                    $"workspace population failed as {failure}",
+                {
+                    Outcome:
+                        TypeDeclarationLocatorMemberCoverageKind
+                            .CoordinateUnavailable,
+                } => "no exact source coordinate was available",
+                {
+                    Outcome:
+                        TypeDeclarationLocatorMemberCoverageKind
+                            .NotEvaluated,
+                } => "the declaration inventory was not evaluated",
+                {
+                    Outcome:
+                        TypeDeclarationLocatorMemberCoverageKind
+                            .Searched,
+                } =>
+                    $"{member.UnsupportedDeclarations.Length} unsupported "
+                    + "declaration form(s) were encountered",
+                _ => $"evaluation ended as {member.Outcome}",
+            };
+            WriteOnce(
+                new(
+                    member.Observation.ContextOrder,
+                    member.Observation.MemberOrder,
+                    member.Outcome.ToString(),
+                    detail),
+                $"Type declaration search in '{subject}' was incomplete: "
+                + detail);
+        }
+
+        void WriteOnce(LocatorFailureKey key, string message)
+        {
+            if (_reportedLocatorFailures.Add(key))
+                CommandError.WriteWarning(message);
+        }
     }
 
     private static async Task<PlatformContext?> ResolvePlatformContextAsync(
@@ -318,4 +385,10 @@ internal sealed class ConfiguredDeclarationLocatorWorkspace
     private sealed record PlatformContext(
         string Family,
         string Version);
+
+    private sealed record LocatorFailureKey(
+        int ContextOrder,
+        int MemberOrder,
+        string Outcome,
+        string Detail);
 }

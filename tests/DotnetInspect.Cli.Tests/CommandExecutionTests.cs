@@ -20189,7 +20189,11 @@ public partial class CommandExecutionTests
         Assert.Contains("## Results", output);
         Assert.DoesNotContain("## Coverage", output);
         Assert.DoesNotContain("## Gaps", output);
-        Assert.Empty(error);
+        Assert.Contains(
+            "No assemblies found for target framework 'net10.0' "
+                + "in package 'System.Runtime@4.3.1'.",
+            error,
+            StringComparison.Ordinal);
     }
 
     [Fact]

@@ -93,6 +93,7 @@ internal static class TypeSearchService
         {
             List<TypeFindResult> located;
             bool locatorHasFailures;
+            bool locatorHasLoadFailures;
             IReadOnlyList<TypeDeclarationLocatorSectionResult>
                 locatorSections;
             await using (
@@ -110,10 +111,12 @@ internal static class TypeSearchService
                         locator,
                         cancellationToken);
                 locatorHasFailures = locator.HasFailures;
+                locatorHasLoadFailures = locator.HasLoadFailures;
                 locatorSections = [.. locator.Sections];
             }
 
-            if (located.Any(
+            if (locatorHasLoadFailures
+                || located.Any(
                     static row =>
                         row.Location is not null
                         && string.IsNullOrEmpty(row.Kind)))
@@ -283,7 +286,7 @@ internal static class TypeSearchService
                     $"No exact matches for '{pattern}'. Showing prefix "
                     + $"matches for '{prefixPattern}'.");
                 IEnumerable<TypeSearchResult> selected =
-                    prefixCandidates.DistinctBy(
+                    InFindSourceOrder(prefixCandidates).DistinctBy(
                         static candidate => candidate.FullName);
                 if (options.Limit is { } prefixLimit)
                     selected = selected.Take(prefixLimit);
@@ -314,9 +317,10 @@ internal static class TypeSearchService
                         suggestions.Select(static suggestion => suggestion.Name)
                             .ToHashSet(StringComparer.Ordinal);
                     foreach (TypeSearchResult candidate
-                        in census.Where(
-                                candidate => names.Contains(
-                                    candidate.FullName))
+                        in InFindSourceOrder(
+                                census.Where(
+                                    candidate => names.Contains(
+                                        candidate.FullName)))
                             .DistinctBy(
                                 static candidate => candidate.FullName))
                     {
@@ -361,6 +365,18 @@ internal static class TypeSearchService
 
         return results;
     }
+
+    private static IOrderedEnumerable<TypeSearchResult>
+        InFindSourceOrder(IEnumerable<TypeSearchResult> candidates) =>
+            candidates
+                .OrderBy(
+                    static candidate =>
+                        candidate.Location?.Observation.ContextOrder
+                        ?? int.MaxValue)
+                .ThenBy(
+                    static candidate =>
+                        candidate.Location?.Observation.MemberOrder
+                        ?? int.MaxValue);
 
     private static List<TypeSearchResult> ProjectCandidates(
         ImmutableArray<TypeDeclarationLocatorSectionCandidate> candidates,

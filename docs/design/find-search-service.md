@@ -108,6 +108,10 @@ request only when at least one non-wildcard pattern remains unresolved after
 its applicable prefix answer. The original answer and every issued fallback
 answer keep their own coverage. An incomplete direct answer is never described
 as a scoped miss merely because a later fallback produced no row.
+Before duplicate elimination, locator-backed prefix and similarity candidates
+are ranked by their attached context/member observation order so Find's caller
+source priority remains distinct from the locator's deterministic output
+ordering.
 
 `FindOptions.Limit` is applied only to classified candidate rows. It is not
 passed to `WorkspaceDeclarationLocatorOptions` and cannot reduce inventory
@@ -292,8 +296,10 @@ The original classification refactor is complete: `FindCommand` calls
 rendering after receiving `TypeFindResult` rows.
 
 The Release tests in
-`tests/DotnetInspect.Cli.Tests/TypeSearchServiceTests.cs` verify candidate
-collection and source behavior:
+`tests/DotnetInspect.Cli.Tests/TypeSearchServiceTests.cs`,
+`ConfiguredPayloadAcquisitionTests.SearchWorkspace.cs`, and
+`CommandExecutionTests.cs` verify candidate collection, source behavior, and
+the command compatibility boundary:
 
 - directory source provenance for a separator-free path;
 - acceptance of a directory path with a trailing separator;
@@ -309,6 +315,10 @@ collection and source behavior:
 - staged namespace-prefix fallback without an unrelated wildcard census;
 - established metadata-arity spelling for generic locator rows;
 - visible Package locator acquisition failures;
+- compatibility fallback when a Package has no implementation-view surface;
+- visible locator inventory/access rejection without duplicate diagnostics
+  across fallback requests;
+- caller-ranked Package selection for prefix and similarity duplicates;
 - compatibility routing for Platform families without an implementation-view
   locator adapter;
 - visible Platform implementation-view handoff and command decline;
