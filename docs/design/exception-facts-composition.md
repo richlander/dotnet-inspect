@@ -21,8 +21,10 @@ with composed Metadata and Instructions owners and Analysis/Decompiler peer
 consumption. That approval covers this two-owner composition design, not a
 combined implementation PR.
 
-Every product type, adoption, retirement, and gate remains **unverified on
-`main`** until its focused implementation lands.
+Metadata's body and physical clause types, closed result, and current-surface
+migration are implemented in step 2. Instructions flow facts and all peer
+consumer adoption and retirement remain unverified until their focused steps
+land.
 
 ## Handoff
 
