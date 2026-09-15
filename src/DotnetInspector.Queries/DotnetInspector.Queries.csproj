@@ -16,6 +16,7 @@
     <ProjectReference Include="..\Inspector.Artifacts.Workspaces\Inspector.Artifacts.Workspaces.csproj" />
     <ProjectReference Include="..\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
     <ProjectReference Include="..\DotnetInspector.Platforms.Packages\DotnetInspector.Platforms.Packages.csproj" />
+    <ProjectReference Include="..\DotnetInspector.PortableQueries\DotnetInspector.PortableQueries.csproj" />
     <ProjectReference Include="..\DotnetInspector.SourceSelection\DotnetInspector.SourceSelection.csproj" />
     <ProjectReference Include="..\DotnetInspector.Services\DotnetInspector.Services.csproj" />
     <ProjectReference Include="..\NuGetFetch\NuGetFetch.csproj" />

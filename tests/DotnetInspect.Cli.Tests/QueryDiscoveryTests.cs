@@ -1,8 +1,9 @@
 using System.Collections.Immutable;
 using System.Text.Json;
 using DotnetInspect.Cli.Options;
-using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
+using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -287,11 +288,20 @@ public class QueryDiscoveryTests
         Assert.Equal(
             "package query",
             json.RootElement.GetProperty("command").GetString());
-        var facet = Assert.Single(json.RootElement.GetProperty("sections")[0]
-            .GetProperty("facets").EnumerateArray());
-        Assert.Equal("facet", facet.GetProperty("name").GetString());
+        JsonElement[] facets =
+        [
+            .. json.RootElement.GetProperty("sections")[0]
+                .GetProperty("facets").EnumerateArray(),
+        ];
+        Assert.Equal(
+            [PackageQuery.DependsTermKey, "facet"],
+            facets.Select(facet => facet.GetProperty("name").GetString()));
+        JsonElement facet = facets[1];
         Assert.Equal(PackageQueryOptions.QueryFacet.Values,
             facet.GetProperty("values").EnumerateArray().Select(value => value.GetString()));
+        Assert.Equal(
+            "NuGet package ID",
+            facets[0].GetProperty("value_kind").GetString());
     }
 
     [Fact]

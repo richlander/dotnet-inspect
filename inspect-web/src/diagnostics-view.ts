@@ -279,6 +279,7 @@ function cacheCardHtml(
       ${factHtml("Package-entry budget", formatInteger(cache.stats.maxPackageEntries), escapeHtml)}
       ${factHtml("Resident bytes", formatCapacity(cache.stats.residentBytes, cache.stats.maxResidentBytes, formatBytes), escapeHtml, { className: "emphasis" })}
       ${factHtml("Workspace slots", formatCapacity(cache.stats.workspaces, cache.stats.maxWorkspaces, formatInteger), escapeHtml)}
+      ${factHtml("Workspace assembly budget", `${formatInteger(cache.stats.maxWorkspaceAssembliesPerRole)} per role`, escapeHtml)}
       ${factHtml("Workspace image budget", `${formatBytes(cache.stats.maxWorkspaceRetainedImageBytes)} each`, escapeHtml)}
     </dl>`;
   } else if (cache.kind === "failed") {
