@@ -114,13 +114,18 @@ public sealed record CompleteRestorationPlan
         CompleteRestorationIntentIdentity intent,
         CompleteRestorationRequestBasis request,
         WorkspacePlan workspacePlan,
-        CompleteRestorationRecipe recipe)
+        CompleteRestorationRecipe recipe,
+        IReadOnlyDictionary<
+            string,
+            DefinitionMemberCoordinate.PackageCoordinate> packageCoordinates)
     {
         Intent = intent ?? throw new ArgumentNullException(nameof(intent));
         Request = request ?? throw new ArgumentNullException(nameof(request));
         WorkspacePlan = workspacePlan
             ?? throw new ArgumentNullException(nameof(workspacePlan));
         Recipe = recipe ?? throw new ArgumentNullException(nameof(recipe));
+        PackageCoordinates = packageCoordinates
+            ?? throw new ArgumentNullException(nameof(packageCoordinates));
     }
 
     public CompleteRestorationIntentIdentity Intent { get; }
@@ -130,6 +135,11 @@ public sealed record CompleteRestorationPlan
     public WorkspacePlan WorkspacePlan { get; }
 
     public CompleteRestorationRecipe Recipe { get; }
+
+    internal IReadOnlyDictionary<
+        string,
+        DefinitionMemberCoordinate.PackageCoordinate> PackageCoordinates
+        { get; }
 }
 
 /// <summary>Typed non-activation evidence from complete restoration.</summary>
@@ -527,13 +537,22 @@ public static class CompleteRestorationPreparation
                 WorkspacePlan committedPlan =
                     InspectionDefinitionRegistry.CreateWorkspacePlan(
                         version2.Definitions.Workspace);
+                IReadOnlyDictionary<
+                    string,
+                    DefinitionMemberCoordinate.PackageCoordinate>
+                    committedPackages =
+                        InspectionDefinitionRegistry
+                            .ResolvePackageNavigationCoordinates(
+                                version2.Definitions.Workspace,
+                                version2.Definitions.Navigation);
                 return new CompleteRestorationPreparationResult.Ready(
                     new CompleteRestorationPlan(
                         authority.Identity,
                         request,
                         committedPlan,
                         new CompleteRestorationRecipe.Version2(
-                            version2.Definitions)));
+                            version2.Definitions),
+                        committedPackages));
             case InspectionDefinitionScenarioPreparationResult.Version1 version1
                 when version1.Scenario.WorkspacePlan is not null:
                 if (version1.Scenario.Query is not null)
@@ -584,7 +603,9 @@ public static class CompleteRestorationPreparation
                         version1.Scenario.WorkspacePlan,
                         new CompleteRestorationRecipe.LegacyDirectPackage(
                             source,
-                            version1.Scenario)));
+                            version1.Scenario),
+                        ResolvedPackageCoordinates(
+                            version1.Scenario.Navigation)));
             case InspectionDefinitionScenarioPreparationResult.Version1:
                 return FailedWorkspaceFree(authority.Identity, request);
             default:
@@ -719,6 +740,33 @@ public static class CompleteRestorationPreparation
             new CompleteRestorationFailure.InvalidDefinitionSet(
                 "Workspace-free scenarios do not enter complete Workspace "
                     + "restoration."));
+
+    private static IReadOnlyDictionary<
+        string,
+        DefinitionMemberCoordinate.PackageCoordinate>
+        ResolvedPackageCoordinates(ResolvedNavigation navigation) =>
+        new ReadOnlyDictionary<
+            string,
+            DefinitionMemberCoordinate.PackageCoordinate>(
+                navigation.Tabs
+                    .Where(tab =>
+                        tab.Coordinate
+                            is WorkspaceMemberCoordinate.PackageMember)
+                    .ToDictionary(
+                        static tab => tab.Id,
+                        static tab =>
+                        {
+                            var package =
+                                (WorkspaceMemberCoordinate.PackageMember)
+                                    tab.Coordinate;
+                            return new DefinitionMemberCoordinate
+                                .PackageCoordinate(
+                                    package.PackageId,
+                                    package.Version,
+                                    package.Framework,
+                                    package.RuntimeIdentifier);
+                        },
+                        StringComparer.Ordinal));
 
     private static CompleteRestorationPreparationResult? NonCurrent(
         ICompleteRestorationIntentAuthority authority,

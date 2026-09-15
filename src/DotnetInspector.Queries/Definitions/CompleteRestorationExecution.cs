@@ -742,16 +742,24 @@ public static class CompleteRestorationCoordinator
                 in version2.Definitions.Navigation?.Tabs ?? [])
             {
                 if (tab.Coordinate
-                    is not DefinitionMemberCoordinate.PackageCoordinate
-                        coordinate)
+                    is not DefinitionMemberCoordinate.PackageCoordinate)
                 {
                     continue;
+                }
+                if (!plan.PackageCoordinates.TryGetValue(
+                    tab.Id,
+                    out DefinitionMemberCoordinate.PackageCoordinate?
+                        effectiveCoordinate))
+                {
+                    throw new InvalidOperationException(
+                        $"Prepared navigation row '{tab.Id}' has no effective "
+                            + "Package coordinate.");
                 }
 
                 PackageEvaluationResult evaluated =
                     await EvaluatePackageAsync(
                         tab.Id,
-                        coordinate,
+                        effectiveCoordinate,
                         workspace,
                         scope,
                         roots,
@@ -815,14 +823,15 @@ public static class CompleteRestorationCoordinator
             ?? throw new InvalidOperationException(
                 "A direct-Package legacy recipe requires Navigation.");
         ResolvedNavigationTab focused = navigation.FocusTab;
-        var focusedCoordinate =
-            (WorkspaceMemberCoordinate.PackageMember)focused.Coordinate;
-        var legacyCoordinate =
-            new DefinitionMemberCoordinate.PackageCoordinate(
-                focusedCoordinate.PackageId,
-                focusedCoordinate.Version,
-                focusedCoordinate.Framework,
-                focusedCoordinate.RuntimeIdentifier);
+        if (!plan.PackageCoordinates.TryGetValue(
+            focused.Id,
+            out DefinitionMemberCoordinate.PackageCoordinate?
+                legacyCoordinate))
+        {
+            throw new InvalidOperationException(
+                $"Prepared navigation row '{focused.Id}' has no effective "
+                    + "Package coordinate.");
+        }
         PackageEvaluationResult legacyPackage = await EvaluatePackageAsync(
             focused.Id,
             legacyCoordinate,

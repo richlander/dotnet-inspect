@@ -139,6 +139,66 @@ public sealed class CompleteRestorationPreparationTests
     }
 
     [Fact]
+    public void NormalizedSourceWithOneEffectiveTarget_Prepares()
+    {
+        var registry = new InspectionDefinitionRegistry();
+        registry.Add(new WorkspaceDefinition(
+            InspectionDefinitionSchema.Version1,
+            "workspace",
+            [
+                new WorkspaceContextDefinition(
+                    "context",
+                    members:
+                    [
+                        new DefinitionMemberCoordinate.PackageCoordinate(
+                            "System.Text.Json",
+                            "9.0.4",
+                            "net9.0"),
+                    ]),
+                new WorkspaceContextDefinition(
+                    "second",
+                    framework: "net9.0",
+                    members:
+                    [
+                        new DefinitionMemberCoordinate.PackageCoordinate(
+                            "System.Text.Json",
+                            "9.0.4",
+                            "net9.0"),
+                    ]),
+            ]));
+        registry.Add(new NavigationDefinition(
+            InspectionDefinitionSchema.Version1,
+            "navigation",
+            [
+                new NavigationTabDefinition(
+                    "package",
+                    coordinate:
+                        new DefinitionMemberCoordinate.PackageCoordinate(
+                            "system.text.json",
+                            "9.0.4",
+                            "NET9.0")),
+            ],
+            "package"));
+        registry.Add(new ViewDefinition(
+            InspectionDefinitionSchema.Version1,
+            "view",
+            lens: "overview"));
+        registry.Add(new ScenarioDefinition(
+            InspectionDefinitionSchema.Version1,
+            "scenario",
+            workspace: "workspace",
+            context: "context",
+            view: "view",
+            navigation: "navigation"));
+
+        Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+            WorkspaceDefinitionConsumer.PrepareRestoration(
+                registry,
+                "scenario",
+                new TestIntentAuthority()));
+    }
+
+    [Fact]
     public void DormantVersion2NavigationOutsideWorkspace_FailsComposition()
     {
         var registry = new InspectionDefinitionRegistry();
