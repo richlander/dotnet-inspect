@@ -204,10 +204,11 @@ narrower:
   same-rules, pointer-absent, contract-neutral evidence and exact metadata-token
   correspondence. The structured accessor list preserves each accessor's exact
   relative accessibility. Explicit- and extended-layout owners, body-owned
-  unsafe contexts, init-only or otherwise structurally modified accessor
-  returns, unsupported or ambiguous accessor shapes, accessor contracts, and
-  unavailable evidence remain unavailable. This selected declaration does not
-  enable direct accessor or whole-type property spelling.
+  unsafe contexts, readonly accessors, init-only or otherwise structurally
+  modified accessor returns, unsupported or ambiguous accessor shapes,
+  accessor contracts, and unavailable evidence remain unavailable. This
+  selected declaration does not enable direct accessor or whole-type property
+  spelling.
 
 A caller can select the supported members or supply the product-selected
 explicit-field and ordinary-constructor shape. The printer does not silently

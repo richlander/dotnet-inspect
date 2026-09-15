@@ -215,6 +215,11 @@ internal static class CSharpMemorySafetySpelling
             {
                 return Refuse("the structured property contains an unsupported accessor kind.");
             }
+            if (accessors.Any(static accessor => accessor.IsReadOnly))
+            {
+                return Refuse(
+                    "the structured property contains an unsupported readonly accessor.");
+            }
             if (accessors.Any(
                     static accessor =>
                         accessor.StructuralReturnType is not null))

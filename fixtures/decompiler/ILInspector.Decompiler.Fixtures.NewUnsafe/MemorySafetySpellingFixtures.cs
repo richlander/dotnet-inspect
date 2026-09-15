@@ -37,6 +37,15 @@ public sealed class MemorySafetySpellingFixture
     public static safe extern int SafeExtern();
 }
 
+public struct MemorySafetyReadonlyPropertyFixture
+{
+    int _value;
+
+    public MemorySafetyReadonlyPropertyFixture(int value) => _value = value;
+
+    public readonly int Value => _value;
+}
+
 [StructLayout(LayoutKind.Explicit, Pack = 2, Size = 16)]
 public struct MemorySafetyExplicitLayoutFixture
 {

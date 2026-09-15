@@ -253,6 +253,29 @@ public sealed class CSharpMemorySafetySpellingTests
     }
 
     [Fact]
+    public void SingleDeclarationOutcomeRejectsReadonlyAccessorShape()
+    {
+        ApiType type = Type(MemorySafetyRulesState.Updated);
+        ApiMember property = Property(
+            "Value",
+            MemorySafetyRulesState.Updated,
+            ContractKind.None,
+            MemorySafetyPointerEvidence.Absent,
+            [("get", ContractKind.None, MemorySafetyPointerEvidence.Absent)]);
+        property.SignatureModel!.Accessors.Single().IsReadOnly = true;
+
+        CSharpMemberDeclarationOutcome.NotRendered notRendered = Assert.IsType<
+            CSharpMemberDeclarationOutcome.NotRendered>(
+                Formatter(CSharpMemorySafetyLanguage.UpdatedCallerContracts)
+                    .FormatMemberOutcome(type, property));
+
+        Assert.Contains(
+            "readonly accessor",
+            notRendered.Diagnostic.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void SelectedPropertyDoesNotPublishBodyOwnedUnsafeContext()
     {
         ApiType type = Type(MemorySafetyRulesState.Updated);
