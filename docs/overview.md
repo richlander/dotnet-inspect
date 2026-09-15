@@ -232,9 +232,9 @@ substrates, and inspection producers that will extend that space.
   Analysis retains IL interpretation and Finding semantics; Houses compose and
   settle scenarios without issuing adjacent-owner leases. Adoption and
   retirement are tracked by #6544. The non-normative
-  [resource-owner type map](design/resource-owner-type-map.md) records each
-  focused owner's current or approved types, maturity, evidence, and future
-  compiler correspondence without becoming another owner.
+  [resource-owner type map](design/resource-owner-type-map.md) routes each
+  resource boundary's current maturity to its focused owner without becoming
+  another owner.
 - [Artifact Ownership and Borrowing](design/artifact-ownership-and-borrowing.md)
   applies that protocol to Artifact: resource-free content references remain
   separate from current query authority and transferable per-content child
