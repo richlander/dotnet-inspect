@@ -86,6 +86,7 @@ public static class FixtureIds
     public const string MatchBindingImplementation = "cli.match-binding.implementation";
     public const string AnalysisAsyncSiblingFriend = "analysis.async-sibling.friend";
     public const string AnalysisCallerLoop = "analysis.caller-loop";
+    public const string AnalysisLocalThrows = "analysis.local-throws";
     public const string AnalysisCrossAsmCollision = "analysis.cross-asm-collision";
     public const string AnalysisCrossAsmShape = "analysis.cross-asm-shape";
     public const string AnalysisExceptionBase = "analysis.exception-base";
@@ -494,6 +495,12 @@ public static class FixtureCatalog
         "ILInspector.Analysis.Fixtures",
         "ILInspector.Analysis.Fixtures.dll",
         "analysis", "caller-loop", "allocation");
+
+    public static readonly FixtureDefinition AnalysisLocalThrows = Fixture(
+        FixtureIds.AnalysisLocalThrows,
+        "ILInspector.Analysis.Fixtures",
+        "ILInspector.Analysis.Fixtures.dll",
+        "analysis", "local-throws");
 
     public static readonly FixtureDefinition AnalysisStringLiterals = Fixture(
         FixtureIds.AnalysisStringLiterals,
@@ -935,6 +942,7 @@ public static class FixtureCatalog
         AnalysisCallerGraphTargetV2,
         AnalysisAsyncSiblingFriend,
         AnalysisCallerLoop,
+        AnalysisLocalThrows,
         AnalysisStringLiterals,
         AnalysisCrossAsmCollision,
         AnalysisCrossAsmShape,

@@ -719,10 +719,16 @@ documents: skills are agent instructions, so every route, including
 through stdout, structured output, and `--out`. The raw scoped skill is
 classified before link normalization; concerning text becomes the standard
 placeholder, safe text retains its full presented spelling, and exact package
-bytes are not retained. Skill destinations therefore accept rendered line
-windows; `PackageSkillDestinations_ApplyLineWindowsToSelectedText` gates safe
-text and the containment placeholder across stdout and file output. A Markdown
-scope exports projected text.
+bytes are not retained. The placeholder remains the selected stdout,
+structured-output, or `--out` value. A successful containment replacement also
+writes one warning to stderr: it names the skill document and reports at most
+eight contiguous same-scalar source ranges by one-based line and column,
+Unicode code point, and category without reproducing the source text. A final
+detail reports any additional range count. Skill destinations therefore accept
+rendered line windows; `PackageSkillDestinations_ApplyLineWindowsToSelectedText`
+gates safe text and the containment placeholder across stdout and file output,
+and `SkillDocuments_ReportBoundedContainmentRanges` gates the split-channel,
+bounded diagnostic. A Markdown scope exports projected text.
 Terminal-facing output never emits a live control or bidi scalar from package
 content. Multi-item
 `--print --out` and multi-file or multi-package `--content --out` are refused
