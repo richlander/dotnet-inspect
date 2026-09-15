@@ -36,12 +36,14 @@ public sealed class BrowserPackageGraphIdentityTests
     [Fact]
     public void PackageGraphIdentityUsesDotNetOrdinalCasing()
     {
-        Assert.Equal(
-            BrowserPackageGraphIdentityRole.External,
-            Classify("Acme.\u212A.Root", "Acme.K.Child").Single());
-        Assert.Equal(
-            BrowserPackageGraphIdentityRole.External,
-            Classify("Acme.\u017F.Root", "Acme.S.Child").Single());
+        AssertOrdinalPair(
+            0x212a,
+            0x004b,
+            BrowserPackageGraphIdentityRole.External);
+        AssertOrdinalPair(
+            0x017f,
+            0x0053,
+            BrowserPackageGraphIdentityRole.External);
         Assert.Equal(
             BrowserPackageGraphIdentityRole.SamePrefix,
             Classify("Acme.\u03A3.Root", "ACME.\u03C2.Child").Single());
