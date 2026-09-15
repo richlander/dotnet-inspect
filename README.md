@@ -438,15 +438,16 @@ dotnet-inspect find System.Text.Json.JsonSerializer \
   --tfm net10.0 --json
 ```
 
-Plain type-search JSON is an operation document with `complete`, `results`,
-and `locator_sections`. Each result includes typed `location` and `navigation`
-data; zero-candidate and incomplete answers remain visible in
-`locator_sections`. Package navigation is emitted only when the observed
-producer can be reacquired without losing source authority; it preserves the
-selected package-relative implementation asset and compatible TFM rather than
-reopening a same-named reference assembly. Platform implementation-pack
-observations currently decline copyable Type/Member commands because public
-Platform syntax reopens the reference view.
+**Breaking change:** Plain type-search JSON is now an operation document with
+`complete`, `results`, and `locator_sections`, replacing the former root result
+array. Machine consumers should read rows from `.results`. Each result includes
+typed `location` and `navigation` data; zero-candidate and incomplete answers
+remain visible in `locator_sections`. Package navigation is emitted only when
+the observed producer can be reacquired without losing source authority; it
+preserves the selected package-relative implementation asset and compatible TFM
+rather than reopening a same-named reference assembly. Platform
+implementation-pack observations currently decline copyable Type/Member
+commands because public Platform syntax reopens the reference view.
 
 Repeat `--ecosystem ecosystem.ID` to register exactly those ecosystem packs in
 caller order. Without it, Find registers every shipped ecosystem. Registration

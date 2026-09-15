@@ -14637,17 +14637,22 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Find_JsonWithoutProjection_KeepsPreLoweredShape()
+    public async Task Find_JsonWithoutProjection_EmitsTypedOperationDocument()
     {
-        // The lowering is opt-in: plain --json must keep emitting the typed per-result objects
-        // with their machine keys, not the title-cased display view (#3494).
         var (exit, output, error) = await RunAppAsync(
             "find", "CommandExecution", "--library", TestAssemblyPath, "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("\"type\":", output);
-        Assert.DoesNotContain("\"Results\":", output);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
+        Assert.True(document.RootElement.GetProperty("complete").GetBoolean());
+        JsonElement results = document.RootElement.GetProperty("results");
+        Assert.NotEqual(0, results.GetArrayLength());
+        Assert.All(
+            results.EnumerateArray(),
+            result => Assert.True(result.TryGetProperty("type", out _)));
+        Assert.True(document.RootElement.TryGetProperty("locator_sections", out _));
     }
 
     [Fact]

@@ -31,6 +31,12 @@ every shared locator Section, including zero-candidate and incomplete answers.
 `TypeFindResult` is its typed result-row currency; `FindResultView` and
 `FindRow` remain presentation projections.
 
+Adopting `TypeFindDocument` is an intentionally breaking typed-JSON transition
+under [CLI change classification](cli-change-classification.md): plain
+type-search `find --json` previously emitted a root `TypeFindResult` array.
+Current machine consumers read rows from `.results` and can additionally
+distinguish complete from incomplete searches and retain locator evidence.
+
 This service deliberately remains inside the CLI project. It consumes
 `FindOptions`, a host `HttpClient`, and the CLI diagnostic path, so it is not an
 L1 query, a host-neutral API, or a browser/Wasm contract. The service boundary
