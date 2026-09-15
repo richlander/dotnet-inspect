@@ -210,32 +210,17 @@ public sealed record MethodBodyData
 {
     internal MethodBodyData(
         ImmutableArray<byte> il,
-        ImmutableArray<ExceptionRegion> exceptionRegions,
         MethodExceptionRegionCatalog exceptionRegionCatalog)
     {
         ArgumentNullException.ThrowIfNull(exceptionRegionCatalog);
         il = il.IsDefault ? [] : il;
-        exceptionRegions = exceptionRegions.IsDefault ? [] : exceptionRegions;
-        if (exceptionRegions.Length != exceptionRegionCatalog.Clauses.Length)
-        {
-            throw new ArgumentException(
-                "The legacy region array and exception catalog must describe the same clauses.",
-                nameof(exceptionRegions));
-        }
 
         IL = il;
-        ExceptionRegions = exceptionRegions;
         ExceptionRegionCatalog = exceptionRegionCatalog;
     }
 
     public MethodBodyEvidenceId EvidenceId => ExceptionRegionCatalog.Body;
     public ImmutableArray<byte> IL { get; }
-
-    /// <summary>
-    /// Raw compatibility handoff retained until Instructions adopts
-    /// <see cref="ExceptionRegionCatalog"/>.
-    /// </summary>
-    public ImmutableArray<ExceptionRegion> ExceptionRegions { get; }
 
     public MethodExceptionRegionCatalog ExceptionRegionCatalog { get; }
 }

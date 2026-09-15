@@ -50,10 +50,24 @@ public sealed record BlockGraph(
         IReadOnlyCollection<ExceptionRegion> exceptionRegions)
     {
         ArgumentNullException.ThrowIfNull(exceptionRegions);
-        var regions = BuildRegionModels(ilLength, instructions, exceptionRegions, out var regionReasons);
-        var blocks = BuildBlocks(ilLength, instructions, regions);
-        var reason = ComputeIncompleteReason(blocks, instructions, regions, regionReasons);
-        return new BlockGraph(blocks, regions, reason is null, reason);
+        ExceptionFlowTopology topology =
+            ExceptionFlowTopology.Create(ilLength, instructions, exceptionRegions);
+        return Build(ilLength, instructions, topology);
+    }
+
+    internal static BlockGraph Build(
+        int ilLength,
+        ImmutableArray<DecodedInstruction> instructions,
+        ExceptionFlowTopology topology)
+    {
+        ImmutableArray<InstructionBlock> blocks =
+            BuildBlocks(ilLength, instructions, topology);
+        string? reason = ComputeIncompleteReason(
+            blocks,
+            instructions,
+            topology.Models,
+            topology.IncompleteReason);
+        return new BlockGraph(blocks, topology.Models, reason is null, reason);
     }
 
     /// <summary>
@@ -82,9 +96,15 @@ public sealed record BlockGraph(
     static ImmutableArray<InstructionBlock> BuildBlocks(
         int ilLength,
         ImmutableArray<DecodedInstruction> instructions,
-        ImmutableArray<ExceptionRegionModel> regions)
+        ExceptionFlowTopology topology)
     {
-        var instructionOffsets = instructions.Select(i => i.Offset).ToHashSet();
+        ImmutableArray<ExceptionRegionModel> regions = topology.Models;
+        var admittedTargets = new HashSet<int> { ilLength };
+        for (int index = 0; index < instructions.Length; index++)
+        {
+            if (index == 0 || !instructions[index - 1].OpCode.IsPrefix())
+                admittedTargets.Add(instructions[index].Offset);
+        }
         var leaders = new SortedSet<int> { 0 };
         foreach (var instruction in instructions)
         {
@@ -92,7 +112,7 @@ public sealed record BlockGraph(
             {
                 if (target >= 0 && target < ilLength)
                 {
-                    if (!instructionOffsets.Contains(target))
+                    if (!admittedTargets.Contains(target))
                         throw new BadImageFormatException($"Branch target IL_{target:X4} does not align with an instruction.");
                     leaders.Add(target);
                 }
@@ -163,7 +183,14 @@ public sealed record BlockGraph(
             leavesByBlock[i] = lastByBlock[i]?.LeavesRegion ?? false;
         }
 
-        AddExceptionEdges(regions, instructions, starts, offsetToBlock, successorsByBlock, externalByBlock, lastByBlock);
+        AddExceptionEdges(
+            topology,
+            instructions,
+            starts,
+            offsetToBlock,
+            successorsByBlock,
+            externalByBlock,
+            lastByBlock);
 
         var blocks = ImmutableArray.CreateBuilder<InstructionBlock>(starts.Length);
         for (int i = 0; i < starts.Length; i++)
@@ -187,74 +214,8 @@ public sealed record BlockGraph(
         }
     }
 
-    static ImmutableArray<ExceptionRegionModel> BuildRegionModels(
-        int ilLength,
-        ImmutableArray<DecodedInstruction> instructions,
-        IReadOnlyCollection<ExceptionRegion> regions,
-        out ImmutableArray<string> incompleteReasons)
-    {
-        var instructionOffsets = instructions.Select(i => i.Offset).ToHashSet();
-        var models = ImmutableArray.CreateBuilder<ExceptionRegionModel>();
-        var reasons = ImmutableArray.CreateBuilder<string>();
-        foreach (var region in regions)
-        {
-            if (!TryRange("try", region.TryOffset, region.TryLength, out int tryEnd)
-                || !TryRange("handler", region.HandlerOffset, region.HandlerLength, out int handlerEnd))
-                continue;
-
-            int filterStart = -1;
-            int filterEnd = -1;
-            HandlerKind kind;
-            switch (region.Kind)
-            {
-                case ExceptionRegionKind.Catch: kind = HandlerKind.Catch; break;
-                case ExceptionRegionKind.Finally: kind = HandlerKind.Finally; break;
-                case ExceptionRegionKind.Fault: kind = HandlerKind.Fault; break;
-                case ExceptionRegionKind.Filter:
-                    kind = HandlerKind.Filter;
-                    filterStart = region.FilterOffset;
-                    filterEnd = region.HandlerOffset;
-                    if (!IsBoundary(filterStart) || filterStart >= filterEnd)
-                    {
-                        reasons.Add("Filter exception-handler region has unsupported boundaries.");
-                        continue;
-                    }
-                    break;
-                default:
-                    reasons.Add($"Unsupported exception-handler kind {region.Kind}.");
-                    continue;
-            }
-
-            models.Add(new ExceptionRegionModel(
-                kind, region.TryOffset, tryEnd, region.HandlerOffset, handlerEnd, filterStart, filterEnd));
-        }
-
-        incompleteReasons = reasons.ToImmutable();
-        return models.ToImmutable();
-
-        bool TryRange(string name, int start, int length, out int end)
-        {
-            end = 0;
-            long computedEnd = (long)start + length;
-            if (start < 0 || length <= 0 || computedEnd > ilLength)
-            {
-                reasons.Add($"Exception {name} region has unsupported boundaries.");
-                return false;
-            }
-            end = (int)computedEnd;
-            if (!IsBoundary(start) || !IsBoundary(end))
-            {
-                reasons.Add($"Exception {name} region does not align with instruction boundaries.");
-                return false;
-            }
-            return true;
-        }
-
-        bool IsBoundary(int offset) => offset == ilLength || instructionOffsets.Contains(offset);
-    }
-
     static void AddExceptionEdges(
-        ImmutableArray<ExceptionRegionModel> regions,
+        ExceptionFlowTopology topology,
         ImmutableArray<DecodedInstruction> instructions,
         ImmutableArray<int> blockStarts,
         IReadOnlyDictionary<int, int> offsetToBlock,
@@ -262,6 +223,7 @@ public sealed record BlockGraph(
         IReadOnlyList<List<int>> externalByBlock,
         IReadOnlyList<DecodedInstruction?> lastByBlock)
     {
+        ImmutableArray<ExceptionRegionModel> regions = topology.Models;
         foreach (var region in regions)
         {
             int handlerBlock = offsetToBlock[region.HandlerStart];
@@ -293,47 +255,30 @@ public sealed record BlockGraph(
                     }
                 }
             }
-
-            if (region.Kind == HandlerKind.Finally)
-                AddFinallyLeaveEdges(region);
         }
 
-        void AddFinallyLeaveEdges(ExceptionRegionModel region)
+        foreach (DecodedInstruction instruction in instructions)
         {
-            foreach (var instruction in instructions)
+            if (!instruction.LeavesRegion)
+                continue;
+            foreach (int target in instruction.BranchTargets)
             {
-                if (!instruction.LeavesRegion || !region.ContainsTry(instruction.Offset))
+                ImmutableArray<ExceptionRegionModel> cleanup =
+                    topology.CleanupModels(instruction.Offset, target);
+                if (cleanup.IsEmpty)
                     continue;
 
-                foreach (int target in instruction.BranchTargets)
+                RedirectLeaveToFirstFinally(instruction, target, cleanup[0]);
+                for (int index = 0; index < cleanup.Length; index++)
                 {
-                    if (region.ContainsTry(target))
-                        continue;
-
-                    var crossedFinallyRegions = CrossedFinallyRegions(instruction.Offset, target).ToArray();
-                    if (crossedFinallyRegions.Length == 0 || !crossedFinallyRegions[0].Equals(region))
-                        continue;
-
-                    RedirectLeaveToFirstFinally(instruction, target, crossedFinallyRegions[0]);
-                    for (int i = 0; i < crossedFinallyRegions.Length; i++)
-                    {
-                        var current = crossedFinallyRegions[i];
-                        int nextTarget = i + 1 < crossedFinallyRegions.Length
-                            ? crossedFinallyRegions[i + 1].HandlerStart
-                            : target;
-                        AddEndfinallyEdges(current, nextTarget);
-                    }
+                    ExceptionRegionModel current = cleanup[index];
+                    int nextTarget = index + 1 < cleanup.Length
+                        ? cleanup[index + 1].HandlerStart
+                        : target;
+                    AddEndfinallyEdges(current, nextTarget);
                 }
             }
         }
-
-        IEnumerable<ExceptionRegionModel> CrossedFinallyRegions(int leaveOffset, int target)
-            => regions
-                .Where(candidate => candidate.Kind == HandlerKind.Finally
-                                    && candidate.ContainsTry(leaveOffset)
-                                    && !candidate.ContainsTry(target))
-                .OrderBy(candidate => candidate.TryEnd - candidate.TryStart)
-                .ThenByDescending(candidate => candidate.TryStart);
 
         void RedirectLeaveToFirstFinally(DecodedInstruction leave, int finalTarget, ExceptionRegionModel firstFinally)
         {
@@ -373,7 +318,7 @@ public sealed record BlockGraph(
         ImmutableArray<InstructionBlock> blocks,
         ImmutableArray<DecodedInstruction> instructions,
         ImmutableArray<ExceptionRegionModel> regions,
-        ImmutableArray<string> regionIncompleteReasons)
+        string? topologyIncompleteReason)
     {
         if (blocks.Any(block => block.Edges.LeavesRegion))
         {
@@ -388,8 +333,8 @@ public sealed record BlockGraph(
         }
         if (blocks.Any(block => block.Edges.ExternalTargets.Count > 0))
             return "External control-flow targets are not modeled.";
-        if (regionIncompleteReasons.Length > 0)
-            return string.Join("; ", regionIncompleteReasons);
+        if (topologyIncompleteReason is not null)
+            return topologyIncompleteReason;
         return null;
     }
 }
