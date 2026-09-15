@@ -29,6 +29,23 @@ such value exists; it is not a nullable payload or an empty success.
 These kinds classify semantic content. Serialization, paging, event delivery,
 and rendering may project them but do not determine their kind.
 
+## Complexity basis
+
+The shared vocabulary is necessary because the same envelope boundary now
+exposes scalar answers, composed documents, owner-specific availability
+states, and a completed event array without saying which semantics a host may
+rely on. That ambiguity lets transport mechanics and CLR collection choices
+become accidental schema.
+
+Three content kinds are the smallest distinction that separates:
+
+- one answer from a composition of answers and interpretation context;
+- valid content from an expected state in which no valid content exists; and
+- semantic content from its serialized, paged, streamed, or rendered form.
+
+No shared base type or generic outcome algebra is required. The pattern adds
+vocabulary and boundary rules only.
+
 ## Boundary
 
 The pattern applies where one completed host-neutral operation hands detached
@@ -249,11 +266,35 @@ Content, Share, and diagnostic composition. Each inspection owner retains:
 - serialization versioning where needed; and
 - event, paging, and host-adapter behavior.
 
-Adoption proceeds one owner at a time. A migration identifies the current
-host-observable content, classifies it under this contract, and changes names
-or schema only when required by that owner's focused design. A bare collection
-or terminal event history is migration evidence, not permission for this
-pattern document to redesign the producing operation.
+[#7054](https://github.com/richlander/dotnet-inspect/issues/7054) is the
+end-to-end tracker. Adoption has four planned steps:
+
+1. Lock this pattern and connect it to the envelope, shared-inspection, and
+   output-shape guidance.
+2. Let Package Query adopt the pattern in one focused owner change, replacing
+   its completed event-array content with an owner-issued Document or Outcome
+   while preserving progressive events separately. The CLI and Browser consume
+   the same envelope content; their transport and presentation remain
+   host-owned.
+3. Let assembly-semantic Find adopt the pattern in a separate focused owner
+   change, distinguishing individual Find Results from any composed Document
+   and carrying the same envelope content to its CLI and Browser consumers.
+4. Inventory the remaining public envelope content types and file separate
+   owner-scoped migrations where a name or schema conflicts with this contract.
+   Close the tracker when each retained boundary is classified and both
+   production hosts consume the applicable shared content.
+
+Each adoption identifies a real package scenario and its own gates. The first
+two adopters already have production CLI and Browser paths, so the pattern does
+not depend on a speculative host. A migration changes names or schema only when
+required by that owner's focused design. A bare collection or terminal event
+history is migration evidence, not permission for this pattern document to
+redesign the producing operation.
+
+CLI presentation continues through each adopter's established Markout path.
+Inspect Web consumes the same typed content through its generated serialization
+boundary and owns interactive presentation. This pattern introduces no new
+renderer or host-specific lowering.
 
 ## Non-claims
 
