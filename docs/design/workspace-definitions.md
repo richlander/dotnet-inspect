@@ -21,9 +21,9 @@ CLI Platform demos use the same `WorkspaceContextLoader` implementation-pack
 realization before lowering the selected images into the ordinary type/member
 section pipeline.
 The query-free schema-version-2 record, strict JSON, same-version composition,
-and schema-dispatch substrate are implemented. Query payload codecs, packet
-format 2, runtime selector resolution, complete view binding, and the
-restoration coordinator defined here are not yet implemented. Issue
+schema dispatch, and runtime subject/context selector resolution are
+implemented. Query payload codecs, packet format 2, complete view binding, and
+the restoration coordinator defined here are not yet implemented. Issue
 [#7027](https://github.com/richlander/dotnet-inspect/issues/7027) owns the
 complete-restoration implementation; its first retained production consumer is
 Inspect Web activation
@@ -1858,6 +1858,15 @@ Implementation must add, at minimum:
   acquisition-target validation at ordinary plan invocation, while
   `Registry_RejectsSubscribeAndFilesystemCoordinates_AndCrossKindPeers`
   preserves explicit unsupported outcomes;
+- a runtime-selector gate proving one exact fresh Workspace and Scope resolve
+  the focused committed state to one `NavigationInitialization`, retain every
+  inactive direct-Package row as exact resolved input, and preserve
+  non-Package rows only as dormant inventory. The gate must cover
+  occurrence-local Library/Type/Member identity, Package and Workspace active
+  subjects, subject-less Package recommendation, exact facets, missing and
+  ambiguous selectors, incomplete inventory, foreign or superseded
+  occurrences, projected Members whose declaring Type differs from their
+  containing Type, and `allLibraries` over an empty Package;
 - a grammar gate covering recursive catalog paths and composition, plus one
   exact-pin parser exercised through member coordinates, group subscriptions,
   and packet tuples, including rejection of `latest`, ranges, build metadata,
@@ -2107,6 +2116,18 @@ Definition records and product demos (this slice):
   requests, and independent retained Package/Library/Type/Member context.
   Non-Package rows remain undecorated, nonempty query references fail until
   #6971, and packet-format-1 projection returns `NonProjectable`;
+- `CommittedScenarioSelectorResolver` consumes one exact fresh Workspace,
+  its exact `WorkspaceScopeSnapshot`, and one
+  `NavigationPackageEvaluation` per direct-Package row. It resolves portable
+  Library identities by `AssemblyReferenceIdentity` equivalence inside that
+  row's exact occurrence, then resolves exact structured Type and Member
+  identities from Navigation's classified inventory. It returns the
+  focus-selected `NavigationInitialization`, retains inactive Package rows as
+  exact resolved inputs, preserves non-Package rows as dormant inventory, and
+  returns a source-associated typed failure without partial state for missing,
+  ambiguous, incomplete, foreign, superseded, or noncontiguous input. It does
+  not construct, publish, activate, or close a Workspace and does not resolve
+  Registry applicability;
 - `ProductDemoSourceBinding` is the Workspace-owned target-free static
   method-group binding. It validates exactly one matching scenario record,
   resolves that exact scenario, and enforces `ProductDemoSections`; the
@@ -2154,6 +2175,16 @@ Definition records and product demos (this slice):
   gate the query-free composition boundaries while
   `Json_SchemaVersion1SpellingRemainsUnchanged` preserves the version-1
   writer contract.
+  `CommittedScenarioSelectorResolverTests.Resolve_WorkspaceFocusRetainsExactMemberContextAndDormantRows`,
+  `Resolve_PackageFocusProducesOneActivationAndInactiveExactInput`,
+  `Resolve_SameLibraryIdentityAcrossOccurrencesStaysOccurrenceLocal`,
+  `Resolve_RejectsMissingAmbiguousAndForeignPackageFacts`,
+  `Resolve_SelectorCardinalityFailuresAreTyped`,
+  `Resolve_IncompleteTypeInventoryIsNotReportedAsMissing`,
+  `Resolve_ProjectedMemberCannotEscapeItsExactDeclaringType`, and
+  `Resolve_AllLibrariesRequiresOneLibraryButPackageContextDoesNot` gate
+  runtime selector resolution, exact occurrence association, atomic typed
+  failure, incomplete-inventory disclosure, and contiguous retained paths.
   `ProductDemoSourceBindingTests` gates source shape, exactly-once source
   invocation per resolve, exact scenario resolution, section admission, and
   visible failures.
@@ -2321,8 +2352,8 @@ Definition records and product demos (this slice):
   Package-root navigation and explicit Share use the ordinary
   Browser route, without stale packet state, until product facet IDs are
   implemented; and
-- **not yet:** the designed View Facet Registry implementation, schema version
-  2, packet format 2, legacy lowering, per-coordinate view/query binding,
+- **not yet:** the designed View Facet Registry implementation, packet format
+  2, legacy lowering, per-coordinate view/query binding,
   complete-restoration coordinator, CLI
   use of the codec/transposer for executable `-W`, or
   `WorkspaceContextLoader` acquisition as the CLI run substrate (the CLI still
