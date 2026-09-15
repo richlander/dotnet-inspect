@@ -605,7 +605,7 @@ ancestry.
 
 | `subject.kind` | State and retained-context requirement | Structural subject |
 | --- | --- | --- | --- |
-| `workspace` | Any state; the null state forbids `retained` | Exact Workspace |
+| `workspace` | Null Workspace state, or direct Package-coordinate state; the null state forbids `retained` | Exact Workspace |
 | `package` | Package-occurrence state | Exact retained Package occurrence |
 | `allLibraries` | `retained.kind` is `allLibraries` | Explicit aggregate Library |
 | `library` | `retained.kind` is `library`, `type`, or `member` | Exact retained Library |
@@ -770,8 +770,11 @@ workspace use the same version. Version-1 and version-2 records never compose
 directly in one scenario, because that would let a legacy view token enter a
 canonical-ID composition.
 
-Strict version-1 decode first preserves one unresolved legacy plan. When the
-focused source is a direct Package coordinate, the explicit legacy lowerer
+Strict version-1 decode first preserves one unresolved legacy plan. A
+workspace-free scenario remains on its existing source- or query-owner
+execution path and does not enter complete Workspace restoration. For a
+workspace-backed scenario whose focused source is a direct Package coordinate,
+the explicit legacy lowerer
 resolves each flat Type or Member selector after realization to its exact
 defining Library and forms the complete version-2 state table: one explicit
 Workspace state, one direct Package structural state per Package tab, and one
@@ -781,15 +784,17 @@ defining Library is `LegacyLoweringFailed`; the lowerer never invents a
 Library, stores a display-name approximation, or emits a partially specified
 version-2 state.
 
-A version-1 graph focused on a group, Platform, embedded, project, directory,
-or local source remains on the explicit version-1 compatibility execution
-path. It does not acquire Registry semantics in place and does not claim to be
-a complete version-2 composition. Its unchanged source record or canonical
-packet remains its location basis. Capturing a changed structural state from
-that active source is `NonProjectable` until an owning structural grammar
-exists; Workspace Definitions never fabricates Package ancestry to force the
-conversion. Version-1 support therefore remains behavior-compatible without
-claiming impossible Package-rooted lowering for non-Package inputs.
+A workspace-backed version-1 graph with no navigation, or focused on a group,
+Platform, embedded, project, directory, or local source, remains on the
+explicit version-1 compatibility execution path. It does not acquire Registry
+semantics in place and does not claim to be a complete version-2 composition.
+Its unchanged source record or canonical packet remains its location basis.
+Capturing a changed structural state from that active source is
+`NonProjectable` until an owning structural grammar exists; Workspace
+Definitions never fabricates Package ancestry or a missing coordinate to force
+the conversion. Version-1 support therefore remains behavior-compatible
+without claiming impossible Package-rooted lowering for non-Package or
+no-navigation inputs.
 
 ### The dependency boundary
 
@@ -1564,13 +1569,19 @@ migration, and forms the complete version-2 composition for ordinary
 validation. A legacy token is never submitted to the Registry, and Workspace
 Definitions never reads or duplicates a facet's private execution binding.
 
-When the focused source is not a direct Package coordinate, dispatch retains
-the exact version-1 semantic plan and returns
-`LegacyCompatibilityRequired`. The consuming host passes that owner-issued
-plan to its existing version-1 compatibility executor. This result occurs
-before fresh-Workspace construction and never enters version-2 Registry or
-Navigation composition or claims a portable Workspace/Package subject. It is
-an explicit compatibility boundary, not shape sniffing or partial lowering.
+For a workspace-backed version-1 graph with no navigation, or whose focused
+source is not a direct Package coordinate, dispatch retains the exact
+version-1 semantic plan and returns `LegacyCompatibilityRequired`. The
+consuming host passes that owner-issued plan to its existing version-1
+compatibility executor. This result occurs before fresh-Workspace construction
+and never enters version-2 Registry or Navigation composition or claims a
+portable Workspace/Package subject. It is an explicit compatibility boundary,
+not shape sniffing or partial lowering.
+
+A workspace-free scenario never enters complete Workspace restoration.
+Version 1 stays on its existing source- or query-owner execution path; version
+2 binds and validates its optional scenario-level query directly. Neither path
+constructs a Workspace or requires a navigation focus.
 
 The version dispatch matrix is closed:
 
@@ -1579,8 +1590,10 @@ The version dispatch matrix is closed:
 | Packet with exact `f:1` | Strict format-1 decode, then direct-Package whole-composition lowering or `LegacyCompatibilityRequired` |
 | Packet with exact `f:2` | Strict format-2 decode and direct version-2 validation |
 | Packet with absent, unknown, or non-integer `f` | `UnsupportedFormat`; no shape sniffing or lowering |
-| Definition scenario graph containing only version-1 records | Strict version-1 bind, then direct-Package whole-graph lowering or `LegacyCompatibilityRequired` |
-| Definition scenario graph containing only version-2 records | Strict version-2 bind and direct validation |
+| Workspace-free definition scenario graph containing only version-1 records | Strict version-1 bind and existing workspace-free execution; no Workspace restoration |
+| Workspace-backed definition graph containing only version-1 records | Strict version-1 bind, then direct-Package whole-graph lowering or `LegacyCompatibilityRequired` for absent/non-Package focus |
+| Workspace-free definition scenario graph containing only version-2 records | Strict version-2 bind and direct workspace-free query validation; no Workspace restoration |
+| Workspace-backed definition graph containing only version-2 records | Strict version-2 bind and direct validation |
 | Definition scenario graph mixing record versions | `InvalidDefinitionSet`; no partial lowering |
 
 Dispatch reads only the required top-level discriminator through the bounded
@@ -1682,16 +1695,16 @@ canonical API view whose `l` has no peer query field.
 
 A referenced version-1 query record is also an unresolved legacy plan. For a
 direct Package-focused scenario, its output attaches only to the state for
-`a`; for a workspace-free scenario it remains the scenario-level query. The
-record must carry a non-null exact `queryId`, and that query owner must
+`a`. The record must carry a non-null exact `queryId`, and that query owner must
 statically register a version-1 migration that returns one canonical version-2
 payload for the legacy preset. The resulting Package-backed query must be
 compatible with the exact lowered facet; migration never chooses or changes a
 facet. An absent `queryId`, missing owner migration, owner rejection,
 recommendation-only coordinate state, or incompatible facet returns
-`LegacyLoweringFailed`. A non-Package-focused v1 graph retains the query in its
-legacy plan instead of partially migrating it. Workspace Definitions never
-drops the preset or manufactures `{}`.
+`LegacyLoweringFailed`. A workspace-free, no-navigation, or non-Package-focused
+v1 graph retains the query in its existing execution plan instead of partially
+migrating it. Workspace Definitions never drops the preset or manufactures
+`{}`.
 
 Format 1 carries view state only for `a`. For a direct Package-focused plan,
 the lowerer creates an absent-subject recommendation state for every other
@@ -1702,14 +1715,14 @@ focused, because version 1 cannot express a Workspace selection with no active
 occurrence. A direct Package-focused version-1 composition with no view fields
 likewise becomes recommendation state.
 
-A non-Package-focused format-1 plan is not lowered. Its unchanged decoded basis
-and exact semantic plan return through `LegacyCompatibilityRequired`. The
-consumer may pass only that plan to its existing compatibility executor; it
-does not reconstruct the request from display state. Any captured structural
-change from that session is `NonProjectable`; no format-2 writer emits a
-non-Package active subject. Filters, body targets, source targets, and overload
-ordinals have no version-1 field and are never inferred from courtesy routes or
-host state.
+A workspace-backed format-1 plan with absent or non-Package focus is not
+lowered. Its unchanged decoded basis and exact semantic plan return through
+`LegacyCompatibilityRequired`. The consumer may pass only that plan to its
+existing compatibility executor; it does not reconstruct the request from
+display state. Any captured structural change from that session is
+`NonProjectable`; no format-2 writer emits a non-Package active subject.
+Filters, body targets, source targets, and overload ordinals have no version-1
+field and are never inferred from courtesy routes or host state.
 
 The adapter retains the exact decoded version-1 packet as the requested packet
 basis. If the fresh Workspace realizes the same semantic state, that original
@@ -1721,16 +1734,19 @@ Registry ID.
 
 ### Complete restoration
 
-Complete restoration first classifies one definition or packet. Version-2 and
-direct-Package-lowerable version-1 inputs continue to resource-free
-construction input and prepare an independent host-owned Workspace. Each such
-Workspace is constructed solely from its own definition; no other Workspace or
-Workspace definition participates. A focused non-Package version-1 input
-returns `LegacyCompatibilityRequired` before construction and remains on its
-immutable compatibility path.
+Complete restoration first classifies one workspace-backed definition or
+packet. Version-2 and direct-Package-lowerable version-1 inputs continue to
+resource-free construction input and prepare an independent host-owned
+Workspace. Each such Workspace is constructed solely from its own definition;
+no other Workspace or Workspace definition participates. A workspace-backed
+version-1 input with absent or non-Package focus returns
+`LegacyCompatibilityRequired` before construction and remains on its immutable
+compatibility path. Workspace-free scenarios remain outside this operation and
+execute through their source or query owner.
 
-This operation applies to saved definitions, share packets, Browser history,
-product demos, Spotlight package selections classified as
+This operation applies to workspace-backed saved definitions, share packets,
+Browser history, workspace-backed product demos, Spotlight package selections
+classified as
 `RestoreExternalPackageWorkspace` by the
 [Spotlight destination-activation
 owner](inspect-web-spotlight-destination-activation.md), and CLI canonical
@@ -1760,11 +1776,12 @@ One restoration attempt proceeds in this order:
    supersedes every remaining phase of the older attempt.
 2. Perform bounded format dispatch and strict decode. Format 2 produces one
    closed version-2 composition plan. Format 1 produces one unresolved legacy
-   plan and retains its exact canonical packet basis. A focused non-Package
-   version-1 plan returns `LegacyCompatibilityRequired` now, before any
-   Workspace, Root, Scope, reader, session, lease, acquisition, Registry
-   resolution, or Navigation operation exists. The consumer passes the exact
-   returned plan to its existing version-1 compatibility adapter.
+   plan and retains its exact canonical packet basis. A workspace-backed
+   version-1 plan with absent or non-Package focus returns
+   `LegacyCompatibilityRequired` now, before any Workspace, Root, Scope,
+   reader, session, lease, acquisition, Registry resolution, or Navigation
+   operation exists. The consumer passes the exact returned plan to its
+   existing version-1 compatibility adapter.
 3. Resolve syntax, Registry IDs, query migrations, Platform/package pruning,
    and complete context, Root, and registration construction intent into one
    immutable `WorkspacePlan` and restoration recipe. Preserve selectors or
@@ -1877,7 +1894,8 @@ evidence follows deterministic plan order, not asynchronous completion order.
 value and grant no host publication authority.
 `LegacyCompatibilityRequired` is not success-shaped restoration: it is the
 typed pre-construction classification that preserves immutable non-Package v1
-support outside the Package-only v2 path. It exposes the exact
+or no-navigation workspace-backed support outside the Package-only v2 path. It
+exposes the exact
 Definitions-owned plan to the adjacent compatibility owner and prohibits a
 consumer from deriving a replacement plan from labels, routes, or snapshot
 state. Host intent, publication, cleanup, and authority semantics remain with
@@ -2053,18 +2071,19 @@ Implementation must add, at minimum:
   `ToPacket_ClassifiesPacketCapacityAsNonProjectable`,
   `ToPacket_ClassifiesDistinctEquivalentContextsAsNonProjectable`, and the
   neighboring `ToPacket_Rejects*` tests gate those properties. Version 2 must
-  additionally prove every navigation tuple retains its own subject, facet,
-  query set, and Library scope across packet → records → packet; inactive
-  coordinate state is not replaced by the active state; an exact focused or
-  inactive subject resolves in its owning coordinate when that coordinate is
-  outside `g[x]` or reused by several contexts; query records deduplicate and
-  sort by canonical semantic content rather than peer ID; and a valid
-  unsupported query codec is `NonProjectable` while an invalid relationship is
-  `InvalidDefinitionSet`. Portable Library identity cases must cover signed,
-  unsigned, neutral-culture, culture-specific, same-name/different-version,
-  alternate-equivalent spelling, malformed version/token, and duplicate
-  semantic identity inputs while proving that artifact identity, generation,
-  provenance, path, and MVID never serialize;
+  additionally prove every direct Package tuple retains its own subject, facet,
+  query set, and Library scope across packet → records → packet; every group
+  tuple retains one undecorated dormant row; inactive Package state is not
+  replaced by the active state; an exact focused or inactive subject resolves
+  in its owning Package occurrence when that coordinate is outside `g[x]` or
+  reused by several contexts; query records deduplicate and sort by canonical
+  semantic content rather than peer ID; and a valid unsupported query codec is
+  `NonProjectable` while an invalid relationship is `InvalidDefinitionSet`.
+  Portable Library identity cases must cover signed, unsigned, neutral-culture,
+  culture-specific, same-name/different-version, alternate-equivalent spelling,
+  malformed version/token, and duplicate semantic identity inputs while
+  proving that artifact identity, generation, provenance, path, and MVID never
+  serialize;
 - a packet-validity gate rejecting duplicate properties, tuples, contexts, or
   library identities, unsupported or absent format discriminator, malformed or
   non-canonical base64url, incomplete or trailing JSON, truncated or appended
@@ -2126,10 +2145,13 @@ Implementation must add, at minimum:
   exact Registry and query-owner resolution, the explicit Workspace state is
   added, inactive direct Package coordinates become recommendation states,
   inactive non-Package coordinates become undecorated dormant rows, and exact
-  format-1 packet restoration retains its byte basis. Focused non-Package v1
-  plans must return `LegacyCompatibilityRequired` before construction, retain
-  their exact semantic plan and request basis, never enter Registry/Navigation
-  v2 composition, and classify changed capture as `NonProjectable`;
+  format-1 packet restoration retains its byte basis. Workspace-backed v1
+  plans with absent or non-Package focus must return
+  `LegacyCompatibilityRequired` before construction, retain their exact
+  semantic plan and request basis, never enter Registry/Navigation v2
+  composition, and classify changed capture as `NonProjectable`.
+  Workspace-free v1 scenarios must remain on their source/query execution path
+  without entering complete Workspace restoration;
 - a session-closure gate asserting the packet grammar covers every
   interactively reachable format-2 committed state, including distinct
   inactive-coordinate views, Workspace with and without retained occurrence
@@ -2175,12 +2197,13 @@ Implementation must add, at minimum:
 - a complete-restoration conformance gate with controllable Workspace
   construction, Navigation, query, projection, and host installation. It must
   cover inert packet/definition input with absent, stale, revoked, and
-  incompatible activation authority; exact focused non-Package v1
-  classification to `LegacyCompatibilityRequired` before construction; stale
-  decode success and failure after a newer intent; Root or Navigation failure
-  after partial new-Workspace construction; projectable and validly
-  non-projectable installation; projection failure; supersession before
-  installation; late completion; and initial failure with no active Workspace.
+  incompatible activation authority; exact workspace-backed absent/non-Package
+  v1 classification to `LegacyCompatibilityRequired` before construction;
+  workspace-free exclusion; stale decode success and failure after a newer
+  intent; Root or Navigation failure after partial new-Workspace construction;
+  projectable and validly non-projectable installation; projection failure;
+  supersession before installation; late completion; and initial failure with
+  no active Workspace.
   Unauthorized input must reserve, acquire, and publish nothing.
   `LegacyCompatibilityRequired` must preserve the exact source plan and basis
   while reserving, acquiring, and constructing nothing. Every other non-install
