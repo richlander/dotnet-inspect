@@ -973,6 +973,28 @@ public sealed partial class DirectCallDefinitionResolutionTests
     }
 
     [Fact]
+    public void NewObjectConstructorResolvesExactMethodDefinition()
+    {
+        DirectCallDefinitionResolution.Resolved resolved =
+            Assert.IsType<DirectCallDefinitionResolution.Resolved>(
+                Assert.Single(
+                    Resolve(CreateSynthetic(new()
+                    {
+                        TargetName = ".ctor",
+                        TargetAttributes =
+                            MethodAttributes.Public
+                            | MethodAttributes.SpecialName
+                            | MethodAttributes.RTSpecialName,
+                        TargetSignature = [0x20, 0x00, 0x01],
+                        CallKind = CallKind.NewObject,
+                        PopCallReturn = true,
+                    })).Results));
+
+        Assert.Equal(MemberKind.Constructor, resolved.Definition.Member.Kind);
+        Assert.Equal(CallKind.NewObject, resolved.Call.Kind);
+    }
+
+    [Fact]
     public void TwoExactExternalCandidatesStayAmbiguousWithUnreadablePeer()
     {
         ExternalSyntheticParticipant scenario =
@@ -1982,7 +2004,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
                 metadata.AddMethodDefinition(
                     options.TargetAttributes,
                     MethodImplAttributes.IL,
-                    metadata.GetOrAddString("Target"),
+                    metadata.GetOrAddString(options.TargetName),
                     metadata.GetOrAddBlob(options.TargetSignature),
                     TargetBody(),
                     MetadataTokens.ParameterHandle(1));
@@ -2024,7 +2046,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
             callTarget = metadata.AddMemberReference(
                 owner,
                 metadata.GetOrAddString(
-                    options.CallName ?? "Target"),
+                    options.CallName ?? options.TargetName),
                 metadata.GetOrAddBlob(options.TargetSignature));
         }
         else if (options.UnsupportedDeclaringType)
@@ -2434,6 +2456,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
             "SyntheticDirectCalls";
         internal MethodAttributes TargetAttributes { get; init; } =
             MethodAttributes.Public | MethodAttributes.Static;
+        internal string TargetName { get; init; } = "Target";
         internal byte[] TargetSignature { get; init; } =
             [0x00, 0x00, 0x01];
         internal int TargetCount { get; init; } = 1;
