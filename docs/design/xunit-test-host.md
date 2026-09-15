@@ -324,8 +324,8 @@ execution remains unfiltered. This path reuses the pinned outcome-level host
 gate without changing the suite's stored-report identity, metric comparability,
 residue endpoint, schema incompatibility, corpus-population, or Markdown, TSV,
 and JSONL rendering evidence. The migration also retires a hard-coded corpus
-snapshot schema assertion: synthetic stored-report evidence already gates
-schema preservation, while corpus-path tests gate schema incompatibility and
+snapshot schema assertion: input-derived corpus-path evidence gates schema
+preservation and incompatibility, while separate corpus evidence gates
 unknown-population refusal without coupling the suite to a mutable baseline
 version.
 
