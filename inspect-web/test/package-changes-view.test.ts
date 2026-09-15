@@ -183,6 +183,33 @@ test("row window uses measured variable extents for spacer accounting", () => {
   assert.match(html, /style="height:20000\.00px"/);
 });
 
+test("row window preserves measured card extents above the estimation ceiling", () => {
+  const rows = Array.from(
+    { length: 100 },
+    (_, index) => changeRow(`Tall.Package.${index.toString().padStart(3, "0")}`));
+  const state = initialPackageChangesState();
+  state.rows = rows;
+  state.settlement = { kind: "running" };
+  const html = renderPackageChangesView({
+    state,
+    packageSets,
+    viewport: {
+      scrollTop: 44_000,
+      clientHeight: 800,
+      surfaceTop: 0,
+      rowExtent: 1_600,
+      rowExtents: Array.from({ length: 100 }, () => 1_760),
+      anchorRowIndex: 25,
+      anchorOffsetTop: 0,
+    },
+    escapeHtml,
+  });
+
+  assert.match(html, /Changes 21 through 50 of 100/);
+  assert.match(html, /style="height:35200\.00px"/);
+  assert.match(html, /style="height:88000\.00px"/);
+});
+
 test("repeated coordinates retain distinct Catalog event identities", () => {
   const first = changeRow("Repeated.Package");
   const repeated = changeRow("Repeated.Package");

@@ -1030,8 +1030,20 @@ test.describe("Package Changes website over real Wasm", () => {
   }) => {
     const now = new Date();
     const horizon = new Date(now.getTime() + 5 * 60 * 1_000);
-    const firstCommit = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1_000);
-    const secondCommit = new Date(now.getTime() - 24 * 60 * 60 * 1_000);
+    const catalogItems = Array.from({ length: 40 }, (_, index) => {
+      const ordinal = index.toString().padStart(2, "0");
+      return {
+        "@id": `https://api.nuget.org/v3/catalog0/data/item-${ordinal}.json`,
+        "@type": "nuget:PackageDetails",
+        commitId: `commit-${ordinal}`,
+        commitTimeStamp: new Date(
+          now.getTime() - (40 - index) * 30 * 60 * 1_000).toISOString(),
+        "nuget:id": "Microsoft.Extensions.AI",
+        "nuget:version": `1.${index}.0`,
+      };
+    });
+    const firstCommit = new Date(catalogItems[0]!.commitTimeStamp);
+    const secondCommit = new Date(catalogItems.at(-1)!.commitTimeStamp);
     const requests: URL[] = [];
     const advisoryRequested = deferred<void>();
     const releaseAdvisory = deferred<void>();
@@ -1115,33 +1127,16 @@ test.describe("Package Changes website over real Wasm", () => {
             "@id": "https://api.nuget.org/v3/catalog0/page0.json",
             commitId: "page",
             commitTimeStamp: horizon.toISOString(),
-            count: 2,
+            count: catalogItems.length,
           }],
         });
       } else if (providerPath === "/v3/catalog0/page0.json") {
         body = JSON.stringify({
           commitId: "page",
           commitTimeStamp: horizon.toISOString(),
-          count: 2,
+          count: catalogItems.length,
           parent: "https://api.nuget.org/v3/catalog0/index.json",
-          items: [
-            {
-              "@id": "https://api.nuget.org/v3/catalog0/data/first.json",
-              "@type": "nuget:PackageDetails",
-              commitId: "first-commit",
-              commitTimeStamp: firstCommit.toISOString(),
-              "nuget:id": "Microsoft.Extensions.AI",
-              "nuget:version": "1.0.0",
-            },
-            {
-              "@id": "https://api.nuget.org/v3/catalog0/data/second.json",
-              "@type": "nuget:PackageDetails",
-              commitId: "second-commit",
-              commitTimeStamp: secondCommit.toISOString(),
-              "nuget:id": "Microsoft.Extensions.AI",
-              "nuget:version": "1.1.0",
-            },
-          ],
+          items: catalogItems,
         });
       } else {
         await route.fulfill({ status: 404 });
@@ -1164,6 +1159,20 @@ test.describe("Package Changes website over real Wasm", () => {
     await expect(page.locator(".package-changes-package-set-summary"))
       .not.toHaveText("");
 
+    const dateTimeInput = (value: Date) => value.toISOString().slice(0, 19);
+    await page.locator("#package-changes-custom-interval").check();
+    await page.locator("#package-changes-from")
+      .fill(dateTimeInput(new Date(now.getTime() - 10 * 24 * 60 * 60 * 1_000)));
+    const through = page.locator("#package-changes-through");
+    await through.fill(
+      dateTimeInput(new Date(now.getTime() + 40 * 24 * 60 * 60 * 1_000)));
+    await page.locator("#package-changes-run").click();
+    await expect(through).toHaveJSProperty(
+      "validationMessage",
+      "The custom interval cannot exceed 42 days.");
+    expect(requests).toHaveLength(0);
+
+    await through.fill(dateTimeInput(new Date(now.getTime() - 60 * 1_000)));
     await page.locator("#package-changes-run").click();
     await advisoryRequested.promise;
     await expect(page.locator(".package-changes-summary"))
@@ -1176,21 +1185,56 @@ test.describe("Package Changes website over real Wasm", () => {
     await expect(page.locator(".package-changes-coverage"))
       .toContainText("Completion and coverage");
     await expect(page.locator(".package-changes-coverage"))
-      .toContainText("2 of 2 eligible");
-    await expect(page.locator(".package-changes-row")).toHaveCount(2);
-    await expect(page.locator(".package-changes-row h2"))
-      .toHaveText([
-        "Microsoft.Extensions.AI 1.1.0",
-        "Microsoft.Extensions.AI 1.0.0",
-      ]);
-    await expect(page.locator(".package-changes-evidence-grid"))
-      .toContainText(["Partial", "Partial"]);
+      .toContainText("40 of 40 eligible");
+    await expect(page.locator(".package-changes-row")).toHaveCount(30);
+    await expect(page.locator(".package-changes-row h2").first())
+      .toHaveText("Microsoft.Extensions.AI 1.39.0");
+    await expect(page.locator(".package-changes-evidence-grid").first())
+      .toContainText("Partial");
     await expect(page.locator(".package-changes-failures"))
       .toContainText("Advisory provider");
     await expect(page.locator(".package-changes-row").first())
-      .toContainText("second-commit");
-    await expect(page.locator(".package-changes-row").last())
-      .toContainText("first-commit");
+      .toContainText("commit-39");
+
+    await page.addStyleTag({
+      content: ".package-changes-row { min-height: 1760px; }",
+    });
+    const scroller = page.locator(".query-main");
+    const geometry = await page.evaluate(() => {
+      const scroll = document.querySelector<HTMLElement>(".query-main");
+      const window = document.querySelector<HTMLElement>(
+        "#package-changes-row-window");
+      const first = document.querySelector<HTMLElement>(
+        "[data-changes-row-index='0']");
+      if (!scroll || !window || !first) {
+        throw new Error("Package Changes window geometry is unavailable.");
+      }
+      const scrollRect = scroll.getBoundingClientRect();
+      const windowRect = window.getBoundingClientRect();
+      const extent = first.getBoundingClientRect().height + 10;
+      const surfaceTop = windowRect.top - scrollRect.top + scroll.scrollTop;
+      scroll.scrollTop = surfaceTop + extent * 6 - 50;
+      scroll.dispatchEvent(new Event("scroll"));
+      return { extent, target: scroll.scrollTop };
+    });
+    expect(geometry.extent).toBeGreaterThan(1_600);
+    await expect(page.locator("#package-changes-row-window"))
+      .toHaveAttribute("aria-label", "Changes 1 through 30 of 40");
+    const retainedLink = page.locator(
+      "[data-changes-row-index='10'] [data-package-changes-focus-key='package-10']");
+    await retainedLink.focus();
+    await expect(retainedLink).toBeFocused();
+    await scroller.evaluate(element => {
+      element.scrollTop += 100;
+      element.dispatchEvent(new Event("scroll"));
+    });
+    await expect(page.locator("#package-changes-row-window"))
+      .not.toHaveAttribute("aria-label", "Changes 1 through 30 of 40");
+    expect(await scroller.evaluate(element => element.scrollTop))
+      .toBeGreaterThanOrEqual(geometry.target);
+    await expect(page.locator(".package-changes-row")).toHaveCount(30);
+    await expect(retainedLink).toBeFocused();
+
     expect(requests.some(request =>
       request.pathname.endsWith("/nuget")
       && request.searchParams.get("path") === "/v3/index.json")).toBe(true);

@@ -25,13 +25,17 @@ function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
 }
 
-function normalizedExtent(value: number): number {
+function normalizedEstimatedExtent(value: number): number {
   return Number.isFinite(value)
     ? clamp(
         value,
         PACKAGE_CHANGES_MINIMUM_ROW_EXTENT_PX,
         PACKAGE_CHANGES_MAXIMUM_ROW_EXTENT_PX)
     : PACKAGE_CHANGES_DEFAULT_ROW_EXTENT_PX;
+}
+
+function measuredExtent(value: number): number | null {
+  return Number.isFinite(value) && value > 0 ? value : null;
 }
 
 function extentAt(
@@ -42,7 +46,7 @@ function extentAt(
   const measured = extents?.[index];
   return measured === null || measured === undefined
     ? fallback
-    : normalizedExtent(measured);
+    : measuredExtent(measured) ?? fallback;
 }
 
 function heightBefore(
@@ -81,7 +85,7 @@ export function resolvePackageChangesRowWindow(
   viewport: PackageChangesViewportSnapshot | null = null,
 ): PackageChangesRowWindow {
   const count = Math.max(0, Math.trunc(rowCount));
-  const fallback = normalizedExtent(
+  const fallback = normalizedEstimatedExtent(
     viewport?.rowExtent ?? PACKAGE_CHANGES_DEFAULT_ROW_EXTENT_PX);
   if (count <= PACKAGE_QUERY_RENDERED_ROW_LIMIT) {
     return {
@@ -148,15 +152,15 @@ export function capturePackageChangesViewport(
     if (!Number.isInteger(index) || index < 0 || index >= extents.length) {
       continue;
     }
-    extents[index] = normalizedExtent(
+    extents[index] = measuredExtent(
       row.getBoundingClientRect().height + PACKAGE_CHANGES_ROW_GAP_PX);
   }
   const measured = extents.filter(
     (extent): extent is number => extent !== null);
   const rowExtent = measured.length
-    ? normalizedExtent(
+    ? normalizedEstimatedExtent(
         measured.reduce((total, extent) => total + extent, 0) / measured.length)
-    : normalizedExtent(
+    : normalizedEstimatedExtent(
         previous?.rowExtent
         ?? Number(surface.dataset.changesRowExtent));
   const anchor = rows.find(row => {

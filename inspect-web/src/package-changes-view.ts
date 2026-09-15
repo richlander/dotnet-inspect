@@ -63,6 +63,9 @@ export function bindPackageChangesView(
     root.querySelector<HTMLInputElement>("#package-changes-from"),
     root.querySelector<HTMLInputElement>("#package-changes-through"),
   ];
+  const clearIntervalValidity = () => {
+    for (const input of intervalFields()) input?.setCustomValidity("");
+  };
   const synchronizeInterval = () => {
     for (const input of intervalFields()) {
       if (input) input.disabled = custom?.checked !== true;
@@ -70,7 +73,7 @@ export function bindPackageChangesView(
   };
   custom?.addEventListener("change", synchronizeInterval);
   for (const input of intervalFields()) {
-    input?.addEventListener("input", () => input.setCustomValidity(""));
+    input?.addEventListener("input", clearIntervalValidity);
   }
   synchronizeInterval();
   const packageSet =
