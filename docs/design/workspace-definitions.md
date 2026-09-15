@@ -21,7 +21,11 @@ CLI Platform demos use the same `WorkspaceContextLoader` implementation-pack
 realization before lowering the selected images into the ordinary type/member
 section pipeline.
 Schema version 2, packet format 2, complete view binding, and the restoration
-coordinator defined here are not yet implemented.
+coordinator defined here are not yet implemented. Issue
+[#7027](https://github.com/richlander/dotnet-inspect/issues/7027) owns the
+complete-restoration implementation; its first retained production consumer is
+Inspect Web activation
+[#7028](https://github.com/richlander/dotnet-inspect/issues/7028).
 The definition-record loader, registry, scenario resolution, product home
 demos, and role realization listed under
 [What exists today](#what-exists-today) are gated. Every other property asserted
@@ -1649,6 +1653,13 @@ settlement are defined by
 [Inspect Web Retained Workspace
 Realization](inspect-web-retained-workspace-realization.md), not by the
 definition format.
+
+Workspace Scope requires no restoration-only participant for this flow.
+Definitions supplies complete ordered Root and registration intent to ordinary
+Scope operations inside the fresh unpublished Workspace. The special
+coordination obligation is therefore the Definitions-owned transaction in
+[#7027](https://github.com/richlander/dotnet-inspect/issues/7027), not an
+uncommitted Scope fragment or a multi-owner commit over the active Workspace.
 
 Failure remains source-identifying throughout the pipeline:
 `InvalidPacket`, `UnsupportedFormat`, `LegacyLoweringFailed`,

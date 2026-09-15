@@ -27,6 +27,26 @@ public sealed class EcosystemWorkspaceConstructionConsumerTests
         }
     }
 
+    [Fact]
+    public void PublicSelectedPlanCanRegisterOnlyPlatform()
+    {
+        EcosystemPackId[] expected = [EcosystemPackIds.Platform];
+        WorkspacePlan plan =
+            EcosystemPackCatalog.CreateWorkspacePlan(expected);
+
+        WorkspaceEcosystemRegistrationDeclaration[] declarations =
+        [
+            .. plan.Registrations.Select(item =>
+                Assert.IsType<WorkspaceRegistration.Ecosystem>(item)
+                    .Declaration),
+        ];
+
+        Assert.Equal(
+            expected.Select(id => id.Value),
+            declarations.Select(declaration => declaration.Id.Value));
+        Assert.Single(declarations);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

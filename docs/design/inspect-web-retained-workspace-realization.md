@@ -6,7 +6,10 @@ Accepted; implementation is in progress.
 
 The Browser realization host seam is implemented. Production replacement of
 retained application snapshots is blocked until Workspace Definitions supplies
-its complete resource-free restoration path. The current Browser URL
+its complete resource-free restoration path under
+[#7027](https://github.com/richlander/dotnet-inspect/issues/7027). The retained
+activation consumer is
+[#7028](https://github.com/richlander/dotnet-inspect/issues/7028). The current Browser URL
 projection is intentionally partial and is not a complete retained-definition
 recipe. [Adoption and retirement](#adoption-and-retirement) records the exact
 entry condition and prerequisite implementation issues.
@@ -538,19 +541,25 @@ tracks the end-to-end architecture retirement.
    restoration path for resource-free retained records, asynchronous
    selection, rollback presentation, and exact history composition. This slice
    does not create a Browser-private restoration recipe or treat a currently
-   projectable version-1 URL as a complete record.
+   projectable version-1 URL as a complete record. Tracked by
+   [#7028](https://github.com/richlander/dotnet-inspect/issues/7028).
 3. **Fresh materialization producers.** Route saved Open, Spotlight external
    packages, package-query handoff, demos, shared links, and initial/history
-   restoration through the one activation transaction.
+   restoration through the one activation transaction. Tracked by
+   [#7031](https://github.com/richlander/dotnet-inspect/issues/7031).
 4. **Package and exact-subject operations.** Move package, assembly, Library,
    Type, Member, metadata, and source paths to exact active-realization
    admission, beginning with
    [#6818](https://github.com/richlander/dotnet-inspect/issues/6818).
+   Spotlight's focused Package and package-origin Library adopter is
+   [#7030](https://github.com/richlander/dotnet-inspect/issues/7030).
 5. **Composite analysis operations.** Move Diff, Clone, Call Graph,
    type-dependency, Finding, and occurrence publication to exact admission and
    generation checks.
 6. **Platform realization.** Route Platform selection and operations through
    the same host, preserving only catalog-specific transient bounds.
+   Spotlight's focused Platform adopter is
+   [#7029](https://github.com/richlander/dotnet-inspect/issues/7029).
 7. **Legacy registry retirement.** Decouple package-cache accounting and
    occurrence actions, then delete the managed multi-scope registry and every
    lookup, LRU, capacity, quarantine, and compatibility-search surface that
@@ -564,11 +573,12 @@ slices.
 Slice 2 begins only after Workspace Definitions can restore the complete
 retained view into an unpublished fresh Workspace and return one typed
 installation result. That owner-issued path must include the exact Navigation
-participant and retained result producer, plus its Scope restoration
-prerequisites. Until then, the Browser must retain the existing snapshot path;
-it may not replace it with a stale-location fallback, a partial definition, or
-a parallel Browser restoration coordinator. This is an external entry
-condition, not an additional #6757 implementation slice.
+participant and retained result producer. Scope supplies complete membership
+through its ordinary fresh-Workspace operations; it does not require a
+restoration-only participant. Until then, the Browser must retain the existing
+snapshot path; it may not replace it with a stale-location fallback, a partial
+definition, or a parallel Browser restoration coordinator. This is an external
+entry condition, not an additional #6757 implementation slice.
 
 ### Required retirement inventory
 
@@ -601,12 +611,16 @@ saved definition records are not retired.
 - [#6750](https://github.com/richlander/dotnet-inspect/issues/6750) supplies
   definition lowering and fresh realization association.
 - [#5525](https://github.com/richlander/dotnet-inspect/issues/5525) supplies
-  portable Workspace and Package subjects and coordinates the complete
-  Workspace Definitions restoration path, including its Scope prerequisites.
+  portable Workspace and Package subjects.
 - [#6112](https://github.com/richlander/dotnet-inspect/issues/6112) supplies
   the Navigation-owned canonical restoration participant.
 - [#6113](https://github.com/richlander/dotnet-inspect/issues/6113) supplies
   retained Navigation results for Browser consumption.
+- [#7027](https://github.com/richlander/dotnet-inspect/issues/7027) supplies
+  the complete Workspace Definitions restoration transaction and non-install
+  cleanup.
+- [#7028](https://github.com/richlander/dotnet-inspect/issues/7028) consumes
+  that result in the retained Browser activation transaction.
 - [#6752](https://github.com/richlander/dotnet-inspect/issues/6752) supplies the
   realization coordinator.
 - [#6756](https://github.com/richlander/dotnet-inspect/issues/6756) supplies
