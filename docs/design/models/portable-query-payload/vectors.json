@@ -186,6 +186,307 @@
       "canonical": "{\"t\":[[\"éééééééééééééééééééééééééééééééé\",\"eq\",\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"]]}"
     },
     {
+      "name": "term-values-in-scalar-order",
+      "description": "Two terms on one key and operator whose values are U+10000 and U+E000, supplied UTF-16-first. Scalar order places U+E000 first; a codec comparing values by UTF-16 code units would not.",
+      "queryId": "package.query",
+      "intent": {
+        "t": [
+          [
+            "k",
+            "eq",
+            "𐀀"
+          ],
+          [
+            "k",
+            "eq",
+            ""
+          ]
+        ]
+      },
+      "canonical": "{\"t\":[[\"k\",\"eq\",\"\"],[\"k\",\"eq\",\"𐀀\"]]}"
+    },
+    {
+      "name": "bound-dimensions-in-scalar-order",
+      "description": "Two bounds whose dimensions are U+10000 and U+E000, supplied UTF-16-first. Scalar order places U+E000 first.",
+      "queryId": "package.query",
+      "intent": {
+        "b": [
+          [
+            "𐀀",
+            1
+          ],
+          [
+            "",
+            1
+          ]
+        ]
+      },
+      "canonical": "{\"b\":[[\"\",1],[\"𐀀\",1]]}"
+    },
+    {
+      "name": "ranking-operations-in-ascending-stage-index",
+      "description": "Two ranking operations supplied stage 1 before stage 0 canonicalize to ascending stage index after base; a codec that only moved base first would preserve the input order.",
+      "queryId": "row.query",
+      "intent": {
+        "s": [
+          [
+            "top",
+            1
+          ],
+          [
+            "top",
+            2
+          ]
+        ],
+        "o": [
+          [
+            1,
+            "named",
+            "y",
+            "desc"
+          ],
+          [
+            "base",
+            "named",
+            "n",
+            "asc"
+          ],
+          [
+            0,
+            "named",
+            "x",
+            "asc"
+          ]
+        ]
+      },
+      "canonical": "{\"s\":[[\"top\",1],[\"top\",2]],\"o\":[[\"base\",\"named\",\"n\",\"asc\"],[0,\"named\",\"x\",\"asc\"],[1,\"named\",\"y\",\"desc\"]]}"
+    },
+    {
+      "name": "no-unicode-normalization-precomposed",
+      "description": "A value with the precomposed e-acute (U+00E9). Values are exact tokens; no normalization is applied.",
+      "queryId": "package.query",
+      "intent": {
+        "t": [
+          [
+            "k",
+            "eq",
+            "café"
+          ]
+        ]
+      },
+      "canonical": "{\"t\":[[\"k\",\"eq\",\"café\"]]}"
+    },
+    {
+      "name": "no-unicode-normalization-decomposed",
+      "description": "The same word with e plus combining acute (U+0065 U+0301). A distinct intent from the precomposed form, with distinct bytes; a normalizing codec would collapse them.",
+      "queryId": "package.query",
+      "intent": {
+        "t": [
+          [
+            "k",
+            "eq",
+            "café"
+          ]
+        ]
+      },
+      "canonical": "{\"t\":[[\"k\",\"eq\",\"café\"]]}"
+    },
+    {
+      "name": "raw-solidus",
+      "description": "A solidus is emitted raw; only quote, backslash, and C0 controls are escaped.",
+      "queryId": "package.query",
+      "intent": {
+        "t": [
+          [
+            "k",
+            "eq",
+            "a/b"
+          ]
+        ]
+      },
+      "canonical": "{\"t\":[[\"k\",\"eq\",\"a/b\"]]}"
+    },
+    {
+      "name": "empty-value",
+      "description": "An empty string is an admissible value: it is text of admissible length, and the codec never judges what a value says.",
+      "queryId": "package.query",
+      "intent": {
+        "t": [
+          [
+            "k",
+            "eq",
+            ""
+          ]
+        ]
+      },
+      "canonical": "{\"t\":[[\"k\",\"eq\",\"\"]]}"
+    },
+    {
+      "name": "empty-intent",
+      "description": "An intent with no parts canonicalizes to the empty object. Whether such a query means anything is the vocabulary's question, not the codec's.",
+      "queryId": "package.query",
+      "intent": {},
+      "canonical": "{}"
+    },
+    {
+      "name": "order-reference-at-maximum",
+      "description": "A 64-byte named-order reference and a 64-byte field key: the identity limit applies to order references too.",
+      "queryId": "row.query",
+      "intent": {
+        "s": [
+          [
+            "top",
+            1
+          ]
+        ],
+        "o": [
+          [
+            "base",
+            "fields",
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "asc"
+          ],
+          [
+            0,
+            "named",
+            "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+            "desc"
+          ]
+        ]
+      },
+      "canonical": "{\"s\":[[\"top\",1]],\"o\":[[\"base\",\"fields\",\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"asc\"],[0,\"named\",\"rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"desc\"]]}"
+    },
+    {
+      "name": "multibyte-payload-near-maximum",
+      "description": "Twenty-four terms with two-byte values: about 3,000 UTF-8 bytes but far fewer characters. A host counting characters would admit a payload twice this size.",
+      "queryId": "package.query",
+      "intent": {
+        "t": [
+          [
+            "k00",
+            "eq",
+            "ééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k01",
+            "eq",
+            "ééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k02",
+            "eq",
+            "ééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k03",
+            "eq",
+            "ééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k04",
+            "eq",
+            "ééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k05",
+            "eq",
+            "ééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k06",
+            "eq",
+            "ééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k07",
+            "eq",
+            "ééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k08",
+            "eq",
+            "ééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k09",
+            "eq",
+            "ééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k10",
+            "eq",
+            "ééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k11",
+            "eq",
+            "ééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k12",
+            "eq",
+            "ééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k13",
+            "eq",
+            "ééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k14",
+            "eq",
+            "ééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k15",
+            "eq",
+            "ééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k16",
+            "eq",
+            "ééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k17",
+            "eq",
+            "ééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k18",
+            "eq",
+            "ééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k19",
+            "eq",
+            "ééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k20",
+            "eq",
+            "ééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k21",
+            "eq",
+            "ééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k22",
+            "eq",
+            "ééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k23",
+            "eq",
+            "ééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ]
+        ]
+      },
+      "canonical": "{\"t\":[[\"k00\",\"eq\",\"ééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k01\",\"eq\",\"ééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k02\",\"eq\",\"ééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k03\",\"eq\",\"ééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k04\",\"eq\",\"ééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k05\",\"eq\",\"ééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k06\",\"eq\",\"ééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k07\",\"eq\",\"ééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k08\",\"eq\",\"ééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k09\",\"eq\",\"ééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k10\",\"eq\",\"ééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k11\",\"eq\",\"ééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k12\",\"eq\",\"ééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k13\",\"eq\",\"ééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k14\",\"eq\",\"ééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k15\",\"eq\",\"ééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k16\",\"eq\",\"ééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k17\",\"eq\",\"ééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k18\",\"eq\",\"ééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k19\",\"eq\",\"ééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k20\",\"eq\",\"ééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k21\",\"eq\",\"ééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k22\",\"eq\",\"ééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k23\",\"eq\",\"ééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"]]}"
+    },
+    {
       "name": "bounds-entered-in-another-order",
       "description": "Two bounds supplied in the opposite sequence sort by dimension; declaration sequence carries no meaning between independent dimensions.",
       "queryId": "package.query",
@@ -1667,6 +1968,190 @@
       "reject": "limit-exceeded"
     },
     {
+      "name": "order-reference-one-over",
+      "description": "A 65-byte named-order reference exceeds the identity limit.",
+      "intent": {
+        "s": [
+          [
+            "top",
+            1
+          ]
+        ],
+        "o": [
+          [
+            0,
+            "named",
+            "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+            "desc"
+          ]
+        ]
+      },
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "multibyte-order-reference-one-over",
+      "description": "Thirty-two two-byte scalars plus one byte is 65 bytes in an order reference.",
+      "intent": {
+        "s": [
+          [
+            "top",
+            1
+          ]
+        ],
+        "o": [
+          [
+            0,
+            "named",
+            "ééééééééééééééééééééééééééééééééa",
+            "desc"
+          ]
+        ]
+      },
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "multibyte-payload-over-in-intent",
+      "description": "Twenty-four terms with 66 two-byte scalars each: about 3,500 UTF-8 bytes yet under 1,900 characters. The byte count binds; a character count would admit it.",
+      "intent": {
+        "t": [
+          [
+            "k00",
+            "eq",
+            "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k01",
+            "eq",
+            "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k02",
+            "eq",
+            "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k03",
+            "eq",
+            "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k04",
+            "eq",
+            "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k05",
+            "eq",
+            "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k06",
+            "eq",
+            "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k07",
+            "eq",
+            "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k08",
+            "eq",
+            "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k09",
+            "eq",
+            "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k10",
+            "eq",
+            "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k11",
+            "eq",
+            "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k12",
+            "eq",
+            "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k13",
+            "eq",
+            "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k14",
+            "eq",
+            "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k15",
+            "eq",
+            "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k16",
+            "eq",
+            "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k17",
+            "eq",
+            "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k18",
+            "eq",
+            "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k19",
+            "eq",
+            "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k20",
+            "eq",
+            "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k21",
+            "eq",
+            "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k22",
+            "eq",
+            "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ],
+          [
+            "k23",
+            "eq",
+            "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          ]
+        ]
+      },
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "stage-count-zero-in-intent",
+      "description": "A stage count of zero is outside the Count domain on the intent side.",
+      "intent": {
+        "s": [
+          [
+            "head",
+            0
+          ]
+        ]
+      },
+      "reject": "bad-integer"
+    },
+    {
       "name": "multibyte-identity-one-over",
       "description": "Thirty-two two-byte scalars plus one ASCII byte is 65 bytes: over the limit, though only 33 characters.",
       "intent": {
@@ -2150,6 +2635,78 @@
       "reject": "bad-integer"
     },
     {
+      "name": "stage-count-zero",
+      "description": "A stage count of zero is outside the Count domain.",
+      "bytes": "{\"s\":[[\"head\",0]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "stage-count-over-domain",
+      "description": "A stage count of 2147483648 is outside the Count domain.",
+      "bytes": "{\"s\":[[\"tail\",2147483648]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "window-bound-fractional",
+      "description": "A window bound spelled with a fraction is not a Count, however integral its value.",
+      "bytes": "{\"s\":[[\"window\",1.0,5]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "role-index-fractional",
+      "description": "A role index spelled 0.0 is not a canonical integer; the role grammar is the Count grammar with zero admitted.",
+      "bytes": "{\"s\":[[\"top\",1]],\"o\":[[0.0,\"named\",\"x\",\"asc\"]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "role-index-exponent",
+      "description": "A role index spelled 0e0 is not canonical.",
+      "bytes": "{\"s\":[[\"top\",1]],\"o\":[[0e0,\"named\",\"x\",\"asc\"]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "role-index-negative-zero",
+      "description": "A role index spelled -0 is not canonical.",
+      "bytes": "{\"s\":[[\"top\",1]],\"o\":[[-0,\"named\",\"x\",\"asc\"]]}",
+      "reject": "bad-integer"
+    },
+    {
+      "name": "ranking-operations-out-of-index-order-on-the-wire",
+      "description": "Ranking operations must be emitted in ascending stage index.",
+      "bytes": "{\"s\":[[\"top\",1],[\"top\",2]],\"o\":[[\"base\",\"named\",\"n\",\"asc\"],[1,\"named\",\"y\",\"desc\"],[0,\"named\",\"x\",\"asc\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "term-values-out-of-scalar-order-on-the-wire",
+      "description": "Two values ordered by UTF-16 code units rather than scalar value are not canonical.",
+      "bytes": "{\"t\":[[\"k\",\"eq\",\"𐀀\"],[\"k\",\"eq\",\"\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "bound-dimensions-out-of-scalar-order-on-the-wire",
+      "description": "Two dimensions ordered by UTF-16 code units rather than scalar value are not canonical.",
+      "bytes": "{\"b\":[[\"𐀀\",1],[\"\",1]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "escaped-solidus",
+      "description": "A solidus escaped as backslash-solidus decodes to the same value but is not the canonical spelling.",
+      "bytes": "{\"t\":[[\"k\",\"eq\",\"a\\/b\"]]}",
+      "reject": "non-canonical"
+    },
+    {
+      "name": "twenty-five-identical-terms-on-the-wire",
+      "description": "Twenty-five identical terms on the wire are refused for the term limit as parsed, before any collapse could make them one; the reason is the limit, not non-canonical form.",
+      "bytes": "{\"t\":[[\"k\",\"eq\",\"v\"],[\"k\",\"eq\",\"v\"],[\"k\",\"eq\",\"v\"],[\"k\",\"eq\",\"v\"],[\"k\",\"eq\",\"v\"],[\"k\",\"eq\",\"v\"],[\"k\",\"eq\",\"v\"],[\"k\",\"eq\",\"v\"],[\"k\",\"eq\",\"v\"],[\"k\",\"eq\",\"v\"],[\"k\",\"eq\",\"v\"],[\"k\",\"eq\",\"v\"],[\"k\",\"eq\",\"v\"],[\"k\",\"eq\",\"v\"],[\"k\",\"eq\",\"v\"],[\"k\",\"eq\",\"v\"],[\"k\",\"eq\",\"v\"],[\"k\",\"eq\",\"v\"],[\"k\",\"eq\",\"v\"],[\"k\",\"eq\",\"v\"],[\"k\",\"eq\",\"v\"],[\"k\",\"eq\",\"v\"],[\"k\",\"eq\",\"v\"],[\"k\",\"eq\",\"v\"],[\"k\",\"eq\",\"v\"]]}",
+      "reject": "limit-exceeded"
+    },
+    {
+      "name": "multibyte-payload-over",
+      "description": "About 3,500 UTF-8 bytes in under 1,900 characters. The byte count binds on the wire too.",
+      "bytes": "{\"t\":[[\"k00\",\"eq\",\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k01\",\"eq\",\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k02\",\"eq\",\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k03\",\"eq\",\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k04\",\"eq\",\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k05\",\"eq\",\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k06\",\"eq\",\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k07\",\"eq\",\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k08\",\"eq\",\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k09\",\"eq\",\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k10\",\"eq\",\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k11\",\"eq\",\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k12\",\"eq\",\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k13\",\"eq\",\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k14\",\"eq\",\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k15\",\"eq\",\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k16\",\"eq\",\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k17\",\"eq\",\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k18\",\"eq\",\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k19\",\"eq\",\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k20\",\"eq\",\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k21\",\"eq\",\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k22\",\"eq\",\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"],[\"k23\",\"eq\",\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"]]}",
+      "reject": "limit-exceeded"
+    },
+    {
       "name": "count-over-domain",
       "description": "2147483648 is outside the Count domain.",
       "bytes": "{\"b\":[[\"candidates\",2147483648]]}",
@@ -2239,6 +2796,19 @@
       "b": {
         "queryId": "row.query",
         "canonical": "{\"t\":[[\"depends\",\"eq\",\"Serilog\"],[\"prefix\",\"eq\",\"Microsoft.Extensions.\"],[\"prerelease\",\"eq\",\"include\"]],\"b\":[[\"candidates\",200]]}"
+      },
+      "same": false
+    },
+    {
+      "name": "same-vocabulary-different-bytes",
+      "description": "The same vocabulary with different canonical bytes is two queries; identity is the pair, and a comparison on queryId alone would call them one.",
+      "a": {
+        "queryId": "package.query",
+        "canonical": "{\"t\":[[\"depends\",\"eq\",\"Serilog\"],[\"prefix\",\"eq\",\"Microsoft.Extensions.\"],[\"prerelease\",\"eq\",\"include\"]],\"b\":[[\"candidates\",200]]}"
+      },
+      "b": {
+        "queryId": "package.query",
+        "canonical": "{\"t\":[[\"k\",\"eq\",\"café\"]]}"
       },
       "same": false
     },

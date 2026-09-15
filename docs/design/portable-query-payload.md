@@ -110,7 +110,9 @@ Three consequences follow, each with its own reason:
   would silently rewrite what was shared.
 
 Emission is compact, with no whitespace between tokens, and absent or empty
-parts are omitted rather than emitted as `null` or `[]`. Bytes that arrive in
+parts are omitted rather than emitted as `null` or `[]`. An intent with no parts
+at all canonicalizes to the empty object; whether such a query means anything is
+the vocabulary's question, and never this codec's. Bytes that arrive in
 any other spelling — reordered, padded, or carrying a duplicate the canonical
 form would have collapsed — are refused as non-canonical rather than repaired.
 The packet owner already refuses non-canonical decoded JSON; this payload does

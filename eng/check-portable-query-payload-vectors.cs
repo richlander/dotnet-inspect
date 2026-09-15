@@ -33,7 +33,9 @@ using System.Text.Json;
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // Wire properties in canonical order, and the intent part each one carries.
-// An absent or empty part is omitted, never emitted as null or [].
+// An absent or empty part is omitted, never emitted as null or []. An intent
+// with no parts canonicalizes to the empty object; whether such a query means
+// anything is the vocabulary's question, not the codec's.
 (string Property, string Part)[] properties =
     [("t", "terms"), ("b", "bounds"), ("s", "stages"), ("o", "order")];
 
@@ -46,8 +48,10 @@ using System.Text.Json;
 //   WindowBound a Count, or null meaning "no bound on this side". When both
 //               bounds of a window are present, start <= end (the stage owner's
 //               construction precondition, enforced here at decode).
-//   Role        the model's baseline-role text, or an integer index into s
-//               naming a stage of the model's ranking kind
+//   Role        the model's baseline-role text, or a RoleIndex
+//   RoleIndex   an integer 0..(count of s)-1 naming a stage of the model's
+//               ranking kind, spelled with no sign, leading zero, fraction, or
+//               exponent — the Count grammar with zero admitted
 //   Direction   one of the model's two direction texts
 //   Kind slots  (operator, stage kind, order kind) carry the model's identity
 //               text for that kind verbatim; none is spelled in this region.
@@ -77,8 +81,7 @@ const int MaxStages           = 8;
 const int MaxOrderOperations  = 8;
 const int MaxOrderFieldTerms  = 8;   // aggregate across every operation
 const int MaxIdentityBytes    = 64;  // keys, dimensions, order references
-const int MaxValueBytes       = 256; // term values
-const int PacketMaxValues     = 256; // the packet owner's per-payload allowance
+const int MaxValueBytes       = 256; // term values and order references share MaxIdentityBytes/MaxValueBytes by slot kind
 const long MaxCount           = 2147483647; // the Count domain's upper bound
 
 // Depth is 4 by construction of the layouts above; no payload can reach 5
@@ -98,6 +101,11 @@ const long MaxCount           = 2147483647; // the Count domain's upper bound
 // ═══════════════════════════════════════════════════════════════════════════════
 // End of SHAPE. Everything below is implementation.
 // ═══════════════════════════════════════════════════════════════════════════════
+
+// The packet owner's per-payload JSON value allowance (workspace-definitions.md,
+// packet format 2). Not this codec's rule: asserted here so a payload this
+// design admits is shown to fit, and cited rather than owned.
+const int PacketMaxValues = 256;
 
 // Implements the model's comparator: Unicode scalar order == UTF-8 byte order.
 Comparer<string> scalarOrder = Comparer<string>.Create((x, y) =>
@@ -312,9 +320,10 @@ string? ValidateStructure(string text, out JsonDocument? doc, bool onTheWire)
                     if (sawBase) return "duplicate-role";
                     sawBase = true;
                 }
-                else if (role.ValueKind == JsonValueKind.Number && role.TryGetInt32(out int idx) && IsCanonicalInteger(role))
+                else if (role.ValueKind == JsonValueKind.Number)
                 {
-                    if (idx < 0 || idx >= stageTokens.Length || stageTokens[idx] != "top") return "role-not-top";
+                    if (!IsCanonicalInteger(role) || !role.TryGetInt32(out int idx) || idx < 0) return "bad-integer";
+                    if (idx >= stageTokens.Length || stageTokens[idx] != "top") return "role-not-top";
                     if (!stageRoles.Add(idx)) return "duplicate-role";
                 }
                 else return role.ValueKind == JsonValueKind.Null ? "null-outside-window" : "bad-arity";
