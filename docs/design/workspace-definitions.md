@@ -374,6 +374,9 @@ Field semantics:
   activation fails as ambiguous rather than choosing one. The match may occur
   outside the scenario's selected query context. Navigation order is
   presentation state and never doubles as binding precedence.
+  Packet-v1 navigation is stricter: its nullable framework and RID fields are
+  exact tuple identity, so explicit null selects an unqualified source rather
+  than inheriting a target from another matching source.
 - `scenario` records — named compositions with optional `workspace`, `input`,
   `query`, `view`, and `navigation` references plus `context` when the
   referenced workspace has several contexts. In schema version 1, `query` is
@@ -1072,6 +1075,12 @@ packet tuples use one normalized concrete-version parser and reject `latest`,
 ranges such as `A..B`, build metadata, and other selectors. Those forms are
 invalid rather than alternative spellings for floating. Bundle validation
 warns on every floating declared coordinate.
+
+Complete restoration retains the declaration-to-realization association for a
+floating package coordinate. Navigation selection follows that declaration to
+its realized producer-pinned coordinate and acquisition-issued Package Root;
+it never rematches the unresolved null version against every occurrence in the
+completed Scope.
 
 An exact pin constrains selection, not only parsing. The shared acquisition
 owner must compare the normalized resolved version for equality before
@@ -2271,15 +2280,17 @@ Definition records and product demos (this slice):
   failure, incomplete-inventory disclosure, and contiguous retained paths.
   `CompleteRestorationPreparationTests` gates resource-free version dispatch,
   exact plan association, normalized navigation-source membership and
-  effective-target disambiguation, static legacy lowering rejection before
-  construction, absent query-owner migration, and supersession.
+  effective-target disambiguation, exact-null packet target identity, static
+  legacy lowering rejection before construction, absent query-owner migration,
+  and supersession.
   `CompleteRestorationExecutionTests` gates exact unpublished activation,
   duplicate logical Package Roots, subject-less Package recommendation,
   inactive facet rejection, Browser and definition-v1 Type lowering, inherited
-  navigation-target occurrence selection, canonical packet retention, invalid
-  legacy member keys, context and Scope failure, cancellation and exact
-  authority-loss classification, projection failure, late supersession, host
-  cleanup, and exact activation-object association.
+  navigation-target occurrence selection, floating declaration-to-realized-
+  Root occurrence selection, canonical packet retention, invalid legacy member
+  keys, context and Scope failure, cancellation and exact authority-loss
+  classification, projection failure, late supersession, host cleanup, and
+  exact activation-object association.
   The
   `workspace-definitions-complete-restoration` TLA+ model checks fresh
   Workspace identity, exact request/plan/Workspace association, ordered

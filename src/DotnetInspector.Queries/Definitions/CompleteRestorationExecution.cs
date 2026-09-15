@@ -524,6 +524,10 @@ public static class CompleteRestorationCoordinator
                 ImmutableArray.CreateBuilder<
                     WorkspaceDeclarationContextReceipt>(
                         plan.WorkspacePlan.Contexts.Length);
+            var contextLoads =
+                ImmutableArray.CreateBuilder<
+                    WorkspaceContextLoadOutcome.Loaded>(
+                        plan.WorkspacePlan.Contexts.Length);
             var packageRoots =
                 ImmutableArray.CreateBuilder<PackageRootBinding>();
             for (int index = 0;
@@ -551,6 +555,7 @@ public static class CompleteRestorationCoordinator
                                     "The context loader returned no outcome.")));
                 }
 
+                contextLoads.Add(loaded);
                 packageRoots.AddRange(loaded.PackageRoots);
             }
 
@@ -568,6 +573,15 @@ public static class CompleteRestorationCoordinator
 
             ImmutableArray<PackageRootBinding> roots =
                 DistinctPackageRoots(packageRoots);
+            PackageNavigationRequestResolution packageRequests =
+                ResolvePackageNavigationRequests(
+                    plan,
+                    contextLoads.MoveToImmutable());
+            if (packageRequests.Failure is not null)
+            {
+                return new CompleteWorkspacePreparationResult.Failed(
+                    packageRequests.Failure);
+            }
             WorkspaceScopeOperationResult scopeResult =
                 await workspace.ReplaceScopeAsync(
                     available.Snapshot.Revision,
@@ -596,6 +610,7 @@ public static class CompleteRestorationCoordinator
                 workspace,
                 scope,
                 roots,
+                packageRequests.Requests!,
                 options,
                 token).ConfigureAwait(false);
             if (CurrentnessFailure(authority) is { } resolutionStale)
@@ -725,11 +740,112 @@ public static class CompleteRestorationCoordinator
         return distinct.ToImmutable();
     }
 
+    private static PackageNavigationRequestResolution
+        ResolvePackageNavigationRequests(
+            CompleteRestorationPlan plan,
+            ImmutableArray<WorkspaceContextLoadOutcome.Loaded> contexts)
+    {
+        var requests =
+            new Dictionary<string, PackageArtifactRootRequest>(
+                plan.PackageSources.Count,
+                StringComparer.Ordinal);
+        foreach ((string navigationId, PackageNavigationSource source)
+            in plan.PackageSources)
+        {
+            if (source.ContextIndex < 0
+                || source.ContextIndex >= contexts.Length
+                || source.ContextIndex >= plan.WorkspacePlan.Contexts.Length)
+            {
+                return PackageRequestFailure(
+                    navigationId,
+                    "references an unavailable realized context.");
+            }
+
+            WorkspaceContextInput input =
+                plan.WorkspacePlan.Contexts[source.ContextIndex];
+            if (source.MemberIndex < 0
+                || source.MemberIndex >= input.Members.Count)
+            {
+                return PackageRequestFailure(
+                    navigationId,
+                    "references an unavailable declared member.");
+            }
+
+            WorkspaceMemberCoordinate declared =
+                input.Members[source.MemberIndex];
+            RealizedMemberCoordinate.Package[] realized =
+            [
+                .. contexts[source.ContextIndex].Members
+                    .Where(member =>
+                        member.Declared == declared)
+                    .Select(member => member.Realized)
+                    .OfType<RealizedMemberCoordinate.Package>()
+                    .Distinct(),
+            ];
+            if (realized.Length != 1)
+            {
+                return PackageRequestFailure(
+                    navigationId,
+                    realized.Length == 0
+                        ? "has no realized Package declaration."
+                        : "has multiple realized Package declarations.");
+            }
+
+            PackageRootBinding[] bindings =
+            [
+                .. contexts[source.ContextIndex].PackageRoots.Where(
+                    binding =>
+                    {
+                        PackageArtifactRootRequest request =
+                            PackageArtifactRootRequest.From(binding);
+                        return request.Coordinate == realized[0]
+                            && string.Equals(
+                                request.SelectionTargetFramework,
+                                source.EffectiveCoordinate.Framework,
+                                StringComparison.Ordinal)
+                            && string.Equals(
+                                request.SelectionRuntimeIdentifier,
+                                source.EffectiveCoordinate.RuntimeIdentifier,
+                                StringComparison.Ordinal);
+                    }),
+            ];
+            if (bindings.Length != 1)
+            {
+                return PackageRequestFailure(
+                    navigationId,
+                    bindings.Length == 0
+                        ? "has no acquired Package Root."
+                        : "has multiple acquired Package Roots.");
+            }
+
+            requests.Add(
+                navigationId,
+                PackageArtifactRootRequest.From(bindings[0]));
+        }
+
+        return new(requests, null);
+    }
+
+    private static PackageNavigationRequestResolution PackageRequestFailure(
+        string navigationId,
+        string message) =>
+        new(
+            null,
+            new CompleteRestorationFailure.SelectorResolutionFailed(
+                new CommittedSelectorResolutionFailure(
+                    CommittedSelectorResolutionFailureKind
+                        .PackageOccurrenceMissing,
+                    StateIndex: null,
+                    navigationId,
+                    $"Navigation row '{navigationId}' {message}")));
+
     private static async ValueTask<ResolvedPreparation> ResolveAsync(
         CompleteRestorationPlan plan,
         InspectionWorkspace workspace,
         WorkspaceScopeSnapshot scope,
         ImmutableArray<PackageRootBinding> roots,
+        IReadOnlyDictionary<string, PackageArtifactRootRequest>
+            packageRequests,
         CompleteRestorationExecutionOptions options,
         CancellationToken cancellationToken)
     {
@@ -746,20 +862,19 @@ public static class CompleteRestorationCoordinator
                 {
                     continue;
                 }
-                if (!plan.PackageCoordinates.TryGetValue(
+                if (!packageRequests.TryGetValue(
                     tab.Id,
-                    out DefinitionMemberCoordinate.PackageCoordinate?
-                        effectiveCoordinate))
+                    out PackageArtifactRootRequest packageRequest))
                 {
                     throw new InvalidOperationException(
-                        $"Prepared navigation row '{tab.Id}' has no effective "
-                            + "Package coordinate.");
+                        $"Prepared navigation row '{tab.Id}' has no exact "
+                            + "Package request.");
                 }
 
                 PackageEvaluationResult evaluated =
                     await EvaluatePackageAsync(
                         tab.Id,
-                        effectiveCoordinate,
+                        packageRequest,
                         workspace,
                         scope,
                         roots,
@@ -823,18 +938,17 @@ public static class CompleteRestorationCoordinator
             ?? throw new InvalidOperationException(
                 "A direct-Package legacy recipe requires Navigation.");
         ResolvedNavigationTab focused = navigation.FocusTab;
-        if (!plan.PackageCoordinates.TryGetValue(
+        if (!packageRequests.TryGetValue(
             focused.Id,
-            out DefinitionMemberCoordinate.PackageCoordinate?
-                legacyCoordinate))
+            out PackageArtifactRootRequest legacyRequest))
         {
             throw new InvalidOperationException(
-                $"Prepared navigation row '{focused.Id}' has no effective "
-                    + "Package coordinate.");
+                $"Prepared navigation row '{focused.Id}' has no exact Package "
+                    + "request.");
         }
         PackageEvaluationResult legacyPackage = await EvaluatePackageAsync(
             focused.Id,
-            legacyCoordinate,
+            legacyRequest,
             workspace,
             scope,
             roots,
@@ -959,7 +1073,7 @@ public static class CompleteRestorationCoordinator
     private static async ValueTask<PackageEvaluationResult>
         EvaluatePackageAsync(
             string navigationId,
-            DefinitionMemberCoordinate.PackageCoordinate coordinate,
+            PackageArtifactRootRequest request,
             InspectionWorkspace workspace,
             WorkspaceScopeSnapshot scope,
             ImmutableArray<PackageRootBinding> roots,
@@ -970,9 +1084,9 @@ public static class CompleteRestorationCoordinator
         [
             .. scope.Packages.Where(
                 occurrence =>
-                    CommittedScenarioSelectorResolver.MatchesCoordinate(
-                        coordinate,
-                        occurrence.Occurrence.Package)),
+                    occurrence.Occurrence.Correspondence
+                        is PackageArtifactRootCorrespondence correspondence
+                    && correspondence.Matches(request)),
         ];
         if (occurrences.Length != 1)
         {
@@ -999,10 +1113,7 @@ public static class CompleteRestorationCoordinator
         PackageRootBinding[] bindings =
         [
             .. roots.Where(binding =>
-                occurrence.Occurrence.Correspondence
-                    is PackageArtifactRootCorrespondence correspondence
-                && correspondence.Matches(
-                    PackageArtifactRootRequest.From(binding))),
+                PackageArtifactRootRequest.From(binding) == request),
         ];
         if (bindings.Length != 1
             || occurrence.Realization.Status
@@ -1341,6 +1452,10 @@ public static class CompleteRestorationCoordinator
 
     private sealed record PackageEvaluationResult(
         NavigationPackageEvaluation? Package,
+        CompleteRestorationFailure? Failure);
+
+    private sealed record PackageNavigationRequestResolution(
+        IReadOnlyDictionary<string, PackageArtifactRootRequest>? Requests,
         CompleteRestorationFailure? Failure);
 
     private sealed record LegacyInitializationResult(

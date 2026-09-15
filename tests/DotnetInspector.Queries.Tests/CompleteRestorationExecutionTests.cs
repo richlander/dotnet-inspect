@@ -1,3 +1,5 @@
+using System.IO.Compression;
+using System.Net;
 using System.Security.Cryptography;
 
 using DotnetInspector.Packages;
@@ -226,6 +228,88 @@ public sealed class CompleteRestorationExecutionTests
         Assert.IsType<CompleteRestorationResolvedState.Legacy>(
             activated.Workspace.Snapshot.Resolved);
 
+        Assert.True((await activated.Activation.CloseAsync()).Succeeded);
+    }
+
+    [Fact]
+    public async Task PacketV1FloatingVersion_SelectsItsAcquiredOccurrence()
+    {
+        const string packageId = "floating.restore.fixture";
+        const string listedVersion = "2.0.0";
+        const string pinnedVersion = "1.0.0";
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(CompleteRestorationExecutionTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        byte[] nupkg = Archive(
+            ("lib/net9.0/DotnetInspector.Queries.Tests.dll", assembly));
+        var store = new InMemoryPackageStore();
+        await store.CommitAsync(
+            packageId,
+            pinnedVersion,
+            NuGetCache.GetSourceKey("https://api.nuget.org/v3/index.json"),
+            new MemoryStream(nupkg, writable: false),
+            TestContext.Current.CancellationToken);
+        var packet = new WorkspaceSharePacket(
+            [
+                new WorkspaceShareTab(
+                    WorkspaceShareSourceKind.Package,
+                    packageId,
+                    version: null,
+                    framework: "net9.0",
+                    runtimeIdentifier: null),
+                new WorkspaceShareTab(
+                    WorkspaceShareSourceKind.Package,
+                    packageId,
+                    pinnedVersion,
+                    "net9.0",
+                    runtimeIdentifier: null),
+            ],
+            [
+                new WorkspaceShareContext([0]),
+                new WorkspaceShareContext([1]),
+            ],
+            activeTabIndex: 0,
+            selectedContextIndex: 0,
+            lens: "overview",
+            type: null,
+            memberAnchor: null,
+            memberSignature: null,
+            section: null,
+            libraries: []);
+        string encoded = WorkspaceSharePacketCodec.Encode(packet);
+        var authority = new TestIntentAuthority();
+        var preparation =
+            Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+                WorkspaceDefinitionConsumer.PrepareRestoration(
+                    encoded,
+                    authority));
+        var host = new TestHost();
+        using var client = new HttpClient(
+            new FloatingPackageHandler(
+                packageId,
+                listedVersion,
+                nupkg));
+
+        CompleteRestorationResult<InspectionWorkspace> result =
+            await WorkspaceDefinitionConsumer.RestoreAsync(
+                preparation,
+                authority,
+                host,
+                Options(client, store),
+                TestContext.Current.CancellationToken);
+
+        var activated = Assert.IsType<
+            CompleteRestorationResult<InspectionWorkspace>.Activated>(result);
+        Assert.Equal(2, activated.Workspace.Snapshot.Scope.Packages.Length);
+        var resolved =
+            Assert.IsType<CompleteRestorationResolvedState.Legacy>(
+                activated.Workspace.Snapshot.Resolved);
+        var packageSubject =
+            Assert.IsType<StructuralSubjectIdentity.PackageSubject>(
+                resolved.Initialization.Subject);
+        Assert.Equal(
+            listedVersion,
+            packageSubject.Descriptor.PackageVersion);
         Assert.True((await activated.Activation.CloseAsync()).Succeeded);
     }
 
@@ -1470,6 +1554,25 @@ public sealed class CompleteRestorationExecutionTests
         return new(store);
     }
 
+    private static byte[] Archive(
+        params (string Path, byte[] Content)[] entries)
+    {
+        using var buffer = new MemoryStream();
+        using (var archive = new ZipArchive(
+            buffer,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            foreach ((string path, byte[] content) in entries)
+            {
+                using Stream stream = archive.CreateEntry(path).Open();
+                stream.Write(content);
+            }
+        }
+
+        return buffer.ToArray();
+    }
+
     private static string FindRepositoryRoot()
     {
         for (DirectoryInfo? directory = new(AppContext.BaseDirectory);
@@ -1558,6 +1661,58 @@ public sealed class CompleteRestorationExecutionTests
                 _ => throw new InvalidOperationException(
                     "Unknown Workspace preparation result."),
             };
+        }
+    }
+
+    private sealed class FloatingPackageHandler(
+        string packageId,
+        string listedVersion,
+        byte[] nupkg) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string id = packageId.ToLowerInvariant();
+            string url = request.RequestUri!.ToString();
+            if (url.Equals(
+                $"https://api.nuget.org/v3-flatcontainer/{id}/index.json",
+                StringComparison.OrdinalIgnoreCase))
+            {
+                return Json($$"""{"versions":["1.0.0","{{listedVersion}}"]}""");
+            }
+            if (url.Equals(
+                $"https://api.nuget.org/v3/registration5-gz-semver2/{id}/index.json",
+                StringComparison.OrdinalIgnoreCase))
+            {
+                return Json(
+                    $$$"""
+                    {"items":[{"items":[
+                      {"catalogEntry":{"version":"1.0.0","listed":true}},
+                      {"catalogEntry":{"version":"{{{listedVersion}}}","listed":true}}
+                    ]}]}
+                    """);
+            }
+            if (url.Equals(
+                $"https://api.nuget.org/v3-flatcontainer/{id}/{listedVersion}/{id}.{listedVersion}.nupkg",
+                StringComparison.OrdinalIgnoreCase))
+            {
+                return Task.FromResult(
+                    new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new ByteArrayContent(nupkg),
+                    });
+            }
+
+            return Task.FromResult(
+                new HttpResponseMessage(HttpStatusCode.NotFound));
+
+            static Task<HttpResponseMessage> Json(string body) =>
+                Task.FromResult(
+                    new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(body),
+                    });
         }
     }
 

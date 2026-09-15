@@ -117,15 +117,15 @@ public sealed record CompleteRestorationPlan
         CompleteRestorationRecipe recipe,
         IReadOnlyDictionary<
             string,
-            DefinitionMemberCoordinate.PackageCoordinate> packageCoordinates)
+            PackageNavigationSource> packageSources)
     {
         Intent = intent ?? throw new ArgumentNullException(nameof(intent));
         Request = request ?? throw new ArgumentNullException(nameof(request));
         WorkspacePlan = workspacePlan
             ?? throw new ArgumentNullException(nameof(workspacePlan));
         Recipe = recipe ?? throw new ArgumentNullException(nameof(recipe));
-        PackageCoordinates = packageCoordinates
-            ?? throw new ArgumentNullException(nameof(packageCoordinates));
+        PackageSources = packageSources
+            ?? throw new ArgumentNullException(nameof(packageSources));
     }
 
     public CompleteRestorationIntentIdentity Intent { get; }
@@ -138,7 +138,7 @@ public sealed record CompleteRestorationPlan
 
     internal IReadOnlyDictionary<
         string,
-        DefinitionMemberCoordinate.PackageCoordinate> PackageCoordinates
+        PackageNavigationSource> PackageSources
         { get; }
 }
 
@@ -454,7 +454,7 @@ public static class CompleteRestorationPreparation
         try
         {
             return FromPreparedScenario(
-                registry.PrepareScenario(definitions.Scenario.Id),
+                registry.PreparePacketScenario(definitions.Scenario.Id),
                 authority,
                 request,
                 CompleteRestorationLegacySource.PacketV1);
@@ -539,10 +539,10 @@ public static class CompleteRestorationPreparation
                         version2.Definitions.Workspace);
                 IReadOnlyDictionary<
                     string,
-                    DefinitionMemberCoordinate.PackageCoordinate>
+                    PackageNavigationSource>
                     committedPackages =
                         InspectionDefinitionRegistry
-                            .ResolvePackageNavigationCoordinates(
+                            .ResolvePackageNavigationSources(
                                 version2.Definitions.Workspace,
                                 version2.Definitions.Navigation);
                 return new CompleteRestorationPreparationResult.Ready(
@@ -604,7 +604,7 @@ public static class CompleteRestorationPreparation
                         new CompleteRestorationRecipe.LegacyDirectPackage(
                             source,
                             version1.Scenario),
-                        ResolvedPackageCoordinates(
+                        ResolvedPackageSources(
                             version1.Scenario.Navigation)));
             case InspectionDefinitionScenarioPreparationResult.Version1:
                 return FailedWorkspaceFree(authority.Identity, request);
@@ -743,15 +743,17 @@ public static class CompleteRestorationPreparation
 
     private static IReadOnlyDictionary<
         string,
-        DefinitionMemberCoordinate.PackageCoordinate>
-        ResolvedPackageCoordinates(ResolvedNavigation navigation) =>
+        PackageNavigationSource>
+        ResolvedPackageSources(ResolvedNavigation navigation) =>
         new ReadOnlyDictionary<
             string,
-            DefinitionMemberCoordinate.PackageCoordinate>(
+            PackageNavigationSource>(
                 navigation.Tabs
                     .Where(tab =>
                         tab.Coordinate
-                            is WorkspaceMemberCoordinate.PackageMember)
+                            is WorkspaceMemberCoordinate.PackageMember
+                        && tab.ContextIndex is not null
+                        && tab.MemberIndex is not null)
                     .ToDictionary(
                         static tab => tab.Id,
                         static tab =>
@@ -759,12 +761,15 @@ public static class CompleteRestorationPreparation
                             var package =
                                 (WorkspaceMemberCoordinate.PackageMember)
                                     tab.Coordinate;
-                            return new DefinitionMemberCoordinate
-                                .PackageCoordinate(
-                                    package.PackageId,
-                                    package.Version,
-                                    package.Framework,
-                                    package.RuntimeIdentifier);
+                            return new PackageNavigationSource(
+                                tab.ContextIndex!.Value,
+                                tab.MemberIndex!.Value,
+                                new DefinitionMemberCoordinate
+                                    .PackageCoordinate(
+                                        package.PackageId,
+                                        package.Version,
+                                        package.Framework,
+                                        package.RuntimeIdentifier));
                         },
                         StringComparer.Ordinal));
 

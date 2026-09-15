@@ -381,6 +381,50 @@ public sealed class CompleteRestorationPreparationTests
             failed.Failure);
     }
 
+    [Theory]
+    [InlineData(null, null, "net9.0", null)]
+    [InlineData("net9.0", null, "net9.0", "linux-x64")]
+    public void PacketV1ExplicitNullTarget_SelectsUnqualifiedSource(
+        string? selectedFramework,
+        string? selectedRuntimeIdentifier,
+        string? qualifiedFramework,
+        string? qualifiedRuntimeIdentifier)
+    {
+        var packet = new WorkspaceSharePacket(
+            [
+                new WorkspaceShareTab(
+                    WorkspaceShareSourceKind.Package,
+                    "system.text.json",
+                    "9.0.4",
+                    selectedFramework,
+                    selectedRuntimeIdentifier),
+                new WorkspaceShareTab(
+                    WorkspaceShareSourceKind.Package,
+                    "system.text.json",
+                    "9.0.4",
+                    qualifiedFramework,
+                    qualifiedRuntimeIdentifier),
+            ],
+            [
+                new WorkspaceShareContext([0]),
+                new WorkspaceShareContext([1]),
+            ],
+            activeTabIndex: 0,
+            selectedContextIndex: 0,
+            lens: "overview",
+            type: null,
+            memberAnchor: null,
+            memberSignature: null,
+            section: null,
+            libraries: []);
+        string encoded = WorkspaceSharePacketCodec.Encode(packet);
+
+        Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+            WorkspaceDefinitionConsumer.PrepareRestoration(
+                encoded,
+                new TestIntentAuthority()));
+    }
+
     [Fact]
     public void SupersededIntent_ReturnsNoConstructiblePlan()
     {

@@ -93,7 +93,9 @@ public sealed class InspectionDefinitionRegistry
                 $"Scenario '{scenarioId}' uses schema version 2 and requires portable selector resolution.");
         }
 
-        return ResolveVersion1Scenario(scenario);
+        return ResolveVersion1Scenario(
+            scenario,
+            NavigationTargetMatchMode.InheritOmitted);
     }
 
     /// <summary>
@@ -101,7 +103,20 @@ public sealed class InspectionDefinitionRegistry
     /// remains unresolved until the portable selector-resolution participant.
     /// </summary>
     public InspectionDefinitionScenarioPreparationResult PrepareScenario(
-        string scenarioId)
+        string scenarioId) =>
+        PrepareScenario(
+            scenarioId,
+            NavigationTargetMatchMode.InheritOmitted);
+
+    internal InspectionDefinitionScenarioPreparationResult
+        PreparePacketScenario(string scenarioId) =>
+        PrepareScenario(
+            scenarioId,
+            NavigationTargetMatchMode.Exact);
+
+    private InspectionDefinitionScenarioPreparationResult PrepareScenario(
+        string scenarioId,
+        NavigationTargetMatchMode targetMatchMode)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(scenarioId);
         if (!TryGet<ScenarioDefinition>(scenarioId, out var scenario))
@@ -122,21 +137,26 @@ public sealed class InspectionDefinitionRegistry
                 CreateCommittedScenario(records);
             ValidateNavigationSources(
                 records.Workspace as WorkspaceDefinition,
-                records.Navigation);
+                records.Navigation,
+                targetMatchMode);
             return new InspectionDefinitionScenarioPreparationResult.Version2(
                 committed);
         }
 
-        ResolvedScenario resolved = ResolveVersion1Scenario(scenario);
+        ResolvedScenario resolved = ResolveVersion1Scenario(
+            scenario,
+            targetMatchMode);
         ValidateNavigationSources(
             records.Workspace as WorkspaceDefinition,
-            records.Navigation);
+            records.Navigation,
+            targetMatchMode);
         return new InspectionDefinitionScenarioPreparationResult.Version1(
             resolved);
     }
 
     private ResolvedScenario ResolveVersion1Scenario(
-        ScenarioDefinition scenario)
+        ScenarioDefinition scenario,
+        NavigationTargetMatchMode targetMatchMode)
     {
         WorkspaceDefinition? workspace = null;
         WorkspacePlan? workspacePlan = null;
@@ -215,7 +235,10 @@ public sealed class InspectionDefinitionRegistry
                     $"Scenario '{scenario.Id}' references unknown navigation '{scenario.Navigation}'.");
             }
 
-            navigation = ResolveNavigation(navigationDefinition, workspace);
+            navigation = ResolveNavigation(
+                navigationDefinition,
+                workspace,
+                targetMatchMode);
         }
 
         // Cross-kind reference guard: a scenario field must not resolve to the wrong kind.
@@ -347,18 +370,21 @@ public sealed class InspectionDefinitionRegistry
 
     private static void ValidateNavigationSources(
         WorkspaceDefinition? workspace,
-        InspectionDefinitionRecord? navigation)
+        InspectionDefinitionRecord? navigation,
+        NavigationTargetMatchMode targetMatchMode)
     {
         if (workspace is null || navigation is null)
             return;
 
-        _ = ResolveNavigationSources(workspace, navigation);
+        _ = ResolveNavigationSources(
+            workspace,
+            navigation,
+            targetMatchMode);
     }
 
     internal static IReadOnlyDictionary<
         string,
-        DefinitionMemberCoordinate.PackageCoordinate>
-        ResolvePackageNavigationCoordinates(
+        PackageNavigationSource> ResolvePackageNavigationSources(
             WorkspaceDefinition workspace,
             InspectionDefinitionRecord? navigation)
     {
@@ -366,33 +392,41 @@ public sealed class InspectionDefinitionRegistry
         {
             return new ReadOnlyDictionary<
                 string,
-                DefinitionMemberCoordinate.PackageCoordinate>(
+                PackageNavigationSource>(
                     new Dictionary<
                         string,
-                        DefinitionMemberCoordinate.PackageCoordinate>());
+                        PackageNavigationSource>());
         }
 
         IReadOnlyDictionary<string, ResolvedNavigationSource> sources =
-            ResolveNavigationSources(workspace, navigation);
+            ResolveNavigationSources(
+                workspace,
+                navigation,
+                NavigationTargetMatchMode.InheritOmitted);
         return new ReadOnlyDictionary<
             string,
-            DefinitionMemberCoordinate.PackageCoordinate>(
+            PackageNavigationSource>(
                 sources
                     .Where(pair =>
                         pair.Value.EffectiveCoordinate
-                            is DefinitionMemberCoordinate.PackageCoordinate)
+                            is DefinitionMemberCoordinate.PackageCoordinate
+                        && pair.Value.MemberIndex is not null)
                     .ToDictionary(
                         static pair => pair.Key,
                         static pair =>
-                            (DefinitionMemberCoordinate.PackageCoordinate)
-                                pair.Value.EffectiveCoordinate!,
+                            new PackageNavigationSource(
+                                pair.Value.ContextIndex,
+                                pair.Value.MemberIndex!.Value,
+                                (DefinitionMemberCoordinate.PackageCoordinate)
+                                    pair.Value.EffectiveCoordinate!),
                         StringComparer.Ordinal));
     }
 
     private static IReadOnlyDictionary<string, ResolvedNavigationSource>
         ResolveNavigationSources(
             WorkspaceDefinition workspace,
-            InspectionDefinitionRecord navigation)
+            InspectionDefinitionRecord navigation,
+            NavigationTargetMatchMode targetMatchMode)
     {
         IReadOnlyList<NavigationTabDefinition> tabs = navigation switch
         {
@@ -401,11 +435,12 @@ public sealed class InspectionDefinitionRegistry
             _ => throw new InspectionDefinitionException(
                 $"Navigation '{navigation.Id}' has an incompatible record kind."),
         };
-        NavigationSourceIdentity[] workspaceSources =
+        NavigationSourceCandidate[] workspaceSources =
         [
             .. workspace.Contexts
                 .SelectMany(ContextSources)
-                .Distinct(),
+                .GroupBy(static source => source.Identity)
+                .Select(static group => group.First()),
         ];
         var resolved =
             new Dictionary<string, ResolvedNavigationSource>(
@@ -415,11 +450,14 @@ public sealed class InspectionDefinitionRegistry
         foreach (NavigationTabDefinition tab in tabs)
         {
             NavigationSourceSelector selector = NavigationSelector(tab);
-            NavigationSourceIdentity[] matches =
+            NavigationSourceCandidate[] matches =
             [
                 .. workspaceSources.Where(source =>
-                    source.Core == selector.Core
-                    && MatchesTarget(selector.Target, source.Target)),
+                    source.Identity.Core == selector.Core
+                    && MatchesTarget(
+                        selector.Target,
+                        source.Identity.Target,
+                        targetMatchMode)),
             ];
             if (matches.Length != 1)
             {
@@ -433,8 +471,8 @@ public sealed class InspectionDefinitionRegistry
                             + "targets.");
             }
 
-            NavigationSourceIdentity match = matches[0];
-            if (!matchedSources.Add(match))
+            NavigationSourceCandidate match = matches[0];
+            if (!matchedSources.Add(match.Identity))
             {
                 throw new InspectionDefinitionException(
                     $"Navigation tab '{tab.Id}' repeats a normalized source.");
@@ -442,36 +480,51 @@ public sealed class InspectionDefinitionRegistry
             resolved.Add(
                 tab.Id,
                 new ResolvedNavigationSource(
-                    ApplyEffectiveTarget(tab.Coordinate, match.Target),
-                    match.Target.Framework,
-                    match.Target.RuntimeIdentifier));
+                    match.EffectiveCoordinate,
+                    match.Identity.Target.Framework,
+                    match.Identity.Target.RuntimeIdentifier,
+                    match.ContextIndex,
+                    match.MemberIndex));
         }
 
         return new ReadOnlyDictionary<string, ResolvedNavigationSource>(
             resolved);
     }
 
-    private static IEnumerable<NavigationSourceIdentity> ContextSources(
-        WorkspaceContextDefinition context)
+    private static IEnumerable<NavigationSourceCandidate> ContextSources(
+        WorkspaceContextDefinition context,
+        int contextIndex)
     {
         NavigationTarget target = EffectiveContextTarget(context);
         if (context.Subscribe is not null)
         {
-            yield return new NavigationSourceIdentity(
-                new NavigationSourceCore(
-                    "group",
-                    NormalizeSubscription(context.Subscribe),
-                    null,
-                    null,
-                    null),
-                target);
+            yield return new NavigationSourceCandidate(
+                new NavigationSourceIdentity(
+                    new NavigationSourceCore(
+                        "group",
+                        NormalizeSubscription(context.Subscribe),
+                        null,
+                        null,
+                        null),
+                    target),
+                null,
+                contextIndex,
+                null);
         }
 
-        foreach (DefinitionMemberCoordinate member in context.Members)
+        for (int memberIndex = 0;
+            memberIndex < context.Members.Count;
+            memberIndex++)
         {
-            yield return new NavigationSourceIdentity(
-                SourceCore(member),
-                target);
+            DefinitionMemberCoordinate member =
+                context.Members[memberIndex];
+            yield return new NavigationSourceCandidate(
+                new NavigationSourceIdentity(
+                    SourceCore(member),
+                    target),
+                ApplyEffectiveTarget(member, target),
+                contextIndex,
+                memberIndex);
         }
     }
 
@@ -661,8 +714,11 @@ public sealed class InspectionDefinitionRegistry
 
     private static bool MatchesTarget(
         NavigationTarget selector,
-        NavigationTarget candidate) =>
-        (selector.Framework is null
+        NavigationTarget candidate,
+        NavigationTargetMatchMode targetMatchMode) =>
+        targetMatchMode is NavigationTargetMatchMode.Exact
+            ? selector == candidate
+            : (selector.Framework is null
             || string.Equals(
                 selector.Framework,
                 candidate.Framework,
@@ -953,14 +1009,18 @@ public sealed class InspectionDefinitionRegistry
 
     private static ResolvedNavigation ResolveNavigation(
         NavigationDefinition navigation,
-        WorkspaceDefinition? workspace)
+        WorkspaceDefinition? workspace,
+        NavigationTargetMatchMode targetMatchMode)
     {
         var tabs = new List<ResolvedNavigationTab>(navigation.Tabs.Count);
         var seenIds = new HashSet<string>(StringComparer.Ordinal);
         IReadOnlyDictionary<string, ResolvedNavigationSource>? sources =
             workspace is null
                 ? null
-                : ResolveNavigationSources(workspace, navigation);
+                : ResolveNavigationSources(
+                    workspace,
+                    navigation,
+                    targetMatchMode);
         foreach (var tab in navigation.Tabs)
         {
             if (!seenIds.Add(tab.Id))
@@ -982,7 +1042,9 @@ public sealed class InspectionDefinitionRegistry
                         ?? tab.Coordinate),
                 sources?[tab.Id].Framework ?? tab.Framework,
                 sources?[tab.Id].RuntimeIdentifier
-                    ?? tab.RuntimeIdentifier));
+                    ?? tab.RuntimeIdentifier,
+                sources?[tab.Id].ContextIndex,
+                sources?[tab.Id].MemberIndex));
         }
 
         var focusIndex = tabs.FindIndex(tab => tab.Id == navigation.Focus);
@@ -1018,11 +1080,30 @@ public sealed class InspectionDefinitionRegistry
         NavigationSourceCore Core,
         NavigationTarget Target);
 
+    private sealed record NavigationSourceCandidate(
+        NavigationSourceIdentity Identity,
+        DefinitionMemberCoordinate? EffectiveCoordinate,
+        int ContextIndex,
+        int? MemberIndex);
+
     private sealed record ResolvedNavigationSource(
         DefinitionMemberCoordinate? EffectiveCoordinate,
         string? Framework,
-        string? RuntimeIdentifier);
+        string? RuntimeIdentifier,
+        int ContextIndex,
+        int? MemberIndex);
 }
+
+internal enum NavigationTargetMatchMode
+{
+    InheritOmitted,
+    Exact,
+}
+
+internal sealed record PackageNavigationSource(
+    int ContextIndex,
+    int MemberIndex,
+    DefinitionMemberCoordinate.PackageCoordinate EffectiveCoordinate);
 
 internal sealed record ScenarioRecordComposition(
     ScenarioDefinition Scenario,
@@ -1232,12 +1313,16 @@ public sealed class ResolvedNavigationTab
         string id,
         WorkspaceMemberCoordinate coordinate,
         string? framework,
-        string? runtimeIdentifier)
+        string? runtimeIdentifier,
+        int? contextIndex,
+        int? memberIndex)
     {
         Id = id;
         Coordinate = coordinate;
         Framework = framework;
         RuntimeIdentifier = runtimeIdentifier;
+        ContextIndex = contextIndex;
+        MemberIndex = memberIndex;
     }
 
     public string Id { get; }
@@ -1247,6 +1332,10 @@ public sealed class ResolvedNavigationTab
     public string? Framework { get; }
 
     public string? RuntimeIdentifier { get; }
+
+    internal int? ContextIndex { get; }
+
+    internal int? MemberIndex { get; }
 }
 
 internal static class DefinitionCoordinateLowering
