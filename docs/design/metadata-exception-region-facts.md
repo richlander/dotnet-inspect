@@ -12,9 +12,10 @@ this evidence but do not redefine it.
 
 ## Status and decision
 
-This is a target design tracked by
-[#6965](https://github.com/richlander/dotnet-inspect/issues/6965). Product
-types, closed results, and gates are **unverified on `main`**.
+This contract is implemented by `MethodBodySource.Read`,
+`MethodBodyReadResult`, and `MethodExceptionRegionCatalog`, tracked as step 2
+of [#6965](https://github.com/richlander/dotnet-inspect/issues/6965).
+Instructions and peer-consumer adoption remain later focused steps.
 
 The owner is `ILInspector.Metadata`, alongside Metadata's
 `StateMachineRelationshipResult` and `MemorySafetyRulesResult`. Those APIs
@@ -39,10 +40,12 @@ Metadata already exposes three partial forms:
 - `PdbContext.ResolveExceptionContext` finds the clauses containing one IL
   offset from raw ranges.
 
-The target contract consolidates their physical evidence. Existing callers can
-adapt to it incrementally, but completed adoption retires independent clause
-numbering, range arithmetic, and success-shaped empty failure from those
-paths.
+`MethodBodySource.Read` now consolidates their physical evidence.
+`TryRead` remains a compatibility adapter over the closed result, and the two
+`PdbContext` projections now lower the owner-issued catalog instead of reading
+and interpreting clauses independently. Instructions' raw
+`MethodBodyData.ExceptionRegions` compatibility property remains until #6965
+step 3.
 
 ## Body evidence currency
 
@@ -111,18 +114,20 @@ section.
 
 ## Closed result
 
-One request returns exactly one result:
+One request returns exactly one `MethodBodyReadResult`:
 
 | Result | Meaning |
 | --- | --- |
-| `Available` | The copied body and complete clause catalog were materialized from one admitted body observation. The catalog may be empty. |
-| `NoBody` | The MethodDef definitively declares no managed IL body. |
-| `Unavailable` | The token, implementation kind, body header, clause table, requested catch-type resolution, or admitted work bound prevented a complete answer. |
+| `MethodBodyReadResult.Available` | The copied body and complete clause catalog were materialized from one admitted body observation. The catalog may be empty. |
+| `MethodBodyReadResult.NoBody` | The MethodDef definitively declares no managed IL body. |
+| `MethodBodyReadResult.Unavailable` | The token, implementation kind, body header, clause table, or admitted IL-byte bound prevented a complete answer. |
 
 `Unavailable` carries a typed reason and the method identity available at the
 failure point. Malformed body data, a non-IL implementation, an invalid token,
-and a budget refusal remain distinct. No result returns shortened IL or a
-partial clause catalog as `Available`.
+and an IL-byte-limit refusal remain distinct. Strict catch-type resolution uses
+`MetadataTypeNameResult`, so resolved, absent, and rejected name evidence remain
+distinct inside an otherwise complete physical clause. No result returns
+shortened IL or a partial clause catalog as `Available`.
 
 ## Consumer boundary
 
@@ -138,22 +143,24 @@ Consumers own their own recommendations, raises, diagnostics, and display
 selection. A catch clause is not evidence that a runtime exception is caught;
 a `finally` clause is not by itself an execution-path result.
 
-## Evidence plan
+## Evidence
 
-The contract remains unverified until a Metadata implementation slice supplies
-Release gates for:
+`MethodExceptionRegionFactsTests` provides Release gates for:
 
-- no body, known-empty, available non-empty, malformed, non-IL, and
-  work-refused outcomes;
-- catch, filter, `finally`, and `fault` clauses with exact ranges and order;
-- shared try extents without identity collapse;
-- detached use after reader disposal;
-- catch-type resolution and unavailable evidence; and
-- correspondence between the copied IL and clause catalog from one body read.
+- available known-empty, no-body, invalid-token, missing-row, malformed-body,
+  and IL-byte-limit outcomes;
+- owner-issued body and ordered clause identity that remains detached after
+  reader disposal;
+- catch, filter, `finally`, and a real platform `fault` clause;
+- clauses sharing one protected extent without identity collapse;
+- exact protected, filter, and handler ranges plus physical offset contexts;
+- half-open extent ends and malformed-clause whole-result refusal;
+- resolved, absent, and rejected detached catch-type name evidence; and
+- one copied IL body and raw/catalog clause correspondence.
 
-Existing `MethodBodySource`, `PdbContext`, and **Exception Regions** behavior
-provide compatibility cases, not independent oracles for the new closed
-result.
+`PdbContext_ProjectsOwnerIssuedCatalogAndOffsetContext` gates migration of the
+legacy Metadata projection. Existing CLI **Exception Regions** tests gate the
+unchanged product shape.
 
 ## Non-claims
 
