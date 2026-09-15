@@ -170,9 +170,9 @@ The standing adjustments and their exact evidence requirements live in
 
 ## Task-specific guidance
 
-Read the relevant entry before working in that area. This table covers the
-highest-value entry points; the full index — every design doc, contributor
-workflow doc, and PR template — lives in [`docs/README.md`](docs/README.md).
+Documentation entry points have distinct roles: root `README.md` owns the product overview and primary workflows; `docs/README.md` curated navigation; `docs/overview.md` subsystem topology; and `docs/architecture.md` current code composition.
+Update one only when its owned claim changes; adding or editing a focused document does not require parallel entrypoint updates.
+Read the relevant entry below; [`docs/README.md`](docs/README.md) owns the detailed boundary and curated routes.
 
 | Area | Read first |
 | --- | --- |

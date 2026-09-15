@@ -16,10 +16,9 @@ rules. Read this before any edit to AGENTS.md, not just during a cleanup pass.
   cap, remove or move at least as many lines as you add before finishing the
   edit. Do not land growth and plan to trim later.
 - **No large table of contents.** The "Task-specific guidance" pointer table
-  stays at 12 rows or fewer, holding only the highest-value entries. Everything
-  else is reachable through `docs/README.md`, which is the general table of
-  contents for both `docs/` and `docs/design/`. Do not grow a second TOC inside
-  AGENTS.md.
+  stays at 12 rows or fewer, holding only the highest-value entries.
+  `docs/README.md` curates broader routes but does not catalog every focused
+  document. Do not grow a second TOC inside AGENTS.md.
 
 ## What belongs in AGENTS.md vs. a doc
 
@@ -76,11 +75,11 @@ move instead.
 
 - Keep the "Task-specific guidance" table at 12 rows or fewer. Choose entries
   by how often an agent needs them, not by comprehensiveness.
-- When a new entry would push the table past 12, either swap out a
-  lower-value existing row or route the new pointer through `docs/README.md`
-  instead.
-- Keep `docs/README.md` current when moving content out of AGENTS.md, so the
-  general reader doesn't lose the pointer.
+- When a new entry would push the table past 12, swap out a lower-value row.
+  Add a `docs/README.md` route only when the destination is itself a
+  high-value entrypoint; otherwise rely on focused owner and consumer links.
+- Update `docs/README.md` only when one of its curated routes or entrypoint
+  roles changes.
 
 ## Validation
 
