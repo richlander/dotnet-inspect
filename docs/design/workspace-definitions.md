@@ -642,7 +642,8 @@ The optional `context` object is a separate closed tagged union:
 | `member` | `library`, `type`, exactly one of `memberAnchor` or `memberSignature` | the other member selector | Package, Library, Type, and exact Member |
 
 The active subject and retained context are independent. When the active
-subject is Workspace, any valid retained context may be present. When the
+subject is Workspace, any valid descendant retained context may be present;
+Package-only retained context uses the canonical omission below. When the
 active subject is Package, retained context is required and the subject is the
 Package node in that path. When the active subject is absent, retained context
 may contain only the Package node. Type-inventory Library context is not a
@@ -655,15 +656,17 @@ the old coordinate Root abstraction, while Workspace is an independently
 selectable subject above it.
 
 An omitted `context` on a direct Package-coordinate state denotes Package-only
-context for an absent-subject recommendation or Workspace subject. A Package
-subject requires explicit `{"kind":"package"}` context. The null Workspace
-state and every non-Package coordinate state forbid `context`. Workspace may be
-requested with any Package-only or lower retained context. This directly
-preserves Navigation's distinction between active subject and retained context:
-two Workspace-selected states for the same occurrence but different retained
-Types are distinct committed states. An absent subject with lower retained
-context is invalid because recommendation would have ambiguous starting
-context. Portable selector resolution must materialize the exact
+context for an absent-subject recommendation or Workspace subject. Those two
+subject forms reject explicit `{"kind":"package"}` as a non-canonical alias.
+A Package subject requires present context, which may be Package-only or any
+valid descendant path. The null Workspace state and every non-Package
+coordinate state forbid `context`. Workspace may be requested with omitted
+Package-only context or explicit lower retained context. This directly
+preserves Navigation's distinction between active subject and retained
+context: two Workspace-selected states for the same occurrence but different
+retained Types are distinct committed states. An absent subject with lower
+retained context is invalid because recommendation would have ambiguous
+starting context. Portable selector resolution must materialize the exact
 `NavigationRetainedSubjectContext` containing the row's Package subject when
 the portable field is omitted; it must not pass null context to Navigation.
 
@@ -1550,7 +1553,8 @@ remains the independently selected binding context.
   `l`, optional `y`, then exactly one optional `m` or `s`. `k` is
   `package`, `all-libraries`, `library`, `type`, or `member`; the remaining
   fields project the corresponding long-form `context` selector. `package`
-  carries no remaining field and projects exact `{"kind":"package"}` context.
+  carries no remaining field and projects exact `{"kind":"package"}` context;
+  it is valid only with a Package subject.
   `l` is the compact `PortableLibraryIdentity` tuple
   `[name,version,culture,publicKeyToken]`; it has exactly four slots with the
   same scalar grammar as the long form. `y` is the exact
@@ -1559,9 +1563,10 @@ remains the independently selected binding context.
   exactly one Type in the resolved `l` Library whose structured name emits that
   exact ordinal spelling; it does not split delimiters or reconstruct
   segments. Absence on a direct Package-tuple entry denotes Package-only
-  retained context only for an absent or Workspace subject. A Package subject
-  requires explicit `r:{"k":"package"}`. A group-tuple entry has no
-  retained-context semantics.
+  retained context only for an absent or Workspace subject; those subject forms
+  reject explicit `r:{"k":"package"}` as non-canonical. A Package subject
+  requires present `r`, whose kind may be `package` or any compatible
+  descendant. A group-tuple entry has no retained-context semantics.
 - `u` is the structural subject request. Its only property is `k`, whose value
   is `workspace` or `package`. The leading null-coordinate entry requires
   `workspace`. A coordinate entry applies the same subject/context
@@ -2053,9 +2058,12 @@ Implementation must add, at minimum:
   depth/value budgets, and cancellation remain open. Version-2 implementation
   must add round-trip, closed-shape, and resolved-`NavigationInitialization`
   cases for the null-coordinate Workspace arm, every direct Package subject
-  arm, absent-subject Package recommendation, and dormant non-Package arm,
-  plus exact facet state, query references, multi-Library scope, one state per
-  navigation entry, same-version peer composition, rejection of
+  arm with Package-only, Type, and Member context, absent-subject Package
+  recommendation, and dormant non-Package arm. It must prove Package-only
+  context is omitted for absent and Workspace subjects, explicit for a Package
+  subject, and rejected in every alternate spelling, plus exact facet state,
+  query references, multi-Library scope, one state per navigation entry,
+  same-version peer composition, rejection of
   workspace-backed v2 scenarios missing either or both view/navigation
   references, preservation of workspace-free v2 scenarios with neither, and
   rejection of every mixed-version graph;
@@ -2177,10 +2185,11 @@ Implementation must add, at minimum:
   `PortableLibraryIdentity` equality and canonical ordering, structured
   `MetadataTypeDefinitionName` equality, exact compact
   `ToEscapedFullName()` matching, nesting-versus-literal-delimiter collision
-  vectors, required null-coordinate Workspace state, nullable `a`, explicit
-  `r.k = package` round-trip for a Package subject, rejection of omitted `r`
-  with that subject, retained selector/subject compatibility,
-  direct-Package-only non-null focus,
+  vectors, required null-coordinate Workspace state, nullable `a`, Package
+  subject round-trip with `r.k` equal to `package`, `type`, and `member`,
+  rejection of omitted `r` with that subject, rejection of explicit
+  `r.k = package` with absent or Workspace subject, retained
+  selector/subject compatibility, direct-Package-only non-null focus,
   null-Workspace rejection of `l` and Library-scope-requiring queries,
   undecorated dormant group rows, every outer and per-query bound, and
   cancellation before each query bind;
