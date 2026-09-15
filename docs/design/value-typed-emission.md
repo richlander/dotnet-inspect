@@ -589,7 +589,15 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    producer already has the testified type. This does not expand the coercion
    domain or infer reference conversions: an object-typed null cannot testify
    to string storage, and a string-typed producer cannot testify to object
-   storage. Other non-exact producers and other reference types remain
+   storage. Exact single-dimensional, zero-based arrays of core-library
+   `System.Byte` or `System.String` use the same admission: the array itself,
+   not merely its element representation, must already have the testified
+   type. Signed-byte, other-element, rectangular, and jagged arrays remain
+   deferred. Existing explicit casts are preserved; array conversions are not
+   inferred. In particular, covariance does not make `string[]` and `object[]`
+   the same storage type. A covariant consumer may receive an explicitly
+   string-array-typed load without widening its storage identity.
+   Other non-exact producers and reference types remain
    deferred. Every observer still supplies
    testimony, and the existing structural-fold, nested-scope, and atomic-copy
    boundaries remain in force. No value or control-flow edge moves.
@@ -634,6 +642,32 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    the real Roslyn witness in the repository compiler dependency.
    `CompilerProducedObjectFixturesRecompileExactly` gates retained call results,
    retained boxing, and object swaps with independent compile-back.
+
+   Byte-array witnesses include Newtonsoft.Json 13.0.4
+   `JsonValidatingReader.ReadAsBytes` and `TraceJsonReader.ReadAsBytes`, plus
+   Microsoft.CodeAnalysis 5.0.0 `LittleEndianReader.ReadReversed` and
+   `CryptoBlobParser.ReadReversed`.
+   `ByteArraySlotMaterializationTests` gates exact array identity, preserved
+   allocation/initializer/cast nodes, sink-derived testimony, nominal element
+   identity and rank, competing producers and observers, atomic copies, and
+   pending swaps. Its compiler-produced fixtures retain reads and allocations
+   across state changes and preserve initialized/aliased arrays;
+   `CompilerProducedByteArrayFixturesRecompileExactly` checks those cases and
+   array swaps with independent compile-back. Materialization does not change
+   allocation timing, element writes, or the identity shared by array aliases.
+
+   String-array witnesses include Newtonsoft.Json 13.0.4
+   `JsonSchemaBuilder.ResolveReferences` and
+   `BinaryConverter.EnsureReflectionObject`, and Microsoft.CodeAnalysis 5.0.0
+   `PathUtilities.ExpandAbsolutePathWithRelativeParts`.
+   `StringArraySlotMaterializationTests` gates exact producers, preserved
+   allocation/initializer/cast nodes, nominal element identity and rank,
+   unanimous observers, covariant sinks versus non-exact producers, atomic
+   copies, pending swaps, and the corresponding real Roslyn method.
+   `CompilerProducedStringArrayFixturesRecompileExactly` checks retained reads,
+   allocations, initializers, mutation through a covariant alias, covariant
+   returns, and swaps. Array aliases and runtime element-store checks remain
+   unchanged; storage materialization neither moves writes nor narrows values.
 
    `MaterializesSingleStoreConditionalWithSingleRead` and
    `MaterializesBooleanIdentityWhenConditionalFeedsBooleanLocal` gate

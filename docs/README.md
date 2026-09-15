@@ -42,6 +42,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Inspection Plan Projections](design/inspection-plan-projections.md) | Shared resolved inspection basis with distinct typed plans for section execution, effective-section discovery, and portable sharing. |
 | [Inspection Operation Composition](design/inspection-operation-composition.md) | Cross-host sequencing of semantic intent, House and Workspace resolution, terminal purpose, query/section/row/work plans, typed results, and host-specific projection. |
 | [Inspection Envelope](design/inspection-envelope.md) | Shared terminal wrapper that preserves owner-issued primary content while carrying typed cross-host diagnostics and supporting broader host composition. |
+| [Host-observable Content Kinds](design/host-observable-content-kinds.md) | Result, Document, and owner-specific Outcome semantics for serialized content carried by completed inspection envelopes. |
 | [Decompiler Architecture](decompiler-architecture.md) | Decompiler project boundaries, import/IR/pass/printer flow, host consumers, and testing/evidence infrastructure. |
 | [CLI Change Classification and Obsolete Inputs](design/cli-change-classification.md) | Published CLI surfaces, observable change classification, disclosure, invalid-input guards, and routing reservations. |
 | [CLI Option-Value Validation](design/cli-option-value-validation.md) | Shared zero-arity diagnostics that preserve positional ownership and command-owned capacity. |
@@ -92,6 +93,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Semantic Row Selection](design/semantic-row-selection.md) | Typed ordered Head, Tail, Window, and Top stages over complete logical sequences. |
 | [CLI Row-Selection Grammar](design/cli-row-selection.md) | L3 item, Window, Top, direction, line-unit, shorthand, capability, and lowering rules for command-by-command adoption. |
 | [CLI Execution Bounds](design/cli-execution-bounds.md) | L3 classification, vocabulary, validation, and typed lowering for explicit owner-dimensioned limits on upstream work, separate from semantic row selection. |
+| [Portable Query Intent](design/portable-query-intent.md) | The intent model: vocabulary, key/operator/value terms, typed bounds, ordered stages, unresolved order references, atomic resolution that starts no work, and visible replay refusal. |
 | [Source Delegation](design/source-delegation.md) | Delegated source execution: the effect protocol, closed result algebra, completion-evidence bases, and equivalence gates for row handoff and exact upstream Count. |
 | [Package Input and Dependency Evidence](design/package-dependency-evidence.md) | Common declarations and produced relationships across project, package, assets, and runtime inputs, preserving authorship, requested/resolved evidence, processing observations, equivalence, completion, and `InertString` containment. |
 | [Package Dependency Candidate Resolution](design/package-dependency-candidate-resolution.md) | Host-neutral composition from one normalized declaration to an exact source-authorized package candidate, typed failure, or incomplete source evidence. |
@@ -127,6 +129,9 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Comparison Document](design/comparison-document.md) | Portable root and subject composition for shared CLI/browser diffs and clone payloads, including referenced rename/move descriptions. |
 | [Clone Candidates Presentation](design/clone-candidate-presentation.md) | Portable globally ranked Workspace clone-search candidates, exact endpoint addresses, coverage, failures, suppression, and receipts. |
 | [Library API Diff Presentation](design/library-api-diff-presentation.md) | Portable Library-root changed-Type composition with complete compatibility changes and distinct changed-member summaries. |
+| [Population Range Selection](design/population-range-selection.md) | Proposed explicit consumers for population-creating ranges, filtering without an extra consumer, and Count as a population reduction. |
+| [Subject-owned Diff](design/command-transition-model.md#subject-owned-diff) | Proposed Library/Type/Member Diff placement, Package version counts, complete envelopes in both hosts, public CLI envelope output, and root-command retirement. |
+| [Diff History Inspection](design/diff-history.md) | Proposed temporal Outcome/Document and scalar version-count Result semantics consumed through shared envelopes by both hosts. |
 | [Inspect Web Compare Experience](design/inspect-web-compare-experience.md) | Browser Diff/Clone mode and exact Library-to-Type-to-Member drill-down, with whole-Type Diff and Member detail/Explore boundaries. |
 | [Inspect Web Library API Diff](design/inspect-web-library-api-diff.md) | Gallery Library Diff target resolution, request-associated operation, bounded wire inventory, and flat changed-Type presentation. |
 | [Performance Analysis Baselines](analysis-baselines.md) | Internal baselines of what each analysis type finds over a fixed corpus, with effectiveness ratings for the one-stop-shop Performance Analysis view. |
@@ -177,6 +182,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Package Query Assembly-Pattern Evaluation](design/package-query-assembly-evaluation.md) | Implemented bounded one-candidate primary-assembly selection, semantic confirmation, resource-free evidence, and candidate-scoped release. |
 | [Find Assembly-Semantic Query](design/find-assembly-semantic-query.md) | Target host-neutral composition of a finite source-authorized exact-package population into ordered body-occurrence matches, per-candidate outcomes, and completion for CLI and Browser/Wasm consumers. |
 | [Ecosystem Change Report](design/ecosystem-change-report.md) | Proposed shared query contract for a bounded six-week package-activity report, evidence-qualified security overlay, selection, and honest source/evaluation coverage across CLI and browser. |
+| [Inspect Web Public-Evidence Bridge](design/inspect-web-public-evidence-bridge.md) | Fixed-provider Browser rewrites and bounded same-origin managed-API acquisition for public JSON providers that do not permit browser CORS. |
 | [Find Type-Search Service](design/find-search-service.md) | CLI-scoped candidate collection and exact, glob, namespace-prefix, partial, and miss classification into typed results. |
 | [Skill Guidance Taste](../taste/skill-guidance.md) | Good and bad examples for maintaining the embedded skill. |
 | [Inspection Layers](design/inspection-layers.md) | Layering and consumer-boundary rules between Metadata, Analysis, CSharpText, CSharp, Research, and the CLI. |

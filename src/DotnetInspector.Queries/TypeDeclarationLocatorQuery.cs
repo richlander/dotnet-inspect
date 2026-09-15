@@ -29,6 +29,15 @@ public static class TypeDeclarationLocatorQuery
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(population);
+        return Execute(population, requests, includeAll, maxInventoryReads,
+            population.ReadDeclarations, cancellationToken);
+    }
+
+    internal static TypeDeclarationLocatorResult.Rejected? ValidateRequests(
+        ImmutableArray<TypeDeclarationLocatorRequest> requests,
+        int? maxInventoryReads,
+        CancellationToken cancellationToken)
+    {
         cancellationToken.ThrowIfCancellationRequested();
         if (requests.IsDefaultOrEmpty)
             return new TypeDeclarationLocatorResult.Rejected(TypeDeclarationLocatorRejectionKind.EmptyRequests);
@@ -51,6 +60,19 @@ public static class TypeDeclarationLocatorQuery
             return new TypeDeclarationLocatorResult.Rejected(
                 TypeDeclarationLocatorRejectionKind.InvalidInventoryReadLimit);
         }
+        return null;
+    }
+
+    internal static TypeDeclarationLocatorResult Execute(
+        WorkspaceDeclarationPopulation population,
+        ImmutableArray<TypeDeclarationLocatorRequest> requests,
+        bool includeAll,
+        int? maxInventoryReads,
+        Func<WorkspaceDeclarationOccurrence, CancellationToken, WorkspaceDeclarationInventoryOutcome> readInventory,
+        CancellationToken cancellationToken)
+    {
+        if (ValidateRequests(requests, maxInventoryReads, cancellationToken) is { } rejectedRequest)
+            return rejectedRequest;
         if (population.Availability() is { } unavailable)
         {
             return new TypeDeclarationLocatorResult.Rejected(
@@ -78,7 +100,7 @@ public static class TypeDeclarationLocatorQuery
 
             reads++;
             WorkspaceDeclarationInventoryOutcome access =
-                population.ReadDeclarations(member.Occurrence, cancellationToken);
+                readInventory(member.Occurrence, cancellationToken);
             switch (access)
             {
                 case WorkspaceDeclarationInventoryOutcome.Inspected
@@ -118,6 +140,9 @@ public static class TypeDeclarationLocatorQuery
                     break;
                 case WorkspaceDeclarationInventoryOutcome.Unavailable rejected:
                     outcomes.Add(new TypeDeclarationLocatorMemberOutcome.Unavailable(member, rejected.Failure));
+                    break;
+                case WorkspaceDeclarationInventoryOutcome.NotEvaluated stopped:
+                    outcomes.Add(new TypeDeclarationLocatorMemberOutcome.NotEvaluated(member, stopped.Bound));
                     break;
                 default:
                     throw new InspectionQueryException("Unknown declaration inventory outcome.");

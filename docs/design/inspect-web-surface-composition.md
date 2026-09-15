@@ -805,6 +805,10 @@ loading. No cache-residency preflight is required to choose this presentation.
 Acquisition and partial-package notices otherwise retain their host
 presentation; this introduces no independent Overview query or acquisition
 state machine.
+Package inspector and interim Library-selection preference retention follow the
+current
+[Navigation Browser migration behavior](inspection-subject-navigation.md#status);
+this surface does not define cross-coordinate subject correspondence.
 Empty inventories retain their zero totals and any available package documents.
 Admitted libraries with no public types retain their named Library Overview.
 

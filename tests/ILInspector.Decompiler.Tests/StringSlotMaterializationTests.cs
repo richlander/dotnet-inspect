@@ -107,13 +107,13 @@ public class StringSlotMaterializationTests
     }
 
     [Theory]
-    [InlineData("array")]
+    [InlineData("object-array")]
     [InlineData("foreign-string")]
     public void OtherExactReferenceTypesRemainDeferred(string kind)
     {
         var type = kind switch
         {
-            "array" => TypeRef.SzArray(StringType),
+            "object-array" => TypeRef.SzArray(Object),
             "foreign-string" => TypeRef.Definition("Other", "System", "String"),
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };

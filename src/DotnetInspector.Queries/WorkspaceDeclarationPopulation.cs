@@ -181,6 +181,18 @@ public abstract class WorkspaceDeclarationInventoryOutcome
         internal Unavailable(WorkspaceDeclarationPopulationFailure failure) => Failure = failure;
         public WorkspaceDeclarationPopulationFailure Failure { get; }
     }
+
+    public sealed class NotEvaluated : WorkspaceDeclarationInventoryOutcome
+    {
+        internal NotEvaluated(WorkspaceDeclarationInventoryBound bound) => Bound = bound;
+        public WorkspaceDeclarationInventoryBound Bound { get; }
+    }
+}
+
+public enum WorkspaceDeclarationInventoryBound
+{
+    ReadAttempts,
+    RetainedInventories,
 }
 
 /// <summary>

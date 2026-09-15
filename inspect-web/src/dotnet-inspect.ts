@@ -62,6 +62,7 @@ import {
   workspaceCoordinatesMatch
 } from "./data.ts";
 import type { EngineClient } from "./engine-client.ts";
+import { retainDiagnosticDetail } from "./failure-detail.ts";
 import {
   createPublishedRuntimeBenchmarkBridge,
   installPublishedRuntimeBenchmarkBridge,
@@ -4931,8 +4932,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     focusLevelOneHeading();
   } else if (isIntegrationMode(integrationTabFocus)) {
     restoreIntegrationTabFocus(document, integrationTabFocus);
-  } else if (packageRetryHadFocus
-    || (packageControlHadFocus && (packageLoadingHadFocus || loadingPackageContent))) {
+  } else if (packageRetryHadFocus || packageControlHadFocus) {
     document.querySelector<HTMLElement>(
       loadingPackageContent ? "#package-content-loading" : `#${packageLoadingControl}`)
       ?.focus({ preventScroll: true });
@@ -8912,6 +8912,20 @@ function updateVersionSelect(pkg: CatalogPackage) {
   updatePackageComparisonControls();
 }
 
+function capturePackageCoordinateView(): Pick<
+  LoadPackageOptions, "packageLens" | "librarySelection"
+> {
+  return {
+    packageLens: state.atPackageRoot ? state.packageLens : "overview",
+    ...(state.atLibraryRoot ? {
+      librarySelection: {
+        selector: selectedLibraryName(),
+        lens: state.libraryLens,
+      },
+    } : {}),
+  };
+}
+
 // Switch the current package to a different published version. Replaces the current tab in
 // place (drops the previous version's entry) so the selector mutates this package rather than
 // spawning a second tab, mirroring a browser's version picker.
@@ -8924,6 +8938,7 @@ async function switchPackageVersion(newVersion: string) {
   const framework = pkg.activeFramework;
   await loadPackage(id, newVersion, framework, {
     replacePackage: pkg,
+    ...capturePackageCoordinateView(),
     invalidateWorkspaceShareBasis: true,
     loadingPresentation: "content",
   });
@@ -8940,6 +8955,7 @@ async function switchPackageFramework(newFramework: string) {
     newFramework,
     {
       replacePackage: pkg,
+      ...capturePackageCoordinateView(),
       invalidateWorkspaceShareBasis: true,
       loadingPresentation: "content",
     });
@@ -14157,11 +14173,14 @@ interface LoadPackageOptions {
   navigationSeq?: number;
   queryNotice?: string;
   replacePackage?: AppPackage | null;
+  packageLens?: PackageLens;
+  librarySelection?: { selector: string; lens: LibraryLens };
   location?: ParsedLocation;
   retryAction?: RetryAction;
   invalidateWorkspaceShareBasis?: boolean;
   deferWorkspacePublication?: boolean;
   failureHandler?: (message: string) => void;
+  retainFailureDetail?: boolean;
 }
 
 async function loadPackage(
@@ -14193,6 +14212,7 @@ async function loadPackage(
         : null;
     state.loading = true;
     state.error = "";
+    if (!options.retainFailureDetail) state.errorDetail = "";
     state.retryAction = null;
     state.home = false;
     state.queryNotice = options.queryNotice || "";
@@ -14242,7 +14262,22 @@ async function loadPackage(
     } else {
       state.atPackageRoot = true;
       state.atLibraryRoot = false;
-      state.packageLens = "overview";
+      state.packageLens = options.packageLens ?? "overview";
+      if (options.librarySelection) {
+        const { selector, lens } = options.librarySelection;
+        const library = resolvePackageLibrary(packageModel.assemblies, selector);
+        if (library) {
+          state.libraryScope = new Set([library.id]);
+          state.atPackageRoot = false;
+          state.atLibraryRoot = true;
+          state.libraryLens = lens;
+        } else {
+          appendQueryNotice(
+            `The library '${selector}' is not uniquely available in `
+            + `${packageModel.id}@${packageModel.version} (${packageModel.activeFramework}). `
+            + "Showing Package Overview.");
+        }
+      }
     }
     if (deep) {
       applyDeepLink(deep);
@@ -14266,6 +14301,7 @@ async function loadPackage(
   } catch (error) {
     if (navigationSeq != null && !navigationSequence.isCurrent(navigationSeq))
       return null;
+    state.errorDetail = retainDiagnosticDetail(state.errorDetail, error);
     const friendly = friendlyLoadError(error, packageId, version);
     if (background) {
       const failure =
@@ -14279,6 +14315,7 @@ async function loadPackage(
     packageContentLoadingSequence = null;
     const retryOptions: LoadPackageOptions = { ...options };
     delete retryOptions.navigationSeq;
+    delete retryOptions.retainFailureDetail;
     if (options.failureHandler) {
       options.failureHandler(friendly.message);
       return null;
@@ -14307,11 +14344,6 @@ async function loadPackage(
         ? `${state.queryNotice} ${friendly.message}`
         : friendly.message;
       state.errorTitle = friendly.title;
-      state.errorDetail = error instanceof Error
-        ? error.stack?.includes(error.message)
-          ? error.stack
-          : `${error.message}\n${error.stack ?? ""}`.trim()
-        : String(error);
       state.retryAction = () => loadPackage(
         packageId,
         version,
@@ -14946,6 +14978,7 @@ async function restoreWorkspaceFromLocation(
   applyLocationView(loc);
   state.loading = true;
   state.error = "";
+  state.errorDetail = "";
   state.retryAction = null;
   resetLocationFilters();
   clearWorkspacePackages();
@@ -15173,6 +15206,7 @@ async function restoreWorkspaceFromLocation(
         navigationSeq,
         queryNotice: state.queryNotice,
         deferWorkspacePublication: failureHandler !== null,
+        retainFailureDetail: true,
       });
     if (loaded && focusResult && navigationSequence.isCurrent(navigationSeq)) {
         if (failureHandler) {
