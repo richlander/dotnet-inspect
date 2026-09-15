@@ -80,9 +80,7 @@ public static class PackageCommandDefinitions
         var frontmatterOption = new Option<bool>("--frontmatter") { Description = "When printing markdown content, output only the leading YAML frontmatter block" };
         frontmatterOption.Aliases.Add("--yaml-header");
         var bodyOption = new Option<bool>("--body") { Description = "When printing markdown content, output only content after YAML frontmatter" };
-        var outOption = new Option<string?>("--out") { Description = "Write output to file instead of stdout" };
-        outOption.Aliases.Add("--output");
-        outOption.Aliases.Add("-o");
+        var outOption = SharedOptions.CreateOutputPathOption();
         var tfmOption = new Option<string?>("--tfm") { Description = "Select library by TFM (e.g., net8.0)" };
         var typeFilterOption = new Option<string?>("-t") { Description = "Filter SourceLink: Files rows by type glob/name (e.g., *Json*)" };
         typeFilterOption.Aliases.Add("--type");
@@ -116,6 +114,7 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(opts.BrowsableUrls);
         packageCommand.Options.Add(opts.Bare);
         packageCommand.Options.Add(outOption);
+        SharedOptions.AddOutputPathValidator(packageCommand, outOption);
         opts.AddTableOptionsTo(packageCommand);
         packageCommand.Options.Add(opts.Json);
         packageCommand.Options.Add(opts.Markdown);
@@ -176,6 +175,11 @@ public static class PackageCommandDefinitions
             packageNameArg,
             prereleaseOption);
         packageCommand.Subcommands.Add(queryCommand);
+        packageCommand.Subcommands.Add(
+            PackageChangesCommandDefinitions.CreatePackageChangesCommand(
+                opts,
+                packageCommand,
+                packageNameArg));
 
         var commandArgs = new PackageOptionsParser.PackageCommandArgs(
             packageNameArg, dependenciesOption, layoutOption, pathOption, tfmsOption,
@@ -397,6 +401,7 @@ public static class PackageCommandDefinitions
                     Tabular = opts.ResolveTabular(parseResult),
                     Tsv = opts.ResolveTsv(parseResult),
                     Jsonl = opts.ResolveJsonl(parseResult),
+                    NoHeader = parseResult.GetValue(opts.NoHeaders),
                     Columns = opts.ParseColumns(parseResult),
                     Fields = opts.ParseFields(parseResult),
                     RowSelection = rowSelection,

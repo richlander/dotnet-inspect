@@ -22,6 +22,9 @@ internal enum CorpusFidelityOracle
     [JsonStringEnumMemberName("compile-back")]
     CompileBack,
 
+    [JsonStringEnumMemberName("rts-native")]
+    ReturnToSenderNative,
+
     [JsonStringEnumMemberName("rts-parity")]
     ReturnToSender,
 
@@ -45,6 +48,8 @@ internal static class CorpusSensor
 {
     internal const int CurrentSchemaVersion = 7;
     internal const int CurrentFidelityContractVersion = FidelityCheck.CurrentContractVersion;
+    internal const CorpusFidelityOracle DefaultFidelityOracle =
+        CorpusFidelityOracle.ReturnToSenderNative;
     const string ConditionalBranchBucket = "structuring: conditional-branch";
     const int RiskyValidityCoverageFloorBasisPoints = 100; // 1.00%
     const int RiskyFidelityCoverageFloorBasisPoints = 10;  // 0.10%
@@ -93,7 +98,7 @@ internal static class CorpusSensor
         int methodCap = int.MaxValue,
         int? workers = null,
         bool sequential = false,
-        CorpusFidelityOracle fidelityOracle = CorpusFidelityOracle.CompileBack,
+        CorpusFidelityOracle fidelityOracle = DefaultFidelityOracle,
         CorpusProfile profile = CorpusProfile.RealWorld,
         string? rtsParityKnownGaps = null,
         string? emitRtsParityKnownGaps = null)
@@ -126,12 +131,12 @@ internal static class CorpusSensor
             return 1;
         }
 
-        var cutoverCapError = ValidateReturnToSenderCutoverCaps(
+        var independentRtsCapError = ValidateIndependentReturnToSenderCaps(
             fidelityOracle,
             fidelityCompileCaps);
-        if (cutoverCapError is not null)
+        if (independentRtsCapError is not null)
         {
-            Console.Error.WriteLine(cutoverCapError);
+            Console.Error.WriteLine(independentRtsCapError);
             return 1;
         }
 
@@ -298,7 +303,7 @@ internal static class CorpusSensor
 
     static CorpusRunIdentity? CaptureRunIdentity(CorpusFidelityOracle fidelityOracle)
     {
-        if (fidelityOracle != CorpusFidelityOracle.ReturnToSenderCutover)
+        if (!IsIndependentReturnToSenderOracle(fidelityOracle))
             return null;
 
         var buildMetadata = typeof(CorpusSensor).Assembly
@@ -1059,19 +1064,24 @@ internal static class CorpusSensor
         var reports = ImmutableArray.CreateBuilder<FidelityCapReport>();
         foreach (var cap in caps.Where(cap => cap > 0).Distinct().OrderBy(cap => cap))
         {
-            var cutoverEvaluations = fidelityOracle == CorpusFidelityOracle.ReturnToSenderCutover
+            var independentRtsEvaluations = IsIndependentReturnToSenderOracle(fidelityOracle)
                 ? await SelectThenEvaluateNativeFirstAsync(
                     assemblies,
-                    assembly => new ReturnToSenderCutoverTargetSet(
+                    assembly => new IndependentReturnToSenderTargetSet(
                         assembly,
-                        DeterministicReturnToSenderCutoverTargets(methods.Values, assembly, cap)),
-                    targetSet => EvaluateReturnToSenderCutoverTargets(
+                        DeterministicIndependentReturnToSenderTargets(methods.Values, assembly, cap)),
+                    targetSet => EvaluateIndependentReturnToSenderTargets(
                         targetSet.AssemblyPath,
                         targetSet.Targets,
-                        "return-to-sender-cutover; compile-back-floor=false"),
-                    CompleteReturnToSenderCutover)
+                        fidelityOracle == CorpusFidelityOracle.ReturnToSenderNative
+                            ? "return-to-sender-native; compile-back-floor=false"
+                            : "return-to-sender-cutover; compile-back-floor=false"),
+                    (targetSet, returnToSender) =>
+                        fidelityOracle == CorpusFidelityOracle.ReturnToSenderNative
+                            ? CompleteReturnToSenderNative(targetSet, returnToSender)
+                            : CompleteReturnToSenderCutover(targetSet, returnToSender))
                 : [];
-            int cutoverEvaluationIndex = 0;
+            int independentRtsEvaluationIndex = 0;
             var selectedResults = new List<FidelityCheck.CompileBackResult>();
             var allResults = new List<FidelityCheck.CompileBackResult>();
             int parityRescued = 0, paritySame = 0, parityWorse = 0;
@@ -1092,8 +1102,8 @@ internal static class CorpusSensor
                 FidelityOracleEvaluation evaluation;
                 try
                 {
-                    evaluation = fidelityOracle == CorpusFidelityOracle.ReturnToSenderCutover
-                        ? cutoverEvaluations[cutoverEvaluationIndex++]
+                    evaluation = IsIndependentReturnToSenderOracle(fidelityOracle)
+                        ? independentRtsEvaluations[independentRtsEvaluationIndex++]
                         : fidelityOracle switch
                     {
                         CorpusFidelityOracle.CompileBack
@@ -1268,7 +1278,7 @@ internal static class CorpusSensor
     }
 
     static FidelityOracleEvaluation CompleteReturnToSenderCutover(
-        ReturnToSenderCutoverTargetSet targetSet,
+        IndependentReturnToSenderTargetSet targetSet,
         ReturnToSenderEvaluation returnToSender)
     {
         var compileBackResults = EvaluateTargetsInAttemptOrder(
@@ -1288,18 +1298,34 @@ internal static class CorpusSensor
             Cutover: cutover);
     }
 
+    static FidelityOracleEvaluation CompleteReturnToSenderNative(
+        IndependentReturnToSenderTargetSet targetSet,
+        ReturnToSenderEvaluation returnToSender)
+    {
+        if (returnToSender.CompileBackFloorAppliedMethods != 0)
+        {
+            throw new InvalidOperationException(
+                $"Native RTS unexpectedly applied its compile-back floor for "
+                + $"{targetSet.AssemblyPath}.");
+        }
+
+        return new FidelityOracleEvaluation(
+            returnToSender.Results,
+            AllResults: returnToSender.Results);
+    }
+
     internal static async Task<IReadOnlyList<TResult>> SelectThenEvaluateNativeFirstAsync<TInput, TSelected, TNative, TResult>(
         IReadOnlyList<TInput> inputs,
         Func<TInput, TSelected> select,
         Func<TSelected, Task<TNative>> evaluateNative,
-        Func<TSelected, TNative, TResult> evaluateLegacy)
+        Func<TSelected, TNative, TResult> complete)
     {
         var selected = inputs.Select(select).ToArray();
         var native = new TNative[selected.Length];
         for (int index = 0; index < selected.Length; index++)
             native[index] = await evaluateNative(selected[index]);
         return selected
-            .Select((item, index) => evaluateLegacy(item, native[index]))
+            .Select((item, index) => complete(item, native[index]))
             .ToArray();
     }
 
@@ -1325,17 +1351,17 @@ internal static class CorpusSensor
             returnToSenderResults.Count(result => result.UsedCompileBackFloor));
     }
 
-    static Task<ReturnToSenderEvaluation> EvaluateReturnToSenderCutoverTargets(
+    static Task<ReturnToSenderEvaluation> EvaluateIndependentReturnToSenderTargets(
         string assemblyPath,
         IReadOnlyList<FidelityCheck.CompileBackTarget> selectedTargets,
         string captureDetail)
-        => EvaluateReturnToSenderCutoverTargetsAsync(
+        => EvaluateIndependentReturnToSenderTargetsAsync(
             assemblyPath,
             selectedTargets,
             captureDetail,
             () => EvaluateReturnToSenderTargets(assemblyPath, selectedTargets, captureDetail));
 
-    static async Task<ReturnToSenderEvaluation> EvaluateReturnToSenderCutoverTargetsAsync(
+    static async Task<ReturnToSenderEvaluation> EvaluateIndependentReturnToSenderTargetsAsync(
         string assemblyPath,
         IReadOnlyList<FidelityCheck.CompileBackTarget> selectedTargets,
         string captureDetail,
@@ -1348,7 +1374,7 @@ internal static class CorpusSensor
         catch (Exception ex) when (
             ex is IOException or BadImageFormatException or InvalidOperationException or UnauthorizedAccessException)
         {
-            HarnessLog.Status($"RTS cutover unavailable {PortablePath(assemblyPath)}: {ex.Message}");
+            HarnessLog.Status($"RTS unavailable {PortablePath(assemblyPath)}: {ex.Message}");
             return new ReturnToSenderEvaluation(
                 selectedTargets
                     .Select(target => new FidelityCheck.CompileBackResult(
@@ -1368,10 +1394,10 @@ internal static class CorpusSensor
     }
 
     internal static async Task<IReadOnlyList<FidelityCheck.CompileBackResult>>
-        EvaluateReturnToSenderCutoverTargetsForTesting(
+        EvaluateIndependentReturnToSenderTargetsForTesting(
             IReadOnlyList<FidelityCheck.CompileBackTarget> selectedTargets,
             Func<IReadOnlyList<ReturnToSender.Result>> evaluate)
-        => (await EvaluateReturnToSenderCutoverTargetsAsync(
+        => (await EvaluateIndependentReturnToSenderTargetsAsync(
             "test.dll",
             selectedTargets,
             "return-to-sender-cutover; compile-back-floor=false",
@@ -1665,11 +1691,11 @@ internal static class CorpusSensor
         return null;
     }
 
-    internal static string? ValidateReturnToSenderCutoverCaps(
+    internal static string? ValidateIndependentReturnToSenderCaps(
         CorpusFidelityOracle fidelityOracle,
         IReadOnlyList<int> fidelityCompileCaps)
     {
-        if (fidelityOracle != CorpusFidelityOracle.ReturnToSenderCutover)
+        if (!IsIndependentReturnToSenderOracle(fidelityOracle))
             return null;
 
         int distinctPositiveCaps = fidelityCompileCaps
@@ -1678,9 +1704,16 @@ internal static class CorpusSensor
             .Take(2)
             .Count();
         return distinctPositiveCaps > 1
-            ? "--corpus-fidelity-oracle rts-cutover accepts only one distinct positive --corpus-fidelity-cap per run so its snapshot retains the complete selected member ledger; use separate runs for cap comparisons."
+            ? $"--corpus-fidelity-oracle {FidelityOracleName(fidelityOracle)} accepts only one "
+                + "distinct positive --corpus-fidelity-cap per run so its snapshot retains "
+                + "the complete selected member ledger; use separate runs for cap comparisons."
             : null;
     }
+
+    static bool IsIndependentReturnToSenderOracle(CorpusFidelityOracle fidelityOracle)
+        => fidelityOracle is
+            CorpusFidelityOracle.ReturnToSenderNative
+            or CorpusFidelityOracle.ReturnToSenderCutover;
 
     internal sealed record RtsParityKnownGapRow(string Method, string Status);
 
@@ -1810,7 +1843,7 @@ internal static class CorpusSensor
         IReadOnlyList<FidelityCheck.CompileBackResult> Results,
         int CompileBackFloorAppliedMethods);
 
-    sealed record ReturnToSenderCutoverTargetSet(
+    sealed record IndependentReturnToSenderTargetSet(
         string AssemblyPath,
         IReadOnlyList<FidelityCheck.CompileBackTarget> Targets);
 
@@ -1820,11 +1853,11 @@ internal static class CorpusSensor
         int cap)
         => DeterministicCompileBackTargetAttempts(methods, assemblyPath, cap);
 
-    internal static IReadOnlyList<FidelityCheck.CompileBackTarget> DeterministicReturnToSenderCutoverTargetsForTesting(
+    internal static IReadOnlyList<FidelityCheck.CompileBackTarget> DeterministicIndependentReturnToSenderTargetsForTesting(
         IReadOnlyList<CorpusMethodSnapshot> methods,
         string assemblyPath,
         int cap)
-        => DeterministicReturnToSenderCutoverTargets(methods, assemblyPath, cap);
+        => DeterministicIndependentReturnToSenderTargets(methods, assemblyPath, cap);
 
     static IReadOnlyList<FidelityCheck.CompileBackTarget> DeterministicCompileBackTargetAttemptsForAssembly(
         string assemblyPath,
@@ -1879,7 +1912,7 @@ internal static class CorpusSensor
             .ToArray();
     }
 
-    static IReadOnlyList<FidelityCheck.CompileBackTarget> DeterministicReturnToSenderCutoverTargets(
+    static IReadOnlyList<FidelityCheck.CompileBackTarget> DeterministicIndependentReturnToSenderTargets(
         IEnumerable<CorpusMethodSnapshot> methods,
         string assemblyPath,
         int cap)
@@ -1902,7 +1935,7 @@ internal static class CorpusSensor
                     .Distinct(StringComparer.Ordinal)
                     .Order(StringComparer.Ordinal));
             throw new InvalidOperationException(
-                $"RTS cutover requires exactly {cap} eligible methods for '{portablePath}', "
+                $"Independent RTS requires exactly {cap} eligible methods for '{portablePath}', "
                 + $"but found {eligible.Length}. Available snapshot paths: {availablePaths}.");
         }
 
@@ -2019,8 +2052,8 @@ internal static class CorpusSensor
         bool sameFidelityOracle = baseline.FidelityOracle == current.FidelityOracle;
         bool sameFidelityContract =
             baseline.Metrics.Fidelity.ContractVersion == currentFidelityMetrics.ContractVersion;
-        bool sameCutoverInputs = baseline.FidelityOracle != CorpusFidelityOracle.ReturnToSenderCutover
-            || HaveSameCutoverInputs(baseline, current);
+        bool sameIndependentRtsInputs = !IsIndependentReturnToSenderOracle(baseline.FidelityOracle)
+            || HaveSameIndependentReturnToSenderInputs(baseline, current);
 
         if (baseline.Profile != current.Profile)
         {
@@ -2060,11 +2093,14 @@ internal static class CorpusSensor
                 + $"current v{currentFidelityMetrics.ContractVersion})");
         }
         if (sameFidelityOracle
-            && baseline.FidelityOracle == CorpusFidelityOracle.ReturnToSenderCutover
-            && !sameCutoverInputs
+            && IsIndependentReturnToSenderOracle(baseline.FidelityOracle)
+            && !sameIndependentRtsInputs
             && (baseline.FidelityCompileCap > 0 || current.FidelityCompileCap > 0))
         {
-            failures.Add("RTS cutover input identity differs from baseline");
+            failures.Add(
+                baseline.FidelityOracle == CorpusFidelityOracle.ReturnToSenderNative
+                    ? "Native RTS input identity differs from baseline"
+                    : "RTS cutover input identity differs from baseline");
         }
         if (current.MethodCap != baseline.MethodCap)
             failures.Add($"method cap differs from baseline (baseline {CapText(baseline.MethodCap)}, current {CapText(current.MethodCap)})");
@@ -2194,7 +2230,7 @@ internal static class CorpusSensor
         }
         if (sameFidelityOracle
             && sameFidelityContract
-            && sameCutoverInputs
+            && sameIndependentRtsInputs
             && baseline.Metrics.Fidelity.ReturnToSenderCutover is { } baselineCutover
             && currentFidelityMetrics.ReturnToSenderCutover is { } currentCutover
             && HaveSameMethodSample(
@@ -3048,7 +3084,7 @@ internal static class CorpusSensor
             input.Add($"Per-assembly fidelity cap: {Number(current.FidelityCompileCap)}");
         if (baselineRef is not null)
             input.Add($"Baseline ref: `{baselineRef}`");
-        if (current.FidelityOracle == CorpusFidelityOracle.ReturnToSenderCutover
+        if (IsIndependentReturnToSenderOracle(current.FidelityOracle)
             && current.RunIdentity is { } run)
         {
             input.Add($"Source revision: `{run.SourceRevision}` ({run.SourceState})");
@@ -3516,11 +3552,11 @@ internal static class CorpusSensor
             bool sameFidelityOracle = baseline.FidelityOracle == current.FidelityOracle;
             bool sameFidelityContract =
                 baseline.Metrics.Fidelity.ContractVersion == current.Metrics.Fidelity.ContractVersion;
-            bool sameCutoverInputs = current.FidelityOracle != CorpusFidelityOracle.ReturnToSenderCutover
-                || HaveSameCutoverInputs(baseline, current);
+            bool sameIndependentRtsInputs = !IsIndependentReturnToSenderOracle(current.FidelityOracle)
+                || HaveSameIndependentReturnToSenderInputs(baseline, current);
             bool comparableFidelitySamples = sameFidelityOracle
                 && sameFidelityContract
-                && sameCutoverInputs
+                && sameIndependentRtsInputs
                 && HaveSameMethodSample(
                     baseline.Methods,
                     current.Methods,
@@ -3529,7 +3565,7 @@ internal static class CorpusSensor
                 ? "oracle differs"
                 : !sameFidelityContract
                     ? "contract differs"
-                    : !sameCutoverInputs
+                    : !sameIndependentRtsInputs
                         ? "input identity differs"
                         : "sampling differs";
             rows.Add(ShareChangeRow(
@@ -3801,7 +3837,7 @@ internal static class CorpusSensor
             .SetEquals(currentMethods.Where(isChecked).Select(MethodKey));
     }
 
-    static bool HaveSameCutoverInputs(
+    static bool HaveSameIndependentReturnToSenderInputs(
         CorpusSensorSnapshot baseline,
         CorpusSensorSnapshot current)
     {
@@ -3852,6 +3888,7 @@ internal static class CorpusSensor
         => oracle switch
         {
             CorpusFidelityOracle.CompileBack => "compile-back",
+            CorpusFidelityOracle.ReturnToSenderNative => "rts-native",
             CorpusFidelityOracle.ReturnToSender => "rts-parity",
             CorpusFidelityOracle.ReturnToSenderCutover => "rts-cutover",
             _ => throw new ArgumentOutOfRangeException(nameof(oracle)),

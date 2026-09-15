@@ -9,27 +9,34 @@ the Find handoff portion of
 [Reverse Type-Declaration Locator](reverse-type-declaration-locator.md) owns
 the new query contract. This map owns no participating component's internals.
 
-The current slice is design-only. Existing Find, Type, Member, Platform routing,
-and Spotlight behavior remain supported as before. No design-only row or
-mockup is advertised as implemented.
+Metadata inventories, the Workspace's explicit-context population projection,
+the cold locator, the resident facade, and explicit package-backed reference
+population admission are implemented
+prerequisites. Existing
+Find, Type, Member, Platform routing, and Spotlight behavior remain supported
+as before. Other population producers and host adoption are still pending; no
+design-only row or mockup is advertised as implemented.
 
 ## Counted production path
 
-There are **nine steps**, including this design. Steps 2 and 3 can proceed
-independently; step 4 joins their owner-issued evidence. Steps 5-7 deliver the
-first CLI workflow, step 8 adopts the browser, and step 9 retires the duplicate
-lookup after parity.
+There are **nine tracked steps**, including the merged locator design.
+Steps 2 and 3 can proceed independently; step 4 joins their owner-issued
+evidence. Its population projection precedes step 5; its resident facade
+consumes step 5 and completes before step 7. Steps 5-7 deliver the first CLI
+workflow, step 8 adopts the browser, and step 9 retires the duplicate lookup
+after parity. This sequencing does not require implementing the cold query
+inside the Workspace owner.
 
 | Step | Focused owner and delivery | Completion boundary |
 | --- | --- | --- |
 | 1 | [#6852](https://github.com/richlander/dotnet-inspect/issues/6852), Reverse Type-Declaration Locator: this contract and map. | Design review only; not product support. |
-| 2 | [#6847](https://github.com/richlander/dotnet-inspect/issues/6847), Source Selection: settle exact Library coordinates for local assemblies and project outputs in its coordinate owner. | No pseudo-Package/Platform coordinates; explicit unsupported outcome until adopted. |
-| 3 | [#6848](https://github.com/richlander/dotnet-inspect/issues/6848), Metadata: expose structured declaration inventories through authorized borrowed inspection, with visibility and failure evidence. | Definitions and forwarders retain exact names without Queries decoding metadata or inferring visibility. |
-| 4 | [#6845](https://github.com/richlander/dotnet-inspect/issues/6845), Workspace: project an exact finite locator population and detached occurrence/reopening context from source-owner correspondence. | Package, Platform, restored-project assets and local inputs retain their source distinction, target/view, upstream coverage and ordinary authority boundary. |
-| 5 | [#6849](https://github.com/richlander/dotnet-inspect/issues/6849), Queries: implement the cold reverse locator over those inputs. | Always a vector of coordinate-plus-origin candidates, deterministic outcomes and Release gates; no private cache or implicit selection. |
-| 6 | [#6846](https://github.com/richlander/dotnet-inspect/issues/6846), Sections: adopt the locator result's row unit and structured multi-format projection. | Each row retains one candidate's origin and observation context with mandatory coverage/failure disclosure. |
-| 7 | [#6844](https://github.com/richlander/dotnet-inspect/issues/6844), CLI Find: produce the handoff; Type and Member consume the selected observation through ordinary exact-coordinate paths. | Runnable locate-once workflow, deliberate fallback/limit migration and routing parity evidence; update shipped skills only now. |
-| 8 | [#6851](https://github.com/richlander/dotnet-inspect/issues/6851), Inspect Web: consume the same locator and selected Type/Member context. | Browser/Wasm navigation uses typed data, not displayed names; portable sharing remains owner-governed. |
+| 2 | [#6847](https://github.com/richlander/dotnet-inspect/issues/6847), Source Selection: settle exact Library coordinates for local assemblies and project outputs in its coordinate owner. | Project and Local arms preserve source domain without paths, generations, or pseudo-Package/Platform provenance. |
+| 3 | [#6848](https://github.com/richlander/dotnet-inspect/issues/6848), Metadata: [borrowed declaration inventories](type-forwarding-resolution.md#detached-declaration-inventory) through `AssemblyInspectionSession.TypeDeclarations()`. | Implemented Metadata prerequisite: detached structured names, kinds, public/all views, and whole-inventory rejection; not yet locator or host adoption. |
+| 4 | [#6845](https://github.com/richlander/dotnet-inspect/issues/6845), [Workspace Live Locator](workspace-live-locator.md): [explicit context projection](workspace-live-locator.md#implemented-explicit-context-projection), its [resident facade](workspace-live-locator.md#implemented-resident-context-facade), and [#7077](https://github.com/richlander/dotnet-inspect/issues/7077)'s [package-backed reference admission](workspace-live-locator.md#implemented-reference-population-admission) are implemented; other producers remain pending. | Coherent first-use observation, occurrence-based reuse, receipt-pinned vectors and owner-governed close cover context-loader and package-backed reference populations. Artifact Root/Scope, installed-reference and local/project adapters still need their owner-issued associations. |
+| 5 | [#6849](https://github.com/richlander/dotnet-inspect/issues/6849), Queries: [cold reverse locator](reverse-type-declaration-locator.md#implemented-cold-query) over the implemented Workspace population input. | Implemented always-vector coordinate-plus-origin answers, deterministic outcomes and Release gates; additional population producers remain step 4 adoption, not inferred source authority. |
+| 6 | [#6846](https://github.com/richlander/dotnet-inspect/issues/6846), Sections: [adopt the locator result's row unit and structured multi-format projection](output-shapes.md#reverse-type-declaration-locator-projection). | Implemented typed answer row sets, source-generated JSON, common Markout lowering, and mandatory coverage/failure disclosure independent of selected candidate rows. |
+| 7 | [#6844](https://github.com/richlander/dotnet-inspect/issues/6844), CLI Find: use the live facade in a short-lived Workspace; Type and Member consume the selected observation through ordinary exact-coordinate paths. | Runnable locate-once workflow, deliberate fallback/limit migration and routing parity evidence; update shipped skills only now. |
+| 8 | [#6851](https://github.com/richlander/dotnet-inspect/issues/6851), Inspect Web: retain the same live facade across admitted additions and consume selected Type/Member context. | Browser/Wasm Find-after-append and navigation use typed data, not displayed names; portable sharing remains owner-governed. |
 | 9 | [#6850](https://github.com/richlander/dotnet-inspect/issues/6850), Platform discovery in Services: retire or narrow `PlatformTypeCatalog` after its consumers migrate. | No duplicated general reverse scan; retain acquisition/probing/naming and Spotlight's static filename population. |
 
 Each successor names its focused owning document before implementation. If a
@@ -46,6 +53,43 @@ consumer. Land prerequisites independently, prepare the CLI adapter alongside
 the query work, and do not accumulate an unconsumed Queries/Sections stack.
 The first executable host slice includes both production of a Find result and
 consumption by Type and Member; returning a new unused DTO is not adoption.
+
+### First CLI consumer staging
+
+The concrete consumer seam is
+`DotnetInspect.Cli/Inspectors/TypeSearchService.FindTypesAsync`. Its configured
+package branch currently calls `ConfiguredPackageSearchWorkspace.QuerySurfaceAsync`
+and `AssemblyContextTypeInventoryQuery`; other scopes use
+`AssemblySetInspectionWorkspace`. Neither route currently supplies the new
+population receipt. Step 4's source adapters must bridge their owner-issued
+associations before that collector can migrate.
+
+The step 7 adapter will submit the already parsed patterns as
+`TypeDeclarationLocatorRequest.Pattern` values through the shared resident
+facade, preserving the resulting candidate's `Coordinate`, `Name`, `Kind`,
+and `Observation` through step 6's rows and selected Type/Member handoff.
+It must not flatten the result into today's display-only `TypeSearchResult`
+and then reconstruct an identity. Existing direct/prefix/similarity
+classification, source authorization and defaults remain Find-owned; any
+fallback is a separately identified request, and `FindOptions.Limit` cannot
+silently stand in for the query's inventory-read bound.
+
+[#7101](https://github.com/richlander/dotnet-inspect/issues/7101) supplies the
+Metadata-owned [definition discovery attributes](type-forwarding-resolution.md#definition-discovery-attributes)
+needed for default-visibility adoption. Locator candidates and Sections rows
+carry `DiscoveryAttributes` unchanged, including unavailable target evidence
+for exports. The existing public/all locator views do not apply attribute
+suppression. Step 7's consumer owns that policy and remains responsible for
+default-path parity; [PR #7082](https://github.com/richlander/dotnet-inspect/pull/7082)
+is a separate CLI slice. Step 8 consumes the same typed facts rather than
+reopening metadata or parsing display text to discover them.
+
+The current cold query and resident facade deliberately do not replace a CLI
+collector before those associations exist. The next production
+steps remain the named step 4 producer completion and step 7 CLI
+handoff, followed by step 8's TypeScript consumer of the same typed operation.
+The completed common inspection supplies `InspectionEnvelope<TContent>` at
+that host boundary rather than nesting envelopes around prerequisite queries.
 
 ## Rendering handoff
 
@@ -97,5 +141,7 @@ implementation evidence. Add project/local fixture paths when their coordinate
 owner is ready. The query design lists the required pathological outcomes;
 the CLI and browser slices additionally demonstrate selecting each same-named
 source candidate, then inspecting its Type and an exact Member.
-Optional warm-cache equivalence is only required if an owner actually adopts
-reuse; cold-only implementation is sufficient.
+The stateless query remains independently usable cold. The approved Workspace
+live facade requires cold/resident equivalence at the same population receipt
+and inventory evidence, plus first-demand, append-during-initialization,
+shared-cancellation and close/drain evidence before step 4 is complete.

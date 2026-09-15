@@ -65,14 +65,22 @@ public partial class DependsCommand
                 DiscoverOutput.Execute(
                     discover,
                     DependsAssetSections.CreateGraphSchema(),
-                    tree: options.Tree,
-                    json: options.JsonOutput,
-                    tsv: options.Tsv,
-                    jsonl: options.Jsonl,
+                    DiscoveryOutputRequest.Create(
+                        OutputFormatResolver.ResolveStored(
+                            options.Format,
+                            options.JsonOutput,
+                            plainText: false,
+                            options.Tabular,
+                            options.Tsv,
+                            options.Jsonl),
+                        options.Tree,
+                        options.Tabular,
+                        options.NoHeader,
+                        (int)options.Verbosity,
+                        options),
                     sectionCostAnnotations:
                         catalog.Pipeline.GetCostAnnotations(),
-                    sectionCategories: catalog.SelectionCategoryMap,
-                    projection: options),
+                    sectionCategories: catalog.SelectionCategoryMap),
                 false);
         }
 
@@ -182,11 +190,6 @@ public partial class DependsCommand
 
             DependencyGraphDocument document =
                 DependencyGraphProjection.Type(result.Dependency);
-            HashSet<int> selectedRelationshipOrdinals =
-                [
-                    .. result.Relationships.Select(
-                        static relationship => relationship.Ordinal),
-                ];
             TypeDependencyRelationship[] orderedRelationships =
             [
                 .. result.Dependency.Relationships.OrderBy(
@@ -200,12 +203,19 @@ public partial class DependsCommand
                     "The type dependency graph projection did not preserve "
                         + "the query relationship count.");
             }
+            Dictionary<int, DependencyGraphEdgeRow> rowsByOrdinal =
+                orderedRelationships
+                    .Select(
+                        (relationship, index) =>
+                            (relationship.Ordinal, Row: allRows[index]))
+                    .ToDictionary(
+                        static item => item.Ordinal,
+                        static item => item.Row);
             IReadOnlyList<DependencyGraphEdgeRow> rows =
             [
-                .. allRows.Where(
-                    (_, index) =>
-                        selectedRelationshipOrdinals.Contains(
-                            orderedRelationships[index].Ordinal)),
+                .. result.Relationships.Select(
+                    relationship =>
+                        rowsByOrdinal[relationship.Ordinal]),
             ];
             if (options.Count)
             {

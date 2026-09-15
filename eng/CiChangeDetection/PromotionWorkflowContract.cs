@@ -17,20 +17,6 @@ internal static class PromotionWorkflowContract
         "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020";
     private const string UploadArtifactAction =
         "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a";
-    private const string CoreClrDotnetDailyFeed =
-        "https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet12/nuget/v3/index.json";
-    private const string CoreClrDotnetNugetFeed =
-        "https://api.nuget.org/v3/index.json";
-    private const string CoreClrDotnetRuntimeVersion =
-        "12.0.0-alpha.1.26459.112";
-    private const string CoreClrDotnetSdkFeatureBand =
-        "12.0.100-alpha.1";
-    private const string CoreClrDotnetSdkVersion =
-        "12.0.100-alpha.1.26459.112";
-    private const string CoreClrDotnetVmrCommit =
-        "7792b064d8573a30d8527944de8184b7e108837e";
-    private const string CoreClrDotnetVmrRepository =
-        "https://github.com/dotnet/dotnet";
     private const string CompilerAsyncDeploymentCheck =
         """
         eng/verify-inspect-web-async-deployment.sh \
@@ -80,6 +66,16 @@ internal static class PromotionWorkflowContract
             ".github",
             "workflows",
             "deploy-inspect-web-coreclr.yml");
+        string runtimeCohortPath = Path.Combine(
+            repository,
+            ".github",
+            "workflows",
+            "inspect-web-runtime-cohort-nightly.yml");
+        string runtimePinProposalPath = Path.Combine(
+            repository,
+            ".github",
+            "workflows",
+            "inspect-web-runtime-pin-proposal.yml");
         string asyncVerifierPath = Path.Combine(
             repository,
             "eng",
@@ -91,16 +87,46 @@ internal static class PromotionWorkflowContract
         string promotionWorkflow = File.ReadAllText(promotionPath);
         string stagingWorkflow = File.ReadAllText(stagingPath);
         string coreClrStagingWorkflow = File.ReadAllText(coreClrStagingPath);
+        string runtimeCohortWorkflow = File.ReadAllText(runtimeCohortPath);
+        string runtimePinProposalWorkflow =
+            File.ReadAllText(runtimePinProposalPath);
         string asyncVerifier = File.ReadAllText(asyncVerifierPath);
         string asyncLoweringReceiptTarget =
             File.ReadAllText(asyncLoweringReceiptTargetPath);
         ValidatePromotion(promotionWorkflow);
         ValidateStaging(stagingWorkflow);
         ValidateCoreClrStaging(coreClrStagingWorkflow);
+        ValidateRuntimeSdkGlobalJsonOverride(
+            runtimeCohortWorkflow,
+            "$DOTNET_SDK_VERSION",
+            "runtime cohort");
+        ValidateRuntimeSdkGlobalJsonOverride(
+            runtimePinProposalWorkflow,
+            "$candidate_sdk",
+            "runtime pin proposal");
         ValidateAsyncDeploymentVerifier(asyncVerifier);
         ValidateAsyncLoweringReceiptTarget(asyncLoweringReceiptTarget);
         InspectWebAsyncDeployment_ReceiptsCoverExactFacadeSet(asyncVerifier);
         InspectWebAsyncDeployment_LoweringsPreserveFacadeContracts(asyncVerifier);
+
+        AssertMutationRejected(
+            runtimeCohortWorkflow,
+            "              \"version\": \"$DOTNET_SDK_VERSION\",\n",
+            "              \"version\": \"11.0.100-rc.1.26425.128\",\n",
+            workflow => ValidateRuntimeSdkGlobalJsonOverride(
+                workflow,
+                "$DOTNET_SDK_VERSION",
+                "runtime cohort"),
+            "Runtime cohort contract accepted the repository SDK in the candidate SDK root.");
+        AssertMutationRejected(
+            runtimePinProposalWorkflow,
+            "              \"version\": \"$candidate_sdk\",\n",
+            "              \"version\": \"11.0.100-rc.1.26425.128\",\n",
+            workflow => ValidateRuntimeSdkGlobalJsonOverride(
+                workflow,
+                "$candidate_sdk",
+                "runtime pin proposal"),
+            "Runtime pin proposal contract accepted the repository SDK in the candidate SDK root.");
 
         const string trustedCheckout =
             """
@@ -302,10 +328,10 @@ internal static class PromotionWorkflowContract
             "CoreCLR staging contract accepted the Mono runtime.");
         AssertMutationRejected(
             coreClrStagingWorkflow,
-            "  DOTNET_SDK_VERSION: '12.0.100-alpha.1.26459.112'\n",
-            "  DOTNET_SDK_VERSION: '12.0.100-alpha.1.99999.999'\n",
+            "          node inspect-web/scripts/runtime-cohort-pin.ts export \\\n",
+            "",
             ValidateCoreClrStaging,
-            "CoreCLR staging contract accepted a different .NET 12 daily SDK.");
+            "CoreCLR staging contract accepted a missing shared runtime pin.");
         AssertMutationRejected(
             coreClrStagingWorkflow,
             "            --source \"$DOTNET_DAILY_FEED\" \\\n",
@@ -486,25 +512,6 @@ internal static class PromotionWorkflowContract
             "      cancel-in-progress: true\n",
             ValidateCoreClrStaging,
             "CoreCLR staging contract accepted cancellation between promotions.");
-        AssertMutationRejected(
-            promotionWorkflow,
-            "      - deploy\n",
-            "",
-            ValidatePromotion,
-            "Promotion workflow contract allowed CoreCLR deployment before production.");
-        AssertMutationRejected(
-            promotionWorkflow,
-            "      source_sha: ${{ needs.resolve.outputs.sha }}\n",
-            "      source_sha: ${{ github.sha }}\n",
-            ValidatePromotion,
-            "Promotion workflow contract accepted a non-promoted CoreCLR revision.");
-        AssertMutationRejected(
-            promotionWorkflow,
-            "      artifact_id: ${{ needs.resolve.outputs.artifact_id }}\n",
-            "      artifact_id: latest\n",
-            ValidatePromotion,
-            "Promotion workflow contract accepted a non-promoted CoreCLR artifact.");
-
         AssertRejected(
             coreClrStagingWorkflow +
             """
@@ -518,6 +525,32 @@ internal static class PromotionWorkflowContract
             """,
             ValidateCoreClrStaging,
             "CoreCLR staging contract accepted an extra environment-scoped job.");
+    }
+
+    private static void ValidateRuntimeSdkGlobalJsonOverride(
+        string workflow,
+        string sdkVersionExpression,
+        string context)
+    {
+        string expected =
+            "          cat > global.json <<EOF\n" +
+            "          {\n" +
+            "            \"sdk\": {\n" +
+            "              \"version\": \"__SDK_VERSION__\",\n" +
+            "              \"rollForward\": \"disable\",\n" +
+            "              \"allowPrerelease\": true\n" +
+            "            }\n" +
+            "          }\n" +
+            "          EOF\n";
+        expected = expected.Replace(
+                    "__SDK_VERSION__",
+                    sdkVersionExpression,
+                    StringComparison.Ordinal);
+        if (!workflow.Contains(expected, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"{context} must select its installed SDK through global.json.");
+        }
     }
 
     private static void ValidatePromotion(string workflow)
@@ -558,7 +591,7 @@ internal static class PromotionWorkflowContract
             },
             "promotion workflow.concurrency");
         YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "promotion workflow");
-        RequireExactKeys(jobs, ["resolve", "deploy", "coreclr"], "promotion jobs");
+        RequireExactKeys(jobs, ["resolve", "deploy"], "promotion jobs");
         YamlMappingNode resolve = GetRequiredMapping(jobs, "resolve", "promotion jobs");
         RequireExactKeys(
             resolve,
@@ -740,46 +773,6 @@ internal static class PromotionWorkflowContract
             },
             "production deploy step.with");
 
-        YamlMappingNode coreClr =
-            GetRequiredMapping(jobs, "coreclr", "promotion jobs");
-        RequireExactKeys(
-            coreClr,
-            ["name", "needs", "uses", "with", "secrets"],
-            "jobs.coreclr");
-        RequireScalarValue(
-            coreClr,
-            "name",
-            "Publish matching CoreCLR comparison",
-            "jobs.coreclr");
-        YamlSequenceNode coreClrNeeds =
-            GetRequiredSequence(coreClr, "needs", "jobs.coreclr");
-        string[] actualCoreClrNeeds = coreClrNeeds.Children
-            .Select(node => RequireScalar(node, "jobs.coreclr need"))
-            .ToArray();
-        if (!actualCoreClrNeeds.SequenceEqual(["resolve", "deploy"]))
-        {
-            throw new InvalidOperationException(
-                "jobs.coreclr.needs must require resolution and production deployment.");
-        }
-        RequireScalarValue(
-            coreClr,
-            "uses",
-            "./.github/workflows/deploy-inspect-web-coreclr.yml",
-            "jobs.coreclr");
-        RequireExactScalarValues(
-            GetRequiredMapping(coreClr, "with", "jobs.coreclr"),
-            new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["staging_run_id"] = "${{ inputs.staging_run_id }}",
-                ["source_sha"] = "${{ needs.resolve.outputs.sha }}",
-                ["artifact_id"] = "${{ needs.resolve.outputs.artifact_id }}",
-            },
-            "jobs.coreclr.with");
-        RequireScalarValue(
-            coreClr,
-            "secrets",
-            "inherit",
-            "jobs.coreclr");
     }
 
     private static void ValidateStaging(string workflow)
@@ -969,7 +962,7 @@ internal static class PromotionWorkflowContract
             RequireStep(
                 buildSteps,
                 7,
-                "Publish MSDL managed API",
+                "Publish Inspect Web managed API",
                 "jobs.build"),
             "artifacts/inspect-web-publish/api",
             "staging managed API publish step");
@@ -1130,18 +1123,11 @@ internal static class PromotionWorkflowContract
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["DOTNET_CLI_TELEMETRY_OPTOUT"] = "true",
-                ["DOTNET_DAILY_FEED"] = CoreClrDotnetDailyFeed,
                 ["DOTNET_DOTNETUP_DATA_DIR"] =
                     "${{ github.workspace }}/artifacts/dotnetup-data",
                 ["DOTNET_NOLOGO"] = "true",
-                ["DOTNET_NUGET_FEED"] = CoreClrDotnetNugetFeed,
                 ["DOTNET_ROOT"] =
                     "${{ github.workspace }}/artifacts/dotnet-coreclr",
-                ["DOTNET_RUNTIME_VERSION"] = CoreClrDotnetRuntimeVersion,
-                ["DOTNET_SDK_FEATURE_BAND"] = CoreClrDotnetSdkFeatureBand,
-                ["DOTNET_SDK_VERSION"] = CoreClrDotnetSdkVersion,
-                ["DOTNET_VMR_COMMIT"] = CoreClrDotnetVmrCommit,
-                ["DOTNET_VMR_REPOSITORY"] = CoreClrDotnetVmrRepository,
             },
             "CoreCLR staging workflow.env");
 
@@ -1252,7 +1238,7 @@ internal static class PromotionWorkflowContract
         YamlMappingNode setup =
             RequireStep(
                 publishSteps,
-                2,
+                3,
                 "Install pinned .NET 12 SDK",
                 "CoreCLR jobs.publish");
         RequireExactKeys(
@@ -1267,6 +1253,14 @@ internal static class PromotionWorkflowContract
         const string ExpectedSdkInstall =
             """
             set -euo pipefail
+            pin_env="$RUNNER_TEMP/inspect-web-runtime-cohort.env"
+            node inspect-web/scripts/runtime-cohort-pin.ts export \
+              --pin inspect-web/runtime-cohort-pin.json \
+              --output "$pin_env"
+            set -a
+            source "$pin_env"
+            set +a
+            cat "$pin_env" >> "$GITHUB_ENV"
             dotnetup_dir="$RUNNER_TEMP/dotnetup"
             getter_script="$RUNNER_TEMP/get-dotnetup.sh"
             mkdir -p "$dotnetup_dir" "$DOTNET_ROOT" "$DOTNET_DOTNETUP_DATA_DIR"
@@ -1279,6 +1273,15 @@ internal static class PromotionWorkflowContract
               --untracked \
               --set-default-install false \
               --interactive false
+            cat > global.json <<EOF
+            {
+              "sdk": {
+                "version": "$DOTNET_SDK_VERSION",
+                "rollForward": "disable",
+                "allowPrerelease": true
+              }
+            }
+            EOF
             echo "$DOTNET_ROOT" >> "$GITHUB_PATH"
             test "$("$DOTNET_ROOT/dotnet" --version)" = "$DOTNET_SDK_VERSION"
             """;
@@ -1294,7 +1297,7 @@ internal static class PromotionWorkflowContract
         YamlMappingNode setupNode =
             RequireStep(
                 publishSteps,
-                3,
+                2,
                 "Setup Node",
                 "CoreCLR jobs.build");
         RequireExactKeys(
@@ -1337,7 +1340,7 @@ internal static class PromotionWorkflowContract
         const string ExpectedWorkloadInstall =
             """
             set -euo pipefail
-            dotnet workload install wasm-tools \
+            dotnet workload install "$INSPECT_WEB_RUNTIME_WORKLOAD" \
               --skip-manifest-update \
               --source "$DOTNET_DAILY_FEED" \
               --source "$DOTNET_NUGET_FEED"
@@ -1350,21 +1353,18 @@ internal static class PromotionWorkflowContract
 
             test "$(dotnet --version)" = "$DOTNET_SDK_VERSION"
             test "$(dotnet --list-runtimes | awk '$1 == "Microsoft.NETCore.App" { print $2 }')" = "$DOTNET_RUNTIME_VERSION"
-            manifest="$DOTNET_ROOT/sdk-manifests/$DOTNET_SDK_FEATURE_BAND/microsoft.net.workload.mono.toolchain.current/$DOTNET_SDK_VERSION/WorkloadManifest.json"
+            manifest="$DOTNET_ROOT/sdk-manifests/$DOTNET_SDK_FEATURE_BAND/$INSPECT_WEB_RUNTIME_WORKLOAD_MANIFEST/$DOTNET_SDK_VERSION/WorkloadManifest.json"
             jq -e \
               --arg sdk "$DOTNET_SDK_VERSION" \
               --arg runtime "$DOTNET_RUNTIME_VERSION" \
+              --arg workload "$INSPECT_WEB_RUNTIME_WORKLOAD" \
+              --slurpfile pin inspect-web/runtime-cohort-pin.json \
               '
                 . as $manifest
-                | .workloads["wasm-tools"].packs as $packs
+                | $pin[0] as $pin
+                | .workloads[$workload].packs as $packs
                 | .version == $sdk
-                  and $packs == [
-                    "Microsoft.NET.Runtime.WebAssembly.Sdk.net11",
-                    "Microsoft.NET.Sdk.WebAssembly.Pack.net11",
-                    "Microsoft.NETCore.App.Runtime.Mono.net11.browser-wasm",
-                    "Microsoft.NETCore.App.Runtime.net11.browser-wasm",
-                    "Microsoft.NETCore.App.Runtime.AOT.Cross.net11.browser-wasm"
-                  ]
+                  and $packs == $pin.workload.packIds
                   and all($packs[]; . as $id | $manifest.packs[$id].version == $runtime)
               ' "$manifest" >/dev/null
 
@@ -1388,7 +1388,7 @@ internal static class PromotionWorkflowContract
               inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj \
               -getProperty:TargetFramework \
               -nologo)
-            test "$target_framework" = "net11.0"
+            test "$target_framework" = "$INSPECT_WEB_RUNTIME_TARGET_FRAMEWORK"
             runtime_pack="$DOTNET_ROOT/packs/Microsoft.NETCore.App.Runtime.browser-wasm/$DOTNET_RUNTIME_VERSION/runtimes/browser-wasm/native"
             native_wasm_sha256=$(sha256sum "$runtime_pack/dotnet.native.wasm" | awk '{print $1}')
             native_javascript_sha256=$(sha256sum "$runtime_pack/dotnet.native.js" | awk '{print $1}')
@@ -1404,9 +1404,10 @@ internal static class PromotionWorkflowContract
               --arg vmr_repository "$vmr_repository" \
               --arg native_wasm_sha256 "$native_wasm_sha256" \
               --arg native_javascript_sha256 "$native_javascript_sha256" \
+              --arg workload "$INSPECT_WEB_RUNTIME_WORKLOAD" \
               '
                 . as $manifest
-                | .workloads["wasm-tools"].packs as $packs
+                | .workloads[$workload].packs as $packs
                 | {
                     schema: 2,
                     sdk: {
@@ -1433,7 +1434,7 @@ internal static class PromotionWorkflowContract
                       wasmBuildNative: false
                     },
                     workload: {
-                      id: "wasm-tools",
+                      id: $workload,
                       manifestVersion: .version,
                       sources: [$daily_feed, $nuget_feed],
                       packs: [
@@ -1594,7 +1595,7 @@ internal static class PromotionWorkflowContract
             RequireStep(
                 publishSteps,
                 9,
-                "Publish MSDL managed API",
+                "Publish Inspect Web managed API",
                 "CoreCLR jobs.build"),
             "artifacts/inspect-web-coreclr-publish/api",
             "CoreCLR managed API publish step");
@@ -1930,57 +1931,47 @@ internal static class PromotionWorkflowContract
               cohort={{publishRoot}}/runtime-cohort
               test -f "$cohort/dotnet-info.txt"
               test -f "$cohort/workload-list.txt"
-              jq -e '
+              jq -e \
+                --arg sdk "$DOTNET_SDK_VERSION" \
+                --arg feature_band "$DOTNET_SDK_FEATURE_BAND" \
+                --arg runtime "$DOTNET_RUNTIME_VERSION" \
+                --arg repository "$DOTNET_VMR_REPOSITORY" \
+                --arg commit "$DOTNET_VMR_COMMIT" \
+                --arg target_framework "$INSPECT_WEB_RUNTIME_TARGET_FRAMEWORK" \
+                --arg workload "$INSPECT_WEB_RUNTIME_WORKLOAD" \
+                --arg daily_feed "$DOTNET_DAILY_FEED" \
+                --arg nuget_feed "$DOTNET_NUGET_FEED" \
+                --slurpfile pin inspect-web/runtime-cohort-pin.json \
+                '
                 .schema == 2
                 and .sdk == {
-                  version: "{{CoreClrDotnetSdkVersion}}",
-                  featureBand: "{{CoreClrDotnetSdkFeatureBand}}"
+                  version: $sdk,
+                  featureBand: $feature_band
                 }
                 and .runtime.name == "Microsoft.NETCore.App"
-                and .runtime.version == "{{CoreClrDotnetRuntimeVersion}}"
+                and .runtime.version == $runtime
                 and .runtime.implementation == "CoreCLR"
                 and .runtime.source == {
-                  repository: "{{CoreClrDotnetVmrRepository}}",
-                  commit: "{{CoreClrDotnetVmrCommit}}"
+                  repository: $repository,
+                  commit: $commit
                 }
                 and (.runtime.assets.nativeWasmSha256 | test("^[0-9a-f]{64}$"))
                 and (.runtime.assets.nativeJavaScriptSha256 | test("^[0-9a-f]{64}$"))
-                and .targetFramework == "net11.0"
+                and .targetFramework == $target_framework
                 and .configuration == {
                   asyncLowering: "runtime",
                   publishReadyToRun: false,
                   wasmBuildNative: false
                 }
-                and .workload == {
-                  id: "wasm-tools",
-                  manifestVersion: "{{CoreClrDotnetSdkVersion}}",
-                  sources: [
-                    "{{CoreClrDotnetDailyFeed}}",
-                    "{{CoreClrDotnetNugetFeed}}"
-                  ],
-                  packs: [
-                    {
-                      id: "Microsoft.NET.Runtime.WebAssembly.Sdk.net11",
-                      version: "{{CoreClrDotnetRuntimeVersion}}"
-                    },
-                    {
-                      id: "Microsoft.NET.Sdk.WebAssembly.Pack.net11",
-                      version: "{{CoreClrDotnetRuntimeVersion}}"
-                    },
-                    {
-                      id: "Microsoft.NETCore.App.Runtime.Mono.net11.browser-wasm",
-                      version: "{{CoreClrDotnetRuntimeVersion}}"
-                    },
-                    {
-                      id: "Microsoft.NETCore.App.Runtime.net11.browser-wasm",
-                      version: "{{CoreClrDotnetRuntimeVersion}}"
-                    },
-                    {
-                      id: "Microsoft.NETCore.App.Runtime.AOT.Cross.net11.browser-wasm",
-                      version: "{{CoreClrDotnetRuntimeVersion}}"
-                    }
-                  ]
-                }
+                and .workload.id == $workload
+                and .workload.manifestVersion == $sdk
+                and .workload.sources == [$daily_feed, $nuget_feed]
+                and .workload.packs == [
+                  $pin[0].workload.packIds[] | {
+                    id: .,
+                    version: $runtime
+                  }
+                ]
               ' "$cohort/runtime-cohort.json" >/dev/null
               test "$(sha256sum "$site"/_framework/dotnet.native.*.wasm | awk '{print $1}')" = \
                 "$(jq -r '.runtime.assets.nativeWasmSha256' "$cohort/runtime-cohort.json")"

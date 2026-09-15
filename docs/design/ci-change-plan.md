@@ -141,7 +141,7 @@ refusals rather than skipped records.
 Exact path corpora do not travel through GitHub's textual job-output channel.
 When a domain job needs scoped paths, the planner produces a bounded evidence
 file. The file is a NUL-terminated sequence of exact path-byte records, in
-plan input order. A path need not exist in the candidate tree: deletion
+the scope's defined order. A path need not exist in the candidate tree: deletion
 evidence remains meaningful. Change status is not part of a scoped record
 unless the consuming contract separately requires it. A scope file is bounded
 to at most 16 MiB; an overflow is a refusal, never a truncated corpus.
@@ -150,9 +150,23 @@ Scoped evidence carries inputs the consumer interprets, not paths that merely
 make the validation relevant. The TLA+ scope therefore contains changed paths
 matching the planner's TLA+ model-content rules — `.tla` and `.cfg` files under
 `docs/models/` or `docs/design/models/`, matched with ASCII case-insensitive
-extensions — plus `eng/tla-expected-exit-codes.txt`. The runner interprets a
-change to that manifest by selecting every model directory it names, so the
-manifest is scoped consumer input rather than a pure infrastructure trigger.
+extensions — plus `eng/tla-expected-exit-codes.txt`, in plan input order.
+When that manifest changes, the planner compares its mappings at the same exact
+base and candidate endpoints. Added, removed, or value-changed mappings append
+their configuration paths in byte order, without repeating a path already in
+the scope. These are affected configuration paths, not additional changed-file
+records; the plan's input digest remains the original Git change evidence.
+Comments and record ordering do not change mappings. Only a recorded manifest
+addition or deletion supplies an empty endpoint image; failure to acquire a
+required image refuses planning. Mapping parsing preserves path and value bytes
+and refuses malformed, duplicate, or unsupported configuration paths.
+
+The manifest path alone selects no model execution. The runner continues to
+validate the complete current manifest, even when its mapping delta is empty.
+It interprets each affected configuration path like a directly changed `.cfg`:
+select the surviving model directory, including after its last exact-outcome
+mapping is removed, and skip a directory that no longer exists. Model-file
+selection and SANY's semantic transitive-consumer selection are unchanged.
 Other TLA+ infrastructure paths select the lane without entering the scope.
 Such an infrastructure-only selection consequently produces a true selection
 with a valid zero-record scope file, which the planner still writes.
@@ -263,7 +277,7 @@ Conceptually:
 
 ```json
 {
-  "schemaVersion": 3,
+  "schemaVersion": 6,
   "status": "planned",
   "provenance": {
     "kind": "pullRequestSyntheticCandidate",
@@ -412,6 +426,19 @@ The repository deliberately diverges from:
 - workflow-owned filter expressions, which would preserve distributed policy.
 
 ## Evidence
+
+Issue [#6930](https://github.com/richlander/dotnet-inspect/issues/6930) is
+motivated by PR [#6919](https://github.com/richlander/dotnet-inspect/pull/6919),
+whose manifest at commit
+[`5b1bc66a290dfabb450670614d9573c135de365b`](https://github.com/richlander/dotnet-inspect/blob/5b1bc66a290dfabb450670614d9573c135de365b/eng/tla-expected-exit-codes.txt)
+added retained-workspace outcomes but selected unrelated model directories.
+The planner's PR-fast Git fixtures preserve that shape: one changed directory
+beside unchanged mappings, plus additions, removals, value changes, multi-owner
+changes, and comment/order-only edits. `eng/test-tla-checks.sh` gates the
+consumer's directory union, surviving-directory removal behavior, and complete
+manifest validation before Java invocation. The production host is the existing
+CI planner/artifact/runner pipeline; this change adopts the delta in that host
+in one slice without changing TLC verdict or timeout policy.
 
 The contract-defining pathological fixture is a base rename that moves a
 PR-authored edit into a gated path in the synthetic candidate while the PR

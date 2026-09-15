@@ -11,20 +11,55 @@ namespace DotnetInspector.Packages;
 /// </summary>
 public sealed class PackageHousePruningReceipt
 {
+    /// <summary>
+    /// Evaluates the exact demand coordinate against one target-bound platform
+    /// inventory and retains the resulting correspondence.
+    /// </summary>
+    public static PackageHousePruningReceipt Evaluate(
+        PackageHouseRequest request,
+        PlatformPruneInventory inventory)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(inventory);
+        PackageSourceCoordinate coordinate =
+            RequireCoordinate(request);
+        PackageHouseTargetContext target =
+            request.TargetContext
+            ?? throw new ArgumentException(
+                "Pruning requires an exact PackageHouse target context.",
+                nameof(request));
+        if (target.Mode != PackageHouseTargetSelectionMode.Exact)
+        {
+            throw new ArgumentException(
+                "Pruning requires an exact PackageHouse target context.",
+                nameof(request));
+        }
+
+        return new(
+            request,
+            PlatformPrunePolicy.Evaluate(
+                inventory,
+                new PackageCoordinate(
+                    coordinate.PackageId,
+                    coordinate.Version,
+                    target.RequestedFramework,
+                    target.RuntimeIdentifier)));
+    }
+
     internal PackageHousePruningReceipt(
         PackageHouseRequest request,
         PlatformSupplyReceipt policy)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(policy);
-        if (request.Demand is not PackageHouseDemand.Exact exact)
-        {
-            throw new ArgumentException(
-                "This PackageHouse contract floor prunes only exact package demands.",
-                nameof(request));
-        }
-        if (request.TargetContext?.PlatformTarget
-            is not { } target)
+        PackageSourceCoordinate coordinate =
+            RequireCoordinate(request);
+        if (request.TargetContext
+                is not
+                {
+                    Mode: PackageHouseTargetSelectionMode.Exact,
+                    PlatformTarget: { } target,
+                })
         {
             throw new ArgumentException(
                 "A pruning receipt requires the request's exact platform correspondence.",
@@ -32,7 +67,7 @@ public sealed class PackageHousePruningReceipt
         }
         if (!PolicyCoordinateMatches(
                 policy.Coordinate,
-                exact.Coordinate,
+                coordinate,
                 request.TargetContext)
             || !policy.Inventory.TargetFramework.Equals(
                 target.TargetFramework.ToString(),
@@ -69,7 +104,7 @@ public sealed class PackageHousePruningReceipt
     public PackageHouseRequest Request { get; }
 
     public PackageSourceCoordinate Coordinate =>
-        ((PackageHouseDemand.Exact)Request.Demand).Coordinate;
+        RequireCoordinate(Request);
 
     public PlatformFamilyTarget Target =>
         Request.TargetContext!.PlatformTarget!;
@@ -77,6 +112,18 @@ public sealed class PackageHousePruningReceipt
     public PlatformSupplyReceipt Policy { get; }
 
     public PlatformSupply Supply => Policy.Supply;
+
+    private static PackageSourceCoordinate RequireCoordinate(
+        PackageHouseRequest request) =>
+        request.Demand switch
+        {
+            PackageHouseDemand.Exact exact => exact.Coordinate,
+            PackageHouseDemand.Candidate candidate =>
+                candidate.Value.Coordinate,
+            _ => throw new ArgumentException(
+                "Pruning requires an exact or candidate-bound package demand.",
+                nameof(request)),
+        };
 
     private static bool PolicyCoordinateMatches(
         PackageCoordinate policy,
@@ -803,58 +850,10 @@ public sealed class PackageHouseEvidence
                 "A House evidence envelope cannot retain a null failure.",
                 nameof(failures));
         }
-        foreach (PackageHouseFailure.Timeout timeout
-            in Failures.OfType<PackageHouseFailure.Timeout>())
-        {
-            TimeSpan expected = timeout.Kind switch
-            {
-                PackageHouseTimeoutKind.Request =>
-                    request.Operation.RequestTimeout,
-                PackageHouseTimeoutKind.Operation =>
-                    request.Operation.OperationTimeout,
-                _ => throw new ArgumentOutOfRangeException(nameof(failures)),
-            };
-            if (!ReferenceEquals(
-                    timeout.Operation,
-                    request.Operation.Identity)
-                || timeout.Duration != expected)
-            {
-                throw new ArgumentException(
-                    "A retained timeout must match the request's operation identity and configured duration.",
-                    nameof(failures));
-            }
-        }
-        foreach (PackageHouseFailure.Authority authority
-            in Failures.OfType<PackageHouseFailure.Authority>())
-        {
-            if (!ReferenceEquals(
-                        authority.Operation,
-                        request.Operation.Identity))
-            {
-                    throw new ArgumentException(
-                        "A retained authority failure must match the request's operation identity.",
-                        nameof(failures));
-            }
-            if (authority.Failure.Timeout is { } timeout)
-            {
-                    TimeSpan expected = timeout.Kind switch
-                    {
-                        PackageSourceTimeoutKind.Request
-                            or PackageSourceTimeoutKind.MetadataBody =>
-                            request.Operation.RequestTimeout,
-                        PackageSourceTimeoutKind.Operation =>
-                            request.Operation.OperationTimeout,
-                        _ => throw new ArgumentOutOfRangeException(
-                            nameof(failures)),
-                    };
-                    if (timeout.Duration != expected)
-                    {
-                        throw new ArgumentException(
-                            "A retained authority timeout must match the request's configured duration.",
-                            nameof(failures));
-                    }
-            }
-        }
+        PackageHouseContractValidation.RequireFailuresMatchOperation(
+            request.Operation,
+            Failures,
+            nameof(failures));
     }
 
     public PackageHouseRequest Request { get; }
@@ -1186,6 +1185,67 @@ public abstract class PackageHouseResult
 
 internal static class PackageHouseContractValidation
 {
+    internal static void RequireFailuresMatchOperation(
+        PackageHouseOperation operation,
+        IEnumerable<PackageHouseFailure> failures,
+        string parameterName)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        ArgumentNullException.ThrowIfNull(failures);
+        foreach (PackageHouseFailure.Timeout timeout
+            in failures.OfType<PackageHouseFailure.Timeout>())
+        {
+            TimeSpan expected = timeout.Kind switch
+            {
+                PackageHouseTimeoutKind.Request =>
+                    operation.RequestTimeout,
+                PackageHouseTimeoutKind.Operation =>
+                    operation.OperationTimeout,
+                _ => throw new ArgumentOutOfRangeException(parameterName),
+            };
+            if (!ReferenceEquals(
+                    timeout.Operation,
+                    operation.Identity)
+                || timeout.Duration != expected)
+            {
+                throw new ArgumentException(
+                    "A retained timeout must match the request's operation identity and configured duration.",
+                    parameterName);
+            }
+        }
+        foreach (PackageHouseFailure.Authority authority
+            in failures.OfType<PackageHouseFailure.Authority>())
+        {
+            if (!ReferenceEquals(
+                    authority.Operation,
+                    operation.Identity))
+            {
+                throw new ArgumentException(
+                    "A retained authority failure must match the request's operation identity.",
+                    parameterName);
+            }
+            if (authority.Failure.Timeout is { } timeout)
+            {
+                TimeSpan expected = timeout.Kind switch
+                {
+                    PackageSourceTimeoutKind.Request
+                        or PackageSourceTimeoutKind.MetadataBody =>
+                        operation.RequestTimeout,
+                    PackageSourceTimeoutKind.Operation =>
+                        operation.OperationTimeout,
+                    _ => throw new ArgumentOutOfRangeException(
+                        parameterName),
+                };
+                if (timeout.Duration != expected)
+                {
+                    throw new ArgumentException(
+                        "A retained authority timeout must match the request's configured duration.",
+                        parameterName);
+                }
+            }
+        }
+    }
+
     internal static void RequireVersionResolutionMatchesDemand(
         PackageHouseDemand demand,
         PackageHouseDecision decision,

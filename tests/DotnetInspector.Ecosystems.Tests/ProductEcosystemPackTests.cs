@@ -11,7 +11,7 @@ public sealed class ProductEcosystemPackTests
     public void AspireIsTheOnlyShippedScannerAndRetainsTheOwnerBinding()
     {
         Assert.Equal(
-            [false, false, false, true],
+            [false, false, false, true, false, false, false, false],
             EcosystemPackCatalog.Discover().Select(pack => pack.HasScanner));
         var selected = Assert.IsType<EcosystemScannerSelectionResult.Known>(
             EcosystemPackCatalog.SelectScanner(EcosystemPackIds.Aspire));
@@ -22,6 +22,10 @@ public sealed class ProductEcosystemPackTests
                 EcosystemPackIds.Platform,
                 EcosystemPackIds.MicrosoftExtensions,
                 EcosystemPackIds.AspNetCore,
+                EcosystemPackIds.AI,
+                EcosystemPackIds.Azure,
+                EcosystemPackIds.Blazor,
+                EcosystemPackIds.Maui,
             },
             id => Assert.IsType<EcosystemScannerSelectionResult.Unavailable>(
                 EcosystemPackCatalog.SelectScanner(id)));
@@ -67,7 +71,31 @@ public sealed class ProductEcosystemPackTests
                 400,
                 PackageSetIds.Aspire,
                 ProductDemoIds.AspirePostgresCallGraph,
-                ProductDemoIds.AspireRedisCallGraph));
+                ProductDemoIds.AspireRedisCallGraph),
+            ai => AssertPack(
+                ai,
+                EcosystemPackIds.AI,
+                "AI",
+                500,
+                packageSet: null),
+            azure => AssertPack(
+                azure,
+                EcosystemPackIds.Azure,
+                "Azure",
+                600,
+                packageSet: null),
+            blazor => AssertPack(
+                blazor,
+                EcosystemPackIds.Blazor,
+                "Blazor",
+                700,
+                packageSet: null),
+            maui => AssertPack(
+                maui,
+                EcosystemPackIds.Maui,
+                ".NET MAUI",
+                800,
+                packageSet: null));
     }
 
     [Fact]
@@ -116,7 +144,7 @@ public sealed class ProductEcosystemPackTests
     }
 
     [Fact]
-    public void ShippedRetrievalKnowledgeMatchesLiteralPolicy()
+    public void ShippedNamespaceAndRegisteredPackageKnowledgeMatchesLiteralPolicy()
     {
         Assert.Collection(
             EcosystemPackCatalog.Discover(),
@@ -136,7 +164,64 @@ public sealed class ProductEcosystemPackTests
                     "Microsoft.AspNetCore.OpenApi",
                     "Microsoft.AspNetCore.Authentication.JwtBearer",
                 ]),
-            aspire => AssertKnowledge(aspire, ["Aspire"], ["Aspire.Hosting"]));
+            aspire => AssertKnowledge(aspire, ["Aspire"], ["Aspire.Hosting"]),
+            ai => AssertKnowledge(
+                ai,
+                [
+                    "Microsoft.Extensions.AI",
+                    "Microsoft.Extensions.VectorData",
+                    "Microsoft.Agents.AI",
+                    "ModelContextProtocol",
+                ],
+                [
+                    "Microsoft.Extensions.AI",
+                    "Microsoft.Extensions.AI.Abstractions",
+                    "Microsoft.Extensions.VectorData.Abstractions",
+                    "Microsoft.Agents.AI",
+                    "ModelContextProtocol",
+                ]),
+            azure => AssertKnowledge(
+                azure,
+                [
+                    "Azure",
+                    "Microsoft.Extensions.Azure",
+                ],
+                [
+                    "Microsoft.Extensions.Azure",
+                    "Azure.AI.OpenAI",
+                    "Microsoft.Azure.SignalR",
+                    "Aspire.Azure.AI.OpenAI",
+                    "Aspire.Hosting.Azure.SignalR",
+                    "Azure.Identity",
+                    "Azure.Security.KeyVault.Secrets",
+                    "Azure.Storage.Blobs",
+                    "Azure.Messaging.ServiceBus",
+                ]),
+            blazor => AssertKnowledge(
+                blazor,
+                [
+                    "Microsoft.AspNetCore.Components",
+                    "Microsoft.Authentication.WebAssembly",
+                ],
+                [
+                    "Microsoft.AspNetCore.Components.WebAssembly",
+                    "Microsoft.AspNetCore.Components.WebView.Maui",
+                    "Microsoft.AspNetCore.Components.QuickGrid.EntityFrameworkAdapter",
+                    "Microsoft.Authentication.WebAssembly.Msal",
+                ]),
+            maui => AssertKnowledge(
+                maui,
+                [
+                    "Microsoft.Maui",
+                    "CommunityToolkit.Maui",
+                ],
+                [
+                    "Microsoft.Maui.Controls",
+                    "Microsoft.AspNetCore.Components.WebView.Maui",
+                    "CommunityToolkit.Maui",
+                    "Microsoft.Maui.Graphics.Skia",
+                    "Microsoft.Maui.Graphics.Text.Markdig",
+                ]));
 
         static void AssertKnowledge(
             EcosystemPackDescriptor pack,
@@ -165,7 +250,11 @@ public sealed class ProductEcosystemPackTests
             aspNetCore => Assert.Empty(aspNetCore.ToolPackages),
             aspire => Assert.Equal(
                 new PackageCoordinate("Aspire.Cli"),
-                Assert.Single(aspire.ToolPackages)));
+                Assert.Single(aspire.ToolPackages)),
+            ai => Assert.Empty(ai.ToolPackages),
+            azure => Assert.Empty(azure.ToolPackages),
+            blazor => Assert.Empty(blazor.ToolPackages),
+            maui => Assert.Empty(maui.ToolPackages));
     }
 
     [Fact]

@@ -14,8 +14,13 @@ namespace DotnetInspect.Web;
 internal sealed record BrowserPackageCacheSnapshot(
     int Packages,
     int Resident,
+    int MaxPackageEntries,
     int Workspaces,
-    long ResidentBytes);
+    int MaxWorkspaces,
+    int MaxWorkspaceAssembliesPerRole,
+    long ResidentBytes,
+    long MaxResidentBytes,
+    long MaxWorkspaceRetainedImageBytes);
 
 internal sealed record BrowserPackageDocumentEntry(
     string Kind,
@@ -101,13 +106,33 @@ internal static class BrowserPackageWorkspace
         TimeSpan.FromSeconds(30);
     internal static TimeSpan GalleryOperationTimeout { get; } =
         PackageOperationTimeout - TimeSpan.FromSeconds(5);
+    internal static TimeSpan PackageChangesOperationTimeout { get; } =
+        TimeSpan.FromSeconds(120);
+    internal static TimeSpan PackageChangesSourceOperationTimeout { get; } =
+        PackageChangesOperationTimeout - TimeSpan.FromSeconds(5);
+    internal static TimeSpan PackageChangesRequestTimeout { get; } =
+        TimeSpan.FromSeconds(25);
 
+    static readonly BrowserPublicEvidenceProxyHandler
+        PublicEvidenceProxyHandler =
+            new(new HttpClientHandler());
+    static readonly BrowserPublicEvidenceProxyHandler
+        CatalogPublicEvidenceProxyHandler =
+            new(new HttpClientHandler());
+    static readonly BrowserPublicEvidenceProxyHandler
+        AdvisoryPublicEvidenceProxyHandler =
+            new(new HttpClientHandler());
     static readonly BrowserMsdlProxyHandler MsdlProxyHandler =
-        new(new HttpClientHandler());
+        new(PublicEvidenceProxyHandler);
     static readonly HttpClient Http = new(MsdlProxyHandler)
     {
         Timeout = Timeout.InfiniteTimeSpan,
     };
+    static readonly HttpClient PackageChangesAdvisoryHttp =
+        new(AdvisoryPublicEvidenceProxyHandler)
+        {
+            Timeout = PackageChangesRequestTimeout,
+        };
     static readonly PackageSourceIdentity GalleryConfiguredIdentity =
         PackageSourceIdentity.NuGetOrg;
     static readonly ConcurrentDictionary<
@@ -123,6 +148,14 @@ internal static class BrowserPackageWorkspace
             {
                 RequestTimeout = GalleryOperationTimeout,
                 OperationTimeout = GalleryOperationTimeout,
+            });
+    internal static readonly INuGetCatalogPackageSourceClient Catalog =
+        CreateCatalogSource(
+            CatalogPublicEvidenceProxyHandler,
+            new NuGetFetchOptions
+            {
+                RequestTimeout = PackageChangesRequestTimeout,
+                OperationTimeout = PackageChangesSourceOperationTimeout,
             });
     static readonly ConditionalWeakTable<IPackageSourceClient, BrowserSessionPackageStore>
         SourceStores = new();
@@ -153,8 +186,15 @@ internal static class BrowserPackageWorkspace
     static long _clock;
 
     internal static HttpClient NetworkClient => Http;
-    internal static void ConfigureMsdlProxy(string origin) =>
+    internal static HttpClient PackageChangesAdvisoryClient =>
+        PackageChangesAdvisoryHttp;
+    internal static void ConfigureHostProxies(string origin)
+    {
         MsdlProxyHandler.Configure(origin);
+        PublicEvidenceProxyHandler.Configure(origin);
+        CatalogPublicEvidenceProxyHandler.Configure(origin);
+        AdvisoryPublicEvidenceProxyHandler.Configure(origin);
+    }
     internal static IPackageSourceAuthorization PackageSourceAuthorization =>
         SourceAuthorization;
     internal static IPackageStore SessionPackageStore => Store;
@@ -200,9 +240,14 @@ internal static class BrowserPackageWorkspace
         new(
             Downloaded.Count,
             Cache.Count,
+            MaxCachedPackages,
             Scopes.Count,
+            MaxOpenScopes,
+            BrowserInspectionScope.MaxAssembliesPerRole,
             Cache.Values.Sum(entry => entry.Bytes.LongLength)
-                + Reservations.Values.Sum(reservation => reservation.ReservedBytes));
+                + Reservations.Values.Sum(reservation => reservation.ReservedBytes),
+            MaxCachedPackageBytes,
+            BrowserInspectionScope.MaxRetainedImageBytes);
 
     /// <summary>
     /// Resolves and acquires one package through the shared product owners
@@ -395,6 +440,26 @@ internal static class BrowserPackageWorkspace
                 association,
                 ownedCredentialFreeTransport,
                 options));
+    }
+
+    /// <summary>
+    /// Creates the full NuGet.org V3 source used by Catalog-backed reports over
+    /// the Browser's fixed public-evidence bridge.
+    /// </summary>
+    internal static INuGetCatalogPackageSourceClient CreateCatalogSource(
+        HttpMessageHandler ownedCredentialFreeTransport,
+        NuGetFetchOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(ownedCredentialFreeTransport);
+        ArgumentNullException.ThrowIfNull(options);
+        IPackageSourceClient source = PackageSourceClientFactory.Create(
+            PackageSource.NuGetOrg,
+            PackageSourceAssociation.Create(),
+            ownedCredentialFreeTransport,
+            options);
+        return source as INuGetCatalogPackageSourceClient
+            ?? throw new InvalidOperationException(
+                "The built-in NuGet.org source does not expose Catalog activity.");
     }
 
     static IPackageSourceClient RegisterGallerySource(
@@ -1411,11 +1476,7 @@ internal static class BrowserPackageWorkspace
             IPackagePayloadTransferPolicy? transferPolicy = null)
     {
         if (requiredProducerKey is not null
-            && !NuGetCache.GetSourceKey(
-                    PackageSource.NuGetOrg.Url)
-                .Equals(
-                requiredProducerKey,
-                StringComparison.Ordinal))
+            && !MatchesGalleryProducer(requiredProducerKey))
         {
             return new PackageRootPayloadResult.Unavailable(
                 Gallery.Source.Producer.Display,
@@ -1452,6 +1513,19 @@ internal static class BrowserPackageWorkspace
                 "Package payload acquisition returned an unknown outcome."),
         };
     }
+
+    static bool MatchesGalleryProducer(string requiredProducer) =>
+        Gallery.Source.Producer.PortableKey.Equals(
+            requiredProducer,
+            StringComparison.Ordinal)
+        || Gallery.Source.Producer.Key.Equals(
+            requiredProducer,
+            StringComparison.Ordinal)
+        || NuGetCache.GetSourceKey(
+                PackageSource.NuGetOrg.Url)
+            .Equals(
+                requiredProducer,
+                StringComparison.Ordinal);
 
     static void ObserveAndRemovePendingAcquisition(
         PendingAcquisitionKey key,

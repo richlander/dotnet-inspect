@@ -8,7 +8,7 @@ namespace DotnetInspect.Cli.Tests;
 
 /// <summary>
 /// End-to-end cover for the configured request timeout, against a stub feed that answers the
-/// service index and then never answers the search query.
+/// service index and then never answers the package payload request.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -20,8 +20,8 @@ namespace DotnetInspect.Cli.Tests;
 /// </para>
 /// <para>
 /// The stub has to answer the service index rather than refuse the connection. A dead index
-/// fails earlier, in the branch that reports no searchable endpoint, and never reaches the
-/// search query where the timeout applies.
+/// fails earlier, before package acquisition reaches the payload request where the timeout
+/// applies.
 /// </para>
 /// <para>
 /// Nothing here asserts on elapsed time. The stub never answers, so the request always outlasts
@@ -31,6 +31,10 @@ namespace DotnetInspect.Cli.Tests;
 [Collection("Console")]
 public sealed class HttpTimeoutEndToEndTests : IDisposable
 {
+    private const string PackagePayloadPath =
+        "/flat/dotnet-inspect-timeout-probe/1.0.0/"
+        + "dotnet-inspect-timeout-probe.1.0.0.nupkg";
+
     private readonly TcpListener _listener;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly int _port;
@@ -64,13 +68,13 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
     [InlineData("--http-timeout", "3")]
     [InlineData("--http-timeout=3", null)]
     [InlineData("--http-timeout:3", null)]
-    public void HttpTimeout_FlagGovernsTheSearchRequest(string flag, string? value)
+    public void HttpTimeout_FlagGovernsThePackageRequest(string flag, string? value)
     {
         string[] args = value is null ? [flag] : [flag, value];
 
-        string error = RunSearch(args, environmentValue: null);
+        string error = RunPackageRequest(args, environmentValue: null);
 
-        Assert.Contains(3, TimeoutSeconds(error));
+        Assert.Contains(3, PayloadTimeoutSeconds(error));
     }
 
     /// <summary>
@@ -78,11 +82,11 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
     /// </summary>
     [Fact]
     [Trait("Speed", "Slow")]
-    public void HttpTimeout_EnvironmentVariableGovernsTheSearchRequest()
+    public void HttpTimeout_EnvironmentVariableGovernsThePackageRequest()
     {
-        string error = RunSearch([], environmentValue: "4");
+        string error = RunPackageRequest([], environmentValue: "4");
 
-        Assert.Contains(4, TimeoutSeconds(error));
+        Assert.Contains(4, PayloadTimeoutSeconds(error));
     }
 
     /// <summary>
@@ -90,15 +94,14 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
     /// </summary>
     [Fact]
     [Trait("Speed", "Slow")]
-    public void HttpTimeout_AboveDefaultExtendsTheSearchRequest()
+    public void HttpTimeout_AboveDefaultExtendsThePackageRequest()
     {
-        string error = RunSearch(
+        string error = RunPackageRequest(
             ["--http-timeout", "31"],
-            environmentValue: null,
-            stallServiceIndex: true);
+            environmentValue: null);
 
-        Assert.Contains(31, TimeoutSeconds(error));
-        Assert.DoesNotContain(30, TimeoutSeconds(error));
+        Assert.Contains(31, PayloadTimeoutSeconds(error));
+        Assert.DoesNotContain(30, PayloadTimeoutSeconds(error));
     }
 
     /// <summary>
@@ -109,7 +112,8 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
     [Trait("Speed", "Slow")]
     public void HttpTimeout_FlagOutranksTheEnvironmentVariable()
     {
-        IReadOnlyList<int> seconds = TimeoutSeconds(RunSearch(["--http-timeout", "2"], environmentValue: "9"));
+        IReadOnlyList<int> seconds = PayloadTimeoutSeconds(
+            RunPackageRequest(["--http-timeout", "2"], environmentValue: "9"));
 
         Assert.Contains(2, seconds);
         Assert.DoesNotContain(9, seconds);
@@ -118,10 +122,24 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
     [Theory]
     [InlineData("explicit: net_http_request_timedout, 7")]
     [InlineData("explicit: The request was canceled due to the configured HttpClient.Timeout of 7 seconds elapsing.")]
-    [InlineData("explicit: NuGet request did not complete within 00:00:07.")]
+    [InlineData("explicit: NuGet payload request did not complete within 00:00:07.")]
     public void TimeoutSeconds_RecognizesOwnedAndRuntimeMessageShapes(string error)
     {
         Assert.Contains(7, TimeoutSeconds(error));
+    }
+
+    [Fact]
+    public void PayloadTimeoutSeconds_UsesOnlyTheOwnedMessage()
+    {
+        const string error = """
+            NuGet payload request did not complete within 00:00:30.
+            inner: net_http_request_timedout, 31
+            """;
+
+        IReadOnlyList<int> seconds = PayloadTimeoutSeconds(error);
+
+        Assert.Contains(30, seconds);
+        Assert.DoesNotContain(31, seconds);
     }
 
     /// <summary>
@@ -148,10 +166,23 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
             start = error.IndexOf("HttpClient.Timeout", StringComparison.Ordinal);
         if (start < 0)
             start = error.IndexOf(
-                "NuGet request did not complete within",
+                "NuGet payload request did not complete within",
                 StringComparison.Ordinal);
         Assert.True(start >= 0, $"Expected a timeout in the error, got: {error}");
 
+        return SecondsInLine(error, start);
+    }
+
+    private static IReadOnlyList<int> PayloadTimeoutSeconds(string error)
+    {
+        const string marker = "NuGet payload request did not complete within";
+        int start = error.IndexOf(marker, StringComparison.Ordinal);
+        Assert.True(start >= 0, $"Expected a payload timeout in the error, got: {error}");
+        return SecondsInLine(error, start);
+    }
+
+    private static IReadOnlyList<int> SecondsInLine(string error, int start)
+    {
         int end = error.IndexOf('\n', start);
         string clause = end < 0 ? error[start..] : error[start..end];
 
@@ -167,10 +198,9 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
         return numbers;
     }
 
-    private string RunSearch(
+    private string RunPackageRequest(
         string[] leadingArgs,
-        string? environmentValue,
-        bool stallServiceIndex = false)
+        string? environmentValue)
     {
         string executable = Path.Combine(
             Path.GetDirectoryName(ProductAssemblyPath())!,
@@ -187,14 +217,10 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
         {
             psi.ArgumentList.Add(arg);
         }
-
         psi.ArgumentList.Add("package");
-        psi.ArgumentList.Add("search");
-        psi.ArgumentList.Add("dotnet-inspect-timeout-probe");
+        psi.ArgumentList.Add("dotnet-inspect-timeout-probe@1.0.0");
         psi.ArgumentList.Add("--source");
-        psi.ArgumentList.Add(
-            $"http://127.0.0.1:{_port}/"
-            + (stallServiceIndex ? "slow-index.json" : "index.json"));
+        psi.ArgumentList.Add($"http://127.0.0.1:{_port}/index.json");
 
         // Explicitly cleared, not merely unset: an ambient value on the developer's machine
         // would otherwise decide the result of the cases that pass none.
@@ -249,20 +275,18 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
             using (client)
             {
                 NetworkStream stream = client.GetStream();
-                var buffer = new byte[4096];
-                int read = await stream.ReadAsync(buffer, cancellationToken);
-                string request = Encoding.ASCII.GetString(buffer, 0, read);
-                string path = request.Split(' ').Skip(1).FirstOrDefault() ?? string.Empty;
+                string path = await ReadRequestPathAsync(
+                    stream,
+                    cancellationToken);
 
-                if (path.StartsWith("/slow-index.json", StringComparison.Ordinal))
+                if (path == PackagePayloadPath)
                 {
-                    // Send service-index headers and a partial body, then stall. The
-                    // above-default test proves discovery does not restore the old
-                    // 30-second package-helper body clamp.
-                    byte[] indexHead = Encoding.ASCII.GetBytes(
+                    // The package payload. Send headers and a partial body, then stall so this
+                    // reaches the body phase that historically clamped values above 30 seconds.
+                    byte[] payloadHead = Encoding.ASCII.GetBytes(
                         "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
                         + "Content-Length: 1024\r\nConnection: close\r\n\r\n");
-                    await stream.WriteAsync(indexHead, cancellationToken);
+                    await stream.WriteAsync(payloadHead, cancellationToken);
                     await stream.WriteAsync(
                         Encoding.UTF8.GetBytes("{"),
                         cancellationToken);
@@ -271,25 +295,15 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
                     return;
                 }
 
-                if (!path.StartsWith("/index.json", StringComparison.Ordinal))
+                if (path != "/index.json")
                 {
-                    // The search query. Send headers and a partial body, then stall so this
-                    // reaches the body phase that historically clamped values above 30 seconds.
-                    byte[] searchHead = Encoding.ASCII.GetBytes(
-                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
-                        + "Content-Length: 1024\r\nConnection: close\r\n\r\n");
-                    await stream.WriteAsync(searchHead, cancellationToken);
-                    await stream.WriteAsync(
-                        Encoding.UTF8.GetBytes("{"),
-                        cancellationToken);
-                    await stream.FlushAsync(cancellationToken);
-                    await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
-                    return;
+                    throw new InvalidDataException(
+                        $"Unexpected stub-feed request path '{path}'.");
                 }
 
                 string body =
                     $$"""
-                    {"version":"3.0.0","resources":[{"@id":"http://127.0.0.1:{{_port}}/query","@type":"SearchQueryService"}]}
+                    {"version":"3.0.0","resources":[{"@id":"http://127.0.0.1:{{_port}}/flat/","@type":"PackageBaseAddress/3.0.0"}]}
                     """;
                 byte[] bytes = Encoding.UTF8.GetBytes(body);
                 byte[] head = Encoding.ASCII.GetBytes(
@@ -309,6 +323,47 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
         {
             // The client gave up first, which is the point of the stalling branch.
         }
+    }
+
+    private static async Task<string> ReadRequestPathAsync(
+        Stream stream,
+        CancellationToken cancellationToken)
+    {
+        var buffer = new byte[4096];
+        int length = 0;
+        while (length < buffer.Length)
+        {
+            int read = await stream.ReadAsync(
+                buffer.AsMemory(length),
+                cancellationToken);
+            if (read == 0)
+                throw new EndOfStreamException(
+                    "The HTTP request ended before its request line.");
+
+            length += read;
+            for (int index = 1; index < length; index++)
+            {
+                if (buffer[index - 1] != '\r' || buffer[index] != '\n')
+                    continue;
+
+                string requestLine = Encoding.ASCII.GetString(
+                    buffer,
+                    0,
+                    index - 1);
+                int firstSpace = requestLine.IndexOf(' ');
+                int secondSpace = requestLine.IndexOf(' ', firstSpace + 1);
+                if (firstSpace <= 0 || secondSpace <= firstSpace + 1)
+                {
+                    throw new InvalidDataException(
+                        $"Invalid HTTP request line '{requestLine}'.");
+                }
+
+                return requestLine[(firstSpace + 1)..secondSpace];
+            }
+        }
+
+        throw new InvalidDataException(
+            "The HTTP request line exceeds the stub-feed limit.");
     }
 
     private static string ProductAssemblyPath()

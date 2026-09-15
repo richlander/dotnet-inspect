@@ -58,6 +58,46 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
+    public void CommittedRealWorldBaseline_UsesNativeReturnToSenderWithoutFloor()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null
+            && !File.Exists(Path.Combine(directory.FullName, "dotnet-inspect.slnx")))
+        {
+            directory = directory.Parent;
+        }
+        Assert.NotNull(directory);
+        string path = Path.Combine(
+            directory.FullName,
+            "tools/DecompilerHarness/corpus/real-world-baseline.json");
+
+        var baseline = CorpusSensor.ReadBaselineForTesting(path);
+        var cutover = Assert.IsType<ReturnToSenderCutoverMetrics>(
+            baseline.Metrics.Fidelity.ReturnToSenderCutover);
+        int legacyExactNativeUncheckable = baseline.Methods!.Count(method =>
+            method.FidelityReference == nameof(FidelityCheck.CompileBackStatus.Exact)
+            && method.FidelityCheck is
+                nameof(FidelityCheck.CompileBackStatus.RecompileFail)
+                or nameof(FidelityCheck.CompileBackStatus.ContextFail));
+
+        Assert.Equal(CorpusSensor.CurrentSchemaVersion, baseline.SchemaVersion);
+        Assert.Equal(CorpusFidelityOracle.ReturnToSenderCutover, baseline.FidelityOracle);
+        Assert.Equal(700, cutover.SelectedMethods);
+        Assert.Equal(43, cutover.ExactLossMethods);
+        Assert.Equal(44, cutover.AvailabilityLossMethods);
+        Assert.Equal(36, legacyExactNativeUncheckable);
+        Assert.Equal(0, cutover.CompileBackFloorAppliedMethods);
+    }
+
+    [Fact]
+    public void DefaultCorpusFidelityOracle_IsNativeReturnToSenderWithoutLegacyComparison()
+    {
+        Assert.Equal(
+            CorpusFidelityOracle.ReturnToSenderNative,
+            CorpusSensor.DefaultFidelityOracle);
+    }
+
+    [Fact]
     public void OptInNet11Profile_UsesDistinctDescriptionAndCardHeading()
     {
         Assert.Contains(
@@ -357,18 +397,25 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
-    public void ValidateReturnToSenderCutoverCaps_RejectsMultipleDistinctPositiveCaps()
+    public void ValidateIndependentReturnToSenderCaps_RejectsMultipleDistinctPositiveCaps()
     {
-        var error = CorpusSensor.ValidateReturnToSenderCutoverCaps(
+        var nativeError = CorpusSensor.ValidateIndependentReturnToSenderCaps(
+            CorpusFidelityOracle.ReturnToSenderNative,
+            [0, 1, 2, 2]);
+        var cutoverError = CorpusSensor.ValidateIndependentReturnToSenderCaps(
             CorpusFidelityOracle.ReturnToSenderCutover,
             [0, 1, 2, 2]);
 
-        Assert.NotNull(error);
-        Assert.Contains("only one distinct positive", error, StringComparison.Ordinal);
-        Assert.Null(CorpusSensor.ValidateReturnToSenderCutoverCaps(
+        Assert.NotNull(nativeError);
+        Assert.Contains("rts-native", nativeError, StringComparison.Ordinal);
+        Assert.Contains("only one distinct positive", nativeError, StringComparison.Ordinal);
+        Assert.NotNull(cutoverError);
+        Assert.Contains("rts-cutover", cutoverError, StringComparison.Ordinal);
+        Assert.Contains("only one distinct positive", cutoverError, StringComparison.Ordinal);
+        Assert.Null(CorpusSensor.ValidateIndependentReturnToSenderCaps(
             CorpusFidelityOracle.ReturnToSenderCutover,
             [0, 2, 2]));
-        Assert.Null(CorpusSensor.ValidateReturnToSenderCutoverCaps(
+        Assert.Null(CorpusSensor.ValidateIndependentReturnToSenderCaps(
             CorpusFidelityOracle.CompileBack,
             [1, 2]));
     }
@@ -1751,7 +1798,7 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
-    public async Task ReturnToSenderCutover_ContextFailureRetainsEverySelectedTarget()
+    public async Task IndependentReturnToSender_ContextFailureRetainsEverySelectedTarget()
     {
         FidelityCheck.CompileBackTarget[] targets =
         [
@@ -1759,7 +1806,7 @@ public class CorpusSensorComparisonTests
             new("test.dll", "Fixture", "Two", 0, "() -> corelib:System.Int32"),
         ];
 
-        var results = await CorpusSensor.EvaluateReturnToSenderCutoverTargetsForTesting(
+        var results = await CorpusSensor.EvaluateIndependentReturnToSenderTargetsForTesting(
             targets,
             () => throw new InvalidOperationException(
                 "Compilation reference preparation failed with ReferencePlatformSelectionUnavailable."));
@@ -1947,7 +1994,7 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
-    public void DeterministicReturnToSenderCutoverTargets_SelectsExactCapBeforeEitherOracle()
+    public void DeterministicIndependentReturnToSenderTargets_SelectsExactCapBeforeAnyOracle()
     {
         string assemblyPath = Path.Combine(Environment.CurrentDirectory, "pinned.dll");
         CorpusMethodSnapshot[] methods =
@@ -1960,11 +2007,11 @@ public class CorpusSensorComparisonTests
             SnapshotMethod("<Owner>b__0_0", assemblyPath: "pinned.dll", fidelityCheck: "Exact"),
         ];
 
-        var selected = CorpusSensor.DeterministicReturnToSenderCutoverTargetsForTesting(
+        var selected = CorpusSensor.DeterministicIndependentReturnToSenderTargetsForTesting(
             methods,
             assemblyPath,
             cap: 4);
-        var reordered = CorpusSensor.DeterministicReturnToSenderCutoverTargetsForTesting(
+        var reordered = CorpusSensor.DeterministicIndependentReturnToSenderTargetsForTesting(
             methods.Reverse().ToArray(),
             assemblyPath,
             cap: 4);
@@ -1978,7 +2025,7 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
-    public void DeterministicReturnToSenderCutoverTargets_FailsWhenExactCapIsUnavailable()
+    public void DeterministicIndependentReturnToSenderTargets_FailsWhenExactCapIsUnavailable()
     {
         string assemblyPath = Path.Combine(Environment.CurrentDirectory, "pinned.dll");
         CorpusMethodSnapshot[] methods =
@@ -1988,7 +2035,7 @@ public class CorpusSensorComparisonTests
         ];
 
         var exception = Assert.Throws<InvalidOperationException>(() =>
-            CorpusSensor.DeterministicReturnToSenderCutoverTargetsForTesting(
+            CorpusSensor.DeterministicIndependentReturnToSenderTargetsForTesting(
                 methods,
                 assemblyPath,
                 cap: 2));
@@ -2288,40 +2335,112 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
-    public void DeepInspectCensus_RetainsNativeReturnToSenderCutoverEvidence()
+    public void Compare_ReturnToSenderNative_RejectsDifferentModuleIdentity()
+    {
+        var run = new CorpusRunIdentity(
+            SourceRevision: new string('a', 40),
+            SourceState: "clean",
+            Compiler: "Roslyn test",
+            Runtime: ".NET test",
+            OperatingSystem: "TestOS",
+            ProcessArchitecture: "X64");
+        var baseline = Snapshot(
+            totalMethods: 1,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods: [RtsMethod("One", null, "Exact")],
+            fidelityCompileCap: 1,
+            fidelityCheckedMethods: 1,
+            fidelityExactMethods: 1,
+            fidelityOracle: CorpusFidelityOracle.ReturnToSenderNative,
+            schemaVersion: CorpusSensor.CurrentSchemaVersion,
+            runIdentity: run,
+            moduleVersionId: Guid.Parse("11111111-1111-1111-1111-111111111111"));
+        var current = baseline with
+        {
+            Assemblies =
+            [
+                new CorpusAssemblySnapshot(
+                    "Test",
+                    "test.dll",
+                    1,
+                    Guid.Parse("22222222-2222-2222-2222-222222222222")),
+            ],
+        };
+
+        var regressions = CorpusSensor.Compare(baseline, current, [], gateAggregateRates: false);
+
+        Assert.Contains("Native RTS input identity differs from baseline", regressions);
+    }
+
+    [Fact]
+    public void DeepInspectCensus_UsesNativeReturnToSenderForRealWorldBaseline()
     {
         string root = AuthoredCorpusRatchetTests.FindRepositoryRoot();
         string workflow = File.ReadAllText(
             Path.Combine(root, ".github", "workflows", "deep-inspect.yml"));
+        string censusJob = WorkflowJob(workflow, "census");
+        string scheduledFailureJob = WorkflowJob(workflow, "report-scheduled-failure");
 
         Assert.Contains(
-            "artifacts/deep-inspect/rts-cutover-snapshot.json",
-            workflow,
+            "artifacts/deep-inspect/corpus-snapshot.json",
+            censusJob,
             StringComparison.Ordinal);
         Assert.Contains(
-            "artifacts/deep-inspect/rts-cutover.txt",
-            workflow,
+            "--diff-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json",
+            censusJob,
             StringComparison.Ordinal);
         Assert.Contains(
             "--corpus-fidelity-oracle rts-cutover",
-            workflow,
+            censusJob,
             StringComparison.Ordinal);
         Assert.Contains(
             "--corpus-fidelity-cap 50",
-            workflow,
+            censusJob,
             StringComparison.Ordinal);
         Assert.Contains(
             "artifacts/deep-inspect/corpus-assemblies.txt",
+            censusJob,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "(github.event_name == 'schedule' && github.event.schedule == '0 6 * * *')",
+            censusJob,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "- census",
+            scheduledFailureJob,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "artifacts/deep-inspect/rts-cutover-snapshot.json",
             workflow,
             StringComparison.Ordinal);
-        Assert.True(
-            workflow.IndexOf(
-                "Record independently selected native RTS cutover evidence",
-                StringComparison.Ordinal)
-            < workflow.IndexOf(
-                "Run real-world corpus sensor",
-                StringComparison.Ordinal),
-            "Native RTS cutover evidence must run before baseline-gated census steps.");
+        Assert.DoesNotContain(
+            "Record independently selected native RTS cutover evidence",
+            workflow,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LegacyCorpusBaselines_ExplicitlyPinCompileBack()
+    {
+        string root = AuthoredCorpusRatchetTests.FindRepositoryRoot();
+        string deepInspect = File.ReadAllText(
+            Path.Combine(root, ".github", "workflows", "deep-inspect.yml"));
+        string ci = File.ReadAllText(
+            Path.Combine(root, ".github", "workflows", "ci.yml"));
+
+        Assert.Contains(
+            "--corpus-fidelity-oracle compile-back",
+            WorkflowStep(deepInspect, "Run classic state-machine corpus sensor"),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "--corpus-fidelity-oracle compile-back",
+            WorkflowStep(deepInspect, "Gate net11 opt-in feature corpus"),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "--corpus-fidelity-oracle compile-back",
+            WorkflowStep(ci, "Run PR decompiler corpus sensor"),
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -3206,5 +3325,34 @@ public class CorpusSensorComparisonTests
         Assert.Contains(
             "Caveat: the corpus drifted from the baseline (see baseline staleness above).",
             card);
+    }
+
+    static string WorkflowStep(string workflow, string name)
+    {
+        string marker = $"- name: {name}";
+        int start = workflow.IndexOf(marker, StringComparison.Ordinal);
+        Assert.True(start >= 0, $"Workflow step '{name}' was not found.");
+        int end = workflow.IndexOf("\n      - name:", start + marker.Length, StringComparison.Ordinal);
+        return end >= 0 ? workflow[start..end] : workflow[start..];
+    }
+
+    static string WorkflowJob(string workflow, string jobId)
+    {
+        string[] lines = workflow.Split('\n');
+        string marker = $"  {jobId}:";
+        int start = Array.FindIndex(lines, line => line == marker);
+        Assert.True(start >= 0, $"Workflow job '{jobId}' was not found.");
+
+        int end = start + 1;
+        while (end < lines.Length
+            && !(lines[end].StartsWith("  ", StringComparison.Ordinal)
+                && lines[end].Length > 2
+                && lines[end][2] != ' '
+                && lines[end].EndsWith(':')))
+        {
+            end++;
+        }
+
+        return string.Join('\n', lines[start..end]);
     }
 }

@@ -15,7 +15,8 @@ public static class EcosystemChangeReportQuery
             GitHubNuGetAdvisoryService advisoryService,
             EcosystemChangeReportPlan plan,
             CancellationToken cancellationToken = default,
-            NuGetOperationContext? operationContext = null)
+            NuGetOperationContext? operationContext = null,
+            CancellationToken advisoryDeadlineCancellation = default)
     {
         var events = ImmutableArray.CreateBuilder<
             EcosystemChangeReportEvent>();
@@ -25,7 +26,8 @@ public static class EcosystemChangeReportQuery
                 advisoryService,
                 plan,
                 cancellationToken,
-                operationContext).ConfigureAwait(false))
+                operationContext,
+                advisoryDeadlineCancellation).ConfigureAwait(false))
         {
             events.Add(queryEvent);
         }
@@ -40,7 +42,8 @@ public static class EcosystemChangeReportQuery
             EcosystemChangeReportPlan plan,
             [EnumeratorCancellation] CancellationToken cancellationToken =
                 default,
-            NuGetOperationContext? operationContext = null)
+            NuGetOperationContext? operationContext = null,
+            CancellationToken advisoryDeadlineCancellation = default)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(advisoryService);
@@ -148,7 +151,8 @@ public static class EcosystemChangeReportQuery
                 new GitHubNuGetAdvisoryRequest(
                     source.Source.Producer,
                     coordinates),
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                advisoryDeadlineCancellation).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
         yield return new EcosystemChangeReportEvent.Progress(
             new EcosystemChangeReportProgress(

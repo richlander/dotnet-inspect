@@ -1,12 +1,13 @@
 using System.Collections.Immutable;
+using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Metadata;
 
 /// <summary>
-/// Reader-independent definition and forwarding declarations from one
-/// acquisition-issued assembly descriptor.
+/// Reader-independent declarations from one admitted assembly image.
 /// </summary>
 public sealed class AssemblyTypeDeclarationInventory
 {
@@ -14,19 +15,70 @@ public sealed class AssemblyTypeDeclarationInventory
         AssemblyReferenceIdentity identity,
         ImmutableArray<MetadataTypeDefinitionName> definitions,
         ImmutableArray<MetadataTypeDefinitionName> forwarders,
+        ImmutableArray<AssemblyTypeDeclaration> declarations,
         int meaningfulPublicTypeCount)
     {
         Identity = identity;
         Definitions = definitions;
         Forwarders = forwarders;
+        Declarations = declarations;
         MeaningfulPublicTypeCount = meaningfulPublicTypeCount;
     }
 
     public AssemblyReferenceIdentity Identity { get; }
     public ImmutableArray<MetadataTypeDefinitionName> Definitions { get; }
     public ImmutableArray<MetadataTypeDefinitionName> Forwarders { get; }
+    public ImmutableArray<AssemblyTypeDeclaration> Declarations { get; }
     public int MeaningfulPublicTypeCount { get; }
+
+    /// <summary>
+    /// Selects public discovery declarations by default, or all declarations
+    /// without rereading the image. Module exports retain their distinct kind.
+    /// </summary>
+    public IEnumerable<AssemblyTypeDeclaration> GetDeclarations(bool includeAll = false) =>
+        includeAll ? Declarations : Declarations.Where(static declaration => declaration.IsPublicSurface);
 }
+
+public enum AssemblyTypeDeclarationKind
+{
+    Definition,
+    Forwarder,
+    ModuleExport,
+}
+
+/// <summary>One detached declaration; public discovery is not target binding.</summary>
+public sealed class AssemblyTypeDeclaration
+{
+    internal AssemblyTypeDeclaration(
+        MetadataTypeDefinitionName name,
+        AssemblyTypeDeclarationKind kind,
+        bool isPublicSurface,
+        TypeDeclarationDiscoveryAttributes? discoveryAttributes = null)
+    {
+        Name = name;
+        Kind = kind;
+        IsPublicSurface = isPublicSurface;
+        DiscoveryAttributes = discoveryAttributes;
+    }
+
+    public MetadataTypeDefinitionName Name { get; }
+    public AssemblyTypeDeclarationKind Kind { get; }
+    public bool IsPublicSurface { get; }
+
+    /// <summary>
+    /// Attributes declared on this definition, without inheritance or filtering.
+    /// Null for exports: their target definition has not been inspected.
+    /// </summary>
+    public TypeDeclarationDiscoveryAttributes? DiscoveryAttributes { get; }
+}
+
+/// <summary>
+/// Detached attribute facts for type discovery. Compiler-compatibility obsolete
+/// markers recognized by Metadata are not deprecation.
+/// </summary>
+public sealed record TypeDeclarationDiscoveryAttributes(
+    bool IsEditorBrowsableNever,
+    bool IsObsolete);
 
 /// <summary>The typed result of reading one declaration inventory.</summary>
 public abstract class AssemblyTypeDeclarationInventoryOutcome
@@ -98,80 +150,9 @@ public static class AssemblyTypeDeclarationInventoryReader
                     "The opened image identity does not match the acquisition descriptor.");
             }
 
-            var definitions =
-                ImmutableArray.CreateBuilder<MetadataTypeDefinitionName>();
-            int meaningfulPublicTypeCount = 0;
-            foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
-            {
-                TypeDefinition definition = reader.GetTypeDefinition(handle);
-                if (MetadataTypeDefinitionNameReader.Read(reader, handle)
-                    is not MetadataTypeDefinitionNameReadResult.Read read)
-                {
-                    return Reject(
-                        CandidateOpenFailureKind.InvalidImage,
-                        "A type definition name could not be decoded.");
-                }
-
-                definitions.Add(read.Name);
-                if (definition.IsPublic
-                    && !TypeFilters.IsCompilerGenerated(
-                        reader.GetString(definition.Name)))
-                {
-                    meaningfulPublicTypeCount++;
-                }
-            }
-
-            var forwarders =
-                ImmutableArray.CreateBuilder<MetadataTypeDefinitionName>();
-            foreach (ExportedTypeHandle handle in reader.ExportedTypes)
-            {
-                var traversal =
-                    MetadataRelationshipTraversal
-                        .WalkExportedTypeImplementationChain(reader, handle);
-                if (traversal is
-                    RelationshipTraversalResult<
-                        RelationshipChain<ExportedTypeHandle>>.Rejected)
-                {
-                    return Reject(
-                        CandidateOpenFailureKind.InvalidImage,
-                        "An exported type relationship could not be decoded.");
-                }
-
-                RelationshipChain<ExportedTypeHandle> chain =
-                    ((RelationshipTraversalResult<
-                        RelationshipChain<ExportedTypeHandle>>.Completed)
-                            traversal).Value;
-                if (chain.Terminal.Kind != HandleKind.AssemblyReference)
-                    continue;
-
-                // ECMA-335 marks the root as a forwarder; nested rows point to
-                // that root without carrying tdForwarder themselves.
-                ExportedType root =
-                    reader.GetExportedType(chain.Handles[0]);
-                if (!root.IsForwarder)
-                {
-                    return Reject(
-                        CandidateOpenFailureKind.InvalidImage,
-                        "An assembly-forwarded type chain is not marked as a forwarder.");
-                }
-
-                if (MetadataTypeDefinitionNameReader.Read(reader, handle)
-                    is not MetadataTypeDefinitionNameReadResult.Read read)
-                {
-                    return Reject(
-                        CandidateOpenFailureKind.InvalidImage,
-                        "A forwarded type name could not be decoded.");
-                }
-
-                forwarders.Add(read.Name);
-            }
-
-            return new AssemblyTypeDeclarationInventoryOutcome.Read(
-                new AssemblyTypeDeclarationInventory(
-                    actual,
-                    definitions.ToImmutable(),
-                    forwarders.ToImmutable(),
-                    meaningfulPublicTypeCount));
+            AssemblyTypeDeclarationInventoryOutcome outcome = ReadDeclarations(reader, actual);
+            rejectionEstablished = outcome is AssemblyTypeDeclarationInventoryOutcome.Rejected;
+            return outcome;
         }
         catch (UnsupportedMetadataFormatException ex)
         {
@@ -241,6 +222,158 @@ public static class AssemblyTypeDeclarationInventoryReader
             }
         }
     }
+
+    internal static AssemblyTypeDeclarationInventoryOutcome Read(PEReader peReader)
+    {
+        try
+        {
+            if (!MetadataFormatAdmission.AdmitImage(peReader))
+            {
+                return Rejected(
+                    CandidateOpenFailureKind.InvalidImage,
+                    "The selected image has no managed metadata.");
+            }
+
+            MetadataReader reader = MetadataFormatAdmission.GetMetadataReader(peReader);
+            return ReadDeclarations(reader, AssemblyReferenceIdentity.FromAssemblyDefinition(reader));
+        }
+        catch (UnsupportedMetadataFormatException)
+        {
+            return Rejected(
+                CandidateOpenFailureKind.UnsupportedMetadataFormat,
+                "The selected image uses an unsupported metadata format.");
+        }
+        catch (MalformedMetadataRootException ex)
+        {
+            return Rejected(
+                CandidateOpenFailureKind.InvalidImage,
+                $"The selected image has a malformed metadata root ({ex.Reason}).",
+                ex.Reason);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return Rejected(
+                CandidateOpenFailureKind.Unreadable,
+                "The selected image could not be read.");
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException or ArgumentOutOfRangeException or OverflowException)
+        {
+            return Rejected(
+                CandidateOpenFailureKind.InvalidImage,
+                "The selected image metadata is invalid.");
+        }
+    }
+
+    static AssemblyTypeDeclarationInventoryOutcome ReadDeclarations(
+        MetadataReader reader,
+        AssemblyReferenceIdentity identity)
+    {
+        var definitions = ImmutableArray.CreateBuilder<MetadataTypeDefinitionName>();
+        var forwarders = ImmutableArray.CreateBuilder<MetadataTypeDefinitionName>();
+        var declarations = ImmutableArray.CreateBuilder<AssemblyTypeDeclaration>();
+        var names = new HashSet<MetadataTypeDefinitionName>();
+        int meaningfulPublicTypeCount = 0;
+        foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
+        {
+            TypeDefinition definition = reader.GetTypeDefinition(handle);
+            if (MetadataTypeDefinitionNameReader.Read(reader, handle)
+                is not MetadataTypeDefinitionNameReadResult.Read read)
+            {
+                return Rejected(
+                    CandidateOpenFailureKind.InvalidImage,
+                    "A type definition name could not be decoded.");
+            }
+            if (!names.Add(read.Name))
+                return DuplicateDeclaration();
+
+            definitions.Add(read.Name);
+            if (definition.IsPublic
+                && !TypeFilters.IsCompilerGenerated(reader.GetString(definition.Name)))
+            {
+                meaningfulPublicTypeCount++;
+            }
+
+            // Keep the legacy name projection intact; the module row is not
+            // a discoverable type, even in the all-declaration view.
+            if (read.Name.Namespace.Length == 0
+                && read.Name.Segments is ["<Module>"])
+            {
+                continue;
+            }
+            declarations.Add(new AssemblyTypeDeclaration(
+                read.Name, AssemblyTypeDeclarationKind.Definition,
+                IsPublicDefinition(reader, handle),
+                AttributeReader.ReadTypeDiscoveryAttributes(
+                    reader, definition.GetCustomAttributes())));
+        }
+
+        var referenceProjection = new AssemblyReferenceProjectionCache(reader);
+        foreach (ExportedTypeHandle handle in reader.ExportedTypes)
+        {
+            if (MetadataTypeDefinitionNameReader.Read(reader, handle)
+                is not MetadataTypeDefinitionNameReadResult.Read read)
+            {
+                return Rejected(
+                    CandidateOpenFailureKind.InvalidImage,
+                    "An exported type name could not be decoded.");
+            }
+            if (!names.Add(read.Name))
+                return DuplicateDeclaration();
+            if (!MetadataTypeDeclarationProbe.TryReadExportedCandidate(
+                    reader, handle, referenceProjection,
+                    out TypeDeclarationCandidate? candidate,
+                    out MetadataTypeNameFailure? failure))
+            {
+                return Rejected(CandidateOpenFailureKind.InvalidImage, failure!.Detail);
+            }
+
+            switch (candidate)
+            {
+                case TypeDeclarationCandidate.Forwarder:
+                    forwarders.Add(read.Name);
+                    // Forwarder visibility bits are zero in real reference
+                    // facades. This is an advertised export, not target access.
+                    declarations.Add(new AssemblyTypeDeclaration(
+                        read.Name, AssemblyTypeDeclarationKind.Forwarder, true));
+                    break;
+                case TypeDeclarationCandidate.ModuleExport module:
+                    declarations.Add(new AssemblyTypeDeclaration(
+                        read.Name, AssemblyTypeDeclarationKind.ModuleExport,
+                        module.Declarations.All(token =>
+                            (reader.GetExportedType(
+                                (ExportedTypeHandle)MetadataTokens.EntityHandle(token.Value))
+                                .Attributes & TypeAttributes.VisibilityMask)
+                            is TypeAttributes.Public or TypeAttributes.NestedPublic)));
+                    break;
+                default:
+                    throw new InvalidOperationException("Unknown exported declaration candidate.");
+            }
+        }
+
+        return new AssemblyTypeDeclarationInventoryOutcome.Read(
+            new AssemblyTypeDeclarationInventory(
+                identity, definitions.ToImmutable(), forwarders.ToImmutable(),
+                declarations.ToImmutable(), meaningfulPublicTypeCount));
+    }
+
+    static bool IsPublicDefinition(MetadataReader reader, TypeDefinitionHandle handle)
+    {
+        // The structured-name reader already validated this bounded chain.
+        while (!handle.IsNil)
+        {
+            TypeDefinition definition = reader.GetTypeDefinition(handle);
+            if (!definition.IsPublic)
+                return false;
+            handle = definition.GetDeclaringType();
+        }
+        return true;
+    }
+
+    static AssemblyTypeDeclarationInventoryOutcome.Rejected DuplicateDeclaration() =>
+        Rejected(
+            CandidateOpenFailureKind.InvalidImage,
+            "More than one declaration has the same exact metadata type name.");
 
     static AssemblyTypeDeclarationInventoryOutcome.Rejected Rejected(
         CandidateOpenFailureKind kind,

@@ -832,81 +832,13 @@ internal sealed class LibraryBodyAsyncSiblingDispatchAnalyzer(
         TryResolveTypeDefinition(
             MetadataReader sourceReader,
             TypeRef type)
-    {
-        TypeRef definition = type.Kind
-            == TypeRefKind.GenericInstance
-                ? type.ElementType ?? type
-                : type;
-        if (definition.Resolution is not { } resolution)
-            return null;
-
-        if (resolution.Origin
-            is TypeReferenceOrigin.CurrentAssembly)
-        {
-            TypeDefinitionHandle match = default;
-            foreach (var handle
-                in sourceReader.TypeDefinitions)
-            {
-                TypeRef candidate =
-                    TypeRefDecoder.Instance
-                        .GetTypeFromDefinition(
-                            sourceReader,
-                            handle,
-                            0);
-                if (candidate.Resolution?.Type
-                    != resolution.Type)
-                {
-                    continue;
-                }
-                if (!match.IsNil)
-                    return null;
-                match = handle;
-            }
-            return match.IsNil
-                ? null
-                : (sourceReader, match);
-        }
-
-        if (resolution.Origin
-            is not TypeReferenceOrigin
-                .AssemblyReference assembly)
-        {
-            return null;
-        }
-        return _resolveExternalTypeDefinition(
-            assembly.Assembly,
-            TypeResolutionRequestFactory.Scope(
-                assembly.Assembly),
-            resolution.Type);
-    }
+        => LibraryBodyTypeDefinitionResolution.Resolve(
+            sourceReader, type, _resolveExternalTypeDefinition);
 
     internal static TypeRef DecodeType(
         MetadataReader decodingReader,
         EntityHandle handle)
-        => handle.Kind switch
-        {
-            HandleKind.TypeDefinition =>
-                TypeRefDecoder.Instance
-                    .GetTypeFromDefinition(
-                        decodingReader,
-                        (TypeDefinitionHandle)handle,
-                        0),
-            HandleKind.TypeReference =>
-                TypeRefDecoder.Instance
-                    .GetTypeFromReference(
-                        decodingReader,
-                        (TypeReferenceHandle)handle,
-                        0),
-            HandleKind.TypeSpecification =>
-                TypeRefDecoder.Instance
-                    .GetTypeFromSpecification(
-                        decodingReader,
-                        GenericScope.Empty,
-                        (TypeSpecificationHandle)handle,
-                        0),
-            _ => TypeRef.Unsupported(
-                "base type handle is unsupported"),
-        };
+        => LibraryBodyTypeDefinitionResolution.Decode(decodingReader, handle);
 
     internal bool ImplementsCandidateSlot(
         MethodDefinition candidateDefinition,

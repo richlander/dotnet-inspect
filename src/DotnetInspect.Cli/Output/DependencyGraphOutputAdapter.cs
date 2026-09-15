@@ -427,10 +427,9 @@ internal static class DependencyGraphOutputAdapter
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(rows);
         tokens ??= CreatePackageTokens(document);
-        HashSet<int> selectedEdgeIds =
-        [
-            .. rows.Select(static row => row.EdgeId),
-        ];
+        Dictionary<int, DependencyGraphEdge> edgesById =
+            document.Edges.ToDictionary(
+                static edge => edge.Id);
         HashSet<int> selectedNodeIds =
         [
             .. document.Roots.Select(static root => root.NodeId),
@@ -459,8 +458,8 @@ internal static class DependencyGraphOutputAdapter
                             : [])),
             ],
             [
-                .. document.Edges
-                    .Where(edge => selectedEdgeIds.Contains(edge.Id))
+                .. rows
+                    .Select(row => edgesById[row.EdgeId])
                     .Select(edge => new DependencyGraphJsonEdge(
                         edge.Id,
                         [.. edge.RootOccurrences],
@@ -534,38 +533,42 @@ internal static class DependencyGraphOutputAdapter
                 includeSelectionEvidence,
                 includeDeclarationEvidence),
             projection.Candidate is { } candidate
-                ? new DependencyGraphJsonPackageCandidate(
-                    tokens.ProjectCorrespondence(
-                        candidate.Correspondence),
-                    new DependencyGraphJsonPackageIdentity(
-                        candidate.Coordinate.PackageId,
-                        candidate.Coordinate.Version),
-                    candidate.Kind,
-                    candidate.DiscoveryContract is { } contract
-                        ? new DependencyGraphJsonVersionDiscoveryContract(
-                            contract.ContractVersion,
-                            contract.IncludePrerelease,
-                            contract.IncludeUnlisted,
-                            contract.Limit)
-                        : null,
-                    [
-                        .. candidate.Authorities.Select(authority =>
-                            new DependencyGraphJsonPackageAuthority(
-                                tokens.ProjectAssociation(
-                                    authority.Authority.Association),
-                                authority.Authority.Kind,
-                                authority.Authority.PersistentCacheKey,
-                                tokens.Project(
-                                    authority.Observation?.Source),
-                                authority.Observation?.DiscoveryContract,
-                                authority.Observation?.ListingState)),
-                    ])
+                ? JsonCandidate(candidate, tokens)
                 : null,
             [
                 .. projection.Diagnostics.Select(diagnostic =>
                     DependsPackageAuthorityFailureJson.Create(
                         diagnostic,
                         tokens)),
+            ]);
+
+    internal static DependencyGraphJsonPackageCandidate JsonCandidate(
+        PackageAcquisitionCandidate candidate,
+        DependencyEvidenceSourceTokens tokens) =>
+        new(
+            tokens.ProjectCorrespondence(candidate.Correspondence),
+            new DependencyGraphJsonPackageIdentity(
+                candidate.Coordinate.PackageId,
+                candidate.Coordinate.Version),
+            candidate.Kind,
+            candidate.DiscoveryContract is { } contract
+                ? new DependencyGraphJsonVersionDiscoveryContract(
+                    contract.ContractVersion,
+                    contract.IncludePrerelease,
+                    contract.IncludeUnlisted,
+                    contract.Limit)
+                : null,
+            [
+                .. candidate.Authorities.Select(authority =>
+                    new DependencyGraphJsonPackageAuthority(
+                        tokens.ProjectAssociation(
+                            authority.Authority.Association),
+                        authority.Authority.Kind,
+                        authority.Authority.PersistentCacheKey,
+                        tokens.Project(
+                            authority.Observation?.Source),
+                        authority.Observation?.DiscoveryContract,
+                        authority.Observation?.ListingState)),
             ]);
 
     private static DependencyGraphJsonPackageEvidence? JsonPackageEvidence(

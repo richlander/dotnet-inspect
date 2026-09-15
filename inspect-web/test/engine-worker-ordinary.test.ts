@@ -42,6 +42,8 @@ function contractViolation<T>(value: unknown): T {
 
 const defaultFacades: EngineWorkerOrdinaryFacades = {
   package: {
+    classifyPackageGraphIdentities: () =>
+      unexpected("classifyPackageGraphIdentities"),
     getPlatformCatalog: () => unexpected("getPlatformCatalog"),
     getPlatformVersions: () => unexpected("getPlatformVersions"),
     listPackageAssemblyQueryPatterns: () =>
@@ -66,6 +68,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryMemberDocumentation"),
     queryPackageDependencies: () =>
       unexpected("queryPackageDependencies"),
+    queryPackagePruning: () =>
+      unexpected("queryPackagePruning"),
     queryPackageVersions: () => unexpected("queryPackageVersions"),
     queryWorkspacePackageOccurrences: () =>
       unexpected("queryWorkspacePackageOccurrences"),
@@ -73,6 +77,10 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("resolvePackageDependencyVersion"),
   },
   metadata: {
+    cancelLibraryApiDiff: () =>
+      unexpected("cancelLibraryApiDiff"),
+    queryLibraryApiDiff: () =>
+      unexpected("queryLibraryApiDiff"),
     queryMemberDeclaration: () =>
       unexpected("queryMemberDeclaration"),
     queryPlatformMemberDeclaration: () =>
@@ -233,9 +241,17 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     future: { message: "preserved" },
   };
   let cleared = 0;
+  let classificationArguments: readonly unknown[] = [];
   let matchArguments: readonly unknown[] = [];
+  let pruningArguments: readonly unknown[] = [];
+  let libraryDiffArguments: readonly unknown[] = [];
+  let libraryDiffCancelArguments: readonly unknown[] = [];
   const state = fixture({
     package: {
+      classifyPackageGraphIdentities: (...args) => {
+        classificationArguments = args;
+        return ["Inspected", "External"];
+      },
       searchTypes: () => searchResult,
       activateWorkspacePackageOccurrence: async () => activation,
       clearWorkspacePackageOccurrences: async () => {
@@ -246,6 +262,45 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
       matchPackageDependencyCoordinate: (...args) => {
         matchArguments = args;
         return { outcome: "Unique", candidateKey: "candidate" };
+      },
+      queryPackagePruning: (...args) => {
+        pruningArguments = args;
+        return Promise.resolve({
+          schemaVersion: 1,
+          package: "Example",
+          version: "1.0.0",
+          targetFramework: "net10.0",
+          selectedFramework: "net10.0",
+          family: "Microsoft.NETCore.App",
+          platformVersion: "10.0.0",
+          completion: "Complete",
+          rows: [],
+          declarationFailures: [],
+          summary: {
+            declarations: 0,
+            evaluated: 0,
+            delegated: 0,
+            retained: 0,
+            notEvaluated: 0,
+            failed: 0,
+            declarationFailures: 0,
+          },
+          message: null,
+        });
+      },
+    },
+    metadata: {
+      queryLibraryApiDiff: (...args) => {
+        libraryDiffArguments = args;
+        return contractViolation({
+          schemaVersion: 1,
+          kind: "Canceled",
+          reason: "test",
+        });
+      },
+      cancelLibraryApiDiff: (...args) => {
+        libraryDiffCancelArguments = args;
+        return { kind: "Requested", reason: "superseded" };
       },
     },
   });
@@ -262,17 +317,41 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     "Example.dll",
     "M:Example.Api.Run",
   );
+  const classified = state.client.package.classifyPackageGraphIdentities(
+    "Example.Root",
+    "[\"Example.Root\",\"Other\"]",
+  );
   const matched = state.client.package.matchPackageDependencyCoordinate(
     "Dependency",
     null,
     "[{\"key\":\"candidate\"}]",
   );
+  const pruning = state.client.package.queryPackagePruning(
+    "Example",
+    "1.0.0",
+    "net10.0",
+    "{\"schemaVersion\":1}",
+  );
+  const libraryDiff = state.client.metadata.queryLibraryApiDiff(
+    "operation-1",
+    "{\"schemaVersion\":1}",
+  );
+  const libraryDiffCancellation =
+    state.client.metadata.cancelLibraryApiDiff(
+      "operation-1",
+      "superseded",
+    );
   await state.environment.flushAsync();
 
   assert.deepEqual(await sync, searchResult);
   assert.deepEqual(await asyncDto, activation);
   assert.equal(await voidResult, undefined);
   assert.equal(await nullResult, null);
+  assert.deepEqual(await classified, ["Inspected", "External"]);
+  assert.deepEqual(classificationArguments, [
+    "Example.Root",
+    "[\"Example.Root\",\"Other\"]",
+  ]);
   assert.deepEqual(await matched, {
     outcome: "Unique",
     candidateKey: "candidate",
@@ -282,7 +361,72 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     null,
     "[{\"key\":\"candidate\"}]",
   ]);
+  assert.equal((await pruning).completion, "Complete");
+  assert.deepEqual(pruningArguments, [
+    "Example",
+    "1.0.0",
+    "net10.0",
+    "{\"schemaVersion\":1}",
+  ]);
+  assert.deepEqual(await libraryDiff, {
+    schemaVersion: 1,
+    kind: "Canceled",
+    reason: "test",
+  });
+  assert.deepEqual(await libraryDiffCancellation, {
+    kind: "Requested",
+    reason: "superseded",
+  });
+  assert.deepEqual(libraryDiffArguments, [
+    "operation-1",
+    "{\"schemaVersion\":1}",
+  ]);
+  assert.deepEqual(libraryDiffCancelArguments, [
+    "operation-1",
+    "superseded",
+  ]);
   assert.equal(cleared, 1);
+  assert.deepEqual(state.diagnostics, []);
+  state.host.dispose();
+});
+
+test("Platform graph transport preserves retained context selection and ordinary null", async () => {
+  const selections: (string | null)[] = [];
+  const node = {
+    label: "TryAddEnumerable", status: "Analyzed", inLoop: false,
+    source: null, children: [], assembly: "Microsoft.Extensions.DependencyInjection.Abstractions",
+    typeFullName: "ServiceCollectionDescriptorExtensions", memberName: "TryAddEnumerable",
+  };
+  const state = fixture({
+    callGraph: {
+      expandPlatformCallGraph: async (...args) => {
+        selections.push(args[11]);
+        return {
+          mermaid: "graph TD",
+          callers: node,
+          callees: node,
+          targets: [],
+          scope: { packages: 0, assemblies: 3, callerAssemblies: 3, calleeScope: "Self" },
+          diagnostics: {
+            incompleteNodes: 0, incompleteEdges: 0, bindingIdentityConflicts: 0,
+            hasUnexploredTraversalBoundary: false, hasAnalysisFailureBoundary: false,
+            isIncomplete: false,
+          },
+          noBody: true,
+        };
+      },
+    },
+  });
+  for (const contextId of ["retained-demo", null]) {
+    const result = state.client.callGraph.expandPlatformCallGraph(
+      "net10.0", "10.0.12", "Microsoft.Extensions.DependencyInjection.Abstractions",
+      "aspnetcore.app", "10.0.0.0", null, null,
+      "ServiceCollectionDescriptorExtensions", "TryAddEnumerable", "selector", 0,
+      contextId);
+    await state.environment.flushAsync();
+    assert.equal((await result).scope.assemblies, 3);
+  }
+  assert.deepEqual(selections, ["retained-demo", null]);
   assert.deepEqual(state.diagnostics, []);
   state.host.dispose();
 });
@@ -329,8 +473,13 @@ test("generated rejection fails visibly without poisoning neighboring calls", as
       packageCacheStats: () => ({
         packages: 4,
         resident: 2,
+        maxPackageEntries: 12,
         workspaces: 1,
+        maxWorkspaces: 4,
+        maxWorkspaceAssembliesPerRole: 256,
         residentBytes: 1024,
+        maxResidentBytes: 134_217_728,
+        maxWorkspaceRetainedImageBytes: 67_108_864,
       }),
     },
   });
@@ -344,8 +493,13 @@ test("generated rejection fails visibly without poisoning neighboring calls", as
   assert.deepEqual(await neighbor, {
     packages: 4,
     resident: 2,
+    maxPackageEntries: 12,
     workspaces: 1,
+    maxWorkspaces: 4,
+    maxWorkspaceAssembliesPerRole: 256,
     residentBytes: 1024,
+    maxResidentBytes: 134_217_728,
+    maxWorkspaceRetainedImageBytes: 67_108_864,
   });
   assert.equal(state.host.snapshot().phase, "ready");
   assert.deepEqual(state.failures, []);
@@ -362,8 +516,13 @@ test("malformed and oversized generated results reject only their calls", async 
       packageCacheStats: () => ({
         packages: 1,
         resident: 1,
+        maxPackageEntries: 12,
         workspaces: 0,
+        maxWorkspaces: 4,
+        maxWorkspaceAssembliesPerRole: 256,
         residentBytes: 64,
+        maxResidentBytes: 134_217_728,
+        maxWorkspaceRetainedImageBytes: 67_108_864,
       }),
     },
   });
@@ -507,8 +666,13 @@ test("a closed-epoch ordinary client cannot dispatch into a replacement", async 
         return {
           packages: 0,
           resident: 0,
+          maxPackageEntries: 12,
           workspaces: 0,
+          maxWorkspaces: 4,
+          maxWorkspaceAssembliesPerRole: 256,
           residentBytes: 0,
+          maxResidentBytes: 134_217_728,
+          maxWorkspaceRetainedImageBytes: 67_108_864,
         };
       },
     },
@@ -536,6 +700,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
   const expected = {
     package: [
       "activateWorkspacePackageOccurrence",
+      "classifyPackageGraphIdentities",
       "clearWorkspacePackageOccurrences",
       "getPackageDocument",
       "getPlatformCatalog",
@@ -550,12 +715,15 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryMemberDocumentation",
       "queryPackage",
       "queryPackageDependencies",
+      "queryPackagePruning",
       "queryPackageVersions",
       "queryWorkspacePackageOccurrences",
       "resolvePackageDependencyVersion",
       "searchTypes",
     ],
     metadata: [
+      "cancelLibraryApiDiff",
+      "queryLibraryApiDiff",
       "queryGraphMemberSurface",
       "queryMemberDeclaration",
       "queryPlatformMemberDeclaration",
@@ -610,7 +778,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 51);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 55);
 
   const state = fixture();
   const groups = [

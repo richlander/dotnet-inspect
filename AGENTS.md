@@ -53,8 +53,8 @@ development model and rationale. The binding summary:
 - **Bias toward progress and low carrying cost.** Land independently coherent
   slices; never present unfinished behavior as supported or preserve CLI flags
   solely for compatibility. Shipped product skills must match current behavior.
-- **Lead with a demo.** Every PR demonstrates the scenario (a mockup for
-  docs-only PRs) without fitting the implementation only to that example.
+- **Lead with a demo.** Every PR demonstrates the real production-host scenario;
+  shared CLI and Browser/Wasm work shows both C# and TypeScript call sites.
 - **Treat critical review feedback as a design question first.** Ask whether
   the owning design addresses it before repairing code; keep paired design
   work moving quickly when the contract needs clarification.
@@ -170,9 +170,9 @@ The standing adjustments and their exact evidence requirements live in
 
 ## Task-specific guidance
 
-Read the relevant entry before working in that area. This table covers the
-highest-value entry points; the full index — every design doc, contributor
-workflow doc, and PR template — lives in [`docs/README.md`](docs/README.md).
+Documentation entry points have distinct roles: root `README.md` owns the full product guide; `docs/README.md` immediate acquisition and curated navigation; `docs/overview.md` subsystem topology; and `docs/architecture.md` current code composition.
+Update one only when its owned claim changes; adding or editing a focused document does not require parallel entrypoint updates.
+Read the relevant entry below; [`docs/README.md`](docs/README.md) owns the detailed boundary and curated routes.
 
 | Area | Read first |
 | --- | --- |
@@ -255,6 +255,8 @@ over-broad-design recovery procedure live in
   owns command and presentation concerns.
 - Reuse existing typed models, Finding contracts, section schemas, serializers,
   and resolution services before adding parallel abstractions.
+  Completed host-neutral APIs that hand results to hosts expose
+  `InspectionEnvelope<TContent>`; projections preserve Content, Share, and diagnostics.
 - Preserve behavior-safe defaults and progressive disclosure. Network,
   source-content, exhaustive, or otherwise expensive work must remain explicit
   or capability-gated.
@@ -338,6 +340,7 @@ PR CI only when daily Deep Inspect or a focused pre-merge gate owns them. See
 | --- | --- |
 | CLI and product output | `dotnet run --project tests/DotnetInspect.Cli.Tests -c Release` |
 | Artifact contracts | `dotnet run --project tests/Inspector.Artifacts.Tests -c Release` |
+| Portable query codec | `dotnet run --project tests/DotnetInspector.PortableQueries.Tests -c Release` |
 | Row selection | `dotnet run --project tests/DotnetInspector.RowSelection.Tests -c Release` |
 | Section-row shaping | `dotnet run --project tests/DotnetInspector.Sections.Tests -c Release` |
 | Analysis | `dotnet run --project tests/ILInspector.Analysis.Tests -c Release` |

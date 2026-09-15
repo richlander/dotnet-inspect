@@ -21,6 +21,19 @@ internal sealed class AssemblySetInspectionWorkspace : IAsyncDisposable
         Action<AssemblyContextGroup, AssemblyContextEntryMap> execute,
         Action<AssemblySetEntry, string> unavailable)
     {
+        ArgumentNullException.ThrowIfNull(unavailable);
+        RunGroupWithTypedFailures(
+            assemblySet,
+            execute,
+            (entry, failure) =>
+                unavailable(entry, failure.Detail));
+    }
+
+    internal void RunGroupWithTypedFailures(
+        AssemblySet assemblySet,
+        Action<AssemblyContextGroup, AssemblyContextEntryMap> execute,
+        Action<AssemblySetEntry, CandidateOpenFailure> unavailable)
+    {
         ArgumentNullException.ThrowIfNull(assemblySet);
         ArgumentNullException.ThrowIfNull(execute);
         ArgumentNullException.ThrowIfNull(unavailable);
@@ -30,7 +43,9 @@ internal sealed class AssemblySetInspectionWorkspace : IAsyncDisposable
         foreach (AssemblySetEntry entry in assemblySet.Assemblies)
         {
             ResolvedAssemblyReference? assembly =
-                TryCreateManagedAssembly(entry, out string? failure);
+                TryCreateManagedAssembly(
+                    entry,
+                    out CandidateOpenFailure? failure);
             if (assembly is null)
             {
                 unavailable(entry, failure!);
@@ -91,10 +106,12 @@ internal sealed class AssemblySetInspectionWorkspace : IAsyncDisposable
                 break;
 
             ResolvedAssemblyReference? assembly =
-                TryCreateManagedAssembly(entry, out string? failure);
+                TryCreateManagedAssembly(
+                    entry,
+                    out CandidateOpenFailure? failure);
             if (assembly is null)
             {
-                unavailable(entry, failure!);
+                unavailable(entry, failure!.Detail);
                 continue;
             }
 
@@ -118,9 +135,9 @@ internal sealed class AssemblySetInspectionWorkspace : IAsyncDisposable
         }
     }
 
-    private static ResolvedAssemblyReference? TryCreateManagedAssembly(
+    internal static ResolvedAssemblyReference? TryCreateManagedAssembly(
         AssemblySetEntry entry,
-        out string? failure)
+        out CandidateOpenFailure? failure)
     {
         try
         {
@@ -129,21 +146,49 @@ internal sealed class AssemblySetInspectionWorkspace : IAsyncDisposable
                     entry.Path,
                     ProvenanceFor(entry));
             failure = assembly is null
-                ? "The selected file does not contain managed metadata."
+                ? new CandidateOpenFailure(
+                    CandidateOpenFailureKind.InvalidImage,
+                    "The selected file does not contain managed metadata.")
                 : null;
             return assembly;
         }
+        catch (UnsupportedMetadataFormatException ex)
+        {
+            failure = new CandidateOpenFailure(
+                CandidateOpenFailureKind.UnsupportedMetadataFormat,
+                ex.Message);
+            return null;
+        }
+        catch (MalformedMetadataRootException ex)
+        {
+            failure = new CandidateOpenFailure(
+                CandidateOpenFailureKind.InvalidImage,
+                ex.Message)
+            {
+                MetadataRootReason = ex.Reason,
+            };
+            return null;
+        }
         catch (Exception ex) when (
             ex is IOException
-                or UnauthorizedAccessException
-                or BadImageFormatException
+                or UnauthorizedAccessException)
+        {
+            failure = new CandidateOpenFailure(
+                CandidateOpenFailureKind.Unreadable,
+                ex.Message);
+            return null;
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
                 or InvalidOperationException
                 or ArgumentException
                 or NotSupportedException
                 or OverflowException
                 or IndexOutOfRangeException)
         {
-            failure = ex.Message;
+            failure = new CandidateOpenFailure(
+                CandidateOpenFailureKind.InvalidImage,
+                ex.Message);
             return null;
         }
     }

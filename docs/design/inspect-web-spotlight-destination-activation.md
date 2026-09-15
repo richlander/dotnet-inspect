@@ -12,8 +12,21 @@ Scope and registration revisions, and creates a fresh curated Workspace only
 for an uncovered package. The resource-free coverage and activation-plan
 projection is implemented by `BrowserSpotlightDestinationProjection`.
 Current-Workspace Package and package-origin Library execution is implemented by
-`BrowserSpotlightCurrentPackageActivation`; Platform, fresh-Workspace, and
-Browser presentation adoption remain later stages.
+`BrowserSpotlightCurrentPackageActivation`. Exact current-Workspace Platform
+execution and the typed destination-presentation handoff are implemented by
+`BrowserSpotlightCurrentPlatformActivation` and
+`BrowserSpotlightDestinationPresentation`; fresh-Workspace and retained Browser
+host adoption remain later stages. Those managed owners are not themselves
+production Browser adoption: projection and execution must consume the exact
+active realization rather than a Workspace reconstructed from frontend state.
+The prerequisite split is tracked by
+[#7027](https://github.com/richlander/dotnet-inspect/issues/7027),
+[#7028](https://github.com/richlander/dotnet-inspect/issues/7028),
+[#7031](https://github.com/richlander/dotnet-inspect/issues/7031),
+[#7030](https://github.com/richlander/dotnet-inspect/issues/7030), and
+[#7029](https://github.com/richlander/dotnet-inspect/issues/7029);
+[#6686](https://github.com/richlander/dotnet-inspect/issues/6686) remains the
+final thin Browser integration and acceptance slice.
 
 This document is the normative owner of **Spotlight destination activation**.
 It owns exact-candidate classification, the Browser activation plan,
@@ -283,6 +296,15 @@ focused Scope, Navigation, and inventory extension. This owner exposes the
 present Browser boundary rather than hiding it behind generic subject
 identity.
 
+The managed execution boundary validates the descriptor's exact Workspace,
+registration revision, Scope revision, and publication base before invoking
+the caller-supplied Platform operation. It passes the complete
+Workspace-bound `BrowserSpotlightPlatformAction` without inspecting or
+reconstructing its target. The caller returns the Platform owner's opaque
+result, which remains complete in the settled Spotlight result whether it
+represents application, failure, or supersession. The boundary never mutates
+Package Scope, invokes shared Navigation, or creates a fallback Workspace.
+
 ## Fresh-Workspace activation
 
 `RestoreExternalPackageWorkspace` applies only to an uncovered package. It
@@ -482,9 +504,61 @@ typed results; committed or already-current membership survives Navigation
 failure or supersession. The boundary neither creates a fallback Workspace nor
 publishes host state.
 
+Stage 4 is implemented at the managed action-execution and presentation-handoff
+boundaries. `BrowserSpotlightCurrentPlatformActivation` validates the captured
+activation basis and invokes only the exact opaque
+`ActivateCurrentPlatformDestination` action, retaining the Platform owner's
+complete result without Package Scope mutation, shared Navigation, or
+fresh-Workspace fallback. `BrowserSpotlightDestinationPresentation` provides
+typed source home, Workspace relationship, activation disposition, and
+availability data without lowering labels or using presentation text as
+identity. Current retained-host selection intent, HTML lowering, and end-to-end
+Browser publication remain owned by
+[#6686](https://github.com/richlander/dotnet-inspect/issues/6686).
+
+Stage 5 is implemented at the managed Definitions and retained-host
+composition boundary. `BrowserSpotlightExternalPackageActivation` accepts only
+`RestoreExternalPackageWorkspace`, validates the source activation basis,
+obtains one opaque retained-host intent authority, and supplies the exact
+Package plus the exact Ecosystems-owned curated `WorkspacePlan` supplied by the
+Catalog facade to the Definitions request factory. The shared Core does not
+reach into the facade-only Ecosystems catalog. Only a typed complete
+Definitions result can reach the synchronous retained-host publication
+operation. A source-basis or host-authority rejection after completion invokes
+the Definitions-owned non-install operation exactly once; a Definitions
+failure is retained without publication or duplicate cleanup. The live
+retained-Workspace collection, TypeScript selection intent, HTML effects, and
+end-to-end Browser acceptance remain owned by
+[#6686](https://github.com/richlander/dotnet-inspect/issues/6686).
+
 Each implementation stage receives its own focused issue and PR. This design
 does not authorize one implementation change spanning all participating
 owners.
+
+Production adoption follows this dependency order:
+
+1. Workspace Definitions implements complete fresh-Workspace restoration and
+   non-install cleanup in
+   [#7027](https://github.com/richlander/dotnet-inspect/issues/7027).
+2. The retained Browser host consumes that result as its one definition
+   activation transaction in
+   [#7028](https://github.com/richlander/dotnet-inspect/issues/7028).
+3. Fresh-Workspace producers, including an uncovered Spotlight Package, adopt
+   that transaction in
+   [#7031](https://github.com/richlander/dotnet-inspect/issues/7031).
+4. Current Package/package-origin Library and Platform actions enter through
+   the exact active realization in
+   [#7030](https://github.com/richlander/dotnet-inspect/issues/7030) and
+   [#7029](https://github.com/richlander/dotnet-inspect/issues/7029).
+5. [#6686](https://github.com/richlander/dotnet-inspect/issues/6686) connects
+   those owner-issued paths to Spotlight interaction and runs the complete
+   Browser acceptance matrix.
+
+The final slice may enumerate finite exact-Library registrations and ecosystem
+exact-Library populations for projection. Package-prefix registrations classify
+known candidates but do not create an enumerable Library population. No stage
+may construct a shadow Workspace, reconstruct a managed activation from display
+fields, or treat a frontend-retained record as live Workspace authority.
 
 ## Acceptance and evidence
 
@@ -522,6 +596,11 @@ exact-Library-only Package admission, already-current Library activation,
 duplicate no-effect admission, source denial, Scope failure, stale
 registration before and during activation, exact occurrence propagation, and
 committed membership followed by Navigation failure or supersession.
+`BrowserSpotlightPlatformActivationTests` gates exact Platform action
+invocation, unchanged Package Scope, registration-, Scope-revision-, and
+publication-base-stale suppression, opaque owner failure and supersession,
+typed source-home and disposition handoff, and rejection of non-Platform
+plans.
 `WorkspaceScopeTests` gates publication-base-guarded admission and exact
 binding-to-occurrence resolution. Workspace Definitions retains its separate
 non-install cleanup gate for external-package restoration. Selection-intent

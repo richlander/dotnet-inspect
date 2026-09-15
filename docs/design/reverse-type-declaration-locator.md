@@ -2,11 +2,15 @@
 
 ## Status and authority
 
-Design-only focused slice
+The [cold query](#implemented-cold-query) is implemented under
+[#6849](https://github.com/richlander/dotnet-inspect/issues/6849), following
+the focused design in
 [#6852](https://github.com/richlander/dotnet-inspect/issues/6852) of
 [#6843](https://github.com/richlander/dotnet-inspect/issues/6843), within
-[#6761](https://github.com/richlander/dotnet-inspect/issues/6761). No new query,
-coordinate arm, CLI behavior, or browser capability is implemented here.
+[#6761](https://github.com/richlander/dotnet-inspect/issues/6761). Resident
+inventories are available through the
+[Workspace facade](workspace-live-locator.md#implemented-resident-context-facade)
+for its admitted context population; CLI/Browser adoption remains pending.
 
 **Reverse Type-Declaration Locator**, in `DotnetInspector.Queries`, owns:
 
@@ -62,10 +66,11 @@ the same query without constructing a long-lived Workspace.
 [Artifact acquisition](artifact-acquisition-and-workspaces.md#provenance-and-correspondence)
 owns the association between source evidence, artifact occurrence, and assembly
 projection. [Exact Library Source Coordinate](exact-library-source-coordinate.md)
-owns the logical coordinate, whose current closed arms are Package and
-Platform. Neither arm identifies selected bytes, a TFM, a RID, or a view;
-Platform also omits the selected Platform version. Thus the coordinate alone
-is insufficient to reproduce an observation.
+owns the logical coordinate, whose closed arms are Package, Platform, Project,
+and Local. No arm identifies selected bytes, a TFM, a RID, or a view; Platform
+also omits the selected Platform version, while Project and Local omit project
+and filesystem paths. Thus the coordinate alone is insufficient to reproduce
+an observation.
 
 The producer handoffs below are a prerequisite map, not new source contracts:
 
@@ -74,14 +79,16 @@ The producer handoffs below are a prerequisite map, not new source contracts:
 | Package | Exact `PackageSourceCoordinate` plus Metadata-issued assembly definition identity from that package's selected asset. Retain the acquisition owner's exact producer/target/asset correspondence as observation context. |
 | Platform | `PlatformLibraryPopulationDeclaration` plus Metadata-issued assembly definition identity attributed to that focus population. Preserve exact target/view and source realization separately. Package transport of a Platform pack does not turn its members into Package coordinates. |
 | Restored project package asset | The project adapter's package provenance and exact selected-asset correspondence may supply the Package arm. A display package label or path under a package cache cannot. |
-| Project output or bare local assembly | The current coordinate has no applicable arm. Record `CoordinateUnavailable`; Source Selection must settle this gap in a focused successor before these members can yield locator candidates. Never manufacture a package or Platform coordinate. |
+| Project output | Project arm over the Metadata-issued assembly definition identity, attached through the project owner's output association. Preserve project, target, output, and occurrence evidence as observation context. |
+| Bare local assembly | Local arm over the Metadata-issued assembly definition identity, attached through the local-file owner's occurrence association. Preserve path and occurrence evidence as observation context. |
 
 Likewise, a file copied from a Platform pack and supplied only as a local file
 does not acquire Platform provenance from its filename or assembly identity.
 The same bytes can legitimately be observed through distinct source domains.
-The local/project successor must preserve that distinction. Until adopted,
-these inputs remain visibly unsupported for coordinate location, not silently
-excluded from an otherwise complete result.
+Project and Local arms preserve that distinction without moving acquisition
+paths into Library identity. A producer that cannot establish the required
+source-owner occurrence association records `CoordinateUnavailable`; it does
+not silently exclude the member or infer an arm from path shape.
 
 ## Request and matching
 
@@ -179,6 +186,13 @@ apply an explicit selection policy suited to its workflow. It owns that choice
 even when only one entry is returned; a UI need not prompt merely because the
 API leaves selection to the consumer.
 
+Candidates also retain Metadata's
+[definition discovery attributes](type-forwarding-resolution.md#definition-discovery-attributes)
+unchanged as `DiscoveryAttributes`. These are additional evidence, not part
+of coordinate equality, ordering, or locator filtering policy.
+Declaration-discovery completeness does not assert target-attribute availability.
+Cold and resident answers carry the same owner-issued facts.
+
 A forwarder's coordinate identifies the Library declaring the forwarder, not
 its target Library. A definition and a forwarder remain distinct even when
 they have the same name. Duplicate physical declarations inside an image must
@@ -189,14 +203,16 @@ unsupported declaration form leaves visible incomplete member evidence.
 
 Candidate ordering is deterministic for the same population regardless of
 producer enumeration order. Order by namespace and root-to-leaf metadata
-segments (ordinal), then source arm (Package before Platform), source-owner
-identity components, Metadata assembly identity components, and declaration
-kind (Definition before Forwarder), then the population-issued stable occurrence
-order. That final order belongs to the fixed population and is not reassigned
-when producer enumeration is permuted. Source/assembly component comparison uses
-owner-normalized equality components and stable ordinal/numeric ordering,
-not culture, paths, display names, hashes, or acquisition timing. Future
-coordinate arms need their own owner-defined stable ordering before admission.
+segments (ordinal), then source arm (Package, Platform, Project, Local),
+source-owner identity components, Metadata assembly identity components, and
+declaration kind (Definition before Forwarder), then the population-issued
+stable occurrence order. Project and Local have no additional source-owner
+identity components. That final order belongs to the fixed population and is
+not reassigned when producer enumeration is permuted. Source/assembly component
+comparison uses owner-normalized equality components and stable ordinal/numeric
+ordering, not culture, paths, display names, hashes, or acquisition timing.
+Future coordinate arms need their own owner-defined stable ordering before
+admission.
 
 Ordering is not ranking or resolution precedence. In particular, a definition
 does not suppress a forwarder, a namespace-prefix assembly name does not win,
@@ -244,6 +260,92 @@ execution. A caller cancellation propagates as cancellation after ordinary
 owner cleanup; it is not a completed envelope. Unexpected operation-wide
 errors likewise propagate, not become empty successful vectors.
 
+## Implemented cold query
+
+`TypeDeclarationLocatorQuery.Execute` consumes the Workspace-issued
+`WorkspaceDeclarationPopulation` and a nonempty immutable request sequence.
+`TypeDeclarationLocatorRequest.Exact` carries a Metadata-issued definition
+name; `Pattern` carries non-whitespace type-filter text. Pattern interpretation
+remains `TypeMatcher.MatchesTypeFilter`, including its explicit generic
+notation behavior; this query adds no pattern grammar or fallback.
+
+`TypeDeclarationLocatorResult` is either typed `Rejected` admission evidence
+or an `Evaluated` result containing the detached population receipt, selected
+visibility, optional work bound, attributed member outcomes, and ordered
+answers. Every answer retains its request and an immutable candidate vector,
+plus separate realization/evaluation completeness. The candidate's
+`Observation` retains the existing Workspace member evidence, not a live
+context or authority.
+
+Each eligible member is read once per call through the population's scoped
+Metadata access, then evaluated against every request. Inventories are not
+retained across calls. `Searched` preserves any visible unsupported
+declarations; currently these are module exports. Such a member conservatively
+makes evaluation incomplete for every request in the call, while its supported
+matching declarations remain candidates. Metadata inventory rejections and
+Workspace access failures keep their owner-issued kinds and occurrence.
+Coordinate-unavailable members remain explicit and are not inventoried.
+
+The query declares `InspectionCost.Unbounded`, like the existing
+assembly-context inventory query. `maxInventoryReads` optionally bounds
+attempted whole-image reads in population order, including rejected attempts.
+It is not an intra-image Metadata limit, a pattern-comparison budget, or an
+output-row window. Members beyond that bound become `NotEvaluated`; every
+request still has a vector with incomplete evaluation. A null bound authorizes
+the full selected roster. Invalid requests/bounds are rejected before reads.
+An already closing/closed Workspace input is rejected at query admission;
+later access loss is attributed to the affected member.
+
+Ordering follows the contract above. Canonical Package ID and version text
+compare ordinally; Platform family compares by its stable enum value.
+Assembly names and tokens use ordinal-ignore-case comparison, versions compare
+numerically, and culture uses Metadata's existing `NormalizeCulture`
+projection before ordinal-ignore-case comparison. That helper is exposed by
+Metadata rather than copying its equivalence rules into Queries. The final
+occurrence tie-break preserves equal coordinates from different origins/views.
+
+Current population producers are exactly those supported by
+[explicit context projection](workspace-live-locator.md#implemented-explicit-context-projection).
+This query does not add Artifact Root, local/project, or reference-pack
+population adapters. Coordinate ordering recognizes the existing four source
+arms, but that is not evidence that every producer already feeds this input.
+The Workspace facade supplies prepared occurrence outcomes to the same query
+core. Its work stops retain `NotEvaluated.Bound`; no second matching or ordering
+policy is introduced. The result is an L1 prerequisite for that facade and
+common Sections, not a completed host boundary. Their adoption supplies the common
+[inspection envelope](inspection-envelope.md#boundary); this prerequisite
+does not invent a Share result.
+
+Release gates live in `WorkspaceContextLoaderTests`, with the `TypeLocator_`
+prefix:
+
+| Claim | Gate suffix |
+| --- | --- |
+| Zero/one/many vectors and independent request order | `ZeroOneManyAndRepeatedRequestsKeepVectors` |
+| Structured identity, nesting, case and generic/glob semantics | `ExactNestingAndPatternArityUseMetadataSemantics` |
+| Public/all policy and no implicit fallback | `PublicAndAllAreDistinctWithoutFallbackSearches` |
+| Equal coordinates retain feeds, views and stable occurrences | `EqualCoordinatesKeepFeedAndTargetObservations` |
+| Source/assembly ordering and facade identity without binding | `SourceAndAssemblyOrderingDoNotSelectDefinitionsOverForwarders` |
+| Owner-normalized assembly equality components | `EquivalentAssemblyCulturesUseOccurrenceOrder` |
+| Unsupported declaration and whole-inventory failures | `ModuleExportsAndRejectedInventoriesRemainAttributed` |
+| Upstream failure versus complete empty population | `UpstreamFailuresDifferFromCompleteEmptyPopulations` |
+| Unsupported coordinate remains visible | `UnsupportedCoordinateIsNotDroppedOrScanned` |
+| Bounds do not certify absence or uniqueness | `WorkBoundNeverCertifiesAbsenceOrUniqueness` |
+| Admission and cancellation | `RequestValidationPrecedesReadsAndCancellationPropagates` |
+| Detached answers and visible loss of access | `DetachedAnswersSurviveCloseAndReleasedMembersRemainVisible` |
+| Real Package/Platform and forwarder/definition vectors | `RealJsonChoicesAndRuntimeObjectForwarderRemainDistinct` |
+
+The real-asset gate uses `System.Text.Json@10.0.0` and the actual Platform
+implementation-pack producer for
+`Microsoft.NETCore.App.Runtime.linux-x64@10.0.10`. It selects
+`System.Text.Json`, `netstandard`, and `System.Private.CoreLib`, preserving two
+`JsonSerializer` choices and both the `System.Object` forwarder and definition.
+This supplements, rather than impersonates, the pinned reference-pack evidence
+below: reference-view population production and reopening remain unverified
+until their owners adopt that path. The whole-assembly real-asset gate is
+`Speed=Slow` and stays in daily Deep Inspect's unfiltered Queries suite; the
+small-fixture contract cases remain PR-fast.
+
 ## Reopening and lifetime boundary
 
 The immediate output obligation is to preserve each candidate's coordinate,
@@ -277,6 +379,9 @@ population/source generation. CoreCache persistence requires its owner's
 complete immutable input identity and cold-path equivalence. Neither the
 logical Library coordinate nor a filesystem path is a sufficient cache key.
 There is no locator-owned process cache or third resource lifetime.
+[Workspace Live Locator](workspace-live-locator.md) separately specifies the
+operator-approved on-demand, resident, append-only Workspace consumption
+scenario; it preserves this query's result and selection contract.
 [#6756](https://github.com/richlander/dotnet-inspect/issues/6756) can independently
 remove the current Platform catalog's unsafe retained state.
 
@@ -363,9 +468,11 @@ for the consumer. A complete no-match search returns `candidates: []`.
 
 ## Required evidence and adoption
 
-All new locator properties are **unverified** until their implementation gates
-run in Release. The production probes above motivate the design; they are not
-candidate implementation tests.
+The [implemented cold-query gates](#implemented-cold-query) cover its current
+input boundary. The remaining Workspace, reference-view, Sections and host
+properties below are **unverified** until their adoption gates run in Release.
+The production probes above motivate the design; they are not candidate
+implementation tests.
 
 | Claim | Required outcome-level gate |
 | --- | --- |

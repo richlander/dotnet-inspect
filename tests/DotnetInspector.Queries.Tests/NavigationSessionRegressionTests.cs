@@ -465,6 +465,17 @@ public sealed partial class NavigationSessionTests
             type => type.SourceChecksum = [1, 2, 3],
             type => type.Documentation.Remarks = "new remarks",
             type => type.Documentation.Parameters = new() { ["x"] = "description" },
+            type => type.InterfaceReferences.Add(new(
+                new ApiAssemblyIdentity(
+                    "Sample",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null),
+                "Sample.IWidget",
+                Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        "Sample",
+                        ["IWidget"])).Name)),
             type => type.TypeParameters.Add(new TypeParameter
                 { Name = "T", StructuredConstraints = [new("class", false)], TypeKind = TypeParameterTypeKind.ReferenceType }),
             type => type.MemorySafety = new(Guid.Empty, new MemorySafetyRulesResult.Available(

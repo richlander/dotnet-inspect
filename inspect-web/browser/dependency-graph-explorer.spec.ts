@@ -16,7 +16,8 @@ test("Dependencies relocates the live graph and group controls, not the lists", 
   await page.getByRole("button", { name: "Explore", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Dependency graph" });
   await expect(dialog.locator(".graph-explorer-kind")).toHaveText("Dependency graph");
-  await expect(dialog.locator("#graph-explorer-title")).toHaveText("Example.Package@1.0.0");
+  await expect(dialog.locator("#graph-explorer-title"))
+    .toHaveText("Microsoft.Extensions.Hosting@10.0.0");
   await expect(dialog.locator(".graph-explorer-context")).toHaveText("Target framework net10.0");
   await expect(dialog.locator(".graph-explorer-summary"))
     .toHaveText("callers above · dependencies below · click a package to open");
@@ -24,8 +25,8 @@ test("Dependencies relocates the live graph and group controls, not the lists", 
   await expect(dialog.locator("#dep-tfm-chips")).toBeVisible();
   const legend = dialog.locator(".graph-legend");
   await expect(legend).toContainText("inspected package");
-  await expect(legend).toContainText("open in workspace");
-  await expect(legend).toContainText("load on selection");
+  await expect(legend).toContainText("same prefix");
+  await expect(legend).toContainText("external");
   await expect(legend.locator(".legend-swatch")).toHaveCount(3);
   await expect(dialog.locator("#dep-list-section, #assembly-references, #coordinates")).toHaveCount(0);
   await expect(page.locator("#graph-explorer-title")).toBeFocused();
@@ -51,7 +52,9 @@ test("group changes stay expanded and preserve an empty selection on Close", asy
   await page.getByRole("button", { name: "net11.0", exact: true }).click();
   await expect(page.getByRole("dialog")).toContainText("No connected packages");
   await expect(page.getByRole("button", { name: "net11.0", exact: true })).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator("#dep-list-section")).toHaveText("net11.0: 0 packages");
+  await expect(page.locator("#dep-list-section")).toContainText("net11.0 · 0 packages");
+  await expect(page.locator("#dep-list-section"))
+    .toContainText("No package dependencies declared for net11.0.");
   await page.getByRole("button", { name: "net10.0", exact: true }).click();
   await expect(page.getByRole("dialog").locator("svg")).toBeVisible();
   await page.getByRole("button", { name: "net11.0", exact: true }).click();
@@ -74,13 +77,71 @@ test("a pending diagram completes in the viewer without another mount", async ({
 
 test("Dependency graph nodes show hover and keyboard-focus feedback", async ({ page }) => {
   await page.getByRole("button", { name: "Explore", exact: true }).click();
-  const node = page.getByRole("button", { name: "Open Loaded.Dependency", exact: true });
+  const node = page.getByRole("button", {
+    name: "Open Microsoft.Extensions.Logging",
+    exact: true,
+  });
   await expectGraphNodeInteractionFeedback(page, node);
+});
+
+test("structural identity is independent from loaded navigation state", async ({
+  page,
+}) => {
+  const colors = async () => ({
+    inspected: await page.locator(
+      "#dependency-graph-diagram g.node.inspected rect.label-container",
+    ).evaluate(element => getComputedStyle(element).fill),
+    samePrefix: await page.locator(
+      "#dependency-graph-diagram g.node.samePrefix rect.label-container",
+    ).first().evaluate(element => getComputedStyle(element).fill),
+    external: await page.locator(
+      "#dependency-graph-diagram g.node.external rect.label-container",
+    ).first().evaluate(element => getComputedStyle(element).fill),
+  });
+  const samePrefixLoaded = page.getByRole("button", {
+    name: "Open Microsoft.Extensions.Logging",
+    exact: true,
+  });
+  const samePrefixUnloaded = page.getByRole("button", {
+    name: "Load Microsoft.Extensions.Options",
+    exact: true,
+  });
+  const externalLoaded = page.getByRole("button", {
+    name: "Open Serilog",
+    exact: true,
+  });
+  const externalUnloaded = page.getByRole("button", {
+    name: "Load Newtonsoft.Json",
+    exact: true,
+  });
+
+  await expect(samePrefixLoaded).toHaveClass(/samePrefix/);
+  await expect(samePrefixUnloaded).toHaveClass(/samePrefix/);
+  await expect(externalLoaded).toHaveClass(/external/);
+  await expect(externalUnloaded).toHaveClass(/external/);
+  expect(await colors()).toEqual({
+    inspected: "rgb(49, 26, 127)",
+    samePrefix: "rgb(40, 76, 115)",
+    external: "rgb(52, 58, 70)",
+  });
+
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = "light";
+    return window.dependencyExploreProbe.update("ready");
+  });
+  expect(await colors()).toEqual({
+    inspected: "rgb(238, 234, 251)",
+    samePrefix: "rgb(201, 220, 241)",
+    external: "rgb(224, 227, 232)",
+  });
 });
 
 test("dependency nodes are keyboard navigable and dragging does not activate them", async ({ page }) => {
   await page.getByRole("button", { name: "Explore", exact: true }).click();
-  const node = page.getByRole("button", { name: "Open Loaded.Dependency", exact: true });
+  const node = page.getByRole("button", {
+    name: "Open Microsoft.Extensions.Logging",
+    exact: true,
+  });
   const box = await node.boundingBox();
   await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
   await page.mouse.down();
@@ -90,7 +151,8 @@ test("dependency nodes are keyboard navigable and dragging does not activate the
   await node.focus();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Dependencies: Loaded.Dependency");
+  await expect(page.getByRole("heading", { level: 1 }))
+    .toHaveText("Dependencies: Microsoft.Extensions.Logging");
   await expect(page.getByRole("heading", { level: 1 })).toBeFocused();
 });
 
@@ -101,10 +163,14 @@ test("unloaded package navigation dismisses the viewer; failure remains inline",
   await expect(page.getByRole("status")).toContainText("fixture acquisition failure");
   await expect(page.getByRole("button", { name: "Explore", exact: true })).toBeFocused();
   await page.getByRole("button", { name: "Explore", exact: true }).click();
-  await page.getByRole("button", { name: "Load New.Dependency", exact: true }).focus();
+  await page.getByRole("button", {
+    name: "Load Microsoft.Extensions.Options",
+    exact: true,
+  }).focus();
   await page.keyboard.press("Space");
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Dependencies: New.Dependency");
+  await expect(page.getByRole("heading", { level: 1 }))
+    .toHaveText("Dependencies: Microsoft.Extensions.Options");
   await expect(page.getByRole("heading", { level: 1 })).toBeFocused();
 });
 
@@ -132,15 +198,57 @@ test("coordinate replacement closes the viewer and notices travel with the graph
   await expect(page.locator("#dependency-graph-diagram svg")).toBeVisible();
 });
 
-for (const size of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
-  test(`Dependencies uses the viewport and keeps truncated diagnostics clear at ${size.width}px`, async ({ page }) => {
-    await page.setViewportSize(size);
+for (const layout of [
+  {
+    name: "wide inspector",
+    viewport: { width: 1440, height: 1000 },
+    surfaceWidth: 900,
+    inlineHeight: 360,
+  },
+  {
+    name: "constrained inspector in a wide browser",
+    viewport: { width: 1440, height: 1000 },
+    surfaceWidth: 560,
+    inlineHeight: 240,
+  },
+  {
+    name: "phone inspector",
+    viewport: { width: 390, height: 844 },
+    surfaceWidth: 390,
+    inlineHeight: 240,
+  },
+]) {
+  test(`Dependencies keeps a bounded inline preview and uses the Explore viewport for a ${layout.name}`, async ({ page }) => {
+    await page.setViewportSize(layout.viewport);
+    await page.locator(".package-dependencies-surface").evaluate(
+      (surface, width) => { surface.style.width = `${width}px`; },
+      layout.surfaceWidth,
+    );
+    expect((await page.locator(".package-dependencies-surface").boundingBox())!.width)
+      .toBeCloseTo(layout.surfaceWidth, 2);
     const inline = await page.locator(".graph-viewport").boundingBox();
-    expect(inline!.height).toBeCloseTo(540, 2);
+    expect(inline!.height).toBeCloseTo(layout.inlineHeight, 2);
+    const initialRow = await page.evaluate(() => {
+      const scroll = document.querySelector<HTMLElement>(".package-dependencies-scroll")!;
+      const row = document.querySelector<HTMLElement>(".dep-list li")!;
+      const scrollRect = scroll.getBoundingClientRect();
+      const rowRect = row.getBoundingClientRect();
+      return {
+        rowBottom: rowRect.bottom,
+        rowTop: rowRect.top,
+        scrollBottom: scrollRect.bottom,
+        scrollTop: scroll.scrollTop,
+        scrollTopEdge: scrollRect.top,
+      };
+    });
+    expect(initialRow.scrollTop).toBe(0);
+    expect(initialRow.rowTop).toBeGreaterThanOrEqual(initialRow.scrollTopEdge);
+    expect(initialRow.rowBottom).toBeLessThanOrEqual(initialRow.scrollBottom);
+    await expect(page.locator(".dep-list li").first()).toBeInViewport();
     await page.getByRole("button", { name: "Explore", exact: true }).click();
     const viewport = await page.locator(".graph-viewport").boundingBox();
-    expect(viewport!.width).toBeGreaterThan(size.width - 30);
-    expect(viewport!.height).toBeGreaterThan(size.height * 0.7);
+    expect(viewport!.width).toBeGreaterThan(layout.viewport.width - 30);
+    expect(viewport!.height).toBeGreaterThan(layout.viewport.height * 0.7);
     await page.getByRole("button", { name: "netstandard2.0", exact: true }).click();
     await expect(page.getByRole("status")).toHaveText("Dependency graph truncated at 80 nodes.");
     await expect(page.getByRole("status")).toBeInViewport();
@@ -149,7 +257,8 @@ for (const size of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }])
     const legend = await page.locator(".graph-legend").boundingBox();
     expect(controls!.y + controls!.height).toBeLessThanOrEqual(warning!.y);
     expect(warning!.y + warning!.height).toBeLessThanOrEqual(legend!.y);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(size.width);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth))
+      .toBe(layout.viewport.width);
     await page.getByRole("button", { name: "Fit", exact: true }).click();
     const extent = await page.evaluate(() => {
       const graphViewport =
@@ -164,7 +273,7 @@ for (const size of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }])
         top: viewportRect.top - svgRect.top,
       };
     });
-    if (size.width === 1440) {
+    if (layout.viewport.width === 1440) {
       expect(Math.max(extent.bottom, extent.left, extent.right, extent.top))
         .toBeLessThanOrEqual(1);
     } else {
@@ -173,6 +282,8 @@ for (const size of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }])
     }
     await expect(page.getByRole("button", { name: "Close", exact: true })).toBeInViewport();
     await page.getByRole("button", { name: "Close", exact: true }).click();
-    expect((await page.locator(".graph-viewport").boundingBox())!.height).toBeCloseTo(540, 2);
+    expect((await page.locator(".graph-viewport").boundingBox())!.height)
+      .toBeCloseTo(layout.inlineHeight, 2);
+    await expect(page.locator(".dep-list li").first()).toBeInViewport();
   });
 }

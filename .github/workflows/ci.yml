@@ -135,7 +135,7 @@ jobs:
           fi
           jq -e '
             type == "object"
-            and .schemaVersion == 5
+            and .schemaVersion == 6
             and .status == "planned"
           ' <<< "$plan" > /dev/null
           printf 'plan=%s\n' "$plan" >> "$GITHUB_OUTPUT"
@@ -515,7 +515,7 @@ jobs:
         run: dotnet run --project inspect-web/DotnetInspect.Web.Tests -c Release
 
   inspect-web-msdl-tests:
-    name: inspect-web MSDL managed API tests
+    name: inspect-web managed API tests
     needs: changes
     if: fromJSON(needs.changes.outputs.plan).validations.inspectWeb
     runs-on: ubuntu-26.04
@@ -541,7 +541,7 @@ jobs:
             /tmp/dotnet-install.sh --channel 10.0 --runtime aspnetcore --install-dir "$DOTNET_ROOT"
           fi
 
-      - name: Test MSDL managed API
+      - name: Test Inspect Web managed API
         run: dotnet run --project inspect-web/msdl-proxy.Tests -c Release
 
   inspect-web-browser:
@@ -715,14 +715,14 @@ jobs:
         with:
           dotnet-version: '11.0.100-rc.1.26425.128'
 
-      - name: Publish MSDL managed API
+      - name: Publish Inspect Web managed API
         run: >
           dotnet publish
           inspect-web/msdl-proxy/MsdlProxy.csproj
           -c Release
           --output artifacts/inspect-web-api
 
-      - name: Verify MSDL managed API artifact
+      - name: Verify Inspect Web managed API artifact
         shell: bash
         run: |
           set -euo pipefail
@@ -943,6 +943,7 @@ jobs:
             --corpus-method-cap 100 \
             --compile-cap 0 \
             --corpus-fidelity-cap 0 \
+            --corpus-fidelity-oracle compile-back \
             --max-examples 3 \
             | tee artifacts/decompiler-pr-corpus/quality-diff-card.md
           status=${PIPESTATUS[0]}
@@ -1055,6 +1056,7 @@ jobs:
       # classified Slow, but they define the complete shared Performance
       # Triage query path across library, type, and member scopes.
       - name: Run Performance Triage contract tests
+        if: matrix.shard == 'contracts'
         run: |
           dotnet run --project tests/DotnetInspect.Cli.Tests -c Release --no-build -- \
             --filter-method '*RenderTypeSectionsMarkdown_AppliesPerformanceTriagePlan*' \
@@ -1138,6 +1140,14 @@ jobs:
       - name: Run installed PlatformHouse adapter tests
         if: matrix.shard == 'contracts'
         run: dotnet run --project tests/DotnetInspector.PlatformHouse.Installed.Tests -c Release
+
+      - name: Run package-backed PlatformHouse adapter tests
+        if: matrix.shard == 'contracts'
+        run: dotnet run --project tests/DotnetInspector.PlatformHouse.Packages.Tests -c Release -- --filter-not-trait "Speed=Slow"
+
+      - name: Run portable-query codec tests
+        if: matrix.shard == 'contracts'
+        run: dotnet run --project tests/DotnetInspector.PortableQueries.Tests -c Release
 
       - name: Run row-selection tests
         if: matrix.shard == 'contracts'

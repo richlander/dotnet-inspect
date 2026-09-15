@@ -43,6 +43,69 @@ public class MemberIdentityValueEqualityTests
     }
 
     [Fact]
+    public void TypeRefInstantiationTraversesRetainedCustomModifiers()
+    {
+        TypeRef open = TypeRef.UnsupportedModified(
+            TypeRef.Definition("Sample", "Sample", "Modifier"),
+            TypeRef.MethodGenericParameter(0, "T"),
+            isRequired: false);
+
+        TypeRef instantiated = open.Instantiate(
+            [],
+            [TypeRef.CoreLib("System", "Int32")]);
+
+        Assert.NotSame(open, instantiated);
+        Assert.Equal(
+            TypeRef.CoreLib("System", "Int32"),
+            instantiated.UnmodifiedType);
+        Assert.Equal(
+            TypeRefKind.MethodGenericParameter,
+            open.UnmodifiedType!.Kind);
+        Assert.Same(open.ModifierType, instantiated.ModifierType);
+    }
+
+    [Fact]
+    public void TypeRefInstantiationTraversesFunctionPointerSignatures()
+    {
+        var signature = new MethodSignature<TypeRef>(
+            new SignatureHeader(
+                SignatureKind.Method,
+                SignatureCallingConvention.CDecl,
+                SignatureAttributes.Instance),
+            TypeRef.MethodGenericParameter(0, "T"),
+            requiredParameterCount: 1,
+            genericParameterCount: 0,
+            [TypeRef.MethodGenericParameter(0, "T")]);
+        TypeRef open =
+            TypeRef.UnsupportedFunctionPointer(signature);
+
+        TypeRef instantiated = open.Instantiate(
+            [],
+            [TypeRef.CoreLib("System", "Int32")]);
+
+        Assert.NotSame(open, instantiated);
+        MethodSignature<TypeRef> closed =
+            instantiated.FunctionPointerSignature!.Value;
+        Assert.Equal(signature.Header, closed.Header);
+        Assert.Equal(
+            signature.RequiredParameterCount,
+            closed.RequiredParameterCount);
+        Assert.Equal(
+            signature.GenericParameterCount,
+            closed.GenericParameterCount);
+        Assert.Equal(
+            TypeRef.CoreLib("System", "Int32"),
+            closed.ReturnType);
+        Assert.Equal(
+            TypeRef.CoreLib("System", "Int32"),
+            Assert.Single(closed.ParameterTypes));
+        Assert.Equal(
+            TypeRefKind.MethodGenericParameter,
+            open.FunctionPointerSignature!.Value.ReturnType.Kind);
+        Assert.Same(open, open.Instantiate([], []));
+    }
+
+    [Fact]
     public void TypeRefSharedDag_EqualityHashAndAsyncIdentityAreLinear()
     {
         TypeRef left = TypeRef.CoreLib("System", "Int32");

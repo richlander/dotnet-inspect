@@ -145,15 +145,25 @@ public class PackageCommand
             }
 
             return DiscoverOutput.Execute(options.Discover, schemaMap,
-                tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
-                verbosity: (int)options.Verbosity,
+                DiscoveryOutputRequest.Create(
+                    OutputFormatResolver.ResolveStored(
+                        options.Format,
+                        options.JsonOutput,
+                        plainText: false,
+                        options.Tabular,
+                        options.Tsv,
+                        options.Jsonl),
+                    options.Tree,
+                    options.TabularExplicitlySet,
+                    options.NoHeader,
+                    (int)options.Verbosity,
+                    options),
                 sectionCostAnnotations: pipeline.GetCostAnnotations(),
                 sectionCategories: sectionCatalog.SelectionCategoryMap,
                 // --schema reveals the full catalog including the @Hidden pole; a static -D
                 // without --schema keeps the curated top-level view.
                 catalogHiddenSections: options.Schema ? null : pipeline.GetCatalogHiddenSections(),
-                listedCategoryDoors: pipeline.GetListedCategoryDoors(),
-                projection: options);
+                listedCategoryDoors: pipeline.GetListedCategoryDoors());
         }
 
         // Bare -S selects the network-free "fixed" overview: only sections whose declared growth
@@ -1276,14 +1286,19 @@ public class PackageCommand
                         options.Discover,
                         effective,
                         schemaMap,
-                        tree: options.Tree,
-                        json: options.JsonOutput,
-                        tsv: options.Tsv,
-                        jsonl: options.Jsonl,
-                        markdown:
-                            !options.Tabular
-                            && !options.JsonOutput,
-                        verbosity: (int)userVerbosity,
+                        DiscoveryOutputRequest.Create(
+                            OutputFormatResolver.ResolveStored(
+                                options.Format,
+                                options.JsonOutput,
+                                plainText: false,
+                                options.Tabular,
+                                options.Tsv,
+                                options.Jsonl),
+                            options.Tree,
+                            options.TabularExplicitlySet,
+                            options.NoHeader,
+                            (int)userVerbosity,
+                            options),
                         rootLabel: $"package {packageName}",
                         fullSchema: fullSchemaMap,
                         sectionCostAnnotations:
@@ -1296,8 +1311,7 @@ public class PackageCommand
                                 : pipeline
                                     .GetCatalogHiddenSections(),
                         listedCategoryDoors:
-                            pipeline.GetListedCategoryDoors(),
-                        projection: options),
+                            pipeline.GetListedCategoryDoors()),
                     result);
             }
             WarnEmptySections(result, options, pipeline);
@@ -3014,7 +3028,10 @@ public class PackageCommand
                 options.Jsonl,
                 options.JsonArray,
                 options.Bare,
-                PackagePayloadDestination(options)));
+                PackagePayloadDestination(options),
+                row => PackagePayloadDestination(
+                    options,
+                    PackageFileFamily.IsSkillDocument(sourceByRow[row]))));
     }
 
     private static List<ShapeProjectionRow> ProjectPackageFiles(IEnumerable<PackageFileRow>? files, string section, ShapeProjectionKind kind, InspectionOptions options)
@@ -4046,13 +4063,42 @@ public class PackageCommand
             && !options.Jsonl
             && !options.JsonArray;
 
-    private static ProjectionDestination PackagePayloadDestination(InspectionOptions options)
+    private static bool MayResolveToSkillPayloadBeforeAcquisition(
+        InspectionOptions options)
+    {
+        if ((options.Print || options.Bare)
+            && options.IncludeSections is { Count: 1 } sections
+            && (sections.Single().Equals(
+                    PackageSections.FilesSkills,
+                    StringComparison.OrdinalIgnoreCase)
+                || sections.Single().Equals(
+                    PackageSections.FilesReadme,
+                    StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        string[] selectors = PathSelectors(options);
+        return options.ShowContent
+            && selectors.Length > 0
+            && selectors.All(static selector =>
+                selector.Equals("@readme", StringComparison.OrdinalIgnoreCase)
+                || !selector.Contains('*')
+                    && !selector.Contains('?')
+                    && PackageFileFamily.IsSkillDocumentPath(selector));
+    }
+
+    private static ProjectionDestination PackagePayloadDestination(
+        InspectionOptions options,
+        bool? resolvedSkillPayload = null)
         => new(
             options.OutputPath,
             options.Rows,
             ExactTransfer: (options.Print || RequiresUnaryPackageContent(options))
                 && HasUnstructuredOutputPath(options)
-                && options.ContentScope == PackageFileContentScope.Full);
+                && options.ContentScope == PackageFileContentScope.Full
+                && !(resolvedSkillPayload
+                    ?? MayResolveToSkillPayloadBeforeAcquisition(options)));
 
     /// <summary>
     /// Restores the readme role to the document the manifest declares when
@@ -4135,13 +4181,17 @@ public class PackageCommand
                 includeExactContent ? exactContent : null);
         }
 
+        string sourceContent = ReadText(exactContent);
         var content = MarkdownContent.ApplyScope(
-            ReadText(exactContent),
-            scope);
+            sourceContent,
+            scope,
+            out int sourceLineOffset);
         if (PackageFileFamily.IsSkillDocument(file))
         {
             ContainmentSelectedText selected = AgentSkillDocument.PrepareForOutput(
+                file.Path,
                 content,
+                sourceLineOffset,
                 normalizeGithubLinksToRaw);
             return new PackageFileContent(
                 packageName,
@@ -4223,7 +4273,20 @@ public class PackageCommand
         if (LensProjection.TryProject(options, "--content", visibleRows.Count(row => row.Found), out var contentProjectionExit))
             return contentProjectionExit;
 
-        var destination = PackagePayloadDestination(options);
+        List<PackageFileContent> resolvedFiles =
+            visibleRows.Where(row => row.Found).Take(2).ToList();
+        bool? resolvedSkillPayload = resolvedFiles.Count == 1
+            ? resolvedFiles[0].SelectedContent is not null
+            : null;
+        var destination = PackagePayloadDestination(
+            options,
+            resolvedSkillPayload);
+        if (!ProjectionDestinationWriter.ValidateBeforeDestinationMutation(
+                destination))
+        {
+            return 1;
+        }
+
         if (options.Bare)
             return PrintBarePackageFileContentRows(visibleRows, destination);
 
@@ -4239,9 +4302,13 @@ public class PackageCommand
                 return 1;
             }
 
+            ContainmentDiagnosticOutput.Write(found[0].SelectedContent);
             WritePackageFileExport(found[0], destination);
             return 0;
         }
+
+        foreach (PackageFileContent row in visibleRows.Where(row => row.Found))
+            ContainmentDiagnosticOutput.Write(row.SelectedContent);
 
         var textRows = visibleRows
             .Select(PackageFileContentText.Create)
@@ -4268,6 +4335,7 @@ public class PackageCommand
             return 1;
         }
 
+        ContainmentDiagnosticOutput.Write(found[0].SelectedContent);
         if (ProjectionDestinationWriter.IsFile(destination))
         {
             WritePackageFileExport(found[0], destination);
@@ -4559,9 +4627,14 @@ public class PackageCommand
             return 1;
         }
 
-        var destination = PackagePayloadDestination(options);
-        if (!ProjectionDestinationWriter.ValidateBeforeAcquisition(destination))
+        var destination = PackagePayloadDestination(
+            options,
+            PackageFileFamily.IsSkillDocument(files[0]));
+        if (!ProjectionDestinationWriter.ValidateBeforeDestinationMutation(
+                destination))
+        {
             return 1;
+        }
 
         var content = ReadPackageFileContent(
             extractPath,
@@ -4571,6 +4644,7 @@ public class PackageCommand
             PackageFileContentScope.Full,
             normalizeGithubLinksToRaw: !options.BrowsableUrls,
             includeExactContent: HasUnstructuredOutputPath(options));
+        ContainmentDiagnosticOutput.Write(content.SelectedContent);
         if (ProjectionDestinationWriter.IsFile(destination))
         {
             WritePackageFileExport(content, destination);

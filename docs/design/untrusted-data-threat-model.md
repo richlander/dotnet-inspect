@@ -717,6 +717,32 @@ reservations and retained cache entries share the same 12-package/128 MB limit.
 Before assembly identity decoding, each workspace role also rejects more than
 256 selected assemblies or a declared expanded total above that role's 32/64 MB
 retained-image budget.
+
+A [2026-09-14 package census](../data/inspect-web-storage-budget-census-2026-09-14.tsv)
+keeps those Browser limits unchanged. The exact stable versions of ranks 1-10
+in `docs/data/nuget-top-packages.json` total 8.47 MiB of archives; their largest
+single-target managed set is `AWSSDK.Core@4.0.102.6` at 1.04 MiB. Larger
+immutable witnesses remain within both byte ceilings:
+`Microsoft.CodeAnalysis.CSharp@5.0.0` is 16.85 MiB compressed and 12.87 MiB for
+its largest managed target,
+`Microsoft.AspNetCore.App.Runtime.linux-x64@10.0.10` is 12.33 MiB and
+25.74 MiB, and `Microsoft.NETCore.App.Runtime.linux-x64@10.0.10` is
+38.24 MiB and 58.75 MiB. The last case leaves 5.25 MiB of retained-image
+headroom, while all three stress witnesses plus the top-10 archive set consume
+75.89 MiB of the 128 MiB cache. This demonstrates useful headroom for common
+packages and admits a complete runtime-pack stress case without claiming that
+every NuGet package fits; an over-limit package remains a visible refusal.
+
+The [2026-09-15 Workspace census](../data/inspect-web-workspace-budget-census-2026-09-15.tsv)
+separately measures the shipped 44-package Microsoft.Extensions set. Its
+archives total 12.87 MiB, and the real Workspace role realization admits its
+shared 44-assembly, 5.47 MiB selected image set within one Workspace slot. The
+128 MiB archive, 256-assembly-per-role, 64 MiB retained-image, and four-slot
+limits have substantial headroom for this first complex scenario. The
+12-package-entry limit rejects the complete set and is not sufficient for the
+planned multi-Package Workspace experience. Selecting a larger entry bound
+remains owned by that Workspace adoption because an atomic edit may retain the
+old realization while acquiring its replacement.
 Browser API-surface projection additionally spends one shared
 32,000,000-character retained-text budget across its selected assemblies. The
 extractor charges every string-bearing model field as it retains each member,
@@ -1411,6 +1437,10 @@ reachability or reading bytes. The source-byte, availability, and integrity
 cache categories were versioned when the stricter audit rule landed;
 source-byte reuse remains checksum-gated, while entries without final-origin
 evidence cannot satisfy the audit paths.
+[SourceFetch evidence admission](source-fetch.md) owns candidate ordering,
+validation-before-use, and source-byte publication. Its exact-URL cache stores
+candidate bytes rather than a provenance verdict, so every use is validated
+again by the current PDB checksum predicate.
 
 Checksum evidence follows the portable-PDB document row rather than a display
 or canonical path. Direct member, type, and IL-offset projections join on row
@@ -1692,8 +1722,9 @@ capability, and liveness policy is always rechecked and cannot be replaced by a
 version bump. The cache key, validation, and derived result must also consume
 the owner-retained immutable snapshot for every contributing artifact; equal
 pre/post hashes around work over a reopened mutable path do not exclude a
-W-to-S-to-W substitution. `MDP017` gates that ABA case for both assembly and
-PDB inputs to the library effective catalog. At that cutover, bounded
+W-to-S-to-W substitution. That ABA case for assembly and PDB inputs to the
+library effective catalog is unverified and tracked by [#3478](https://github.com/richlander/dotnet-inspect/issues/3478). At that
+cutover, bounded
 assembly-format admission also precedes every SourceLink/PDB probe and catalog
 lookup; only a supported assembly may reach the separately bounded
 identity-validated portable-PDB reader. The successor key includes complete

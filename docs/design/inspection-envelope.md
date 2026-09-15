@@ -9,6 +9,15 @@ diagnostics. The CLI consumes that baseline envelope. Broader hosts consume the
 same baseline and may compose additional owner-issued content or host-owned
 experience state around it without changing the baseline.
 
+The optional [service-evidence enrichment](#service-evidence-enrichment)
+composes that baseline with a second owner-issued type. It is a proposed
+extension of this envelope pattern, not another primary-content model.
+
+The
+[host-observable content kinds](host-observable-content-kinds.md)
+contract classifies that owner-issued value as a Result, Document, or
+owner-specific Outcome and defines its serialization-ready boundary.
+
 The implementation tracker is
 [#6710](https://github.com/richlander/dotnet-inspect/issues/6710).
 The prerequisite content/share plan is
@@ -28,9 +37,9 @@ InspectionEnvelope<TContent>
   Diagnostics
 ```
 
-`TContent` remains the result type issued by the inspection owner. The envelope
-does not replace that type, reinterpret its facts, or become a universal
-inspection-content model.
+`TContent` remains the content type issued by the inspection owner. The
+envelope does not replace that type, reinterpret its facts, or become a
+universal inspection-content model.
 
 The envelope owns:
 
@@ -126,6 +135,11 @@ serialization meaning, or resource ownership. A host may lower or render the
 value, but it may not add facts to it after the envelope crosses the shared
 boundary.
 
+The content contract requires a settled, serialization-ready snapshot, not a
+particular CLR collection implementation. Arrays and other ordinary collection
+types may represent serialized sequences; `ImmutableArray<T>` is not required
+merely because content crosses the host boundary.
+
 ## Share outcome
 
 Every envelope has one `Share` value derived from the same resolved basis:
@@ -203,9 +217,175 @@ A diagnostic cannot replace a typed content non-success,
 Verbose logs, traces, tips, performance telemetry, exception stack traces, and
 host-authored convenience messages are not inspection diagnostics.
 
+## Service-evidence enrichment
+
+Status: **proposed**, tracked by
+[#7116](https://github.com/richlander/dotnet-inspect/issues/7116).
+This section owns the generic enrichment contract. It does not define each
+service's evidence schema or capture algorithm.
+
+**Service evidence** records additional inputs, selections, intermediate
+facts, and decisions involved in producing an inspection. It need not form an
+explanation of why the answer follows. Neither debugging nor build
+configuration defines its meaning.
+
+Content retains all evidence required to interpret the answer, including its
+failure and completeness meaning. Ordinary Diagnostics retains required
+operational notices. Neither may depend on requesting optional service
+evidence. Facts can be used in both views, but enrichment is not a reason to
+remove required information from the baseline.
+
+### One baseline, two typed forms
+
+```text
+InspectionEnvelope<TContent>
+  Content: TContent
+  Share
+  Diagnostics: InspectionDiagnostic[]
+
+EvidenceInspectionEnvelope<TContent, TEvidence>
+  Inspection: InspectionEnvelope<TContent>
+  Evidence: TEvidence
+```
+
+The enriched form uses composition, not CLR inheritance. It contains one
+non-null baseline and one non-null evidence value; it does not redeclare or
+independently construct another Content, Share, or diagnostic collection.
+An ordinary consumer can use `Inspection` without knowing `TEvidence`.
+Services without evidence support keep the one-generic baseline and need no
+dummy evidence type.
+
+`TEvidence` is a named owner-issued Document or, where admitted requests
+cannot always produce that Document, an owner-specific Outcome. It consumes
+the [content-kind vocabulary](host-observable-content-kinds.md), including
+settled snapshots and visible partial or non-available states. The generic
+envelope introduces no universal evidence Outcome, untyped object dictionary,
+or diagnostic-message encoding of structured evidence.
+
+The issuing service associates both values within the same invocation.
+Evidence joins use existing owner-issued subject, population, and plan
+identities, not rendered labels or a reconstruction from output. This pattern
+adds no new global operation identity or receipt.
+
+### Request and capture boundary
+
+The ordinary and evidence-enabled entry points expose distinct, statically
+known return forms for the same inspection operation:
+
+```text
+ordinary request         -> InspectionEnvelope<TContent>
+evidence-enabled request -> EvidenceInspectionEnvelope<TContent, TEvidence>
+```
+
+Each service owns its concrete request and entry-point spelling. A runtime
+option may select a typed entry point, but must not make one return type
+sometimes conceal an enriched value as `object` or as a bare baseline.
+Producing an enriched result performs one inspection, not an ordinary
+inspection followed by a second run to obtain evidence.
+
+Capture intent is resolved before execution. Additional observation work must
+have owner-declared costs, bounds, and capability requirements; requesting
+serialization is not permission to acquire data or recapture evidence while
+writing the result. The ordinary semantic plan remains the basis of Content
+and Share rather than being broadened into another inspection by capture.
+
+For equivalent ordinary inputs and plans, enabling evidence preserves the
+baseline's Content, Share, and normal Diagnostics. An evidence-only
+observation failure belongs to the evidence owner's completion or non-success
+case; a failure affecting the inspection still requires the baseline's normal
+failure disclosure. Requested evidence that cannot be produced must be
+represented honestly or rejected at admission, not replaced by a bare
+baseline, `null`, or an unexplained empty success. Cancellation and unexpected
+exceptions retain their existing operation-failure meaning.
+
+Availability is a separate host/service capability policy. An adopter may
+initially expose capture only in Debug builds, but that choice does not rename
+the type, change its meaning, or make required diagnostics optional.
+Correctness gates for the model and its serialization still run in Release.
+This contract does not itself enable capture in production builds.
+
+### Equality, lifetime, and delivery
+
+Extracting `Inspection` preserves the existing baseline equality contract.
+Equality of two enriched values additionally compares their owner-issued
+Evidence values. Equal baselines alone do not make two enrichments equal.
+Cross-host agreement on baseline values remains independent of capture;
+evidence equality applies under the evidence owner's declared inputs and
+capture contract, not merely because two inspections produced the same answer.
+
+Evidence inherits the envelope's [resource-free lifetime](#safety-and-lifetime)
+and contained-data boundary. It is a settled value, not a live service,
+Workspace borrow, callback, credential container, or unbounded logging stream.
+An evidence section may render that value; rendering does not own its
+collection or association.
+
+The logical serialized enrichment keeps Content, Share, and Diagnostics at
+their baseline paths and adds Evidence alongside them. CLR composition does
+not require a nested serialized `Inspection` object or a duplicate baseline:
+
+```text
+baseline wire value:  Content, Share, Diagnostics
+enriched wire value:  Content, Share, Diagnostics, Evidence
+```
+
+These are logical member names, not a new casing or framing standard.
+Transport and generated facade contracts must preserve the complete concrete
+closed type. Serializing only `Inspection` is a baseline projection, not
+delivery of the enrichment. Both hosts must preserve the same service-issued
+values; they may choose different views over them.
+
+The user-selected planned CLI spelling is `--evidence-envelope`, paired with
+ordinary `--envelope`. It selects the evidence-enabled service form and its
+complete JSON delivery. The CLI output owner's
+[transport contract](output-shapes.md#envelope-transport) in #6719 binds capture
+before execution and specifies option interactions and framing; this generic
+pattern does not define that parser or transport. Unprojected content JSON still
+represents the baseline Content value, not Evidence.
+
+### Motivation and production adoption
+
+The existing
+[`depends` diagnostic sections](dependency-inspection-command.md#sections-and-disclosure)
+provide the concrete motivation: Roots, Dependency Groups, Restored Packages,
+and Restored Edges expose structured service facts through CLI-only sections.
+Some selections request extra evidence phases, so moving their output alone
+would not establish service-owned capture. This repository's restored
+`src/DotnetInspect.Cli/DotnetInspect.Cli.csproj` is a real input exhibiting those
+facts; the dependency adopter owns its reproducible fixture and expected data.
+
+The production path has four steps:
+
+1. Lock this envelope-pattern extension in #7116.
+2. In [dependency adoption #7117](https://github.com/richlander/dotnet-inspect/issues/7117),
+   classify required versus supplemental facts and define the service-owned
+   evidence type and capture request. Scope any prerequisite shared-service
+   extraction there, not inside this generic pattern.
+3. Implement the shared enrichment and that service adoption with its CLI
+   consumer through #6719, including the complete closed serialization type.
+4. Deliver the same enrichment through Browser/Wasm and an owner-selected
+   inspection-evidence view.
+
+Steps 3 and 4 may land together; adoption is not complete until both hosts
+consume the service-issued enrichment. Each adopter owns its focused contract
+and gates. Existing diagnostic sections remain supported under their current
+owner until replacement coverage exists. Retire duplicated production after
+adoption; useful sections may remain thin views of shared evidence.
+The broader Compare path remains tracked by #5083.
+
+Planned production-host Release gates must cover baseline preservation,
+same-invocation correspondence, complete/empty and bounded/non-available
+evidence, retained failure disclosure, detached lifetime, and serialization
+without recapture. They must verify the logical flat wire projection,
+owner-specific Outcome cases, and agreement between runtime JSON and generated
+Browser types. These implementation properties are **unverified** until the
+adoption gates exist. This specification adds no executable type, flag, or
+section migration and is not a general logging or tracing design.
+
 ## Same baseline, broader clients
 
-The CLI consumes `InspectionEnvelope<TContent>` as its complete shared input.
+The CLI consumes `InspectionEnvelope<TContent>` as its complete shared
+baseline. An evidence-enabled invocation receives that same baseline inside
+the [typed enrichment](#service-evidence-enrichment).
 It may:
 
 - lower content through Markout or another approved typed presentation;
@@ -356,15 +536,16 @@ Planned Release gates:
 
 ## CLI envelope passthrough
 
-A direct serialized-envelope projection would be useful for debugging and
-typed automation. Its output spelling and compatibility classification belong
-to the CLI output owners, not this generic envelope. It is tracked by
-[#6719](https://github.com/richlander/dotnet-inspect/issues/6719).
+Supported public CLI passthrough is tracked by
+[#6719](https://github.com/richlander/dotnet-inspect/issues/6719). The CLI
+[content-shape and service-envelope boundary](output-shapes.md#content-shapes-and-service-envelopes)
+owns the JSON-only `--envelope` spelling and its distinction from content
+`--json`. It also owns the required content-JSON alignment when a route adopts
+public passthrough. The generic envelope does not define CLI option
+interactions or migrate existing machine schemas implicitly.
 
-It cannot reuse `--raw` without an explicit compatibility change:
-`--raw` already selects raw/fetchable GitHub URL shape. Any future passthrough
-must preserve the envelope exactly, deliberately select its own output
-contract, and use separately approved non-colliding syntax.
+Passthrough preserves the already constructed envelope exactly. `--raw`
+remains the separate raw/fetchable GitHub URL shape.
 
 ## Non-claims
 

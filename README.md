@@ -145,7 +145,7 @@ stderr rather than mixed into structured output.
 | Capability | Commands | Highlights |
 | ---------- | -------- | ---------- |
 | Package inventory | `package` | Metadata, versions, TFMs, file layout, dependency tree, vulnerability data, custom feeds, and NuGet config support. |
-| Project package skills and docs | `project` | Section-driven direct-dependency rows from valid `skills/**/SKILL.md` files and root `README.md` files in the restored package cache. Use `--print --row N` to emit one selected document. Skill inventory values and complete documents that require containment become `[Text omitted: required containment]`. |
+| Project package skills and docs | `project` | Section-driven direct-dependency rows from valid `skills/**/SKILL.md` files and root `README.md` files in the restored package cache. Use `--print --row N` to emit one selected document. Skill inventory values and complete documents that require containment become `[Text omitted: required containment]`; selected documents also report bounded code-point locations on stderr. |
 | Query vocabulary | `vocabulary` | Product-owned stable values, operators, defaults, and applicability for rich queries. |
 | Ecosystem catalog | `ecosystem` | Product-configured ecosystem packs, namespace hints, core/tool packages, demos, and known Integration bindings without package acquisition. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, SourceLink, PDBs, references, resources, async methods, and body-shape search. |
@@ -156,6 +156,7 @@ stderr rather than mixed into structured output.
 | Structural clone discovery | `library`/`type`/`member -S "Clone Candidates"` | Workspace-scoped structural candidate ranking for an exact Library, Type, or logical Member seed, with independent Breadth and Discovery facets. |
 | Relationships | `graph`, `depends`, `extensions`, `implements` | Integration graphs, type hierarchies, explicit package/nuspec/library/restored-project dependency graphs, reference graphs, extension methods/properties, implementors, and subclasses. |
 | Direct dependency evidence | `depends -S Dependencies` | `depends` combines explicit roots, traversal, and normalized declaration/restored evidence in one sectioned document. |
+| Package pruning policy | `depends -S Pruning` | Explicitly compares source-authorized direct dependency candidates with an exact installed runtime or ASP.NET Core platform inventory, without changing graph traversal. |
 | Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"PDB Source"` | SourceLink URLs, member file/line locations, and token+IL-offset to source-line resolution. `PDB Source` is checksum-verified source acquired from the PDB-recorded local path, a caller-supplied Git clone (`--repo`), or remote SourceLink, in that order. |
 | Performance analysis *(experimental)* | `library -S @Performance`, `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly leverage ranking, actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Source`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
@@ -170,6 +171,7 @@ stderr rather than mixed into structured output.
 | Command | Purpose |
 | ------- | ------- |
 | `package X` | Inspect NuGet metadata, versions, dependencies, TFMs, layout, and vulnerabilities. |
+| `package changes --ecosystem NAME` | Report bounded recent package activity for an ecosystem-selected package population, with source coverage and security evidence. |
 | `project [path]` | Inspect restored project package skills and package docs. |
 | `library X` | Inspect assembly metadata, symbols, SourceLink, references, resources, async methods, and rendered body shapes. |
 | `type X` | Discover types or render a single type shape. |
@@ -210,9 +212,44 @@ acquired library:
 dotnet-inspect ecosystem
 dotnet-inspect ecosystem aspire
 dotnet-inspect ecosystem aspire -S Integrations
+dotnet-inspect ecosystem ai -S "Core Packages"
+dotnet-inspect ecosystem azure -S "Core Packages"
+dotnet-inspect ecosystem blazor -S "Core Packages"
+dotnet-inspect ecosystem maui -S "Core Packages"
 dotnet-inspect ecosystem microsoft-extensions -S "Core Packages"
 dotnet-inspect ecosystem platform -S Pruning
 ```
+
+`Core Packages` are inert registered package roots. Catalog inspection performs
+no source work; a later bounded operation that selects the ecosystem may resolve
+those concrete packages and follow their ordinary dependencies. Package-prefix
+matches remain discovery scope and are not substituted for those roots.
+
+Use `package changes --ecosystem` to report package activity in one named
+ecosystem's exact product-owned package set. The ecosystem option selects where
+to look; `ecosystem` itself remains the acquisition-free vocabulary command.
+This network-backed query defaults to the interval
+`(reference time - 42 days, reference time]`, reports the exact UTC bounds and
+source horizon, and overlays current GitHub-reviewed advisory context and
+evidenced security releases:
+
+```bash
+dotnet-inspect package changes --ecosystem aspire
+dotnet-inspect package changes --ecosystem aspnetcore --security-only
+dotnet-inspect package changes --ecosystem microsoft-extensions -n 25 --json
+dotnet-inspect package changes --ecosystem aspire \
+  --from 2026-02-01T00:00:00Z \
+  --through 2026-03-01T00:00:00Z
+```
+
+`--from` is exclusive and `--through` is inclusive; specify both with explicit
+UTC offsets, and keep the interval at 42 days or less. `--security-only` keeps
+activity with positive current-advisory or exact security-release evidence.
+Unavailable evidence is not treated as a negative. Human output uses the shared
+report view; `--json` emits the lossless schema-versioned report, with
+`--compact` for minified JSON. Use `--verbose` for bounded acquisition progress
+on stderr. Single-table formats and catalog-only section projections are not
+available with `package changes`.
 
 `ecosystem platform -S Pruning` is the exception to "catalog knowledge": it reads
 the reference pack installed on this machine to list the package identities the
@@ -360,6 +397,17 @@ packages matching the prefix:
 ```bash
 dotnet-inspect find Serialize --members --type System.Text.Json.JsonSerializer \
   --package-prefix System.Text
+```
+
+Use `depends=<package-id>` to require a direct dependency declared in any
+package manifest group. Repeat the term to require every named dependency:
+
+```bash
+dotnet-inspect package query 'Microsoft.Extensions.*' \
+  --where "depends=Microsoft.Extensions.DependencyInjection"
+dotnet-inspect package query 'Microsoft.Extensions.*' \
+  --where "depends=Microsoft.Extensions.DependencyInjection" \
+  --where "depends=Microsoft.Extensions.Configuration" --count
 ```
 
 Add `--where "facet=<ID>"` to select a host-neutral Package Query facet, with
@@ -527,6 +575,21 @@ dotnet-inspect timeline --package Markout@0.33.0..0.35.2 --type Markout.MarkoutW
 dotnet-inspect timeline --package System.Text.Json@8.0.0..9.0.0 --type System.Text.Json.JsonSerializer --members --at all -S Evaluations --rows 2..
 ```
 
+Ordinary API diffs with one Library at each endpoint consume the shared
+[Library API Diff contract](docs/design/library-api-diff-presentation.md)
+intended for website Compare. This includes single-Library packages, platform
+libraries, and local DLL pairs. `--type` narrows the complete comparison;
+`--all` widens its API scope. The endpoints must be versions of the same
+logical Library (assembly name, culture, and public-key token).
+
+Changes without a compatibility classification remain visible under
+**Other API Changes**, or as `unclassified` rows in detailed output. They are
+not classified as breaking or additive. An incomplete or rejected comparison
+returns nonzero and says **not compared**, rather than claiming no changes.
+Multi-Library packages, member-filtered diffs, Analysis Diff, Implementation
+Diff, Finding Transitions, and mixed-section requests retain their existing
+routes; this adoption does not add the website Compare UI.
+
 ### Structural matching
 
 Use the `Clone Candidates` section for a globally ranked search from an exact
@@ -639,6 +702,10 @@ dotnet-inspect depends \
 dotnet-inspect depends --nuspec ./artifacts/local.nuspec -D --effective
 dotnet-inspect depends --package Newtonsoft.Json --tfm net8.0 \
   -S Dependencies
+dotnet-inspect depends --package System.Text.Json@9.0.0 --tfm net11.0 \
+  -S Pruning
+dotnet-inspect depends --package Microsoft.AspNetCore.Authentication.JwtBearer@10.0.0 \
+  --tfm net11.0 --platform-family aspnetcore -S Pruning
 dotnet-inspect depends \
   --project ./src/DotnetInspect.Cli \
   --nuspec ./artifacts/package.nuspec \
@@ -666,6 +733,15 @@ dotnet-inspect graph libraries \
   -S "Provider API Types" \
   --table
 ```
+
+`Pruning` is explicit-only and evaluates direct declarations of the named
+roots; it does not prune dependency-graph edges or run transitive traversal.
+The default comparison family is `runtime`; use
+`--platform-family aspnetcore` to select the ASP.NET Core inventory. In its
+output, `Candidate` is the package version resolved from the declaration and
+`Platform Provides` is separate platform-supply evidence. If those columns
+show `4.3.2` and `4.3.1`, respectively, the disposition is
+`PackageRetained`: the command does not select or downgrade to `4.3.1`.
 
 `graph libraries` evaluates both directions in the pair; every row still names
 its directed source and target. Omitting `-S` preserves the exact physical call

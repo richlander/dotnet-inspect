@@ -281,6 +281,44 @@ outcome-level host gate without changing the suite's strict schema, graph
 classification, rule evaluation, non-vacuity, deterministic diagnostic,
 MSBuild graph, assembly-closure, or fail-closed boundary evidence.
 
+`DotnetInspector.MetadataRendering.Tests` is the twenty-second migrated
+adopter. Its required PR and developer commands remain unfiltered. These paths
+reuse the pinned outcome-level host gate without changing the suite's metadata
+projection, structured rendering, `mdi`, containment, untrusted-text, reference,
+or visible-failure evidence. The migration also retires the oversized-version
+fixture harness: metadata admission now rejects its invalid version length
+before rendering, and the Metadata owner separately gates that typed rejection.
+
+`DotnetInspector.Presentation.Tests` is the twenty-third migrated adopter. Its
+required PR, Windows, Deep Inspect platform, and developer commands remain
+unfiltered. These paths reuse the pinned outcome-level host gate without
+changing the suite's ecosystem-change report, clone-candidate, Library API
+diff, Member source-diff, or detached inspection-envelope presentation
+evidence.
+
+`CSharpText.MemberSlicing.Tests` is the twenty-fourth migrated adopter. The
+tracker called this project `DotnetInspector.CSharpBodySlicer.Tests` before its
+rename in [#6340](https://github.com/richlander/dotnet-inspect/pull/6340). Its
+developer command remains unfiltered. This path reuses the pinned outcome-level
+host gate without changing the suite's declaration slicing, conditional
+recovery, exact metadata-name correspondence, corpus breadth, or Roslyn
+parse-validity evidence.
+
+`ILInspector.CSharp.Tests` is the twenty-fifth migrated adopter. Its required PR
+and developer commands remain unfiltered, while the documented hostile
+metadata self-name probe uses the supported MTP method filter. These paths reuse
+the pinned outcome-level host gate without changing the suite's model-bound C#
+formatting, declaration, type-shell, memory-safety spelling, declared-self-name,
+or visible-refusal evidence.
+
+`Inspector.Text.Tests` is the twenty-sixth migrated adopter. The tracker called
+this project `ILInspector.Text.Tests` before its rename in
+[#6387](https://github.com/richlander/dotnet-inspect/pull/6387). Its developer
+command remains unfiltered. This path reuses the pinned outcome-level host gate
+without changing the suite's exact line census, bounded projection, text
+comparison, movement, line-ending, final-terminator, or implementation-diff
+relation evidence.
+
 If the selected MTP version cannot produce the independent discovery and
 execution identities required by the decompiler completeness receipt, that
 suite remains on its transitional host until its owner has an equally strong

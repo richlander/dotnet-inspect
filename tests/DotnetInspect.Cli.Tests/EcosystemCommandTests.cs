@@ -147,9 +147,124 @@ public sealed class EcosystemCommandTests
         Assert.Contains("ecosystem.microsoft-extensions", result.Output);
         Assert.Contains("ecosystem.aspnetcore", result.Output);
         Assert.Contains("ecosystem.aspire", result.Output);
+        Assert.Contains("ecosystem.ai", result.Output);
+        Assert.Contains("ecosystem.azure", result.Output);
+        Assert.Contains("ecosystem.blazor", result.Output);
+        Assert.Contains("ecosystem.maui", result.Output);
         Assert.Contains(
             "| ecosystem.aspire | Aspire | Aspire package and demo content. | configured | 1 | 2 |",
             result.Output);
+        Assert.Contains(
+            "| ecosystem.ai | AI | AI abstractions, agents, vector data, and protocol packages. | none | 0 | 0 |",
+            result.Output);
+        Assert.Contains(
+            "| ecosystem.azure | Azure | Azure client libraries, identity, and Microsoft.Extensions integration. | none | 0 | 0 |",
+            result.Output);
+        Assert.Contains(
+            "| ecosystem.blazor | Blazor | Blazor browser, Hybrid, data, and authentication integrations. | none | 0 | 0 |",
+            result.Output);
+        Assert.Contains(
+            "| ecosystem.maui | .NET MAUI | .NET MAUI controls, Hybrid, toolkit, and graphics integrations. | none | 0 | 0 |",
+            result.Output);
+    }
+
+    [Fact]
+    public async Task AiCorePackagesExposeCurrentSupportedStartingPoints()
+    {
+        var result = await ExecuteCommandLineAsync(
+            "ecosystem",
+            "ai",
+            "-S",
+            "Core Packages",
+            "--tsv");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            """
+            package
+            Microsoft.Extensions.AI
+            Microsoft.Extensions.AI.Abstractions
+            Microsoft.Extensions.VectorData.Abstractions
+            Microsoft.Agents.AI
+            ModelContextProtocol
+            """,
+            result.Output.Trim());
+    }
+
+    [Fact]
+    public async Task AzureCorePackagesExposeRegisteredCallGraphRoots()
+    {
+        var result = await ExecuteCommandLineAsync(
+            "ecosystem",
+            "azure",
+            "-S",
+            "Core Packages",
+            "--tsv");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            """
+            package
+            Microsoft.Extensions.Azure
+            Azure.AI.OpenAI
+            Microsoft.Azure.SignalR
+            Aspire.Azure.AI.OpenAI
+            Aspire.Hosting.Azure.SignalR
+            Azure.Identity
+            Azure.Security.KeyVault.Secrets
+            Azure.Storage.Blobs
+            Azure.Messaging.ServiceBus
+            """,
+            result.Output.Trim());
+    }
+
+    [Fact]
+    public async Task BlazorCorePackagesExposeRegisteredCallGraphRoots()
+    {
+        var result = await ExecuteCommandLineAsync(
+            "ecosystem",
+            "blazor",
+            "-S",
+            "Core Packages",
+            "--tsv");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            """
+            package
+            Microsoft.AspNetCore.Components.WebAssembly
+            Microsoft.AspNetCore.Components.WebView.Maui
+            Microsoft.AspNetCore.Components.QuickGrid.EntityFrameworkAdapter
+            Microsoft.Authentication.WebAssembly.Msal
+            """,
+            result.Output.Trim());
+    }
+
+    [Fact]
+    public async Task MauiCorePackagesExposeRegisteredCallGraphRoots()
+    {
+        var result = await ExecuteCommandLineAsync(
+            "ecosystem",
+            "maui",
+            "-S",
+            "Core Packages",
+            "--tsv");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            """
+            package
+            Microsoft.Maui.Controls
+            Microsoft.AspNetCore.Components.WebView.Maui
+            CommunityToolkit.Maui
+            Microsoft.Maui.Graphics.Skia
+            Microsoft.Maui.Graphics.Text.Markdig
+            """,
+            result.Output.Trim());
     }
 
     [Fact]
@@ -531,6 +646,10 @@ public sealed class EcosystemCommandTests
         Assert.Empty(result.Output);
         Assert.Contains("Unknown ecosystem 'unknown'.", result.Error);
         Assert.Contains("aspire (ecosystem.aspire)", result.Error);
+        Assert.Contains("ai (ecosystem.ai)", result.Error);
+        Assert.Contains("azure (ecosystem.azure)", result.Error);
+        Assert.Contains("blazor (ecosystem.blazor)", result.Error);
+        Assert.Contains("maui (ecosystem.maui)", result.Error);
     }
 
     [Theory]

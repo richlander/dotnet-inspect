@@ -22,7 +22,7 @@ export function typeGraphLegendHtml(): string {
 export function dependencyGraphLegendHtml(): string {
   return `<div class="graph-legend" aria-label="Graph legend">
     <span><i class="legend-swatch target"></i>inspected package</span>
-    <span><i class="legend-swatch open-package"></i>open in workspace</span>
-    <span><i class="legend-swatch external-package"></i>load on selection</span>
+    <span><i class="legend-swatch same-prefix-package"></i>same prefix</span>
+    <span><i class="legend-swatch external-package"></i>external</span>
   </div>`;
 }

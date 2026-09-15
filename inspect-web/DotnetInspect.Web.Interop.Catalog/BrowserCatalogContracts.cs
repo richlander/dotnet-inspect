@@ -294,6 +294,8 @@ public sealed record BrowserHomeDemoResolveResult(
 /// <see cref="FocusId"/> is respectively the package id or Platform family.
 /// For Platform results, <see cref="FocusAssembly"/> selects the returned surface
 /// whose <see cref="BrowserPackageSurface.DefaultAssemblyId"/> has the same value.
+/// <see cref="PlatformContextId"/> selects the Browser-retained demo scope for
+/// subsequent graph requests; it is not a portable address or a resource lease.
 /// The frontend applies this source-native identity to the surfaces returned
 /// by the same operation; it does not parse product view or navigation definitions.
 /// </summary>
@@ -308,7 +310,8 @@ public sealed record BrowserHomeDemoRunActivation(
     string? MemberName,
     string? MemberKind,
     string? MemberAnchorDigest,
-    string? MemberSection);
+    string? MemberSection,
+    string? PlatformContextId = null);
 
 /// <summary>
 /// Browser result of running one product home demo through the normal package

@@ -10,6 +10,12 @@ using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspect.Web.Tests;
 
+[CollectionDefinition(
+    "Browser member declaration operations",
+    DisableParallelization = true)]
+public sealed class BrowserMemberDeclarationOperationCollection;
+
+[Collection("Browser member declaration operations")]
 [SupportedOSPlatform("browser")]
 public sealed class BrowserMemberDeclarationTests
 {
@@ -24,6 +30,8 @@ public sealed class BrowserMemberDeclarationTests
         "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyExplicitLayoutFixture";
     const string AccessorType =
         "ILInspector.Decompiler.Fixtures.NewUnsafe.IMemorySafetyAccessorContract";
+    const string EnumType =
+        "ILInspector.Decompiler.Fixtures.NewUnsafe.MemorySafetyExtensionEnum";
 
     [Fact]
     public async Task SelectedDeclarationsUseTypedMemorySafetyFactsWithoutChangingInventory()
@@ -94,6 +102,19 @@ public sealed class BrowserMemberDeclarationTests
             Assert.IsType<string>(propertyDeclaration.Unavailable),
             StringComparison.OrdinalIgnoreCase);
         Assert.False(propertyDeclaration.Compatibility);
+
+        JsonElement enumType = Type(surfaceDocument.RootElement, EnumType);
+        Assert.DoesNotContain(
+            enumType.GetProperty("api").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("name").GetString() == "value__");
+        BrowserMemberDeclaration enumValueDeclaration =
+            await Declaration(enumType, Member(enumType, "Value"));
+        Assert.Equal(
+            "Value = 0",
+            Assert.IsType<string>(enumValueDeclaration.Text));
+        Assert.Null(enumValueDeclaration.Unavailable);
+        Assert.False(enumValueDeclaration.Compatibility);
     }
 
     [Fact]

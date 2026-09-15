@@ -359,6 +359,44 @@ public sealed record NavigationWorkspaceSnapshotRequest
     public NavigationRetainedSubjectContext? RetainedContext { get; init; }
 }
 
+internal sealed record NavigationWorkspaceSnapshotComposition(
+    WorkspaceScopeSnapshot Scope,
+    StructuralSubjectIdentity.WorkspaceSubject Workspace,
+    WorkspacePackageOccurrence? ActiveOccurrence,
+    StructuralSubjectIdentity ActiveSubject,
+    NavigationRetainedSubjectContext? RetainedContext,
+    ImmutableArray<NavigationPackageDescriptor> Packages,
+    ImmutableArray<NavigationLibraryDescriptor> Libraries,
+    NavigationSubjectInventory? Inventory,
+    NavigationPackageEvaluation? Package);
+
+internal abstract record NavigationRestorationSubjectPreparation
+{
+    private protected NavigationRestorationSubjectPreparation()
+    {
+    }
+
+    internal sealed record Ready(
+        NavigationWorkspaceSnapshotComposition Composition)
+        : NavigationRestorationSubjectPreparation;
+
+    internal sealed record Unavailable(
+        StructuralSubjectIdentity Subject,
+        string Message)
+        : NavigationRestorationSubjectPreparation;
+
+    internal sealed record Failed(
+        StructuralSubjectIdentity Subject,
+        string Message,
+        NavigationTypeInventoryOutcome? Inventory = null)
+        : NavigationRestorationSubjectPreparation;
+
+    internal sealed record Rejected(
+        NavigationRestorationRejectionKind Kind,
+        string Message)
+        : NavigationRestorationSubjectPreparation;
+}
+
 /// <summary>
 /// Supplies explicit Registry availability facts for the exact admitted
 /// subject currently being composed.
@@ -416,10 +454,162 @@ public static class NavigationWorkspaceSnapshotEvaluation
         ViewFacetRegistry registry,
         NavigationFacetAvailabilityProvider availability)
     {
+        NavigationWorkspaceSnapshotComposition composition =
+            PrepareComposition(request);
+        return Compose(
+            composition,
+            registry,
+            availability,
+            lensOutcome: null);
+    }
+
+    internal static NavigationRestorationSubjectPreparation
+        PrepareRestoration(
+            NavigationWorkspaceSnapshotRequest request)
+    {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(request.Scope);
+
+        InspectionWorkspaceIdentity workspaceIdentity =
+            request.Scope.Revision.Workspace;
+        var workspace =
+            StructuralSubjectIdentity.ForWorkspace(workspaceIdentity);
+        StructuralSubjectIdentity? requestedSubject =
+            request.ActiveSubject;
+        NavigationRetainedSubjectContext? requestedContext =
+            request.RetainedContext;
+
+        if (request.Package is null)
+        {
+            if (requestedContext is not null)
+            {
+                return new NavigationRestorationSubjectPreparation.Rejected(
+                    NavigationRestorationRejectionKind.InvalidContext,
+                    "A restoration without a prepared Package cannot retain "
+                        + "an occurrence context.");
+            }
+            if (requestedSubject is not null
+                && requestedSubject != workspace)
+            {
+                return new NavigationRestorationSubjectPreparation.Rejected(
+                    NavigationRestorationRejectionKind.InvalidContext,
+                    "A restoration without a prepared Package can select only "
+                        + "the exact Workspace subject.");
+            }
+            return new NavigationRestorationSubjectPreparation.Ready(
+                PrepareComposition(
+                    request with
+                    {
+                        ActiveSubject = requestedSubject ?? workspace,
+                    }));
+        }
+
+        if (requestedContext is null)
+        {
+            return new NavigationRestorationSubjectPreparation.Rejected(
+                NavigationRestorationRejectionKind.InvalidContext,
+                "A prepared Package restoration requires its exact retained "
+                    + "occurrence context.");
+        }
+
+        NavigationWorkspaceSnapshotComposition basis =
+            PrepareComposition(
+                request with
+                {
+                    ActiveSubject = workspace,
+                    RetainedContext = null,
+                });
+        StructuralSubjectIdentity.PackageSubject package =
+            basis.RetainedContext!.Package;
+        if (requestedContext.Package != package)
+        {
+            return new NavigationRestorationSubjectPreparation.Rejected(
+                NavigationRestorationRejectionKind.InvalidContext,
+                "The retained context must identify the exact prepared "
+                    + "Package occurrence.");
+        }
+
+        StructuralSubjectIdentity activeSubject;
+        NavigationRetainedSubjectContext retainedContext;
+        if (requestedSubject is null)
+        {
+            if (requestedContext.Library is not null)
+            {
+                return new NavigationRestorationSubjectPreparation.Rejected(
+                    NavigationRestorationRejectionKind.SubjectOutsideContext,
+                    "A subject-less restoration can retain only Package "
+                        + "context.");
+            }
+            StructuralSubjectIdentity.AllLibrariesSubject? aggregate =
+                basis.Package!.Libraries.IsEmpty
+                    ? null
+                    : StructuralSubjectIdentity.ForAllLibraries(package);
+            NavigationInitialSubjectOutcome recommendation =
+                NavigationInitialSubjectRecommendation.Recommend(
+                    package,
+                    aggregate,
+                    basis.Inventory!.InitialCandidates);
+            activeSubject = recommendation.Subject;
+            retainedContext = ContextFor(activeSubject);
+        }
+        else
+        {
+            activeSubject = requestedSubject;
+            retainedContext = requestedContext;
+        }
+
+        NavigationRestorationSubjectPreparation? invalid =
+            ValidateRestorationContext(
+                workspace,
+                package,
+                activeSubject,
+                retainedContext,
+                basis.Package!,
+                basis.Inventory!);
+        if (invalid is not null)
+            return invalid;
+
+        return new NavigationRestorationSubjectPreparation.Ready(
+            basis with
+            {
+                ActiveSubject = activeSubject,
+                RetainedContext = retainedContext,
+                Libraries = LibraryDescriptors(
+                    basis.Package!,
+                    basis.Inventory!,
+                    activeSubject,
+                    retainedContext),
+            });
+    }
+
+    internal static NavigationWorkspaceSnapshot Compose(
+        NavigationWorkspaceSnapshotComposition composition,
+        ViewFacetRegistry registry,
+        NavigationFacetAvailabilityProvider availability,
+        NavigationLensOutcome? lensOutcome)
+    {
+        ArgumentNullException.ThrowIfNull(composition);
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(availability);
+        return Compose(
+            composition.Scope,
+            composition.Workspace,
+            composition.ActiveOccurrence,
+            composition.ActiveSubject,
+            composition.RetainedContext,
+            composition.Packages,
+            composition.Libraries,
+            composition.Inventory,
+            registry,
+            availability,
+            lensOutcome);
+    }
+
+    static NavigationWorkspaceSnapshotComposition PrepareComposition(
+        NavigationWorkspaceSnapshotRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(request.Scope);
 
         InspectionWorkspaceIdentity workspaceIdentity =
             request.Scope.Revision.Workspace;
@@ -441,18 +631,16 @@ public static class NavigationWorkspaceSnapshotEvaluation
 
             StructuralSubjectIdentity active =
                 request.ActiveSubject ?? workspace;
-            return Compose(
+            return new NavigationWorkspaceSnapshotComposition(
                 request.Scope,
                 workspace,
-                activeOccurrence: null,
+                ActiveOccurrence: null,
                 active,
-                retainedContext: null,
+                RetainedContext: null,
                 packages,
-                libraries: [],
-                inventory: null,
-                registry,
-                availability,
-                lensOutcome: null);
+                Libraries: [],
+                Inventory: null,
+                Package: null);
         }
 
         NavigationPackageEvaluation packageEvaluation = request.Package;
@@ -478,19 +666,8 @@ public static class NavigationWorkspaceSnapshotEvaluation
             StructuralSubjectIdentity.ForPackage(
                 workspace,
                 occurrenceDescriptor.Occurrence);
-        ImmutableArray<WorkspaceContextMember> libraryInputs =
-        [
-            .. packageEvaluation.Libraries.Select(
-                static library => library.Library),
-        ];
-        WorkspaceContextMember? primary =
-            PrimaryLibrary(packageEvaluation);
         NavigationSubjectInventory inventory =
-            NavigationSubjectInventoryClassification.Classify(
-                package,
-                libraryInputs,
-                primary,
-                packageEvaluation.Surface);
+            ClassifySubjectInventory(package, packageEvaluation);
         ImmutableArray<NavigationLibraryDescriptor> libraries =
             LibraryDescriptors(
                 packageEvaluation,
@@ -544,7 +721,7 @@ public static class NavigationWorkspaceSnapshotEvaluation
             inventory,
             activeSubject,
             retainedContext);
-        return Compose(
+        return new NavigationWorkspaceSnapshotComposition(
             request.Scope,
             workspace,
             occurrenceDescriptor.Occurrence,
@@ -553,9 +730,7 @@ public static class NavigationWorkspaceSnapshotEvaluation
             packages,
             libraries,
             inventory,
-            registry,
-            availability,
-            lensOutcome: null);
+            packageEvaluation);
     }
 
     internal static NavigationWorkspaceSnapshot WithAppliedDestination(
@@ -958,7 +1133,23 @@ public static class NavigationWorkspaceSnapshotEvaluation
                         })),
         ];
 
-    static WorkspaceContextMember? PrimaryLibrary(
+    internal static NavigationSubjectInventory ClassifySubjectInventory(
+        StructuralSubjectIdentity.PackageSubject package,
+        NavigationPackageEvaluation evaluation)
+    {
+        ArgumentNullException.ThrowIfNull(package);
+        ArgumentNullException.ThrowIfNull(evaluation);
+        return NavigationSubjectInventoryClassification.Classify(
+            package,
+            [
+                .. evaluation.Libraries.Select(
+                    static library => library.Library),
+            ],
+            PrimaryLibrary(evaluation),
+            evaluation.Surface);
+    }
+
+    private static WorkspaceContextMember? PrimaryLibrary(
         NavigationPackageEvaluation package)
     {
         if (package.PrimaryAssetId is null)
@@ -1056,6 +1247,95 @@ public static class NavigationWorkspaceSnapshotEvaluation
 
         return descriptors.ToImmutable();
     }
+
+    static NavigationRestorationSubjectPreparation?
+        ValidateRestorationContext(
+            StructuralSubjectIdentity.WorkspaceSubject workspace,
+            StructuralSubjectIdentity.PackageSubject package,
+            StructuralSubjectIdentity activeSubject,
+            NavigationRetainedSubjectContext retainedContext,
+            NavigationPackageEvaluation packageEvaluation,
+            NavigationSubjectInventory inventory)
+    {
+        if (activeSubject.Workspace != workspace
+            || retainedContext.Package != package)
+        {
+            return new NavigationRestorationSubjectPreparation.Rejected(
+                NavigationRestorationRejectionKind.InvalidContext,
+                "Active and retained subjects must belong to the exact "
+                    + "Workspace and Package.");
+        }
+
+        bool activeIsRetained =
+            activeSubject == workspace
+            || activeSubject == retainedContext.Package
+            || activeSubject == retainedContext.Library
+            || activeSubject == retainedContext.Type
+            || activeSubject == retainedContext.Member;
+        if (!activeIsRetained)
+        {
+            return new NavigationRestorationSubjectPreparation.Rejected(
+                NavigationRestorationRejectionKind.SubjectOutsideContext,
+                "A non-Workspace active subject must equal one retained "
+                    + "path node.");
+        }
+
+        if (retainedContext.Library is { } library
+            && !LibraryExists(
+                library,
+                packageEvaluation,
+                inventory))
+        {
+            return new NavigationRestorationSubjectPreparation.Unavailable(
+                library,
+                "The retained Library is not present in the evaluated "
+                    + "Package.");
+        }
+
+        if (retainedContext.Type is { } type
+            && !inventory.Types.Rows.Any(
+                row => row.Subject == type))
+        {
+            return MissingRestorationSubject(
+                type,
+                inventory.Libraries.Single(
+                    candidate =>
+                        candidate.Subject == type.Library).Types,
+                "The retained Type is not present in the evaluated "
+                    + "Package.");
+        }
+
+        if (retainedContext.Member is { } member
+            && !inventory.Types.Rows
+                .SelectMany(static row => row.Members)
+                .Any(row => row.Subject == member))
+        {
+            return MissingRestorationSubject(
+                member,
+                inventory.Libraries.Single(
+                    candidate =>
+                        candidate.Subject
+                            == member.DeclaringType.Library).Types,
+                "The retained Member is not present in the evaluated "
+                    + "Package.");
+        }
+
+        return null;
+    }
+
+    static NavigationRestorationSubjectPreparation
+        MissingRestorationSubject(
+            StructuralSubjectIdentity subject,
+            NavigationTypeInventoryOutcome inventory,
+            string message) =>
+        inventory.Evidence.IsEmpty
+            ? new NavigationRestorationSubjectPreparation.Unavailable(
+                subject,
+                message)
+            : new NavigationRestorationSubjectPreparation.Failed(
+                subject,
+                message,
+                inventory);
 
     static void ValidateContext(
         StructuralSubjectIdentity.WorkspaceSubject workspace,

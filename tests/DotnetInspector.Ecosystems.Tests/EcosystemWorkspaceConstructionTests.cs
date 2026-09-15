@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
@@ -10,7 +11,7 @@ namespace DotnetInspector.Ecosystems.Tests;
 public sealed class EcosystemWorkspaceConstructionTests
 {
     [Fact]
-    public void ShippedDeclarationsPreservePlatformOverlapAndAspireIntegrationCurrency()
+    public void ShippedDeclarationsPreserveRegisteredPackagesTopicOverlapAndAspireIntegrationCurrency()
     {
         foreach (EcosystemPackDescriptor pack in EcosystemPackCatalog.Discover())
         {
@@ -35,6 +36,9 @@ public sealed class EcosystemWorkspaceConstructionTests
                 Assert.IsType<WorkspaceEcosystemPopulationDeclaration.Platform>(item).Population.Family),
             item => Assert.Equal("Microsoft.AspNetCore.",
                 Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(item).Prefix.Prefix));
+        PackagePrefixDeclaration aspNetCorePrefix =
+            Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                aspNetCore.Populations[1]).Prefix;
         Assert.Equal("Microsoft.Extensions.", Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
             Assert.Single(SelectKnown(
                 EcosystemPackIds.MicrosoftExtensions).Populations)).Prefix.Prefix);
@@ -43,6 +47,145 @@ public sealed class EcosystemWorkspaceConstructionTests
             Assert.Single(aspire.Populations)).Prefix.Prefix);
         Assert.Same(EcosystemIntegrationScanner.AspireBinding, aspire.IntegrationScanner);
         Assert.Equal("Aspire.Hosting", Assert.Single(aspire.CorePackages).PackageId);
+        var ai = SelectKnown(EcosystemPackIds.AI);
+        Assert.Equal(
+            [
+                "Microsoft.Extensions.AI",
+                "Microsoft.Extensions.VectorData",
+                "Microsoft.Agents.AI",
+                "ModelContextProtocol",
+            ],
+            ai.Populations.Select(item =>
+                Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                    item).Prefix.Prefix));
+        Assert.All(
+            ai.Populations.Select(item =>
+                Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(item).Prefix),
+            prefix => Assert.True(prefix.MatchesPackageId(prefix.Prefix)));
+        PackagePrefixDeclaration extensionsPrefix =
+            Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                Assert.Single(SelectKnown(
+                    EcosystemPackIds.MicrosoftExtensions).Populations)).Prefix;
+        PackagePrefixDeclaration aiExtensionsPrefix =
+            Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                ai.Populations[0]).Prefix;
+        Assert.True(extensionsPrefix.MatchesPackageId("Microsoft.Extensions.AI.OpenAI"));
+        Assert.True(aiExtensionsPrefix.MatchesPackageId("Microsoft.Extensions.AI.OpenAI"));
+        var azure = SelectKnown(EcosystemPackIds.Azure);
+        Assert.Equal(
+            [
+                "Microsoft.Extensions.Azure",
+                "Azure.AI.OpenAI",
+                "Microsoft.Azure.SignalR",
+                "Aspire.Azure.AI.OpenAI",
+                "Aspire.Hosting.Azure.SignalR",
+                "Azure.Identity",
+                "Azure.Security.KeyVault.Secrets",
+                "Azure.Storage.Blobs",
+                "Azure.Messaging.ServiceBus",
+            ],
+            azure.CorePackages.Select(package => package.PackageId));
+        Assert.Equal(
+            [
+                "Azure.",
+                "Microsoft.Azure.",
+                "Microsoft.Extensions.Azure",
+                "Aspire.Azure.",
+                "Aspire.Hosting.Azure.",
+            ],
+            azure.Populations.Select(item =>
+                Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                    item).Prefix.Prefix));
+        PackagePrefixDeclaration azurePackagePrefix =
+            Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                azure.Populations[0]).Prefix;
+        PackagePrefixDeclaration microsoftAzurePrefix =
+            Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                azure.Populations[1]).Prefix;
+        PackagePrefixDeclaration azureExtensionsPrefix =
+            Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                azure.Populations[2]).Prefix;
+        PackagePrefixDeclaration aspireAzurePrefix =
+            Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                azure.Populations[3]).Prefix;
+        PackagePrefixDeclaration aspireHostingAzurePrefix =
+            Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                azure.Populations[4]).Prefix;
+        Assert.True(azurePackagePrefix.MatchesPackageId("Azure.AI.OpenAI"));
+        Assert.True(microsoftAzurePrefix.MatchesPackageId("Microsoft.Azure.SignalR"));
+        Assert.True(microsoftAzurePrefix.MatchesPackageId("Microsoft.Azure.Storage.Blob"));
+        Assert.True(extensionsPrefix.MatchesPackageId("Microsoft.Extensions.Azure"));
+        Assert.True(azureExtensionsPrefix.MatchesPackageId("Microsoft.Extensions.Azure"));
+        Assert.True(Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+            Assert.Single(aspire.Populations)).Prefix.MatchesPackageId(
+                "Aspire.Azure.AI.OpenAI"));
+        Assert.True(aspireAzurePrefix.MatchesPackageId("Aspire.Azure.AI.OpenAI"));
+        Assert.True(aspireHostingAzurePrefix.MatchesPackageId(
+            "Aspire.Hosting.Azure.SignalR"));
+        var blazor = SelectKnown(EcosystemPackIds.Blazor);
+        Assert.Equal(
+            [
+                "Microsoft.AspNetCore.Components.WebAssembly",
+                "Microsoft.AspNetCore.Components.WebView.Maui",
+                "Microsoft.AspNetCore.Components.QuickGrid.EntityFrameworkAdapter",
+                "Microsoft.Authentication.WebAssembly.Msal",
+            ],
+            blazor.CorePackages.Select(package => package.PackageId));
+        Assert.Equal(
+            [
+                "Microsoft.AspNetCore.Components",
+                "Microsoft.Authentication.WebAssembly",
+            ],
+            blazor.Populations.Select(item =>
+                Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                    item).Prefix.Prefix));
+        PackagePrefixDeclaration blazorComponentsPrefix =
+            Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                blazor.Populations[0]).Prefix;
+        PackagePrefixDeclaration blazorAuthenticationPrefix =
+            Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                blazor.Populations[1]).Prefix;
+        Assert.True(aspNetCorePrefix.MatchesPackageId(
+            "Microsoft.AspNetCore.Components.WebAssembly"));
+        Assert.True(blazorComponentsPrefix.MatchesPackageId(
+            "Microsoft.AspNetCore.Components.WebAssembly"));
+        Assert.True(blazorAuthenticationPrefix.MatchesPackageId(
+            "Microsoft.Authentication.WebAssembly.Msal"));
+        var maui = SelectKnown(EcosystemPackIds.Maui);
+        Assert.Equal(
+            [
+                "Microsoft.Maui.Controls",
+                "Microsoft.AspNetCore.Components.WebView.Maui",
+                "CommunityToolkit.Maui",
+                "Microsoft.Maui.Graphics.Skia",
+                "Microsoft.Maui.Graphics.Text.Markdig",
+            ],
+            maui.CorePackages.Select(package => package.PackageId));
+        Assert.Equal(
+            [
+                "Microsoft.Maui.",
+                "CommunityToolkit.Maui",
+                "Microsoft.AspNetCore.Components.WebView.Maui",
+            ],
+            maui.Populations.Select(item =>
+                Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                    item).Prefix.Prefix));
+        PackagePrefixDeclaration mauiPrefix =
+            Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                maui.Populations[0]).Prefix;
+        PackagePrefixDeclaration communityToolkitMauiPrefix =
+            Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                maui.Populations[1]).Prefix;
+        PackagePrefixDeclaration mauiBlazorPrefix =
+            Assert.IsType<WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                maui.Populations[2]).Prefix;
+        Assert.True(mauiPrefix.MatchesPackageId("Microsoft.Maui.Controls"));
+        Assert.True(communityToolkitMauiPrefix.MatchesPackageId(
+            "CommunityToolkit.Maui"));
+        Assert.True(blazorComponentsPrefix.MatchesPackageId(
+            "Microsoft.AspNetCore.Components.WebView.Maui"));
+        Assert.True(mauiBlazorPrefix.MatchesPackageId(
+            "Microsoft.AspNetCore.Components.WebView.Maui"));
     }
 
     [Fact]
@@ -75,6 +218,50 @@ public sealed class EcosystemWorkspaceConstructionTests
     }
 
     [Fact]
+    public void PublicSelectedPlanPreservesExactCallerOrderWithoutAddingNeighbors()
+    {
+        EcosystemPackId[] selected =
+        [
+            EcosystemPackIds.AI,
+            EcosystemPackIds.Platform,
+        ];
+
+        WorkspacePlan plan =
+            EcosystemPackCatalog.CreateWorkspacePlan(selected);
+        WorkspaceEcosystemRegistrationDeclaration[] declarations =
+        [
+            .. plan.Registrations.Select(item =>
+                Assert.IsType<WorkspaceRegistration.Ecosystem>(item)
+                    .Declaration),
+        ];
+
+        Assert.Equal(
+            selected.Select(id => id.Value),
+            declarations.Select(declaration => declaration.Id.Value));
+        Assert.Same(SelectKnown(EcosystemPackIds.AI), declarations[0]);
+        Assert.Same(SelectKnown(EcosystemPackIds.Platform), declarations[1]);
+    }
+
+    [Fact]
+    public void PublicSelectedPlanRejectsIncompleteSelections()
+    {
+        Assert.Throws<ArgumentNullException>(() =>
+            EcosystemPackCatalog.CreateWorkspacePlan(null!));
+        Assert.Throws<ArgumentException>(() =>
+            EcosystemPackCatalog.CreateWorkspacePlan([]));
+        Assert.Throws<ArgumentException>(() =>
+            EcosystemPackCatalog.CreateWorkspacePlan([null!]));
+        Assert.Throws<ArgumentException>(() =>
+            EcosystemPackCatalog.CreateWorkspacePlan(
+                [EcosystemPackIds.Platform, EcosystemPackIds.Platform]));
+        Assert.True(EcosystemPackId.TryCreate(
+            "ecosystem.not-shipped",
+            out EcosystemPackId? unknown));
+        Assert.Throws<ArgumentException>(() =>
+            EcosystemPackCatalog.CreateWorkspacePlan([unknown]));
+    }
+
+    [Fact]
     public void EqualTextWithoutAnAuthoredPairIsUnavailableRatherThanInferred()
     {
         WorkspaceEcosystemRegistrationDeclaration unpaired = Declaration(EcosystemPackIds.Aspire);
@@ -104,7 +291,7 @@ public sealed class EcosystemWorkspaceConstructionTests
     }
 
     [Fact]
-    public void InvalidManifestsCannotProduceAPlan()
+    public void InvalidManifestsFailWhileRegisteredPackageOnlyPlanSucceeds()
     {
         var registry = new EcosystemPackRegistry(
             [Pack(EcosystemPackIds.Aspire, Declaration(EcosystemPackIds.Aspire))]);
@@ -123,15 +310,30 @@ public sealed class EcosystemWorkspaceConstructionTests
             [Pack(EcosystemPackIds.Aspire, null) with { PackageSet = PackageSetIds.Aspire }]);
         Assert.Throws<ArgumentException>(() =>
             EcosystemWorkspacePlanFactory.Create(unavailable, [EcosystemPackIds.Aspire]));
-        var hintsOnly = new EcosystemPackRegistry(
+        var namespaceOnly = new EcosystemPackRegistry(
         [
             Pack(EcosystemPackIds.Aspire, new(
                 WorkspaceEcosystemRegistrationId.Create("ecosystem.aspire"), ["Aspire"], [], [])),
         ]);
         Assert.IsType<EcosystemWorkspaceRegistrationSelectionResult.Known>(
-            hintsOnly.SelectWorkspaceRegistration(EcosystemPackIds.Aspire));
+            namespaceOnly.SelectWorkspaceRegistration(EcosystemPackIds.Aspire));
         Assert.Throws<ArgumentException>(() =>
-            EcosystemWorkspacePlanFactory.Create(hintsOnly, [EcosystemPackIds.Aspire]));
+            EcosystemWorkspacePlanFactory.Create(namespaceOnly, [EcosystemPackIds.Aspire]));
+
+        var package = new PackageCoordinate("Aspire.Hosting");
+        var registeredPackageOnly = new EcosystemPackRegistry(
+        [
+            Pack(EcosystemPackIds.Aspire, new(
+                WorkspaceEcosystemRegistrationId.Create("ecosystem.aspire"), [], [package], []))
+                with { CorePackages = [package] },
+        ]);
+        WorkspacePlan packagePlan = EcosystemWorkspacePlanFactory.Create(
+            registeredPackageOnly,
+            [EcosystemPackIds.Aspire]);
+        Assert.Same(
+            package,
+            Assert.Single(Assert.IsType<WorkspaceRegistration.Ecosystem>(
+                Assert.Single(packagePlan.Registrations)).Declaration.CorePackages));
     }
 
     [Fact]

@@ -23,7 +23,9 @@ The operator explicitly approved this bounded cross-owner replacement:
 - the Workspace API defaults to an empty Workspace and has no curated option;
 - the Ecosystems API owns product curation: the initial platform composition
   contains Platform, ASP.NET Core, and Microsoft.Extensions; #6763 subsequently
-  approved separate all-known construction, including Aspire;
+  approved separate all-known construction, now including Aspire, AI, Azure,
+  and Blazor, and #7001 adds construction from an explicit ordered ecosystem
+  selection;
 - callers explicitly choose raw or curated construction according to their
   operation;
 - registration describes what the Workspace is about and supplies typed
@@ -47,7 +49,9 @@ rendering remain with each host.
 This document is the normative owner of one joined experience claim:
 
 > A Workspace registration identifies a relevant exact library, package
-> prefix, or ecosystem without granting reachability. A call-graph request
+> prefix, or ecosystem without granting reachability. An ecosystem contributes
+> finite concrete package roots separately from its discovery prefixes. A
+> call-graph request
 > independently chooses how far beyond its focal subject to traverse. The
 > Workspace API defaults to no registrations, while the Ecosystems API may
 > supply a product-curated plan for explicit live construction. Call graphs default to every
@@ -127,16 +131,25 @@ not enumerate, rank, acquire, or continuously maintain the packages matching
 that prefix. A call-graph request selecting that prefix supplies its own
 finite discovery and acquisition bounds.
 
+Find does not select or expand this population arm. It searches only concrete
+content presented to its Workspace. Package-service queries and separately
+authorized graph operations may consume the declaration under their own finite
+source and work policies.
+
 ### Ecosystem
 
 An ecosystem registration names one product-owned ecosystem contribution.
-Ecosystem Packs may provide namespace hints, core-package priorities, package
+Ecosystem Packs may provide namespace hints, concrete registered packages, package
 sets, package prefixes, platform bindings, and Integration-owned knowledge.
 Those contributions retain their owners' semantics.
 
 Registering an ecosystem makes its contribution available to a consumer that
-selects registered ecosystems. It does not execute a scanner, add curated
-packages, or load an entire ecosystem.
+selects registered ecosystems. Its core packages are inert finite roots: the
+selecting operation may resolve them under explicit source, version, target,
+prerelease, and work bounds, then follow ordinary package dependencies to find
+candidate libraries and joins. Prefixes remain discovery scope and are not
+substituted for those roots. Registration does not execute a scanner, add
+curated packages, or load an entire ecosystem.
 
 The application catalog also authors the platform and all-known manifests
 adopted by the shared ecosystem-registration handoff. The latter construction
@@ -166,18 +179,21 @@ resource-free `WorkspacePlan`. The caller explicitly constructs
 is not a shared live Workspace and confers no special registration,
 acquisition, traversal, persistence, or lifetime semantics.
 
-The separate all-known plan factory includes Aspire, as required by
-[Subject Relations](subject-relations-workflows.md#broad-discovery-by-default).
-The focused handoff owns validation and construction for both choices. Neither
-is a compatibility catalog of earlier compositions. The catalog may change
-its manifests over time as product policy. A change affects only later curated
-construction. It does not mutate an existing Workspace or reinterpret a saved
-or shared definition.
+The separate all-known plan factory includes Aspire, AI, Azure, Blazor, and
+.NET MAUI, as required
+by [Subject Relations](subject-relations-workflows.md#broad-discovery-by-default).
+The focused handoff owns validation and construction for the two presets and
+explicit selected-set plans. None is a compatibility catalog of earlier
+compositions. The catalog may change its manifests over time as product policy.
+A change affects only later curated construction. It does not mutate an
+existing Workspace or reinterpret a saved or shared definition.
 
 Callers choose the construction owner according to their purpose:
 
 - a discovery experience such as the new `find` workflow chooses the all-known
-  Workspace; a consumer that wants platform curation selects it explicitly;
+  Workspace by default; an explicit ecosystem sequence chooses the
+  Ecosystems-owned selected-set plan, while a consumer that wants platform
+  curation selects that preset explicitly;
 - a high-fidelity or explicitly scoped operation may construct a raw Workspace
   and add only its declared inputs; and
 - restoration constructs a raw Workspace and applies the complete persisted
@@ -333,12 +349,23 @@ Future peer-member requests may use the existing peer-seed contract, but a
 prefix or ecosystem registration does not itself manufacture those member
 seeds.
 
+When an ecosystem is selected, its concrete registered packages are resolved
+as the finite initial package roots. Package-derived dependency traversal may
+then admit additional libraries under the resolution owner's evidence and the
+request's bounds. The ecosystem's prefixes are not enumerated to choose those
+roots.
+
 ### Self + registered ecosystems
 
 This focal length starts with `Self` and adds all ecosystem registrations from
 the exact Workspace revision bound to the request. A curated Workspace
 initially contributes its three ecosystem registrations; a raw Workspace
 contributes none until its caller or user adds them.
+
+For each added ecosystem, concrete registered packages and any exact or
+Platform populations form its operation-relevant starting population.
+Package-prefix contributions remain available for explicit prefix selection;
+they are not automatically expanded by this focal length.
 
 Other exact-library and package-prefix registrations do not join this mode
 merely because they are registered. A request may select one of them as
@@ -521,14 +548,15 @@ The following are required future outcome-level scenarios:
 | Scenario | Required observation |
 | --- | --- |
 | Construct directly through the Workspace API | The registration set is empty; no catalog lookup, acquisition, or analysis occurs |
-| Construct through the Ecosystems factories | The platform variant contains Platform, ASP.NET Core, and Microsoft.Extensions in order; all-known construction additionally contains Aspire. Neither performs registration-triggered acquisition or analysis. |
+| Construct through the Ecosystems factories | The platform variant contains Platform, ASP.NET Core, and Microsoft.Extensions in order; all-known construction additionally contains Aspire, AI, Azure, Blazor, and .NET MAUI. Neither performs registration-triggered acquisition or analysis. |
+| Construct through selected ecosystems | The plan contains exactly the requested registrations in caller order. Find still searches only concrete content presented to the Workspace and does not expand package-prefix arms. |
 | Remove one or all curated registrations, then navigate, open another subject, save, and restore | The exact registration set survives; the current curated composition does not reappear |
 | Change the curated manifest in a later product build | Later curated construction uses the new complete manifest; existing and restored Workspaces retain their exact registrations |
 | Run `find` for the real `System.Text.Json` overlap | The command explicitly chooses curated construction and can discover the Platform library without making curation intrinsic to Workspace |
 | Run a raw package-focused operation | The operation receives no ambient ecosystem registration and adds only its explicit scope |
-| Register an exact library, package prefix, or ecosystem | Registration is visible and inert until selected operation demand |
+| Register an exact library, package prefix, or ecosystem | Registration is visible and inert until selected operation demand; ecosystem package roots remain concrete and prefixes remain discovery scope |
 | Adopt Inspect Web Spotlight destination activation | Current-Workspace coverage classification and external-package restoration conform to their focused owner without making registration eager |
-| Run one member-seeded graph at all three focal lengths | The seed stays fixed; `Self` remains local, the middle mode adds registered ecosystems, and `Everything` admits all Workspace populations |
+| Run one member-seeded graph at all three focal lengths | The seed stays fixed; `Self` remains local, the middle mode resolves concrete package roots from registered ecosystems without expanding their prefixes, and `Everything` admits all Workspace populations |
 | Run the same graph without an explicit focal length in either host | The request uses `Everything` |
 | Start with no admitted libraries and use a package prefix or ecosystem as `Self` | Discovery and realization are bounded; the result is an induced graph with no fabricated focal member |
 | Induce a graph over a registration population with disconnected libraries | Every selected input remains represented, or its bounded omission or acquisition failure remains visible |

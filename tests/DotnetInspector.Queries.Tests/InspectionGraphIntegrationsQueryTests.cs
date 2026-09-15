@@ -2804,6 +2804,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
                     [.. members.Select(
                         static member => member.Participant)]);
             var loaded = new WorkspaceContextLoadOutcome.Loaded(
+                workspace.Identity,
                 group,
                 [.. members],
                 [],

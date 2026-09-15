@@ -195,6 +195,61 @@ public sealed class PackageSourceResultIdentityTests
     }
 
     [Fact]
+    public void PortableProducerKeyPinsCanonicalCredentialFreeIdentity()
+    {
+        PackageProducerIdentity producer = Producer(
+            "https://feed.example/F/auth/secret/api");
+
+        Assert.Equal(
+            "nfp-1.4f019fd6fa07095b2a70586f55bf56d810e4029648c568069a8ad3c426840630",
+            producer.PortableKey);
+        Assert.True(
+            PackageProducerIdentity.IsCanonicalPortableKey(
+                producer.PortableKey));
+        Assert.False(
+            PackageProducerIdentity.IsCanonicalPortableKey(
+                producer.Key));
+        Assert.False(
+            PackageProducerIdentity.IsCanonicalPortableKey(
+                producer.PortableKey.ToUpperInvariant()));
+        Assert.False(
+            PackageProducerIdentity.IsCanonicalPortableKey(
+                producer.PortableKey[..^1]));
+    }
+
+    [Fact]
+    public void DesktopSourceProjectionUsesTheRuntimeProducerIdentity()
+    {
+        const string endpoint =
+            "https://feed.example/v3/index.json";
+        var httpSource = new PackageSource("http", endpoint);
+        using IPackageSourceClient httpClient =
+            V3(endpoint, PackageSourceAssociation.Create());
+        Assert.Equal(
+            httpClient.Source.Producer,
+            PackageSourceClientFactory.GetProducerIdentity(httpSource));
+        Assert.True(
+            httpClient.Source.MatchesCompatibilitySourceIdentity(
+                "https://feed.example:443/v3/index.json"));
+
+        string localPath =
+            Path.GetFullPath("projected-local-package-source");
+        LocalPackageSourceIdentity local =
+            LocalPackageSourceIdentity.CreateAbsolute(localPath);
+        using IPackageSourceClient localClient =
+            PackageSourceClientFactory.Create(
+                local,
+                PackageSourceAssociation.Create());
+        Assert.Equal(
+            localClient.Source.Producer,
+            PackageSourceClientFactory.GetProducerIdentity(
+                new PackageSource("local", localPath)));
+        Assert.False(
+            localClient.Source.MatchesCompatibilitySourceIdentity(
+                "https://feed.example:443/v3/index.json"));
+    }
+
+    [Fact]
     public void ProducerIdentityRedactsPathBeforeKeyAndDisplay()
     {
         const string firstSecret = "alpha-secret";
@@ -400,6 +455,12 @@ public sealed class PackageSourceResultIdentityTests
         Assert.Equal(
             PackageProducerIdentity.NuGetOrg,
             gallery.Source.Producer);
+        Assert.Equal(
+            gallery.Source.Producer.PortableKey,
+            v3.Source.Producer.PortableKey);
+        Assert.True(
+            PackageProducerIdentity.IsCanonicalPortableKey(
+                gallery.Source.Producer.PortableKey));
         Assert.NotSame(
             gallery.Source.Association,
             v3.Source.Association);
@@ -1075,13 +1136,14 @@ public sealed class PackageSourceResultIdentityTests
     {
         const string pathSecret = "path-secret";
         const string querySecret = "query-secret";
+        const string fragmentSecret = "fragment-secret";
         const string responseSecret = "response-secret";
         using IPackageSourceClient client =
             PackageSourceClientFactory.Create(
                 new PackageSource(
                     "signed",
                     $"https://feed.example/F/auth/{pathSecret}/api"
-                    + $"?sig={querySecret}"),
+                    + $"?sig={querySecret}#{fragmentSecret}"),
                 PackageSourceAssociation.Create(),
                 new ThrowingHandler(
                     new HttpRequestException(
@@ -1094,9 +1156,22 @@ public sealed class PackageSourceResultIdentityTests
 
         string retained =
             $"{failure.Message}|{failure.Source.Producer.Key}|"
-            + failure.Source.Producer.Display.ToString();
+            + failure.Source.Producer.Display.ToString()
+            + string.Join(
+                "|",
+                typeof(PackageSourceResultIdentity)
+                    .GetFields(
+                        BindingFlags.Instance
+                        | BindingFlags.Public
+                        | BindingFlags.NonPublic)
+                    .Where(field => field.FieldType == typeof(string))
+                    .Select(field => field.GetValue(failure.Source)));
         Assert.DoesNotContain(pathSecret, retained, StringComparison.Ordinal);
         Assert.DoesNotContain(querySecret, retained, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            fragmentSecret,
+            retained,
+            StringComparison.Ordinal);
         Assert.DoesNotContain(
             responseSecret,
             retained,
@@ -1218,6 +1293,9 @@ public sealed class PackageSourceResultIdentityTests
         PackageProducerIdentity secondProducer = Producer(second);
         Assert.Equal(firstProducer, secondProducer);
         Assert.Equal(firstProducer.Key, secondProducer.Key);
+        Assert.Equal(
+            firstProducer.PortableKey,
+            secondProducer.PortableKey);
         Assert.Equal(firstProducer.Display, secondProducer.Display);
     }
 
@@ -1229,6 +1307,9 @@ public sealed class PackageSourceResultIdentityTests
         PackageProducerIdentity secondProducer = Producer(second);
         Assert.NotEqual(firstProducer, secondProducer);
         Assert.NotEqual(firstProducer.Key, secondProducer.Key);
+        Assert.NotEqual(
+            firstProducer.PortableKey,
+            secondProducer.PortableKey);
         Assert.NotEqual(firstProducer.Display, secondProducer.Display);
     }
 

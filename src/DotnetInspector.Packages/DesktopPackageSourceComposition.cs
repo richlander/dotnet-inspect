@@ -262,6 +262,65 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         new(_options.RequestTimeout, _options.OperationTimeout, cancellationToken);
 
     /// <summary>
+    /// Resolves one package ID to the exact configured authorities registered
+    /// with this composition and every configuration failure observed beside
+    /// them.
+    /// </summary>
+    /// <remarks>
+    /// The result owns no composition resource and does not prolong this
+    /// composition's lifetime.
+    /// </remarks>
+    public PackageSourceAuthorization AuthorizeSourcesFor(
+        string packageId,
+        NuGetSourceOptions? sourceOptions = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        lock (_disposeGate)
+        {
+            ObjectDisposedException.ThrowIf(
+                _disposal is not null,
+                this);
+            return AuthorizeSourcesForCore(
+                packageId,
+                sourceOptions,
+                static () => { },
+                new List<PackageAuthorityFailure>());
+        }
+    }
+
+    private PackageSourceAuthorization AuthorizeSourcesForCore(
+        string packageId,
+        NuGetSourceOptions? sourceOptions,
+        Action checkpoint,
+        List<PackageAuthorityFailure> failures)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentNullException.ThrowIfNull(checkpoint);
+        ArgumentNullException.ThrowIfNull(failures);
+        checkpoint();
+        IReadOnlyList<PackageSource> sources = ResolveEligibleSources(
+            packageId,
+            sourceOptions,
+            failures);
+        var authorities = new List<ConfiguredPackageAuthority>();
+        var seen = new HashSet<ConfiguredPackageAuthority>(
+            ReferenceEqualityComparer.Instance);
+        foreach (PackageSource source in sources)
+        {
+            checkpoint();
+            if (TryGetEligibleAuthority(source, failures) is { } authority
+                && seen.Add(authority.Authority))
+            {
+                authorities.Add(authority.Authority);
+            }
+        }
+        checkpoint();
+        return PackageSourceAuthorization.ObserveAuthorities(
+            authorities,
+            failures);
+    }
+
+    /// <summary>
     /// Enumerates versions from every configured authority eligible for one
     /// package ID and adopts their results through exact association lookup.
     /// A supplied operation context remains caller-owned.
@@ -743,7 +802,7 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
                             key.HttpEndpoint!,
                             _credentialSource);
                     }
-                    client = PackageSourceClientFactory.Create(
+                    client = PackageSourceClientFactory.CreateWithTransport(
                         source,
                         association,
                         transport,

@@ -13,6 +13,8 @@ import type {
   BrowserTypeSourceResult,
 } from "./facades/inspect-web-source.d.ts";
 import type {
+  BrowserPackageChangesRequest,
+  BrowserPackageChangesResult,
   BrowserPackageQueryEvent,
   BrowserPackageQueryResult,
 } from "./facades/inspect-web-package.d.ts";
@@ -31,9 +33,15 @@ import {
   type EngineWorkerTypeSourceFailure,
 } from "./engine-worker-source.ts";
 import {
+  createEngineWorkerPackageChangesHostRegistration,
+  engineWorkerPackageChangesInput,
+  type EngineWorkerPackageChangesDurableEvent,
+  type EngineWorkerPackageChangesTerminalFailure,
+} from "./engine-worker-package-changes.ts";
+import {
   createEngineWorkerPackageQueryHostRegistration,
-  type EngineWorkerPackageQueryCompletionEvent,
   type EngineWorkerPackageQueryDurableEvent,
+  type EngineWorkerPackageQueryTerminal,
   type EngineWorkerPackageQueryTerminalFailure,
 } from "./engine-worker-package-query.ts";
 import {
@@ -122,7 +130,7 @@ export function registerEngineWorkerTypeSourceAdapter(
 export type EngineWorkerPackageQueryAdapter =
   WorkerRuntimeControlledOperationAdapter<
     QueryRequest,
-    EngineWorkerPackageQueryCompletionEvent,
+    EngineWorkerPackageQueryTerminal,
     EngineWorkerPackageQueryTerminalFailure,
     never,
     WorkerRuntimePreparationError,
@@ -137,6 +145,24 @@ export function registerEngineWorkerPackageQueryAdapter(
 ): EngineWorkerPackageQueryAdapter {
   return host.registerControlledOperation(
     createEngineWorkerPackageQueryHostRegistration(),
+  );
+}
+
+export type EngineWorkerPackageChangesAdapter =
+  OperationProducerAdapter<
+    BrowserPackageChangesRequest,
+    import("./facades/inspect-web-package.d.ts").BrowserPackageChangesInspection,
+    EngineWorkerPackageChangesTerminalFailure,
+    import("./facades/inspect-web-package.d.ts").BrowserPackageChangesProgress,
+    WorkerRuntimePreparationError,
+    EngineWorkerPackageChangesDurableEvent
+  >;
+
+export function registerEngineWorkerPackageChangesAdapter(
+  host: EngineWorkerHost,
+): EngineWorkerPackageChangesAdapter {
+  return host.registerOperation(
+    createEngineWorkerPackageChangesHostRegistration(),
   );
 }
 
@@ -264,6 +290,19 @@ function publishPackageQueryEvent(
   }
 }
 
+function publishPackageChangesEvent(
+  eventSink: unknown,
+  event: unknown,
+): void {
+  if ((typeof eventSink !== "object" && typeof eventSink !== "function")
+    || eventSink === null) {
+    throw new TypeError("Package Changes event sink is unavailable.");
+  }
+  if (!Reflect.set(eventSink, "event", JSON.stringify(event))) {
+    throw new TypeError("Package Changes event sink rejected an event.");
+  }
+}
+
 export function bindTypeSourceFacade(
   adapter: EngineWorkerTypeSourceAdapter,
   reportDiagnostic: (diagnostic: OperationDiagnostic) => undefined,
@@ -387,18 +426,19 @@ export function bindPackageQueryFacade(
 > & { readonly dispose: () => void } {
   interface ActivePackageQuery {
     readonly handle: OperationHandle<
-      EngineWorkerPackageQueryCompletionEvent,
+      EngineWorkerPackageQueryTerminal,
       EngineWorkerPackageQueryTerminalFailure
     >;
     readonly session: OperationSession<
       QueryRequest,
-      EngineWorkerPackageQueryCompletionEvent,
+      EngineWorkerPackageQueryTerminal,
       EngineWorkerPackageQueryTerminalFailure,
       never,
       WorkerRuntimePreparationError,
       EngineWorkerPackageQueryDurableEvent
     >;
   }
+
   const active = new Map<string, ActivePackageQuery>();
 
   async function run(
@@ -410,7 +450,7 @@ export function bindPackageQueryFacade(
       throw new Error(`Package Query operation '${operationId}' is already active.`);
     const session = authority.page.createSession<
       QueryRequest,
-      EngineWorkerPackageQueryCompletionEvent,
+      EngineWorkerPackageQueryTerminal,
       EngineWorkerPackageQueryTerminalFailure,
       never,
       WorkerRuntimePreparationError,
@@ -440,9 +480,12 @@ export function bindPackageQueryFacade(
       await started.handle.quiesced;
       if (outcome.kind === "succeeded") {
         return {
-          version: 1,
+          version: 3,
           kind: "Succeeded",
-          value: outcome.value,
+          value: outcome.value.inspection === null
+            ? outcome.value.event
+            : null,
+          inspection: outcome.value.inspection,
           failureKind: null,
           error: null,
           diagnostic: null,
@@ -451,9 +494,10 @@ export function bindPackageQueryFacade(
       }
       if (outcome.kind === "failed") {
         return {
-          version: 1,
+          version: 3,
           kind: "Failed",
           value: null,
+          inspection: null,
           failureKind: outcome.error.failureKind,
           error: outcome.error.error,
           diagnostic: outcome.error.diagnostic,
@@ -461,9 +505,10 @@ export function bindPackageQueryFacade(
         };
       }
       return {
-        version: 1,
+        version: 3,
         kind: "Canceled",
         value: null,
+        inspection: null,
         failureKind: null,
         error: null,
         diagnostic: null,
@@ -542,6 +587,144 @@ export function bindPackageQueryFacade(
         ),
         eventSink,
       );
+    },
+    dispose() {
+      for (const operation of active.values())
+        operation.session.dispose();
+      active.clear();
+    },
+  };
+}
+
+export function bindPackageChangesFacade(
+  adapter: EngineWorkerPackageChangesAdapter,
+  reportDiagnostic: (diagnostic: OperationDiagnostic) => undefined,
+  authority: SharedEngineOperationAuthority,
+): Pick<
+  EngineClient["package"],
+  "cancelPackageChanges" | "runPackageChanges"
+> & { readonly dispose: () => void } {
+  type PackageChangesInspection =
+    import("./facades/inspect-web-package.d.ts")
+      .BrowserPackageChangesInspection;
+  type PackageChangesProgress =
+    import("./facades/inspect-web-package.d.ts")
+      .BrowserPackageChangesProgress;
+  interface ActivePackageChanges {
+    readonly handle: OperationHandle<
+      PackageChangesInspection,
+      EngineWorkerPackageChangesTerminalFailure
+    >;
+    readonly session: OperationSession<
+      BrowserPackageChangesRequest,
+      PackageChangesInspection,
+      EngineWorkerPackageChangesTerminalFailure,
+      PackageChangesProgress,
+      WorkerRuntimePreparationError,
+      EngineWorkerPackageChangesDurableEvent
+    >;
+  }
+  const active = new Map<string, ActivePackageChanges>();
+
+  return {
+    cancelPackageChanges(operationId, reason) {
+      active.get(operationId)?.handle.cancel(operationCancelReason(reason));
+    },
+    async runPackageChanges(operationId, requestJson, eventSink) {
+      if (active.has(operationId)) {
+        throw new Error(
+          `Package Changes operation '${operationId}' is already active.`);
+      }
+      let rawRequest: unknown;
+      try {
+        rawRequest = JSON.parse(requestJson);
+      } catch (error: unknown) {
+        throw new TypeError("Package Changes request JSON is invalid.", {
+          cause: error,
+        });
+      }
+      const decodedRequest =
+        engineWorkerPackageChangesInput.decode(rawRequest);
+      if (decodedRequest.kind === "rejected") {
+        throw new TypeError(decodedRequest.message, {
+          cause: decodedRequest.cause,
+        });
+      }
+      const session = authority.page.createSession<
+        BrowserPackageChangesRequest,
+        PackageChangesInspection,
+        EngineWorkerPackageChangesTerminalFailure,
+        PackageChangesProgress,
+        WorkerRuntimePreparationError,
+        EngineWorkerPackageChangesDurableEvent
+      >({
+        feature: {
+          publish: event => {
+            if (event.kind === "progress") {
+              publishPackageChangesEvent(eventSink, {
+                kind: "Progress",
+                progress: event.progress.value,
+                row: null,
+                failure: null,
+              });
+            } else if (event.kind === "durable") {
+              publishPackageChangesEvent(eventSink, event.durable.value);
+            }
+            return undefined;
+          },
+        },
+        diagnostic: { report: reportDiagnostic },
+      });
+      const started = authority.startWithId(
+        operationId,
+        () => session.start(decodedRequest.value, adapter),
+      );
+      if (started.kind === "rejected") {
+        session.dispose();
+        throw new Error(
+          `Package Changes could not start: ${
+            startFailureReason(started.reason)
+          }.`);
+      }
+      active.set(operationId, { handle: started.handle, session });
+      try {
+        const outcome = await started.handle.outcome;
+        await started.handle.quiesced;
+        if (outcome.kind === "succeeded") {
+          return {
+            version: 1,
+            kind: "Succeeded",
+            inspection: outcome.value,
+            failureKind: null,
+            error: null,
+            diagnostic: null,
+            reason: null,
+          } satisfies BrowserPackageChangesResult;
+        }
+        if (outcome.kind === "failed") {
+          return {
+            version: 1,
+            kind: "Failed",
+            inspection: null,
+            failureKind: outcome.error.failureKind,
+            error: outcome.error.error,
+            diagnostic: outcome.error.diagnostic,
+            reason: null,
+          } satisfies BrowserPackageChangesResult;
+        }
+        return {
+          version: 1,
+          kind: "Canceled",
+          inspection: null,
+          failureKind: null,
+          error: null,
+          diagnostic: null,
+          reason: outcome.reason,
+        } satisfies BrowserPackageChangesResult;
+      } finally {
+        active.delete(operationId);
+        session.dispose();
+      }
     },
     dispose() {
       for (const operation of active.values())
@@ -665,6 +848,11 @@ export function createProductionEngineWorkerClient(
     options.operationDiagnostic,
     authority,
   );
+  const packageChanges = bindPackageChangesFacade(
+    registerEngineWorkerPackageChangesAdapter(host),
+    options.operationDiagnostic,
+    authority,
+  );
   const identity = startup.host.buildIdentity();
   // The eager startup read may settle before the page awaits it. Observe that
   // rejection now; the retained promise still rejects to the Build consumer.
@@ -677,6 +865,7 @@ export function createProductionEngineWorkerClient(
       ...ordinary.package,
       ...startup.package,
       ...packageQuery,
+      ...packageChanges,
     },
     metadata: ordinary.metadata,
     analysis: ordinary.analysis,
@@ -696,6 +885,7 @@ export function createProductionEngineWorkerClient(
     ready,
     dispose() {
       readinessSession.dispose();
+      packageChanges.dispose();
       packageQuery.dispose();
       typeSource.dispose();
       host.dispose();

@@ -138,6 +138,16 @@ host requires explicit user approval before implementation; record the
 approved scope in its specification, implementation issue, and end-to-end
 tracker from the start.
 
+A completed host-neutral operation that hands one detached result to a host
+uses `InspectionEnvelope<TContent>` as the boundary value. `TContent` remains
+the owner-issued Result, Document, or owner-specific Outcome under
+[Host-observable content kinds](design/host-observable-content-kinds.md), while
+every host projection preserves its Content, Share outcome, and diagnostics.
+A `Task` or `Promise` may represent waiting for the operation, but it is not
+the result crossing that completed boundary; internal prerequisites and
+progressive events remain governed by their own contracts. The full boundary
+is owned by [Inspection envelope](design/inspection-envelope.md).
+
 `InertString` illustrates the shared default: its containment contract must
 work for all consumers. `ts-jsexport` is an approved exception: its website-only
 consumer and single-host target were intentional from the beginning. The
@@ -288,6 +298,12 @@ change the design and implementation. Put `## Demo` above validation in the PR
 body. A good demo shows a real canonical invocation and its output, includes
 before and after for a fix, says what to notice, and exercises a neighboring
 case so the implementation is not fitted only to the showcase.
+
+When work adopts one host-neutral capability in both production hosts, show
+both real call sites: the C# consumer for CLI and the TypeScript consumer for
+Browser/Wasm. Do not use managed implementation code as a proxy for the
+TypeScript boundary. Distinguish the `Task` or `Promise` that represents an
+in-flight operation from realized results or events passed across callbacks.
 
 For a network-accessible inspect-web demo, follow
 [Inspect Web demo hosting](runbooks/inspect-web-demo-hosting.md). A local HTTP

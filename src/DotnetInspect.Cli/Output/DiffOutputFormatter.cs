@@ -290,7 +290,7 @@ public static class DiffOutputFormatter
                 }));
         }
 
-        return writer.ToString().TrimEnd();
+        return writer.Complete().TrimEnd();
     }
 
     private static void WriteDocumentSection(
@@ -339,7 +339,7 @@ public static class DiffOutputFormatter
     {
         var writer = new MarkoutWriter(new MarkdownFormatter(), options);
         DiffViewContext.Default.Serialize(view, writer);
-        return writer.ToString().TrimEnd();
+        return writer.Complete().TrimEnd();
     }
 
     public static DiffFullView BuildFullView(
@@ -409,7 +409,7 @@ public static class DiffOutputFormatter
         var view = BuildFullView(name, typeDiffs, fromVersion, toVersion);
         var writer = new MarkoutWriter(new MarkdownFormatter(), options);
         DiffViewContext.Default.Serialize(view, writer);
-        return writer.ToString().TrimEnd();
+        return writer.Complete().TrimEnd();
     }
 
     public static string RenderFullMarkdown(
@@ -431,7 +431,7 @@ public static class DiffOutputFormatter
                 new MarkdownFormatter(),
                 options);
         DiffViewContext.Default.Serialize(view, writer);
-        return writer.ToString().TrimEnd();
+        return writer.Complete().TrimEnd();
     }
 
     static List<DiffInspectionFailureRow>? BuildInspectionFailureRows(
@@ -493,7 +493,7 @@ public static class DiffOutputFormatter
     {
         var writer = new MarkoutWriter(new MarkdownFormatter(), options);
         DiffViewContext.Default.Serialize(view, writer);
-        return writer.ToString().TrimEnd();
+        return writer.Complete().TrimEnd();
     }
 
     public static string RenderAnalysisDiffMarkdown(string name, IReadOnlyList<AnalysisDiffRow> rows, string fromVersion, string toVersion)
@@ -1148,7 +1148,7 @@ public static class DiffOutputFormatter
     {
         var writer = new MarkoutWriter(new MarkdownFormatter(), options);
         DiffViewContext.Default.Serialize(view, writer);
-        return writer.ToString().TrimEnd();
+        return writer.Complete().TrimEnd();
     }
 
     internal static string FormatSummaryCounts(int breaking, int additive, int potentiallyBreaking)
@@ -1166,23 +1166,11 @@ public static class DiffOutputFormatter
 
         foreach (var td in typeDiffs.OrderBy(td => td.TypeFullName))
         {
-            InertString typeName = FormatTypeDisplayName(td.TypeFullName);
             foreach (var change in td.Changes.Where(c => c.Classification == classification))
             {
-                InertString message = change.GetMessageText();
-                if (change.Kind == ChangeKind.MemberSignatureChanged
-                    && change.GetOldValueText() is { } oldText
-                    && change.GetNewValueText() is { } newText)
-                {
-                    InertString oldValue = MarkoutInline.CodeText(
-                        oldText);
-                    InertString newValue = MarkoutInline.CodeText(
-                        newText);
-                    message = InertString.Format(
-                        TextPolicy.Field,
-                        $"{message}: {oldValue} -> {newValue}");
-                }
-                rows.Add(new DiffChangeRow(typeName, message));
+                rows.Add(BuildChangeRow(
+                    td.TypeFullName, change.Kind, change.GetMessageText(),
+                    change.GetOldValueText(), change.GetNewValueText()));
             }
         }
 
@@ -1190,18 +1178,52 @@ public static class DiffOutputFormatter
     }
 
     private static DiffDetailedChangeRow BuildDetailedRow(string typeFullName, ApiChange change)
-        => new(
-            DiffViewText.Field(ChangeSymbol(change.Classification, change.Kind)),
-            DiffViewText.Field(ClassificationText(change.Classification)),
-            DiffViewText.Field(TypeMatcher.GetSimpleName(typeFullName)),
-            DiffViewText.Field(
-                change.Subject?.OldMember?.StableSelector
-                    ?? change.Subject?.NewMember?.StableSelector
-                    ?? ""),
-            DiffViewText.Field(ChangeKindText(change.Kind)),
+        => BuildDetailedRow(
+            typeFullName,
+            change.Kind,
+            change.Classification,
+            change.Subject?.OldMember?.StableSelector
+                ?? change.Subject?.NewMember?.StableSelector
+                ?? "",
             change.GetMessageText(),
-            change.GetOldValueText() ?? InertString.Empty,
-            change.GetNewValueText() ?? InertString.Empty);
+            change.GetOldValueText(),
+            change.GetNewValueText());
+
+    internal static DiffChangeRow BuildChangeRow(
+        string typeFullName,
+        ChangeKind kind,
+        InertString message,
+        InertString? oldValue,
+        InertString? newValue)
+    {
+        if (kind == ChangeKind.MemberSignatureChanged
+            && oldValue is { } oldText
+            && newValue is { } newText)
+        {
+            message = InertString.Format(
+                TextPolicy.Field,
+                $"{message}: {MarkoutInline.CodeText(oldText)} -> {MarkoutInline.CodeText(newText)}");
+        }
+        return new(FormatTypeDisplayName(typeFullName), message);
+    }
+
+    internal static DiffDetailedChangeRow BuildDetailedRow(
+        string typeFullName,
+        ChangeKind kind,
+        ChangeClassification classification,
+        string member,
+        InertString message,
+        InertString? oldValue,
+        InertString? newValue)
+        => new(
+            DiffViewText.Field(ChangeSymbol(classification, kind)),
+            DiffViewText.Field(ClassificationText(classification)),
+            DiffViewText.Field(TypeMatcher.GetSimpleName(typeFullName)),
+            DiffViewText.Field(member),
+            DiffViewText.Field(ChangeKindText(kind)),
+            message,
+            oldValue ?? InertString.Empty,
+            newValue ?? InertString.Empty);
 
     private static string ChangeSymbol(ChangeClassification classification, ChangeKind kind)
         => kind switch

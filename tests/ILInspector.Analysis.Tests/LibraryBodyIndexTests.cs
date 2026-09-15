@@ -11942,12 +11942,14 @@ public class LibraryBodyIndexTests
     [Fact]
     public void CallerUnsafeMode_PointerSignatureIsImplicitWhenModuleNotOptedIn()
     {
-        // This test assembly carries no MemorySafetyRulesAttribute, so a pointer
-        // signature lands in the legacy Implicit bucket (Roslyn's CallerUnsafeMode).
         var index = LibraryBodyIndex.Open(typeof(UnsafeEvidenceFixtures).Assembly.Location);
 
         Assert.False(index.MemorySafetyRulesEnabled);
+        var rules = Assert.IsType<MemorySafetyRulesResult.Available>(
+            index.MemorySafetyRules);
+        Assert.Equal(MemorySafetyRulesState.Legacy, rules.State);
         Assert.Equal(0, index.UnsafeModes.Explicit);
+        Assert.Equal(0, index.UnsafeModes.Unavailable);
 
         var pointerRead = Assert.Single(index.Methods.Where(m =>
             m.Name == nameof(UnsafeEvidenceFixtures.UnsafePointerRead)));
@@ -11955,16 +11957,326 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
-    public void CallerUnsafeMode_RequiresUnsafeIsExplicitWhenModuleOptedIn()
+    public void CallerUnsafeMode_UsesNormalizedUpdatedContracts()
     {
         var index = LibraryBodyIndex.Open(
             FixtureCatalog.DecompilerUnsafeNew.AssemblyPath());
 
         Assert.True(index.MemorySafetyRulesEnabled);
+        var rules = Assert.IsType<MemorySafetyRulesResult.Available>(
+            index.MemorySafetyRules);
+        Assert.Equal(MemorySafetyRulesState.Updated, rules.State);
         Assert.NotEqual(0, index.UnsafeModes.Explicit);
         Assert.DoesNotContain(
-            index.Methods,
+            index.DeclaredMethods,
             method => method.CallerUnsafeMode == CallerUnsafeMode.Implicit);
+
+        MethodIdentity pointerOnly = Assert.Single(
+            index.DeclaredMethods,
+            method =>
+                method.DeclaringType.Name
+                    == "MemorySafetySpellingFixture"
+                && method.Name == "PointerNoneMethod");
+        Assert.Equal(
+            CallerUnsafeMode.None,
+            pointerOnly.CallerUnsafeMode);
+
+        MethodIdentity pointerFreeUnsafe = Assert.Single(
+            index.DeclaredMethods,
+            method =>
+                method.DeclaringType.Name
+                    == "MemorySafetySpellingFixture"
+                && method.Name == "PointerFreeUnsafeMethod");
+        Assert.Equal(
+            CallerUnsafeMode.Explicit,
+            pointerFreeUnsafe.CallerUnsafeMode);
+
+        MethodIdentity constructor = Assert.Single(
+            index.DeclaredMethods,
+            method =>
+                method.DeclaringType.Name
+                    == "MemorySafetySpellingFixture"
+                && method.Name == ".ctor");
+        Assert.Equal(
+            CallerUnsafeMode.Explicit,
+            constructor.CallerUnsafeMode);
+
+        foreach (string accessorName in
+            new[] { "get_Property", "add_Changed", "remove_Changed" })
+        {
+            MethodIdentity accessor = Assert.Single(
+                index.DeclaredMethods,
+                method =>
+                    method.DeclaringType.Name
+                        == "AccessorContractFixtures"
+                    && method.Name == accessorName);
+            Assert.Equal(
+                CallerUnsafeMode.Explicit,
+                accessor.CallerUnsafeMode);
+        }
+
+        MethodIdentity safeExtern = Assert.Single(
+            index.DeclaredMethods,
+            method =>
+                method.DeclaringType.Name
+                    == "MemorySafetySpellingFixture"
+                && method.Name == "SafeExtern");
+        Assert.Equal(
+            CallerUnsafeMode.None,
+            safeExtern.CallerUnsafeMode);
+    }
+
+    [Theory]
+    [InlineData(99, MemorySafetyRulesState.Unsupported)]
+    [InlineData(null, MemorySafetyRulesState.Malformed)]
+    public void
+        CallerUnsafeMode_InvalidMarkerUsesNormalizedCompatibilityContract(
+            int? marker,
+            MemorySafetyRulesState expectedRules)
+    {
+        LibraryBodyIndex index =
+            OpenMemorySafetyContractImage(marker);
+        var rules = Assert.IsType<MemorySafetyRulesResult.Available>(
+            index.MemorySafetyRules);
+        Assert.Equal(expectedRules, rules.State);
+        Assert.False(index.MemorySafetyRulesEnabled);
+
+        MethodIdentity pointerOnly = Assert.Single(
+            index.DeclaredMethods,
+            method => method.Name == "PointerOnly");
+        Assert.Equal(
+            CallerUnsafeMode.Implicit,
+            pointerOnly.CallerUnsafeMode);
+
+        MethodIdentity attributeOnly = Assert.Single(
+            index.DeclaredMethods,
+            method => method.Name == "AttributeOnly");
+        Assert.Equal(
+            CallerUnsafeMode.None,
+            attributeOnly.CallerUnsafeMode);
+    }
+
+    [Fact]
+    public void CallerUnsafeMode_UnavailableContractIsNotAPropagator()
+    {
+        LibraryBodyIndex index =
+            OpenMemorySafetyContractImage(2, 1);
+        var rules = Assert.IsType<MemorySafetyRulesResult.Available>(
+            index.MemorySafetyRules);
+        Assert.Equal(
+            MemorySafetyRulesState.Conflicting,
+            rules.State);
+        Assert.False(index.MemorySafetyRulesEnabled);
+
+        Assert.All(
+            index.DeclaredMethods,
+            method => Assert.Equal(
+                CallerUnsafeMode.Unavailable,
+                method.CallerUnsafeMode));
+        Assert.Equal(
+            index.DeclaredMethods.Length,
+            index.UnsafeModes.Unavailable);
+        Assert.Equal(0, index.UnsafeModes.Unsafe);
+
+        Assert.Empty(index.TopUnsafeLeverage(1));
+        Assert.Empty(index.OpaqueUnsafeMethods());
+        Assert.Empty(index.HollowUnsafeMethods());
+    }
+
+    static LibraryBodyIndex OpenMemorySafetyContractImage(
+        params int?[] moduleMarkers)
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"AnalysisMemorySafety-{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllBytes(
+                path,
+                BuildMemorySafetyContractImage(moduleMarkers));
+            return LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    static byte[] BuildMemorySafetyContractImage(
+        IReadOnlyList<int?> moduleMarkers)
+    {
+        var metadata = new MetadataBuilder();
+        ModuleDefinitionHandle module = metadata.AddModule(
+            0,
+            metadata.GetOrAddString("AnalysisMemorySafety.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("AnalysisMemorySafety"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+
+        BlobHandle rulesConstructorSignature =
+            AddMemorySafetyMethodSignature(
+                metadata,
+                isInstance: true,
+                parameterCount: 1,
+                parameters =>
+                    parameters.AddParameter().Type().Int32());
+        BlobHandle markerConstructorSignature =
+            AddMemorySafetyMethodSignature(
+                metadata,
+                isInstance: true,
+                parameterCount: 0,
+                _ => { });
+        BlobHandle pointerMethodSignature =
+            AddMemorySafetyMethodSignature(
+                metadata,
+                isInstance: false,
+                parameterCount: 1,
+                parameters =>
+                    parameters.AddParameter().Type().Pointer().Int32());
+        BlobHandle emptyMethodSignature =
+            AddMemorySafetyMethodSignature(
+                metadata,
+                isInstance: false,
+                parameterCount: 0,
+                _ => { });
+
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        var body = new BlobBuilder();
+        var instructions = new InstructionEncoder(body);
+        instructions.OpCode(ILOpCode.Ret);
+        int bodyOffset =
+            bodyEncoder.AddMethodBody(instructions, maxStack: 0);
+
+        MethodDefinitionHandle rulesConstructor =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.RTSpecialName,
+                MethodImplAttributes.Runtime,
+                metadata.GetOrAddString(".ctor"),
+                rulesConstructorSignature,
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle requiresUnsafeConstructor =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.RTSpecialName,
+                MethodImplAttributes.Runtime,
+                metadata.GetOrAddString(".ctor"),
+                markerConstructorSignature,
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("PointerOnly"),
+            pointerMethodSignature,
+            bodyOffset,
+            MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle attributeOnly =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("AttributeOnly"),
+                emptyMethodSignature,
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            rulesConstructor);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            metadata.GetOrAddString(
+                "System.Runtime.CompilerServices"),
+            metadata.GetOrAddString(
+                "MemorySafetyRulesAttribute"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            rulesConstructor);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            metadata.GetOrAddString(
+                "System.Diagnostics.CodeAnalysis"),
+            metadata.GetOrAddString("RequiresUnsafeAttribute"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            requiresUnsafeConstructor);
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Target"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(3));
+
+        foreach (int? marker in moduleMarkers)
+        {
+            metadata.AddCustomAttribute(
+                module,
+                rulesConstructor,
+                metadata.GetOrAddBlob(
+                    marker is int version
+                        ? MemorySafetyRulesBlob(version)
+                        : [0x01, 0x00, 0x02]));
+        }
+
+        metadata.AddCustomAttribute(
+            attributeOnly,
+            requiresUnsafeConstructor,
+            metadata.GetOrAddBlob(
+                new byte[] { 0x01, 0x00, 0x00, 0x00 }));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static BlobHandle AddMemorySafetyMethodSignature(
+        MetadataBuilder metadata,
+        bool isInstance,
+        int parameterCount,
+        Action<ParametersEncoder> addParameters)
+    {
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature(isInstanceMethod: isInstance)
+            .Parameters(
+                parameterCount,
+                returnType => returnType.Void(),
+                addParameters);
+        return metadata.GetOrAddBlob(signature);
+    }
+
+    static byte[] MemorySafetyRulesBlob(int version)
+    {
+        var blob = new BlobBuilder();
+        blob.WriteUInt16(1);
+        blob.WriteInt32(version);
+        blob.WriteUInt16(0);
+        return blob.ToArray();
     }
 
     [Fact]
@@ -15605,7 +15917,6 @@ public class LibraryBodyIndexTests
         var context = new MethodBodyAnalysisContext(
             moveNext,
             instructions,
-            body.ExceptionRegions,
             [],
             []);
         using var builder = new LibraryBodyAnalysisBuilder(

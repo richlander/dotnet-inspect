@@ -44,6 +44,16 @@ public static partial class EcosystemPackCatalog
     public static WorkspacePlan CreateWorkspacePlan() =>
         ProductEcosystemPacks.AllKnownWorkspacePlan;
 
+    /// <summary>
+    /// Returns a resource-free plan registering exactly the selected ecosystems
+    /// in caller order.
+    /// </summary>
+    public static WorkspacePlan CreateWorkspacePlan(
+        IEnumerable<EcosystemPackId> ecosystems) =>
+        EcosystemWorkspacePlanFactory.Create(
+            ProductEcosystemPacks.Registry,
+            ecosystems);
+
     /// <summary>Returns a resource-free plan with platform-curated registrations.</summary>
     public static WorkspacePlan CreatePlatformWorkspacePlan() =>
         ProductEcosystemPacks.PlatformWorkspacePlan;
@@ -80,10 +90,12 @@ internal static class EcosystemWorkspacePlanFactory
             switch (registry.SelectWorkspaceRegistration(id))
             {
                 case EcosystemWorkspaceRegistrationSelectionResult.Known known:
-                    if (known.Declaration.Populations.IsEmpty)
+                    if (known.Declaration.CorePackages.IsEmpty
+                        && known.Declaration.Populations.IsEmpty)
                     {
                         throw new ArgumentException(
-                            $"Ecosystem pack '{id}' has no Workspace population contribution.",
+                            $"Ecosystem pack '{id}' has no registered package"
+                            + " or Workspace population contribution.",
                             nameof(manifest));
                     }
 

@@ -28,7 +28,7 @@ function reportStartupFailure(error: unknown): void {
     throw new Error(`Inspect Web startup failed, and #app is not in the document\n\n${detail}`);
   }
   app.style.cssText =
-    "padding:24px;color:#e8e9e4;background:#10110f;font:14px/1.6 monospace;white-space:pre-wrap";
+    "padding:24px;color:#f0edf7;background:#100d1d;font:14px/1.6 monospace;white-space:pre-wrap";
   app.textContent = `Inspect Web startup failed\n\n${detail}`;
 }
 

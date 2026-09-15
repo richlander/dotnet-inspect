@@ -2,6 +2,7 @@ import {
   WorkerProducerClassRegistry,
   type WorkerRuntimeBoundaryErrors,
 } from "./worker-runtime-core.ts";
+import { diagnosticDetail } from "./failure-detail.ts";
 import type { BoundedPayloadDecoder } from "./worker-runtime-protocol.ts";
 
 export const engineWorkerPolicy = {
@@ -37,12 +38,9 @@ export const engineWorkerText: BoundedPayloadDecoder<string> = {
 };
 
 export function engineWorkerDiagnostic(detail: unknown): string {
-  const message = detail instanceof Error
-    ? detail.message
-    : typeof detail === "string"
-      ? detail
-      : "Worker runtime boundary failure.";
-  return message.slice(0, 4_096);
+  if (detail instanceof Error || typeof detail === "string")
+    return diagnosticDetail(detail);
+  return "Worker runtime boundary failure.";
 }
 
 export const engineWorkerBoundaryErrors:

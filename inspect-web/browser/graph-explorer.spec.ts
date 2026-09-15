@@ -101,7 +101,7 @@ test("production Call graph roles match the legend palette in both themes", asyn
         .evaluate(element => getComputedStyle(element).fill),
   });
   expect(await colors()).toEqual({
-    target: "rgb(40, 32, 68)",
+    target: "rgb(49, 26, 127)",
     sameType: "rgb(23, 107, 115)",
     differentAssembly: "rgb(52, 58, 70)",
   });
@@ -111,7 +111,7 @@ test("production Call graph roles match the legend palette in both themes", asyn
     return window.graphExploreProbe.update("ready");
   });
   expect(await colors()).toEqual({
-    target: "rgb(240, 228, 244)",
+    target: "rgb(238, 234, 251)",
     sameType: "rgb(185, 225, 223)",
     differentAssembly: "rgb(224, 227, 232)",
   });

@@ -6,7 +6,23 @@ export type BrowserDependencyCoordinateMatchOutcome = "NoMatch" | "Unique" | "Am
 
 export type BrowserDependencyCoordinateProvenance = "NuGetPackage" | "PlatformRuntime" | number;
 
+export type BrowserInspectionShareKind = "Available" | "NonProjectable" | number;
+
 export type BrowserPackageAssemblyAssessmentKind = "NoMatch" | "NotApplicable" | number;
+
+export type BrowserPackageChangesCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
+
+export type BrowserPackageChangesOperationFailureKind = "Expected" | "Unexpected" | number;
+
+export type BrowserPackageChangesResultKind = "Succeeded" | "Failed" | "Canceled" | number;
+
+export type BrowserPackageDependencyDeclarationFailureKind = "ConflictingPackageDeclaration" | "InvalidPackageDeclaration" | "RestoredProject" | "AuthoredProject" | "AuthoredProjectUnresolvedSyntax" | number;
+
+export type BrowserPackageGraphIdentityRole = "Inspected" | "SamePrefix" | "External" | number;
+
+export type BrowserPackagePruningCompletion = "Complete" | "Partial" | "Failed" | "NotApplicable" | number;
+
+export type BrowserPackagePruningDisposition = "PlatformDelegation" | "PackageRetained" | "CandidateUnavailable" | "NotEvaluated" | number;
 
 export type BrowserPackageQueryCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
 
@@ -19,6 +35,10 @@ export type BrowserPackageQueryEvidenceScope = "Package" | "Query" | number;
 export type BrowserPackageQueryFacetTier = "Nuspec" | "PackageContent" | "SearchMetadata" | "Assembly" | number;
 
 export type BrowserPackageQueryFailureKind = "Search" | "SearchContract" | "ManifestAcquisition" | "ManifestContract" | "InvalidManifest" | "PackageContentAcquisition" | "PackageContentEvaluation" | "AssemblyAcquisition" | "AssemblyEvaluation" | number;
+
+export type BrowserPackageQueryManifestFailureReason = "MalformedXml" | "UnsupportedDocumentShape" | "IdentityMismatch" | "InvalidDependencyContract" | "ConfiguredLimitExceeded" | "InvalidIdentityContract" | number;
+
+export type BrowserPackageQueryManifestIdentityProvenance = "ExpectedCoordinate" | "SelfAttested" | number;
 
 export type BrowserPackageQueryMatchCreditKind = "Granted" | "NotActive" | number;
 
@@ -83,6 +103,21 @@ export interface BrowserExceptionSurface {
   readonly description: string;
 }
 
+export interface BrowserInspectionDiagnostic {
+  readonly code: string;
+  readonly severity: string;
+  readonly summary: string;
+  readonly correspondence: string | null;
+}
+
+export interface BrowserInspectionShare {
+  readonly kind: BrowserInspectionShareKind;
+  readonly fullUrl: string | null;
+  readonly packet: string | null;
+  readonly path: string | null;
+  readonly reason: string | null;
+}
+
 export interface BrowserMemberBodySelector {
   readonly token: number;
   readonly memberName: string;
@@ -145,8 +180,196 @@ export interface BrowserPackageAssemblyQueryPattern {
 export interface BrowserPackageCacheStats {
   readonly packages: number;
   readonly resident: number;
+  readonly maxPackageEntries: number;
   readonly workspaces: number;
+  readonly maxWorkspaces: number;
+  readonly maxWorkspaceAssembliesPerRole: number;
   readonly residentBytes: number;
+  readonly maxResidentBytes: number;
+  readonly maxWorkspaceRetainedImageBytes: number;
+}
+
+export interface BrowserPackageChangesAdvisoryAcquisition {
+  readonly packageProducerKey: string;
+  readonly advisoryProducer: string;
+  readonly observedAt: string;
+  readonly apiRequests: number;
+  readonly responseBytes: number;
+  readonly complete: boolean;
+  readonly failures: ReadonlyArray<string>;
+  readonly packages: ReadonlyArray<BrowserPackageChangesAdvisoryPackage>;
+}
+
+export interface BrowserPackageChangesAdvisoryEvidence {
+  readonly availability: string;
+  readonly advisories: ReadonlyArray<BrowserPackageChangesAdvisoryReference>;
+}
+
+export interface BrowserPackageChangesAdvisoryPackage {
+  readonly packageId: string;
+  readonly version: string;
+  readonly currentAdvisoryContext: BrowserPackageChangesAdvisoryEvidence;
+  readonly fixedVersionEvidence: BrowserPackageChangesAdvisoryEvidence;
+}
+
+export interface BrowserPackageChangesAdvisoryReference {
+  readonly ghsaId: string;
+  readonly cveId: string | null;
+  readonly severity: string;
+  readonly advisoryUrl: string;
+  readonly publishedAt: string;
+  readonly updatedAt: string;
+}
+
+export interface BrowserPackageChangesCancellation {
+  readonly kind: BrowserPackageChangesCancellationKind;
+  readonly reason: string | null;
+}
+
+export interface BrowserPackageChangesCatalogActivity {
+  readonly packageId: string;
+  readonly version: string;
+  readonly normalizedPackageId: string;
+  readonly normalizedVersion: string;
+  readonly leafUrl: string;
+  readonly commitId: string;
+  readonly commitTimestamp: string;
+  readonly catalogKind: string;
+  readonly activity: string;
+}
+
+export interface BrowserPackageChangesDocument {
+  readonly schemaVersion: number;
+  readonly request: BrowserPackageChangesResolvedRequest;
+  readonly source: BrowserPackageChangesSource;
+  readonly progress: ReadonlyArray<BrowserPackageChangesProgress>;
+  readonly rows: ReadonlyArray<BrowserPackageChangesRow>;
+  readonly failures: ReadonlyArray<BrowserPackageChangesFailure>;
+  readonly summary: BrowserPackageChangesSummary;
+}
+
+export interface BrowserPackageChangesFailure {
+  readonly provider: string;
+  readonly catalogFailure: BrowserPackageChangesPackageSourceFailure | null;
+  readonly advisoryFailure: string | null;
+  readonly packageReceiptFailure: BrowserPackageChangesReceiptFailure | null;
+}
+
+export interface BrowserPackageChangesInspection {
+  readonly content: BrowserPackageChangesDocument;
+  readonly share: BrowserInspectionShare;
+  readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
+}
+
+export interface BrowserPackageChangesPackageReceipt {
+  readonly receivedAt: string;
+  readonly basis: string;
+}
+
+export interface BrowserPackageChangesPackageScope {
+  readonly kind: string;
+  readonly selectionId: string | null;
+  readonly prefix: string | null;
+  readonly packageIds: ReadonlyArray<string>;
+}
+
+export interface BrowserPackageChangesPackageSourceFailure {
+  readonly capability: number;
+  readonly packageId: string | null;
+  readonly version: string | null;
+  readonly kind: string;
+  readonly detail: string;
+}
+
+export interface BrowserPackageChangesProgress {
+  readonly phase: string;
+  readonly completed: number;
+  readonly total: number | null;
+  readonly capturedHorizon: string | null;
+  readonly catalogPagesAcquired: number;
+  readonly catalogHttpAttempts: number;
+  readonly catalogDecodedBytes: number;
+}
+
+export interface BrowserPackageChangesReceiptFailure {
+  readonly catalogActivity: BrowserPackageChangesCatalogActivity;
+  readonly failure: BrowserPackageChangesPackageSourceFailure;
+}
+
+export interface BrowserPackageChangesRequest {
+  readonly packageSetId: string;
+  readonly fromExclusive: string | null;
+  readonly throughInclusive: string | null;
+  readonly securityOnly: boolean;
+  readonly maximumRows: number;
+}
+
+export interface BrowserPackageChangesResolvedRequest {
+  readonly referenceTime: string;
+  readonly fromExclusive: string;
+  readonly throughInclusive: string;
+  readonly usedDefaultInterval: boolean;
+  readonly packageScope: BrowserPackageChangesPackageScope;
+  readonly securitySelection: string;
+  readonly maximumRows: number;
+  readonly maximumCandidateEvents: number;
+  readonly maximumReceiptRequests: number;
+}
+
+export interface BrowserPackageChangesResult {
+  readonly version: number;
+  readonly kind: BrowserPackageChangesResultKind;
+  readonly inspection: BrowserPackageChangesInspection | null;
+  readonly failureKind: BrowserPackageChangesOperationFailureKind | null;
+  readonly error: string | null;
+  readonly diagnostic: string | null;
+  readonly reason: string | null;
+}
+
+export interface BrowserPackageChangesRow {
+  readonly catalogActivity: BrowserPackageChangesCatalogActivity;
+  readonly currentAdvisoryContext: BrowserPackageChangesAdvisoryEvidence;
+  readonly fixedVersionEvidence: BrowserPackageChangesAdvisoryEvidence;
+  readonly packageReceipt: BrowserPackageChangesPackageReceipt | null;
+  readonly securityReleaseStatus: string;
+  readonly securityRelease: BrowserPackageChangesSecurityRelease | null;
+  readonly isSecurityRelevant: boolean;
+}
+
+export interface BrowserPackageChangesSecurityRelease {
+  readonly receipt: BrowserPackageChangesPackageReceipt;
+  readonly advisories: ReadonlyArray<BrowserPackageChangesAdvisoryReference>;
+}
+
+export interface BrowserPackageChangesSource {
+  readonly producerKey: string;
+  readonly producer: string;
+  readonly transportKind: string;
+}
+
+export interface BrowserPackageChangesSummary {
+  readonly capturedHorizon: string | null;
+  readonly catalogCompletion: string | null;
+  readonly catalogFailure: BrowserPackageChangesPackageSourceFailure | null;
+  readonly catalogPagesAcquired: number;
+  readonly catalogHttpAttempts: number;
+  readonly catalogDecodedBytes: number;
+  readonly catalogInWindowEventCount: number;
+  readonly matchingEventCount: number;
+  readonly retainedEventCount: number;
+  readonly candidateLimitReached: boolean;
+  readonly advisoryEvidence: BrowserPackageChangesAdvisoryAcquisition;
+  readonly receiptCandidates: number;
+  readonly receiptRequests: number;
+  readonly receiptSuccesses: number;
+  readonly receiptFailures: ReadonlyArray<BrowserPackageChangesReceiptFailure>;
+  readonly receiptLimitReached: boolean;
+  readonly currentContextUnevaluableRows: number;
+  readonly securityReleaseUnevaluableRows: number;
+  readonly eligibleRowCount: number;
+  readonly returnedRowCount: number;
+  readonly resultLimitReached: boolean;
+  readonly completion: string;
 }
 
 export interface BrowserPackageDependencies {
@@ -155,6 +378,7 @@ export interface BrowserPackageDependencies {
   readonly activeFramework: string;
   readonly assembly: string | null;
   readonly dependencyGroups: ReadonlyArray<BrowserPackageDependencyGroup>;
+  readonly declarationFailures: ReadonlyArray<BrowserPackageDependencyDeclarationFailure>;
   readonly assemblyReferences: BrowserAssemblyReferenceResult;
   readonly dependencyGroupError: string | null;
   readonly compileLibrary: BrowserCompileLibraryAvailability;
@@ -163,6 +387,13 @@ export interface BrowserPackageDependencies {
 export interface BrowserPackageDependency {
   readonly id: string;
   readonly versionRange: string;
+}
+
+export interface BrowserPackageDependencyDeclarationFailure {
+  readonly kind: BrowserPackageDependencyDeclarationFailureKind;
+  readonly framework: string | null;
+  readonly package: string | null;
+  readonly sourceOccurrenceCount: number | null;
 }
 
 export interface BrowserPackageDependencyGroup {
@@ -191,6 +422,55 @@ export interface BrowserPackageIcon {
   readonly base64: string;
 }
 
+export interface BrowserPackagePruningRequest {
+  readonly schemaVersion: number;
+  readonly family: string;
+  readonly targetFramework: string;
+  readonly platformVersion: string;
+  readonly supplies: ReadonlyArray<BrowserPackagePruningSupply>;
+}
+
+export interface BrowserPackagePruningResult {
+  readonly schemaVersion: number;
+  readonly package: string;
+  readonly version: string;
+  readonly targetFramework: string;
+  readonly selectedFramework: string | null;
+  readonly family: string;
+  readonly platformVersion: string;
+  readonly completion: BrowserPackagePruningCompletion;
+  readonly rows: ReadonlyArray<BrowserPackagePruningRow>;
+  readonly declarationFailures: ReadonlyArray<BrowserPackageDependencyDeclarationFailure>;
+  readonly summary: BrowserPackagePruningSummary;
+  readonly message: string | null;
+}
+
+export interface BrowserPackagePruningRow {
+  readonly package: string;
+  readonly requestedRange: string;
+  readonly candidateVersion: string | null;
+  readonly platformSuppliedVersion: string | null;
+  readonly disposition: BrowserPackagePruningDisposition;
+  readonly reason: string;
+}
+
+export interface BrowserPackagePruningSummary {
+  readonly declarations: number;
+  readonly evaluated: number;
+  readonly delegated: number;
+  readonly retained: number;
+  readonly notEvaluated: number;
+  readonly failed: number;
+  readonly declarationFailures: number;
+}
+
+export interface BrowserPackagePruningSupply {
+  readonly pack: string;
+  readonly family: string;
+  readonly package: string;
+  readonly version: string;
+}
+
 export interface BrowserPackageQueryCancellation {
   readonly kind: BrowserPackageQueryCancellationKind;
   readonly reason: string | null;
@@ -209,6 +489,23 @@ export interface BrowserPackageQueryCompletion {
   readonly semanticMisses: number | null;
   readonly notApplicable: number | null;
   readonly scope: string | null;
+}
+
+export interface BrowserPackageQueryDeclaredDependency {
+  readonly id: string;
+  readonly versionRange: string;
+}
+
+export interface BrowserPackageQueryDeclaredDependencyGroup {
+  readonly targetFramework: string;
+  readonly dependencies: ReadonlyArray<BrowserPackageQueryDeclaredDependency>;
+  readonly isImplicitManifestGroup: boolean;
+}
+
+export interface BrowserPackageQueryDocument {
+  readonly results: ReadonlyArray<BrowserPackageQueryRow>;
+  readonly failures: ReadonlyArray<BrowserPackageQueryFailure>;
+  readonly completion: BrowserPackageQueryCompletion;
 }
 
 export interface BrowserPackageQueryEvent {
@@ -254,6 +551,33 @@ export interface BrowserPackageQueryFailure {
   readonly producer: string;
   readonly kind: BrowserPackageQueryFailureKind;
   readonly message: string;
+  readonly manifestFailureReason: BrowserPackageQueryManifestFailureReason | null;
+}
+
+export interface BrowserPackageQueryInspection {
+  readonly content: BrowserPackageQueryDocument;
+  readonly share: BrowserInspectionShare;
+  readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
+}
+
+export interface BrowserPackageQueryManifest {
+  readonly packageId: string;
+  readonly version: string;
+  readonly manifestVersion: string;
+  readonly description: string | null;
+  readonly authors: string | null;
+  readonly repository: string | null;
+  readonly repositoryType: string | null;
+  readonly repositoryCommit: string | null;
+  readonly license: string | null;
+  readonly licenseUrl: string | null;
+  readonly packageTypes: ReadonlyArray<string>;
+  readonly isToolPackage: boolean;
+  readonly readmeFile: string | null;
+  readonly dependencyGroups: ReadonlyArray<BrowserPackageQueryDeclaredDependencyGroup>;
+  readonly iconFile: string | null;
+  readonly iconUrl: string | null;
+  readonly identityProvenance: BrowserPackageQueryManifestIdentityProvenance;
 }
 
 export interface BrowserPackageQueryMatchCreditResponse {
@@ -271,6 +595,7 @@ export interface BrowserPackageQueryResult {
   readonly version: number;
   readonly kind: BrowserPackageQueryResultKind;
   readonly value: BrowserPackageQueryEvent | null;
+  readonly inspection: BrowserPackageQueryInspection | null;
   readonly failureKind: BrowserPackageQueryOperationFailureKind | null;
   readonly error: string | null;
   readonly diagnostic: string | null;
@@ -287,6 +612,8 @@ export interface BrowserPackageQueryRow {
   readonly producer: string;
   readonly description: string | null;
   readonly rootRequest: string | null;
+  readonly owners: ReadonlyArray<string>;
+  readonly manifest: BrowserPackageQueryManifest | null;
 }
 
 export interface BrowserPackageSurface {
@@ -406,7 +733,9 @@ type $ManagedExports = {
         readonly "Package": {
           readonly "PackageExports": {
             readonly "ActivateWorkspacePackageOccurrence.976702342": (action: string) => Promise<string>;
+            readonly "CancelPackageChanges.271973316": (operationId: string, reason: string) => string;
             readonly "CancelPackageQuery.271973316": (operationId: string, reason: string) => string;
+            readonly "ClassifyPackageGraphIdentities.271973316": (inspectedPackageId: string, packageIdsJson: string) => string;
             readonly "ClearWorkspacePackageOccurrences.1731052262": () => Promise<void>;
             readonly "GetPackageDocument.1001223652": (packageId: string, version: string, path: string) => Promise<string>;
             readonly "GetPlatformCatalog.451505237": (targetFramework: string, platformVersion: string) => Promise<string>;
@@ -422,11 +751,13 @@ type $ManagedExports = {
             readonly "QueryMemberDocumentation.1330709314": (packageId: string, version: string, framework: string, assemblyName: string, documentationId: string) => Promise<string>;
             readonly "QueryPackage.1001223652": (packageId: string, version: string, targetFramework: string) => Promise<string>;
             readonly "QueryPackageDependencies.1579276339": (packageId: string, version: string, targetFramework: string, assemblyId: string) => Promise<string>;
+            readonly "QueryPackagePruning.1579276339": (packageId: string, version: string, targetFramework: string, requestJson: string) => Promise<string>;
             readonly "QueryPackageVersions.451505237": (packageId: string, currentVersion: string) => Promise<string>;
             readonly "QueryWorkspacePackageOccurrences.976702342": (workspaceJson: string) => Promise<string>;
             readonly "RequestPackageQueryMatches.146925470": (operationId: string, additionalMatchCredit: number) => string;
             readonly "ResolvePackageDependencyVersion.451505237": (packageId: string, declaredRange: string | null) => Promise<string>;
             readonly "RunPackageAssemblyQuery.990719355": (operationId: string, patternId: string, operand: string, packageCoordinatesJson: string, targetFramework: string, initialMatchCredit: number, eventSink: unknown) => Promise<string>;
+            readonly "RunPackageChanges.1791926993": (operationId: string, requestJson: string, eventSink: unknown) => Promise<string>;
             readonly "RunPackageQuery.52840355": (operationId: string, prefix: string, facetIdsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown) => Promise<string>;
             readonly "SearchTypes.271973316": (query: string, candidatesJson: string) => string;
           };
@@ -497,9 +828,33 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Package");
     value = $ownDataProperty(value, "PackageExports");
+    value = $ownDataProperty(value, "CancelPackageChanges.271973316");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.CancelPackageChanges.271973316\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Package");
+    value = $ownDataProperty(value, "PackageExports");
     value = $ownDataProperty(value, "CancelPackageQuery.271973316");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.CancelPackageQuery.271973316\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Package");
+    value = $ownDataProperty(value, "PackageExports");
+    value = $ownDataProperty(value, "ClassifyPackageGraphIdentities.271973316");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.ClassifyPackageGraphIdentities.271973316\u0027 is not callable.");
     }
   }
   {
@@ -689,6 +1044,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Package");
     value = $ownDataProperty(value, "PackageExports");
+    value = $ownDataProperty(value, "QueryPackagePruning.1579276339");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.QueryPackagePruning.1579276339\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Package");
+    value = $ownDataProperty(value, "PackageExports");
     value = $ownDataProperty(value, "QueryPackageVersions.451505237");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.QueryPackageVersions.451505237\u0027 is not callable.");
@@ -740,6 +1107,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "RunPackageAssemblyQuery.990719355");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.RunPackageAssemblyQuery.990719355\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Package");
+    value = $ownDataProperty(value, "PackageExports");
+    value = $ownDataProperty(value, "RunPackageChanges.1791926993");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.RunPackageChanges.1791926993\u0027 is not callable.");
     }
   }
   {
@@ -809,10 +1188,22 @@ export async function activateWorkspacePackageOccurrence(action: string): Promis
   return $parsed as BrowserWorkspacePackageOccurrenceActivation;
 }
 
+export function cancelPackageChanges(operationId: string, reason: string): BrowserPackageChangesCancellation {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["CancelPackageChanges.271973316"](operationId, reason);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserPackageChangesCancellation;
+}
+
 export function cancelPackageQuery(operationId: string, reason: string): BrowserPackageQueryCancellation {
   const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["CancelPackageQuery.271973316"](operationId, reason);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageQueryCancellation;
+}
+
+export function classifyPackageGraphIdentities(inspectedPackageId: string, packageIdsJson: string): ReadonlyArray<BrowserPackageGraphIdentityRole> {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ClassifyPackageGraphIdentities.271973316"](inspectedPackageId, packageIdsJson);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as ReadonlyArray<BrowserPackageGraphIdentityRole>;
 }
 
 export async function clearWorkspacePackageOccurrences(): Promise<void> {
@@ -897,6 +1288,12 @@ export async function queryPackageDependencies(packageId: string, version: strin
   return $parsed as BrowserPackageDependencies;
 }
 
+export async function queryPackagePruning(packageId: string, version: string, targetFramework: string, requestJson: string): Promise<BrowserPackagePruningResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryPackagePruning.1579276339"](packageId, version, targetFramework, requestJson);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserPackagePruningResult;
+}
+
 export async function queryPackageVersions(packageId: string, currentVersion: string): Promise<BrowserPackageVersions> {
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryPackageVersions.451505237"](packageId, currentVersion);
   const $parsed: unknown = JSON.parse($result);
@@ -923,6 +1320,12 @@ export async function runPackageAssemblyQuery(operationId: string, patternId: st
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["RunPackageAssemblyQuery.990719355"](operationId, patternId, operand, packageCoordinatesJson, targetFramework, initialMatchCredit, eventSink);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageQueryResult;
+}
+
+export async function runPackageChanges(operationId: string, requestJson: string, eventSink: unknown): Promise<BrowserPackageChangesResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["RunPackageChanges.1791926993"](operationId, requestJson, eventSink);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserPackageChangesResult;
 }
 
 export async function runPackageQuery(operationId: string, prefix: string, facetIdsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown): Promise<BrowserPackageQueryResult> {

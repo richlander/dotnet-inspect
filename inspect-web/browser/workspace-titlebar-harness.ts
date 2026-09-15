@@ -81,6 +81,7 @@ import {
   type MemberFocusSnapshot,
 } from "../src/member-focus.ts";
 import { dataBarHtml } from "../src/data-bar.ts";
+import { dependencyGraphLegendHtml } from "../src/graph-legends.ts";
 
 declare global {
   interface Window {
@@ -109,6 +110,7 @@ const scopeBarState = createScopeBarState();
 let scopeBarBinding: ScopeBarBinding | null = null;
 let workbenchShellBinding: WorkbenchShellBinding | null = null;
 let applicationDialog: "settings" | "keyboard-help" | null = null;
+let applicationDialogReturn: "application" | "source" = "application";
 const params = new URL(location.href).searchParams;
 const longDataBarMode = params.has("long-data-bar");
 const workspaceMode = params.has("workspace");
@@ -237,8 +239,6 @@ function workspaceDetailHtml(): string {
         framework: item.activeFramework,
       })),
     packages: coordinates,
-      demos: [],
-      demoError: "",
       loading: false,
       error: "",
     escapeHtml,
@@ -529,8 +529,45 @@ function detailHtml() {
         <h1 id="package-dependencies-surface-title">Dependencies</h1>
         <p>3 packages · 8 references</p>
       </header>
-      <section class="package-dependencies-controls" aria-label="Dependency coordinate"></section>
-      <div class="package-dependencies-scroll"></div>
+      <section class="package-dependencies-controls" aria-label="Dependency coordinate">
+        <div class="package-coordinate-fields">
+          <label class="version-select">
+            <span>Version</span>
+            <select id="package-version"><option selected>10.0.0</option></select>
+          </label>
+          <label class="framework-select">
+            <span>Framework</span>
+            <select id="framework"><option selected>net10.0</option></select>
+          </label>
+        </div>
+      </section>
+      <div class="package-dependencies-scroll">
+        <div data-dependency-graph-surface>
+          <section class="document-section dependency-group-selector">
+            <div class="section-title"><h2>Target frameworks</h2><span>one framework at a time</span></div>
+            <div class="type-chip-list" id="dep-tfm-chips">
+              <button class="type-chip active" aria-pressed="true">net10.0</button>
+            </div>
+          </section>
+          <section class="document-section dependency-graph-section">
+            <div class="section-title"><h2>Dependency graph</h2><span>callers above · dependencies below · click a package to open</span></div>
+            <div id="dependency-graph-diagram" class="call-graph-diagram">
+              <div class="dependency-graph-stage">
+                <div class="graph-viewport"></div>
+              </div>
+            </div>
+            ${dependencyGraphLegendHtml()}
+          </section>
+        </div>
+        <section class="document-section" id="dep-list-section">
+          <div class="section-title"><h2>NuGet dependencies</h2><span>net10.0 · 3 packages</span></div>
+          <ul class="dep-list">
+            <li><button class="dep-name as-link" type="button">Microsoft.Extensions.Configuration</button><code class="dep-version">10.0.0</code></li>
+            <li><button class="dep-name as-link" type="button">Microsoft.Extensions.DependencyInjection</button><code class="dep-version">10.0.0</code></li>
+            <li><button class="dep-name as-link" type="button">Microsoft.Extensions.Logging</button><code class="dep-version">10.0.0</code></li>
+          </ul>
+        </section>
+      </div>
       <footer class="api-surface-footer package-dependencies-surface-footer">
         <span>System.Text.Json@10.0.0</span>
         <span>net10.0</span>
@@ -975,11 +1012,19 @@ function setApplicationDialog(
   if (settings) settings.hidden = next !== "settings";
   if (help) help.hidden = next !== "keyboard-help";
   if (next === "settings") {
-    document.querySelector<HTMLElement>("#settings-title")?.focus();
+    document.querySelector<HTMLElement>(
+      applicationDialogReturn === "source"
+        ? "#settings-decompiler-title"
+        : "#settings-title",
+    )?.focus();
   } else if (next === "keyboard-help") {
     document.querySelector<HTMLElement>("#keyboard-help-title")?.focus();
   } else {
-    document.querySelector<HTMLElement>("#application-menu-button")?.focus();
+    document.querySelector<HTMLElement>(
+      applicationDialogReturn === "source"
+        ? "#explore-source"
+        : "#application-menu-button",
+    )?.focus();
   }
 }
 
@@ -992,6 +1037,7 @@ function handleApplicationAction(action: ApplicationAction): void {
     }, 50);
     return;
   }
+  applicationDialogReturn = "application";
   setApplicationDialog(applicationDialog === action ? null : action);
 }
 
@@ -1034,6 +1080,10 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
 };
 workbenchShellBinding =
   bindWorkbenchShell(document, workbenchShellActions);
+document.querySelector("#explore-source")?.addEventListener("click", () => {
+  applicationDialogReturn = "source";
+  setApplicationDialog("settings");
+});
 bindSettingsPanel(document, {
   onClose: () => setApplicationDialog(null),
   onOpenDiagnostics: () => {

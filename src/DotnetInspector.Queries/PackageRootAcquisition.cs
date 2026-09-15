@@ -672,8 +672,10 @@ public abstract class PackageRootAcquisitionOutcome
 /// Gated by
 /// <c>PackageRootAcquisitionTests.ExplicitCoordinate_AcquiresRootAndIssuesExactRequest</c>,
 /// <c>ExactRequest_ReacquiresSameLogicalRoot</c>,
+/// <c>PortableConfiguredProducer_ReacquiresWithoutChangingContentKey</c>,
+/// <c>CurrentNuGetProducerKey_ReacquiresWithoutRewritingRequest</c>,
 /// <c>ExplicitCoordinate_UnauthorizedSourcesFailVisibly</c>, and
-/// <c>ExactRequest_UnauthorizedProducerFailsVisibly</c>.
+/// <c>PortableProducer_StillRequiresDestinationAuthorization</c>.
 /// </para>
 /// </remarks>
 public static class PackageRootAcquisition
@@ -700,9 +702,9 @@ public static class PackageRootAcquisition
                 PackageRootAcquisitionFailureKind.InvalidCoordinate,
                 "The reacquired payload does not match the package coordinate named by the Root request.");
         }
-        if (!payload.ProducerKey.Equals(
-                coordinate.Producer,
-                StringComparison.Ordinal))
+        if (!PackageRootBinding.MatchesSourceProducer(
+                payload,
+                coordinate.Producer))
         {
             return new PackageRootRebindingOutcome.Failed(
                 PackageRootAcquisitionFailureKind.ProducerNotAuthorized,
@@ -780,17 +782,24 @@ public static class PackageRootAcquisition
         PackageSourceAuthorization authorization =
             options.SourceAuthorization.AuthorizeSourcesFor(packageId);
         IReadOnlyList<PackageSource> sources = authorization.Sources;
+        IReadOnlyList<PackageRootProducerAuthorization.Candidate>?
+            pinnedCandidates = null;
         if (pinnedProducer is not null)
         {
             // The intersection, not a preference: only the producer the request
             // names may answer, so a host authorizing several producers for
             // this id still reacquires the Root the binding was realized from.
-            PackageSource? producer = sources.FirstOrDefault(
-                source => string.Equals(
-                    NuGetCache.GetSourceKey(source.Url),
-                    pinnedProducer,
-                    StringComparison.Ordinal));
-            if (producer is null)
+            PackageRootProducerAuthorization.MatchResult producerMatch =
+                PackageRootProducerAuthorization.Match(
+                    sources,
+                    pinnedProducer);
+            if (producerMatch.Ambiguous)
+            {
+                return Failed(
+                    PackageRootAcquisitionFailureKind.ProducerNotAuthorized,
+                    $"The producer recorded for package '{packageId}' matches multiple authorized package-source identities.");
+            }
+            if (producerMatch.Candidates.Count == 0)
             {
                 return Failed(
                     PackageRootAcquisitionFailureKind.ProducerNotAuthorized,
@@ -798,7 +807,9 @@ public static class PackageRootAcquisition
                     ?? $"The producer recorded for package '{packageId}' is not authorized by this host.");
             }
 
-            sources = [producer];
+            pinnedCandidates = producerMatch.Candidates;
+            sources = [.. producerMatch.Candidates.Select(static candidate =>
+                candidate.Source)];
         }
         else if (sources.Count == 0)
         {
@@ -855,15 +866,21 @@ public static class PackageRootAcquisition
 
         AcquiredPackagePayload acquired =
             ((PackagePayloadResult.Acquired)payload).Payload;
-        if (pinnedProducer is not null
-            && !string.Equals(
-                acquired.ProducerKey,
-                pinnedProducer,
-                StringComparison.Ordinal))
+        PackageProducerIdentity? acquiredProducer = null;
+        if (pinnedCandidates is not null)
         {
-            return Failed(
-                PackageRootAcquisitionFailureKind.ProducerNotAuthorized,
-                $"Package '{packageId}' was served by a producer other than the one the request names.");
+            PackageRootProducerAuthorization.Candidate? acquiredCandidate =
+                pinnedCandidates.FirstOrDefault(
+                    candidate => acquired.ProducerKey.Equals(
+                        candidate.LegacyProducerKey,
+                        StringComparison.Ordinal));
+            if (acquiredCandidate is null)
+            {
+                return Failed(
+                    PackageRootAcquisitionFailureKind.ProducerNotAuthorized,
+                    $"Package '{packageId}' was served by a producer other than the one the request names.");
+            }
+            acquiredProducer = acquiredCandidate.Producer;
         }
 
         PackageRootBinding binding = expected is null
@@ -872,7 +889,8 @@ public static class PackageRootAcquisition
                 selectionTargetFramework)
             : PackageRootBinding.CreateFromReacquiredResolved(
                 acquired,
-                expected);
+                expected,
+                acquiredProducer);
         PackageRootReacquisitionRequest issued =
             binding.CreateReacquisitionRequest();
         if (expected is not null && !expected.Equals(issued))
@@ -895,4 +913,80 @@ public static class PackageRootAcquisition
         PackageRootAcquisitionFailureKind kind,
         string message) =>
         new PackageRootAcquisitionOutcome.Failed(kind, message);
+}
+
+internal static class PackageRootProducerAuthorization
+{
+    internal sealed record Candidate(
+        PackageSource Source,
+        string LegacyProducerKey,
+        PackageProducerIdentity? Producer);
+
+    internal sealed record MatchResult(
+        IReadOnlyList<Candidate> Candidates,
+        bool Ambiguous);
+
+    internal static MatchResult Match(
+        IReadOnlyList<PackageSource> sources,
+        string requiredProducer)
+    {
+        ArgumentNullException.ThrowIfNull(sources);
+        ArgumentException.ThrowIfNullOrWhiteSpace(requiredProducer);
+
+        bool portable =
+            PackageProducerIdentity.IsCanonicalPortableKey(requiredProducer);
+        var matches = new List<Candidate>();
+        var matchedProducerKeys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (PackageSource source in sources)
+        {
+            string legacyProducerKey = NuGetCache.GetSourceKey(source.Url);
+            PackageProducerIdentity? producer = null;
+            bool match = legacyProducerKey.Equals(
+                requiredProducer,
+                StringComparison.Ordinal);
+            if (!match)
+            {
+                producer = TryGetProducer(source);
+                match = producer is not null
+                    && (producer.PortableKey.Equals(
+                            requiredProducer,
+                            StringComparison.Ordinal)
+                        || producer.Key.Equals(
+                            requiredProducer,
+                            StringComparison.Ordinal));
+            }
+
+            if (!match)
+                continue;
+
+            matches.Add(
+                new Candidate(
+                    source,
+                    legacyProducerKey,
+                    producer));
+            if (portable && producer is not null)
+                matchedProducerKeys.Add(producer.Key);
+        }
+
+        return new MatchResult(
+            matches,
+            portable && matchedProducerKeys.Count > 1);
+    }
+
+    private static PackageProducerIdentity? TryGetProducer(
+        PackageSource source)
+    {
+        try
+        {
+            return PackageSourceClientFactory.GetProducerIdentity(source);
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+        catch (PackageSourceClientUnavailableException)
+        {
+            return null;
+        }
+    }
 }

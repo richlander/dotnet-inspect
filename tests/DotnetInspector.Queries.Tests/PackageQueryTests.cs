@@ -1,6 +1,9 @@
+using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using DotnetInspector.Packages;
+using DotnetInspector.PortableQueries;
+using DotnetInspector.Sections;
 using InertText;
 using NuGetFetch;
 
@@ -8,6 +11,121 @@ namespace DotnetInspector.Queries.Tests;
 
 public sealed class PackageQueryTests
 {
+    [Fact]
+    public async Task ExecuteToEnvelopeReturnsPackageQueryDocument()
+    {
+        SearchResult[] candidates =
+        [
+            Match("Contoso.One", verified: true),
+        ];
+        var source = new FakePackageSource(
+            candidates,
+            candidates.ToDictionary(
+                candidate => $"{candidate.Id.ToLowerInvariant()}@1.0.0",
+                candidate => Manifest(candidate.Id)));
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.",
+                    MaximumCandidates: 1,
+                    MaximumMatches: 1)));
+
+        InspectionEnvelope<PackageQueryDocument> envelope =
+            await PackageQueryInspection.ExecuteAsync(
+                source,
+                plan,
+                TestContext.Current.CancellationToken);
+
+        PackageQueryMatch result = Assert.Single(envelope.Content.Results);
+        Assert.Equal("Contoso.One", result.Package.PackageId);
+        Assert.Empty(envelope.Content.Failures);
+        Assert.Equal(1, envelope.Content.Summary.Matches);
+        Assert.Equal(
+            PackageQueryCompletionKind.MatchLimitReached,
+            envelope.Content.Summary.Completion);
+        InspectionShare.NonProjectable share =
+            Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+        Assert.Equal("package-query/share", share.Path);
+        Assert.Empty(envelope.Diagnostics);
+    }
+
+    [Fact]
+    public async Task ExecuteToEnvelopeSinkSeesOnlyNonterminalEvents()
+    {
+        SearchResult[] candidates =
+        [
+            Match("Contoso.One", verified: true),
+        ];
+        var source = new FakePackageSource(
+            candidates,
+            candidates.ToDictionary(
+                candidate => $"{candidate.Id.ToLowerInvariant()}@1.0.0",
+                candidate => Manifest(candidate.Id)));
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.",
+                    MaximumCandidates: 1,
+                    MaximumMatches: 1)));
+        var sink = new RecordingPackageQueryNonterminalSink();
+
+        InspectionEnvelope<PackageQueryDocument> envelope =
+            await PackageQueryInspection.ExecuteAsync(
+                source,
+                plan,
+                contentProvider: null,
+                sink,
+                TestContext.Current.CancellationToken);
+
+        Assert.Contains(
+            sink.Events,
+            queryEvent => queryEvent is PackageQueryEvent.Progress);
+        Assert.Equal(
+            envelope.Content.Results,
+            sink.Events
+                .OfType<PackageQueryEvent.Match>()
+                .Select(queryEvent => queryEvent.Value));
+        Assert.Equal(
+            envelope.Content.Failures,
+            sink.Events
+                .OfType<PackageQueryEvent.Failure>()
+                .Select(queryEvent => queryEvent.Value));
+        Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+        Assert.Empty(envelope.Diagnostics);
+    }
+
+    [Fact]
+    public async Task ExecuteToEnvelopeCancellationProducesNoDocument()
+    {
+        SearchResult[] candidates =
+        [
+            Match("Contoso.One", verified: true),
+        ];
+        var source = new FakePackageSource(
+            candidates,
+            candidates.ToDictionary(
+                candidate => $"{candidate.Id.ToLowerInvariant()}@1.0.0",
+                candidate => Manifest(candidate.Id)));
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.",
+                    MaximumCandidates: 1,
+                    MaximumMatches: 1)));
+        using var cancellation = new CancellationTokenSource();
+        var sink = new CancelOnMatchSink(cancellation);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => PackageQueryInspection.ExecuteAsync(
+                source,
+                plan,
+                contentProvider: null,
+                sink,
+                cancellation.Token).AsTask());
+
+        Assert.True(sink.SawMatch);
+    }
+
     [Fact]
     public void FacetDescriptors_HaveStableOrderedIds()
     {
@@ -80,6 +198,229 @@ public sealed class PackageQueryTests
                 facet.Id is PackageQuery.ToolV1FacetId
                     or PackageQuery.ToolV2FacetId),
             facet => Assert.True(facet.CombinesWithinSelectionGroup));
+    }
+
+    [Fact]
+    public void TermDescriptors_ExposeTheInitialDependsVocabulary()
+    {
+        PackageQueryTermDescriptor descriptor =
+            Assert.Single(PackageQuery.Terms);
+        Assert.Equal(PackageQuery.DependsTermKey, descriptor.Key);
+        Assert.Equal(
+            [PortableQueryModel.TextOf(PortableQueryOperator.Equal)],
+            descriptor.Operators);
+        Assert.Equal(PackageQueryFacetTier.Nuspec, descriptor.Tier);
+        Assert.Equal("NuGet package ID", descriptor.ValueKind);
+    }
+
+    [Theory]
+    [InlineData(
+        "unknown",
+        PortableQueryOperator.Equal,
+        "Microsoft.Extensions.DependencyInjection",
+        PackageQueryRequestFailureReason.UnknownTerm)]
+    [InlineData(
+        "depends",
+        PortableQueryOperator.NotEqual,
+        "Microsoft.Extensions.DependencyInjection",
+        PackageQueryRequestFailureReason.TermOperatorNotAdmitted)]
+    [InlineData(
+        "depends",
+        PortableQueryOperator.Equal,
+        "not/a/package",
+        PackageQueryRequestFailureReason.InvalidTermValue)]
+    public void PlanInput_RejectsInvalidTermsBeforeExecution(
+        string key,
+        PortableQueryOperator @operator,
+        string value,
+        PackageQueryRequestFailureReason reason)
+    {
+        PackageQueryRequestFailure rejected = Rejected(
+            PackageQuery.PlanInput(
+                "Microsoft.Extensions.*",
+                facetIds: null,
+                terms: [new PortableQueryTerm(key, @operator, value)]));
+
+        Assert.Equal(reason, rejected.Reason);
+    }
+
+    [Fact]
+    public void PlanInput_CollapsesExactTermsAndRejectsBoundDuplicates()
+    {
+        var exact = new PortableQueryTerm(
+            PackageQuery.DependsTermKey,
+            PortableQueryOperator.Equal,
+            "Microsoft.Extensions.DependencyInjection");
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.PlanInput(
+                "Microsoft.Extensions.*",
+                facetIds: null,
+                terms: [exact, exact]));
+        Assert.Single(plan.Terms);
+
+        PackageQueryRequestFailure duplicate = Rejected(
+            PackageQuery.PlanInput(
+                "Microsoft.Extensions.*",
+                facetIds: null,
+                terms:
+                [
+                    exact,
+                    new(
+                        PackageQuery.DependsTermKey,
+                        PortableQueryOperator.Equal,
+                        "microsoft.extensions.dependencyinjection"),
+                ]));
+        Assert.Equal(
+            PackageQueryRequestFailureReason.DuplicateTerm,
+            duplicate.Reason);
+        Assert.Equal(
+            [PackageQuery.DependsTermKey],
+            duplicate.TermKeys);
+    }
+
+    [Fact]
+    public void PlanInput_AppliesTheTermLimitAfterExactDuplicateCollapse()
+    {
+        PortableQueryTerm[] terms =
+        [
+            .. Enumerable.Range(1, PackageQuery.MaximumTerms)
+                .Select(index => new PortableQueryTerm(
+                    PackageQuery.DependsTermKey,
+                    PortableQueryOperator.Equal,
+                    $"Dependency.{index:D2}")),
+        ];
+
+        PackageQueryPlan atLimit = Accepted(
+            PackageQuery.PlanInput(
+                "Microsoft.Extensions.*",
+                facetIds: null,
+                terms: [.. terms, .. terms]));
+        Assert.Equal(PackageQuery.MaximumTerms, atLimit.Terms.Length);
+
+        PackageQueryRequestFailure overLimit = Rejected(
+            PackageQuery.PlanInput(
+                "Microsoft.Extensions.*",
+                facetIds: null,
+                terms:
+                [
+                    .. terms,
+                    new(
+                        PackageQuery.DependsTermKey,
+                        PortableQueryOperator.Equal,
+                        "Dependency.25"),
+                ]));
+        Assert.Equal(
+            PackageQueryRequestFailureReason.TooManyTerms,
+            overLimit.Reason);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_DependsTermsUseNuGetIdentityAndRetainRanges()
+    {
+        SearchResult[] candidates =
+        [
+            Match("Microsoft.Extensions.Hosting"),
+            Match("Microsoft.Extensions.Logging"),
+        ];
+        var source = new FakePackageSource(
+            candidates,
+            new Dictionary<string, byte[]>
+            {
+                ["microsoft.extensions.hosting@1.0.0"] = Manifest(
+                    "Microsoft.Extensions.Hosting",
+                    dependencies:
+                    """
+                    <group targetFramework="net10.0">
+                      <dependency id="Microsoft.Extensions.DependencyInjection" version="[10.0.0, 11.0.0)" />
+                      <dependency id="Microsoft.Extensions.Configuration" version="[10.0.0, 11.0.0)" />
+                    </group>
+                    <group targetFramework="net9.0">
+                      <dependency id="microsoft.extensions.configuration" version="[10.0.0, 11.0.0)" />
+                    </group>
+                    <group targetFramework="net8.0">
+                      <dependency id="Microsoft.Extensions.Configuration" version="10.0.0" />
+                    </group>
+                    <group targetFramework="net7.0">
+                      <dependency id="Microsoft.Extensions.Configuration" version="[10.0.0, 11.0.0)" />
+                    </group>
+                    """),
+                ["microsoft.extensions.logging@1.0.0"] = Manifest(
+                    "Microsoft.Extensions.Logging",
+                    dependencies:
+                    """
+                    <group targetFramework="net10.0">
+                      <dependency id="Microsoft.Extensions.DependencyInjection" version="[10.0.0, 11.0.0)" />
+                    </group>
+                    """),
+            });
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.PlanInput(
+                "Microsoft.Extensions.*",
+                facetIds: null,
+                terms:
+                [
+                    new(
+                        PackageQuery.DependsTermKey,
+                        PortableQueryOperator.Equal,
+                        "microsoft.extensions.configuration"),
+                    new(
+                        PackageQuery.DependsTermKey,
+                        PortableQueryOperator.Equal,
+                        "Microsoft.Extensions.DependencyInjection"),
+                ],
+                maximumCandidates: 2,
+                maximumMatches: null));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                TestContext.Current.CancellationToken));
+
+        PackageQueryMatch match =
+            Assert.Single(events.OfType<PackageQueryEvent.Match>()).Value;
+        Assert.Equal("Microsoft.Extensions.Hosting", match.Package.PackageId);
+        Assert.Equal(PackageQueryFacetTier.Nuspec, match.Tier);
+        PackageQueryEvidence[] termEvidence =
+        [
+            .. match.Evidence.Where(evidence => evidence.Term is not null),
+        ];
+        Assert.Equal(2, termEvidence.Length);
+        Assert.Contains(
+            termEvidence,
+            evidence => evidence.Term!.Value
+                == "microsoft.extensions.configuration");
+        Assert.Contains(
+            termEvidence,
+            evidence => evidence.Term!.Value
+                == "Microsoft.Extensions.DependencyInjection");
+        Assert.Contains(
+            "Microsoft.Extensions.Configuration [10.0.0, 11.0.0)",
+            termEvidence.Single(evidence =>
+                evidence.Term!.Value
+                    == "microsoft.extensions.configuration").Value,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Microsoft.Extensions.DependencyInjection [10.0.0, 11.0.0)",
+            termEvidence.Single(evidence =>
+                evidence.Term!.Value
+                    == "Microsoft.Extensions.DependencyInjection").Value,
+            StringComparison.Ordinal);
+        PackageQueryEvidence configurationEvidence =
+            termEvidence.Single(evidence =>
+                evidence.Term!.Value
+                    == "microsoft.extensions.configuration");
+        Assert.Equal(3, configurationEvidence.Summary!.Count);
+        Assert.Equal(
+            [
+                "Microsoft.Extensions.Configuration 10.0.0",
+                "Microsoft.Extensions.Configuration [10.0.0, 11.0.0)",
+                "microsoft.extensions.configuration [10.0.0, 11.0.0)",
+            ],
+            configurationEvidence.Summary.Preview.Select(value =>
+                value.ToString()));
+        Assert.Equal(2, source.ManifestRequests.Count);
+        Assert.Equal(0, source.PackageRequests);
     }
 
     [Theory]
@@ -1684,6 +2025,41 @@ public sealed class PackageQueryTests
         await foreach (PackageQueryEvent item in source)
             events.Add(item);
         return events;
+    }
+
+    private sealed class RecordingPackageQueryNonterminalSink
+        : IPackageQueryNonterminalSink
+    {
+        internal List<PackageQueryEvent.Nonterminal> Events { get; } = [];
+
+        public ValueTask ReportAsync(
+            PackageQueryEvent.Nonterminal queryEvent,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Events.Add(queryEvent);
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class CancelOnMatchSink(CancellationTokenSource cancellation)
+        : IPackageQueryNonterminalSink
+    {
+        internal bool SawMatch { get; private set; }
+
+        public ValueTask ReportAsync(
+            PackageQueryEvent.Nonterminal queryEvent,
+            CancellationToken cancellationToken)
+        {
+            if (queryEvent is PackageQueryEvent.Match)
+            {
+                SawMatch = true;
+                cancellation.Cancel();
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+
+            return ValueTask.CompletedTask;
+        }
     }
 
     private static async Task AssertNoMatchesAsync(

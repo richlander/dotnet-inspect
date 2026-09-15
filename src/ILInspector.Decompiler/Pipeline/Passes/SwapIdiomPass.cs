@@ -59,59 +59,14 @@ public sealed class SwapIdiomPass : IIrPass
 
     static bool TryRaiseSwap(IrFunction function, Block block, int i, PassContext context)
     {
-        var children = block.Children;
-        var save = children[i];
-        var cross = children[i + 1];
-        var restore = children[i + 2];
-
-        // 1. save: `carrier = load(p)` — a stack slot or unnamed-local temp.
-        if (MatchCarrier(function, save) is not { } carrier
-            || MatchPlace(carrier.SavedValue) is not { } p)
-        {
+        if (MatchSwap(function, block, i) is not { } places)
             return false;
-        }
+        var (p, q) = places;
+        var save = block.Children[i];
+        var cross = block.Children[i + 1];
+        var restore = block.Children[i + 2];
 
-        // 2. cross: `p = load(q)` — assigns into the just-saved place p.
-        if (MatchStore(cross) is not { } crossStore
-            || !crossStore.Place.Matches(p)
-            || MatchPlace(crossStore.Value) is not { } q)
-        {
-            return false;
-        }
-
-        // 3. restore: `q = carrier` — writes the saved old-p value into q.
-        if (MatchStore(restore) is not { } restoreStore
-            || !restoreStore.Place.Matches(q)
-            || !carrier.Matches(restoreStore.Value))
-        {
-            return false;
-        }
-
-        // A swap exchanges two *distinct* places of the same type. Equal
-        // places, or a type mismatch, are not the swap idiom.
-        if (p.Matches(q) || !p.Type.Equals(q.Type))
-            return false;
-
-        // The exchanged places must be spellable, non-aliasing, by-value
-        // lvalues that are legal ValueTuple elements. Byref (`ref`
-        // parameters/locals — a byref reseat, not a value swap), pointers,
-        // function pointers, and ref-struct / stack-only value types either
-        // change meaning under tuple deconstruction (a `ref` reseat becomes a
-        // value write to the referent) or cannot appear as a tuple element at
-        // all (CS9244 / CS0306). Leave those in the flat three-statement form.
-        if (!IsSwappablePlaceType(function, p.Type))
-            return false;
-
-        // The carrier must be a genuine single-def/single-use temp: referenced
-        // only by this save and this restore. Any other read or write means it
-        // is not a throwaway swap slot and the sequence is not a swap.
-        if (!carrier.ReferencedOnlyWithin(function, save, restore))
-            return false;
-
-        // Emit `(q, p) = (p, q);`. The deconstruction evaluates the tuple
-        // (old p, old q) then assigns left-to-right: q := old p, p := old q —
-        // the swap. Targets list q first so the source lists p first, matching
-        // the natural declaration-order reading of the original code.
+        // List q first so Roslyn lowers the tuple to the same one-temp swap.
         var tupleType = TypeRef.GenericInstance(
             TypeRef.CoreLib("System", "ValueTuple"), [p.Type, q.Type]);
         var source = new TupleExpression(tupleType, [p.Load(), q.Load()]);
@@ -123,6 +78,65 @@ public sealed class SwapIdiomPass : IIrPass
         cross.Detach();
         restore.Detach();
         return true;
+    }
+
+    internal static bool IsPendingStackSwap(IrFunction function, StoreStackSlot save)
+        => save.Parent is Block block
+            && save.ChildIndex + 2 < block.Children.Count
+            && MatchSwap(function, block, save.ChildIndex) is not null;
+
+    static (Place Saved, Place Other)? MatchSwap(IrFunction function, Block block, int i)
+    {
+        var children = block.Children;
+        var save = children[i];
+        var cross = children[i + 1];
+        var restore = children[i + 2];
+
+        // 1. save: `carrier = load(p)` — a stack slot or unnamed-local temp.
+        if (MatchCarrier(function, save) is not { } carrier
+            || MatchPlace(carrier.SavedValue) is not { } p)
+        {
+            return null;
+        }
+
+        // 2. cross: `p = load(q)` — assigns into the just-saved place p.
+        if (MatchStore(cross) is not { } crossStore
+            || !crossStore.Place.Matches(p)
+            || MatchPlace(crossStore.Value) is not { } q)
+        {
+            return null;
+        }
+
+        // 3. restore: `q = carrier` — writes the saved old-p value into q.
+        if (MatchStore(restore) is not { } restoreStore
+            || !restoreStore.Place.Matches(q)
+            || !carrier.Matches(restoreStore.Value))
+        {
+            return null;
+        }
+
+        // A swap exchanges two *distinct* places of the same type. Equal
+        // places, or a type mismatch, are not the swap idiom.
+        if (p.Matches(q) || !p.Type.Equals(q.Type))
+            return null;
+
+        // The exchanged places must be spellable, non-aliasing, by-value
+        // lvalues that are legal ValueTuple elements. Byref (`ref`
+        // parameters/locals — a byref reseat, not a value swap), pointers,
+        // function pointers, and ref-struct / stack-only value types either
+        // change meaning under tuple deconstruction (a `ref` reseat becomes a
+        // value write to the referent) or cannot appear as a tuple element at
+        // all (CS9244 / CS0306). Leave those in the flat three-statement form.
+        if (!IsSwappablePlaceType(function, p.Type))
+            return null;
+
+        // The carrier must be a genuine single-def/single-use temp: referenced
+        // only by this save and this restore. Any other read or write means it
+        // is not a throwaway swap slot and the sequence is not a swap.
+        if (!carrier.ReferencedOnlyWithin(function, save, restore))
+            return null;
+
+        return (p, q);
     }
 
     /// <summary>A distinct by-value parameter or local lvalue in a swap.</summary>

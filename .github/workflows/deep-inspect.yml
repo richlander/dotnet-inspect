@@ -146,6 +146,9 @@ jobs:
       - name: Run analysis tests (including slow)
         run: dotnet run --project tests/ILInspector.Analysis.Tests -c Release
 
+      - name: Run package-backed Platform tests (including real reference packs)
+        run: dotnet run --project tests/DotnetInspector.PlatformHouse.Packages.Tests -c Release
+
       - name: Restore vendored ILAssembler
         run: bash eng/restore-ilassembler.sh
 
@@ -190,9 +193,9 @@ jobs:
           - os: ubuntu-26.04
             rid: linux-x64
     runs-on: ${{ matrix.os }}
-    # Windows has measured as high as 57 minutes (#4350). The initial macOS
-    # lane gets the same larger budget until its runtime variance is known.
-    timeout-minutes: 90
+    # Windows has measured as high as 57 minutes (#4350). macOS now needs more
+    # than 90 minutes after suite growth; retain a 30-minute variance margin.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
 
@@ -407,7 +410,10 @@ jobs:
 
   census:
     name: Census lane
-    if: inputs.lane == 'census' || inputs.lane == 'all'
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '0 6 * * *') ||
+      inputs.lane == 'census' ||
+      inputs.lane == 'all'
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
@@ -433,23 +439,10 @@ jobs:
           mkdir -p artifacts/deep-inspect
           bash eng/prepare-decompiler-corpus.sh artifacts/deep-inspect/corpus-assemblies.txt
 
-      - name: Record independently selected native RTS cutover evidence
-        shell: bash
-        run: |
-          set -o pipefail
-          mapfile -t assemblies < artifacts/deep-inspect/corpus-assemblies.txt
-          mkdir -p artifacts/deep-inspect
-          dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
-            --emit-corpus-snapshot artifacts/deep-inspect/rts-cutover-snapshot.json \
-            --compile-cap 0 \
-            --corpus-fidelity-cap 50 \
-            --corpus-fidelity-oracle rts-cutover \
-            --max-examples 10 \
-            2>&1 | tee artifacts/deep-inspect/rts-cutover.txt
-
       - name: Run real-world corpus sensor
         shell: bash
         run: |
+          set -o pipefail
           mapfile -t assemblies < artifacts/deep-inspect/corpus-assemblies.txt
           mkdir -p artifacts/deep-inspect
           dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
@@ -457,7 +450,9 @@ jobs:
             --diff-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json \
             --compile-cap 4000 \
             --corpus-fidelity-cap 50 \
-            --max-examples 3
+            --corpus-fidelity-oracle rts-cutover \
+            --max-examples 3 \
+            2>&1 | tee artifacts/deep-inspect/corpus-sensor.txt
 
       - name: Build classic state-machine corpus fixture
         run: dotnet build fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicStateMachines -c Release
@@ -471,6 +466,7 @@ jobs:
             --corpus-profile classic-state-machines \
             --emit-corpus-snapshot artifacts/deep-inspect/classic-state-machines-snapshot.json \
             --diff-corpus-baseline tools/DecompilerHarness/corpus/classic-state-machines-baseline.json \
+            --corpus-fidelity-oracle compile-back \
             --max-examples 10
 
       - name: Run return-address equivalence census
@@ -606,6 +602,9 @@ jobs:
             --untracked \
             --set-default-install false \
             --interactive false
+          nightly_sdk="$("$DOTNET_ROOT/dotnet" --list-sdks | awk 'END { print $1 }')"
+          test -n "$nightly_sdk"
+
           pinned_sdk="$(bash eng/prepare-decompiler-opt-in-corpus.sh print-pinned-sdk)"
           "$dotnetup_dir/dotnetup" sdk install "$pinned_sdk" \
             --install-path "$DOTNET_ROOT" \
@@ -613,8 +612,19 @@ jobs:
             --set-default-install false \
             --interactive false
 
+          cat > global.json <<EOF
+          {
+            "sdk": {
+              "version": "$nightly_sdk",
+              "rollForward": "disable",
+              "allowPrerelease": true
+            }
+          }
+          EOF
+
           echo "$dotnetup_dir" >> "$GITHUB_PATH"
           echo "$DOTNET_ROOT" >> "$GITHUB_PATH"
+          test "$("$DOTNET_ROOT/dotnet" --version)" = "$nightly_sdk"
           "$DOTNET_ROOT/dotnet" --info
 
       - name: Cache NuGet packages
@@ -711,6 +721,7 @@ jobs:
             --quality-diff-card \
             --compile-cap 25 \
             --corpus-fidelity-cap 25 \
+            --corpus-fidelity-oracle compile-back \
             --max-examples 3 \
             | tee artifacts/opt-in-corpus/quality-diff-card.md
 
@@ -841,6 +852,7 @@ jobs:
       - decompiler-corpus
       - release-certification
       - inspect-web
+      - census
       - authored-corpus-ratchet
     if: ${{ github.event_name == 'schedule' && failure() }}
     runs-on: ubuntu-26.04

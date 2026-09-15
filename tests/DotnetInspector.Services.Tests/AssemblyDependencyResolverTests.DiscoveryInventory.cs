@@ -711,7 +711,9 @@ public partial class AssemblyDependencyResolverTests
 
         internal string Write(string relativePath, byte[] image)
         {
-            string path = Path.Combine(Root, relativePath);
+            string path = Path.Combine(
+                Root,
+                relativePath.Replace('/', Path.DirectorySeparatorChar));
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             File.WriteAllBytes(path, image);
             return path;

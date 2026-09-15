@@ -21,6 +21,24 @@ The current sources also implement the host-neutral L1 facet contract as
 ANDed predicate evaluation over `PackageProfileQuery`, an explicit
 package-content provider for archive-derived facets, non-empty inert evidence,
 separate candidate and match bounds, visible failures, and typed completion.
+The host-neutral `PackageQueryInspection` composition in
+`DotnetInspector.Sections` is the sole enumerator of Package Query execution.
+It publishes `PackageQueryEvent.Nonterminal` values through an optional
+feature-owned sink, retains the terminal `Completed` summary, and materializes
+one `InspectionEnvelope<PackageQueryDocument>`. The Document contains ordered
+Results, typed Failures, and the terminal Summary; advisory Progress and
+operational event interleaving do not become completed semantic content. This
+is the Package Query adoption tracked by
+[#7081](https://github.com/richlander/dotnet-inspect/issues/7081) under the
+[host-observable content-kind contract](host-observable-content-kinds.md).
+
+Package Query does not yet have a canonical Workspace packet projection, so
+its current Share outcome is explicitly non-projectable rather than a
+host-reconstructed URL. The Browser facade projects the same Document,
+including owners, manifest facts, declared dependencies, manifest identity
+provenance, and stable manifest-failure reasons, plus its Share outcome and
+diagnostics through the Worker boundary. Browser state keeps that projection
+even though the current UI does not yet render Share metadata.
 Package-content evaluation is product-gated to at most 20 candidates.
 `PackageQueryTests` is its Release gate;
 `PackageQueryPlanner_IsReachableFromBrowserConsumer` is the Browser consumer
@@ -40,6 +58,15 @@ Without explicit `--take`, a single semantic Head is delegated to the shared
 query's optional match budget; direct package rows also use that Head as their
 candidate bound. Existing Browser requests retain their numeric match-stop
 budget.
+
+The first parameterized term adoption under
+[#6972](https://github.com/richlander/dotnet-inspect/issues/6972) adds
+`depends=<package-id>` beside that existing facet surface. It is the first
+production consumer of the Package Query term descriptor and typed term plan;
+the existing parameterless facets remain active until their own term spellings
+and the Browser active-term editor land. This staged boundary does not define
+the portable intent codec or claim that the Browser already consumes
+parameterized terms.
 
 Related docs:
 
@@ -73,6 +100,62 @@ Related docs:
 - [Inspection graph document](inspection-graph-document.md) — owns the
   relational (`graph integrations`) shape a subset of "wide query" questions
   actually need, instead of this document's flat, per-package row model.
+
+## Parameterized term binding
+
+The Package Query owner publishes one initial parameterized term:
+
+```text
+key: depends
+operator: eq
+value: <package-id>
+```
+
+The unresolved triple and canonical operator identity use
+`DotnetInspector.PortableQueries.PortableQueryTerm` and
+`PortableQueryOperator`; Package Query owns this vocabulary's descriptor,
+value binding, duplicate-after-binding rule, tier, execution, and evidence.
+This slice does not yet resolve a complete `PortableQueryIntent` or encode its
+payload.
+
+The CLI spells it through the existing predicate grammar:
+
+```console
+dotnet-inspect package query 'Microsoft.Extensions.*' \
+  --where "depends=Microsoft.Extensions.DependencyInjection"
+```
+
+`depends` admits equality only. Its value must be one canonical NuGet package
+ID, and planning rejects an invalid value before source work. It matches a
+direct dependency declared in any nuspec dependency group using NuGet
+package-ID comparison semantics. It does not select a target-framework group,
+evaluate version-range satisfiability, or traverse transitively.
+
+Repeated `depends` terms AND together. An exact duplicate input term is
+idempotent; two distinct spellings that resolve to the same case-insensitive
+package identity are rejected as one duplicated predicate. A matching
+package's evidence remains attributed to the exact term and names every
+distinct observed dependency spelling and declared range, subject to the
+existing bounded evidence preview.
+
+The term is nuspec-tier work. It uses dependency groups already acquired for a
+manifest candidate, performs no package download, and keeps the existing
+200-candidate default and 1,000-candidate maximum. A lone semantic Head may
+stop after its requested number of matching package witnesses; explicit
+`--take` fixes the candidate population, and `--count` requires that population
+or another accepted row selection to be complete under the existing Count
+rules.
+
+`PackageQueryTests.TermDescriptors_ExposeTheInitialDependsVocabulary`,
+`PlanInput_RejectsInvalidTermsBeforeExecution`,
+`PlanInput_CollapsesExactTermsAndRejectsBoundDuplicates`,
+`PlanInput_AppliesTheTermLimitAfterExactDuplicateCollapse`, and
+`ExecuteAsync_DependsTermsUseNuGetIdentityAndRetainRanges` gate the L1
+descriptor, planning, matching, evidence, and acquisition boundary.
+`PackageQueryCliTests.DependsTerm_LowersToTheProductPlan`,
+`DependsTerms_AndAcrossManifestDependenciesWithoutPackageContent`, and
+`DependsTerm_HeadStopsAfterItsWitnessAndCountEvaluatesThePopulation` gate the
+CLI spelling and its Head/Count behavior.
 
 ## CLI facet binding
 
@@ -491,7 +574,11 @@ predicates:
 The CLI reuses `RowPredicateSyntaxParser` and repeated `--where` syntax for
 `facet=<ID>`. The IDs come from the product descriptor catalog; this is not an
 arbitrary section-field predicate engine. CLI and Browser invoke the same L1
-definitions.
+definitions. The CLI applies semantic row selection to
+`PackageQueryDocument.Results`, renders `PackageQueryDocument.Failures` as
+visible diagnostics, and uses `PackageQueryDocument.Summary` for exact-count
+and exit-status decisions. It does not reconstruct the Document from streamed
+events.
 
 ### Tier gating
 
@@ -692,6 +779,11 @@ the CLI's named facets as canonical for the browser's facet rail.
 8. **Define the shared save/resume file shape**, coordinated with whatever
    the browser experience's local-storage record settles on when it is
    implemented.
+9. **Adopt the first parameterized term.** `depends=<package-id>` lowers to one
+   typed nuspec term, repeated terms AND, evidence retains the observed
+   dependency and range, and the existing candidate and row-selection
+   contracts remain in force. Existing parameterless facets remain staged for
+   later conversion rather than being assigned speculative replacement keys.
 
 Each step should name its own gating tests as it lands, per this project's
 "asserted properties name their gate" rule — this document is not itself a

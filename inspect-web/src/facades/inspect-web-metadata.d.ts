@@ -1,6 +1,21 @@
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
+export type BrowserLibraryApiDiffCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
+export type BrowserLibraryApiDiffEndpointIssueKind = "Truncated" | "Rejected" | "Failed" | "InspectionFailures" | "DegradedSignatures" | "UnexpectedAssemblyPopulation" | number;
+export type BrowserLibraryApiDiffFailureKind = "Expected" | "Unexpected" | number;
+export type BrowserLibraryApiDiffInspectionFailureMechanism = "Metadata" | "Relationship" | "Signature" | "TypeSpecification" | number;
+export type BrowserLibraryApiDiffMetadataRootMalformedReason = "UnmappableMetadataDirectory" | "TruncatedFixedPrefix" | "InvalidSignature" | "InvalidVersionLength" | "TruncatedVersionField" | "MissingVersionTerminator" | number;
+export type BrowserLibraryApiDiffOpenFailureKind = "Unreadable" | "InvalidImage" | "ResourceBudget" | "UnsupportedMetadataFormat" | number;
+export type BrowserLibraryApiDiffProjectionLimit = "Participants" | "Types" | "Members" | "InspectionFailures" | "TypeForwarders" | "MetadataRows" | "RetainedTextCharacters" | number;
+export type BrowserLibraryApiDiffRejectionKind = "LogicalLibraryMismatch" | "FindingComparisonFailed" | "CompatibilityInspectionFailed" | "MissingExactTypeIdentity" | "MissingMemberAnchor" | "DuplicateExactTypeIdentity" | "UnassociatedStructuredSubject" | "ContradictoryOccupiedSideTopology" | "ChangedTypeCountLimitExceeded" | "TypeTextLimitExceeded" | "CollectionEntryLimitExceeded" | "SerializedResultLimitExceeded" | number;
+export type BrowserLibraryApiDiffResultKind = "Succeeded" | "Unavailable" | "Rejected" | "Failed" | "Canceled" | number;
+export type BrowserLibraryApiDiffSurfaceScope = "Public" | "IncludeAll" | "PublicWithNonPublicTypes" | number;
+export type BrowserLibraryApiDiffTypeState = "Diff" | "Addition" | "Deletion" | number;
+export type BrowserLibraryApiDiffUnavailableKind = "TargetIncomplete" | "CurrentIncomplete" | "BothIncomplete" | number;
+export type ExactTypeInspectionFailureKind = number;
+export type ExactTypeInspectionOutcome = number;
 export type InspectionDiagnosticSeverity = number;
 export type MetadataRootMalformedReason = number;
+export type MetadataTypeNameFailureMechanism = number;
 export type TypeDependencyRejectionKind = number;
 export type TypeDependencyRelationshipKind = number;
 export type TypeDependencyRowSet = number;
@@ -76,6 +91,128 @@ export interface BrowserHeapListing {
     readonly rowsTruncated: boolean;
     readonly entriesTruncated: boolean;
     readonly error: string | null;
+}
+export interface BrowserLibraryApiDiffAggregate {
+    readonly changedTypeCount: number;
+    readonly addedTypeCount: number;
+    readonly removedTypeCount: number;
+    readonly changedMemberCount: number;
+    readonly breakingCount: number;
+    readonly additiveCount: number;
+    readonly potentiallyBreakingCount: number;
+}
+export interface BrowserLibraryApiDiffAssemblyIdentity {
+    readonly name: string;
+    readonly version: string | null;
+    readonly culture: string | null;
+    readonly publicKeyToken: string | null;
+}
+export interface BrowserLibraryApiDiffCancellation {
+    readonly kind: BrowserLibraryApiDiffCancellationKind;
+    readonly reason: string | null;
+}
+export interface BrowserLibraryApiDiffCompileAsset {
+    readonly id: string;
+    readonly path: string;
+    readonly assemblyName: string;
+}
+export interface BrowserLibraryApiDiffEndpoint {
+    readonly packageId: string;
+    readonly version: string;
+    readonly framework: string;
+    readonly asset: BrowserLibraryApiDiffCompileAsset;
+    readonly assembly: BrowserLibraryApiDiffAssemblyIdentity;
+    readonly scope: BrowserLibraryApiDiffSurfaceScope;
+    readonly isComplete: boolean;
+    readonly issues: ReadonlyArray<BrowserLibraryApiDiffEndpointIssue>;
+}
+export interface BrowserLibraryApiDiffEndpointIssue {
+    readonly kind: BrowserLibraryApiDiffEndpointIssueKind;
+    readonly truncation: BrowserLibraryApiDiffProjectionTruncation | null;
+    readonly openFailureKind: BrowserLibraryApiDiffOpenFailureKind | null;
+    readonly detail: string | null;
+    readonly metadataRootReason: BrowserLibraryApiDiffMetadataRootMalformedReason | null;
+    readonly count: number | null;
+    readonly inspectionFailures: ReadonlyArray<BrowserLibraryApiDiffInspectionFailure> | null;
+}
+export interface BrowserLibraryApiDiffInspectionFailure {
+    readonly operation: string;
+    readonly subjectToken: number;
+    readonly mechanism: BrowserLibraryApiDiffInspectionFailureMechanism;
+    readonly kind: string;
+    readonly detail: string;
+    readonly subjectAssembly: BrowserLibraryApiDiffAssemblyIdentity | null;
+    readonly dependencyAssembly: BrowserLibraryApiDiffAssemblyIdentity | null;
+}
+export interface BrowserLibraryApiDiffProjectionTruncation {
+    readonly limit: BrowserLibraryApiDiffProjectionLimit;
+    readonly bound: number;
+    readonly projectedParticipants: number;
+    readonly omittedParticipants: number;
+    readonly projectedTypes: number;
+    readonly projectedMembers: number;
+    readonly projectedInspectionFailures: number;
+    readonly projectedTypeForwarders: number;
+    readonly inspectedMetadataRows: number;
+    readonly projectedRetainedTextCharacters: number;
+}
+export interface BrowserLibraryApiDiffRejected {
+    readonly kind: BrowserLibraryApiDiffRejectionKind;
+    readonly target: BrowserLibraryApiDiffEndpoint | null;
+    readonly current: BrowserLibraryApiDiffEndpoint | null;
+    readonly bound: number | null;
+    readonly observed: number | null;
+}
+export interface BrowserLibraryApiDiffRequest {
+    readonly schemaVersion: number;
+    readonly packageId: string;
+    readonly currentVersion: string;
+    readonly targetVersion: string;
+    readonly targetFramework: string;
+    readonly compileAssetId: string;
+}
+export interface BrowserLibraryApiDiffResult {
+    readonly schemaVersion: number;
+    readonly request: BrowserLibraryApiDiffRequest | null;
+    readonly kind: BrowserLibraryApiDiffResultKind;
+    readonly value: BrowserLibraryApiDiffSucceeded | null;
+    readonly unavailable: BrowserLibraryApiDiffUnavailable | null;
+    readonly rejected: BrowserLibraryApiDiffRejected | null;
+    readonly failureKind: BrowserLibraryApiDiffFailureKind | null;
+    readonly error: string | null;
+    readonly diagnostic: string | null;
+    readonly reason: string | null;
+}
+export interface BrowserLibraryApiDiffSucceeded {
+    readonly libraryIdentifier: string;
+    readonly libraryDisplay: string;
+    readonly target: BrowserLibraryApiDiffEndpoint;
+    readonly current: BrowserLibraryApiDiffEndpoint;
+    readonly aggregate: BrowserLibraryApiDiffAggregate;
+    readonly types: ReadonlyArray<BrowserLibraryApiDiffType>;
+}
+export interface BrowserLibraryApiDiffType {
+    readonly documentIdentifier: string;
+    readonly display: string;
+    readonly state: BrowserLibraryApiDiffTypeState;
+    readonly typeDefinitionChanged: boolean | null;
+    readonly changedMemberCount: number;
+    readonly breakingCount: number;
+    readonly additiveCount: number;
+    readonly potentiallyBreakingCount: number;
+    readonly before: BrowserLibraryApiDiffTypeIdentity | null;
+    readonly after: BrowserLibraryApiDiffTypeIdentity | null;
+}
+export interface BrowserLibraryApiDiffTypeIdentity {
+    readonly identifier: string;
+    readonly namespace: string;
+    readonly segments: ReadonlyArray<string>;
+    readonly display: string;
+}
+export interface BrowserLibraryApiDiffUnavailable {
+    readonly kind: BrowserLibraryApiDiffUnavailableKind;
+    readonly target: BrowserLibraryApiDiffEndpoint;
+    readonly current: BrowserLibraryApiDiffEndpoint;
 }
 export interface BrowserMemberBodySelector {
     readonly token: number;
@@ -234,25 +371,6 @@ export interface BrowserReadyToRunSection {
     readonly size: number;
     readonly aliasesCliMetadata: boolean;
 }
-export interface BrowserTypeComposition {
-    readonly methods: number;
-    readonly properties: number;
-    readonly fields: number;
-    readonly events: number;
-    readonly constructors: number;
-    readonly operators: number;
-    readonly explicitInterfaceImplementations: number;
-    readonly extensionMethods: number;
-    readonly static: number;
-    readonly unsafe: number;
-    readonly async: number;
-    readonly virtual: number;
-    readonly abstract: number;
-    readonly override: number;
-    readonly extension: number;
-    readonly obsolete: number;
-    readonly total: number;
-}
 export interface BrowserTypeGraphEdge {
     readonly fromId: string;
     readonly toId: string;
@@ -264,29 +382,12 @@ export interface BrowserTypeGraphNode {
     readonly role: string;
 }
 export interface BrowserTypeMetadata {
-    readonly fullName: string;
-    readonly namespace: string | null;
-    readonly name: string;
-    readonly kind: string;
-    readonly modifiers: ReadonlyArray<string>;
-    readonly accessibility: string | null;
-    readonly assembly: string | null;
-    readonly baseType: string | null;
-    readonly interfaces: ReadonlyArray<string>;
+    readonly exactTypeInspection: InspectionEnvelope<ExactTypeInspectionResult>;
     readonly derivedTypes: ReadonlyArray<string>;
-    readonly typeParameters: ReadonlyArray<BrowserTypeParameter>;
-    readonly attributes: ReadonlyArray<string>;
-    readonly enumUnderlyingType: string | null;
-    readonly composition: BrowserTypeComposition | null;
     readonly graphNodes: ReadonlyArray<BrowserTypeGraphNode>;
     readonly graphEdges: ReadonlyArray<BrowserTypeGraphEdge>;
     readonly typeDependencyInspection: InspectionEnvelope<TypeDependencySectionResult>;
     readonly inspectionFailures: ReadonlyArray<string>;
-}
-export interface BrowserTypeParameter {
-    readonly name: string;
-    readonly variance: string | null;
-    readonly constraints: ReadonlyArray<string>;
 }
 export interface BrowserTypeSurface {
     readonly id: string;
@@ -306,6 +407,78 @@ export interface BrowserTypeSurface {
     readonly signature: string;
     readonly api: ReadonlyArray<BrowserMemberSurface>;
     readonly platformPack: string | null;
+}
+export interface ExactTypeApi {
+    readonly fullName: string;
+    readonly namespace: string | null;
+    readonly name: string;
+    readonly definitionIdentity: ExactTypeDefinitionIdentity;
+    readonly introducedTypeParameterCounts: ReadonlyArray<number>;
+    readonly kind: string;
+    readonly accessibility: string | null;
+    readonly attributes: ReadonlyArray<string>;
+    readonly isSealed: boolean;
+    readonly isAbstract: boolean;
+    readonly isStatic: boolean;
+    readonly isByRefLike: boolean;
+    readonly isReadOnly: boolean;
+    readonly baseType: string | null;
+    readonly interfaces: ReadonlyArray<string>;
+    readonly derivedTypes: ReadonlyArray<string>;
+    readonly typeParameters: ReadonlyArray<ExactTypeParameter>;
+    readonly members: ReadonlyArray<ExactTypeMember>;
+    readonly enumUnderlyingType: string | null;
+    readonly isForwarded: boolean;
+}
+export interface ExactTypeApiInspectionFailure {
+    readonly operation: string;
+    readonly subjectToken: number;
+    readonly mechanism: MetadataTypeNameFailureMechanism;
+    readonly kind: string;
+    readonly detail: string;
+    readonly subjectAssembly: AssemblyReferenceIdentity | null;
+    readonly dependencyAssembly: AssemblyReferenceIdentity | null;
+}
+export interface ExactTypeAssemblyIdentity {
+    readonly identity: AssemblyReferenceIdentity;
+    readonly moduleVersionId: string;
+}
+export interface ExactTypeDefinitionIdentity {
+    readonly namespace: string;
+    readonly segments: ReadonlyArray<string>;
+}
+export interface ExactTypeForwardingHop {
+    readonly source: AssemblyReferenceIdentity;
+    readonly target: AssemblyReferenceIdentity;
+}
+export interface ExactTypeInspectionFailure {
+    readonly kind: ExactTypeInspectionFailureKind;
+    readonly detail: string;
+    readonly assembly: AssemblyReferenceIdentity | null;
+}
+export interface ExactTypeInspectionResult {
+    readonly outcome: ExactTypeInspectionOutcome;
+    readonly requestedType: string;
+    readonly matchedType: string | null;
+    readonly type: ExactTypeApi | null;
+    readonly requestedAssembly: ExactTypeAssemblyIdentity | null;
+    readonly supplierAssembly: ExactTypeAssemblyIdentity | null;
+    readonly forwardingHops: ReadonlyArray<ExactTypeForwardingHop>;
+    readonly suggestions: ReadonlyArray<string>;
+    readonly inspectionFailures: ReadonlyArray<ExactTypeApiInspectionFailure>;
+    readonly failures: ReadonlyArray<ExactTypeInspectionFailure>;
+    readonly isAvailable: boolean;
+    readonly isComplete: boolean;
+}
+export interface ExactTypeMember {
+    readonly name: string;
+    readonly kind: string;
+    readonly signature: string | null;
+}
+export interface ExactTypeParameter {
+    readonly name: string;
+    readonly variance: string | null;
+    readonly constraints: ReadonlyArray<string>;
 }
 export interface IArtifactProvenance {
 }
@@ -376,7 +549,9 @@ export interface JsExportRuntime {
 export declare function createRuntime(): Promise<JsExportRuntime>;
 export declare function initializeRuntime(runtime?: JsExportRuntime | PromiseLike<JsExportRuntime>): Promise<void>;
 export declare function runEntryPoint(mainAssemblyName?: string, args?: string[]): Promise<number>;
+export declare function cancelLibraryApiDiff(operationId: string, reason: string): BrowserLibraryApiDiffCancellation;
 export declare function queryGraphMemberSurface(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number): Promise<BrowserGraphMemberSurface>;
+export declare function queryLibraryApiDiff(operationId: string, requestJson: string): Promise<BrowserLibraryApiDiffResult>;
 export declare function queryMemberDeclaration(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, implementationMember: boolean): Promise<BrowserMemberDeclaration>;
 export declare function queryPackageHeapEntries(packageId: string, version: string, targetFramework: string, assemblyFileName: string, metadataRoot: string, heap: string): Promise<BrowserHeapListing>;
 export declare function queryPackageMetadata(packageId: string, version: string, targetFramework: string, assemblyFileName: string): Promise<BrowserPackageMetadata>;
@@ -385,4 +560,4 @@ export declare function queryPlatformHeapEntries(targetFramework: string, platfo
 export declare function queryPlatformMemberDeclaration(targetFramework: string, platformVersion: string, assemblyName: string, pack: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number): Promise<BrowserMemberDeclaration>;
 export declare function queryPlatformMetadata(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<BrowserPackageMetadata>;
 export declare function queryPlatformMetadataTable(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, metadataRoot: string, tableIndex: number, startRowId: number, maxRows: number): Promise<BrowserMetadataWindow>;
-export declare function queryTypeProjection(packageId: string, version: string, targetFramework: string, assemblyName: string, typeId: string, workspaceJson: string): Promise<BrowserTypeMetadata>;
+export declare function queryTypeProjection(packageId: string, version: string, targetFramework: string, assemblyName: string, typeQueryId: string, typeDefinitionId: string, workspaceJson: string): Promise<BrowserTypeMetadata>;

@@ -42,6 +42,9 @@ public sealed class SearchSourceNormalizerTests
         };
 
         Assert.Same(intent, result.Intent);
+        Assert.Equal(
+            flags == 0 ? SearchCandidateIntent.Broad : SearchCandidateIntent.Explicit,
+            result.CandidateIntent);
         Assert.Equal(flags == 0, result.UsesImplicitPlatform);
         Assert.Equal(flags == 0 || (flags & 1) != 0 ? PlatformFrameworks : [], result.Frameworks);
         Assert.Equal(expectedPackages, Coordinates(result).Select(package => package.PackageId));
@@ -67,6 +70,7 @@ public sealed class SearchSourceNormalizerTests
         foreach (SourceSelector selector in selectors)
         {
             SearchSourceSelection result = SearchSourceNormalizer.Normalize(SourceIntent.Empty.Append(selector));
+            Assert.Equal(SearchCandidateIntent.Explicit, result.CandidateIntent);
             Assert.False(result.UsesImplicitPlatform);
             Assert.Empty(result.Frameworks);
             Assert.Same(selector, Assert.Single(result.Intent.Selectors));
@@ -83,6 +87,7 @@ public sealed class SearchSourceNormalizerTests
             new SourceSelector.PlatformGroup(),
         ]);
         SearchSourceSelection result = SearchSourceNormalizer.Normalize(intent);
+        Assert.Equal(SearchCandidateIntent.Explicit, result.CandidateIntent);
         Assert.False(result.UsesImplicitPlatform);
         Assert.Equal(PlatformFrameworks, result.Frameworks);
         Assert.Equal("Contoso", Assert.Single(Coordinates(result)).PackageId);
@@ -141,6 +146,8 @@ public sealed class SearchSourceNormalizerTests
         SearchSourceSelection result = SearchSourceNormalizer.Normalize(intent);
         SearchSourceSelection repeated = SearchSourceNormalizer.Normalize(result.Intent);
 
+        Assert.Equal(SearchCandidateIntent.Explicit, result.CandidateIntent);
+        Assert.Equal(SearchCandidateIntent.Explicit, repeated.CandidateIntent);
         Assert.False(result.UsesImplicitPlatform);
         Assert.False(repeated.UsesImplicitPlatform);
         Assert.Empty(result.Frameworks);
@@ -199,6 +206,7 @@ public sealed class SearchSourceNormalizerTests
         Assert.Throws<NotSupportedException>(() =>
             ((IList<SourceSelector.PackageSource>)result.Packages).Clear());
         SearchSourceSelection implicitResult = SearchSourceNormalizer.Normalize(SourceIntent.Empty);
+        Assert.Equal(SearchCandidateIntent.Broad, implicitResult.CandidateIntent);
         Assert.Throws<NotSupportedException>(() =>
             ((IList<SearchPlatformFramework>)implicitResult.Frameworks).Clear());
         Assert.Equal(PlatformFrameworks, SearchSourceNormalizer.Normalize(SourceIntent.Empty).Frameworks);

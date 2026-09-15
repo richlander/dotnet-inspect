@@ -11,12 +11,23 @@ const app = document.querySelector<HTMLElement>("#app")!;
 const explorer = createGraphExplorer(document);
 const keybindings = createWorkbenchKeybindings();
 keybindings.attach(document);
-const pkg = { id: "Example.Package", version: "1.0.0", activeFramework: "net10.0" };
-const loaded = { ...pkg, id: "Loaded.Dependency" };
+const pkg = {
+  id: "Microsoft.Extensions.Hosting",
+  version: "10.0.0",
+  activeFramework: "net10.0",
+};
+const samePrefixLoaded = { ...pkg, id: "Microsoft.Extensions.Logging" };
+const externalLoaded = { ...pkg, id: "Serilog" };
 const groups = [
   {
     index: 0, framework: "net10.0", isActive: true,
-    dependencies: ["Loaded.Dependency", "New.Dependency", "Failed.Dependency"]
+    dependencies: [
+      "Microsoft.Extensions.Logging",
+      "Microsoft.Extensions.Options",
+      "Serilog",
+      "Newtonsoft.Json",
+      "Failed.Dependency",
+    ]
       .map(id => ({ id, versionRange: "1.0.0" })),
   },
   { index: 1, framework: "net11.0", dependencies: [] },
@@ -78,11 +89,22 @@ async function mountGraph() {
   }
   const graph = await buildDependencyGraphMermaid({
     package: pkg,
-    packages: [pkg, loaded],
+    packages: [pkg, samePrefixLoaded, externalLoaded],
     packageDependencies: { dependencyGroups: groups },
     dependenciesGroupIndex: groupIndex,
     workspaceDependencies: {},
-  }, (packages, id) => packages.find(candidate => candidate.id === id) ?? null);
+  }, (packages, id) => packages.find(candidate => candidate.id === id) ?? null,
+  (_inspectedPackageId, packageIds) => {
+    const roles = new Map([
+      [pkg.id, "inspected"],
+      [samePrefixLoaded.id, "samePrefix"],
+      ["Microsoft.Extensions.Options", "samePrefix"],
+      [externalLoaded.id, "external"],
+      ["Newtonsoft.Json", "external"],
+      ["Failed.Dependency", "external"],
+    ]);
+    return packageIds.map(packageId => roles.get(packageId) ?? "external");
+  });
   if (!graph) {
     diagram.innerHTML = "<p>No connected packages for this framework.</p>";
     return;
@@ -138,43 +160,61 @@ function patchGroup() {
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", String(active));
   });
-  document.querySelector<HTMLElement>("#dep-list-section")!.textContent =
-    `${selected.framework}: ${selected.dependencies.length} packages`;
+  document.querySelector<HTMLElement>("#dep-list-section")!.innerHTML = `
+    <div class="section-title"><h2>NuGet dependencies</h2><span>${selected.framework} · ${selected.dependencies.length} packages</span></div>
+    ${selected.dependencies.length
+      ? `<ul class="dep-list">${selected.dependencies.map(dependency =>
+          `<li><button class="dep-name as-link" type="button">${dependency.id}</button><code class="dep-version">${dependency.versionRange}</code></li>`)
+        .join("")}</ul>`
+      : `<div class="empty-list">No package dependencies declared for ${selected.framework}.</div>`}`;
   return mountGraph();
 }
 
 async function render() {
   explorer.beforeRender(key());
   app.innerHTML = `
-    <main>
-      <h1 tabindex="-1">Dependencies: ${pkg.id}</h1>
+    <main style="height: 100%; display: grid; grid-template-rows: 40px minmax(0, 1fr)">
       <div class="working-surface-actions"><button type="button" id="explore" data-graph-explore${state === "query-error" || state === "no-groups" ? " disabled" : ""}>Explore</button></div>
-      <button type="button" id="coordinates">Package coordinate controls</button>
-      ${notice ? `<p role="status">${notice}</p>` : ""}
-      <div class="package-dependencies-scroll">
-        <div data-dependency-graph-surface>
-          ${state === "query-error" || state === "no-groups"
-            ? `<section class="document-section empty-document"><h2>${state === "query-error" ? "Dependency query failed" : "No package dependencies"}</h2><p>${state === "query-error" ? "Fixture query failure" : "Self-contained package"}</p></section>`
-            : `
-              ${notices ? '<section class="document-section empty-document"><h2>No exact dependency group</h2><p>The package has no manifest group matching the active coordinate.</p></section>' : ""}
-              <section class="document-section dependency-group-selector">
-                <div class="section-title"><h2>Target frameworks</h2><span>one framework at a time</span></div>
-                <div class="type-chip-list" id="dep-tfm-chips">${groups.map(group => `<button type="button" class="type-chip" data-dep-group="${group.index}">${group.framework}</button>`).join("")}</div>
-              </section>
-              <section class="document-section dependency-graph-section">
-                <div class="section-title"><h2>Dependency graph</h2><span>callers above · dependencies below · click a package to open</span></div>
-                ${notices ? '<div class="graph-drill-error" role="status">Some workspace manifests could not be read.</div>' : ""}
-                <div id="dependency-graph-diagram" class="call-graph-diagram"><p>Rendering graph...</p></div>
-                ${dependencyGraphLegendHtml()}
-              </section>`}
+      <section class="package-dependencies-surface" aria-labelledby="package-dependencies-surface-title">
+        <header class="api-surface-head package-dependencies-surface-head">
+          <h1 id="package-dependencies-surface-title" tabindex="-1">Dependencies: ${pkg.id}</h1>
+          <p>${groups[groupIndex]?.dependencies.length ?? 0} packages</p>
+        </header>
+        <section class="package-dependencies-controls" aria-label="Dependency coordinate">
+          <button type="button" id="coordinates">Package coordinate controls</button>
+        </section>
+        <div class="package-dependencies-scroll">
+          ${notice ? `<p role="status">${notice}</p>` : ""}
+          <div data-dependency-graph-surface>
+            ${state === "query-error" || state === "no-groups"
+              ? `<section class="document-section empty-document"><h2>${state === "query-error" ? "Dependency query failed" : "No package dependencies"}</h2><p>${state === "query-error" ? "Fixture query failure" : "Self-contained package"}</p></section>`
+              : `
+                ${notices ? '<section class="document-section empty-document"><h2>No exact dependency group</h2><p>The package has no manifest group matching the active coordinate.</p></section>' : ""}
+                <section class="document-section dependency-group-selector">
+                  <div class="section-title"><h2>Target frameworks</h2><span>one framework at a time</span></div>
+                  <div class="type-chip-list" id="dep-tfm-chips">${groups.map(group => `<button type="button" class="type-chip" data-dep-group="${group.index}">${group.framework}</button>`).join("")}</div>
+                </section>
+                <section class="document-section dependency-graph-section">
+                  <div class="section-title"><h2>Dependency graph</h2><span>callers above · dependencies below · click a package to open</span></div>
+                  ${notices ? '<div class="graph-drill-error" role="status">Some workspace manifests could not be read.</div>' : ""}
+                  <div id="dependency-graph-diagram" class="call-graph-diagram"><p>Rendering graph...</p></div>
+                  ${dependencyGraphLegendHtml()}
+                </section>`}
+          </div>
+          <section class="document-section" id="dep-list-section"></section>
+          <section class="document-section" id="assembly-references">Assembly references</section>
         </div>
-        <section class="document-section" id="dep-list-section"></section>
-        <section class="document-section" id="assembly-references">Assembly references</section>
-      </div>
+        <footer class="api-surface-footer package-dependencies-surface-footer">
+          <span>${pkg.id}@${pkg.version}</span>
+          <span>${pkg.activeFramework}</span>
+        </footer>
+      </section>
     </main>`;
   bindGraphExplore(document, () => explorer.open(target()));
   bindPackageView(document, {
     onDependencyGroupSelect: index => { groupIndex = index; void patchGroup(); },
+    onPruningEvaluate() {},
+    onPruningFamilySelect() {},
     onDependencyOpen: id => { void navigate(id); },
     onDependencyLoad: id => { void navigate(id); },
     onGraphTypeSelect() {},

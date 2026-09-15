@@ -9,7 +9,6 @@ public enum SlotMaterializationVeto
     MissingLoad = 1 << 2,
     UnderivableTypeTestimony = 1 << 3,
     ConflictingTypeTestimony = 1 << 4,
-    NestedSlotNumberCollision = 1 << 5,
     OutsideCoercionDomain = 1 << 6,
     UnrenderableStoreType = 1 << 7,
     MultiStoreSingleLoadFold = 1 << 8,
@@ -17,6 +16,7 @@ public enum SlotMaterializationVeto
     BooleanSinkIdentityRecovery = 1 << 10,
     ElementStoreIdentityRecovery = 1 << 11,
     IncompleteCopyComponent = 1 << 12,
+    PendingReferenceSwap = 1 << 13,
 }
 
 public readonly record struct SlotMaterializationDecision(
@@ -60,6 +60,8 @@ public sealed class SlotMaterializationPass : IIrPass
     {
         var plan = BuildPlan(function);
         var decided = plan.Candidates.Where(static candidate => candidate.Vetoes == SlotMaterializationVeto.None).ToList();
+        var invariant = IrInvariants.Enabled && decided.Count > 0
+            ? SlotMaterializationInvariant.Capture(function) : null;
 
         // Replace every load before moving store values so nested slot loads
         // have already become locals. Reparent each value instead of cloning
@@ -88,6 +90,7 @@ public sealed class SlotMaterializationPass : IIrPass
                     value));
             }
         }
+        invariant?.Check();
     }
 
     static MaterializationPlan BuildPlan(IrFunction function)
@@ -102,7 +105,6 @@ public sealed class SlotMaterializationPass : IIrPass
                 (loads.TryGetValue(load.Slot, out var ls) ? ls : loads[load.Slot] = []).Add(load);
         }
 
-        var nestedSlots = new HashSet<int>();
         var nestedDecisions = new List<SlotMaterializationDecision>();
         // #2356 made nested generated names collision-free, but recursively
         // materializing each nested body's own locals table is a separate
@@ -118,7 +120,6 @@ public sealed class SlotMaterializationPass : IIrPass
                 else if (node is LoadStackSlot load)
                     slots.Add(load.Slot);
             }
-            nestedSlots.UnionWith(slots);
             nestedDecisions.AddRange(slots
                 .Order()
                 .Select(slot => new SlotMaterializationDecision(
@@ -169,9 +170,6 @@ public sealed class SlotMaterializationPass : IIrPass
                 throw new InvalidOperationException($"Slot {candidate.Slot} loads had no testimony decision.");
             }
 
-            if (nestedSlots.Contains(candidate.Slot))
-                candidate.Vetoes |= SlotMaterializationVeto.NestedSlotNumberCollision;
-
             if (candidate.Stores.Count > 1 && candidate.Loads.Count == 1)
                 candidate.Vetoes |= SlotMaterializationVeto.MultiStoreSingleLoadFold;
             if (candidate.Stores.Count > 1
@@ -192,7 +190,14 @@ public sealed class SlotMaterializationPass : IIrPass
                 candidate.Vetoes |= SlotMaterializationVeto.BooleanSinkIdentityRecovery;
             }
 
-            if (!CoercionDomain.InDomain(slotType, function.TypeShapes))
+            bool exactReference = candidate.Stores.All(store => CoercionDomain.IsAtTarget(store.Value, slotType))
+                && (slotType.Kind == TypeRefKind.Definition
+                    && (MemberIdentity.IsCoreLibraryType(slotType, "System", "String")
+                        || MemberIdentity.IsCoreLibraryType(slotType, "System", "Object"))
+                    || CSharpSpellability.CanSpellSzArrayStorageType(slotType, function));
+            if (exactReference && candidate.Stores.Any(store => SwapIdiomPass.IsPendingStackSwap(function, store)))
+                candidate.Vetoes |= SlotMaterializationVeto.PendingReferenceSwap;
+            if (!exactReference && !CoercionDomain.InDomain(slotType, function.TypeShapes))
                 candidate.Vetoes |= SlotMaterializationVeto.OutsideCoercionDomain;
             if (candidate.Stores.Any(store => store.Value.ResultType?.Equals(slotType) != true
                     && !CoercionRendering.CanSpellSlotCoercion(

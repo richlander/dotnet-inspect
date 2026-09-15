@@ -131,6 +131,31 @@ public sealed class DependencyGraphOutputAdapterTests
     }
 
     [Fact]
+    public async Task Json_PreservesSelectedEdgeOrder()
+    {
+        DependencyGraphDocument document = SharedDag();
+        List<DependencyGraphEdgeRow> allRows =
+            DependencyGraphOutputAdapter.EdgeRows(document);
+        DependencyGraphEdgeRow[] selected =
+        [
+            allRows[3],
+            allRows[1],
+        ];
+
+        string json = await RenderAsync(
+            document,
+            selected,
+            OutputFormat.Json);
+
+        using JsonDocument parsed = JsonDocument.Parse(json);
+        Assert.Equal(
+            selected.Select(static row => row.EdgeId),
+            parsed.RootElement.GetProperty("edges")
+                .EnumerateArray()
+                .Select(edge => edge.GetProperty("id").GetInt32()));
+    }
+
+    [Fact]
     public async Task RowWindow_SelectsTheSameLogicalEdgesInEverySink()
     {
         DependencyGraphDocument document = SharedDag();
@@ -493,13 +518,14 @@ public sealed class DependencyGraphOutputAdapterTests
             });
 
         Assert.Empty(error);
+        string normalizedTree = tree.ReplaceLineEndings("\n");
         Assert.DoesNotContain(
             "First\n   └─ Second\n      └─ Leaf",
-            tree,
+            normalizedTree,
             StringComparison.Ordinal);
         Assert.Contains(
             "└─ (revisit) Second\n   └─ Leaf",
-            tree,
+            normalizedTree,
             StringComparison.Ordinal);
     }
 

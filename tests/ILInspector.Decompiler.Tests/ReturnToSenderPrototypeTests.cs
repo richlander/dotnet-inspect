@@ -9970,7 +9970,10 @@ public class ReturnToSenderPrototypeTests
     // a sibling type `N.System` in the same namespace. Assembled with ilasm because no C#
     // compiler can produce a clean explicit-override name alongside an in-scope shadow.
     const string ShadowingSiblingIl = """
-        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern System.Runtime {
+          .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A)
+          .ver 0:0:0:0
+        }
         .assembly shadowrepro { }
         .module shadowrepro.dll
 
@@ -10012,7 +10015,10 @@ public class ReturnToSenderPrototypeTests
     // External contract for the keyword-namespace shadow regression: an interface in a
     // namespace whose segment is the C# keyword `class` (raw metadata `class.IProbe`).
     const string KeywordContractsIl = """
-        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern System.Runtime {
+          .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A)
+          .ver 0:0:0:0
+        }
         .assembly KeywordContracts { }
         .module KeywordContracts.dll
 
@@ -10026,7 +10032,10 @@ public class ReturnToSenderPrototypeTests
     // external `class.IProbe` with a clean metadata override name (`class.IProbe.M`), and a
     // sibling type N.'class' shadows the `class` root of the spelling once reconstructed.
     const string KeywordShadowFixtureIl = """
-        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern System.Runtime {
+          .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A)
+          .ver 0:0:0:0
+        }
         .assembly extern KeywordContracts { }
         .assembly keywordfixture { }
         .module keywordfixture.dll
@@ -10065,7 +10074,10 @@ public class ReturnToSenderPrototypeTests
     // segment is a compiler-unspeakable name (`<Bad>`) — legal in metadata, not a legal C#
     // identifier — so Clean() sanitizes it lossily to a different name (`__Bad_`).
     const string UnrepresentableContractsIl = """
-        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern System.Runtime {
+          .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A)
+          .ver 0:0:0:0
+        }
         .assembly GeneratedContracts { }
         .module GeneratedContracts.dll
 
@@ -10079,7 +10091,10 @@ public class ReturnToSenderPrototypeTests
     // `<Bad>.IProbe`. The reconstruction would emit the sanitized `__Bad_.IProbe`, which names
     // no real type (CS0246) — the gate must decline to the sanitized ContextFail floor instead.
     const string UnrepresentableFixtureIl = """
-        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern System.Runtime {
+          .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A)
+          .ver 0:0:0:0
+        }
         .assembly extern GeneratedContracts { }
         .assembly badfixture { }
         .module badfixture.dll
@@ -10106,7 +10121,10 @@ public class ReturnToSenderPrototypeTests
     // External contract for the unspeakable-member regression: an interface with a legal name
     // (`Good.IProbe`) but a method whose metadata name is compiler-unspeakable (`<Bad>`).
     const string UnspeakableMemberContractsIl = """
-        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern System.Runtime {
+          .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A)
+          .ver 0:0:0:0
+        }
         .assembly BadMethodContracts { }
         .module BadMethodContracts.dll
 
@@ -10121,7 +10139,10 @@ public class ReturnToSenderPrototypeTests
     // to no interface member (CS0539) — the gate must decline to the sanitized ContextFail
     // floor instead.
     const string UnspeakableMemberFixtureIl = """
-        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern System.Runtime {
+          .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A)
+          .ver 0:0:0:0
+        }
         .assembly extern BadMethodContracts { }
         .assembly badmethodfixture { }
         .module badmethodfixture.dll
@@ -10150,7 +10171,10 @@ public class ReturnToSenderPrototypeTests
     // characters when binding identifiers, so a member name `M\u200C` binds as `M` — a name
     // that is identifier-like yet does not round-trip. Interface variant: namespace `G\u200Cood`.
     const string CfMemberContractsIl = """
-        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern System.Runtime {
+          .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A)
+          .ver 0:0:0:0
+        }
         .assembly CfContracts { }
         .module CfContracts.dll
 
@@ -10161,7 +10185,10 @@ public class ReturnToSenderPrototypeTests
         """;
 
     const string CfMemberFixtureIl = """
-        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern System.Runtime {
+          .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A)
+          .ver 0:0:0:0
+        }
         .assembly extern CfContracts { }
         .assembly cffixture { }
         .module cffixture.dll
@@ -10186,7 +10213,10 @@ public class ReturnToSenderPrototypeTests
         """;
 
     const string CfNamespaceContractsIl = """
-        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern System.Runtime {
+          .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A)
+          .ver 0:0:0:0
+        }
         .assembly CfNsContracts { }
         .module CfNsContracts.dll
 
@@ -10197,7 +10227,10 @@ public class ReturnToSenderPrototypeTests
         """;
 
     const string CfNamespaceFixtureIl = """
-        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern System.Runtime {
+          .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A)
+          .ver 0:0:0:0
+        }
         .assembly extern CfNsContracts { }
         .assembly cfnsfixture { }
         .module cfnsfixture.dll
@@ -10226,7 +10259,10 @@ public class ReturnToSenderPrototypeTests
     // name is `e` + U+0301 — identifier-like, format-character-free, and NOT in NFC. Roslyn binds
     // it verbatim (no normalization), so it round-trips Exact and must NOT be declined.
     const string NfcMemberContractsIl = """
-        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern System.Runtime {
+          .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A)
+          .ver 0:0:0:0
+        }
         .assembly NfcContracts { }
         .module NfcContracts.dll
 
@@ -10237,7 +10273,10 @@ public class ReturnToSenderPrototypeTests
         """;
 
     const string NfcMemberFixtureIl = """
-        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern System.Runtime {
+          .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A)
+          .ver 0:0:0:0
+        }
         .assembly extern NfcContracts { }
         .assembly nfcfixture { }
         .module nfcfixture.dll

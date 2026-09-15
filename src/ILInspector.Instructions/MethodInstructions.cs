@@ -6,16 +6,47 @@ namespace ILInspector.Instructions;
 
 /// <summary>
 /// Layer 0 of the substrate: one decode + one EH-aware block builder over a method body, plus
-/// offset-keyed lookup. Metadata-free and cheap — the recall-net surface that broad scans and
-/// the offset join (Research, <c>--il-offset</c>) share, and the de-dup target for the IL-level
-/// block finders. The typed evaluation stack (Layer 1) is <b>opt-in</b> via
+/// offset-keyed lookup. Reader-free and cheap — the recall-net surface that broad scans and the
+/// offset join (Research, <c>--il-offset</c>) share, and the de-dup target for the IL-level block
+/// finders. A Metadata-issued <see cref="MethodBodyData"/> additionally produces correlated
+/// exception-flow facts. The typed evaluation stack (Layer 1) is <b>opt-in</b> via
 /// <see cref="InterpretStack(bool, IStackTypeResolver?)"/>, so it is never paid for unless a
 /// consumer escalates to it. SRM-only; no IrNode, structuring, C#, Roslyn, or assembly loading.
 /// </summary>
-public sealed record MethodInstructions(
-    ImmutableArray<DecodedInstruction> Instructions,
-    BlockGraph Blocks)
+public sealed class MethodInstructions
 {
+    public MethodInstructions(
+        ImmutableArray<DecodedInstruction> instructions,
+        BlockGraph blocks)
+        : this(
+            instructions,
+            blocks,
+            new InstructionExceptionFlowResult<
+                InstructionExceptionFlowFacts>.Unavailable(
+                    InstructionExceptionFlowUnavailableReason.MissingMetadataEvidence,
+                    "This decode did not consume a Metadata-issued method-body observation."))
+    {
+    }
+
+    internal MethodInstructions(
+        ImmutableArray<DecodedInstruction> instructions,
+        BlockGraph blocks,
+        InstructionExceptionFlowResult<InstructionExceptionFlowFacts> exceptionFlow)
+    {
+        ArgumentNullException.ThrowIfNull(blocks);
+        ArgumentNullException.ThrowIfNull(exceptionFlow);
+        Instructions = instructions.IsDefault ? [] : instructions;
+        Blocks = blocks;
+        ExceptionFlow = exceptionFlow;
+    }
+
+    public ImmutableArray<DecodedInstruction> Instructions { get; }
+    public BlockGraph Blocks { get; }
+
+    public InstructionExceptionFlowResult<InstructionExceptionFlowFacts>
+        ExceptionFlow
+    { get; }
+
     /// <summary>True when decode + blocks completed (Layer 0). Does not imply a typed stack was computed.</summary>
     public bool IsComplete => Blocks.IsComplete;
 
@@ -35,7 +66,13 @@ public sealed record MethodInstructions(
         catch (Exception ex) when (ex is BadImageFormatException or InvalidProgramException)
         {
             // Fail closed: malformed IL produces an incomplete Layer 0 with a reason, never a throw.
-            return new MethodInstructions([], new BlockGraph([], [], IsComplete: false, ex.Message));
+            return new MethodInstructions(
+                [],
+                new BlockGraph([], [], IsComplete: false, ex.Message),
+                new InstructionExceptionFlowResult<
+                    InstructionExceptionFlowFacts>.Unavailable(
+                        InstructionExceptionFlowUnavailableReason.DecodeFailure,
+                        ex.Message));
         }
     }
 
@@ -47,11 +84,54 @@ public sealed record MethodInstructions(
         return Decode(il, il.Length, body.ExceptionRegions);
     }
 
-    /// <summary>Layer 0 from a reader-independent method-body snapshot.</summary>
+    /// <summary>
+    /// Layer 0 plus correlated exception-flow facts from a reader-independent
+    /// Metadata body observation.
+    /// </summary>
     public static MethodInstructions Decode(MethodBodyData body)
     {
         ArgumentNullException.ThrowIfNull(body);
-        return Decode(body.IL.ToArray(), body.IL.Length, body.ExceptionRegions);
+        byte[] il = body.IL.ToArray();
+        try
+        {
+            ImmutableArray<DecodedInstruction> instructions =
+                InstructionDecoder.Decode(il);
+            ExceptionFlowTopology topology =
+                ExceptionFlowTopology.Create(il.Length, instructions, body);
+            BlockGraph blocks = BlockGraph.Build(
+                il.Length,
+                instructions,
+                topology);
+            InstructionExceptionFlowResult<InstructionExceptionFlowFacts> flow =
+                topology.IsComplete && blocks.IsComplete
+                    ? new InstructionExceptionFlowResult<
+                        InstructionExceptionFlowFacts>.Available(
+                            new InstructionExceptionFlowFacts(
+                                body.EvidenceId,
+                                topology.IssuedClauses,
+                                topology.IssuedRegions,
+                                instructions,
+                                blocks,
+                                topology))
+                    : new InstructionExceptionFlowResult<
+                        InstructionExceptionFlowFacts>.Unavailable(
+                            topology.UnavailableReason
+                                ?? InstructionExceptionFlowUnavailableReason.DecodeFailure,
+                            topology.IncompleteReason
+                                ?? blocks.IncompleteReason
+                                ?? "Exception-flow construction was incomplete.");
+            return new MethodInstructions(instructions, blocks, flow);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidProgramException)
+        {
+            return new MethodInstructions(
+                [],
+                new BlockGraph([], [], IsComplete: false, ex.Message),
+                new InstructionExceptionFlowResult<
+                    InstructionExceptionFlowFacts>.Unavailable(
+                        InstructionExceptionFlowUnavailableReason.DecodeFailure,
+                        ex.Message));
+        }
     }
 
     /// <summary>

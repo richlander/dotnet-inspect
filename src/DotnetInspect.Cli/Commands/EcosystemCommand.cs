@@ -82,13 +82,12 @@ public static class EcosystemCommand
             return DiscoverOutput.Execute(
                 discover,
                 schema,
-                projection: options,
-                tree: options.Tree,
-                json: options.Format == OutputFormat.Json,
-                tsv: options.Format == OutputFormat.Tsv,
-                jsonl: options.Format == OutputFormat.Jsonl,
-                markdown: options.Format == OutputFormat.Markdown,
-                plainText: options.Format == OutputFormat.PlainText,
+                DiscoveryOutputRequest.Create(
+                    options.Format,
+                    options.Tree,
+                    options.Format == OutputFormat.Table,
+                    options.NoHeader,
+                    projection: options),
                 rootLabel: focus?.Title ?? EcosystemsSection);
         }
 
@@ -283,7 +282,7 @@ public static class EcosystemCommand
         return 0;
     }
 
-    private static bool TryResolveFocus(
+    internal static bool TryResolveFocus(
         string? value,
         ImmutableArray<EcosystemPackDescriptor> packs,
         out EcosystemPackDescriptor? focus)
@@ -333,8 +332,8 @@ public static class EcosystemCommand
         sections.Add(CreateNamespaceSection(scope, focus is null));
         sections.Add(CreatePackageSection(
             CorePackagesSection,
-            "Product-authored unversioned starting points in pack-local preference order.",
-            "No core-package starting points are configured for this ecosystem.",
+            "Product-authored unversioned registered package roots in pack-local preference order.",
+            "No registered package roots are configured for this ecosystem.",
             scope,
             focus is null,
             static pack => pack.CorePackages));

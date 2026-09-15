@@ -89,6 +89,18 @@ function formatBytes(value: number | null): string {
   return value === 0 ? "0 B" : fmtBytes(value);
 }
 
+function formatCapacity(
+  used: number,
+  limit: number,
+  formatter: (value: number | null) => string,
+): string {
+  const usedText = formatter(used);
+  const limitText = formatter(limit);
+  return usedText === "Unavailable" || limitText === "Unavailable"
+    ? "Unavailable"
+    : `${usedText} of ${limitText}`;
+}
+
 function formatUtcTimestamp(value: string): string {
   const timestamp = new Date(value);
   if (Number.isNaN(timestamp.getTime())) return "Unavailable";
@@ -262,10 +274,13 @@ function cacheCardHtml(
   let body = "";
   if (cache.kind === "ready") {
     body = `<dl class="diagnostics-facts">
-      ${factHtml("Packages", formatInteger(cache.stats.packages), escapeHtml)}
+      ${factHtml("Packages acquired", formatInteger(cache.stats.packages), escapeHtml)}
       ${factHtml("Resident payloads", formatInteger(cache.stats.resident), escapeHtml)}
-      ${factHtml("Workspaces", formatInteger(cache.stats.workspaces), escapeHtml)}
-      ${factHtml("Resident bytes", formatBytes(cache.stats.residentBytes), escapeHtml, { className: "emphasis" })}
+      ${factHtml("Package-entry budget", formatInteger(cache.stats.maxPackageEntries), escapeHtml)}
+      ${factHtml("Resident bytes", formatCapacity(cache.stats.residentBytes, cache.stats.maxResidentBytes, formatBytes), escapeHtml, { className: "emphasis" })}
+      ${factHtml("Workspace slots", formatCapacity(cache.stats.workspaces, cache.stats.maxWorkspaces, formatInteger), escapeHtml)}
+      ${factHtml("Workspace assembly budget", `${formatInteger(cache.stats.maxWorkspaceAssembliesPerRole)} per role`, escapeHtml)}
+      ${factHtml("Workspace image budget", `${formatBytes(cache.stats.maxWorkspaceRetainedImageBytes)} each`, escapeHtml)}
     </dl>`;
   } else if (cache.kind === "failed") {
     body = `<div class="diagnostics-inline-state diagnostics-inline-failed">
@@ -281,7 +296,7 @@ function cacheCardHtml(
 
   return `<section class="diagnostics-card" aria-labelledby="diagnostics-cache-heading">
     <div class="diagnostics-card-head">
-      <h2 id="diagnostics-cache-heading">Package cache</h2>
+      <h2 id="diagnostics-cache-heading">Isolated storage</h2>
       <span class="diagnostics-owner">Browser package workspace</span>
     </div>
     ${body}
@@ -299,8 +314,9 @@ export function diagnosticsViewHtml(
         href: "/",
         id: "diagnostics-product",
       })}
-      <button id="diagnostics-back" class="diagnostics-back" type="button">
-        Back
+      <button id="diagnostics-back" class="diagnostics-back" type="button"
+        aria-label="Back to previous page" title="Back to previous page">
+        &larr; Back
       </button>
     </header>
     <main class="diagnostics-main">
@@ -308,7 +324,7 @@ export function diagnosticsViewHtml(
         <div>
           <p class="diagnostics-eyebrow">Current browser session</p>
           <h1 id="diagnostics-heading" tabindex="-1">Diagnostics</h1>
-          <p>Runtime, build, and local package-cache evidence for this tab. Inspection runs locally in your browser.</p>
+          <p>Runtime, build, and isolated-storage evidence for this tab. Inspection runs locally in your browser.</p>
         </div>
         <p class="diagnostics-captured">Captured ${escapeHtml(formatUtcTimestamp(model.capturedAtUtc))}</p>
       </header>

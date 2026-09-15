@@ -20,12 +20,11 @@ public sealed class DesktopPackageDependencyCandidateSource(
             PackageSourceCoordinate coordinate,
             CancellationToken cancellationToken = default,
             NuGetOperationContext? operationContext = null) =>
-        ValueTask.FromResult(
-            _composition.ResolvePinnedCandidate(
+            _composition.ResolvePinnedCandidateAsync(
                 coordinate,
                 sourceOptions,
                 cancellationToken,
-                operationContext));
+                operationContext);
 
     public Task<PackageVersionDiscoveryResult>
         DiscoverDependencyVersionsAsync(

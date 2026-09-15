@@ -277,8 +277,8 @@ public sealed class InspectionGraphCommandTests
                 .InvokeAsync());
 
         Assert.Equal(0, captured.ExitCode);
-        string[] lines = captured.Output.Split(
-            Environment.NewLine,
+        string[] lines = captured.Output.ReplaceLineEndings("\n").Split(
+            '\n',
             StringSplitOptions.RemoveEmptyEntries);
         Assert.Equal(2, lines.Length);
         using JsonDocument first = JsonDocument.Parse(lines[0]);
@@ -329,8 +329,9 @@ public sealed class InspectionGraphCommandTests
 
         Assert.Equal(0, captured.ExitCode);
         string[] targetTypes = captured.Output
+            .ReplaceLineEndings("\n")
             .Split(
-                Environment.NewLine,
+                '\n',
                 StringSplitOptions.RemoveEmptyEntries)
             .Select(line =>
             {
@@ -498,7 +499,7 @@ public sealed class InspectionGraphCommandTests
         }
 
         Assert.Equal(
-            (2, 4, 6),
+            (36, 10, 1244),
             await Counts("DotnetInspector.Presentation.dll"));
         Assert.Equal(
             (13, 4, 72),
@@ -553,8 +554,9 @@ public sealed class InspectionGraphCommandTests
 
         Assert.Equal(0, captured.ExitCode);
         string[] lines = captured.Output
+            .ReplaceLineEndings("\n")
             .Split(
-                Environment.NewLine,
+                '\n',
                 StringSplitOptions.RemoveEmptyEntries);
         Assert.Equal(2, lines.Length);
         Assert.All(

@@ -85,12 +85,27 @@ export interface RuntimeCohortBenchmarkReceipt {
   readonly trendPointSha256: string;
 }
 
+export interface RuntimeSiteDeploymentReceipt {
+  readonly schema: 1;
+  readonly site: "coreclr-il" | "coreclr-r2r";
+  readonly sourceCommit: string;
+  readonly cohortGeneratedAtUtc: string;
+  readonly frontendManifestSha256: string;
+  readonly siteManifestSha256: string;
+  readonly runtime: RuntimeVariantReceipt["runtime"];
+  readonly configuration: RuntimeVariantReceipt["configuration"];
+  readonly admission: RuntimeCohortVariant["admission"];
+}
+
 const sha256Pattern = /^[0-9a-f]{64}$/u;
 const commitPattern = /^[0-9a-f]{40,64}$/u;
-const knownR2RFailureFragments = [
-  "Invalid Program: attempted to call a UnmanagedCallersOnly method from managed code.",
-  "RuntimeError: index out of bounds",
-] as const;
+const knownR2RIssue =
+  "dotnet/runtime#129622; dotnet/runtime#129857";
+const knownR2RManagedCallFailure =
+  "Invalid Program: attempted to call a UnmanagedCallersOnly method from managed code.";
+const knownR2RProducerFailure =
+  "INSPECT_WEB_PRODUCT_OPERATION_FAILURE:producer-contract";
+const knownR2RBoundsFailure = "index out of bounds";
 const productOperationFailureFragment =
   "INSPECT_WEB_PRODUCT_OPERATION_FAILURE:";
 
@@ -407,9 +422,12 @@ function classifyAdmission(
   const productCorrectnessRejection = evidence.receipt.name === "coreclr-r2r"
     && evidence.logText.includes(productOperationFailureFragment);
   if (productCorrectnessRejection) {
-    const knownIssue = knownR2RFailureFragments.every(fragment =>
-      evidence.logText.includes(fragment))
-      ? "dotnet/runtime#129622; dotnet/runtime#129857"
+    const knownIssue = evidence.logText.includes(knownR2RManagedCallFailure)
+      || (
+        evidence.logText.includes(knownR2RProducerFailure)
+        && evidence.logText.includes(knownR2RBoundsFailure)
+      )
+      ? knownR2RIssue
       : null;
     return {
       ...common,
@@ -514,6 +532,158 @@ export function createRuntimeCohortReceipt(
       .filter(variant => variant.admission.status === "admitted")
       .map(variant => variant.name),
     variants,
+  };
+}
+
+export function validateRuntimePinAdvancementCohort(
+  cohortText: string,
+  expectedSourceCommit: string,
+): void {
+  requireCondition(
+    commitPattern.test(expectedSourceCommit),
+    "Expected cohort source commit must be a lowercase Git commit.",
+  );
+  const cohort: unknown = JSON.parse(cohortText);
+  requireCondition(isRecord(cohort), "Cohort receipt must be an object.");
+  requireCondition(cohort.schema === 1, "Cohort receipt schema must be 1.");
+  requireCondition(
+    cohort.sourceCommit === expectedSourceCommit,
+    "Cohort receipt does not match the proposal source commit.",
+  );
+  requireCondition(
+    cohort.status === "accepted",
+    "Runtime pin advancement requires an accepted cohort.",
+  );
+  requireCondition(
+    isUnknownArray(cohort.variants),
+    "Cohort variants must be an array.",
+  );
+  const r2rVariants = cohort.variants.filter(variant =>
+    isRecord(variant) && variant.name === "coreclr-r2r"
+  );
+  requireCondition(
+    r2rVariants.length === 1,
+    "Cohort must contain exactly one coreclr-r2r variant.",
+  );
+  const r2rVariant = r2rVariants[0];
+  requireCondition(
+    isRecord(r2rVariant),
+    "CoreCLR R2R variant must be an object.",
+  );
+  const r2rAdmission = r2rVariant.admission;
+  requireCondition(
+    isRecord(r2rAdmission),
+    "CoreCLR R2R admission must be an object.",
+  );
+  if (r2rAdmission.status === "admitted") return;
+  requireCondition(
+    r2rAdmission.status === "correctness-rejection"
+      && r2rAdmission.knownIssue === knownR2RIssue,
+    "Runtime pin advancement requires admitted R2R or the recognized retained R2R issue.",
+  );
+}
+
+export function createRuntimeSiteDeploymentReceipt(
+  cohortText: string,
+  variantText: string,
+  expectedSourceCommit: string,
+): RuntimeSiteDeploymentReceipt {
+  requireCondition(
+    commitPattern.test(expectedSourceCommit),
+    "Expected deployment source commit must be a lowercase Git commit.",
+  );
+  const variant = parseRuntimeVariantReceipt(JSON.parse(variantText));
+  requireCondition(
+    variant.name === "coreclr-il" || variant.name === "coreclr-r2r",
+    "Only CoreCLR variants can become public runtime sites.",
+  );
+  requireCondition(
+    variant.sourceCommit === expectedSourceCommit,
+    "Runtime site variant does not match the deployment source commit.",
+  );
+
+  const cohort: unknown = JSON.parse(cohortText);
+  requireCondition(isRecord(cohort), "Cohort receipt must be an object.");
+  requireCondition(cohort.schema === 1, "Cohort receipt schema must be 1.");
+  requireCondition(
+    cohort.status === "accepted",
+    "Runtime site deployment requires an accepted cohort.",
+  );
+  requireCondition(
+    cohort.sourceCommit === expectedSourceCommit,
+    "Cohort receipt does not match the deployment source commit.",
+  );
+  requireString(cohort.generatedAtUtc, "Cohort generation time");
+  requireCondition(
+    Number.isFinite(Date.parse(cohort.generatedAtUtc)),
+    "Cohort generatedAtUtc must be a timestamp.",
+  );
+  requireCondition(
+    isUnknownArray(cohort.variants),
+    "Cohort variants must be an array.",
+  );
+  const matches = cohort.variants.filter(item =>
+    isRecord(item) && item.name === variant.name
+  );
+  requireCondition(
+    matches.length === 1,
+    `Cohort must contain exactly one ${variant.name} variant.`,
+  );
+  const cohortVariant = matches[0];
+  requireCondition(isRecord(cohortVariant), "Cohort variant must be an object.");
+  requireCondition(
+    JSON.stringify(cohortVariant.publication) === JSON.stringify(variant),
+    `${variant.name} publication does not match the cohort receipt.`,
+  );
+  const admission = cohortVariant.admission;
+  requireCondition(
+    isRecord(admission),
+    `${variant.name} admission must be an object.`,
+  );
+  const status = admission.status;
+  requireCondition(
+    status === "admitted"
+      || status === "correctness-rejection"
+      || status === "evaluation-failed",
+    `${variant.name} admission status is invalid.`,
+  );
+  const knownIssue = admission.knownIssue;
+  requireCondition(
+    knownIssue === null || typeof knownIssue === "string",
+    `${variant.name} admission known issue is invalid.`,
+  );
+  const deployable = variant.name === "coreclr-il"
+    ? status === "admitted" && knownIssue === null
+    : status === "admitted" && knownIssue === null
+      || status === "correctness-rejection"
+        && knownIssue === knownR2RIssue;
+  requireCondition(
+    deployable,
+    `${variant.name} does not have a deployable admission result.`,
+  );
+  requireCondition(
+    Number.isInteger(admission.exitCode) && Number(admission.exitCode) >= 0,
+    `${variant.name} admission exit code is invalid.`,
+  );
+  requireString(admission.logFile, `${variant.name} admission log file`);
+  requireSha256(admission.logSha256, `${variant.name} admission log`);
+
+  return {
+    schema: 1,
+    site: variant.name,
+    sourceCommit: expectedSourceCommit,
+    cohortGeneratedAtUtc: cohort.generatedAtUtc,
+    frontendManifestSha256: variant.frontendManifestSha256,
+    siteManifestSha256: variant.siteManifestSha256,
+    runtime: variant.runtime,
+    configuration: variant.configuration,
+    admission: {
+      status,
+      exitCode: Number(admission.exitCode),
+      logFile: admission.logFile,
+      logSha256: admission.logSha256,
+      knownIssue,
+    },
   };
 }
 

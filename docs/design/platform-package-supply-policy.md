@@ -165,8 +165,8 @@ dotnet run --project tests/DotnetInspector.Services.Tests -c Release -- \
 
 | Property | Gate |
 | --- | --- |
-| A subsumed version delegates and preserves evidence | `SubsumedIdentityReportsFamilyAndSuppliedVersion` |
-| A leapfrogging version preserves evidence but does not delegate | `LeapfroggingVersionKeepsTheEntryButDoesNotDelegate` |
+| A subsumed version delegates and preserves evidence | `KnownPackageVersionMatrixPreservesSupplyAndDelegation` |
+| A leapfrogging version preserves evidence but does not delegate | `KnownPackageVersionMatrixPreservesSupplyAndDelegation` |
 | An unresolved version preserves evidence but does not delegate | `UnansweredComparisonKeepsTheEntryButDoesNotDelegate` |
 | An absent identity supplies no evidence and does not delegate | `UnknownIdentitySuppliesNothing` |
 | An empty inventory delegates nothing | `WorkspaceWithNoPlatformSuppliesNothing` |

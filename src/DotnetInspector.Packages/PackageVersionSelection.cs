@@ -480,64 +480,89 @@ public static class PackageVersionSelectionResolver
                     freshness);
         }
 
+        return ClassifyNonAuthoritativeDiscovery(discovery) switch
+        {
+            PackageVersionDiscoveryTerminalKind.Incomplete =>
+                new PackageVersionResolutionReceipt.Incomplete(
+                    request,
+                    discovery,
+                    freshness,
+                    Reason(
+                        "Required configured-authority discovery is incomplete.")),
+            PackageVersionDiscoveryTerminalKind.Failed =>
+                new PackageVersionResolutionReceipt.Failed(
+                    request,
+                    discovery,
+                    freshness,
+                    Reason(
+                        "Version discovery failed before the request could be resolved.")),
+            PackageVersionDiscoveryTerminalKind.Rejected =>
+                new PackageVersionResolutionReceipt.Rejected(
+                    request,
+                    discovery,
+                    freshness,
+                    Reason(
+                        "Configured-authority evidence is unusable for version selection.")),
+            PackageVersionDiscoveryTerminalKind.Unavailable =>
+                new PackageVersionResolutionReceipt.Unavailable(
+                    request,
+                    discovery,
+                    freshness,
+                    Reason(
+                        "Required version-selection source capability is unavailable.")),
+            _ => throw new InvalidOperationException(
+                "Version discovery returned an unknown terminal classification."),
+        };
+    }
+
+    internal static PackageVersionDiscoveryTerminalKind
+        ClassifyNonAuthoritativeDiscovery(
+            PackageVersionDiscoveryResult discovery)
+    {
+        ArgumentNullException.ThrowIfNull(discovery);
+        if (discovery.State == PackageVersionDiscoveryState.Authoritative)
+        {
+            throw new ArgumentException(
+                "Only non-authoritative discovery has a terminal failure classification.",
+                nameof(discovery));
+        }
         if (discovery.State == PackageVersionDiscoveryState.Partial)
         {
-            return new PackageVersionResolutionReceipt.Incomplete(
-                request,
-                discovery,
-                freshness,
-                Reason(
-                    "Required configured-authority discovery is incomplete."));
+            return PackageVersionDiscoveryTerminalKind.Incomplete;
         }
-
         if (discovery.Failures.Any(failure =>
                 failure.Kind is PackageAuthorityFailureKind.Timeout
                     or PackageAuthorityFailureKind.Transport))
         {
-            return new PackageVersionResolutionReceipt.Failed(
-                request,
-                discovery,
-                freshness,
-                Reason(
-                    "Version discovery failed before the request could be resolved."));
+            return PackageVersionDiscoveryTerminalKind.Failed;
         }
-
         if (discovery.Failures.Any(failure =>
                 failure.Kind
                     == PackageAuthorityFailureKind.IncompleteMetadata))
         {
-            return new PackageVersionResolutionReceipt.Incomplete(
-                request,
-                discovery,
-                freshness,
-                Reason(
-                    "Required configured-authority discovery is incomplete."));
+            return PackageVersionDiscoveryTerminalKind.Incomplete;
         }
-
         if (discovery.Failures.Count == 0
             || discovery.Failures.Any(failure =>
                 failure.Kind is PackageAuthorityFailureKind.Input
                     or PackageAuthorityFailureKind.InvalidResponse
                     or PackageAuthorityFailureKind.ResponseRejected))
         {
-            return new PackageVersionResolutionReceipt.Rejected(
-                request,
-                discovery,
-                freshness,
-                Reason(
-                    "Configured-authority evidence is unusable for version selection."));
+            return PackageVersionDiscoveryTerminalKind.Rejected;
         }
-
-        return new PackageVersionResolutionReceipt.Unavailable(
-            request,
-            discovery,
-            freshness,
-            Reason(
-                "Required version-selection source capability is unavailable."));
+        return PackageVersionDiscoveryTerminalKind.Unavailable;
     }
 
     private static InertString Reason(string text) =>
         new(TextPolicy.Field, text);
+}
+
+internal enum PackageVersionDiscoveryTerminalKind
+{
+    Incomplete,
+    Failed,
+    Rejected,
+    Unavailable,
 }
 
 internal static class PackageVersionSelectionContract

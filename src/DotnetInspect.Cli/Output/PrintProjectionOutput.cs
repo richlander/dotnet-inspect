@@ -34,7 +34,8 @@ public sealed record PrintProjectionOptions(
     bool Jsonl,
     bool JsonArray,
     bool Bare,
-    ProjectionDestination Destination);
+    ProjectionDestination Destination,
+    Func<PrintableRow, ProjectionDestination>? ResolveDestination = null);
 
 public sealed record PrintableContent(
     string Content,
@@ -125,10 +126,14 @@ public static class PrintProjectionOutput
             selectedRow = rows[0];
         }
 
-        if (!ProjectionDestinationWriter.ValidateBeforeAcquisition(options.Destination))
+        ProjectionDestination destination =
+            options.ResolveDestination?.Invoke(selectedRow)
+            ?? options.Destination;
+        if (!ProjectionDestinationWriter.ValidateBeforeAcquisition(destination))
             return 1;
 
         PrintableContent payload = readContent(selectedRow);
+        ContainmentDiagnosticOutput.Write(payload.SelectedContent);
         var selected = new PrintableDocument(
             selectedRow.Row,
             selectedRow.Section,
@@ -144,7 +149,7 @@ public static class PrintProjectionOutput
         if (options.Jsonl)
         {
             ProjectionDestinationWriter.WriteText(
-                options.Destination,
+                destination,
                 JsonSerializer.Serialize(selected, PrintProjectionJsonContext.Default.PrintableDocument) + '\n');
             return 0;
         }
@@ -152,7 +157,7 @@ public static class PrintProjectionOutput
         if (options.JsonArray)
         {
             ProjectionDestinationWriter.WriteText(
-                options.Destination,
+                destination,
                 JsonSerializer.Serialize(new[] { selected }, PrintProjectionJsonContext.Default.PrintableDocumentArray));
             return 0;
         }
@@ -160,12 +165,12 @@ public static class PrintProjectionOutput
         if (options.JsonOutput)
         {
             ProjectionDestinationWriter.WriteText(
-                options.Destination,
+                destination,
                 JsonSerializer.Serialize(selected, PrintProjectionJsonContext.Default.PrintableDocument));
             return 0;
         }
 
-        WriteContentOutput(payload, options.Destination);
+        WriteContentOutput(payload, destination);
         return 0;
     }
 

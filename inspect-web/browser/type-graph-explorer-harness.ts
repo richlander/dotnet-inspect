@@ -44,7 +44,56 @@ declare global {
 }
 
 function metadata() {
+  const name = item.id.split(".").at(-1) ?? item.id;
+  const namespace = item.id.includes(".")
+    ? item.id.slice(0, item.id.lastIndexOf("."))
+    : "";
   return {
+    exactTypeInspection: {
+      content: {
+        outcome: 0,
+        requestedType: item.id,
+        matchedType: item.id,
+        type: {
+          fullName: item.id,
+          namespace,
+          name,
+          definitionIdentity: {
+            namespace,
+            segments: [name],
+          },
+          introducedTypeParameterCounts: [0],
+          kind: item.kind,
+          accessibility: "public",
+          attributes: ["Example.Attribute"],
+          isSealed: false,
+          isAbstract: false,
+          isStatic: false,
+          isByRefLike: false,
+          isReadOnly: false,
+          baseType: "External.Base",
+          interfaces: [],
+          derivedTypes: ["Example.Derived"],
+          typeParameters: [],
+          members: [],
+          enumUnderlyingType: null,
+          isForwarded: false,
+        },
+        requestedAssembly: null,
+        supplierAssembly: null,
+        forwardingHops: [],
+        suggestions: [],
+        inspectionFailures: [],
+        failures: [],
+        isAvailable: true,
+        isComplete: true,
+      },
+      share: {
+        fullUrl: null,
+        packet: null,
+      },
+      diagnostics: [],
+    },
     graphNodes: state === "empty" ? [{ id: item.id, displayName: item.id, role: "self" }] : [
       { id: "External.Base", displayName: "External.Base", role: "base" },
       { id: "Example.Type", displayName: "Example.Type", role: item.id === "Example.Type" ? "self" : "base" },
@@ -56,7 +105,6 @@ function metadata() {
     ],
     inspectionFailures: state === "partial" ? ["Fixture relationship could not be projected."] : [],
     derivedTypes: ["Example.Derived"],
-    attributes: ["Example.Attribute"],
   };
 }
 

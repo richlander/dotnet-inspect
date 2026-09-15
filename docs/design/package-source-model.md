@@ -955,7 +955,28 @@ selected-wrapper tests gate the shared operation and temporary ownership.
 Existing caller-pinned acquisition and authority-store gates remain applicable
 to their shared implementation.
 
-### API and timeline range consumers
+### House population substrate and legacy range consumers
+
+PackageHouse now consumes one operation lease to settle a complete,
+resource-free configured-source version population under
+[#7115](https://github.com/richlander/dotnet-inspect/issues/7115). Package
+Source still owns the complete discovery contract, authoritative/partial/failed
+state, exact reporting-authority observations, candidate issuance, root-
+generation identity, and operation-context lifetime. PackageHouse retains the
+returned discovery and calls its `SelectCandidate` method for an exact
+population address; it does not reconstruct or broaden source authority.
+
+The desktop bridge issues the population operation and later issues a fresh
+operation from the same composition root for each selected cell. The
+population result and cells retain no root, lease, client, operation context,
+composition, or callback. This substrate is online-only in its first adoption.
+Offline range discovery remains a host-selected legacy capability and does not
+cause PackageHouse to inspect process-global offline state.
+
+The API and top-level `timeline` consumers below have not yet migrated to the
+House population substrate. Their behavior remains current product evidence
+until subject-owned Diff History and package version Count adopt the new
+operation and the command-placement owner performs the atomic cutover.
 
 Online API inspection with an omitted version, `@latest`, or a wildcard uses
 the same complete current selection and reporting-authority handoff as ordinary
@@ -1009,6 +1030,8 @@ offline behavior, dependency acquisition, multi-package commands, symbols, or
 workspace acquisition.
 
 Release gates in `ConfiguredPayloadAcquisitionTests` are
+`HousePopulationBridge_OneDiscoveryServesMultipleCells`,
+`HousePopulationBridge_ReappliesCurrentSourceAuthorization`,
 `ApiSelection_LocalFeedUsesConfiguredAuthority`,
 `ApiSelection_UnreadablePeerFailsBeforePayload`,
 `OpenRange_OneMetadataDiscoveryServesMultipleAddressesAndReporters`,
@@ -1074,9 +1097,30 @@ Host-supplied independently authorized sources remain distinct unless their
 policy owner has already selected and collapsed aliases with equivalent
 authority keys and policy.
 
+One authorization observation retains both its ordered authorities and every
+typed configuration failure encountered while selecting them. Healthy
+authorities and failures may coexist; a denial is present only when no
+authority remains and policy has a specific reason. Pinned candidate and
+version-discovery settlement carry those failures forward rather than
+reconstructing them after the operation.
+
+`DesktopPackageSourceComposition.AuthorizeSourcesFor` is the desktop
+registration projection of the same result. It resolves sources through the
+partial-failure path, registers each usable source with the composition, and
+returns those exact `ConfiguredPackageAuthority` objects. Reconstructing an
+equal-looking authority from `PackageSource` is not equivalent: it has another
+opaque association and cannot address the composition's registered client.
+The returned observation is resource-free and captures no settlement lease,
+client, callback, or operation context. It therefore does not prolong the
+desktop composition's lifetime or preserve a registration that later policy
+replaces.
+
 The Release gates
 `ConfiguredAuthority_QueryDistinctSameProducerSourcesRemainDistinct`,
 `PackageSourceAuthorization_QueryDistinctAuthoritiesHaveExactAssociations`,
+`SourcePolicyAuthorization_RetainsHealthyPeerAndConfigurationFailure`,
+`AuthorizationObservation_RetainsRegisteredAuthorityAndPartialFailure`,
+`AuthorizationFailuresFlowThroughPinnedAndVersionDiscovery`,
 `PackageSourceAuthorization_CredentialPathAuthoritiesHaveNoPersistentKey`,
 `PackageSourceAuthorization_HttpAuthorityWithoutStableIdHasNoPersistentKey`,
 `SourceClassification_PlainDirectoryNeverConstructsHttpTransport`,

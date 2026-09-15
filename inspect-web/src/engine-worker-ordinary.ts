@@ -33,6 +33,7 @@ type PackageFacade = typeof PackageFacadeModule;
 type SourceFacade = typeof SourceFacadeModule;
 
 type PackageOperationName =
+  | "classifyPackageGraphIdentities"
   | "getPlatformCatalog"
   | "getPlatformVersions"
   | "listPackageAssemblyQueryPatterns"
@@ -49,11 +50,14 @@ type PackageOperationName =
   | "getPackageDocument"
   | "queryMemberDocumentation"
   | "queryPackageDependencies"
+  | "queryPackagePruning"
   | "queryPackageVersions"
   | "queryWorkspacePackageOccurrences"
   | "resolvePackageDependencyVersion";
 
 type MetadataOperationName =
+  | "cancelLibraryApiDiff"
+  | "queryLibraryApiDiff"
   | "queryTypeProjection"
   | "queryMemberDeclaration"
   | "queryPlatformMemberDeclaration"
@@ -684,6 +688,16 @@ function voidOperation<TArgs extends readonly unknown[]>(
 
 export const engineWorkerOrdinaryOperations = {
   package: {
+    classifyPackageGraphIdentities: valueOperation(
+      "ordinary-package-classify-graph-identities",
+      2,
+      (
+        facades,
+        ...args: Parameters<
+          PackageFacade["classifyPackageGraphIdentities"]
+        >
+      ) => facades.package.classifyPackageGraphIdentities(...args),
+    ),
     getPlatformCatalog: valueOperation(
       "ordinary-package-get-platform-catalog",
       2,
@@ -822,6 +836,14 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<PackageFacade["queryPackageDependencies"]>
       ) => facades.package.queryPackageDependencies(...args),
     ),
+    queryPackagePruning: valueOperation(
+      "ordinary-package-query-pruning",
+      4,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["queryPackagePruning"]>
+      ) => facades.package.queryPackagePruning(...args),
+    ),
     queryPackageVersions: valueOperation(
       "ordinary-package-query-versions",
       2,
@@ -852,6 +874,22 @@ export const engineWorkerOrdinaryOperations = {
     ),
   },
   metadata: {
+    cancelLibraryApiDiff: valueOperation(
+      "ordinary-metadata-cancel-library-api-diff",
+      2,
+      (
+        facades,
+        ...args: Parameters<MetadataFacade["cancelLibraryApiDiff"]>
+      ) => facades.metadata.cancelLibraryApiDiff(...args),
+    ),
+    queryLibraryApiDiff: valueOperation(
+      "ordinary-metadata-query-library-api-diff",
+      2,
+      (
+        facades,
+        ...args: Parameters<MetadataFacade["queryLibraryApiDiff"]>
+      ) => facades.metadata.queryLibraryApiDiff(...args),
+    ),
     queryMemberDeclaration: valueOperation(
       "ordinary-metadata-query-member-declaration",
       9,
@@ -872,7 +910,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryTypeProjection: valueOperation(
       "ordinary-metadata-query-type-projection",
-      6,
+      7,
       (
         facades,
         ...args: Parameters<MetadataFacade["queryTypeProjection"]>
@@ -1082,7 +1120,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     expandPlatformCallGraph: valueOperation(
       "ordinary-call-graph-expand-platform",
-      11,
+      12,
       (
         facades,
         ...args: Parameters<CallGraphFacade["expandPlatformCallGraph"]>
@@ -1166,6 +1204,10 @@ export function bindEngineWorkerOrdinaryClient(
 
   return {
     package: {
+      classifyPackageGraphIdentities: bind(
+        engineWorkerOrdinaryOperations.package
+          .classifyPackageGraphIdentities,
+      ),
       getPlatformCatalog: bind(
         engineWorkerOrdinaryOperations.package.getPlatformCatalog,
       ),
@@ -1219,6 +1261,9 @@ export function bindEngineWorkerOrdinaryClient(
       queryPackageDependencies: bind(
         engineWorkerOrdinaryOperations.package.queryPackageDependencies,
       ),
+      queryPackagePruning: bind(
+        engineWorkerOrdinaryOperations.package.queryPackagePruning,
+      ),
       queryPackageVersions: bind(
         engineWorkerOrdinaryOperations.package.queryPackageVersions,
       ),
@@ -1232,6 +1277,12 @@ export function bindEngineWorkerOrdinaryClient(
       ),
     },
     metadata: {
+      cancelLibraryApiDiff: bind(
+        engineWorkerOrdinaryOperations.metadata.cancelLibraryApiDiff,
+      ),
+      queryLibraryApiDiff: bind(
+        engineWorkerOrdinaryOperations.metadata.queryLibraryApiDiff,
+      ),
       queryMemberDeclaration: bind(
         engineWorkerOrdinaryOperations.metadata.queryMemberDeclaration,
       ),

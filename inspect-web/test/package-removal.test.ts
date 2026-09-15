@@ -530,6 +530,7 @@ for (const failure of [false, true]) {
     const h = graphRemovalHarness();
     await h.host.load();
     const request: PlatformDrillRequest = {
+      contextId: null,
       framework: "net10.0", platformVersion: "10.0.0",
       assembly: "System.Text.Json.dll", pack: "netcore.app",
       assemblyVersion: "10.0.0.0", assemblyCulture: null,

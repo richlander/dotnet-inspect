@@ -52,6 +52,7 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --corpus-method-cap 100 \
   --compile-cap 0 \
   --corpus-fidelity-cap 0 \
+  --corpus-fidelity-oracle compile-back \
   --max-examples 24
 ```
 
@@ -72,6 +73,7 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --corpus-method-cap 100 \
   --compile-cap 0 \
   --corpus-fidelity-cap 0 \
+  --corpus-fidelity-oracle compile-back \
   --max-examples 24
 ```
 
@@ -94,6 +96,7 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --quality-diff-card \
   --compile-cap 25 \
   --corpus-fidelity-cap 3 \
+  --corpus-fidelity-oracle rts-cutover \
   --max-examples 24
 ```
 
@@ -104,5 +107,6 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --emit-corpus-baseline tools/DecompilerHarness/corpus/real-world-baseline.json \
   --compile-cap 25 \
   --corpus-fidelity-cap 3 \
+  --corpus-fidelity-oracle rts-cutover \
   --max-examples 24
 ```

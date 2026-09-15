@@ -23,15 +23,20 @@ internal static class PackageQueryCommand
             return DiscoverOutput.Execute(
                 options.Discover,
                 PackageQuerySections.CreateSchema(),
-                tree: options.Tree,
-                json: options.JsonOutput,
-                tsv: options.Tsv,
-                jsonl: options.Jsonl,
+                DiscoveryOutputRequest.Create(
+                    options.JsonOutput ? OutputFormat.Json
+                        : options.Jsonl ? OutputFormat.Jsonl
+                        : options.Tsv ? OutputFormat.Tsv
+                        : options.Tabular ? OutputFormat.Table
+                        : OutputFormat.Markdown,
+                    options.Tree,
+                    options.Tabular,
+                    options.NoHeader,
+                    projection: options),
                 sectionCostAnnotations:
                     PackageQuerySections.Catalog.Pipeline.GetCostAnnotations(),
                 sectionCategories:
                     PackageQuerySections.Catalog.SelectionCategoryMap,
-                projection: options,
                 semanticRowSelection: options.RowSelection,
                 semanticSelectionName: "Package Query");
         }
@@ -69,29 +74,32 @@ internal static class PackageQueryCommand
         CancellationToken cancellationToken = default)
     {
         PackageQueryPlan plan = options.Plan;
-        var events = await PackageQuery.ExecuteToArrayAsync(
-            source, plan, contentProvider, cancellationToken).ConfigureAwait(false);
-        PackageQuerySummary summary = events
-            .OfType<PackageQueryEvent.Completed>()
-            .Single()
-            .Value;
-        if (!CliSemanticRowSelection.TrySelectPreservingContext(
+        InspectionEnvelope<PackageQueryDocument> envelope =
+            await PackageQueryInspection.ExecuteAsync(
+                source,
+                plan,
+                contentProvider,
+                cancellationToken).ConfigureAwait(false);
+        PackageQueryDocument document = envelope.Content;
+        PackageQuerySummary summary = document.Summary;
+        if (!CliSemanticRowSelection.TrySelect(
                 options.RowSelection,
-                events,
-                static queryEvent =>
-                    queryEvent is PackageQueryEvent.Match,
+                document.Results,
                 "package",
                 failure =>
                     $"Package Query row selection stage "
                     + $"{failure.Failure.StageNumber} requires package row "
                     + $"{failure.Failure.RequiredPosition}, but only "
                     + $"{failure.Failure.AvailableCount} package rows are available.",
-                out IReadOnlyList<PackageQueryEvent> displayEvents,
-                out int packageRowCount))
+                out IReadOnlyList<PackageQueryMatch> displayResults))
         {
-            WriteDiagnostics(displayEvents, summary, options.SemanticHeadPushedDown);
+            WriteDiagnostics(
+                document.Failures,
+                summary,
+                options.SemanticHeadPushedDown);
             return 1;
         }
+        int packageRowCount = document.Results.Length;
         bool sourceComplete = summary.Completion is
             PackageQueryCompletionKind.Exhausted
             or PackageQueryCompletionKind.ExactPackageComplete;
@@ -102,7 +110,10 @@ internal static class PackageQueryCommand
                     packageRowCount,
                     sourceComplete)))
         {
-            WriteDiagnostics(events, summary, options.SemanticHeadPushedDown);
+            WriteDiagnostics(
+                document.Failures,
+                summary,
+                options.SemanticHeadPushedDown);
             CommandError.Write(
                 "Cannot count Package Query rows because candidate evaluation is incomplete; "
                 + "use -n or a closed --rows range that is satisfied by the observed rows.");
@@ -110,23 +121,27 @@ internal static class PackageQueryCommand
         }
         var view = PackageQuerySections.CreateDocument(
             plan.Prefix.ToString(),
-            displayEvents);
+            displayResults,
+            summary);
         WriteOutput(view, options);
-        WriteDiagnostics(events, summary, options.SemanticHeadPushedDown);
+        WriteDiagnostics(
+            document.Failures,
+            summary,
+            options.SemanticHeadPushedDown);
 
         return ExitCode(summary);
     }
 
     private static void WriteDiagnostics(
-        IReadOnlyList<PackageQueryEvent> events,
+        IReadOnlyList<PackageQueryFailure> failures,
         PackageQuerySummary summary,
         bool semanticHeadPushedDown)
     {
-        foreach (var failure in events.OfType<PackageQueryEvent.Failure>())
+        foreach (PackageQueryFailure failure in failures)
         {
             CommandError.WriteWarning(
-                $"{failure.Value.PackageId ?? "Package Query"}: "
-                + $"{failure.Value.Kind}: {failure.Value.Message}");
+                $"{failure.PackageId ?? "Package Query"}: "
+                + $"{failure.Kind}: {failure.Message}");
         }
         if (summary.Completion is not (
                 PackageQueryCompletionKind.Exhausted

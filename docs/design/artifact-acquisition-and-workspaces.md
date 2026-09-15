@@ -273,10 +273,9 @@ does not recharge. It never rehashes the mutable source. A persistent
 derived-result cache that keys on that digest must run its cold gate and
 producer over the same snapshot and publish under the snapshot's digest; it may
 not hash a mutable source path, reopen it for production, and hash it again.
-Equal bracketing hashes do not exclude a W-to-S-to-W replacement. This is gated
-for the library effective catalog by `MDP017` in
-[member inspection planning and Metadata
-projection](member-inspection-planning-and-metadata-projection.md).
+Equal bracketing hashes do not exclude a W-to-S-to-W replacement. For the
+library effective catalog this remains unverified and is tracked by
+[#3478](https://github.com/richlander/dotnet-inspect/issues/3478).
 
 Publication atomically commits the sealed catalog, all projected participants,
 the artifact-count charge, and actual retained-byte charges. It releases the
@@ -2156,7 +2155,10 @@ The related identity concepts have distinct jobs:
 | --- | --- |
 | `PackageRootRealization` | The in-process package-level selection outcome over already-acquired content. It remains valid for Root-only and unsuccessful selection outcomes and is not by itself a cache or admission identity. |
 | `RealizedMemberCoordinate.Package` | The canonical, portable request that repeats the same package, version, producer, and acquisition target. Unlike a possibly floating `WorkspaceMemberCoordinate`, every identity field has already been resolved. It does not promise the same bytes forever. |
-| `ProducerKey` | The opaque, credential-free identity of the content producer. The acquired content and payload carry this value, and the realized coordinate records the same value as `Producer`. It distinguishes sources but not successive byte generations from one source. |
+| `PackageProducerIdentity` | The Package Source-owned complete credential-free producer identity. Typed acquisition retains it as the equality and authorization currency; the Root owner neither reconstructs it from endpoint or display text nor treats it as immutable-byte identity. |
+| Portable producer token | The Package Source-issued `PackageProducerIdentity.PortableKey`, recorded as `RealizedMemberCoordinate.Package.Producer` for a fresh typed-source Root. It is bounded transport correspondence, not source authority; a destination must match it against producer identities from its currently authorized sources. |
+| `ProducerKey` | The existing producer key of retained content and its cache slot. PackageHouse uses the complete source producer key, while the Browser retains its legacy NuGet.org cache key. It need not equal the portable coordinate producer, and neither value distinguishes successive byte generations from one source. |
+| Compatibility source identity | The private digest retained by `PackageSourceResultIdentity` solely to answer whether a legacy HTTP content/cache identity belongs to its runtime source. The source value and endpoint components are not exposed; the match is not complete producer identity or source authority. |
 | `PackageContentGenerationIdentity` | The process-local identity of one retained immutable package-content snapshot. Cache handles over that retained snapshot may share the identity; a replacement snapshot receives a new identity. |
 | `PackageRootSelectionIdentity` | The process-local identity of one frozen package-selection occurrence. |
 | `PackageRootBinding` | The acquisition-issued value that joins one Root, realized coordinate, content-snapshot identity, and frozen selection and proves their exact physical correspondence. |
@@ -2167,13 +2169,63 @@ binding carries the exact `PackageRootRealization`, its authoritative
 `RealizedMemberCoordinate.Package`, a
 `PackageContentGenerationIdentity`, and a
 `PackageRootSelectionIdentity`. The factory validates that the retained
-content and acquisition result name the same producer before selection, then
-creates the Root, snapshots every selection sequence into read-only storage,
-and mints the coordinate and both identities without repeating coordinate
-resolution, content acquisition, or compile asset selection.
+content names the acquisition's content/cache producer key and, for typed
+source acquisition, that the source-issued producer identity corresponds to
+both that retained key and the coordinate producer. It then creates the Root,
+snapshots every selection sequence into read-only storage, and mints the
+coordinate and both identities without repeating coordinate resolution,
+content acquisition, or compile asset selection. A resolved compatibility
+payload that carries no source-issued producer identity may bind only a
+coordinate whose producer equals its retained content producer key.
+Public typed acquisition asks the runtime source identity to match its legacy
+configured-source identity against a private digest before any cache lookup or
+download. That check prevents one source from reading or publishing through
+another source's cache identity without retaining endpoint or credential text
+and without attempting to reconstruct the modern producer from a legacy
+spelling that intentionally folds path distinctions.
 The acquired payload result has an internal constructor and get-only
 properties, so ordinary consumers cannot forge a coordinate/content pairing
 or replace either half after acquisition issues it.
+
+PackageHouse compile realization enters the same Root construction through an
+internal receipt-binding primitive. It receives the exact
+`AcquiredPackageSourcePayload` and
+`PackageCompileAssetSelectionReceipt`, revalidates package-id and
+content-generation correspondence, and freezes the receipt's existing
+selection without another selector invocation. The public adapter remains in
+`DotnetInspector.PackageQueries`: its contribution pairs the resulting
+House-agnostic binding with the exact House result and compile receipt rather
+than storing House history on `PackageRootBinding`.
+
+The current realized package-coordinate grammar admits the bounded published
+package-id grammar, Package Source portable producer tokens, the modern
+NuGet.org producer key, and bounded legacy producer keys. Fresh typed-source
+bindings record the source-issued portable token. Exact reopening also accepts
+an already-supported full NuGet.org or legacy cache-key spelling when the
+reacquired typed payload proves that spelling belongs to the same source
+producer, and preserves the request's spelling rather than silently rewriting
+it. Arbitrary configured full producer keys remain outside Root transport;
+their portable token is the representation.
+The `pkgroot3` field layout and encoding remain unchanged: the producer field's
+`nfp-1` namespace versions the new value, so no new Root-token prefix is
+required.
+
+A destination coordinate grants no source authority. Reacquisition first
+intersects the requested producer with currently authorized sources by asking
+Package Source for those sources' owner-issued identities. Authorities sharing
+one equal complete producer identity remain eligible in their configured
+order. If one portable token matches multiple distinct complete identities,
+reacquisition fails visibly before cache lookup or download. Unknown,
+malformed, and unauthorized producer values likewise fail rather than falling
+back to source order. The Root owner does not hash, truncate, parse display
+text, or derive producer identity from source names.
+
+Package Source still accepts a broader Unicode package-id grammar than the
+Root coordinate. Such a package can be acquired and selected before Root
+construction reports that the coordinate is not representable. The adapter
+surfaces that state as typed no-contribution evidence rather than entering the
+throwing constructor. Package-id representation remains
+[#6967](https://github.com/richlander/dotnet-inspect/issues/6967).
 
 The content-generation identity is an opaque, credential-free reference token
 for one retained immutable package-content snapshot, owned by
@@ -2201,9 +2253,10 @@ request, not immutable-byte identity. Reacquiring it may observe a later
 payload generation published under the same package/version/producer slot.
 The generation token is the authoritative immutable-content proof inside one
 adopting process. For the typed source path, the binding derives package id and
-version from `PackageSourceCoordinate`, producer from the acquired payload,
-and the effective acquisition framework from the requested target only when
-the shared target grammar can represent it; otherwise the framework is absent.
+version from `PackageSourceCoordinate`, the coordinate producer from the
+acquired payload's source-issued portable token, and the effective acquisition
+framework from the requested target only when the shared target grammar can
+represent it; otherwise the framework is absent.
 Absence denotes framework-neutral source acquisition and is distinct from the
 real NuGet target `any`. The binding never derives the coordinate from a
 package-supplied asset folder. The original selection target and typed outcome
@@ -2218,9 +2271,16 @@ The descriptive `PackageRootRealization` constructor remains a compatibility
 surface for callers that already own retained content, but it does not issue a
 binding and is not admissible as exact-request cache identity. The Browser
 adapter is the first adopting path: it retains the acquisition result, asks it
-for a binding, and carries the issued coordinate and identities. Its legacy
-test-only package constructor remains unbound. This adoption is gated by
-`BrowserPackageRealization_ReceivesAcquisitionIssuedCoordinate`; generation
+for a binding, and carries the issued coordinate and identities. Its cache
+continues to use the legacy NuGet.org producer key; changing the coordinate to
+the portable token does not create a second cache slot or migrate retained
+content. Its legacy test-only package constructor remains unbound. This
+adoption is gated by
+`BrowserPackageRealization_ReceivesAcquisitionIssuedCoordinate`,
+`PortableConfiguredProducer_ReacquiresWithoutChangingContentKey`,
+`PortableProducerAuthorization_PreservesEquivalentAuthoritiesInOrder`,
+`SourceProducerSpellings_RoundTripExactRootRebinding`, and
+`CustomProducerCompileRealizationContributesPortableRootCoordinate`; generation
 replacement, selection difference, coordinate coherence, Root-only binding,
 and producer mismatch are gated by
 `PackageContentGenerationIdentity_ExternalBuffersCannotMutateGeneration`,
@@ -3792,98 +3852,178 @@ membership or order, expansion policy, closure, Navigation focus, browser
 effects, portable schema, arbitrary transaction participants, durable recovery,
 or a second query-access protocol.
 
-#### Fresh Workspace construction and switching
+#### Active Workspace realization cutover
 
-##### Problem and strategy
+##### Owner and exact claim
 
-A saved definition describes one Workspace with `Newtonsoft.Json` and
-`Humanizer.Core` as explicit package Roots and a member from `Humanizer.dll`
-selected. Opening that definition constructs exactly that Workspace. The
-new Workspace is constructed solely from that definition; no other Workspace
-or Workspace definition participates. Once construction succeeds, the host
-makes the new Workspace active and Navigation makes `Humanizer.Core` active in
-the subject strip for the selected member. If another Workspace was active,
-the host has switched from it; otherwise this is initial activation. Failure
-retains the prior host state, including the absence of an active Workspace.
+Artifact Acquisition owns one host-local active-realization authority. It
+associates zero or one active `InspectionWorkspace` with the exact
+resource-free `WorkspacePlan` that constructed it, admits operations to that
+realization, cuts over to one ready replacement, and drains predecessor
+authority through ordinary awaited Workspace close.
 
-Restoration constructs the new Workspace with a fresh
-`InspectionWorkspaceIdentity` and uses the ordinary Artifact, Scope,
-Navigation, and query paths inside it:
+Definitions still owns portable requests and lowering. Workspace Scope still
+owns logical membership and its revisions. Retained hosts still own definition
+selection, history, navigation effects, and replacement policy. This owner
+does not search for a compatible Workspace, retain a selectable live-Workspace
+registry, or transfer resources between realizations.
 
-1. create one fresh Workspace under the restoration attempt's cancellation and
-   deadline;
-2. resolve and publish the complete requested multi-package Root set into that
-   Workspace through ordinary Scope and Artifact publication;
-3. establish the requested subject focus and validate any saved view or query
-   state using ordinary operations in the new Workspace;
-4. return the complete new Workspace for one current-authority switch; or
-5. close it on every failure, refusal, cancellation, expiry, or supersession
-   path.
+##### Association currencies
 
-The retained host owns a collection of published Workspaces and one nullable
-active-Workspace pointer. Successful activation is a VIP-style switch: publish
-the new Workspace into that collection and point the active identity to it in
-one non-yielding action. Any previously active Workspace remains published,
-open, viewable through the Workspace subject, and available for a later switch
-back. Construction completes before this publication and does not consult the
-retained collection.
+One realization uses the existing `InspectionWorkspaceIdentity`; no second
+realization identity is introduced. Its immutable origin association retains
+the exact `WorkspacePlan` supplied at construction. Equal plans create fresh
+Workspace identities and do not transfer authority.
 
-##### Ordinary Workspace construction
+One admitted operation retains this resource-free definition snapshot:
 
-The new Workspace is ordinary. It owns its Roots, occurrence identities,
-artifact sessions, context groups, query leases, budget reservations,
-Navigation session, and mutable owner state under the existing Workspace
-contract. Its published Roots use the ordinary current-query path. Artifact
-Acquisition needs no candidate identity, candidate-specific query admission,
-retained-current Root borrowing, `CandidateOwned` receipt state, or
-complete-restoration publication adapter. Ordinary Root
-preparation/publication and Workspace close remain sufficient. Shared immutable
-storage and package caches remain ordinary implementation details.
+```text
+WorkspaceDefinitionSnapshot
+  Workspace               exact InspectionWorkspaceIdentity
+  Identity                fresh opaque snapshot identity
+  Registrations           exact WorkspaceRegistrationRevision
+  Scope                   exact WorkspaceScopeRevision
+```
 
-Platform/package pruning runs before exact package Root construction. For
-example, `NETStandard.Library@2.0.3` contributes no package Root when the
-registered Platform target subsumes it; its selected API resolves through the
-Platform reference surface and type forwarders. `Humanizer.Core` survives
-pruning and becomes one ordinary Root in the fresh multi-package Workspace.
+The snapshot identity is stable while those exact owner-issued revisions
+remain current and advances when either revision advances. Capturing the pair
+occurs under the Workspace runtime gate. The adjacent Scope snapshot separately
+supplies its exact physical-composition observation; neither definition
+identity nor plan equality authorizes Artifact access.
 
-##### Ownership and bounded coexistence
+The live `WorkspaceRealizationOperationLease` joins the selected realization,
+that definition snapshot, and the corresponding Scope observation. The lease
+itself is authority. Retained identity or snapshot values remain diagnostic
+evidence after release and cannot enter another operation. An adopter holds the
+lease through production of its detached result and does not place the lease,
+Workspace, reader, content, callback, or another resource-bearing value in
+that result.
 
-Definitions owns the complete new-Workspace value and restoration result.
-Artifact Acquisition owns construction, ordinary operation, close, and
-resource drainage for each Workspace. The retained host owns the published
-Workspace collection and nullable active identity, and changes them only under
-current owner-issued effect authority. The CLI creates one ephemeral Workspace
-for one invocation and needs no retained collection.
+The current registration and Scope owners supply the two revision currencies.
+Append-only Add and its definition-snapshot publication remain owned by
+[Workspace Scope and Expansion](workspace-scope-and-expansion.md); that owner
+must compose its future publication with this capture boundary rather than
+introduce another operation generation.
 
-A retained host admits at most one unpublished new Workspace at a time. A newer
-restoration supersedes and closes the older attempt's Workspace before
-beginning another. The product exposes at most one active Workspace; the
-published collection may contain multiple inactive Workspaces. An unpublished
-Workspace is not selectable, rendered, placed in history, or available to
-ordinary host actions.
+##### Candidate, cutover, and drainage
 
-Browser/Wasm adoption must define and gate a host-level construction admission
-and retained-Workspace capacity policy. Published Workspaces remain live until
-the user deletes them; deleting a Workspace removes it from the host collection
-and closes it under the ordinary Artifact lifecycle. Per-Workspace budgets do
-not bound the aggregate retained set. This document makes no process-wide
-peak-memory safety claim.
+At most one unpublished candidate accepts construction work. A candidate has a
+fresh Workspace identity and ordinary private Workspace resources, but no
+active-operation authority. Construction enters through an explicit
+`WorkspaceRealizationConstructionLease`; the caller holds that lease for the
+complete construction operation and does not retain its Workspace afterward.
+Candidate completion closes new construction admission, waits for every
+already-admitted construction lease to release, and then captures one complete
+definition snapshot. A Scope snapshot that still reports unfinished
+preparation is not ready for publication.
 
-The required integration evidence is limited to:
+A newer replacement attempt supersedes the older unpublished candidate,
+closes its construction admission, lets already-admitted construction finish,
+and observes its terminal settlement before publishing another candidate.
+The newer attempt may be cancelled while awaiting that settlement; cancellation
+creates no replacement candidate, does not reopen the retired candidate, and
+does not bypass its continuing settlement.
+Candidate failure, cancellation, expiry, or supersession closes only that
+candidate and leaves the current active realization unchanged. Cancellation
+remains a cancellation outcome for the caller while the candidate's typed
+settlement records cancellation as its retirement reason.
 
-- a failed or superseded restoration closes the new Workspace and leaves the
-  published collection and active pointer unchanged;
-- a successful restoration publishes the exact prepared Workspace once and
-  points the active identity to it;
-- switching back selects an already-published Workspace without reconstructing
-  it;
-- deleting a published Workspace is the operation that removes and closes it;
-- at most one unpublished new Workspace is admitted; and
-- the adopting host enforces its declared retained-Workspace resource policy.
+Successful cutover is one non-yielding transition:
 
-These claims remain **unverified**. They require the Definitions and retained
-host designs before implementation; they do not extend the ordinary Artifact
-Root publication model or require a restoration-candidate TLA+ model.
+1. revalidate the exact current candidate and its ready state;
+2. close predecessor active-operation admission;
+3. select the candidate as the sole active realization; and
+4. consume the candidate's publication authority.
+
+An operation racing this transition is admitted either to the predecessor
+before its admission closes or to the successor after selection. It is never
+admitted to the predecessor afterward. Cutover does not wait for predecessor
+operations, lower query leases, streams, or cleanup.
+
+The predecessor becomes a non-selectable drainage record. Its already-admitted
+operation leases continue against their captured realization and definition
+snapshot. After the final such lease releases, Artifact Acquisition invokes
+ordinary `InspectionWorkspace.CloseAsync()`, which stops lower-level admission
+and awaits group, session, Root, stream, and resource settlement under their
+existing contracts. A later replacement may prepare while earlier
+predecessors drain, but only the selected realization admits new operations.
+The drainage records are settlement evidence, not a live-Workspace registry.
+
+There is no rollback or switch-back authority. Reusing an earlier retained
+definition constructs a fresh realization.
+
+##### Shared immutable resources
+
+Candidate, active, and draining realizations may hold independently releasable
+lower-owner references to the same immutable package payload, content
+generation, source cache entry, or validated derivation. Each realization
+still owns distinct Roots, occurrence identities, binding contexts, query
+leases, reservations, and operation authority.
+
+Closing a predecessor releases only its ownership. It cannot invalidate a
+successor's reference, relabel one content generation as another, or transfer a
+Root or live lease to the successor. Coordinates and equal definitions never
+prove shared content identity. Deduplication, cache validity, aggregate
+reference counting, and final reclamation remain with their existing lower
+owners.
+
+##### Settlement and host progress
+
+Every retired candidate or realization exposes one terminal settlement with
+its exact Workspace identity, retirement reason, complete close report when
+available, and any fault from awaited close. A cleanup failure remains visible
+and does not reactivate a predecessor or prevent a later candidate from
+becoming current. After terminal settlement, the coordinator retains only
+resource-free settlement evidence and no reference to the closed Workspace.
+
+No lock spans construction, construction drainage, snapshot capture, Workspace
+close, or settlement awaits. The cutover region performs bounded validation
+and pointer/authority changes only. Last construction- or operation-lease
+release invokes `CloseAsync()` after leaving the gate; it requires no worker
+thread or blocking wait and is valid for single-threaded Browser/Wasm. Eventual
+drainage assumes admitted construction and active operations release their
+leases and lower-owner close reaches a terminal outcome.
+
+Repeated cutover can temporarily retain several draining predecessors.
+Aggregate replacement admission and memory backpressure are host policy; the
+Browser owner must define a bound before production adoption. The CLI normally
+constructs one realization, admits its operation, and closes the coordinator at
+invocation completion.
+
+The implementation is `WorkspaceRealizationCoordinator`,
+`WorkspaceRealizationConstructionLease`,
+`WorkspaceRealizationOperationLease`, and `WorkspaceDefinitionSnapshot`.
+Existing direct Workspace operations remain compatibility surfaces; only
+adopters that enter construction and active operations through the coordinator
+satisfy the active-realization authority claim.
+
+The focused model under
+[`docs/design/models/workspace-realization-cutover/`](models/workspace-realization-cutover/)
+checks candidate failure and supersession, atomic cutover, post-cutover
+admission refusal, construction admission closure and drainage, exact operation
+association, predecessor drainage, visible settlement failure, and conditional
+single-thread progress.
+
+The corresponding Release gates are:
+
+- `Cutover_StopsPredecessorAdmissionAndDrainsAdmittedOperation`;
+- `CandidateFailure_PreservesActiveRealization`;
+- `CandidateRuntimeFailure_RetiresCandidateAndPreservesActiveRealization`;
+- `Completion_WaitsForAdmittedConstructionAndClosesAdmission`;
+- `CancelledCompletion_ReleasesCaptureAndSettlesCandidate`;
+- `SupersededCompletion_ReportsStaleCandidate`;
+- `ClosedCoordinatorCompletion_ReportsCoordinatorClosed`;
+- `NewCandidate_SupersedesAndSettlesPriorCandidate`;
+- `CancelledCandidateStartWait_DoesNotCreateReplacement`;
+- `SupersededCandidate_DrainsAdmittedConstruction`;
+- `OperationAuthority_RetainsExactDefinitionSnapshot`;
+- `EqualOriginPlan_SharesIntentButNotRealizationAuthority`;
+- `SharedPackageContent_PredecessorSettlementKeepsSuccessorUsable`;
+- `Cutover_RejectsCandidateUntilConstructionCompletes`;
+- `ConcurrentReplacement_NewestIntentCreatesTheCandidate`;
+- `OperationLease_DoubleDisposeDoesNotEndAnotherLease`;
+- `Settlement_PreservesWorkspaceCloseFailure`; and
+- `Close_WaitsForAdmittedOperationsAndReportsEverySettlement`.
 
 ### Workspace identity
 

@@ -39,6 +39,7 @@ export type PreparedProductHomeDemoSource =
     package: AppPackage;
     focusAssembly: string;
     focusPack: PlatformPack;
+    contextId: string;
   };
 
 let catalogEntries: readonly ProductHomeDemoCatalogEntry[] = [];
@@ -119,6 +120,9 @@ export function prepareProductHomeDemoSource(
   }
 
   if (activation.focusKind === "platform") {
+    if (!activation.platformContextId) {
+      throw new Error("The engine-run Platform demo omitted its retained context.");
+    }
     const focusAssembly = activation.focusAssembly;
     if (!focusAssembly) {
       throw new Error("The engine-run Platform demo omitted its focus assembly.");
@@ -164,6 +168,7 @@ export function prepareProductHomeDemoSource(
       package: packageModel,
       focusAssembly,
       focusPack,
+      contextId: activation.platformContextId,
     };
   }
 
@@ -186,4 +191,28 @@ export function homeDemosEntryHtml(
         ? "No demos available"
         : `${catalog.length} available`;
   return `<button id="home-demos" class="home-demo" type="button" ${disabled ? "disabled" : ""}><strong>Browse demos →</strong><small>${escapeHtml(count)}</small></button>`;
+}
+
+export function productHomeDemosViewHtml(
+  escapeHtml: (value: string) => string,
+  catalogError: string,
+): string {
+  const demos = productHomeDemoCatalog();
+  const rows = demos.map(demo =>
+    `<li class="workspace-demo-row">
+      <div>
+        <strong>${escapeHtml(demo.title)}</strong>
+        <small>${escapeHtml(demo.summary)}</small>
+      </div>
+      <button type="button" data-workspace-demo="${escapeHtml(demo.id)}" aria-label="Open demo ${escapeHtml(demo.title)}">Open demo</button>
+    </li>`).join("");
+  const content = catalogError
+    ? `<p role="alert">${escapeHtml(catalogError)}</p>`
+    : rows
+      ? `<ul class="workspace-demo-list">${rows}</ul>`
+      : "<p>No product demos are available.</p>";
+  return `<h1>Demos</h1>
+    <p>Open a product demo as a new Workspace with its packages and initial view.</p>
+    ${catalogError ? "" : `<p>${demos.length} available</p>`}
+    ${content}`;
 }

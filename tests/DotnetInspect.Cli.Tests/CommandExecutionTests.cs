@@ -541,7 +541,8 @@ public partial class CommandExecutionTests
 
     private static void WriteMalformedAdjacencyAssembly(
         string path,
-        bool malformedAssemblyReference)
+        bool malformedAssemblyReference,
+        bool referenceFromPublicSurface = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -573,6 +574,12 @@ public partial class CommandExecutionTests
                 token,
                 default,
                 default);
+        TypeReferenceHandle healthyBase = referenceFromPublicSurface
+            ? metadata.AddTypeReference(
+                target,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Base"))
+            : default;
         if (!malformedAssemblyReference)
         {
             metadata.AddExportedType(
@@ -594,7 +601,7 @@ public partial class CommandExecutionTests
             TypeAttributes.Public,
             metadata.GetOrAddString("N"),
             metadata.GetOrAddString("Healthy"),
-            default,
+            healthyBase,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
 
@@ -6883,10 +6890,12 @@ public partial class CommandExecutionTests
                 Path.Combine(tempDir, "new.dll");
             WriteMalformedAdjacencyAssembly(
                 oldPath,
-                malformedAssemblyReference: true);
+                malformedAssemblyReference: true,
+                referenceFromPublicSurface: true);
             WriteMalformedAdjacencyAssembly(
                 newPath,
-                malformedAssemblyReference: true);
+                malformedAssemblyReference: true,
+                referenceFromPublicSurface: true);
             string range = $"{oldPath}..{newPath}";
 
             var markdown = await RunAppAsync(
@@ -6909,12 +6918,12 @@ public partial class CommandExecutionTests
                 markdown.Output,
                 StringComparison.Ordinal);
             Assert.Contains(
-                "invalid AssemblyRef row",
+                "public-key token must contain exactly 8 bytes",
                 markdown.Output,
                 StringComparison.Ordinal);
             Assert.Equal(1, json.Exit);
             Assert.Contains(
-                "invalid AssemblyRef row",
+                "public-key token must contain exactly 8 bytes",
                 json.Output,
                 StringComparison.Ordinal);
 
@@ -10366,6 +10375,27 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_DiscoverEffective_ListsCategoriesBeforeSections()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Discover = []
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        var rows = ExtractDiscoveryRows(output);
+        int lastCategoryIndex = rows.FindLastIndex(row => row.Kind == "category");
+        int firstSectionIndex = rows.FindIndex(
+            row => row.Kind.StartsWith("section", StringComparison.Ordinal));
+        Assert.True(lastCategoryIndex >= 0 && firstSectionIndex > lastCategoryIndex);
+    }
+
+    [Fact]
     public async Task Member_DiscoverEffective_ShowIndexAtNormal_ListsMemberIndexColumns()
     {
         var options = new MemberOptions
@@ -12343,10 +12373,12 @@ public partial class CommandExecutionTests
                 "ecosystem",
                 "extensions",
                 "find",
+                "graph libraries",
                 "implements",
                 "library",
                 "member",
                 "package",
+                "package changes",
                 "package query",
                 "project",
                 "timeline",
@@ -14721,7 +14753,7 @@ public partial class CommandExecutionTests
             "--count", "-v", "q", "--tips", "q");
         var quietWindowed = await RunAppAsync(
             "extensions", "IEnumerable<T>", "--platform", "System.Linq",
-            "--count", "-v", "q", "--rows", "1", "--tips", "q");
+            "--count", "-v", "q", "--rows", "1..1", "--tips", "q");
 
         Assert.Equal(0, normal.Exit);
         Assert.Equal(normal.Output, quiet.Output);
@@ -14740,10 +14772,10 @@ public partial class CommandExecutionTests
             "--count", "--rows", "1..1", "--tips", "q");
         var implements = await RunAppAsync(
             "implements", "IDisposable", "--platform", "System.Private.CoreLib",
-            "--count", "--rows", "1", "--tips", "q");
+            "--count", "--rows", "1..1", "--tips", "q");
         var extensions = await RunAppAsync(
             "extensions", "IEnumerable<T>", "--platform", "System.Linq",
-            "--count", "--rows", "1", "--tips", "q");
+            "--count", "--rows", "1..1", "--tips", "q");
         var invalid = await RunAppAsync(
             "find", "*", "--platform", "System.Private.CoreLib",
             "--count", "--columns", "NoSuchColumn", "--tips", "q");
@@ -19400,7 +19432,8 @@ public partial class CommandExecutionTests
     public async Task Extensions_JsonlAfterPackage_RendersJsonlAndDoesNotWarnAboutPackageFlag()
     {
         var (exit, output, error) = await RunAppAsync(
-            "extensions", "IEnumerable<T>", "--platform", "System.Linq", "--jsonl", "--rows", "2", "--tips", "q");
+            "extensions", "IEnumerable<T>", "--platform", "System.Linq",
+            "--jsonl", "--rows", "1..2", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -31299,6 +31332,9 @@ public partial class CommandExecutionTests
                 (
                     "content",
                     ["--content", "--path", "README.md", "-n", "1"]),
+                (
+                    "content-readme-role",
+                    ["--content", "--path", "@readme", "-n", "1"]),
             ];
 
             foreach (var testCase in cases)
@@ -31395,13 +31431,8 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Theory]
-    [InlineData("content", "Package README file")]
-    [InlineData("print", "package readme file")]
-    [InlineData("bare", "PACKAGE README FILE")]
-    public async Task PackageExactTransfer_LineWindowRejectsBeforePackageAcquisition(
-        string mode,
-        string section)
+    [Fact]
+    public async Task PackageExactTransfer_ExplicitPathLineWindowRejectsBeforePackageAcquisition()
     {
         string packageName =
             $"Test.Projection.NoAcquire.{Guid.NewGuid():N}";
@@ -31410,15 +31441,14 @@ public partial class CommandExecutionTests
             $"{packageName}.txt");
         try
         {
-            string[] projection = mode == "content"
-                ? ["--content", "--path", "README.md"]
-                : ["-S", section, $"--{mode}"];
             var result = await RunAppAsync(
                 [
                     "--offline",
                     "package",
                     packageName,
-                    .. projection,
+                    "--content",
+                    "--path",
+                    "README.md",
                     "-n1",
                     "--out",
                     outputPath,
@@ -32104,13 +32134,27 @@ public partial class CommandExecutionTests
             Assert.Equal(0, contentExit);
             Assert.Equal(0, contentBlocksExit);
             Assert.Equal(0, contentJsonExit);
-            Assert.Empty(packageError);
-            Assert.Empty(projectError);
-            Assert.Empty(packageJsonError);
-            Assert.Empty(projectJsonError);
-            Assert.Empty(contentError);
-            Assert.Empty(contentBlocksError);
-            Assert.Empty(contentJsonError);
+            AssertContainmentWarning(
+                packageError,
+                "skills/package-skill/SKILL.md");
+            AssertContainmentWarning(
+                projectError,
+                "skills/project-skill/SKILL.md");
+            AssertContainmentWarning(
+                packageJsonError,
+                "skills/package-skill/SKILL.md");
+            AssertContainmentWarning(
+                projectJsonError,
+                "skills/project-skill/SKILL.md");
+            AssertContainmentWarning(
+                contentError,
+                "skills/package-skill/SKILL.md");
+            AssertContainmentWarning(
+                contentBlocksError,
+                "skills/package-skill/SKILL.md");
+            AssertContainmentWarning(
+                contentJsonError,
+                "skills/package-skill/SKILL.md");
             string placeholder = InertString.ContainmentRequiredPlaceholder.ToString();
             Assert.Equal(placeholder, packageOutput);
             Assert.Equal(placeholder, projectOutput);
@@ -32139,6 +32183,82 @@ public partial class CommandExecutionTests
             Directory.Delete(packageTempDir, recursive: true);
             Directory.Delete(projectTempDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task SkillDocuments_ReportBoundedContainmentRanges()
+    {
+        const string bidi = "\u202E";
+        string content =
+            "---\nname: ranges\n---\nprefix\n  "
+            + bidi
+            + bidi
+            + "x\u001B"
+            + "x"
+            + string.Join("x", Enumerable.Repeat(bidi, 8));
+        const string SkillPath = "skills/ranges/SKILL.md";
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Skills.ContainmentRanges",
+            "README.md",
+            "readme",
+            null,
+            null,
+            (SkillPath, content));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--content",
+                "--path",
+                SkillPath,
+                "--body",
+                "--bare");
+
+            Assert.Equal(0, exit);
+            Assert.Equal(
+                InertString.ContainmentRequiredPlaceholder.ToString() + "\n",
+                output);
+            Assert.Contains(
+                $"Skill document '{SkillPath}' was omitted because 10 text ranges require containment.",
+                error,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "line 5, columns 3-4: 2 x U+202E (Format)",
+                error,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "line 5, column 6: U+001B (Control)",
+                error,
+                StringComparison.Ordinal);
+            Assert.Equal(
+                7,
+                error.Split(
+                    "U+202E (Format)",
+                    StringSplitOptions.None).Length - 1);
+            Assert.Contains(
+                "2 additional ranges omitted.",
+                error,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(bidi, error, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    private static void AssertContainmentWarning(
+        string error,
+        string source)
+    {
+        Assert.Contains(
+            $"Warning: Skill document '{source}' was omitted because 1 text range requires containment.",
+            error,
+            StringComparison.Ordinal);
+        Assert.Contains("U+202E (Format)", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("\u202E", error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -32267,8 +32387,12 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, packageExit);
             Assert.Equal(0, projectExit);
-            Assert.Empty(packageError);
-            Assert.Empty(projectError);
+            AssertContainmentWarning(
+                packageError,
+                "skills/package-skill/SKILL.md");
+            AssertContainmentWarning(
+                projectError,
+                "skills/project-skill/SKILL.md");
             string placeholder = InertString.ContainmentRequiredPlaceholder.ToString();
             Assert.Equal(placeholder, packageOutput);
             Assert.Equal(placeholder, projectOutput);
@@ -32297,7 +32421,7 @@ public partial class CommandExecutionTests
                 "package", packagePath, "-S", "Package README file", "--print", "--bare");
 
             Assert.Equal(0, exit);
-            Assert.Empty(error);
+            AssertContainmentWarning(error, SkillPath);
             Assert.Equal(
                 InertString.ContainmentRequiredPlaceholder.ToString(),
                 output);
@@ -32351,9 +32475,15 @@ public partial class CommandExecutionTests
             Assert.Empty(packageStdout);
             Assert.Empty(packageContentStdout);
             Assert.Empty(projectStdout);
-            Assert.Empty(packageError);
-            Assert.Empty(packageContentError);
-            Assert.Empty(projectError);
+            AssertContainmentWarning(
+                packageError,
+                "skills/package-skill/SKILL.md");
+            AssertContainmentWarning(
+                packageContentError,
+                "skills/package-skill/SKILL.md");
+            AssertContainmentWarning(
+                projectError,
+                "skills/project-skill/SKILL.md");
             Assert.Equal(
                 InertString.ContainmentRequiredPlaceholder.ToString(),
                 File.ReadAllText(packageOutput));
@@ -34248,6 +34378,65 @@ public partial class CommandExecutionTests
         Assert.Equal(1, all.Exit);
         Assert.Empty(all.Output);
         Assert.Contains("Select value '@All' not found", all.Error);
+    }
+
+    [Fact]
+    public async Task Project_Discover_ExplicitTableDoesNotPromoteToTree()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "project",
+            "-D", "Skills,Package README file",
+            "--table");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Package      column", output);
+        Assert.Contains("Description  column", output);
+        Assert.DoesNotContain("├─", output);
+        Assert.DoesNotContain("└─", output);
+    }
+
+    [Fact]
+    public async Task Project_Discover_TsvNoHeaderOmitsHeader()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "project",
+            "-D", "Skills",
+            "--tsv",
+            "--no-header",
+            "--rows", "1");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal("Package\tcolumn\n", output.ReplaceLineEndings("\n"));
+    }
+
+    [Fact]
+    public async Task Project_Discover_JsonOutWritesOnlyToFile()
+    {
+        var tempDirectory = Directory.CreateTempSubdirectory("project-discovery-out-");
+        try
+        {
+            string path = Path.Combine(tempDirectory.FullName, "discovery.json");
+
+            var (exit, output, error) = await RunAppAsync(
+                "project",
+                "-D", "Skills",
+                "--json",
+                "--out", path);
+
+            Assert.Equal(0, exit);
+            Assert.Empty(output);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            var first = document.RootElement.EnumerateArray().First();
+            Assert.Equal("Package", first.GetProperty("name").GetString());
+            Assert.Equal("column", first.GetProperty("kind").GetString());
+        }
+        finally
+        {
+            tempDirectory.Delete(recursive: true);
+        }
     }
 
     [Fact]
@@ -36644,6 +36833,169 @@ public partial class CommandExecutionTests
             Assert.Empty(exactExport.Output);
             Assert.Empty(exactExport.Error);
             Assert.Equal("first", File.ReadAllText(exactOutputPath));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageSkillDestinations_ApplyLineWindowsToSelectedText()
+    {
+        const string bidi = "\u202E";
+        const string safe = "safe-first\nsafe-second";
+        string placeholder = InertString.ContainmentRequiredPlaceholder.ToString();
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Projection.SkillWindows",
+            "skills/readme-skill/SKILL.md",
+            safe,
+            null,
+            null,
+            ("skills/safe/SKILL.md", safe),
+            ("skills/contained/SKILL.md", $"contained{bidi}skill"),
+            ("skills/example/SKILL.md/payload.txt", "first\nsecond"));
+        try
+        {
+            (string Name, string[] Arguments, string Stdout, string File, string? WarningSource)[] cases =
+            [
+                (
+                    "print-safe",
+                    ["-S", "Package skill files", "--print", "--row", "2", "--bare", "-n1"],
+                    "safe-first\n",
+                    "safe-first\n",
+                    null),
+                (
+                    "content-safe",
+                    ["--content", "--path", "skills/safe/SKILL.md", "--bare", "-n1"],
+                    "safe-first\n",
+                    "safe-first\n",
+                    null),
+                (
+                    "print-readme-skill",
+                    ["-S", "Package README file", "--print", "--bare", "-n1"],
+                    "safe-first\n",
+                    "safe-first\n",
+                    null),
+                (
+                    "content-readme-skill",
+                    ["--content", "--path", "@readme", "--bare", "-n1"],
+                    "safe-first\n",
+                    "safe-first\n",
+                    null),
+                (
+                    "print-contained",
+                    ["-S", "Package skill files", "--print", "--row", "1", "--bare", "-n1"],
+                    placeholder,
+                    placeholder,
+                    "skills/contained/SKILL.md"),
+                (
+                    "content-contained",
+                    ["--content", "--path", "skills/contained/SKILL.md", "--bare", "-n1"],
+                    placeholder + "\n",
+                    placeholder,
+                    "skills/contained/SKILL.md"),
+            ];
+
+            foreach (var testCase in cases)
+            {
+                var outputPath = Path.Combine(tempDir, $"{testCase.Name}.txt");
+                var stdout = await RunAppInDirectoryAsync(
+                    tempDir,
+                    ["package", packagePath, .. testCase.Arguments, "--tips", "q"]);
+                var redirected = await RunAppInDirectoryAsync(
+                    tempDir,
+                    [
+                        "package", packagePath, .. testCase.Arguments,
+                        "--out", outputPath, "--tips", "q",
+                    ]);
+
+                Assert.Equal(0, stdout.Exit);
+                Assert.Equal(0, redirected.Exit);
+                if (testCase.WarningSource is { } warningSource)
+                {
+                    AssertContainmentWarning(stdout.Error, warningSource);
+                    AssertContainmentWarning(redirected.Error, warningSource);
+                }
+                else
+                {
+                    Assert.Empty(stdout.Error);
+                    Assert.Empty(redirected.Error);
+                }
+                Assert.Empty(redirected.Output);
+                Assert.Equal(testCase.Stdout, stdout.Output);
+                Assert.Equal(testCase.File, File.ReadAllText(outputPath));
+                Assert.DoesNotContain(bidi, stdout.Output, StringComparison.Ordinal);
+                Assert.DoesNotContain(bidi, File.ReadAllText(outputPath), StringComparison.Ordinal);
+            }
+
+            var wildcardPath = Path.Combine(tempDir, "wildcard.md");
+            var wildcard = await RunAppAsync(
+                "package", packagePath,
+                "--content", "--path", "skills/safe/*.md", "--bare", "-n1",
+                "--out", wildcardPath, "--tips", "q");
+
+            Assert.Equal(1, wildcard.Exit);
+            Assert.Empty(wildcard.Output);
+            Assert.Contains(
+                "a rendered line limit cannot be combined with exact --out transfer",
+                wildcard.Error,
+                StringComparison.Ordinal);
+            Assert.False(File.Exists(wildcardPath));
+
+            var directoryPath = Path.Combine(tempDir, "directory.md");
+            File.WriteAllText(directoryPath, "sentinel");
+            var directory = await RunAppAsync(
+                "package", packagePath,
+                "--content", "--path", "skills/example/SKILL.md", "--bare", "-n1",
+                "--out", directoryPath, "--tips", "q");
+
+            Assert.Equal(1, directory.Exit);
+            Assert.Empty(directory.Output);
+            Assert.Contains(
+                "a rendered line limit cannot be combined with exact --out transfer",
+                directory.Error,
+                StringComparison.Ordinal);
+            Assert.Equal("sentinel", File.ReadAllText(directoryPath));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageOutputPath_RejectsExplicitEmptyValuesWithoutStdoutFallback()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Projection.EmptyOutputPath",
+            "README.md",
+            "must-not-reach-stdout");
+        try
+        {
+            foreach (string option in new[] { "--out", "--output", "-o" })
+            {
+                foreach (string[] prefix in new[]
+                {
+                    new[] { "package", packagePath },
+                    new[] { packagePath },
+                })
+                {
+                    var result = await RunAppAsync(
+                        [
+                            .. prefix,
+                            "-S", "Package README file", "--print", "--bare",
+                            option, "",
+                        ]);
+
+                    Assert.Equal(1, result.Exit);
+                    Assert.Empty(result.Output);
+                    Assert.Contains(
+                        "--out requires a non-empty path.",
+                        result.Error,
+                        StringComparison.Ordinal);
+                }
+            }
         }
         finally
         {
