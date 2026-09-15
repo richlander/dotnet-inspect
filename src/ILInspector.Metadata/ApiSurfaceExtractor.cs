@@ -4922,7 +4922,9 @@ public static class ApiSurfaceExtractor
             }
             else if (hasPublicGetter && hasSetter)
             {
-                accessorStr = "{ get; private set; }";
+                string setterAccessibility =
+                    GetAccessibility(setterAccess) ?? "private";
+                accessorStr = $"{{ get; {setterAccessibility} set; }}";
                 accessorModels.Add(new ApiAccessor
                 {
                     Kind = "get",
@@ -4935,7 +4937,7 @@ public static class ApiSurfaceExtractor
                 accessorModels.Add(new ApiAccessor
                 {
                     Kind = "set",
-                    Accessibility = "private",
+                    Accessibility = setterAccessibility,
                     ReturnAttributes = ReturnParameterAttributes(
                         reader,
                         reader.GetMethodDefinition(accessors.Setter).GetParameters(),

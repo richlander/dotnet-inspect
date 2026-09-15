@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Reflection.PortableExecutable;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Fixtures;
@@ -38,6 +39,21 @@ public sealed class BrowserMemberDeclarationTests
     {
         byte[] image = File.ReadAllBytes(
             FixtureCatalog.DecompilerUnsafeNew.AssemblyPath());
+        using (var peReader = new PEReader(
+            new MemoryStream(image, writable: false)))
+        {
+            ApiType extractedType = Assert.Single(
+                ApiSurfaceExtractor.Extract(peReader).Types,
+                candidate => candidate.FullName == SpellingType);
+            ApiMember restrictedProperty = Assert.Single(
+                extractedType.Members,
+                candidate => candidate.Name == "InternalSet");
+            Assert.Equal(
+                "internal",
+                restrictedProperty.SignatureModel!.Accessors
+                    .Single(accessor => accessor.Kind == "set")
+                    .Accessibility);
+        }
         await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
             new BrowserPackage(
                 PackageId,
@@ -86,6 +102,15 @@ public sealed class BrowserMemberDeclarationTests
             Assert.IsType<string>(propertyDeclaration.Text));
         Assert.Null(propertyDeclaration.Unavailable);
         Assert.False(propertyDeclaration.Compatibility);
+
+        BrowserMemberDeclaration internalSetDeclaration = await Declaration(
+            spellingType,
+            Member(spellingType, "InternalSet"));
+        Assert.Equal(
+            "public int InternalSet { get; internal set; }",
+            Assert.IsType<string>(internalSetDeclaration.Text));
+        Assert.Null(internalSetDeclaration.Unavailable);
+        Assert.False(internalSetDeclaration.Compatibility);
 
         BrowserMemberDeclaration initOnlyDeclaration = await Declaration(
             spellingType,

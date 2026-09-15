@@ -29,6 +29,8 @@ public sealed class MemorySafetySpellingFixture
 
     public string Type { get; set; } = "";
 
+    public int InternalSet { get; internal set; }
+
     public int InitOnly { get; init; }
 
     [DllImport("__dotnet_inspect_memory_safety_fixture__")]
