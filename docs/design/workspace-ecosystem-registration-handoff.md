@@ -63,8 +63,9 @@ The owner defines:
 
 It consumes without redefining:
 
-- Ecosystem Packs' application identity, manifest, display metadata, retrieval
-  knowledge, prefix entries, and Integration scanner selection;
+- Ecosystem Packs' application identity, manifest, display metadata, namespace
+  hints, registered core packages, prefix entries, and Integration scanner
+  selection;
 - Source Selection's `PackagePrefixDeclaration`;
 - Source Selection's `ExactLibrarySourceCoordinate` and
   `PlatformLibraryPopulationDeclaration`;
@@ -120,11 +121,11 @@ discovery-oriented command or Spotlight selection
 ```
 
 The declaration added by this slice carries the inert information needed at the
-second step. For example, the ASP.NET Core declaration can retain both its
-Platform population and `Microsoft.AspNetCore.` package-prefix population,
-while the Platform declaration retains the .NET runtime population. Later
-consumers can select those exact contributions without importing the
-application catalog or reconstructing them from display text.
+second step. For example, the ASP.NET Core declaration can retain its concrete
+package roots, Platform population, and `Microsoft.AspNetCore.` package-prefix
+population, while the Platform declaration retains the .NET runtime
+population. Later consumers can select those exact contributions without
+importing the application catalog or reconstructing them from display text.
 
 The handoff does not decide that the discovery operation should be curated,
 admit the selected package, establish focus, choose `Everything`, resolve a
@@ -251,7 +252,7 @@ Browser/Wasm-safe. Conceptually it carries:
 WorkspaceEcosystemRegistrationDeclaration
   Id                 WorkspaceEcosystemRegistrationId
   NamespaceRoots     immutable authored-order namespace hints
-  CorePackages       immutable authored-order PackageCoordinate priorities
+  CorePackages       immutable authored-order PackageCoordinate roots
   Populations        immutable authored-order population declarations
   IntegrationScanner optional EcosystemIntegrationScannerBinding
 ```
@@ -262,25 +263,26 @@ authorization, operation bound, Workspace revision, or acquired content.
 
 Construction rejects a declaration with no contribution in any slot. This
 prevents a known display-only pack from becoming an apparently useful
-Workspace registration. A nonempty knowledge or scanner contribution can
-still form a declaration, but it does not pretend to supply a call-graph
-population.
+Workspace registration. Namespace hints or a scanner can still form an
+ordinary declaration, but only a nonempty core-package sequence or population
+contribution supplies a finite call-graph starting population.
 
 Each contribution retains its owner's exact value. The handoff does not parse
 namespace roots into package names, turn core packages into curated
 membership, lower prefixes into query requests, inspect scanner targets, or
 translate platform populations into package coordinates.
 
-### Retrieval knowledge
+### Namespace hints and registered packages
 
-`NamespaceRoots` and `CorePackages` preserve the exact immutable knowledge
-already owned by Static Ecosystem Packs. Their validation, descriptive
-semantics, authored order, overlap rules, and non-exhaustive meaning remain
-defined there.
+`NamespaceRoots` and `CorePackages` preserve the exact immutable contributions
+already owned by Static Ecosystem Packs. Their validation, authored order,
+overlap rules, and non-exhaustive meaning remain defined there.
 
 The handoff adds no positional relationship between a namespace root and a
-core package. A root miss is not absence, and a core-package entry is not an
-instruction to acquire or admit that package.
+core package. A root miss is not absence. A core package is an inert registered
+root, not an instruction for projection, plan construction, or Workspace
+construction to resolve or admit it. A later selecting operation supplies the
+source, version, target, prerelease, acquisition, and traversal policies.
 
 ### Population declarations
 
@@ -404,13 +406,14 @@ Complete validation of either manifest requires:
 - at least one authored application identity;
 - no duplicate application or lower identity;
 - every application identity to resolve to one explicit projection; and
-- every projected declaration to contain at least one population contribution.
+- every projected declaration to contain at least one registered core package
+  or population contribution.
 
 All-known validation additionally requires every registered application pack
 to occur in its manifest, including packs whose projection is unavailable.
 Such a pack fails complete construction; it is not silently filtered out.
-Unknown, unavailable, duplicate and hints-only rows are product-construction
-errors, not shorter successful plans.
+Unknown, unavailable, duplicate and namespace-only rows are
+product-construction errors, not shorter successful plans.
 
 These sequences are the current product policy, not a permanent closed grammar.
 Ecosystems may add, remove, or reorder entries in a later product build with
@@ -419,40 +422,44 @@ of discovery; the all-known set check validates coverage without deriving order.
 
 The current target contributions are:
 
-| Curated registration | Required population declarations |
-| --- | --- |
-| Platform | `Platform(DotNetRuntime)` |
-| ASP.NET Core | `Platform(AspNetCore)` and `Microsoft.AspNetCore.` package prefix |
-| Microsoft.Extensions | `Microsoft.Extensions.` package prefix |
-| Aspire (all-known only) | `Aspire.` package prefix |
-| AI (all-known only) | `Microsoft.Extensions.AI`, `Microsoft.Extensions.VectorData`, `Microsoft.Agents.AI`, and `ModelContextProtocol` package prefixes |
-| Azure (all-known only) | `Azure.` and `Microsoft.Extensions.Azure` package prefixes |
+| Curated registration | Registered package roots | Additional populations |
+| --- | --- | --- |
+| Platform | none | `Platform(DotNetRuntime)` |
+| ASP.NET Core | `Microsoft.AspNetCore.OpenApi`, `Microsoft.AspNetCore.Authentication.JwtBearer` | `Platform(AspNetCore)`, `Microsoft.AspNetCore.` |
+| Microsoft.Extensions | DI, configuration, and logging abstractions | `Microsoft.Extensions.` |
+| Aspire (all-known only) | `Aspire.Hosting` | `Aspire.` |
+| AI (all-known only) | Five concrete AI packages | Four focused discovery prefixes |
+| Azure (all-known only) | Nine concrete Azure connector and client packages | `Azure.`, `Microsoft.Azure.`, `Microsoft.Extensions.Azure`, `Aspire.Azure.`, `Aspire.Hosting.Azure.` |
 
-Namespace roots and core-package priorities remain additional inert knowledge.
-They cannot satisfy the curated population requirement by themselves.
+Namespace roots cannot satisfy this requirement. Core packages can because
+they are the finite concrete roots a later selecting operation may resolve;
+construction itself remains inert.
 
 Aspire is absent from platform curation and present in all-known construction.
-Its `Aspire.Hosting` priority and exact Integration-owned scanner binding are
-retained alongside the prefix. This supports the real `Aspire.Hosting.Redis`
-scenario without resolving that package or invoking the scanner. Platform
+Its `Aspire.Hosting` registered root and exact Integration-owned scanner binding
+are retained alongside the prefix. This supports the real
+`Aspire.Hosting.Redis` scenario without resolving that package or invoking the
+scanner. Platform
 retains its runtime declaration for scenarios such as `System.Text.Json`,
 without inventing a package coordinate for the framework library.
 
 AI is also absent from platform curation and present in all-known construction.
-Its four literal package prefixes retain the root packages and child package
-families for Microsoft.Extensions.AI, VectorData, Agent Framework, and MCP.
+Its five concrete registered packages supply finite traversal roots. Its four
+literal package prefixes retain discovery scope for the root packages and
+child package families for Microsoft.Extensions.AI, VectorData, Agent
+Framework, and MCP.
 The first two deliberately overlap the broader `Microsoft.Extensions.` prefix;
 the handoff preserves both authored registrations and neither infers exclusive
 ownership, package equivalence, or traversal authorization.
 
 Azure is absent from platform curation and present in all-known construction.
-Its `Azure.` prefix retains the modern Azure SDK client and management package
-family without including legacy `Microsoft.Azure.*` packages. Its
-`Microsoft.Extensions.Azure` prefix retains the application-integration root
-and deliberately overlaps the broader `Microsoft.Extensions.` registration.
-The handoff preserves both registrations without adding that package to the
-Microsoft.Extensions curated package set or inferring exclusive ownership,
-package equivalence, or traversal authorization.
+Its nine concrete registered packages supply finite traversal roots chosen for
+application relevance and cross-ecosystem joins. Its `Azure.`,
+`Microsoft.Azure.`, `Microsoft.Extensions.Azure`, `Aspire.Azure.`, and
+`Aspire.Hosting.Azure.` prefixes retain overlapping discovery scope. The
+Microsoft.Extensions and Aspire values deliberately overlap those ecosystems;
+the handoff preserves every authored contribution without inferring exclusive
+ownership, package equivalence, migration, or traversal from prefix matches.
 
 Adding or removing an entry is an application-manifest change, not a Workspace
 Scope default embedded in CLI, Browser, Queries, or persisted data. All-known
@@ -486,11 +493,11 @@ Ecosystems returns one complete plan or propagates the owner-issued failure;
 it never substitutes a shorter manifest. Live construction, revision
 authority and cleanup remain with Workspace and its explicit consumer.
 
-Runtime work begins only after a consumer selects a contribution. Platform or
-package-prefix owners retain their own `Unavailable`, `Rejected`,
-`Incomplete`, cancellation, deadline, and capacity outcomes. The handoff does
-not turn one of those results into an empty population or retry through another
-contribution.
+Runtime work begins only after a consumer selects a contribution. Package
+resolution, Platform, and package-prefix owners retain their own `Unavailable`,
+`Rejected`, `Incomplete`, cancellation, deadline, and capacity outcomes. The
+handoff does not turn one of those results into an empty population or retry
+through another contribution.
 
 Lower declaration construction snapshots each supplied sequence exactly once
 into an immutable array and then validates that snapshot. It retains the
@@ -540,13 +547,13 @@ A pack contributes a title, demos, and a curated package-set action but no
 Workspace declaration. It remains a valid application pack. Workspace
 projection returns `Unavailable` rather than an empty declaration.
 
-### Hints-only curated entry
+### Namespace-only curated entry
 
-A curated row resolves to a declaration with namespace roots and core packages
-but no population contribution. The ordinary declaration is valid for
+A curated row resolves to a declaration with namespace roots but no registered
+core package or population contribution. The ordinary declaration is valid for
 knowledge consumers, but complete curated-manifest construction rejects it.
-Curated Workspace construction never silently registers a population that a
-call-graph consumer cannot form.
+Curated Workspace construction never publishes a registration from which a
+call-graph consumer cannot form a finite starting population.
 
 ### Shared-framework and package overlap
 
@@ -715,7 +722,7 @@ membership.
 | Explicit correspondence | Equal text without a retained pair cannot project; mismatched paired spellings and duplicate lower IDs reject complete catalog construction. |
 | Projection fidelity | Known selection returns the exact retained declaration; known unavailable and unknown identities remain distinct. |
 | Resource-free projection | Discovery and selection invoke no prefix query, platform source, package-set lookup, scanner, acquisition, or Workspace mutation. |
-| Curated product Workspace | The current Platform, ASP.NET Core, Microsoft.Extensions order and required population contributions are enforced without filtering ordinary pack discovery. |
+| Curated product Workspace | The current Platform, ASP.NET Core, Microsoft.Extensions order and required registered-package or population contributions are enforced without filtering ordinary pack discovery. |
 | All-known product Workspace | The separate current six-row order includes Aspire, AI, and Azure and every known pack; missing or unavailable projections cannot be silently omitted. |
 | Selected product Workspace | A nonempty unique selected identity sequence produces exactly those retained registrations in caller order; null, duplicate, unknown, unavailable, and hints-only entries fail without a partial plan. |
 | Independent construction | One curated plan can seed distinct live Workspace identities; edits and close preserve the original plan and other owners. |
@@ -724,10 +731,11 @@ membership.
 | Complete failure | Invalid or unavailable curated entries return no partial Workspace and retain the product defect visibly. |
 | Product-policy evolution | Changing the curated manifest affects new curated construction only; existing and restored expanded registration sets remain unchanged. |
 | Prefix policy separation | Projected prefixes retain exact `PackagePrefixDeclaration` values and no request bound or prerelease policy. |
+| Registered-package policy | Projected core packages retain exact unversioned `PackageCoordinate` roots and construction performs no resolution or acquisition. |
 | Catalog dependency policy | Existing full project-and-assembly gates keep `DotnetInspector.Ecosystems` out of Queries and every inspect-web production project except `CatalogExports`. |
 | Ordinary consumer canary | A non-friend consumer selects lower declarations through the public catalog surface and uses them without internal access. |
 | CLI and Browser adoption | Both hosts invoke the Ecosystems-owned construction path and observe its exact initial registration sequence. |
-| Pathological curation | Unknown, unavailable, duplicate, and hints-only curated rows fail visibly rather than producing a shorter success result. |
+| Pathological curation | Unknown, unavailable, duplicate, and namespace-only curated rows fail visibly rather than producing a shorter success result. |
 
 The existing ecosystem-catalog dependency gates retain full coverage for the
 catalog-to-lower-layer dependency absence claim. There is no dedicated source

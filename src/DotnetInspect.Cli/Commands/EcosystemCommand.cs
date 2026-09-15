@@ -332,8 +332,8 @@ public static class EcosystemCommand
         sections.Add(CreateNamespaceSection(scope, focus is null));
         sections.Add(CreatePackageSection(
             CorePackagesSection,
-            "Product-authored unversioned starting points in pack-local preference order.",
-            "No core-package starting points are configured for this ecosystem.",
+            "Product-authored unversioned registered package roots in pack-local preference order.",
+            "No registered package roots are configured for this ecosystem.",
             scope,
             focus is null,
             static pack => pack.CorePackages));
