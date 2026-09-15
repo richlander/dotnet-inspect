@@ -50,24 +50,20 @@ using System.Text.Json;
 //   Direction   asc | desc
 // Token slots are fixed by their layout and listed with it.
 
+// Identity texts — operators, directions, stage kinds, order kinds, and the
+// base role — are NOT defined here. They are the intent model's
+// (docs/design/portable-query-intent.md, "The intent contract"), and this codec
+// carries them. The arrays below the SHAPE region mirror them for validation
+// and are implementation, not a second definition.
+
 // Tuple layouts. A term, a bound, and each stage kind are fixed-arity.
 // An order operation is [Role, kind, ...]: the kind selects the tail.
-//   term   [Identity(key), operator, Text(value)]
+//   term   [Identity(key), operator text, Text(value)]
 //   bound  [Identity(dimension), Count(maximum)]        one bound per dimension
-//   stage  [stage token, ...slots listed below]
-string[] operators  = ["eq", "ne", "gte", "lte"];           // slot 1 of a term
-string[] directions = ["asc", "desc"];
-Dictionary<string, Slot[]> stageLayouts = new()
-{
-    ["head"]   = [Slot.Count],
-    ["tail"]   = [Slot.Count],
-    ["top"]    = [Slot.Count],                        // its ranking binds through o
-    ["window"] = [Slot.WindowBound, Slot.WindowBound],// always three slots total
-};
-// Order operations:
-//   named   [Role, "named",  Identity(reference), Direction]
-//   fields  [Role, "fields", Identity(key), Direction, Identity(key), Direction, ...]  ≥ 1 pair
-string[] orderKinds = ["named", "fields"];
+//   stage  head | tail | top   [stage text, Count]      a top's ranking binds through o
+//          window              [stage text, WindowBound, WindowBound]   always three slots
+//   order  named   [Role, "named",  Identity(reference), Direction]
+//          fields  [Role, "fields", Identity(key), Direction, ...]   at least one pair
 
 // Limits. Text limits count UTF-8 bytes. Depth counts the object as 1.
 // Count limits are charged as parsed, before exact duplicates collapse.
@@ -104,6 +100,19 @@ const long MaxCount           = 2147483647; // the Count domain's upper bound
 // Implements the model's comparator: Unicode scalar order == UTF-8 byte order.
 Comparer<string> scalarOrder = Comparer<string>.Create((x, y) =>
     Encoding.UTF8.GetBytes(x).AsSpan().SequenceCompareTo(Encoding.UTF8.GetBytes(y)));
+
+// Mirrors of the model's identity texts (portable-query-intent.md, "The intent
+// contract"). Validation consults these; the model owns them.
+string[] operators  = ["eq", "ne", "gte", "lte"];
+string[] directions = ["asc", "desc"];
+string[] orderKinds = ["named", "fields"];
+Dictionary<string, Slot[]> stageLayouts = new()
+{
+    ["head"]   = [Slot.Count],
+    ["tail"]   = [Slot.Count],
+    ["top"]    = [Slot.Count],
+    ["window"] = [Slot.WindowBound, Slot.WindowBound],
+};
 
 string root = FindRepoRoot();
 string vectorsPath = Path.Combine(root, "docs", "design", "models", "portable-query-payload", "vectors.json");
@@ -173,7 +182,7 @@ return failures == 0 ? 0 : 2;
 string? Encode(string intentText, out string canonical)
 {
     canonical = "";
-    string? reason = ValidateStructure(intentText, out JsonDocument? doc);
+    string? reason = ValidateStructure(intentText, out JsonDocument? doc, onTheWire: false);
     if (reason is not null) return reason;
     using (doc)
     {
@@ -186,7 +195,7 @@ string? Encode(string intentText, out string canonical)
 
 string? ValidateBytes(string text)
 {
-    string? reason = ValidateStructure(text, out JsonDocument? doc);
+    string? reason = ValidateStructure(text, out JsonDocument? doc, onTheWire: true);
     if (reason is not null) return reason;
     using (doc)
     {
@@ -198,9 +207,11 @@ string? ValidateBytes(string text)
 
 // ─── Structure: any JSON text → reason or null, plus the parsed document ──────
 // Shared by decode and encode. Does not require canonical order or spelling;
-// does require every layout, token, role, uniqueness, and limit rule.
+// does require every layout, token, role, uniqueness, and limit rule. An empty
+// part is refused only on the wire: an intent may carry one, and canonical
+// emission omits it.
 
-string? ValidateStructure(string text, out JsonDocument? doc)
+string? ValidateStructure(string text, out JsonDocument? doc, bool onTheWire)
 {
     doc = null;
     JsonDocument parsed;
@@ -225,7 +236,7 @@ string? ValidateStructure(string text, out JsonDocument? doc)
         foreach (JsonProperty p in obj.EnumerateObject())
         {
             if (p.Value.ValueKind != JsonValueKind.Array) return "bad-arity";
-            if (p.Value.GetArrayLength() == 0) return "empty-part";
+            if (p.Value.GetArrayLength() == 0 && onTheWire) return "empty-part";
         }
 
         string[] stageTokens = [];

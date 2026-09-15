@@ -49,15 +49,17 @@ Three artifacts, one normative location per rule:
 | Artifact | Owns |
 | --- | --- |
 | This document | The principles: what canonical form means, what identity is, what the codec may and may not know, how limits behave |
-| The `SHAPE` region of `eng/check-portable-query-payload-vectors.cs` | The exact structure: property order, tuple layouts and slot kinds, tokens, role encoding, integer grammar, the string rule, and every limit with its scope. Everything below that region is implementation and is not normative. |
+| The `SHAPE` region of `eng/check-portable-query-payload-vectors.cs` | The exact structure: property order, tuple layouts and slot kinds, role encoding, integer grammar, the string rule, and every limit with its scope. Everything below that region is implementation and is not normative. |
+| [Portable query intent](portable-query-intent.md) | Everything this encoding carries but does not define: the parts, every identity text — operators, directions, stage kinds, order kinds, the `base` role — and the semantic orders with their comparator. |
 | `models/portable-query-payload/vectors.json` | The witnesses: every canonical form the contract promises and every rejection it requires |
 
-The prose never restates a token, an arity, or a maximum. If a sentence here
-seems to disagree with the shape region or a vector, the sentence is wrong. The
-orders in which elements are emitted are not this document's either: they are
-the model's [semantic orders](portable-query-intent.md#semantic-order), including
-its comparator — Unicode scalar value, which is UTF-8 byte order — and this codec
-emits them without defining them.
+The prose never restates an identity text, an arity, or a maximum. If a
+sentence here seems to disagree with the shape region, the model, or a vector,
+the sentence is wrong. Two things this encoding carries are not its to define:
+the identity texts, and the orders in which elements are emitted — the model's
+[semantic orders](portable-query-intent.md#semantic-order), including its
+comparator, Unicode scalar value, which is UTF-8 byte order. This codec emits
+both without defining either.
 
 ## Identity
 
@@ -128,10 +130,12 @@ both documents should not assume they mean the same thing.
 
 Each part is an array of tuples whose layouts the shape region fixes. Every
 layout is fixed-arity except the field-list order operation, which has a fixed
-head and a repeating key-and-direction pair. Every token is a fixed string that
-no implementation derives from a .NET enum name, a CLI spelling, or a display
-label; the operator set is exactly the four identities the row predicate syntax
-already admits, so there is no strict `lt` or `gt`. An omitted window bound is a
+head and a repeating key-and-direction pair. The strings that name an operator,
+a direction, a stage kind, an order kind, or the baseline role are the model's
+identity texts, carried here verbatim — an implementation derives none of them
+from a .NET enum name, a CLI spelling, or a display label, and the model's
+operator set is exactly the four identities the row predicate syntax already
+admits, so there is no strict `lt` or `gt`. An omitted window bound is a
 gap in place rather than a shorter tuple, so no window can be mistaken for
 another stage, and a closed window's bounds are ordered — that is the stage
 owner's construction precondition, and the parent slice makes it this codec's to

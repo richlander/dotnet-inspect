@@ -100,6 +100,21 @@
       "canonical": "{\"t\":[[\"depends\",\"eq\",\"Serilog\"],[\"prefix\",\"eq\",\"Microsoft.Extensions.\"],[\"prerelease\",\"eq\",\"include\"]],\"b\":[[\"candidates\",200]]}"
     },
     {
+      "name": "empty-intent-part-is-omitted",
+      "description": "An intent may carry an empty part; canonical form omits it rather than emitting []. The same bytes arriving on the wire with an empty array are refused, because canonical form never contains one.",
+      "queryId": "package.query",
+      "intent": {
+        "t": [],
+        "b": [
+          [
+            "candidates",
+            200
+          ]
+        ]
+      },
+      "canonical": "{\"b\":[[\"candidates\",200]]}"
+    },
+    {
       "name": "bounds-entered-in-another-order",
       "description": "Two bounds supplied in the opposite sequence sort by dimension; declaration sequence carries no meaning between independent dimensions.",
       "queryId": "package.query",
