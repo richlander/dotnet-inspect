@@ -541,7 +541,6 @@ test("Package Query Worker adapter preserves request, durable events, credit, an
         additionalMatchCredit: args[1],
       };
     },
-    runPackageAssemblyQuery: () => Promise.resolve(succeeded()),
     runPackageQuery: (...args) => {
       runs.push(args);
       emit(args[7], progressEvent);
@@ -676,7 +675,6 @@ test("Package Query Worker accepts escaped owner-valid manifest callbacks", asyn
       kind: "NotActive",
       additionalMatchCredit: null,
     }),
-    runPackageAssemblyQuery: () => Promise.resolve(succeeded()),
     runPackageQuery(...args) {
       emitSerialized(args[7], serialized);
       return Promise.resolve(inspected([
@@ -717,7 +715,6 @@ test("Package Query Worker rejects callbacks above the encoded wire bound", asyn
       kind: "NotActive",
       additionalMatchCredit: null,
     }),
-    runPackageAssemblyQuery: () => Promise.resolve(succeeded()),
     runPackageQuery(...args) {
       emitSerialized(args[7], " ".repeat(8 * 1_024 * 1_024));
       return Promise.resolve(succeeded());
@@ -750,7 +747,6 @@ test("Package Query binding preserves caller identity and expected diagnostics",
       kind: "NotActive",
       additionalMatchCredit: null,
     }),
-    runPackageAssemblyQuery: () => Promise.resolve(succeeded()),
     runPackageQuery: (...args) => {
       runs.push(args);
       return Promise.resolve(failed(
@@ -796,7 +792,6 @@ test("Package Query binding preserves the inspection envelope", async () => {
       kind: "NotActive",
       additionalMatchCredit: null,
     }),
-    runPackageAssemblyQuery: () => Promise.resolve(succeeded()),
     runPackageQuery: () => Promise.resolve(expected),
   };
   const harness = createHarness(facade);
@@ -830,7 +825,6 @@ test("Package Query credit reports not-active and closes after settlement", asyn
       kind: "NotActive",
       additionalMatchCredit: null,
     }),
-    runPackageAssemblyQuery: () => terminal.promise,
     runPackageQuery: () => terminal.promise,
   };
   const harness = createHarness(facade);
@@ -861,7 +855,6 @@ test("Package Query retains an already-posted credit response across settlement"
       kind: "Granted",
       additionalMatchCredit: amount,
     }),
-    runPackageAssemblyQuery: () => terminal.promise,
     runPackageQuery: () => terminal.promise,
   };
   const harness = createHarness(facade, {
@@ -903,7 +896,6 @@ test("Package Query terminal callback rejection fails the Worker epoch", async (
       kind: "NotActive",
       additionalMatchCredit: null,
     }),
-    runPackageAssemblyQuery: () => Promise.resolve(succeeded()),
     async runPackageQuery(...args) {
       emit(args[7], completionEvent);
       return succeeded();

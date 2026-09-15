@@ -269,12 +269,8 @@ function renderRow(
     .filter(item => item.scope === "package")
     .map(item => `<li>${escapeHtml(item.text)}</li>`)
     .join("");
-  const rootRequest = row.tier === "assembly" ? row.rootRequest : undefined;
-  const openAction = row.tier === "assembly" && !rootRequest?.trim()
-    ? `<span>Workspace opening request unavailable</span>`
-    : `<button type="button" data-query-row-open="${escapeHtml(row.packageId)}" data-query-row-version="${escapeHtml(row.version)}"${rootRequest
-        ? ` data-query-root-request="${escapeHtml(rootRequest)}"`
-        : ""}>Open in workspace</button>`;
+  const openAction =
+    `<button type="button" data-query-row-open="${escapeHtml(row.packageId)}" data-query-row-version="${escapeHtml(row.version)}">Open in workspace</button>`;
   return `
     <article class="query-row"
       role="listitem"
@@ -293,11 +289,9 @@ function renderRow(
         : ""}
       ${evidence ? `<ul class="query-evidence">${evidence}</ul>` : ""}
       <div class="query-row-meta">
-        <span>${row.tier === "assembly"
-          ? "Selector-issued primary implementation assembly"
-          : row.totalDownloads === null
-            ? "Lifetime downloads unavailable"
-            : `${row.totalDownloads.toLocaleString()} lifetime downloads`}</span>
+        <span>${row.totalDownloads === null
+          ? "Lifetime downloads unavailable"
+          : `${row.totalDownloads.toLocaleString()} lifetime downloads`}</span>
         ${row.producer
           ? `<span>${escapeHtml(row.producer)}</span>`
           : ""}

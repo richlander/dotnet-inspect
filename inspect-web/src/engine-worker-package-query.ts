@@ -179,24 +179,15 @@ export interface EngineWorkerPackageQueryTerminal {
   readonly inspection: EngineWorkerPackageQueryInspection | null;
 }
 
-export type EngineWorkerPackageQueryInput =
-  | {
-      readonly kind: "query";
-      readonly searchText: string;
-      readonly facetIds: readonly string[];
-      readonly maximumCandidates: number;
-      readonly maximumMatches: number;
-      readonly includePrerelease: boolean;
-      readonly initialMatchCredit: number;
-    }
-  | {
-      readonly kind: "assembly";
-      readonly patternId: string;
-      readonly operand: string;
-      readonly packageCoordinates: readonly string[];
-      readonly targetFramework: string;
-      readonly initialMatchCredit: number;
-    };
+export interface EngineWorkerPackageQueryInput {
+  readonly kind: "query";
+  readonly searchText: string;
+  readonly facetIds: readonly string[];
+  readonly maximumCandidates: number;
+  readonly maximumMatches: number;
+  readonly includePrerelease: boolean;
+  readonly initialMatchCredit: number;
+}
 
 export interface EngineWorkerPackageQueryTerminalFailure {
   readonly failureKind: "Expected" | "Unexpected";
@@ -217,7 +208,6 @@ export type EngineWorkerPackageQueryFacade = Pick<
   PackageFacade,
   "cancelPackageQuery"
   | "requestPackageQueryMatches"
-  | "runPackageAssemblyQuery"
   | "runPackageQuery"
 >;
 
@@ -457,40 +447,6 @@ function decodeInput(value: unknown): EngineWorkerPackageQueryInput {
       includePrerelease: booleanValue(
         input.includePrerelease,
         "Package Query prerelease selection"),
-      initialMatchCredit: integer(
-        input.initialMatchCredit,
-        "Package Query initial match credit",
-        1),
-    };
-  }
-  if (kindProperty.value === "assembly") {
-    const input = dataRecord(value, [
-      "kind",
-      "patternId",
-      "operand",
-      "packageCoordinates",
-      "targetFramework",
-      "initialMatchCredit",
-    ], "Package Query assembly request");
-    const packageCoordinates = stringArray(
-      input.packageCoordinates,
-      "Package Query package coordinates",
-      budget);
-    return {
-      kind: "assembly",
-      patternId: text(
-        input.patternId,
-        "Package Query pattern ID",
-        budget),
-      operand: text(
-        input.operand,
-        "Package Query pattern operand",
-        budget),
-      packageCoordinates,
-      targetFramework: text(
-        input.targetFramework,
-        "Package Query target framework",
-        budget),
       initialMatchCredit: integer(
         input.initialMatchCredit,
         "Package Query initial match credit",
@@ -1674,24 +1630,15 @@ export function registerEngineWorkerPackageQueryOperation(
       const packageFacade = facade();
       const eventSink = createManagedEventSink(context);
       const result: BrowserPackageQueryResult =
-        input.kind === "query"
-          ? await packageFacade.runPackageQuery(
-              context.operation.operationId,
-              input.searchText,
-              JSON.stringify(input.facetIds),
-              input.maximumCandidates,
-              input.maximumMatches,
-              input.includePrerelease,
-              input.initialMatchCredit,
-              eventSink)
-          : await packageFacade.runPackageAssemblyQuery(
-              context.operation.operationId,
-              input.patternId,
-              input.operand,
-              JSON.stringify(input.packageCoordinates),
-              input.targetFramework,
-              input.initialMatchCredit,
-              eventSink);
+        await packageFacade.runPackageQuery(
+          context.operation.operationId,
+          input.searchText,
+          JSON.stringify(input.facetIds),
+          input.maximumCandidates,
+          input.maximumMatches,
+          input.includePrerelease,
+          input.initialMatchCredit,
+          eventSink);
       return mapEngineWorkerPackageQueryResult(result);
     },
     cancel: (operation, reason) =>
