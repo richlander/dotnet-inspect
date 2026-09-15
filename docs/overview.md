@@ -174,6 +174,10 @@ substrates, and inspection producers that will extend that space.
   `MetadataFindings` projects API and portable-PDB build-context observations
   onto the shared Finding spine while retaining compatibility classification
   through `ApiDiff`.
+  The proposed [API declaration correspondence](design/api-declaration-correspondence.md)
+  producer owns strict, pair-scoped Type/Member declaration matching between
+  explicitly selected acquired Library images and its non-success evidence.
+  It does not select Libraries or establish runtime definition equivalence.
 - `src/ILInspector.SourceLink/` sits above Metadata. It owns SourceLink map
   extraction and matching, canonical document paths, URL decoration,
   provenance grammar, high-level type/member/IL-offset resolution,

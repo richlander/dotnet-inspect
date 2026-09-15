@@ -227,6 +227,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Platform Package Supply Policy](design/platform-package-supply-policy.md) | Host-neutral decision from a package coordinate and target-bound prune inventory to preserved supply evidence and conservative platform delegation. |
 | [Package Asset-selection Correspondence](design/package-asset-selection-correspondence.md) | Resource-free generation and request correspondence for runtime and compile asset-selection outcomes. |
 | [Type, Member, and API Representation](design/type-member-api-representation.md) | Canonical type, member, and API identity model. |
+| [API Declaration Correspondence](design/api-declaration-correspondence.md) | Proposed Metadata-owned strict Type/Member correspondence within a designated Library-image pair, with complete candidate and non-success evidence. |
 | [Member Signature Shape and Transport](design/member-signature-shape.md) | Non-authoritative signature correspondence: loss-policy rationale, caller obligations, alternatives, canonical `mss1` grammar, and evolution. |
 | [C# Type-Declaration Identifier Admission](design/csharp-type-declaration-identifier-admission.md) | Compiler-characterized model-free admission from exact identity text to a legal C# declared-type identifier spelling or typed refusal. |
 | [C# Declared-Type Self-Name Admission](design/csharp-declared-type-self-name.md) | Proposed typed admission from one exact Metadata leaf to the identifier shared by a type header, constructors, and finalizers. |
