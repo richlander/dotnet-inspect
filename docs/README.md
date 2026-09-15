@@ -130,7 +130,7 @@ Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.
 | [Library API Diff Presentation](design/library-api-diff-presentation.md) | Portable Library-root changed-Type composition with complete compatibility changes and distinct changed-member summaries. |
 | [Population Range Selection](design/population-range-selection.md) | Proposed explicit consumers for population-creating ranges, filtering without an extra consumer, and Count as a population reduction. |
 | [Subject-owned Diff](design/command-transition-model.md#subject-owned-diff) | Proposed Library/Type/Member Diff placement, Package version counts, complete envelopes in both hosts, public CLI envelope output, and root-command retirement. |
-| [Diff History Inspection](design/diff-history.md) | Proposed temporal and version-count semantics consumed by subject-owned commands, with shared enveloped results for both hosts. |
+| [Diff History Inspection](design/diff-history.md) | Proposed temporal Outcome/Document and scalar version-count Result semantics consumed through shared envelopes by both hosts. |
 | [Inspect Web Compare Experience](design/inspect-web-compare-experience.md) | Browser Diff/Clone mode and exact Library-to-Type-to-Member drill-down, with whole-Type Diff and Member detail/Explore boundaries. |
 | [Inspect Web Library API Diff](design/inspect-web-library-api-diff.md) | Gallery Library Diff target resolution, request-associated operation, bounded wire inventory, and flat changed-Type presentation. |
 | [Performance Analysis Baselines](analysis-baselines.md) | Internal baselines of what each analysis type finds over a fixed corpus, with effectiveness ratings for the one-stop-shop Performance Analysis view. |

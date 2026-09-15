@@ -13,11 +13,11 @@ related metadata-only version-population reduction:
 > A population-creating range requires an explicit consumer, with no default.
 > `--endpoints` compares the two endpoints; `--history` correlates an explicitly
 > evaluated subset of an ordered package-version population; Count alone
-> counts its versions without inspecting payloads. History returns one detached,
-> typed temporal result for CLI and Browser/Wasm. Population selection,
-> evaluation selection, and result-row selection remain distinct.
-> The completed shared results reach both hosts without losing Content, Share,
-> or diagnostics.
+> counts its versions without inspecting payloads. History returns one
+> owner-specific Outcome whose available case carries a detached temporal
+> Document for CLI and Browser/Wasm. Population selection, evaluation selection,
+> and result-row selection remain distinct. The completed shared content reaches
+> both hosts without losing Content, Share, or diagnostics.
 
 The user approved this direction on 2026-09-14 and explicitly requested
 "remove the timeline command (no compat)". The subsequent
@@ -144,11 +144,12 @@ inspection constraints, and comparison controls are rejected when explicitly
 supplied, not ignored or used to guess another operation. Output and reduction
 options retain their existing contracts.
 
-The shared population-count terminal returns the existing typed Count outcome
+The shared population-count terminal returns the existing typed Count Outcome
 in an inspection envelope, preserving population identity and discovery
-diagnostics. It does not manufacture an empty `DiffHistoryResult`. Both hosts
-consume that same result; the Browser can request the version count without
-opening or evaluating History.
+diagnostics. Its available value is the scalar Count Result; it does not
+manufacture an empty `DiffHistoryDocument`. Both hosts consume that same
+Outcome; the Browser can request the version count without opening or
+evaluating History.
 
 ### Three independent selections
 
@@ -211,12 +212,13 @@ pairwise classifiers and body-comparison controls such as `--breaking`, `--addit
 `--changed`, and `--pdb-source`, rather than silently ignoring them or assigning
 compatibility verdicts to correlation states.
 
-## Shared temporal result
+## Shared temporal Outcome and Document
 
 The final host-neutral terminal returns
-`InspectionEnvelope<DiffHistoryResult>`. `DiffHistoryResult` is an owner-issued
-outcome, not a universal Diff base class. Its available temporal document is
-immutable and resource-free. It preserves:
+`InspectionEnvelope<DiffHistoryOutcome>`. `DiffHistoryOutcome` is an
+owner-specific Outcome, not a universal Diff base class. Its available case
+carries one settled, resource-free `DiffHistoryDocument`. The Document
+preserves:
 
 - the resolved version population and requested evaluation selection;
 - each completed evaluation's version address, provenance, resolved subject,
@@ -237,6 +239,10 @@ Document-local positions do not replace version or subject identity. The
 document remains meaningful after resource disposal and without parsing CLI
 rows, Markdown, or labels. `TimelineDocumentView` is a host projection, not
 the shared semantic model.
+
+The Document's ordered populations serialize as arrays. Its contract does not
+require `ImmutableArray<T>` or another CLR collection implementation; the
+producer publishes a settled snapshot and does not mutate it afterward.
 
 ### What transitions establish
 
@@ -310,7 +316,8 @@ Compare; Library-wide History is not claimed by this slice. Population counts
 are metadata-only and do not require a Type or Member focus.
 
 The Browser adopter supplies the same resolved population, semantic selection,
-focus, producer, and scope, then consumes the same result. Its owning designs
+focus, producer, and scope, then consumes the same Outcome and Document. Its
+owning designs
 decide controls, applicability, result installation, navigation, and retained
 mode state. This specification does not add a tab, alter sticky navigation, or
 create another Workspace lifecycle. Unevaluated versions, gaps, and failed

@@ -77,7 +77,8 @@ removes that default; other command owners are not migrated by this document.
 [Diff History inspection](diff-history.md#explicit-range-consumers) is the
 first adopter. Its specification locks alongside this pattern under the
 [bounded first-adopter exception](../design-scope.md#stage-implementation-after-locking-the-design).
-That owner retains the semantic History and version-count results.
+That owner retains the semantic History Outcome/Document and scalar
+version-count Result.
 [Subject-owned Diff](command-transition-model.md#subject-owned-diff) now owns
 their command placement: Type/Member History and Package version counting.
 This pattern does not duplicate those contracts or require a top-level Diff.

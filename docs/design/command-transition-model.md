@@ -29,6 +29,13 @@ semantics, not CLI placement. The user also explicitly approved full shared
 envelopes, complete Browser delivery, and public CLI `--envelope` output as
 part of this adoption.
 
+The host-observable Result, Document, and owner-specific Outcome contract
+proposed in
+[#7055](https://github.com/richlander/dotnet-inspect/pull/7055)
+owns the names and semantic extents carried as `TContent`. This adoption
+consumes that contract; it does not define a competing Diff-specific content
+taxonomy.
+
 This is **specification only**. Existing top-level `diff` and `timeline` remain
 current until the cutover. Current examples elsewhere in this document are
 pre-cutover evidence; the target grammar is isolated below. Other root
@@ -56,7 +63,7 @@ Related docs:
 | Operation / arity | What is being done, and across how many addresses? | inspect one cell, compare two cells, correlate N cells | Explicit operation, at root or under its subject, and admitted modes; separate lifecycle and outcomes do not require root placement |
 | Lens / representation | Which view of the same subject and operation is wanted? | API, analysis, implementation, source, IL, versions | `-S` or focused mode options |
 | Traversal policy | Which addresses are evaluated, and in what order? | `--at`, endpoints, caller-directed probes, next-probe recommendation | Operation-owned options; never implicit payload acquisition |
-| Projection / rendering | How is the same result shaped for output? | fields, columns, count, URLs, printable payload, table, Markdown, JSON | Shape reducers, projectors, and writer options |
+| Projection / rendering | How is the same content shaped for output? | fields, columns, count, URLs, printable payload, table, Markdown, JSON | Shape reducers, projectors, and writer options |
 
 Source context is not focus. In:
 
@@ -137,9 +144,9 @@ A command transition is justified when either of these changes:
    `library --il-offset`, however, remains an option when the selector is
    complete within the established library scope and does not need an
    independent command surface.
-2. **Operation arity:** the acquisition topology and outcome envelope change.
+2. **Operation arity:** the acquisition topology and Outcome content change.
    Unary inspection, pairwise comparison, and N-address correlation have
-   different failure semantics, backpressure, and result shapes. An explicit
+   different failure semantics, backpressure, and content kinds. An explicit
    subject-owned operation or mode can express that transition without moving
    the operation to the root.
 
@@ -148,7 +155,7 @@ traversal choice, or output projection changes. A type-presence census and a
 type-scoped member census can both participate in `diff --type T`;
 `member -S IL` does not become an `il` command because it is the same member
 under another representation. `--json` does not become a command; it is another
-writer over the same result.
+writer over the same content.
 
 An execution lifecycle is different when at least one of these is true:
 
@@ -187,10 +194,10 @@ dotnet-inspect timeline --package System.Text.Json@8.0.0..9.0.0 \
 ```
 
 The current `timeline` command changes arity, acquisition, failure topology,
-and the result from a subject document to an ordered history. Subject-owned
-Diff preserves those distinctions as an explicit operation and mode, not a
-`History` output section. Its native temporal evidence remains owned by
-[Diff History inspection](diff-history.md).
+and the content from a subject Document to an ordered History Document.
+Subject-owned Diff preserves those distinctions as an explicit operation and
+mode, not a `History` output section. Its native temporal evidence remains
+owned by [Diff History inspection](diff-history.md).
 
 ## Subject-owned Diff
 
@@ -284,9 +291,18 @@ duration remains a future population-construction example, not a new flag.
 
 `InspectionEnvelope<TContent>` already exists, and
 `LibraryApiDiffInspection.Execute` already returns
-`InspectionEnvelope<LibraryApiDiffPresentationResult>`. Reuse that pattern and
-complete missing terminals and host delivery; do not add another envelope,
-universal Diff content type, or host-specific semantic copy.
+`InspectionEnvelope<LibraryApiDiffPresentationResult>`. That current type is a
+transitional owner-issued Outcome: its available case composes endpoint
+summaries and a `ComparisonDocument<LibraryApiTypeDiff>`, while its other cases
+represent unavailable or rejected execution.
+
+Under the host-observable content-kind contract, the target terminal exposes
+an owner-specific `LibraryApiDiffOutcome` whose available case carries one
+`LibraryApiDiffDocument`. The Document retains the existing endpoint summaries,
+comparison document, verdicts, and evidence without changing their owners.
+Reuse the existing terminal behavior while adopting those semantic extents;
+do not add another envelope, universal Diff content type, or host-specific
+semantic copy.
 
 The [envelope owner](inspection-envelope.md) requires one owner-issued Content
 value, required Share, and ordered typed diagnostics at the completed shared
@@ -302,9 +318,10 @@ public `--envelope` projection tracked by
 the already constructed baseline without another inspection, Share projection,
 or host enrichment. Ordinary content rendering, including its existing JSON
 contract, remains a separate projection when `--envelope` is absent.
-Framing, schema/version, result-kind discrimination, serializer registration,
-option conflicts, output-stream handling, and serialization failures are
-settled by the CLI transport owner, not invented by each subject command.
+Framing, schema/version, content-kind and owner-specific Outcome
+discrimination, serializer registration, option conflicts, output-stream
+handling, and serialization failures are settled by the CLI transport owner,
+not invented by each subject command.
 
 Browser adoption preserves Content, Share, and diagnostic identity/order in
 one identifiable received baseline. It may compose UI state and additional
@@ -332,10 +349,11 @@ Classify the route removals and explicit source-range consumer requirement as
 
 Before removal, map every existing API, multi-Library, Type/Member-filtered,
 Analysis, Implementation, and Finding Transitions route to an admitted subject
-leaf and owner-issued content result. Preserve supported outcomes and explicit
-cost gates. Missing replacement coverage blocks the cutover; it is not silently
-reclassified as an unsupported command. Any deliberate capability retirement
-beyond the approved command/default removals requires a separate decision.
+leaf and owner-issued Result, Document, or Outcome. Preserve supported outcomes
+and explicit cost gates. Missing replacement coverage blocks the cutover; it is
+not silently reclassified as an unsupported command. Any deliberate capability
+retirement beyond the approved command/default removals requires a separate
+decision.
 
 Update help, discovery, completion, replay/probe generation, README, shipped
 skills, and active examples with the executable cutover. Do not change current
@@ -354,7 +372,7 @@ and other non-Diff operations retain their behavior.
 
 Total steps: **5**. Steps 2 and 3 may progress independently where existing
 enveloped operations provide transport evidence. Step 4 needs both; step 5
-needs the relevant shared results, not the CLI option. Delivery is not complete
+needs the relevant shared content, not the CLI option. Delivery is not complete
 until both hosts consume the complete baseline. This deliberately supersedes
 the earlier decision to defer public envelope output for this migration;
 already-shipped Compare work and unrelated Call Graph/canvas work are not
@@ -603,7 +621,7 @@ type diff presence
 Because the CLI is stateless, source and focus selectors must be repeated when
 changing operations. In the target subject-owned Diff family, `--history`
 makes the mode change explicit without conflating endpoint and temporal
-result contracts. The diagram describes axes, not positional argument grammar.
+content contracts. The diagram describes axes, not positional argument grammar.
 
 ### Selection / discovery
 

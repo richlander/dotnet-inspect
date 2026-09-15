@@ -132,9 +132,9 @@ substrates, and inspection producers that will extend that space.
   distinguishes filtering an already selected population, and admits Count
   as a consumer without inventing a default operation. Its first adopter,
   [Diff History inspection](design/diff-history.md), owns target temporal
-  and population-count semantics and shared results for CLI and Browser/Wasm.
-  History preserves native temporal evidence; Count alone counts package
-  versions without payload inspection.
+  Outcome/Document and scalar population-count Result semantics for CLI and
+  Browser/Wasm. History preserves native temporal evidence; Count alone counts
+  package versions without payload inspection.
   [Subject-owned Diff](design/command-transition-model.md#subject-owned-diff)
   owns the Library/Type/Member command placement, Package count binding, and
   envelope-complete adoption boundary, including public CLI envelope output
