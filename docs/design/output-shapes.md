@@ -51,6 +51,12 @@ the [subject-owned Diff adoption](command-transition-model.md#envelope-complete-
 It does not claim that current commands already implement the option or the
 content-JSON alignment below.
 
+The envelope owner's proposed
+[service-evidence enrichment](inspection-envelope.md#service-evidence-enrichment)
+adds a typed companion without changing that content boundary. Its planned
+`--evidence-envelope` consumer is additional adoption work for #6719, not a
+new rung in this ladder or an already available output option.
+
 ### Two serialization boundaries
 
 For the same completed operation, with no additional content-output selection
