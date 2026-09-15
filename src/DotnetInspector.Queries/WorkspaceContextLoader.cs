@@ -1167,6 +1167,7 @@ public static class WorkspaceContextLoader
                 .Distinct(),
         ];
         return new WorkspaceContextLoadOutcome.Loaded(
+            workspace.Identity,
             group,
             members.MoveToImmutable(),
             packageRoots,
@@ -2165,16 +2166,23 @@ public static class WorkspaceContextLoader
         PackageSourceAuthorization authorization =
             options.SourceAuthorization.AuthorizeSourcesFor(pinned.PackageId);
 
-        // The intersection, not a preference: only the source whose producer
-        // key is the recorded one may answer, so a host that authorizes several
+        // The intersection, not a preference: only authorities for the
+        // recorded producer may answer, so a host that authorizes several
         // producers for this id still re-acquires the bytes the coordinate was
         // realized from.
-        PackageSource? producer = authorization.Sources.FirstOrDefault(
-            source => string.Equals(
-                NuGetCache.GetSourceKey(source.Url),
-                pinned.Producer,
-                StringComparison.Ordinal));
-        if (producer is null)
+        PackageRootProducerAuthorization.MatchResult producerMatch =
+            PackageRootProducerAuthorization.Match(
+                authorization.Sources,
+                pinned.Producer);
+        if (producerMatch.Ambiguous)
+        {
+            return new MemberRealization(
+                Failure(
+                    WorkspaceContextLoadFailureKind.PackageProducerUnavailable,
+                    declared,
+                    $"The producer recorded for package '{pinned.PackageId}' matches multiple authorized package-source identities."));
+        }
+        if (producerMatch.Candidates.Count == 0)
         {
             return new MemberRealization(
                 Failure(
@@ -2192,7 +2200,8 @@ public static class WorkspaceContextLoader
                     pinned.Version,
                     framework,
                     pinned.RuntimeIdentifier),
-                [producer],
+                [.. producerMatch.Candidates.Select(static candidate =>
+                    candidate.Source)],
                 options.Log,
                 options.IncludePrerelease,
                 options.UseVersionCache,
@@ -2240,14 +2249,13 @@ public static class WorkspaceContextLoader
 
         AcquiredPackagePayload acquired =
             ((PackagePayloadResult.Acquired)payload).Payload;
-        if (!string.Equals(
-                acquired.ProducerKey,
-                pinned.Producer,
-                StringComparison.Ordinal))
+        PackageRootProducerAuthorization.Candidate? acquiredCandidate =
+            producerMatch.Candidates.FirstOrDefault(
+                candidate => acquired.ProducerKey.Equals(
+                    candidate.LegacyProducerKey,
+                    StringComparison.Ordinal));
+        if (acquiredCandidate is null)
         {
-            // Acquisition was given one source, so this cannot normally
-            // happen; it is checked because the alternative to checking is
-            // silently binding another producer's bytes to this coordinate.
             return new MemberRealization(
                 Failure(
                     WorkspaceContextLoadFailureKind.PackageProducerUnavailable,
@@ -2261,7 +2269,9 @@ public static class WorkspaceContextLoader
             framework,
             pinned.RuntimeIdentifier,
             options.IncludePackageRootBindings,
-            cancellationToken);
+            cancellationToken,
+            pinned.Producer,
+            acquiredCandidate.Producer);
 
         // A re-acquired member reports the coordinate it was asked for, so a
         // caller can compare the round trip by value.
@@ -2279,7 +2289,9 @@ public static class WorkspaceContextLoader
         string framework,
         string? runtimeIdentifier,
         bool includePackageRootBinding,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? coordinateProducer = null,
+        PackageProducerIdentity? sourceProducer = null)
     {
         ResolvedPackageCoordinate coordinate = acquired.Coordinate;
         IPackageContent content = acquired.Content;
@@ -2397,7 +2409,7 @@ public static class WorkspaceContextLoader
         if (!RealizedMemberCoordinate.Package.TryCreate(
                 coordinate.PackageId,
                 coordinate.Version,
-                acquired.ProducerKey,
+                coordinateProducer ?? acquired.ProducerKey,
                 framework,
                 runtimeIdentifier,
                 out RealizedMemberCoordinate.Package? realizedCoordinate,
@@ -2417,7 +2429,9 @@ public static class WorkspaceContextLoader
                 BindPackageRoot(
                     (WorkspaceMemberCoordinate.PackageMember)member,
                     acquired,
-                    framework);
+                    framework,
+                    coordinateProducer,
+                    sourceProducer);
             if (binding is WorkspacePackageRootAcquisitionOutcome.Failed failed)
             {
                 return new MemberRealization(failed.Failures[0]);
@@ -2443,13 +2457,24 @@ public static class WorkspaceContextLoader
     static WorkspacePackageRootAcquisitionOutcome BindPackageRoot(
         WorkspaceMemberCoordinate.PackageMember member,
         AcquiredPackagePayload acquired,
-        string framework)
+        string framework,
+        string? coordinateProducer = null,
+        PackageProducerIdentity? sourceProducer = null)
     {
         try
         {
             return new WorkspacePackageRootAcquisitionOutcome.Acquired(
-                PackageRootBinding.CreateFromResolved(
-                    acquired, framework, member.PackageId));
+                sourceProducer is null
+                    ? PackageRootBinding.CreateFromResolved(
+                        acquired,
+                        framework,
+                        member.PackageId)
+                    : PackageRootBinding.CreateFromResolved(
+                        acquired,
+                        framework,
+                        member.PackageId,
+                        coordinateProducer ?? acquired.ProducerKey,
+                        sourceProducer));
         }
         catch (Exception ex) when (
             ex is ArgumentException

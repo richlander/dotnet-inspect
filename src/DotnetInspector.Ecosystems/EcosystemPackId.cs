@@ -84,6 +84,9 @@ public static class EcosystemPackIds
 
     public static EcosystemPackId Azure { get; } =
         EcosystemPackId.Create("ecosystem.azure");
+
+    public static EcosystemPackId Blazor { get; } =
+        EcosystemPackId.Create("ecosystem.blazor");
 }
 
 /// <summary>Stable scenario IDs for shipped product demos.</summary>

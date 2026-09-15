@@ -330,11 +330,32 @@ public static class ApiSurfaceExtractor
         bool includeAll = false,
         bool typesOnly = false,
         bool includeCompilerGenerated = false)
+        => Extract(
+            peReader,
+            source,
+            catalog,
+            bindingPolicy,
+            includeAll
+                ? ApiSurfaceExtractionScope.IncludeAll
+                : ApiSurfaceExtractionScope.Public,
+            typesOnly,
+            includeCompilerGenerated);
+
+    internal static ApiSurface Extract(
+        PEReader peReader,
+        ResolvedAssemblyReference source,
+        TypeResolutionCatalog catalog,
+        IAssemblyBindingPolicy bindingPolicy,
+        ApiSurfaceExtractionScope scope,
+        bool typesOnly = false,
+        bool includeCompilerGenerated = false)
     {
         ArgumentNullException.ThrowIfNull(peReader);
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(bindingPolicy);
+        if (!Enum.IsDefined(scope))
+            throw new ArgumentOutOfRangeException(nameof(scope));
 
         var constraintResolution =
             new TypeParameterConstraintResolution(
@@ -343,9 +364,7 @@ public static class ApiSurfaceExtractor
                 catalog.MaxTypeResolutionRequests);
         ApiSurface surface = Extract(
             peReader,
-            includeAll
-                ? ApiSurfaceExtractionScope.IncludeAll
-                : ApiSurfaceExtractionScope.Public,
+            scope,
             typesOnly,
             includeCompilerGenerated,
             budget: null,
@@ -1522,6 +1541,21 @@ public static class ApiSurfaceExtractor
                     reader,
                     field.Name,
                     observeDecodeWork);
+
+                // The enum storage slot supplies a type fact rather than a
+                // declarable member, so presentation filters do not apply to it.
+                if (isEnum && fieldName == "value__")
+                {
+                    apiType.EnumUnderlyingType = DecodeFieldType(
+                        reader,
+                        typeContext,
+                        field,
+                        typeNullableContext,
+                        observeText,
+                        observeDecodeWork).Text;
+                    continue;
+                }
+
                 List<string?> jsonPropertyNames =
                     AttributeReader.ReadJsonPropertyNames(
                         reader,
@@ -1600,24 +1634,12 @@ public static class ApiSurfaceExtractor
                         field.GetCustomAttributes(),
                         observeDecodeWork);
 
-                // Decode field type. For enums the special value__ field carries
-                // the underlying type; literal fields are constants, not fields in
-                // source, so they do not need a field declaration type.
+                // Enum literal fields are constants, not fields in source, so they
+                // do not need a field declaration type.
                 string? fieldType = null;
                 bool fieldSignatureDegraded = false;
                 List<ApiTypeReferenceIdentity> fieldTypeReferences = [];
-                if (isEnum)
-                {
-                    if (fieldName == "value__")
-                        apiType.EnumUnderlyingType = DecodeFieldType(
-                            reader,
-                            typeContext,
-                            field,
-                            typeNullableContext,
-                            observeText,
-                            observeDecodeWork).Text;
-                }
-                else
+                if (!isEnum)
                 {
                     (fieldType, fieldSignatureDegraded, fieldTypeReferences) =
                         DecodeFieldType(
@@ -2003,6 +2025,7 @@ public static class ApiSurfaceExtractor
     {
         var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
         var accessorMethods = GetSemanticAccessorMethods(reader, typeDef);
+        bool isEnum = IsEnum(reader, typeDef);
 
         foreach (var methodHandle in typeDef.GetMethods())
         {
@@ -2098,7 +2121,8 @@ public static class ApiSurfaceExtractor
                 continue;
 
             string fieldName = reader.GetString(field.Name);
-            if (!IsSurfaceableFieldName(fieldName, includeCompilerGenerated: false)
+            if ((isEnum && fieldName == "value__")
+                || !IsSurfaceableFieldName(fieldName, includeCompilerGenerated: false)
                 || AttributeReader.HasEditorBrowsableNeverAttribute(reader, field.GetCustomAttributes()))
             {
                 continue;
@@ -2181,10 +2205,18 @@ public static class ApiSurfaceExtractor
                     definitionName =
                         MetadataTypeDefinitionNameReader.Read(
                             reader,
-                            exportedTypeHandle)
-                        is MetadataTypeDefinitionNameReadResult.Read read
-                            ? read.Name
-                            : null;
+                            exportedTypeHandle) switch
+                        {
+                            MetadataTypeDefinitionNameReadResult.Read read =>
+                                read.Name,
+                            MetadataTypeDefinitionNameReadResult.Rejected rejected =>
+                                throw new MetadataRowRejectedException(
+                                    ApiSurfaceInspectionFailure
+                                        .TypeForwarderIdentityOperation,
+                                    rejected.Failure),
+                            _ => throw new InvalidOperationException(
+                                "Unknown exported-type name result."),
+                        };
                 }
                 else
                 {

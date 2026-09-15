@@ -2155,7 +2155,10 @@ The related identity concepts have distinct jobs:
 | --- | --- |
 | `PackageRootRealization` | The in-process package-level selection outcome over already-acquired content. It remains valid for Root-only and unsuccessful selection outcomes and is not by itself a cache or admission identity. |
 | `RealizedMemberCoordinate.Package` | The canonical, portable request that repeats the same package, version, producer, and acquisition target. Unlike a possibly floating `WorkspaceMemberCoordinate`, every identity field has already been resolved. It does not promise the same bytes forever. |
-| `ProducerKey` | The opaque, credential-free identity of the content producer. The acquired content and payload carry this value, and the realized coordinate records the same value as `Producer`. It distinguishes sources but not successive byte generations from one source. |
+| `PackageProducerIdentity` | The Package Source-owned complete credential-free producer identity. Typed acquisition retains it as the equality and authorization currency; the Root owner neither reconstructs it from endpoint or display text nor treats it as immutable-byte identity. |
+| Portable producer token | The Package Source-issued `PackageProducerIdentity.PortableKey`, recorded as `RealizedMemberCoordinate.Package.Producer` for a fresh typed-source Root. It is bounded transport correspondence, not source authority; a destination must match it against producer identities from its currently authorized sources. |
+| `ProducerKey` | The existing producer key of retained content and its cache slot. PackageHouse uses the complete source producer key, while the Browser retains its legacy NuGet.org cache key. It need not equal the portable coordinate producer, and neither value distinguishes successive byte generations from one source. |
+| Compatibility source identity | The private digest retained by `PackageSourceResultIdentity` solely to answer whether a legacy HTTP content/cache identity belongs to its runtime source. The source value and endpoint components are not exposed; the match is not complete producer identity or source authority. |
 | `PackageContentGenerationIdentity` | The process-local identity of one retained immutable package-content snapshot. Cache handles over that retained snapshot may share the identity; a replacement snapshot receives a new identity. |
 | `PackageRootSelectionIdentity` | The process-local identity of one frozen package-selection occurrence. |
 | `PackageRootBinding` | The acquisition-issued value that joins one Root, realized coordinate, content-snapshot identity, and frozen selection and proves their exact physical correspondence. |
@@ -2166,10 +2169,20 @@ binding carries the exact `PackageRootRealization`, its authoritative
 `RealizedMemberCoordinate.Package`, a
 `PackageContentGenerationIdentity`, and a
 `PackageRootSelectionIdentity`. The factory validates that the retained
-content and acquisition result name the same producer before selection, then
-creates the Root, snapshots every selection sequence into read-only storage,
-and mints the coordinate and both identities without repeating coordinate
-resolution, content acquisition, or compile asset selection.
+content names the acquisition's content/cache producer key and, for typed
+source acquisition, that the source-issued producer identity corresponds to
+both that retained key and the coordinate producer. It then creates the Root,
+snapshots every selection sequence into read-only storage, and mints the
+coordinate and both identities without repeating coordinate resolution,
+content acquisition, or compile asset selection. A resolved compatibility
+payload that carries no source-issued producer identity may bind only a
+coordinate whose producer equals its retained content producer key.
+Public typed acquisition asks the runtime source identity to match its legacy
+configured-source identity against a private digest before any cache lookup or
+download. That check prevents one source from reading or publishing through
+another source's cache identity without retaining endpoint or credential text
+and without attempting to reconstruct the modern producer from a legacy
+spelling that intentionally folds path distinctions.
 The acquired payload result has an internal constructor and get-only
 properties, so ordinary consumers cannot forge a coordinate/content pairing
 or replace either half after acquisition issues it.
@@ -2185,17 +2198,33 @@ House-agnostic binding with the exact House result and compile receipt rather
 than storing House history on `PackageRootBinding`.
 
 The current realized package-coordinate grammar admits the bounded published
-package-id grammar, the modern NuGet.org producer key, and bounded legacy
-producer keys. Package Source accepts a broader Unicode package-id grammar and
-valid configured HTTP or local producers. Such a package can therefore be
-acquired and selected before Root construction reports that the complete
-coordinate is not representable. The adapter surfaces that state as typed
-no-contribution evidence rather than entering the throwing constructor.
-Extending the portable coordinate and reacquisition currency for every
-owner-issued producer remains
-[#6946](https://github.com/richlander/dotnet-inspect/issues/6946); this adapter
-does not hash, truncate, parse display text, or narrow owner-issued package
-identity to bypass either coordinate owner. Package-id representation remains
+package-id grammar, Package Source portable producer tokens, the modern
+NuGet.org producer key, and bounded legacy producer keys. Fresh typed-source
+bindings record the source-issued portable token. Exact reopening also accepts
+an already-supported full NuGet.org or legacy cache-key spelling when the
+reacquired typed payload proves that spelling belongs to the same source
+producer, and preserves the request's spelling rather than silently rewriting
+it. Arbitrary configured full producer keys remain outside Root transport;
+their portable token is the representation.
+The `pkgroot3` field layout and encoding remain unchanged: the producer field's
+`nfp-1` namespace versions the new value, so no new Root-token prefix is
+required.
+
+A destination coordinate grants no source authority. Reacquisition first
+intersects the requested producer with currently authorized sources by asking
+Package Source for those sources' owner-issued identities. Authorities sharing
+one equal complete producer identity remain eligible in their configured
+order. If one portable token matches multiple distinct complete identities,
+reacquisition fails visibly before cache lookup or download. Unknown,
+malformed, and unauthorized producer values likewise fail rather than falling
+back to source order. The Root owner does not hash, truncate, parse display
+text, or derive producer identity from source names.
+
+Package Source still accepts a broader Unicode package-id grammar than the
+Root coordinate. Such a package can be acquired and selected before Root
+construction reports that the coordinate is not representable. The adapter
+surfaces that state as typed no-contribution evidence rather than entering the
+throwing constructor. Package-id representation remains
 [#6967](https://github.com/richlander/dotnet-inspect/issues/6967).
 
 The content-generation identity is an opaque, credential-free reference token
@@ -2224,9 +2253,10 @@ request, not immutable-byte identity. Reacquiring it may observe a later
 payload generation published under the same package/version/producer slot.
 The generation token is the authoritative immutable-content proof inside one
 adopting process. For the typed source path, the binding derives package id and
-version from `PackageSourceCoordinate`, producer from the acquired payload,
-and the effective acquisition framework from the requested target only when
-the shared target grammar can represent it; otherwise the framework is absent.
+version from `PackageSourceCoordinate`, the coordinate producer from the
+acquired payload's source-issued portable token, and the effective acquisition
+framework from the requested target only when the shared target grammar can
+represent it; otherwise the framework is absent.
 Absence denotes framework-neutral source acquisition and is distinct from the
 real NuGet target `any`. The binding never derives the coordinate from a
 package-supplied asset folder. The original selection target and typed outcome
@@ -2241,9 +2271,16 @@ The descriptive `PackageRootRealization` constructor remains a compatibility
 surface for callers that already own retained content, but it does not issue a
 binding and is not admissible as exact-request cache identity. The Browser
 adapter is the first adopting path: it retains the acquisition result, asks it
-for a binding, and carries the issued coordinate and identities. Its legacy
-test-only package constructor remains unbound. This adoption is gated by
-`BrowserPackageRealization_ReceivesAcquisitionIssuedCoordinate`; generation
+for a binding, and carries the issued coordinate and identities. Its cache
+continues to use the legacy NuGet.org producer key; changing the coordinate to
+the portable token does not create a second cache slot or migrate retained
+content. Its legacy test-only package constructor remains unbound. This
+adoption is gated by
+`BrowserPackageRealization_ReceivesAcquisitionIssuedCoordinate`,
+`PortableConfiguredProducer_ReacquiresWithoutChangingContentKey`,
+`PortableProducerAuthorization_PreservesEquivalentAuthoritiesInOrder`,
+`SourceProducerSpellings_RoundTripExactRootRebinding`, and
+`CustomProducerCompileRealizationContributesPortableRootCoordinate`; generation
 replacement, selection difference, coordinate coherence, Root-only binding,
 and producer mismatch are gated by
 `PackageContentGenerationIdentity_ExternalBuffersCannotMutateGeneration`,

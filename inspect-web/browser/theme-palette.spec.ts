@@ -19,6 +19,12 @@ const paletteRoles = [
   "--graph-target-fill",
   "--graph-target-stroke",
   "--graph-target-text",
+  "--graph-package-same-prefix-fill",
+  "--graph-package-same-prefix-stroke",
+  "--graph-package-same-prefix-text",
+  "--graph-package-external-fill",
+  "--graph-package-external-stroke",
+  "--graph-package-external-text",
   "--green",
   "--yellow",
 ] as const;
@@ -84,6 +90,12 @@ test("shared theme roles use the modern .NET and C# palette", async ({
       "--graph-target-fill": "#311a7f",
       "--graph-target-stroke": "#b9aaee",
       "--graph-target-text": "#f0edf7",
+      "--graph-package-same-prefix-fill": "#284c73",
+      "--graph-package-same-prefix-stroke": "#9cc8f1",
+      "--graph-package-same-prefix-text": "#ffffff",
+      "--graph-package-external-fill": "#343a46",
+      "--graph-package-external-stroke": "#aeb8c8",
+      "--graph-package-external-text": "#ffffff",
       "--green": "#8ebb76",
       "--yellow": "#d5ad5c",
     },
@@ -106,6 +118,12 @@ test("shared theme roles use the modern .NET and C# palette", async ({
       "--graph-target-fill": "#eeeafb",
       "--graph-target-stroke": "#512bd4",
       "--graph-target-text": "#211a32",
+      "--graph-package-same-prefix-fill": "#c9dcf1",
+      "--graph-package-same-prefix-stroke": "#284c73",
+      "--graph-package-same-prefix-text": "#172c43",
+      "--graph-package-external-fill": "#e0e3e8",
+      "--graph-package-external-stroke": "#596273",
+      "--graph-package-external-text": "#252a33",
       "--green": "#397044",
       "--yellow": "#8a650d",
     },
@@ -124,6 +142,14 @@ test("shared theme roles use the modern .NET and C# palette", async ({
     expect(contrast(
       color(palette, "--graph-target-text"),
       color(palette, "--graph-target-fill"),
+    )).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(
+      color(palette, "--graph-package-same-prefix-text"),
+      color(palette, "--graph-package-same-prefix-fill"),
+    )).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(
+      color(palette, "--graph-package-external-text"),
+      color(palette, "--graph-package-external-fill"),
     )).toBeGreaterThanOrEqual(4.5);
     expect(palette["--accent"]).not.toBe(palette["--yellow"]);
     expect(palette["--accent"]).not.toBe(palette["--green"]);

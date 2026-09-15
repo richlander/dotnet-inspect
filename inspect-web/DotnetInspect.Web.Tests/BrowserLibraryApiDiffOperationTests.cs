@@ -174,7 +174,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
             ApiSurfaceScope.Public,
             IsComplete: true,
             []);
-        var unavailable = new LibraryApiDiffPresentationResult.Unavailable(
+        var unavailable = new LibraryApiDiffOutcome.Unavailable(
             LibraryApiDiffUnavailableKind.BeforeIncomplete,
             target,
             current);
@@ -249,7 +249,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
         BrowserLibraryApiDiffResult result =
             BrowserLibraryApiDiffWireProjection.Project(
                 request,
-                new LibraryApiDiffPresentationResult.Unavailable(
+                new LibraryApiDiffOutcome.Unavailable(
                     LibraryApiDiffUnavailableKind.BeforeIncomplete,
                     target,
                     current),
@@ -472,7 +472,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
         BrowserLibraryApiDiffResult result =
             BrowserLibraryApiDiffWireProjection.Project(
                 request,
-                new LibraryApiDiffPresentationResult.Unavailable(
+                new LibraryApiDiffOutcome.Unavailable(
                     LibraryApiDiffUnavailableKind.BeforeIncomplete,
                     target,
                     current),
@@ -644,7 +644,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
             EndpointContext(request.TargetVersion),
             EndpointContext(request.CurrentVersion));
 
-    static LibraryApiDiffPresentationResult.Available Available(
+    static LibraryApiDiffOutcome.Available Available(
         int typeCount,
         string? display = null,
         int segmentCount = 1)
@@ -689,18 +689,19 @@ public sealed class BrowserLibraryApiDiffOperationTests
                 LibraryApiTypeDiff>.NotApplicable(),
             subjects,
             []);
-        return new LibraryApiDiffPresentationResult.Available(
-            endpoint,
-            endpoint,
-            new LibraryApiDiffSummary(
-                typeCount,
-                AddedTypeCount: 0,
-                RemovedTypeCount: 0,
-                ChangedMemberCount: 0,
-                BreakingCount: 0,
-                AdditiveCount: 0,
-                PotentiallyBreakingCount: 0),
-            document);
+        return new LibraryApiDiffOutcome.Available(
+            new LibraryApiDiffDocument(
+                endpoint,
+                endpoint,
+                new LibraryApiDiffSummary(
+                    typeCount,
+                    AddedTypeCount: 0,
+                    RemovedTypeCount: 0,
+                    ChangedMemberCount: 0,
+                    BreakingCount: 0,
+                    AdditiveCount: 0,
+                    PotentiallyBreakingCount: 0),
+                document));
     }
 
     static MetadataTypeDefinitionName TypeName(

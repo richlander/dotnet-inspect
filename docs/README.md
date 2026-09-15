@@ -15,6 +15,26 @@ Or run without installing:
 dnx dotnet-inspect -y -- <command>
 ```
 
+## Agent guidance
+
+Run the embedded skill for current, version-matched guidance:
+
+```bash
+dotnet-inspect skill
+```
+
+Agents should do this before relying on remembered command patterns. When
+running without a global install, use `dnx dotnet-inspect -y -- skill`.
+
+## Websites
+
+| Site | Channel and update cadence | Runtime |
+| --- | --- | --- |
+| <https://dotnet-inspect.net> | Production; the same commit as the NuGet tool release. | .NET 11 RC1 |
+| <https://dotnet-inspect.ca> | Working version; updated for each commit. | .NET 11 RC1 |
+| <https://coreclr.dotnet-inspect.ca> | Nightly CoreCLR interpreter version. | .NET 12 daily build |
+| <https://coreclr-r2r.dotnet-inspect.ca> | Nightly CoreCLR ReadyToRun version; the same commit as the interpreter version. | .NET 12 daily build |
+
 This page is curated navigation for users and contributors. For the full
 product guide, current commands, examples, supported behavior, and
 user-visible limitations, continue with the root [README](../README.md).
@@ -24,7 +44,7 @@ user-visible limitations, continue with the root [README](../README.md).
 | Surface | Owns | Update when |
 | --- | --- | --- |
 | [`README.md`](../README.md) | Full product guide: overview, canonical acquisition, primary workflows, capability and command inventory, examples, requirements, and top-level limitations. | One of those current product claims changes or a capability earns top-level discovery. |
-| [`docs/README.md`](README.md) | User and contributor landing page: minimal acquisition instructions, curated documentation routes, and the boundaries in this table. | Canonical acquisition changes, a high-value route changes, or an entrypoint's role changes. |
+| [`docs/README.md`](README.md) | User and contributor landing page: minimal acquisition and agent guidance, website channels, curated documentation routes, and the boundaries in this table. | Canonical acquisition, skill guidance, website channels, a high-value route, or an entrypoint's role changes. |
 | [`docs/overview.md`](overview.md) | Subsystem topology and the map from cross-subsystem composition to normative owners. | A subsystem boundary, owner, or cross-subsystem relationship changes. |
 | [`docs/architecture.md`](architecture.md) | Current implementation composition, project boundaries, shared currencies, and code location. | Current code structure or an explicit migration boundary changes. |
 | Focused documents | Their own contracts, status, evidence, consumers, and successor work. | The focused owner's claim changes. |
@@ -57,6 +77,7 @@ root README remains current without cataloging every focused capability.
 | --- | --- |
 | Layering and project families | [Inspection Layers](design/inspection-layers.md) and [Library Family Boundaries](design/library-family-boundaries.md) |
 | Cross-host operation composition | [Inspection Operation Composition](design/inspection-operation-composition.md) |
+| Portable query intent and payload | [Portable Query Intent](design/portable-query-intent.md) and [Portable Query Payload](design/portable-query-payload.md) |
 | Retained state and service orientation | [Stateless Core Services](design/stateless-core-services.md) |
 | Resource ownership and current adoption | [Resource Ownership and Borrowing](design/resource-ownership-and-borrowing.md) and the [Resource-Owner Type Map](design/resource-owner-type-map.md) |
 | Commands, defaults, and disclosure | [Progressive Disclosure](design/progressive-disclosure.md) and [CLI Host Architecture](cli-architecture.md) |

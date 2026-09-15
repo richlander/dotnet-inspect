@@ -156,6 +156,7 @@ stderr rather than mixed into structured output.
 | Structural clone discovery | `library`/`type`/`member -S "Clone Candidates"` | Workspace-scoped structural candidate ranking for an exact Library, Type, or logical Member seed, with independent Breadth and Discovery facets. |
 | Relationships | `graph`, `depends`, `extensions`, `implements` | Integration graphs, type hierarchies, explicit package/nuspec/library/restored-project dependency graphs, reference graphs, extension methods/properties, implementors, and subclasses. |
 | Direct dependency evidence | `depends -S Dependencies` | `depends` combines explicit roots, traversal, and normalized declaration/restored evidence in one sectioned document. |
+| Package pruning policy | `depends -S Pruning` | Explicitly compares source-authorized direct dependency candidates with an exact installed runtime or ASP.NET Core platform inventory, without changing graph traversal. |
 | Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"PDB Source"` | SourceLink URLs, member file/line locations, and token+IL-offset to source-line resolution. `PDB Source` is checksum-verified source acquired from the PDB-recorded local path, a caller-supplied Git clone (`--repo`), or remote SourceLink, in that order. |
 | Performance analysis *(experimental)* | `library -S @Performance`, `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly leverage ranking, actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Source`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
@@ -213,6 +214,7 @@ dotnet-inspect ecosystem aspire
 dotnet-inspect ecosystem aspire -S Integrations
 dotnet-inspect ecosystem ai -S "Core Packages"
 dotnet-inspect ecosystem azure -S "Core Packages"
+dotnet-inspect ecosystem blazor -S "Core Packages"
 dotnet-inspect ecosystem microsoft-extensions -S "Core Packages"
 dotnet-inspect ecosystem platform -S Pruning
 ```
@@ -688,6 +690,10 @@ dotnet-inspect depends \
 dotnet-inspect depends --nuspec ./artifacts/local.nuspec -D --effective
 dotnet-inspect depends --package Newtonsoft.Json --tfm net8.0 \
   -S Dependencies
+dotnet-inspect depends --package System.Text.Json@9.0.0 --tfm net11.0 \
+  -S Pruning
+dotnet-inspect depends --package Microsoft.AspNetCore.Authentication.JwtBearer@10.0.0 \
+  --tfm net11.0 --platform-family aspnetcore -S Pruning
 dotnet-inspect depends \
   --project ./src/DotnetInspect.Cli \
   --nuspec ./artifacts/package.nuspec \
@@ -715,6 +721,15 @@ dotnet-inspect graph libraries \
   -S "Provider API Types" \
   --table
 ```
+
+`Pruning` is explicit-only and evaluates direct declarations of the named
+roots; it does not prune dependency-graph edges or run transitive traversal.
+The default comparison family is `runtime`; use
+`--platform-family aspnetcore` to select the ASP.NET Core inventory. In its
+output, `Candidate` is the package version resolved from the declaration and
+`Platform Provides` is separate platform-supply evidence. If those columns
+show `4.3.2` and `4.3.1`, respectively, the disposition is
+`PackageRetained`: the command does not select or downgrade to `4.3.1`.
 
 `graph libraries` evaluates both directions in the pair; every row still names
 its directed source and target. Omitting `-S` preserves the exact physical call

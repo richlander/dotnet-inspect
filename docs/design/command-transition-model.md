@@ -291,18 +291,16 @@ duration remains a future population-construction example, not a new flag.
 
 `InspectionEnvelope<TContent>` already exists, and
 `LibraryApiDiffInspection.Execute` already returns
-`InspectionEnvelope<LibraryApiDiffPresentationResult>`. That current type is a
-transitional owner-issued Outcome: its available case composes endpoint
-summaries and a `ComparisonDocument<LibraryApiTypeDiff>`, while its other cases
-represent unavailable or rejected execution.
+`InspectionEnvelope<LibraryApiDiffOutcome>`. Its available case carries one
+`LibraryApiDiffDocument`, retaining endpoint summaries, the existing
+`ComparisonDocument<LibraryApiTypeDiff>`, verdicts, and evidence. Unavailable
+and rejected execution retain their typed cases. The
+[Library content adoption](library-api-diff-presentation.md#content-kind-adoption-in-both-hosts)
+settles those semantic extents without completing public CLI envelope output
+or full Browser baseline delivery.
 
-Under the host-observable content-kind contract, the target terminal exposes
-an owner-specific `LibraryApiDiffOutcome` whose available case carries one
-`LibraryApiDiffDocument`. The Document retains the existing endpoint summaries,
-comparison document, verdicts, and evidence without changing their owners.
-Reuse the existing terminal behavior while adopting those semantic extents;
-do not add another envelope, universal Diff content type, or host-specific
-semantic copy.
+Reuse that terminal and complete missing terminals and host delivery; do not
+add another envelope, universal Diff content type, or host-specific semantic copy.
 
 The [envelope owner](inspection-envelope.md) requires one owner-issued Content
 value, required Share, and ordered typed diagnostics at the completed shared
@@ -316,8 +314,13 @@ Every adopted CLI leaf must consume that envelope internally and support the
 public `--envelope` projection tracked by
 [#6719](https://github.com/richlander/dotnet-inspect/issues/6719). It serializes
 the already constructed baseline without another inspection, Share projection,
-or host enrichment. Ordinary content rendering, including its existing JSON
-contract, remains a separate projection when `--envelope` is absent.
+or host enrichment. The
+[CLI output boundary](output-shapes.md#content-shapes-and-service-envelopes)
+distinguishes content-layer shapes and `--json` from service-layer
+`--envelope`. Adopted leaves must satisfy its unprojected content-JSON
+equivalence and explicit machine-schema migration requirements; retaining a
+different legacy JSON view is not complete adoption. Other content rendering
+remains separate from service passthrough.
 Framing, schema/version, content-kind and owner-specific Outcome
 discrimination, serializer registration, option conflicts, output-stream
 handling, and serialization failures are settled by the CLI transport owner,
