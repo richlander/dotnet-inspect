@@ -2127,6 +2127,23 @@ test("Demos is a dedicated page reached from Home and the data bar", async ({
   await expect(page.locator("#spotlight-input")).toHaveCount(0);
 });
 
+test("Demos self-link preserves the preceding inspection for Back", async ({
+  page,
+}) => {
+  await installFacades(page);
+  await page.goto("/?package=Example.Package&version=1.0.0&framework=net10.0");
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+  await page.waitForFunction(() => new URL(location.href).searchParams.has("w"));
+  const inspectionUrl = page.url();
+  await page.getByRole("link", { name: "Demos", exact: true }).click();
+  await expect(page).toHaveURL("/demos");
+  await page.getByRole("link", { name: "Demos", exact: true }).click();
+  await expect(page).toHaveURL("/demos");
+  await page.goBack();
+  await expect(page).toHaveURL(inspectionUrl);
+  await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+});
+
 test("Package navigation retains the shared System.Text.Json packet and Workspace stays separate from Demos", async ({
   page,
 }) => {

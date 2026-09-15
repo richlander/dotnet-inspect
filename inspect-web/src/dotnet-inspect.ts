@@ -10618,6 +10618,9 @@ function openProductDemos(): void {
 }
 
 async function openProductDemosRoute(): Promise<void> {
+  if (state.workspaceSubjectOpen && isProductHomeDemosPath(location.pathname)) {
+    return;
+  }
   const navigationSeq = navigationSequence.begin();
   if (!clearWorkspaceRouteFailure()) {
     render();
