@@ -31586,18 +31586,22 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Fact]
-    public async Task Package_Value_PrintsPackageInfoField()
+    [Theory]
+    [InlineData("Version", "1.0.0")]
+    [InlineData("Authors", "tests")]
+    public async Task Package_Value_PrintsPackageInfoField(
+        string field,
+        string expected)
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Value.PackageInfo", "README.md", "readme");
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "-S", "Package Info", "--fields", "Version", "--value");
+                "package", packagePath, "-S", "Package Info", "--fields", field, "--value");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Equal("1.0.0", output.Trim());
+            Assert.Equal(expected, output.Trim());
         }
         finally
         {
@@ -36468,6 +36472,13 @@ public partial class CommandExecutionTests
                 "--fields",
                 "Ver*",
                 "--tsv");
+            var unprojected = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package Info",
+                "--tsv");
             var column = await RunAppAsync(
                 "package",
                 firstPackage,
@@ -36520,6 +36531,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, count.Exit);
             Assert.Equal(0, rendered.Exit);
+            Assert.Equal(0, unprojected.Exit);
             Assert.Equal(0, column.Exit);
             Assert.Equal(0, ordered.Exit);
             Assert.Equal(0, absent.Exit);
@@ -36527,6 +36539,7 @@ public partial class CommandExecutionTests
             Assert.Equal(0, overlappingNames.Exit);
             Assert.Empty(count.Error);
             Assert.Empty(rendered.Error);
+            Assert.Empty(unprojected.Error);
             Assert.Empty(column.Error);
             Assert.Empty(ordered.Error);
             Assert.Contains(
@@ -36563,6 +36576,28 @@ public partial class CommandExecutionTests
             Assert.Equal(
                 ["Authors", "Version", "Authors", "Version"],
                 SplitOutputLines(ordered.Output)
+                    .Skip(1)
+                    .Select(row => row.Split('\t')[1]));
+            Assert.Equal(
+                [
+                    "Version",
+                    "Type",
+                    "Size",
+                    "Built",
+                    "Source",
+                    "Authors",
+                    "License URL",
+                    "Readme",
+                    "Version",
+                    "Type",
+                    "Size",
+                    "Built",
+                    "Source",
+                    "Authors",
+                    "License URL",
+                    "Readme"
+                ],
+                SplitOutputLines(unprojected.Output)
                     .Skip(1)
                     .Select(row => row.Split('\t')[1]));
         }

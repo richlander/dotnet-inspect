@@ -128,6 +128,22 @@ public class InspectionResultView
             .Order(StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
+    internal string? ResolvePackageInfoField(string name)
+    {
+        foreach (PackageInfoFieldDefinition definition in PackageInfoFields)
+        {
+            if (string.Equals(
+                definition.Name,
+                name,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                return definition.Resolve(this);
+            }
+        }
+
+        return null;
+    }
+
     public InspectionResultView(InspectionResult data, bool includeTitleVersion = true)
     {
         _data = data;
