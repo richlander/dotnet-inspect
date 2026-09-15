@@ -491,8 +491,36 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    unproven element-store identity recovery, incomplete
    slot-copy components, and nested `Lambda`/`LocalFunctionStatement` scopes.
    The nested-name prerequisite #2275 landed in #2356. Lambda and local-function
-   raising already run the default pipeline, including materialization, on
-   imported bodies before embedding them. Late re-materialization of residual
+   raising complete the default pipeline, including materialization, on
+   imported bodies before embedding them. For a capturing lambda whose captures
+   are outer argument/`this` reads and whose imported body contains no further
+   lambda or local-function scope, capture substitution precedes the final
+   slots-only inlining and storage-finalization tail. This lets the existing
+   effect, single-use, type-witness, and evaluation-order rules see the recovered
+   argument reads rather than potentially throwing environment-field reads.
+   It does not inline user locals, invent a second inliner, or simplify in the
+   printer. Outer-local captures and further nested bodies retain their prior
+   finalization order so foreign local pools do not enter this opportunity.
+   The motivating witness is Newtonsoft.Json 13.0.4,
+   `JsonContract.CreateSerializationCallback`: its captured `MethodInfo` receiver
+   becomes an argument read, allowing the single-use `object[]` spill to return
+   to the invocation argument. `CapturingLambdaStorageFinalizationTests` gates
+   the compiler-produced positive and the retained ordering/storage boundaries.
+   The same existing live-range rules can remove a pure captured-argument alias
+   across an intervening call, as in `GenericContext.ForMethod` from
+   dotnet-inspect.any 0.14.0; the captured-reader fixture preserves that neighbor.
+   `CapturingLambdaCoupledBodyTests` compiles the unchanged product-issued RTS
+   artifact and compares both the factory and its actual `ldftn` target with the
+   existing IL contract. The compiler-produced callback's factory remains Exact
+   while its generated body improves from OpcodeDiff to Exact; this gate
+   therefore detects a body change that a factory-only comparison misses.
+   This slow test runs in Deep Inspect and as a focused pre-merge gate.
+   Native RTS for the pinned Newtonsoft witness cannot currently produce a donor
+   because its reconstructed context is missing `SerializationCallback`; the
+   fixture result is not transferred as a real-witness generated-body verdict.
+   This host-neutral pass is used by the default pipeline in both CLI and
+   Browser/Wasm; no host or rendering changes are required.
+   Late re-materialization of residual
    nested webs remains deferred; it is not a missing first materialization
    step. Direct slot-copy components now
    materialize atomically when every member clears the same type, scope, and

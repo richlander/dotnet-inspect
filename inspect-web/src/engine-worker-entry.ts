@@ -50,6 +50,10 @@ registerEngineWorkerStartupOperations(operations, {
   async listHomeDemos() {
     return (await import("/inspect-web-catalog.js")).listHomeDemos();
   },
+  async listPackageChangesPackageSets() {
+    return (await import("/inspect-web-package.js"))
+      .listPackageChangesPackageSets();
+  },
   async listPackageQueryFacets() {
     return (await import("/inspect-web-package.js")).listPackageQueryFacets();
   },
